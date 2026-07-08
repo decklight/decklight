@@ -822,6 +822,7 @@
 .decklight-debug .dbg-error .dbg-k, .decklight-debug .dbg-error .dbg-m { color: #ff8f8f; }
 .decklight-debug .dbg-theme .dbg-k { color: #b7a3ff; }
 .decklight-debug .dbg-narr .dbg-k { color: #8fd6a8; }
+.decklight-debug .dbg-tts .dbg-k { color: #7fb8ff; }
 
 /* ---------- print (SPEC §8) ------------------------------------------------ */
 .decklight.decklight-print { position: static; overflow: visible; }

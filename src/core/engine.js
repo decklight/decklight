@@ -1485,10 +1485,13 @@ export function init(userConfig = {}) {
   // ----- debug log window (D) — UI over the ring buffer declared up top -----
   function debugStateLine() {
     const rec = instance._records?.[instance.state.slide - 1];
+    const narrWhat = narrSet?.live
+      ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}`
+      : (narrSet ? `🔊 ${narrSet.label}` : 'none');
     return `slide ${instance.state.slide}/${instance.state.totalSlides}`
       + ` · step ${instance.state.step}/${rec ? rec.groups.length : 0}`
       + ` · theme ${currentTheme() ?? '—'}`
-      + ` · narration ${narrating ? 'on' : 'off'}`;
+      + ` · narration ${narrating ? 'on' : 'off'} (${narrWhat})`;
   }
   function appendDebugRow(e) {
     const row = document.createElement('div');
@@ -1836,17 +1839,25 @@ export function init(userConfig = {}) {
     const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
     return t.split('⟨CLICK⟩').map((s) => s.replace(/\s+/g, ' ').trim());
   }
-  function synthLive(text, key) {
+  function synthLive(text, key, label) {
     if (!text) return Promise.resolve(null);
     if (!liveCache.has(key)) {
       const p = (async () => {
-        const res = await fetch(LIVE_URL, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text, voice: liveCfg.voice, style: liveCfg.style }),
-        });
-        if (!res.ok) throw new Error(String(res.status));
-        return URL.createObjectURL(await res.blob());
+        const t0 = Date.now();
+        try {
+          const res = await fetch(LIVE_URL, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text, voice: liveCfg.voice, style: liveCfg.style }),
+          });
+          if (!res.ok) throw new Error(String(res.status));
+          const blob = await res.blob();
+          debugLog('tts', `${label} · ${liveCfg.voice} · ${text.length} chars → ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+          return URL.createObjectURL(blob);
+        } catch (e) {
+          debugLog('tts', `${label} · ${liveCfg.voice} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s (${String(e.message || e)})`);
+          throw e;
+        }
       })();
       p.catch(() => { if (liveCache.get(key) === p) liveCache.delete(key); });
       liveCache.set(key, p);
@@ -1855,11 +1866,11 @@ export function init(userConfig = {}) {
   }
   // whole-slide clip — the ⇧V offline recorder's unit (one file per slide)
   function fetchLive(sl) {
-    return synthLive(notesText(sl), `${sl}|full|${liveCfg.voice}|${liveCfg.style}`);
+    return synthLive(notesText(sl), `${sl}|full|${liveCfg.voice}|${liveCfg.style}`, `slide ${sl} (full)`);
   }
   // per-build-segment clip — the live player's unit
   function fetchLiveSeg(sl, step) {
-    return synthLive(notesSegs(sl)[step] ?? '', `${sl}|s${step}|${liveCfg.voice}|${liveCfg.style}`);
+    return synthLive(notesSegs(sl)[step] ?? '', `${sl}|s${step}|${liveCfg.voice}|${liveCfg.style}`, `slide ${sl} seg ${step}`);
   }
   // data-narration="hold": an interactive slide (quiz, exercise, live
   // demo) — narration plays whatever notes it has and builds still sync,
@@ -1971,6 +1982,7 @@ export function init(userConfig = {}) {
     closeNarrPicker();
     if (!narrating) narrating = true;
     toast(`⚡ live voice: ${liveCfg.voice} · ${liveCfg.tone} — V stops`);
+    debugLog('narr', `live config — ${liveCfg.voice} · ${liveCfg.tone}`);
     playSlideFile();
   }
   function selectNarrRow(i) {
@@ -2015,13 +2027,16 @@ export function init(userConfig = {}) {
     const key = previewKey(voice, style);
     if (!cache.has(key)) {
       const p = (async () => {
+        const t0 = Date.now();
         const res = await fetch(LIVE_URL, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ text, voice, style }),
         });
         if (!res.ok) throw new Error(String(res.status));
-        return URL.createObjectURL(await res.blob());
+        const blob = await res.blob();
+        debugLog('tts', `preview ${voice}${style ? ' (styled)' : ''} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        return URL.createObjectURL(blob);
       })();
       // failures self-evict so a retry can succeed; resolved entries stay
       p.catch(() => { if (cache.get(key) === p) cache.delete(key); });
