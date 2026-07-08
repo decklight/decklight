@@ -1800,9 +1800,10 @@ export function init(userConfig = {}) {
   // picker; responses are cached per (slide, voice, style) and the next
   // slide is prefetched while the current one plays. N opens the picker
   // (tracks → voices → tones → custom-tone input); choice persists per deck.
-  // ⇧V, live voice only: batch-synthesizes every slide's notes with the
-  // current voice/tone and downloads them as slide-NN.wav, so the deck can
-  // later run RECORDED with that set instead of depending on the bridge.
+  // ⇧V, live voice only: downloads every slide's narration as slide-NN.wav
+  // STITCHED FROM THE SENTENCE CACHE (already-heard clips are free; only
+  // unheard sentences synthesize), so the deck can later run RECORDED with
+  // that set instead of depending on the bridge.
   const narrKey = 'decklight-narration:' + location.pathname;
   const LIVE_URL = config.narration?.liveUrl ?? 'http://127.0.0.1:8787/tts';
   // keep in sync with tools/gemini-tts.mjs GEMINI_VOICES
@@ -1876,6 +1877,8 @@ export function init(userConfig = {}) {
     const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
     return t.split('⟨CLICK⟩').map((s) => s.replace(/\s+/g, ' ').trim());
   }
+  // resolves { url, blob }: playback needs the object URL, the ⇧V stitcher
+  // needs the raw bytes — one cache serves both
   function synthLive(text, key, label) {
     if (!text) return Promise.resolve(null);
     if (!liveCache.has(key)) {
@@ -1893,7 +1896,7 @@ export function init(userConfig = {}) {
           if (cost) ttsSpend += cost;
           debugLog('tts', `${label} · ${liveCfg.voice} · ${text.length} chars → ${((Date.now() - t0) / 1000).toFixed(1)}s`
             + (cost ? ` · ~$${cost.toFixed(4)}` : ''));
-          return URL.createObjectURL(blob);
+          return { url: URL.createObjectURL(blob), blob };
         } catch (e) {
           debugLog('tts', `${label} · ${liveCfg.voice} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s (${String(e.message || e)})`);
           throw e;
@@ -1903,10 +1906,6 @@ export function init(userConfig = {}) {
       liveCache.set(key, p);
     }
     return liveCache.get(key);
-  }
-  // whole-slide clip — the ⇧V offline recorder's unit (one file per slide)
-  function fetchLive(sl) {
-    return synthLive(notesText(sl), `${sl}|full|${liveCfg.voice}|${liveCfg.style}`, `slide ${sl} (full)`);
   }
   // The live player's unit is a SENTENCE: each ⟨CLICK⟩ segment splits into
   // sentences and every sentence is its own TTS call and cache entry — so
@@ -2038,12 +2037,12 @@ export function init(userConfig = {}) {
           await new Promise((r) => setTimeout(r, 150));
         }
         if (stale()) return;
-        const url = await fetchLiveSentence(sl, step, i);
+        const clip = await fetchLiveSentence(sl, step, i);
         if (stale()) return;
-        if (!url) continue;
+        if (!clip) continue;
         setCaption(sentences[i]); // captions follow the voice, not the notes
         narrAudio ??= new Audio();
-        narrAudio.src = url;
+        narrAudio.src = clip.url;
         narrAudio.playbackRate = narrRate;
         let blocked = false;
         await new Promise((done) => {
@@ -2516,7 +2515,7 @@ export function init(userConfig = {}) {
       const n = data.total;
       card.innerHTML = `<div class="narr-head">record offline narration</div>
         <div class="rec-line">⚡ ${liveCfg.voice} · ${liveCfg.tone}</div>
-        <div class="rec-line">${n} slide${n === 1 ? '' : 's'} with notes will be synthesized and downloaded</div>
+        <div class="rec-line">${n} slide${n === 1 ? '' : 's'} stitched from the sentence cache — only unheard sentences synthesize</div>
         <div class="narr-row narr-sel">Start recording</div>
         <div class="rec-hint">Enter to start · Esc to cancel</div>`;
       card.querySelector('.narr-row').addEventListener('click', startRecording);
@@ -2536,6 +2535,43 @@ export function init(userConfig = {}) {
         <div class="rec-hint">Enter or Esc to close</div>`;
     }
   }
+  // Slide files are STITCHED FROM THE SENTENCE CACHE: every clip already
+  // played (or warmed by the lookahead buffer) is reused as-is — only the
+  // sentences never spoken get synthesized. Clips are joined with short
+  // silences (breath between sentences, a longer beat between builds).
+  const SENT_GAP_S = 0.15;
+  const SEG_GAP_S = 0.35;
+  function stitchWav(chunks, rate) {
+    const dataLen = chunks.reduce((n, c) => n + c.length, 0);
+    const h = new DataView(new ArrayBuffer(44));
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) h.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); h.setUint32(4, 36 + dataLen, true); w(8, 'WAVE');
+    w(12, 'fmt '); h.setUint32(16, 16, true); h.setUint16(20, 1, true); h.setUint16(22, 1, true);
+    h.setUint32(24, rate, true); h.setUint32(28, rate * 2, true); h.setUint16(32, 2, true); h.setUint16(34, 16, true);
+    w(36, 'data'); h.setUint32(40, dataLen, true);
+    return new Blob([h.buffer, ...chunks], { type: 'audio/wav' });
+  }
+  const silencePcm = (rate, seconds) => new Uint8Array(2 * Math.round(rate * seconds));
+  async function stitchSlideWav(sl, run) {
+    const rec = instance._records[sl - 1];
+    const max = rec ? rec.groups.length : 0;
+    const segs = notesSegs(sl);
+    const chunks = [];
+    let rate = 24000;
+    for (let step = 0; step <= max; step++) {
+      const sentences = splitSentences(segs[step]);
+      for (let i = 0; i < sentences.length; i++) {
+        const clip = await fetchLiveSentence(sl, step, i); // cache-first
+        if (run !== recRun) return null;
+        if (!clip) continue;
+        const buf = await clip.blob.arrayBuffer();
+        if (chunks.length === 0) rate = new DataView(buf).getUint32(24, true) || 24000;
+        else chunks.push(silencePcm(rate, i === 0 ? SEG_GAP_S : SENT_GAP_S));
+        chunks.push(new Uint8Array(buf.slice(44)));
+      }
+    }
+    return chunks.length ? stitchWav(chunks, rate) : null;
+  }
   async function startRecording() {
     const list = slidesWithNotes();
     const run = ++recRun;
@@ -2545,9 +2581,14 @@ export function init(userConfig = {}) {
     for (const sl of list) {
       if (run !== recRun) return;
       try {
-        const url = await fetchLive(sl);
+        const wav = await stitchSlideWav(sl, run);
         if (run !== recRun) return; // cancelled mid-synthesis — don't download
-        if (url) { downloadFromUrl(url, `slide-${String(sl).padStart(2, '0')}.wav`); saved++; }
+        if (wav) {
+          const url = URL.createObjectURL(wav);
+          downloadFromUrl(url, `slide-${String(sl).padStart(2, '0')}.wav`);
+          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          saved++;
+        }
       } catch {
         toast(`slide ${sl}: recording failed`);
       }
