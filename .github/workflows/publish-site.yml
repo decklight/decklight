@@ -35,6 +35,19 @@ jobs:
           mkdir -p out/dist
           cp dist/decklight.js dist/decklight.css out/dist/
           node cli/decklight.mjs bundle demo/showcase.html --themes all -o out/showcase.html
+          # the site's showcase gets the demo voice tracks (audio lives only
+          # in the site repo; keep_files below preserves it across deploys)
+          node -e '
+            const fs = require("fs");
+            const cfg = JSON.parse(fs.readFileSync("site/voices.json", "utf8"));
+            const files = cfg.voices.map(v => `{ label: ${JSON.stringify(v.label)}, dir: ${JSON.stringify(v.dir)} }`).join(", ");
+            const p = "out/showcase.html";
+            const h = fs.readFileSync(p, "utf8");
+            const out = h.replace("Decklight.init({", `Decklight.init({\n    narration: { files: [${files}] },`);
+            if (out === h) throw new Error("init config anchor not found");
+            fs.writeFileSync(p, out);
+            console.log("narration config injected:", cfg.voices.length, "voices");
+          '
           printf 'decklight.io' > out/CNAME
           {
             echo '# decklight.io'
@@ -50,4 +63,5 @@ jobs:
           external_repository: decklight/decklight.github.io
           publish_branch: main
           publish_dir: ./out
+          keep_files: true
           commit_message: 'publish showcase from ${{ github.sha }}'
