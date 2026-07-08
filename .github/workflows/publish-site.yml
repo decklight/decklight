@@ -1,0 +1,49 @@
+# Publishes decklight.io: every push to main rebuilds the runtime, bundles
+# demo/showcase.html with every theme into ONE self-contained file, and
+# deploys it to decklight/decklight.github.io (GitHub Pages behind the
+# custom domain). Auth is a write-only deploy key on the site repo, stored
+# here as the SITE_DEPLOY_KEY Actions secret.
+name: publish decklight.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # node-pty (optional dep) is CLI-recording only — skip its native build
+      - run: npm ci --omit=optional
+
+      - run: node build.mjs
+
+      - name: bundle the showcase
+        run: |
+          mkdir -p site
+          node cli/decklight.mjs bundle demo/showcase.html --themes all -o site/index.html
+          printf 'decklight.io' > site/CNAME
+          {
+            echo '# decklight.io'
+            echo
+            echo 'Built automatically by decklight/decklight → .github/workflows/publish-site.yml —'
+            echo 'the showcase bundled to a single file. Do not edit by hand.'
+          } > site/README.md
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.SITE_DEPLOY_KEY }}
+          external_repository: decklight/decklight.github.io
+          publish_branch: main
+          publish_dir: ./site
+          commit_message: 'publish showcase from ${{ github.sha }}'
