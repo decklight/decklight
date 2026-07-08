@@ -7,6 +7,32 @@
   "bin": {
     "decklight": "cli/decklight.mjs"
   },
+  "files": [
+    "cli/",
+    "tools/",
+    "dist/",
+    "themes/",
+    "docs/",
+    "SPEC.md"
+  ],
+  "homepage": "https://decklight.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/decklight/decklight.git"
+  },
+  "bugs": "https://github.com/decklight/decklight/issues",
+  "keywords": [
+    "presentation",
+    "slides",
+    "deck",
+    "reveal",
+    "keynote",
+    "terminal",
+    "asciicast",
+    "tts",
+    "ai",
+    "agent"
+  ],
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test 'test/*.test.mjs'",
