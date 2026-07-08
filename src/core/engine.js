@@ -839,6 +839,7 @@ export function init(userConfig = {}) {
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
+      { label: `Narration ${narrPaused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
       { label: 'Fullscreen', hint: 'F', run: () => document.documentElement.requestFullscreen?.() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
@@ -1496,7 +1497,7 @@ export function init(userConfig = {}) {
     return `slide ${instance.state.slide}/${instance.state.totalSlides}`
       + ` · step ${instance.state.step}/${rec ? rec.groups.length : 0}`
       + ` · theme ${currentTheme() ?? '—'}`
-      + ` · narration ${narrating ? 'on' : 'off'} (${narrWhat})`
+      + ` · narration ${narrating ? (narrPaused ? 'paused' : 'on') : 'off'} (${narrWhat})`
       + (narrRate !== 1 ? ` · ${narrRate}×` : '')
       + (ttsSpend > 0 ? ` · tts ~$${ttsSpend.toFixed(4)}` : '');
   }
@@ -1550,7 +1551,8 @@ export function init(userConfig = {}) {
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
-      <tr><td>C</td><td>captions (current notes segment)</td></tr>
+      <tr><td>C</td><td>captions (follow the voice)</td></tr>
+      <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
@@ -1700,6 +1702,7 @@ export function init(userConfig = {}) {
       case 'b': case 'B': toggleBlackout(); break;
       case 'd': case 'D': toggleDebug(); break;
       case 'c': case 'C': toggleCaptions(); break;
+      case 'p': case 'P': toggleNarrPause(); break;
       case 'f': case 'F': document.documentElement.requestFullscreen?.(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
       case 'n': case 'N': openNarrPicker(); break;
@@ -1903,9 +1906,18 @@ export function init(userConfig = {}) {
   function fetchLive(sl) {
     return synthLive(notesText(sl), `${sl}|full|${liveCfg.voice}|${liveCfg.style}`, `slide ${sl} (full)`);
   }
-  // per-build-segment clip — the live player's unit
-  function fetchLiveSeg(sl, step) {
-    return synthLive(notesSegs(sl)[step] ?? '', `${sl}|s${step}|${liveCfg.voice}|${liveCfg.style}`, `slide ${sl} seg ${step}`);
+  // The live player's unit is a SENTENCE: each ⟨CLICK⟩ segment splits into
+  // sentences and every sentence is its own TTS call and cache entry — so
+  // the first audio of a beat arrives after one short synthesis, not after
+  // the whole paragraph renders.
+  function splitSentences(text) {
+    return ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? [])
+      .map((s) => s.trim()).filter(Boolean);
+  }
+  const sentenceKey = (sl, step, i) => `${sl}|s${step}|n${i}|${liveCfg.voice}|${liveCfg.style}`;
+  function fetchLiveSentence(sl, step, i) {
+    const sentence = splitSentences(notesSegs(sl)[step])[i] ?? '';
+    return synthLive(sentence, sentenceKey(sl, step, i), `slide ${sl} seg ${step} #${i + 1}`);
   }
   // data-narration="hold": an interactive slide (quiz, exercise, live
   // demo) — narration plays whatever notes it has and builds still sync,
@@ -1922,17 +1934,21 @@ export function init(userConfig = {}) {
   // CURRENT position each iteration, so navigation, voice/tone changes
   // (new cache keys) and toggling V off all just work; results land in the
   // (voice, tone) cache and the loop moves on to the next hole.
-  const LIVE_LOOKAHEAD = 10;
+  const LIVE_LOOKAHEAD = 10; // sentences ahead of the playhead
+  const BUFFER_WORKERS = 3;  // parallel low-priority synths
   let bufferGen = 0;
-  function upcomingSegs(count) {
+  // the next `count` sentences from the current position, inclusive of the
+  // current segment (its unspoken sentences matter), across slide boundaries
+  function upcomingSentences(count) {
     const out = [];
     let sl = instance.state.slide;
-    let step = instance.state.step + 1;
+    let step = instance.state.step;
     while (out.length < count && sl <= instance.state.totalSlides) {
       const segs = notesSegs(sl);
       const max = instance._records[sl - 1] ? instance._records[sl - 1].groups.length : 0;
       for (; step <= max && out.length < count; step++) {
-        if (segs[step]) out.push([sl, step]);
+        const n = splitSentences(segs[step]).length;
+        for (let i = 0; i < n && out.length < count; i++) out.push([sl, step, i]);
       }
       sl += 1;
       step = 0;
@@ -1940,26 +1956,48 @@ export function init(userConfig = {}) {
     return out;
   }
   async function fillLiveBuffer() {
-    const gen = ++bufferGen; // newest loop wins; stale ones exit
-    while (gen === bufferGen && narrating && narrSet?.live) {
-      const hole = upcomingSegs(LIVE_LOOKAHEAD)
-        .find(([sl, step]) => !liveCache.has(`${sl}|s${step}|${liveCfg.voice}|${liveCfg.style}`));
-      if (!hole) return; // window full — the next slide/build event re-arms
-      try {
-        await fetchLiveSeg(hole[0], hole[1]);
-      } catch {
-        return; // bridge unreachable — stop; the next event retries
+    const gen = ++bufferGen; // newest fill wins; stale workers exit
+    const worker = async () => {
+      while (gen === bufferGen && narrating && narrSet?.live) {
+        // find+start is synchronous within a worker's turn, and synthLive
+        // registers the promise before awaiting — workers never double-fetch
+        const hole = upcomingSentences(LIVE_LOOKAHEAD)
+          .find(([sl, step, i]) => !liveCache.has(sentenceKey(sl, step, i)));
+        if (!hole) return; // window full — the next slide/build event re-arms
+        try {
+          await fetchLiveSentence(hole[0], hole[1], hole[2]);
+        } catch {
+          return; // bridge unreachable — stop; the next event retries
+        }
+        await new Promise((r) => setTimeout(r, 30)); // yield to foreground
       }
-      await new Promise((r) => setTimeout(r, 50)); // yield to foreground
-    }
+    };
+    await Promise.all(Array.from({ length: BUFFER_WORKERS }, worker));
   }
 
   // When a segment finishes, reveal the next build; after the last step,
   // move to the next slide. Guarded on (slide, step) so any manual
   // navigation mid-clip silently wins over the pending advance.
   let liveSegGen = 0; // cancels pending silent-beat timers and stale onended
+  let narrPaused = false;     // P — freezes audio, captions and auto-advance
+  let liveChainActive = false; // a sentence chain is running for liveChainGen
+  let liveChainGen = 0;
+  function toggleNarrPause() {
+    if (!narrating) { toast('narration is off — V starts it'); return; }
+    narrPaused = !narrPaused;
+    if (narrPaused) {
+      narrAudio?.pause();
+    } else if (narrAudio?.src && narrAudio.paused && !narrAudio.ended && narrAudio.currentTime > 0) {
+      narrAudio.play().catch(() => { /* autoplay policy */ }); // resume mid-sentence
+    } else if (!liveChainActive) {
+      playLive(); // nothing parked (e.g. paused on a silent beat) — re-arm
+    } // else: the parked chain's pause-gate resumes on its own
+    toast(narrPaused ? '⏸ narration paused — P resumes' : '▶ narration resumed');
+    debugLog('narr', narrPaused ? 'paused' : 'resumed');
+    updateDebugState();
+  }
   function advanceFrom(sl, step) {
-    if (!narrating || !narrSet?.live) return;
+    if (!narrating || narrPaused || !narrSet?.live) return;
     if (instance.state.slide !== sl || instance.state.step !== step) return;
     const rec = instance._records[sl - 1];
     if (step < (rec ? rec.groups.length : 0)) instance.next();
@@ -1984,20 +2022,40 @@ export function init(userConfig = {}) {
       setTimeout(() => { if (gen === liveSegGen) advanceFrom(sl, step); }, 600);
       return;
     }
+    // speak the segment SENTENCE BY SENTENCE: each sentence is one cached
+    // clip (short time-to-first-audio), the caption follows the spoken
+    // sentence, and the build advances only after the segment's last one
+    const sentences = splitSentences(segs[step]);
+    const stale = () => gen !== liveSegGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
+    liveChainGen = gen;
+    liveChainActive = true;
     try {
-      const url = await fetchLiveSeg(sl, step);
-      // stale guards: synthesis takes seconds — only play if nothing moved
-      if (gen !== liveSegGen || !narrating || instance.state.slide !== sl || instance.state.step !== step) return;
-      narrAudio ??= new Audio();
-      narrAudio.src = url;
-      narrAudio.playbackRate = narrRate;
-      narrAudio.onended = () => { if (gen === liveSegGen) advanceFrom(sl, step); };
-      narrAudio.play().catch(() => { /* autoplay policy */ });
-      // no per-segment prefetch here — the lookahead buffer armed above
-      // keeps the next LIVE_LOOKAHEAD segments warming in the background
+      for (let i = 0; i < sentences.length; i++) {
+        while (narrPaused) { // P holds the chain between sentences too
+          if (stale()) return;
+          await new Promise((r) => setTimeout(r, 150));
+        }
+        if (stale()) return;
+        const url = await fetchLiveSentence(sl, step, i);
+        if (stale()) return;
+        if (!url) continue;
+        setCaption(sentences[i]); // captions follow the voice, not the notes
+        narrAudio ??= new Audio();
+        narrAudio.src = url;
+        narrAudio.playbackRate = narrRate;
+        let blocked = false;
+        await new Promise((done) => {
+          narrAudio.onended = done;
+          narrAudio.play().catch(() => { blocked = true; done(); });
+        });
+        if (blocked) return; // autoplay policy — a user gesture restarts
+      }
+      if (!stale()) advanceFrom(sl, step);
     } catch {
       if (!liveWarned) { toast('live voice bridge unreachable — run: decklight tts'); liveWarned = true; }
       debugLog('narr', `live synth failed (slide ${sl} step ${step})`);
+    } finally {
+      if (liveChainGen === gen) liveChainActive = false;
     }
   }
   function playSlideFile() {
@@ -2021,6 +2079,7 @@ export function init(userConfig = {}) {
     } else {
       liveSegGen++; // cancel any pending silent-beat advance
       bufferGen++;  // stop the lookahead loop
+      narrPaused = false;
       narrAudio?.pause();
       toast('narration off');
       debugLog('narr', 'off');
@@ -2039,11 +2098,17 @@ export function init(userConfig = {}) {
   let captionsOn = false;
   try { captionsOn = localStorage.getItem(captionsKey) === '1'; } catch { /* ignore */ }
   let captionEl = null;
-  function updateCaption() {
+  function setCaption(text) {
     if (!captionEl) return;
-    const text = notesSegs(instance.state.slide)[instance.state.step] ?? '';
     captionEl.textContent = text;
     captionEl.classList.toggle('show', !!text);
+  }
+  function updateCaption() {
+    if (!captionEl) return;
+    // while the live voice speaks, the sentence chain owns the caption —
+    // never flash the whole segment; the next spoken sentence fills it
+    if (narrating && narrSet?.live) { setCaption(''); return; }
+    setCaption(notesSegs(instance.state.slide)[instance.state.step] ?? '');
   }
   function showCaptions() {
     captionEl = document.createElement('div');
