@@ -171,6 +171,7 @@ Two sources, one `V` toggle (`N` picks):
 ### Chrome & navigation
 
 - **Command palette** (`/`): every command with its shortcut, type-to-filter, Enter runs — argument commands drill into their pickers, `goto 27` (or just `27`) jumps to a slide, and unmatched text becomes a slide search.
+- **Transcript** (palette → Transcript…): the deck's full spoken script in an overlay — click a title to jump — with one-click export to `.txt` or `.md`.
 - **Slide finder** (palette → Find slide, or just type words in the palette): type words, get matching slides — title matches rank first, body matches follow — with a live preview of the selected slide on the right. `Enter` jumps.
 - **Speaker view** (`S`): current + next thumbnails, notes with `⟨CLICK⟩` segments highlighted as builds land, elapsed timer, step list. Works on `file://`. Press `S` again for **rehearse mode** — big cue cards (the deck's rehearse notes) instead of full prose, so you practice recalling the material rather than reading it.
 - **Overview** (`O`): scaled grid of every slide, arrow-key navigation.

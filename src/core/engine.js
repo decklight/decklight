@@ -837,7 +837,8 @@ export function init(userConfig = {}) {
       (playlist || hasMarkersDOM) && { label: 'Module…', hint: 'M', run: toggleModuleMenu },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
-      { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption transcript', run: toggleCaptions },
+      { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
+      { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: 'Fullscreen', hint: 'F', run: () => document.documentElement.requestFullscreen?.() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
@@ -1622,6 +1623,10 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
+    if (transcriptEl) {
+      if (e.key === 'Escape') { toggleTranscript(); e.preventDefault(); }
+      return; // a reading surface — trap navigation while it's up
+    }
     if (recEl) {
       if (e.key === 'Escape') closeRecordDialog();
       else if (e.key === 'Enter') {
@@ -2020,6 +2025,80 @@ export function init(userConfig = {}) {
   instance.on('slide', updateCaption);
   instance.on('build', updateCaption);
   if (captionsOn && !printMode) showCaptions();
+
+  // ── transcript (palette command) — SPEC §8 ───────────────────────────────
+  // The deck's full spoken script: every slide's notes segments, in order,
+  // in a scrollable overlay (titles jump to their slide) with .txt and .md
+  // export — the same segmentation narration and captions use.
+  function transcriptData() {
+    return (instance._sections || []).map((s, i) => ({
+      n: i + 1,
+      title: s.querySelector('h1, h2, h3')?.textContent.trim() || `Slide ${i + 1}`,
+      segs: notesSegs(i + 1).filter(Boolean),
+    }));
+  }
+  function transcriptString(md) {
+    const title = (document.title || 'Deck').trim();
+    const out = md ? [`# ${title} — transcript`, ''] : [`${title} — transcript`, ''];
+    for (const { n, title: t, segs } of transcriptData()) {
+      if (!segs.length) continue;
+      out.push(md ? `## ${n}. ${t}` : `${n}. ${t}`, '');
+      for (const seg of segs) out.push(seg, '');
+    }
+    return out.join('\n');
+  }
+  function downloadTranscript(kind) {
+    const md = kind === 'md';
+    const url = URL.createObjectURL(new Blob([transcriptString(md)], { type: md ? 'text/markdown' : 'text/plain' }));
+    const base = (location.pathname.split('/').pop() || 'deck').replace(/\.html?$/i, '');
+    downloadFromUrl(url, `${base}-transcript.${md ? 'md' : 'txt'}`);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    debugLog('narr', `transcript exported (.${md ? 'md' : 'txt'})`);
+  }
+  let transcriptEl = null;
+  function toggleTranscript() {
+    if (transcriptEl) { transcriptEl.remove(); transcriptEl = null; return; }
+    transcriptEl = document.createElement('div');
+    transcriptEl.className = 'decklight-narr decklight-transcript';
+    const card = document.createElement('div');
+    card.className = 'narr-card';
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    head.textContent = 'transcript — the deck’s spoken notes · Esc closes';
+    const actions = document.createElement('div');
+    actions.className = 'tr-actions';
+    for (const [label, kind] of [['⬇ export .txt', 'txt'], ['⬇ export .md', 'md']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'narr-prev-btn';
+      b.textContent = label;
+      b.addEventListener('click', () => downloadTranscript(kind));
+      actions.appendChild(b);
+    }
+    card.append(head, actions);
+    for (const { n, title, segs } of transcriptData()) {
+      if (!segs.length) continue;
+      const sec = document.createElement('div');
+      sec.className = 'tr-slide';
+      const t = document.createElement('div');
+      t.className = 'tr-title';
+      t.textContent = `${n} · ${title}`;
+      t.title = 'jump to this slide';
+      t.addEventListener('click', () => { toggleTranscript(); instance.goto(n, 0, { force: true }); });
+      sec.appendChild(t);
+      for (const seg of segs) {
+        const p = document.createElement('p');
+        p.className = 'tr-seg';
+        p.textContent = seg;
+        sec.appendChild(p);
+      }
+      card.appendChild(sec);
+    }
+    transcriptEl.appendChild(card);
+    transcriptEl.addEventListener('click', (e) => { if (e.target === transcriptEl) toggleTranscript(); });
+    root.appendChild(transcriptEl);
+  }
+  instance.transcript = { open: toggleTranscript, text: () => transcriptString(false), markdown: () => transcriptString(true) };
   if (params.has('voiceover') && narrSet && !printMode) {
     // whichever gesture fires first must disarm the OTHER listener too, or
     // the survivor re-arms narration on the next key/click after V stops it

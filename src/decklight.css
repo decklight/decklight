@@ -844,6 +844,14 @@
 }
 .decklight-captions.show { display: block; }
 
+/* transcript overlay (palette → Transcript…) */
+.decklight-transcript .narr-card { width: min(680px, 88vw); }
+.decklight-transcript .tr-actions { display: flex; gap: 8px; padding: 4px 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, .09); }
+.decklight-transcript .tr-slide { padding: 4px 12px; }
+.decklight-transcript .tr-title { font-weight: 700; margin: 10px 0 4px; cursor: pointer; }
+.decklight-transcript .tr-title:hover { color: #9ecbff; }
+.decklight-transcript .tr-seg { margin: 0 0 8px; opacity: .85; font-size: 13px; line-height: 1.55; }
+
 /* ---------- print (SPEC §8) ------------------------------------------------ */
 .decklight.decklight-print { position: static; overflow: visible; }
 .decklight.decklight-print .decklight-stage {
