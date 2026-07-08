@@ -1,0 +1,84 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · ibm-oldschool
+   dark · 3270 green-phosphor mainframe: one green, many brightnesses
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   rule-exception: R1 green phosphor plus an amber caution lamp is the identity
+   rule-exception: R5 phosphor CRT — one green at many brightnesses is the identity
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #0a0f0b;
+  --bg-accent: radial-gradient(ellipse at 50% 38%, #0d1710 0%, #0a0f0b 72%);
+  --fg: #4ce063;
+  --muted: #35a04b;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "IBM Plex Mono", "Courier New", Courier, monospace;
+  --font-heading: "IBM Plex Mono", "Courier New", Courier, monospace;
+  --font-mono: "IBM Plex Mono", "Courier New", Courier, monospace;
+  --heading-color: #5ff277;
+  --heading-weight: 700;
+  --link: #8df2a3;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #e2b263;
+  --accent-contrast: #1d1500;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #0e1810;
+  --block-border: 1px solid #1e3b26;
+  --block-radius: 2px;
+  --shadow: 0 0 26px rgba(76, 224, 99, 0.14);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #0c130d;
+  --code-fg: #4ce063;
+  --hl-keyword: #8df2a3;
+  --hl-string: #bdf2c8;
+  --hl-number: #e2b263;
+  --hl-comment: #2f8f43;
+  --hl-function: #a3f2b4;
+  --hl-type: #d6f2a3;
+  --hl-punct: #57c973;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #2f7a43;
+  --d-text: #5ce873;
+  --d-muted: #39ab50;
+  --d-accent: #e2b263;
+  --d-fill-1: #0d1a10;
+  --d-fill-2: #0f2013;
+  --d-fill-3: #101b12;
+  --d-fill-4: #12240f;
+  --d-fill-5: #0e1d15;
+  --d-fill-6: #132612;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #081008;
+  --term-fg: #4ce063;
+  --term-prompt: #e2b263;
+  --term-cursor: #4ce063;
+  --term-selection: rgba(76, 224, 99, 0.3);
+  --ansi-black: #2f7a43;
+  --ansi-red: #e07a63;
+  --ansi-green: #4ce063;
+  --ansi-yellow: #e2b263;
+  --ansi-blue: #63b8d9;
+  --ansi-magenta: #c98fd1;
+  --ansi-cyan: #5fd9c2;
+  --ansi-white: #c9eecf;
+  --ansi-bright-black: #3f9e56;
+  --ansi-bright-red: #f2a08c;
+  --ansi-bright-green: #7ef29a;
+  --ansi-bright-yellow: #f8d178;
+  --ansi-bright-blue: #8fd1ec;
+  --ansi-bright-magenta: #ddb0e3;
+  --ansi-bright-cyan: #8ceada;
+  --ansi-bright-white: #e7f8ea;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.06em; }

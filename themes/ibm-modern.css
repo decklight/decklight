@@ -1,0 +1,83 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · ibm-modern
+   dark · Carbon-design g100: Plex type, IBM Blue 60, engineered calm
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   rule-exception: R3 official IBM Blue 60 (#0f62fe) is the identity
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #151619;
+  --bg-accent: none;
+  --fg: #f2f4f8;
+  --muted: #a6a9b3;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "IBM Plex Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-heading: "IBM Plex Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --heading-color: #f2f4f8;
+  --heading-weight: 600;
+  --link: #78a9ff;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #0f62fe;
+  --accent-contrast: #f6f8ff;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #24262b;
+  --block-border: 1px solid #383b42;
+  --block-radius: 8px;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #1a1c20;
+  --code-fg: #f2f4f8;
+  --hl-keyword: #78a9ff;
+  --hl-string: #6fdc8c;
+  --hl-number: #f1c21b;
+  --hl-comment: #9298a3;
+  --hl-function: #be95ff;
+  --hl-type: #3ddbd9;
+  --hl-punct: #c1c7cd;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #6f7683;
+  --d-text: #f2f4f8;
+  --d-muted: #a6a9b3;
+  --d-accent: #78a9ff;
+  --d-fill-1: #1f2732;
+  --d-fill-2: #21272a;
+  --d-fill-3: #262630;
+  --d-fill-4: #1c2a24;
+  --d-fill-5: #2a2431;
+  --d-fill-6: #252017;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #101114;
+  --term-fg: #f2f4f8;
+  --term-prompt: #42be65;
+  --term-cursor: #f2f4f8;
+  --term-selection: rgba(15, 98, 254, 0.35);
+  --ansi-black: #878d96;
+  --ansi-red: #fa4d56;
+  --ansi-green: #42be65;
+  --ansi-yellow: #f1c21b;
+  --ansi-blue: #78a9ff;
+  --ansi-magenta: #be95ff;
+  --ansi-cyan: #3ddbd9;
+  --ansi-white: #dde1e6;
+  --ansi-bright-black: #a2a9b0;
+  --ansi-bright-red: #ff8389;
+  --ansi-bright-green: #6fdc8c;
+  --ansi-bright-yellow: #fddc69;
+  --ansi-bright-blue: #a6c8ff;
+  --ansi-bright-magenta: #d4bbff;
+  --ansi-bright-cyan: #9ef0f0;
+  --ansi-bright-white: #f6f8ff;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { letter-spacing: -0.01em; }

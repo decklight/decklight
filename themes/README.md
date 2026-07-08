@@ -1,6 +1,6 @@
 # Decklight themes
 
-59 themes, one contract. A theme is **a single CSS file that defines tokens on `.decklight`** — the
+61 themes, one contract. A theme is **a single CSS file that defines tokens on `.decklight`** — the
 runtime (`dist/decklight.css`) owns all structure; themes own only color, type, and mood. Link exactly
 one theme per deck:
 
@@ -51,7 +51,7 @@ A PR that adds or edits a theme must keep the validator green.
 
 ## The set
 
-**Dark (14):** aurora · graphite · obsidian · midnight · fjord · cosmos · ember · moss · velvet · carbon · synthwave · ink · eclipse · storm
+**Dark (15):** aurora · graphite · obsidian · midnight · fjord · cosmos · ember · moss · velvet · carbon · synthwave · ink · eclipse · storm · ibm-modern
 **Light (16):** porcelain · paper · meadow · glacier · citrus · dune · orchid · harvest · coastal · linen · berry · slate · latte · peony · mint · sepia
 Plus the Classics, Old Machines, TV Series, and Movies packs (`packs.json` is the authoritative roster).
 

@@ -44,7 +44,8 @@
       "peony",
       "slate",
       "berry",
-      "citrus"
+      "citrus",
+      "ibm-modern"
     ],
     "classics": [
       "reveal-black",
@@ -67,7 +68,8 @@
       "c64",
       "gameboy",
       "snes",
-      "genesis"
+      "genesis",
+      "ibm-oldschool"
     ],
     "tvseries": [
       "miami-vice",
