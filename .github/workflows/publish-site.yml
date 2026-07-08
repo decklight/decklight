@@ -28,22 +28,24 @@ jobs:
 
       - run: node build.mjs
 
-      - name: bundle the showcase
+      - name: assemble the site
         run: |
-          mkdir -p site
-          node cli/decklight.mjs bundle demo/showcase.html --themes all -o site/index.html
-          printf 'decklight.io' > site/CNAME
+          mkdir -p out
+          cp site/index.html out/index.html
+          node cli/decklight.mjs bundle demo/showcase.html --themes all -o out/showcase.html
+          printf 'decklight.io' > out/CNAME
           {
             echo '# decklight.io'
             echo
             echo 'Built automatically by decklight/decklight → .github/workflows/publish-site.yml —'
-            echo 'the showcase bundled to a single file. Do not edit by hand.'
-          } > site/README.md
+            echo 'the landing page (site/index.html) plus the showcase bundled to a single file.'
+            echo 'Do not edit by hand.'
+          } > out/README.md
 
       - uses: peaceiris/actions-gh-pages@v4
         with:
           deploy_key: ${{ secrets.SITE_DEPLOY_KEY }}
           external_repository: decklight/decklight.github.io
           publish_branch: main
-          publish_dir: ./site
+          publish_dir: ./out
           commit_message: 'publish showcase from ${{ github.sha }}'

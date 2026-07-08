@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decklight — the presentation library that presents itself</title>
+  <meta name="description" content="Single-file decks, Keynote-grade motion, 61 WCAG-gated themes, truthful terminal recordings, live TTS narration — authored by humans and AI agents alike.">
+  <style>
+    :root {
+      --bg: #0b0b0d; --fg: #ecebe6; --muted: #a5a49c;
+      --accent: #e3bd54; --card: #141416; --border: #26262a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      background-image: radial-gradient(ellipse 90% 40% at 50% -5%, #262008 0%, #0b0b0d 70%);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.55;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 56px 24px 40px; }
+    header { text-align: center; margin-bottom: 40px; }
+    h1 {
+      margin: 0;
+      font-size: clamp(2.4rem, 6vw, 3.6rem);
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+      font-weight: 900;
+      color: var(--accent);
+    }
+    .tagline { margin: 10px 0 0; font-size: 1.15rem; color: var(--fg); }
+    .intro { margin: 14px auto 0; max-width: 46em; color: var(--muted); font-size: 1rem; }
+    .intro a { color: var(--accent); }
+
+    .traits {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 14px;
+      margin: 36px 0 44px;
+    }
+    .trait {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .trait h3 { margin: 0 0 6px; font-size: 1rem; color: var(--accent); }
+    .trait p { margin: 0; font-size: 0.92rem; color: var(--muted); }
+
+    .deck-caption {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin: 0 0 10px;
+      font-size: 0.95rem;
+      color: var(--muted);
+    }
+    .deck-caption a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .deck-caption a:hover { text-decoration: underline; }
+    .deckbox {
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+      background: #000;
+    }
+    .deckbox iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+    footer {
+      margin-top: 44px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Decklight</h1>
+      <p class="tagline">The presentation library that presents itself.</p>
+      <p class="intro">A deck is <strong>one HTML file</strong> — no build step, no server, no framework.
+        Decklight is built in the Reveal.js tradition for <strong>humans and AI agents alike</strong>,
+        and every feature is designed so a machine can prove the deck works.</p>
+    </header>
+
+    <section class="traits" aria-label="Top characteristics">
+      <div class="trait">
+        <h3>One file, zero build</h3>
+        <p>Author a single HTML file, double-click it, present. <code>file://</code> is enough — and <code>decklight bundle</code> flattens a whole course into one email-able file.</p>
+      </div>
+      <div class="trait">
+        <h3>Agent-native authoring</h3>
+        <p>Describe a slide in plain English and an agent answers in Decklight — with overflow guards, contrast gates and headless render checks standing in for eyeballs.</p>
+      </div>
+      <div class="trait">
+        <h3>Keynote-grade motion</h3>
+        <p>Progressive builds from one attribute, Magic Move between slides, and theme-aware SVG diagrams that literally draw themselves in.</p>
+      </div>
+      <div class="trait">
+        <h3>61 themes, one contract</h3>
+        <p>Every theme passes WCAG gates and codified palette rules — diagrams and terminals reskin too. Press <strong>⌃T</strong> in the deck and it generates a brand-new one.</p>
+      </div>
+      <div class="trait">
+        <h3>Terminals &amp; a voice</h3>
+        <p>Real PTY recordings replayed truthfully — never video — plus live TTS narration that presents the deck by itself, captions and pop quiz included.</p>
+      </div>
+    </section>
+
+    <div class="deck-caption">
+      <span>The pitch <em>is</em> the product — this is the showcase deck, live. Click it, then <strong>→</strong> to advance (press <strong>?</strong> for all keys, <strong>,</strong>/<strong>.</strong> to switch themes).</span>
+      <a href="showcase.html">Open full screen ↗</a>
+    </div>
+    <div class="deckbox">
+      <iframe src="showcase.html" title="The Decklight showcase deck" loading="lazy" allow="fullscreen"></iframe>
+    </div>
+
+    <footer>
+      <a href="https://github.com/decklight/decklight">GitHub</a> · MIT ·
+      this page and the deck ship from one <code>decklight bundle</code> command
+    </footer>
+  </div>
+</body>
+</html>
