@@ -144,6 +144,10 @@ for (let i = 0; i < slides.length; i++) {
   execFileSync('afconvert', ['-f', 'm4af', '-d', 'aac', wav, m4a]);
   rmSync(wav);
   console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}${costNote}`);
+  // crash-safe: persist progress after every slide so an interrupted run
+  // resumes incrementally instead of re-synthesizing everything
+  writeFileSync(join(outDir, 'manifest.json'),
+    JSON.stringify({ engine, voice, style, slides: manifest }, null, 1));
 }
 writeFileSync(join(outDir, 'manifest.json'),
   JSON.stringify({ engine, voice, style, slides: manifest }, null, 1));
