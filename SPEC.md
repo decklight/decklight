@@ -259,10 +259,15 @@ absent — no compatibility break in either direction.
 ```
 
 - `data-mode="step"` (default): registers a build provider — each advance **types the command**
-  (synthesized keystrokes, 30–70ms jitter; `data-type-speed` multiplier) then streams its real
+  (synthesized keystrokes, 30–70ms jitter) then streams its real
   output with recorded pacing compressed to ≤2.5s per step (`data-max-step` override).
   Provider is idempotent: `apply(i)` renders steps `< i` instantly-complete, animates step `i` if
   reached by a forward advance, clears the rest.
+- **Typing speed**: `data-type-speed` is a `1` (slow) … `10` (fast) scale, default `5`
+  (the classic pace; the mapping is exponential — 1 ≈ ⅓×, 10 ≈ 4×). A `⌨ n` titlebar
+  button lets the presenter cycle it live; that choice persists per deck in localStorage
+  and overrides the authored value on every terminal. Per-step `typeSpeed` (a multiplier)
+  composes on top.
 - `data-mode="play"`: timeline playback with play/pause, speed control, original timing
   (`sleep` steps pause the timeline; `hidden` steps never play in either mode).
 - `data-poster="N"`: the terminal arrives with its first N playable steps already

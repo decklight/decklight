@@ -2,7 +2,7 @@
  * Decklight terminal player (SPEC §7.3).
  *
  * <div class="terminal" data-cast="casts/demo.cast.json"
- *      data-mode="step|play" data-type-speed="1" data-max-step="2.5"
+ *      data-mode="step|play" data-type-speed="5" data-max-step="2.5"
  *      data-title="Terminal" data-rows="24"></div>
  *
  * step mode (default): registers a Build Provider — each advance types the
@@ -10,12 +10,21 @@
  * pacing compressed to ≤ data-max-step seconds. apply(i) is idempotent for
  * any i (deep links, reverse navigation, print).
  *
+ * data-type-speed picks the typing speed on a 1 (slow) … 10 (fast) scale;
+ * 5 is the default pace. The ⌨ titlebar button cycles it live, persisted
+ * per deck (the presenter's choice wins over the authored attribute).
+ *
  * play mode: timeline playback with play/pause, speed cycling, restart.
  */
 
 import { AnsiScreen, spansToHtml, escapeHtml } from './ansi.mjs';
 
 const DEFAULT_VISIBLE_ROWS = 24;
+
+// typing-speed scale → rate multiplier: 1 → ⅓×, 5 → 1× (classic), 10 → 4×
+const TYPE_SPEED_KEY = 'decklight-term-typespeed:' + location.pathname;
+const clampScale = (n) => Math.max(1, Math.min(10, n));
+const typeRate = (s) => 2 ** ((s - 5) / 2.5);
 
 /**
  * Scan `root` for terminal elements, load their casts, build DOM, and (in
@@ -132,7 +141,14 @@ class TerminalController {
     this.el = el;
     this.cast = cast;
     this.prompt = cast.meta.prompt ?? '$ ';
-    this.typeSpeed = parseFloat(el.dataset.typeSpeed || '1') || 1;
+    // authored scale (1 slow … 10 fast, 5 default); a per-deck presenter
+    // override from the ⌨ button takes precedence
+    this.typeScale = clampScale(parseInt(el.dataset.typeSpeed ?? '5', 10) || 5);
+    try {
+      const saved = parseInt(localStorage.getItem(TYPE_SPEED_KEY) ?? '', 10);
+      if (saved >= 1 && saved <= 10) this.typeScale = saved;
+    } catch { /* private mode */ }
+    el.dataset.typeScale = String(this.typeScale);
     this.maxStep = (parseFloat(el.dataset.maxStep || '2.5') || 2.5) * 1000;
     this.visibleRows = parseInt(el.dataset.rows || '', 10) || Math.min(cast.meta.rows || DEFAULT_VISIBLE_ROWS, DEFAULT_VISIBLE_ROWS);
     this.epoch = 0;        // bumped to cancel in-flight animations
@@ -192,6 +208,16 @@ class TerminalController {
   // ------------------------------------------------------------- step mode
 
   mountStepMode(Decklight) {
+    // ⌨ n — presenter's typing-speed chooser; click cycles 1 → 10 and wraps.
+    // Persisted per deck so every terminal (and the next session) follows.
+    this.controlsEl.innerHTML =
+      `<button class="terminal-btn terminal-typespeed" title="typing speed — click cycles 1 (slow) to 10 (fast)" aria-label="typing speed">⌨ ${this.typeScale}</button>`;
+    this.controlsEl.querySelector('.terminal-typespeed').addEventListener('click', (e) => {
+      this.typeScale = this.typeScale % 10 + 1;
+      this.el.dataset.typeScale = String(this.typeScale);
+      try { localStorage.setItem(TYPE_SPEED_KEY, String(this.typeScale)); } catch { /* private mode */ }
+      e.target.textContent = `⌨ ${this.typeScale}`;
+    });
     const steps = this.playable;
     // Poster steps arrive pre-rendered and are excluded from the build
     // sequence: provider count = playable - poster, apply(i) shows poster+i.
@@ -223,7 +249,7 @@ class TerminalController {
 
   async _animateStep(stepIdx, epoch) {
     const step = this.playable[stepIdx];
-    const speedFactor = this.typeSpeed * (step.typeSpeed || 1);
+    const speedFactor = typeRate(this.typeScale) * (step.typeSpeed || 1);
     // Base: everything before this step, no trailing cursor/prompt.
     const parts = [];
     for (let s = 0; s < stepIdx; s++) parts.push(this._stepHtml(this.playable[s]));
@@ -325,7 +351,7 @@ class TerminalController {
       const shown = this.cast.steps.slice(0, s).filter(x => !x.hidden && x.sleep == null);
       const parts = shown.map(x => this._stepHtml(x));
       const base = parts.length ? parts.join('\n') + '\n' : '';
-      const speedFactor = this.speed * (step.typeSpeed || 1);
+      const speedFactor = this.speed * (step.typeSpeed || 1) * typeRate(this.typeScale);
       // type (imported raw streams carry their own echo)
       const cmd = step.cmd || '';
       if (!step.raw) {
