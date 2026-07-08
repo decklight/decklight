@@ -39,7 +39,11 @@ const typeRate = (s) => 2 ** ((s - 5) / 2.5);
 // clacky = bright 2-5kHz snap, thin quick body, hard attack.
 const KEY_PROFILES = {
   thocky: { f: [70, 140], spaceF: [55, 85], drop: [0.5, 0.7], decay: [0.10, 0.14], body: 0.105, spaceBody: 0.15, tex: ['lowpass', 300, 700], texGain: 0.02, texDecay: 0.06, attack: 0.006 },
-  creamy: { f: [105, 220], spaceF: [80, 120], drop: [0.45, 0.7], decay: [0.08, 0.11], body: 0.085, spaceBody: 0.13, tex: ['lowpass', 550, 1200], texGain: 0.03, texDecay: 0.052, attack: 0.005 },
+  // creamy is tuned against a reference recording (lubed board, 16kHz
+  // spectral analysis): a sub-100Hz thump (body resonance ~62-95Hz, a
+  // third of the energy) plus a soft 2-4kHz contact tick (half of it),
+  // with a HOLLOW through 120Hz-1kHz, and everything tightly damped.
+  creamy: { f: [62, 95], spaceF: [48, 68], drop: [0.55, 0.75], decay: [0.045, 0.07], body: 0.10, spaceBody: 0.15, tex: ['bandpass', 2200, 3800], texGain: 0.022, texDecay: 0.022, attack: 0.003 },
   clacky: { f: [180, 320], spaceF: [120, 180], drop: [0.55, 0.75], decay: [0.04, 0.06], body: 0.05, spaceBody: 0.085, tex: ['bandpass', 2500, 4500], texGain: 0.06, texDecay: 0.028, attack: 0.001 },
 };
 
@@ -341,7 +345,7 @@ class TerminalController {
         this.linesEl.innerHTML = base + this._promptHtml() +
           `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
         this._scrollToEnd();
-        await sleep((60 + Math.random() * 50) / speedFactor);
+        await sleep((80 + Math.random() * 55) / speedFactor);
       }
       await sleep(120 / speedFactor);
     }
