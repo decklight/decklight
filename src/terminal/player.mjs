@@ -34,25 +34,25 @@ const typeRate = (s) => 2 ** ((s - 5) / 2.5);
 const TERM_FONT_KEY = 'decklight-term-fontsize:' + location.pathname;
 const FONT_STEPS = [0.75, 0.9, 1, 1.15, 1.35, 1.6];
 
-// Subtle synthesized key thocks while commands type — no audio asset. The
-// voicing aims for a "creamy" lubed mechanical switch, not a clacky one:
-// a quick pitch-dropping low sine (the thock body) plus a lowpass-muted
-// puff of noise (the tactile texture), both with soft attacks and jittered
-// pitch/level so no two keys sound identical. The shared AudioContext
-// resumes on the first (gesture-driven) advance; data-type-sound="off"
-// opts a terminal out.
-// Three switch voicings, tuned from the community's acoustic vocabulary:
-// thocky = lows under 500Hz dominate, wooden, longer rounded decay;
-// creamy = rounded low-pitched marble-on-felt, soft attack, no highs;
-// clacky = bright 2-5kHz snap, thin quick body, hard attack.
+// Subtle synthesized key sounds while commands type — no audio asset. The
+// anatomy comes from dissecting a reference recording strike by strike
+// (106 transients): every keystroke is a short bright contact CLICK
+// (bandpass+lowpass noise burst, dead within ~10ms) over a quiet low case
+// THUMP that blooms a few ms later and rings ~40ms at about a quarter of
+// the strike's peak, with a spectral hollow between them (120Hz-1.2kHz).
+// A lighter, brighter click follows 35-80ms later: the key RELEASE, which
+// real typing always has. Amplitude spreads ~4x strike to strike (soft
+// graze vs firm bottom-out); the spacebar is deeper and reliably louder.
+// The shared AudioContext resumes on the first (gesture-driven) advance;
+// data-type-sound="off" opts a terminal out.
+// The three voicings differ in click band and click:thump balance:
+// thocky = dark click, biggest thump, longest ring (wooden);
+// creamy = mid-bright click, felted thump, tight damping (the reference);
+// clacky = high thin snap, minimal thump, fastest decay.
 const KEY_PROFILES = {
-  thocky: { f: [70, 140], spaceF: [55, 85], drop: [0.5, 0.7], decay: [0.10, 0.14], body: 0.105, spaceBody: 0.15, tex: ['lowpass', 300, 700], texGain: 0.02, texDecay: 0.06, attack: 0.006 },
-  // creamy is tuned against a reference recording (lubed board, 16kHz
-  // spectral analysis): a sub-100Hz thump (body resonance ~62-95Hz, a
-  // third of the energy) plus a soft 2-4kHz contact tick (half of it),
-  // with a HOLLOW through 120Hz-1kHz, and everything tightly damped.
-  creamy: { f: [62, 95], spaceF: [48, 68], drop: [0.55, 0.75], decay: [0.045, 0.07], body: 0.10, spaceBody: 0.15, tex: ['bandpass', 2200, 3800], texGain: 0.022, texDecay: 0.022, attack: 0.003 },
-  clacky: { f: [180, 320], spaceF: [120, 180], drop: [0.55, 0.75], decay: [0.04, 0.06], body: 0.05, spaceBody: 0.085, tex: ['bandpass', 2500, 4500], texGain: 0.06, texDecay: 0.028, attack: 0.001 },
+  thocky: { click: 0.22, clickF: [800, 1500], clickQ: 0.9, lp: 2400, clickDecay: [0.009, 0.014], thump: 0.011, thumpF: [55, 95], ring: [0.075, 0.110] },
+  creamy: { click: 0.30, clickF: [1400, 2850], clickQ: 0.95, lp: 3800, clickDecay: [0.007, 0.011], thump: 0.0056, thumpF: [60, 110], ring: [0.065, 0.095] },
+  clacky: { click: 0.34, clickF: [2300, 3900], clickQ: 1.1, lp: 6800, clickDecay: [0.005, 0.008], thump: 0.003, thumpF: [90, 140], ring: [0.035, 0.055] },
 };
 
 let keyCtx = null;
@@ -73,43 +73,42 @@ function keyClick(ch = '', profile = 'creamy') {
     const rnd = (lo, hi) => lo + Math.random() * (hi - lo);
     const t = keyCtx.currentTime;
     const space = ch === ' ';
-    // no two keys sound the same: wide pitch spread, wandering drop ratio
-    // and decay per keystroke. The spacebar is the big key on the board:
-    // deeper and reliably LOUDER than any letter.
-    const jitter = space ? 0.9 + Math.random() * 0.3 : 0.65 + Math.random() * 0.7;
-    const f0 = space ? rnd(...P.spaceF) : rnd(...P.f);
-    const drop = rnd(...P.drop);
-    const body = space ? P.spaceBody : P.body;
-    const decay = rnd(...P.decay) + (space ? 0.03 : 0);
-    const osc = keyCtx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(f0, t);
-    osc.frequency.exponentialRampToValueAtTime(f0 * drop, t + decay * 0.6);
-    const og = keyCtx.createGain();
-    og.gain.setValueAtTime(0.0001, t);
-    og.gain.exponentialRampToValueAtTime(body * jitter, t + P.attack);
-    og.gain.exponentialRampToValueAtTime(0.0001, t + decay);
-    osc.connect(og);
-    og.connect(keyCtx.destination);
-    osc.start(t);
-    osc.stop(t + decay + 0.01);
-    // tactile texture: filtered noise; the filter is the profile's voice
-    // (lowpass mutes thock/cream, bandpass in the 2-5kHz band is the clack)
-    const src = keyCtx.createBufferSource();
-    src.buffer = keyNoise;
-    const flt = keyCtx.createBiquadFilter();
-    flt.type = P.tex[0];
-    flt.frequency.value = rnd(P.tex[1], P.tex[2]) * (space ? 0.75 : 1);
-    flt.Q.value = P.tex[0] === 'bandpass' ? 1.0 : 0.7;
-    const g = keyCtx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(P.texGain * (space ? 1.3 : 1) * jitter, t + Math.max(P.attack * 0.6, 0.001));
-    g.gain.exponentialRampToValueAtTime(0.0001, t + P.texDecay);
-    src.connect(flt);
-    flt.connect(g);
-    g.connect(keyCtx.destination);
-    src.start(t);
-    src.stop(t + P.texDecay + 0.01);
+    const amp = rnd(0.45, 1.3) * (space ? 1.25 : 1);
+    const fc = rnd(...P.clickF) * (space ? 0.8 : 1);
+    const click = (at, gain, f, decay) => {
+      const src = keyCtx.createBufferSource();
+      src.buffer = keyNoise;
+      const bp = keyCtx.createBiquadFilter();
+      bp.type = 'bandpass'; bp.frequency.value = f; bp.Q.value = P.clickQ;
+      const lo = keyCtx.createBiquadFilter();
+      lo.type = 'lowpass'; lo.frequency.value = P.lp;
+      const g = keyCtx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(gain, at + 0.0007);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      src.connect(bp); bp.connect(lo); lo.connect(g); g.connect(keyCtx.destination);
+      src.start(at); src.stop(at + decay + 0.01);
+    };
+    const thump = (at, gain, f0, ring) => {
+      const osc = keyCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f0, at);
+      osc.frequency.exponentialRampToValueAtTime(f0 * 0.6, at + ring * 0.6);
+      const g = keyCtx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(gain, at + rnd(0.003, 0.011));  // blooms after the click
+      g.gain.exponentialRampToValueAtTime(gain * 0.25, at + ring);        // resonant ring…
+      g.gain.exponentialRampToValueAtTime(0.0001, at + ring * 2);         // …then gone
+      osc.connect(g); g.connect(keyCtx.destination);
+      osc.start(at); osc.stop(at + ring * 2 + 0.01);
+    };
+    // key-down…
+    click(t, P.click * amp, fc, rnd(...P.clickDecay) * (space ? 1.15 : 1));
+    thump(t, P.thump * amp * (space ? 1.6 : 1), rnd(...P.thumpF) * (space ? 0.85 : 1), rnd(...P.ring));
+    // …and key-up: lighter, brighter, no finger mass behind it
+    const up = t + rnd(0.035, 0.08);
+    click(up, P.click * amp * rnd(0.35, 0.55), fc * 1.15, rnd(...P.clickDecay) * 0.8);
+    thump(up, P.thump * amp * 0.25, rnd(...P.thumpF), rnd(...P.ring) * 0.6);
   } catch { /* no audio in this environment */ }
 }
 
