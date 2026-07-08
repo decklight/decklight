@@ -2004,58 +2004,68 @@ export function init(userConfig = {}) {
     }
     return previewCustomCache;
   }
-  function ensurePreviewIn(cache, name, text) {
-    if (!cache.has(name)) {
+  const previewKey = (voice, style) => `${voice}|${style || ''}`;
+  function ensurePreviewIn(cache, voice, text, style = '') {
+    const key = previewKey(voice, style);
+    if (!cache.has(key)) {
       const p = (async () => {
         const res = await fetch(LIVE_URL, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text, voice: name, style: '' }),
+          body: JSON.stringify({ text, voice, style }),
         });
         if (!res.ok) throw new Error(String(res.status));
         return URL.createObjectURL(await res.blob());
       })();
       // failures self-evict so a retry can succeed; resolved entries stay
-      p.catch(() => { if (cache.get(name) === p) cache.delete(name); });
-      cache.set(name, p);
+      p.catch(() => { if (cache.get(key) === p) cache.delete(key); });
+      cache.set(key, p);
     }
-    return cache.get(name);
+    return cache.get(key);
   }
-  async function prefetchAllVoices(text) {
-    if (previewPrefetching.has(text)) return;
-    previewPrefetching.add(text);
+  async function prefetchPreviews(text, list, tag) {
+    const runKey = `${tag}|${text}`;
+    if (previewPrefetching.has(runKey)) return;
+    previewPrefetching.add(runKey);
     const isDefault = text === PREVIEW_DEFAULT;
     const cache = isDefault ? previewDefaultCache : previewCustomCache;
     try {
-      debugLog('narr', `preview prefetch (${isDefault ? 'default' : 'custom'} sentence)`);
-      // sequential on purpose: the bridge synthesizes serially and 30
-      // parallel POSTs would just queue-jump the presenter's own clicks
-      for (const [name] of GEMINI_VOICES) {
+      debugLog('narr', `preview prefetch ${tag} (${isDefault ? 'default' : 'custom'} sentence)`);
+      // sequential on purpose: the bridge synthesizes serially and a burst
+      // of parallel POSTs would just queue-jump the presenter's own clicks
+      for (const { voice, style } of list) {
         if (!isDefault && previewCustomText !== text) return; // superseded
-        if (cache.has(name)) continue;
-        await ensurePreviewIn(cache, name, text).catch(() => { /* background — no toast */ });
+        if (cache.has(previewKey(voice, style))) continue;
+        await ensurePreviewIn(cache, voice, text, style).catch(() => { /* background — no toast */ });
       }
-      debugLog('narr', 'preview prefetch complete');
+      debugLog('narr', `preview prefetch ${tag} complete`);
     } finally {
-      previewPrefetching.delete(text);
+      previewPrefetching.delete(runKey);
     }
   }
-  function previewVoice(name, btn) {
+  // spec: { voice, style, prefetch } — voice rows preview neutral delivery
+  // and warm the whole roster; tone rows preview the drafted voice in that
+  // delivery style and warm the other tones for the same voice.
+  function previewClip({ voice, style = '', prefetch }, btn) {
     const text = previewText.trim();
     if (!text) return;
     const cache = previewCacheFor(text);
     if (btn) btn.textContent = '…';
-    ensurePreviewIn(cache, name, text).then((url) => {
+    ensurePreviewIn(cache, voice, text, style).then((url) => {
       if (btn?.isConnected) btn.textContent = '▶';
       previewAudio ??= new Audio();
       previewAudio.src = url;
       previewAudio.play().catch(() => { /* autoplay policy */ });
-      debugLog('narr', `preview ${name}`);
-      prefetchAllVoices(text); // warm the rest of the roster in the background
+      debugLog('narr', `preview ${voice}${style ? ' · styled' : ''}`);
+      if (prefetch === 'voices') {
+        prefetchPreviews(text, GEMINI_VOICES.map(([n]) => ({ voice: n, style: '' })), 'voices');
+      } else if (prefetch === 'tones') {
+        prefetchPreviews(text, TONES.map(([, s]) => ({ voice, style: s })), `tones:${voice}`);
+      }
     }).catch(() => {
       if (btn?.isConnected) btn.textContent = '▶';
       toast('live voice bridge unreachable — run: decklight tts');
-      debugLog('narr', `preview ${name} failed`);
+      debugLog('narr', `preview ${voice} failed`);
     });
   }
   function renderNarr(view) {
@@ -2109,20 +2119,23 @@ export function init(userConfig = {}) {
       GEMINI_VOICES.forEach(([name, flavor]) => narrRows.push({
         text: `${name} <span class="narr-flavor">${flavor}</span>`,
         html: true,
-        preview: name,
+        preview: { voice: name, style: '', prefetch: 'voices' },
         cur: narrSet?.live && liveCfg.voice === name,
         commit: () => { liveDraft = name; renderNarr('tones'); },
       }));
     } else if (view === 'tones') {
-      head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone`;
+      head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone · ▶ previews`;
       TONES.forEach(([label, styleText]) => narrRows.push({
         text: label,
+        preview: { voice: liveDraft ?? liveCfg.voice, style: styleText, prefetch: 'tones' },
         cur: narrSet?.live && liveCfg.tone === label,
         commit: () => applyLive(label, styleText),
       }));
       narrRows.push({ text: 'Custom…', cur: narrSet?.live && liveCfg.tone === 'Custom', commit: () => renderNarr('custom') });
     } else { // custom tone input
-      head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — type the delivery instruction`;
+      head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — type the delivery instruction · ▶ previews`;
+      const wrap = document.createElement('div');
+      wrap.className = 'narr-preview-row';
       const input = document.createElement('input');
       input.className = 'narr-input';
       input.value = liveCfg.style;
@@ -2133,7 +2146,20 @@ export function init(userConfig = {}) {
         else if (e.key === 'Escape') { narrBack(); e.preventDefault(); }
         e.stopPropagation();
       });
-      card.appendChild(input);
+      // audition the typed instruction before committing it with Enter
+      const prev = document.createElement('button');
+      prev.type = 'button';
+      prev.className = 'narr-prev-btn narr-reset-btn';
+      prev.textContent = '▶';
+      prev.title = 'preview this delivery instruction';
+      prev.setAttribute('aria-label', 'preview this delivery instruction');
+      prev.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const style = input.value.trim();
+        if (style) previewClip({ voice: liveDraft ?? liveCfg.voice, style }, prev);
+      });
+      wrap.append(input, prev);
+      card.appendChild(wrap);
       setTimeout(() => { input.focus(); input.select(); }, 0);
       narrRows = [];
       narrSel = 0;
@@ -2151,9 +2177,9 @@ export function init(userConfig = {}) {
         btn.type = 'button';
         btn.className = 'narr-prev-btn';
         btn.textContent = '▶';
-        btn.title = `preview ${row.preview}`;
-        btn.setAttribute('aria-label', `preview ${row.preview}`);
-        btn.addEventListener('click', (e) => { e.stopPropagation(); previewVoice(row.preview, btn); });
+        btn.title = `preview ${row.preview.voice}`;
+        btn.setAttribute('aria-label', `preview ${row.preview.voice}`);
+        btn.addEventListener('click', (e) => { e.stopPropagation(); previewClip(row.preview, btn); });
         el.appendChild(btn);
       }
       el.addEventListener('mouseenter', () => selectNarrRow(i));
