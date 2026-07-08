@@ -49,7 +49,7 @@
       <p>The presentation library that presents itself</p>
       <p style="font-size:0.6em; opacity:.8">Every feature on the next slides is demonstrated live, by the slide itself.<br>Use → to advance. Press <strong>?</strong> anytime.</p>
       <aside class="notes">
-        <p>Welcome. This deck is written in Decklight, about Decklight — every slide demonstrates the feature it describes. The big mark above the title? That's the hero-logo feature: one attribute on the section.</p>
+        <p>Well hello there, friends. What you're looking at is a deck written in Decklight, about Decklight — which means every slide you're about to see is busy demonstrating the very feature it explains. A little self-referential? Sure. But if a presentation library can't present itself, what exactly are we doing? And that big mark above the title — that's the hero-logo feature. One attribute on the section. We're already demoing.</p>
       </aside>
       <aside class="rehearse">
         <p>The deck IS the demo — hero logo above</p>
@@ -68,12 +68,7 @@
       </ul>
       <p data-build="pop">…and leaf elements can <strong>pop</strong> in on their own.</p>
       <aside class="notes">
-        <p>Builds are container-driven. This list carries one attribute.</p>
-        <p>⟨CLICK⟩</p><p>Each press of the arrow reveals one item, in document order.</p>
-        <p>⟨CLICK⟩</p><p>No classes on the items themselves.</p>
-        <p>⟨CLICK⟩</p><p>Hidden steps keep their box, so the layout never jumps as items land.</p>
-        <p>⟨CLICK⟩</p><p>Eight entrance styles, all CSS-driven.</p>
-        <p>⟨CLICK⟩</p><p>And a single paragraph can be its own build step — like this pop.</p>
+        <p>Let's talk about builds — progressive reveals, the bread and butter of every keynote. The Decklight take: the container opts in, and the engine does the rest. That entire list carries exactly one attribute.</p><p>⟨CLICK⟩</p><p>Every press of the arrow reveals one item, in document order. No choreography required — the engine reads the DOM like sheet music.</p><p>⟨CLICK⟩</p><p>And look at that — not a single class on the items themselves. The list said data-build once, and every child fell in line. That's the kind of parenting we all aspire to.</p><p>⟨CLICK⟩</p><p>Notice what didn't happen: the layout didn't jump. Hidden steps keep their box — visibility, not display — so the slide is stable from the first pixel to the last.</p><p>⟨CLICK⟩</p><p>Eight entrance styles, all CSS-driven. Fade, zoom, pop, draw — pick your energy level.</p><p>⟨CLICK⟩</p><p>And a lone paragraph can be its own build step. Watch this one pop in like it's got somewhere to be.</p>
       </aside>
       <aside class="rehearse">
         <p>Container opts in</p>
@@ -131,12 +126,7 @@
         </g>
       </svg>
       <aside class="notes">
-        <p>Inline SVG is the canonical diagram format, authored with theme tokens.</p>
-        <p>⟨CLICK⟩</p><p>Groups build progressively, and strokes literally draw themselves in.</p>
-        <p>⟨CLICK⟩</p><p>The theme box here is pinned by concept color — same slot on every slide it appears.</p>
-        <p>⟨CLICK⟩</p><p>Terminal box, same idea.</p>
-        <p>⟨CLICK⟩</p><p>CLI box.</p>
-        <p>⟨CLICK⟩</p><p>Try cycling themes with comma and period — the whole diagram recolors.</p>
+        <p>Now, diagrams. In Decklight, inline SVG is the native tongue — and you author it with theme tokens instead of hex codes. Hold that thought; it pays off in a big way shortly.</p><p>⟨CLICK⟩</p><p>Groups build progressively, and strokes literally draw themselves in. There is something deeply satisfying about a box that sketches itself.</p><p>⟨CLICK⟩</p><p>That themes box is pinned by concept color — same concept, same color slot, every slide it appears on. Your audience's pattern-matching brain will thank you.</p><p>⟨CLICK⟩</p><p>Terminal box — same idea.</p><p>⟨CLICK⟩</p><p>CLI box. You see the pattern.</p><p>⟨CLICK⟩</p><p>And the payoff: cycle themes with comma and period, and the whole diagram repaints itself. No screenshots were harmed in the making of this slide.</p>
       </aside>
       <aside class="rehearse">
         <p>Tokens, not colors</p>
@@ -156,7 +146,9 @@
         <code>data-id="chip"</code>
       </div>
       <p style="font-size:0.6em; opacity:.75">Advance once — watch the chip travel and grow.</p>
-      <aside class="notes"><p>Two adjacent slides opt in with data-auto-animate. Matching elements share a data-id. Watch the chip.</p></aside>
+      <aside class="notes">
+        <p>Magic Move, the Keynote party trick — Decklight calls it auto-animate. Two adjacent slides opt in, matching elements share a data-id. Keep your eye on the chip.</p>
+      </aside>
       <aside class="rehearse"><p>Watch the chip</p></aside>
     </section>
     <section data-auto-animate>
@@ -165,7 +157,9 @@
       <div data-id="chip" style="display:inline-block; align-self:center; padding: 26px 64px; background: var(--accent); color: var(--accent-contrast); border: 2px solid var(--accent); border-radius: 18px; font-size: 1.15em; font-weight: 700;">
         <code>data-id="chip"</code>
       </div>
-      <aside class="notes"><p>Same element, new geometry and colors — the engine FLIP-animates the difference. Works for inline SVG elements too.</p></aside>
+      <aside class="notes">
+        <p>Same chip, new life. The engine measures both slides and FLIP-animates the difference — position, size, color, radius. And it works on inline SVG too, which is where it gets genuinely fun.</p>
+      </aside>
       <aside class="rehearse"><p>FLIP morph — geometry + color</p></aside>
     </section>
 
@@ -187,7 +181,9 @@
         <span data-animate="breathe" style="padding:12px 20px; background: var(--block-bg); border-radius: 10px;">breathe</span>
       </div>
       <p style="font-size:0.6em; opacity:.75">All of it collapses under <code>prefers-reduced-motion</code>.</p>
-      <aside class="notes"><p>Nine looping animations, one attribute each. They pause on inactive slides and respect reduced-motion.</p></aside>
+      <aside class="notes">
+        <p>Nine looping attention-getters, one attribute apiece. They only run while their slide is on stage, and every one of them sits down politely when a viewer asks for reduced motion. Use them like hot sauce, friends — sparingly.</p>
+      </aside>
       <aside class="rehearse"><p>Nine loops, one attribute, a11y-aware</p></aside>
     </section>
 
@@ -203,10 +199,7 @@
 
 &lt;p data-build="pop"&gt;…and leaves can pop in on their own.&lt;/p&gt;</code></pre>
       <aside class="notes">
-        <p>Syntax highlighting is themed through tokens — no separate highlighter theme.</p>
-        <p>⟨CLICK⟩</p><p>data-lines steps highlight ranges as builds: first the container line.</p>
-        <p>⟨CLICK⟩</p><p>Then the items.</p>
-        <p>⟨CLICK⟩</p><p>Then the standalone pop. Dimmed lines use the theme's dim opacity.</p>
+        <p>Code slides. The syntax highlighting rides the same theme tokens as everything else — there is no second highlighter theme to keep in sync, because the best config file is the one that doesn't exist.</p><p>⟨CLICK⟩</p><p>data-lines turns highlight ranges into build steps. First beat: the container line.</p><p>⟨CLICK⟩</p><p>Second beat: the items.</p><p>⟨CLICK⟩</p><p>And the standalone pop. Everything you're not talking about dims to the theme's opacity — a spotlight, but for code.</p>
       </aside>
       <aside class="rehearse">
         <p>hl via tokens</p>
@@ -230,19 +223,19 @@ One `data-markdown` attribute — CommonMark inside
 :::
 
 Note:
-Markdown is opt-in per slide. The list you're stepping through is wrapped in a build fence.
+This entire slide is Markdown — one data-markdown attribute with CommonMark inside. If you can write a README, you can write this slide.
 
 ⟨CLICK⟩
 
-HTML remains the default authoring surface.
+HTML stays the default surface, mind you. Markdown is opt-in, slide by slide — pick the right tool per slide, not per deck.
 
 ⟨CLICK⟩
 
-The fence hoists the build attribute onto the list.
+That triple-colon build fence in the source quietly hoists the build attribute onto the list. Same stepping as HTML, zero ceremony.
 
 ⟨CLICK⟩
 
-And the notes you'd read in speaker view — including the condensed rehearse cues — are authored right here too.
+And the speaker notes — including the condensed rehearse cues — are authored right here in the template too. One file, the whole story.
 
 Rehearse:
 Markdown = one attribute
@@ -277,13 +270,7 @@ Note: + Rehearse: inline
       </table>
       <p data-build style="font-size:0.62em; opacity:.85">Both compile to the same DOM — this very tour ships as <code>showcase.html</code> and <code>showcase-md.html</code>.</p>
       <aside class="notes">
-        <p>HTML is the default surface; markdown is opt-in per slide — and since both compile to the same DOM, you can mix them freely within one deck.</p>
-        <p>⟨CLICK⟩</p><p>Surface: a plain section of HTML tags, versus a data-markdown section wrapping a CommonMark template.</p>
-        <p>⟨CLICK⟩</p><p>Builds: one attribute on the element, versus a triple-colon build fence.</p>
-        <p>⟨CLICK⟩</p><p>Notes: an aside element, versus inline Note and Rehearse blocks.</p>
-        <p>⟨CLICK⟩</p><p>Rich slides — diagrams, auto-animate, custom layout — are native in HTML; in markdown you drop back to raw HTML for those, so the terseness fades exactly where the visuals get heavy.</p>
-        <p>⟨CLICK⟩</p><p>So reach for HTML when you want diagram-heavy control, markdown for prose and fast or agent-driven authoring.</p>
-        <p>⟨CLICK⟩</p><p>And it's not either/or — this same tour ships both ways from the same feature set.</p>
+        <p>So which one should you use? Wrong question, friends — both compile to the same DOM, and you can mix them slide by slide in a single deck. But let's compare anyway.</p><p>⟨CLICK⟩</p><p>Surface: a plain section of HTML tags, versus a data-markdown section wrapping a CommonMark template. Same destination, different commute.</p><p>⟨CLICK⟩</p><p>Builds: one attribute in HTML, a triple-colon fence in Markdown.</p><p>⟨CLICK⟩</p><p>Notes: an aside element, or Note: and Rehearse: blocks. Either way, they land in the speaker view.</p><p>⟨CLICK⟩</p><p>Now the honest part: diagrams, auto-animate, fine layout — that's HTML's home turf. In Markdown you drop back to raw HTML exactly where the visuals get ambitious.</p><p>⟨CLICK⟩</p><p>So: HTML when you want control, Markdown when you're moving fast — or when the author is an agent. Which, around here, is often.</p><p>⟨CLICK⟩</p><p>And it's not a religion. This very tour ships both ways, from the same feature set.</p>
       </aside>
       <aside class="rehearse">
         <p>Same DOM, two surfaces — mix per slide</p>
@@ -302,10 +289,7 @@ Note: + Rehearse: inline
       <p>Real PTY output, replayed step by step — never a video</p>
       <div class="terminal" data-cast-inline="#cast-git-tour" data-mode="step" data-rows="12"></div>
       <aside class="notes">
-        <p>This was recorded with decklight rec from a YAML script: a real shell, real output, secrets redacted at capture.</p>
-        <p>⟨CLICK⟩</p><p>Each advance types the command with humane jitter, then streams the recorded output.</p>
-        <p>⟨CLICK⟩</p><p>Casts embed their script — decklight refresh re-records them when your tools change.</p>
-        <p>⟨CLICK⟩</p><p>And decklight export flattens to asciicast v2 for the asciinema ecosystem.</p>
+        <p>Terminal demos. This one was recorded with decklight rec from a YAML script — a real PTY, real output, secrets redacted at capture time. Not a video. Never a video.</p><p>⟨CLICK⟩</p><p>Each advance types the command with humane little imperfections, then streams the output exactly as recorded. Truthful, repeatable, and it will never hang on conference Wi-Fi.</p><p>⟨CLICK⟩</p><p>Casts embed their own script, so when your CLI changes its output next quarter — and it will — decklight refresh re-records everything and tells you exactly what drifted.</p><p>⟨CLICK⟩</p><p>And when it's time to share, decklight export flattens to asciicast v2, and the whole asciinema ecosystem opens up.</p>
       </aside>
       <aside class="rehearse">
         <p>PTY truth, not video</p>
@@ -321,8 +305,7 @@ Note: + Rehearse: inline
       <p>Describe the slide — an agent writes the Decklight</p>
       <div class="terminal" data-cast-inline="#cast-ai-prompt" data-mode="step" data-rows="13"></div>
       <aside class="notes">
-        <p>Decklight is designed to be authored by agents, so the workflow can be exactly this: describe the slide you want, in plain language, to a coding agent.</p>
-        <p>⟨CLICK⟩</p><p>The user asks for a Kafka diagram — a broker, a partitioned topic, produced messages, two consumers — and, the part people forget, explicitly asks for labels: names, offsets, arrows. Agents draw what you name. The agent answers in Decklight: theme tokens, draw builds, SMIL motion.</p>
+        <p>Here's where it gets interesting. Decklight was designed to be authored by agents — so the workflow can be exactly this: describe the slide you want, in plain English, to your coding agent.</p><p>⟨CLICK⟩</p><p>Watch the ask: a broker, a partitioned topic, messages flowing, two consumers — and, the part everyone forgets, an explicit request for labels. Offsets, arrows, names. Agents draw what you name, friends. Name the labels. The agent answers in Decklight: tokens, draw builds, SMIL motion, the works.</p>
       </aside>
       <aside class="rehearse">
         <p>Describe the slide in plain language</p>
@@ -426,11 +409,7 @@ Note: + Rehearse: inline
         </g>
       </svg>
       <aside class="notes">
-        <p>And this is the slide that prompt produced — committed exactly as the agent wrote it.</p>
-        <p>⟨CLICK⟩</p><p>The broker draws in first: one topic, three partitions, each lane holding its messages with their offsets.</p>
-        <p>⟨CLICK⟩</p><p>The producer round-robins across all three partitions — watch the messages take turns: P0, then P1, then P2.</p>
-        <p>⟨CLICK⟩</p><p>Consumer A owns partitions zero and one…</p>
-        <p>⟨CLICK⟩</p><p>…and consumer B owns partition two — the dashed outline marks them as one consumer group. Animated, fully labelled, theme-aware — from one sentence. Cycle themes to prove no color was hardcoded.</p>
+        <p>And this is what came back — committed exactly as generated. No cleanup, no touch-ups. I want to be very clear about that.</p><p>⟨CLICK⟩</p><p>The broker sketches itself in: one topic, three partitions, every message square wearing its offset. If you've operated Kafka, this picture is home.</p><p>⟨CLICK⟩</p><p>The producer round-robins the partitions — watch the messages take turns. P0, P1, P2, repeat. Order within a partition, balance across them: that's the deal you signed with Kafka.</p><p>⟨CLICK⟩</p><p>Consumer A picks up partitions zero and one…</p><p>⟨CLICK⟩</p><p>…and consumer B takes partition two — the dashed outline is the consumer group, quietly doing the partition math. Animated, labelled, theme-aware, from one English sentence. Go ahead — cycle themes on it. Nothing breaks, because nothing was hardcoded.</p>
       </aside>
       <aside class="rehearse">
         <p>The prompt's output, untouched</p>
@@ -455,12 +434,7 @@ Note: + Rehearse: inline
         </tbody>
       </table>
       <aside class="notes">
-        <p>Everything restyles from one token contract — diagrams and terminals included. This slide arrived with a slide transition, by the way: per-slide override.</p>
-        <p>⟨CLICK⟩</p><p>T opens the picker on the pack list: Default, Classics, Old Machines, TV Series, Movies.</p>
-        <p>⟨CLICK⟩</p><p>Comma and period cycle within a pack; a boundary crossing pends until you confirm.</p>
-        <p>⟨CLICK⟩</p><p>Control-T rolls a generated theme that can never fail validation.</p>
-        <p>⟨CLICK⟩</p><p>Control-Shift-T saves it under your name.</p>
-        <p>⟨CLICK⟩</p><p>Brackets swap the typography live.</p>
+        <p>Fifty-nine themes in five packs, one token contract — and when you switch, everything moves: text, diagrams, code, terminals. By the way, did you catch that slide transition just now? Per-slide override. The deck is still demoing.</p><p>⟨CLICK⟩</p><p>Press T and the picker opens on the packs: Default, Classics, Old Machines, TV Series, Movies. Yes, there is a Game Boy theme. Yes, it passes contrast.</p><p>⟨CLICK⟩</p><p>Comma and period cycle within a pack — and if you're about to wander into a different pack, it asks first. Guardrails, not walls.</p><p>⟨CLICK⟩</p><p>Control-T rolls a brand-new theme on the spot — WCAG-fitted, palette-rule-conforming. It cannot fail validation; we property-tested that claim across hundreds of seeds, because 'trust me' is not a spec.</p><p>⟨CLICK⟩</p><p>Found one you love? Control-Shift-T saves it and hands you a portable CSS file.</p><p>⟨CLICK⟩</p><p>And the brackets swap typography live. Nine font stacks, zero rebuilds.</p>
       </aside>
       <aside class="rehearse">
         <p>One token contract</p>
@@ -484,12 +458,7 @@ Note: + Rehearse: inline
         <li>Pinned titles, auto-subtitles, per-slide print, the brand-logo chrome below</li>
       </ul>
       <aside class="notes">
-        <p>All chrome works on file double-click — no dev server.</p>
-        <p>⟨CLICK⟩</p><p>Speaker view opens in a popup and syncs as you advance.</p>
-        <p>⟨CLICK⟩</p><p>Press S again and the prose becomes big cue cards — practice recalling, not reading.</p>
-        <p>⟨CLICK⟩</p><p>Slash searches every slide by its words.</p>
-        <p>⟨CLICK⟩</p><p>Overview, blackout, fullscreen.</p>
-        <p>⟨CLICK⟩</p><p>Titles pin at one height deck-wide, subtitles style themselves, and the corner mark switches variants with the canvas.</p>
+        <p>Everything a stage needs, and all of it works from a double-clicked file. No dev server, no build step, no 'hang on, let me npm install' in front of two hundred people.</p><p>⟨CLICK⟩</p><p>S opens the speaker view in a popup — thumbnails, a timer, and notes that highlight in sync as you advance.</p><p>⟨CLICK⟩</p><p>Press S again and the prose becomes big cue cards. Rehearse mode — because reading your slides to the room is a crime we've all committed exactly once.</p><p>⟨CLICK⟩</p><p>Slash opens a finder that searches every slide by its words. Slide forty-something? Doesn't matter. Type the word.</p><p>⟨CLICK⟩</p><p>O for overview, B for blackout, F for fullscreen. The classics.</p><p>⟨CLICK⟩</p><p>And the details: titles pin at one height deck-wide, subtitles style themselves, and the corner logo swaps its light and dark variants by measuring the theme's actual background. It's the little things.</p>
       </aside>
       <aside class="rehearse">
         <p>file:// is enough</p>
@@ -511,12 +480,7 @@ decklight export demo.cast.json     # asciicast v2 for the asciinema world
 decklight bundle deck.html --all    # ONE self-contained HTML, themes included</code></pre>
       <p data-build style="font-size:0.65em; opacity:.85">This showcase bundles to a single file that works offline — logo, casts, and all 59 themes embedded.</p>
       <aside class="notes">
-        <p>The command-line story in four lines.</p>
-        <p>⟨CLICK⟩</p><p>Record against a YAML script.</p>
-        <p>⟨CLICK⟩</p><p>Refresh when tools change — casts embed their own scripts.</p>
-        <p>⟨CLICK⟩</p><p>Export for asciinema and GIF tooling.</p>
-        <p>⟨CLICK⟩</p><p>And bundle merges a whole playlist into one email-able file.</p>
-        <p>⟨CLICK⟩</p><p>This very deck ships as one file too.</p>
+        <p>The entire command-line story fits in four lines, which is exactly how long a CLI story should be.</p><p>⟨CLICK⟩</p><p>rec records a terminal cast against a YAML script — real PTY, real output.</p><p>⟨CLICK⟩</p><p>refresh re-runs every embedded script and reports drift. Your demos stay honest even when your tools won't sit still.</p><p>⟨CLICK⟩</p><p>export flattens to asciicast v2 — asciinema, GIF tooling, the lot.</p><p>⟨CLICK⟩</p><p>And bundle merges a deck — or a whole course playlist — into one self-contained HTML file you can email to a colleague with no instructions attached.</p><p>⟨CLICK⟩</p><p>This very deck ships that way too: logo, casts, all fifty-nine themes. One file. Works offline.</p>
       </aside>
       <aside class="rehearse">
         <p>Four commands</p>
@@ -539,11 +503,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
         <li>Headless-render assertions ship in the repo; <code>SPEC.md</code> is the contract</li>
       </ul>
       <aside class="notes">
-        <p>Decklight is designed to be authored by agents, which means everything must be checkable without eyeballs.</p>
-        <p>⟨CLICK⟩</p><p>If content would clip, the slide says so in the DOM.</p>
-        <p>⟨CLICK⟩</p><p>Two graders gate every shipped theme.</p>
-        <p>⟨CLICK⟩</p><p>The generator's output is property-tested across hundreds of seeds.</p>
-        <p>⟨CLICK⟩</p><p>And the SPEC is the contract every subsystem builds against.</p>
+        <p>And here's the philosophy under all of it: Decklight is built to be authored by agents, and agents don't have eyeballs. So every claim has to be checkable by a machine.</p><p>⟨CLICK⟩</p><p>If content would clip, the slide raises its hand — a data-overflow attribute, right in the DOM, where a headless test can see it.</p><p>⟨CLICK⟩</p><p>Every shipped theme passes two graders: WCAG contrast gates, and codified palette rules distilled from the themes people actually love.</p><p>⟨CLICK⟩</p><p>The theme generator is property-tested across hundreds of seeds — not 'we ran it twice and it looked fine.'</p><p>⟨CLICK⟩</p><p>And SPEC.md is the contract every subsystem builds against. When the docs and the code disagree, one of them is a bug — and we know which one.</p>
       </aside>
       <aside class="rehearse">
         <p>Agent-authorable = checkable</p>
@@ -559,7 +519,9 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       <h2>One HTML File. No Build Step.</h2>
       <p>Two stylesheets, one script — view source on this deck to start yours</p>
       <p style="font-size:0.65em; opacity:.85">Press <strong>O</strong> to see everything you just watched, or <strong>/</strong> to jump back anywhere.</p>
-      <aside class="notes"><p>That's Decklight. The fastest way to learn it is to view source on this very deck — it's one file. Thanks!</p></aside>
+      <aside class="notes">
+        <p>And that's Decklight, friends. Two stylesheets, one script, no build step. The fastest way to learn it? View source on this very deck — the whole thing is right there in one file. Thanks for watching, and go make something worth presenting.</p>
+      </aside>
       <aside class="rehearse"><p>View source — it's one file</p></aside>
     </section>
 
@@ -568,7 +530,9 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       <h2>Pop Quiz</h2>
       <p>Ten questions on what you just watched — 80% to pass</p>
       <p style="font-size:0.6em; opacity:.8">Click an answer on each slide, then → to move on. Your score is tallied on the last slide — nothing is graded until you ask for it.</p>
-      <aside class="notes"><p>A quick comprehension check on the deck's own content. Give the room a moment on each slide before advancing; the last slide reveals the score on demand.</p></aside>
+      <aside class="notes">
+        <p>Pop quiz time — ten questions on everything you just watched. No pressure, except that the podium at the end has three tiers of trophy, and we both know you want the gold. Take your time with each one; the score only reveals itself when asked.</p>
+      </aside>
       <aside class="rehearse"><p>10 questions, 80% to pass</p></aside>
     </section>
 
@@ -728,7 +692,9 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
         <p>Under 80% — here's what to revisit:</p>
         <ol id="quiz-recap" class="quiz-recap" data-scroll-ok></ol>
       </div>
-      <aside class="notes"><p>Clicking Reveal grades every question client-side. A pass puts a trophy on the podium — bronze from eighty percent, silver from ninety, gold for a perfect run — under a downpour of theme-colored confetti; a miss lists exactly which answers to revisit. Change any answer and the verdict re-grades live.</p></aside>
+      <aside class="notes">
+        <p>Moment of truth. Reveal grades everything client-side: eighty percent puts bronze on the podium, ninety takes silver, and a perfect run gets the gold — under a frankly irresponsible amount of confetti. Come up short and you get a precise list of what to revisit. And if you change an answer, the verdict re-grades on the spot. We don't do stale scores here.</p>
+      </aside>
       <aside class="rehearse"><p>Reveal → podium trophy + confetti, or a miss list</p></aside>
     </section>
 
