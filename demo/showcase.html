@@ -18,8 +18,23 @@
     .quiz-btn { font: inherit; font-size: 0.6em; font-weight: 700; padding: 0.6em 1.7em; margin-top: 0.9em; border: none; border-radius: var(--block-radius, 8px); background: var(--accent, #6af); color: var(--accent-contrast, #111); cursor: pointer; }
     .quiz-btn:hover { filter: brightness(1.08); }
     .quiz-score { font-size: 0.9em; font-weight: 700; margin-top: 0.6em; }
-    .quiz-confetti { display: flex; justify-content: center; gap: 22px; font-size: 1.8em; margin: 0.3em 0; }
     .quiz-pass p, .quiz-fail p { font-size: 0.65em; }
+    /* victory scene: podium on theme tokens, trophy metal set per tier via
+       --trophy/--trophy-deep (semantic medal colors, deliberately not themed) */
+    .quiz-scene { display: block; margin: 0.4em auto 0; }
+    .quiz-tier { font-size: 0.7em; font-weight: 700; margin: 0.3em 0 0; }
+    /* frantic confetti: outer element falls, its pseudo tumbles/sways —
+       two transforms that would cancel on a single element */
+    .quiz-confetti-rain { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+    .quiz-confetti-rain i { position: absolute; top: -28px; display: block; animation: quiz-fall linear infinite; }
+    .quiz-confetti-rain i::before {
+      content: ''; display: block; width: 100%; height: 100%; border-radius: 2px;
+      background: var(--c, var(--accent));
+      animation: quiz-tumble var(--tumble, .6s) ease-in-out infinite alternate;
+    }
+    @keyframes quiz-fall { from { transform: translateY(-32px); } to { transform: translateY(772px); } }
+    @keyframes quiz-tumble { from { transform: rotate3d(1, 1, 0, 0deg) translateX(-16px); } to { transform: rotate3d(1, 1, 0, 340deg) translateX(16px); } }
+    @media (prefers-reduced-motion: reduce) { .quiz-confetti-rain { display: none; } }
     .quiz-recap { text-align: left; max-width: 40em; margin: 0.5em auto 0; max-height: 240px; overflow-y: auto; font-size: 0.48em; padding-right: 6px; }
     .quiz-recap li { margin: 0.55em 0; }
     .quiz-recap .quiz-correct { color: var(--accent, #6af); }
@@ -684,21 +699,37 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       <button id="quiz-check" class="quiz-btn" type="button">Reveal My Score</button>
       <p id="quiz-score" class="quiz-score" hidden></p>
       <div id="quiz-pass" class="quiz-pass" hidden>
-        <div class="quiz-confetti" aria-hidden="true">
-          <span data-animate="bounce">🎉</span>
-          <span data-animate="spin">✨</span>
-          <span data-animate="float">🚀</span>
-          <span data-animate="spin">✨</span>
-          <span data-animate="bounce">🎊</span>
-        </div>
-        <p>80%+ — you get Decklight.</p>
+        <svg id="quiz-scene" class="quiz-scene" viewBox="0 0 360 194" width="330" role="img" aria-label="Winners' podium with a trophy on the first-place step">
+          <!-- trophy — metal colors set per tier (gold/silver/bronze) by the grader -->
+          <g>
+            <rect x="154" y="24" width="52" height="8" rx="3" style="fill: var(--trophy, #f7c948)"/>
+            <path d="M160 32 h40 v16 a20 20 0 0 1 -40 0 z" style="fill: var(--trophy, #f7c948)"/>
+            <path d="M160 36 h-12 a10 12 0 0 0 16 18" fill="none" style="stroke: var(--trophy-deep, #b8860b)" stroke-width="4" stroke-linecap="round"/>
+            <path d="M200 36 h12 a10 12 0 0 1 -16 18" fill="none" style="stroke: var(--trophy-deep, #b8860b)" stroke-width="4" stroke-linecap="round"/>
+            <path d="M168 37 q2 11 7 15" fill="none" stroke="rgba(255,255,255,.5)" stroke-width="3" stroke-linecap="round"/>
+            <rect x="175" y="68" width="10" height="12" style="fill: var(--trophy-deep, #b8860b)"/>
+            <rect x="165" y="80" width="30" height="7" rx="2" style="fill: var(--trophy, #f7c948)"/>
+            <rect x="157" y="87" width="46" height="11" rx="3" style="fill: var(--trophy-deep, #b8860b)"/>
+          </g>
+          <!-- podium — theme tokens, restyles with every theme -->
+          <g style="font-family: var(--font-body)">
+            <rect x="140" y="98" width="80" height="82" rx="4" style="fill: var(--d-fill-3); stroke: var(--d-stroke)" stroke-width="2"/>
+            <rect x="60" y="126" width="80" height="54" rx="4" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/>
+            <rect x="220" y="140" width="80" height="40" rx="4" style="fill: var(--d-fill-6); stroke: var(--d-stroke)" stroke-width="2"/>
+            <text x="180" y="148" text-anchor="middle" font-size="30" font-weight="800" style="fill: var(--d-text)">1</text>
+            <text x="100" y="162" text-anchor="middle" font-size="22" font-weight="700" style="fill: var(--d-muted)">2</text>
+            <text x="260" y="168" text-anchor="middle" font-size="20" font-weight="700" style="fill: var(--d-muted)">3</text>
+            <line x1="40" y1="182" x2="320" y2="182" style="stroke: var(--d-stroke)" stroke-width="2" stroke-linecap="round"/>
+          </g>
+        </svg>
+        <p id="quiz-tier" class="quiz-tier"></p>
       </div>
       <div id="quiz-fail" class="quiz-fail" hidden>
         <p>Under 80% — here's what to revisit:</p>
         <ol id="quiz-recap" class="quiz-recap" data-scroll-ok></ol>
       </div>
-      <aside class="notes"><p>Clicking Reveal grades every question client-side and either lets the confetti loop (data-animate again, this time in service of a joke) or lists exactly which answers to revisit.</p></aside>
-      <aside class="rehearse"><p>Reveal → pass confetti or a miss list</p></aside>
+      <aside class="notes"><p>Clicking Reveal grades every question client-side. A pass puts a trophy on the podium — bronze from eighty percent, silver from ninety, gold for a perfect run — under a downpour of theme-colored confetti; a miss lists exactly which answers to revisit. Change any answer and the verdict re-grades live.</p></aside>
+      <aside class="rehearse"><p>Reveal → podium trophy + confetti, or a miss list</p></aside>
     </section>
 
   </div>
@@ -877,6 +908,38 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
     const recapEl = document.getElementById('quiz-recap');
     let revealed = false;
 
+    // podium tiers — semantic medal colors, deliberately not theme-tokened
+    const TIERS = {
+      gold:   { trophy: '#f7c948', deep: '#b8860b', line: 'Gold — a perfect run.' },
+      silver: { trophy: '#d7dee8', deep: '#8e9bad', line: 'Silver — one step from flawless.' },
+      bronze: { trophy: '#d2884b', deep: '#96562a', line: 'Bronze — you get Decklight.' },
+    };
+    const tierFor = (pct) => (pct === 100 ? 'gold' : pct >= 90 ? 'silver' : 'bronze');
+
+    // frantic confetti: ~90 theme-colored pieces raining over the whole
+    // slide; sizes, columns, speeds and phases are randomized once
+    let confettiEl = null;
+    function ensureConfetti() {
+      if (confettiEl) return;
+      confettiEl = document.createElement('div');
+      confettiEl.className = 'quiz-confetti-rain';
+      confettiEl.setAttribute('aria-hidden', 'true');
+      const colors = ['var(--accent)', 'var(--d-accent)', 'var(--d-fill-1)', 'var(--d-fill-2)',
+        'var(--d-fill-3)', 'var(--d-fill-4)', 'var(--d-fill-5)', 'var(--d-fill-6)'];
+      for (let i = 0; i < 90; i++) {
+        const p = document.createElement('i');
+        p.style.left = (Math.random() * 100) + '%';
+        p.style.width = (6 + Math.random() * 7) + 'px';
+        p.style.height = (9 + Math.random() * 9) + 'px';
+        p.style.setProperty('--c', colors[i % colors.length]);
+        p.style.setProperty('--tumble', (0.35 + Math.random() * 0.65) + 's');
+        p.style.animationDuration = (1.1 + Math.random() * 1.6) + 's';
+        p.style.animationDelay = (-Math.random() * 3) + 's';
+        confettiEl.appendChild(p);
+      }
+      passEl.appendChild(confettiEl);
+    }
+
     function grade() {
       const misses = [];
       let correct = 0;
@@ -901,6 +964,14 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       const pass = pct >= 80;
       passEl.hidden = !pass;
       failEl.hidden = pass;
+      if (pass) {
+        const t = TIERS[tierFor(pct)];
+        const scene = document.getElementById('quiz-scene');
+        scene.style.setProperty('--trophy', t.trophy);
+        scene.style.setProperty('--trophy-deep', t.deep);
+        document.getElementById('quiz-tier').textContent = t.line;
+        ensureConfetti();
+      }
       // question/label text came from textContent (entities decoded) —
       // build the recap with textContent too, never re-parse it as HTML
       recapEl.replaceChildren(...(pass ? [] : misses.map((m) => {
