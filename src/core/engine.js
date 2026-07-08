@@ -1912,6 +1912,48 @@ export function init(userConfig = {}) {
   // but the deck NEVER auto-advances off it; the presenter moves on
   // manually and narration resumes on the next slide.
   const narrationHolds = (sl) => instance._sections[sl - 1]?.dataset.narration === 'hold';
+  // ── lookahead buffer ──────────────────────────────────────────────────
+  // While live narration is ON, keep the next LIVE_LOOKAHEAD segments
+  // synthesized in the background. Low priority by construction: ONE
+  // buffer request in flight at a time (plus a small yield between calls),
+  // so a foreground play never waits behind a burst — and since buffer and
+  // playback share the promise cache, reaching a segment mid-synthesis
+  // just awaits the same promise. The loop re-derives its window from the
+  // CURRENT position each iteration, so navigation, voice/tone changes
+  // (new cache keys) and toggling V off all just work; results land in the
+  // (voice, tone) cache and the loop moves on to the next hole.
+  const LIVE_LOOKAHEAD = 10;
+  let bufferGen = 0;
+  function upcomingSegs(count) {
+    const out = [];
+    let sl = instance.state.slide;
+    let step = instance.state.step + 1;
+    while (out.length < count && sl <= instance.state.totalSlides) {
+      const segs = notesSegs(sl);
+      const max = instance._records[sl - 1] ? instance._records[sl - 1].groups.length : 0;
+      for (; step <= max && out.length < count; step++) {
+        if (segs[step]) out.push([sl, step]);
+      }
+      sl += 1;
+      step = 0;
+    }
+    return out;
+  }
+  async function fillLiveBuffer() {
+    const gen = ++bufferGen; // newest loop wins; stale ones exit
+    while (gen === bufferGen && narrating && narrSet?.live) {
+      const hole = upcomingSegs(LIVE_LOOKAHEAD)
+        .find(([sl, step]) => !liveCache.has(`${sl}|s${step}|${liveCfg.voice}|${liveCfg.style}`));
+      if (!hole) return; // window full — the next slide/build event re-arms
+      try {
+        await fetchLiveSeg(hole[0], hole[1]);
+      } catch {
+        return; // bridge unreachable — stop; the next event retries
+      }
+      await new Promise((r) => setTimeout(r, 50)); // yield to foreground
+    }
+  }
+
   // When a segment finishes, reveal the next build; after the last step,
   // move to the next slide. Guarded on (slide, step) so any manual
   // navigation mid-clip silently wins over the pending advance.
@@ -1926,6 +1968,7 @@ export function init(userConfig = {}) {
   async function playLive() {
     const sl = instance.state.slide, step = instance.state.step;
     const gen = ++liveSegGen;
+    fillLiveBuffer(); // (re-)arm the lookahead from the new position
     if (!notesText(sl)) {
       if (narrationHolds(sl)) { debugLog('narr', `hold on slide ${sl} — manual advance`); return; }
       // nothing to say on this slide at all — skip it after a short beat
@@ -1950,14 +1993,8 @@ export function init(userConfig = {}) {
       narrAudio.playbackRate = narrRate;
       narrAudio.onended = () => { if (gen === liveSegGen) advanceFrom(sl, step); };
       narrAudio.play().catch(() => { /* autoplay policy */ });
-      // prefetch what's next while this segment speaks: the next segment on
-      // this slide, else the next slide's opening segment
-      const rec = instance._records[sl - 1];
-      if (step < (rec ? rec.groups.length : 0) && segs[step + 1]) {
-        fetchLiveSeg(sl, step + 1).catch(() => { /* prefetch only */ });
-      } else if (sl < instance.state.totalSlides) {
-        fetchLiveSeg(sl + 1, 0).catch(() => { /* prefetch only */ });
-      }
+      // no per-segment prefetch here — the lookahead buffer armed above
+      // keeps the next LIVE_LOOKAHEAD segments warming in the background
     } catch {
       if (!liveWarned) { toast('live voice bridge unreachable — run: decklight tts'); liveWarned = true; }
       debugLog('narr', `live synth failed (slide ${sl} step ${step})`);
@@ -1983,6 +2020,7 @@ export function init(userConfig = {}) {
       playSlideFile();
     } else {
       liveSegGen++; // cancel any pending silent-beat advance
+      bufferGen++;  // stop the lookahead loop
       narrAudio?.pause();
       toast('narration off');
       debugLog('narr', 'off');
