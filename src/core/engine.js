@@ -834,6 +834,7 @@ export function init(userConfig = {}) {
       (playlist || hasMarkersDOM) && { label: 'Module…', hint: 'M', run: toggleModuleMenu },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
+      { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption transcript', run: toggleCaptions },
       { label: 'Fullscreen', hint: 'F', run: () => document.documentElement.requestFullscreen?.() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
@@ -1542,6 +1543,7 @@ export function init(userConfig = {}) {
       <tr><td>⇧V</td><td>record offline narration (live voice)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
+      <tr><td>C</td><td>captions (current notes segment)</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
@@ -1686,6 +1688,7 @@ export function init(userConfig = {}) {
       case 'o': case 'O': toggleOverview(); break;
       case 'b': case 'B': toggleBlackout(); break;
       case 'd': case 'D': toggleDebug(); break;
+      case 'c': case 'C': toggleCaptions(); break;
       case 'f': case 'F': document.documentElement.requestFullscreen?.(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
       case 'n': case 'N': openNarrPicker(); break;
@@ -1955,6 +1958,39 @@ export function init(userConfig = {}) {
   // builds re-sync the live voice too — whether the advance came from the
   // narration itself or from the presenter pressing → mid-sentence
   instance.on('build', () => { if (narrating && narrSet?.live) playLive(); });
+
+  // ── closed captions (C) — SPEC §8 ────────────────────────────────────────
+  // YouTube-style captions: the CURRENT notes segment (the same text the
+  // live voice speaks) in a bar at the bottom, synced to slide/step. Works
+  // with narration on or off — it's the deck's transcript. Persists per deck.
+  const captionsKey = 'decklight-captions:' + location.pathname;
+  let captionsOn = false;
+  try { captionsOn = localStorage.getItem(captionsKey) === '1'; } catch { /* ignore */ }
+  let captionEl = null;
+  function updateCaption() {
+    if (!captionEl) return;
+    const text = notesSegs(instance.state.slide)[instance.state.step] ?? '';
+    captionEl.textContent = text;
+    captionEl.classList.toggle('show', !!text);
+  }
+  function showCaptions() {
+    captionEl = document.createElement('div');
+    captionEl.className = 'decklight-captions';
+    captionEl.setAttribute('aria-live', 'polite');
+    root.appendChild(captionEl);
+    updateCaption();
+  }
+  function toggleCaptions() {
+    captionsOn = !captionsOn;
+    try { localStorage.setItem(captionsKey, captionsOn ? '1' : '0'); } catch { /* ignore */ }
+    if (captionsOn) showCaptions();
+    else { captionEl?.remove(); captionEl = null; }
+    toast(`captions ${captionsOn ? 'on' : 'off'}`);
+    debugLog('narr', `captions ${captionsOn ? 'on' : 'off'}`);
+  }
+  instance.on('slide', updateCaption);
+  instance.on('build', updateCaption);
+  if (captionsOn && !printMode) showCaptions();
   if (params.has('voiceover') && narrSet && !printMode) {
     // whichever gesture fires first must disarm the OTHER listener too, or
     // the survivor re-arms narration on the next key/click after V stops it

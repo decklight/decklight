@@ -147,6 +147,7 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `S` | speaker view (again: rehearse mode) |
 | `B` / `F` | blackout / fullscreen |
 | `D` | debug log (events, theme/font/narration, errors) |
+| `C` | captions — the current notes segment, YouTube-style |
 | `T` | theme picker (type to filter) |
 | `/` | command palette |
 | `V` | narration on/off |

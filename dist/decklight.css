@@ -824,6 +824,26 @@
 .decklight-debug .dbg-narr .dbg-k { color: #8fd6a8; }
 .decklight-debug .dbg-tts .dbg-k { color: #7fb8ff; }
 
+/* closed captions (C) — the current notes segment, youtube-style */
+.decklight-captions {
+  position: absolute;
+  left: 50%;
+  bottom: 7%;
+  transform: translateX(-50%);
+  max-width: 72%;
+  padding: 10px 18px;
+  border-radius: 8px;
+  background: rgba(8, 9, 12, .8);
+  color: #fff;
+  font-size: 21px;
+  line-height: 1.45;
+  text-align: center;
+  z-index: 45;
+  pointer-events: none;
+  display: none;
+}
+.decklight-captions.show { display: block; }
+
 /* ---------- print (SPEC §8) ------------------------------------------------ */
 .decklight.decklight-print { position: static; overflow: visible; }
 .decklight.decklight-print .decklight-stage {
