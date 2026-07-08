@@ -825,6 +825,8 @@ export function init(userConfig = {}) {
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
       { label: 'Record offline narration…', hint: '⇧V', alias: 'export download batch wav tts', run: openRecordDialog },
+      { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
+      { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
       { label: 'Speaker view', hint: 'S', run: () => {
         const w = instance.__speakerWin;
         if (w && !w.closed) w.__decklightSpeakerToggle?.();
@@ -1492,7 +1494,8 @@ export function init(userConfig = {}) {
     return `slide ${instance.state.slide}/${instance.state.totalSlides}`
       + ` · step ${instance.state.step}/${rec ? rec.groups.length : 0}`
       + ` · theme ${currentTheme() ?? '—'}`
-      + ` · narration ${narrating ? 'on' : 'off'} (${narrWhat})`;
+      + ` · narration ${narrating ? 'on' : 'off'} (${narrWhat})`
+      + (narrRate !== 1 ? ` · ${narrRate}×` : '');
   }
   function appendDebugRow(e) {
     const row = document.createElement('div');
@@ -1541,6 +1544,7 @@ export function init(userConfig = {}) {
       <tr><td>V</td><td>narration on/off</td></tr>
       <tr><td>N</td><td>narration track</td></tr>
       <tr><td>⇧V</td><td>record offline narration (live voice)</td></tr>
+      <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
       <tr><td>C</td><td>captions (current notes segment)</td></tr>
@@ -1701,8 +1705,10 @@ export function init(userConfig = {}) {
       }
       case 't': case 'T': openThemePicker(); break;
       case '/': openPalette(); break;
-      case '.': case '>': cycleTheme(1); break;
-      case ',': case '<': cycleTheme(-1); break;
+      case '.': cycleTheme(1); break;
+      case ',': cycleTheme(-1); break;
+      case '>': changeNarrRate(+0.25); break;  // youtube's ⇧>
+      case '<': changeNarrRate(-0.25); break;  // youtube's ⇧<
       case ']': cycleFont(1); break;
       case '[': cycleFont(-1); break;
       case 'm': case 'M': if (!playlist && !hasMarkersDOM) return; toggleModuleMenu(); break;
@@ -1824,6 +1830,22 @@ export function init(userConfig = {}) {
     else { const hit = narrSets.find((t) => t.dir === saved?.dir); if (hit) narrSet = hit; }
   } catch { /* ignore */ }
   let narrating = false, narrAudio = null, liveWarned = false;
+  // voice speed — YouTube's ⇧< / ⇧> in 0.25× steps, clamped 0.25–2×,
+  // persisted per deck; applies to live and recorded narration alike
+  const narrRateKey = 'decklight-narr-rate:' + location.pathname;
+  let narrRate = 1;
+  try {
+    const v = parseFloat(localStorage.getItem(narrRateKey) ?? '');
+    if (v >= 0.25 && v <= 2) narrRate = v;
+  } catch { /* ignore */ }
+  function changeNarrRate(delta) {
+    narrRate = Math.round(Math.min(2, Math.max(0.25, narrRate + delta)) * 100) / 100;
+    try { localStorage.setItem(narrRateKey, String(narrRate)); } catch { /* ignore */ }
+    if (narrAudio) narrAudio.playbackRate = narrRate;
+    toast(`voice speed ${narrRate}×`);
+    debugLog('narr', `rate ${narrRate}×`);
+    updateDebugState();
+  }
   // slide|voice|style → PROMISE of a blob URL. Caching the promise (not the
   // resolved URL) dedups concurrent misses: the prefetch and a play (or a
   // ⇧V recording pass) for the same slide share one POST instead of racing
@@ -1915,6 +1937,7 @@ export function init(userConfig = {}) {
       if (gen !== liveSegGen || !narrating || instance.state.slide !== sl || instance.state.step !== step) return;
       narrAudio ??= new Audio();
       narrAudio.src = url;
+      narrAudio.playbackRate = narrRate;
       narrAudio.onended = () => { if (gen === liveSegGen) advanceFrom(sl, step); };
       narrAudio.play().catch(() => { /* autoplay policy */ });
       // prefetch what's next while this segment speaks: the next segment on
@@ -1937,6 +1960,7 @@ export function init(userConfig = {}) {
     // state.slide and the files are BOTH 1-based (slide-01 = first section).
     // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
     narrAudio.src = `${narrSet.dir}/slide-${String(instance.state.slide).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
+    narrAudio.playbackRate = narrRate;
     narrAudio.play().catch(() => { /* no file for this slide */ });
   }
   function toggleNarration() {

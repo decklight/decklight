@@ -153,6 +153,7 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `V` | narration on/off |
 | `N` | narration picker (tracks, live voice, tone) |
 | `⇧V` | record offline narration (live voice) |
+| `<` / `>` | voice speed, 0.25× steps (YouTube's shortcut) |
 | `,` / `.` | cycle theme |
 | `[` / `]` | cycle font |
 | `⌃T` / `⌃⇧T` | generate a theme / save it |
