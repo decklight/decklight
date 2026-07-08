@@ -865,10 +865,8 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
     pinTitles: true,
     concepts: { engine: 3, themes: 5, terminal: 1, cli: 4 },
     logo: { onLight: '#dl-mark-charcoal', onDark: '#dl-mark-snow' },
-    narration: { files: [
-      { label: 'Ryan · piper, local', dir: 'voiceover' },
-      { label: 'Alnilam · gemini-2.5-pro-tts', dir: 'voiceover-gemini' },
-    ] },
+    // no pre-rendered narration tracks: N opens straight on live voices
+    // (decklight tts); record a fresh set anytime with ⇧V or tools/voiceover.mjs
   });
   </script>
   <script>
