@@ -26,10 +26,13 @@ const TYPE_SPEED_KEY = 'decklight-term-typespeed:' + location.pathname;
 const clampScale = (n) => Math.max(1, Math.min(10, n));
 const typeRate = (s) => 2 ** ((s - 5) / 2.5);
 
-// Subtle synthesized key clicks while commands type — no audio asset: each
-// keystroke is a ~35ms bandpass-filtered noise tick with jittered pitch and
-// level. The shared AudioContext resumes on the first (gesture-driven)
-// advance; data-type-sound="off" opts a terminal out.
+// Subtle synthesized key thocks while commands type — no audio asset. The
+// voicing aims for a "creamy" lubed mechanical switch, not a clacky one:
+// a quick pitch-dropping low sine (the thock body) plus a lowpass-muted
+// puff of noise (the tactile texture), both with soft attacks and jittered
+// pitch/level so no two keys sound identical. The shared AudioContext
+// resumes on the first (gesture-driven) advance; data-type-sound="off"
+// opts a terminal out.
 let keyCtx = null;
 let keyNoise = null;
 function keyClick(intensity = 1) {
@@ -39,26 +42,43 @@ function keyClick(intensity = 1) {
     keyCtx ??= new AC();
     if (keyCtx.state === 'suspended') keyCtx.resume();
     if (!keyNoise) {
-      const len = Math.floor(keyCtx.sampleRate * 0.03);
+      const len = Math.floor(keyCtx.sampleRate * 0.06);
       keyNoise = keyCtx.createBuffer(1, len, keyCtx.sampleRate);
       const d = keyNoise.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     }
+    const t = keyCtx.currentTime;
+    const jitter = 0.7 + Math.random() * 0.6;
+    // thock body: a low sine dropping ~an octave over its short life
+    const osc = keyCtx.createOscillator();
+    osc.type = 'sine';
+    const f0 = 140 + Math.random() * 55;
+    osc.frequency.setValueAtTime(f0, t);
+    osc.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + 0.055);
+    const og = keyCtx.createGain();
+    og.gain.setValueAtTime(0.0001, t);
+    og.gain.exponentialRampToValueAtTime(0.085 * intensity * jitter, t + 0.005);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.095);
+    osc.connect(og);
+    og.connect(keyCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.1);
+    // tactile texture: noise through a gentle lowpass, softer than the body
     const src = keyCtx.createBufferSource();
     src.buffer = keyNoise;
-    const bp = keyCtx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 2400 + Math.random() * 2200;
-    bp.Q.value = 1.2;
+    const lp = keyCtx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 750 + Math.random() * 450;
+    lp.Q.value = 0.7;
     const g = keyCtx.createGain();
-    const t = keyCtx.currentTime;
-    g.gain.setValueAtTime(0.05 * intensity * (0.7 + Math.random() * 0.6), t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
-    src.connect(bp);
-    bp.connect(g);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.03 * intensity * jitter, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
+    src.connect(lp);
+    lp.connect(g);
     g.connect(keyCtx.destination);
     src.start(t);
-    src.stop(t + 0.04);
+    src.stop(t + 0.06);
   } catch { /* no audio in this environment */ }
 }
 
@@ -301,7 +321,7 @@ class TerminalController {
         this.linesEl.innerHTML = base + this._promptHtml() +
           `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
         this._scrollToEnd();
-        await sleep((30 + Math.random() * 40) / speedFactor);
+        await sleep((60 + Math.random() * 50) / speedFactor);
       }
       await sleep(120 / speedFactor);
     }
@@ -332,7 +352,7 @@ class TerminalController {
           if (this.typeSound) keyClick(ch === ' ' ? 0.7 : 1);
           screen.write(ch);
           paint();
-          await sleep(35 / speedFactor);
+          await sleep(60 / speedFactor);
         }
       } else {
         screen.write(ev.d);
@@ -400,7 +420,7 @@ class TerminalController {
           this.linesEl.innerHTML = base + this._promptHtml() +
             `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
           this._scrollToEnd();
-          await sleep(40 / speedFactor);
+          await sleep(75 / speedFactor);
         }
       }
       // stream at original pacing / speed
@@ -422,7 +442,7 @@ class TerminalController {
         if (ev.kind === 'i') {
           for (const ch of ev.d) {
             if (this.typeSound) keyClick(ch === ' ' ? 0.7 : 1);
-            screen.write(ch); paint(); await sleep(35 / speedFactor);
+            screen.write(ch); paint(); await sleep(60 / speedFactor);
           }
         } else { screen.write(ev.d); paint(); }
       }
