@@ -50,7 +50,7 @@ Open the file in a browser — `file://` works for everything, no server needed.
 
 ## Builds (Keynote-style progressive reveals)
 
-The container opts in; the engine does the rest. The class-on-every-item model — and its one-word-fragment failure mode — is impossible by design.
+The container opts in; the engine does the rest — one attribute on the container, zero classes on the items.
 
 | Syntax | Meaning |
 |---|---|

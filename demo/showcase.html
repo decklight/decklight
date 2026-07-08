@@ -63,7 +63,7 @@
       <ul data-build="fade-up">
         <li><code>data-build</code> on the list — every item steps in order</li>
         <li>One attribute, zero per-item classes</li>
-        <li>The one-word-fragment bug class is impossible by design</li>
+        <li>Hidden steps hold their space — layout never shifts</li>
         <li>Entrance styles: fade · fade-up · zoom · pop · draw · highlight</li>
       </ul>
       <p data-build="pop">…and leaf elements can <strong>pop</strong> in on their own.</p>
@@ -71,7 +71,7 @@
         <p>Builds are container-driven. This list carries one attribute.</p>
         <p>⟨CLICK⟩</p><p>Each press of the arrow reveals one item, in document order.</p>
         <p>⟨CLICK⟩</p><p>No classes on the items themselves.</p>
-        <p>⟨CLICK⟩</p><p>Which is why the classic Reveal one-word-fragment bug can't happen here.</p>
+        <p>⟨CLICK⟩</p><p>Hidden steps keep their box, so the layout never jumps as items land.</p>
         <p>⟨CLICK⟩</p><p>Eight entrance styles, all CSS-driven.</p>
         <p>⟨CLICK⟩</p><p>And a single paragraph can be its own build step — like this pop.</p>
       </aside>
@@ -79,7 +79,7 @@
         <p>Container opts in</p>
         <p>⟨CLICK⟩</p><p>One attribute</p>
         <p>⟨CLICK⟩</p><p>No per-item classes</p>
-        <p>⟨CLICK⟩</p><p>Fragment bug impossible</p>
+        <p>⟨CLICK⟩</p><p>No layout shift</p>
         <p>⟨CLICK⟩</p><p>Eight entrance styles</p>
         <p>⟨CLICK⟩</p><p>Leaf pop</p>
       </aside>
@@ -198,7 +198,7 @@
       <pre data-lines="1|2-5|7" data-lines-numbers><code class="language-html">&lt;ul data-build="fade-up"&gt;
   &lt;li&gt;data-build on the list — every item steps&lt;/li&gt;
   &lt;li&gt;One attribute, zero per-item classes&lt;/li&gt;
-  &lt;li&gt;The fragment bug class is impossible&lt;/li&gt;
+  &lt;li&gt;Hidden steps hold their space&lt;/li&gt;
 &lt;/ul&gt;
 
 &lt;p data-build="pop"&gt;…and leaves can pop in on their own.&lt;/p&gt;</code></pre>

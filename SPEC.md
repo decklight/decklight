@@ -54,8 +54,8 @@ Speaker notes in markdown slides.
 
 ## 2. Builds (Keynote-style; Reveal calls these fragments)
 
-Design goal: **the container opts in, the engine does the rest** — the class-on-each-item
-model (and its one-word-fragment failure mode) must be impossible to reproduce.
+Design goal: **the container opts in, the engine does the rest** — one attribute on the
+container, zero classes on the items.
 
 ### 2.1 Authoring
 
