@@ -33,9 +33,19 @@ const typeRate = (s) => 2 ** ((s - 5) / 2.5);
 // pitch/level so no two keys sound identical. The shared AudioContext
 // resumes on the first (gesture-driven) advance; data-type-sound="off"
 // opts a terminal out.
+// Three switch voicings, tuned from the community's acoustic vocabulary:
+// thocky = lows under 500Hz dominate, wooden, longer rounded decay;
+// creamy = rounded low-pitched marble-on-felt, soft attack, no highs;
+// clacky = bright 2-5kHz snap, thin quick body, hard attack.
+const KEY_PROFILES = {
+  thocky: { f: [70, 140], spaceF: [55, 85], drop: [0.5, 0.7], decay: [0.10, 0.14], body: 0.105, spaceBody: 0.15, tex: ['lowpass', 300, 700], texGain: 0.02, texDecay: 0.06, attack: 0.006 },
+  creamy: { f: [105, 220], spaceF: [80, 120], drop: [0.45, 0.7], decay: [0.08, 0.11], body: 0.085, spaceBody: 0.13, tex: ['lowpass', 550, 1200], texGain: 0.03, texDecay: 0.052, attack: 0.005 },
+  clacky: { f: [180, 320], spaceF: [120, 180], drop: [0.55, 0.75], decay: [0.04, 0.06], body: 0.05, spaceBody: 0.085, tex: ['bandpass', 2500, 4500], texGain: 0.06, texDecay: 0.028, attack: 0.001 },
+};
+
 let keyCtx = null;
 let keyNoise = null;
-function keyClick(ch = '') {
+function keyClick(ch = '', profile = 'creamy') {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -47,44 +57,47 @@ function keyClick(ch = '') {
       const d = keyNoise.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     }
+    const P = KEY_PROFILES[profile] ?? KEY_PROFILES.creamy;
+    const rnd = (lo, hi) => lo + Math.random() * (hi - lo);
     const t = keyCtx.currentTime;
     const space = ch === ' ';
-    // no two keys sound the same: a full octave of pitch spread, and the
-    // drop ratio and decay wander per keystroke. The spacebar is the big
-    // key on the board: deeper (80-120Hz) and reliably LOUDER than letters.
+    // no two keys sound the same: wide pitch spread, wandering drop ratio
+    // and decay per keystroke. The spacebar is the big key on the board:
+    // deeper and reliably LOUDER than any letter.
     const jitter = space ? 0.9 + Math.random() * 0.3 : 0.65 + Math.random() * 0.7;
-    const f0 = space ? 80 + Math.random() * 40 : 105 + Math.random() * 115;
-    const drop = 0.45 + Math.random() * 0.25;
-    const body = space ? 0.13 : 0.085;
-    const decay = (space ? 0.12 : 0.08) + Math.random() * 0.03;
+    const f0 = space ? rnd(...P.spaceF) : rnd(...P.f);
+    const drop = rnd(...P.drop);
+    const body = space ? P.spaceBody : P.body;
+    const decay = rnd(...P.decay) + (space ? 0.03 : 0);
     const osc = keyCtx.createOscillator();
     osc.type = 'sine';
     osc.frequency.setValueAtTime(f0, t);
     osc.frequency.exponentialRampToValueAtTime(f0 * drop, t + decay * 0.6);
     const og = keyCtx.createGain();
     og.gain.setValueAtTime(0.0001, t);
-    og.gain.exponentialRampToValueAtTime(body * jitter, t + 0.005);
+    og.gain.exponentialRampToValueAtTime(body * jitter, t + P.attack);
     og.gain.exponentialRampToValueAtTime(0.0001, t + decay);
     osc.connect(og);
     og.connect(keyCtx.destination);
     osc.start(t);
     osc.stop(t + decay + 0.01);
-    // tactile texture: noise through a gentle lowpass, softer than the body
+    // tactile texture: filtered noise; the filter is the profile's voice
+    // (lowpass mutes thock/cream, bandpass in the 2-5kHz band is the clack)
     const src = keyCtx.createBufferSource();
     src.buffer = keyNoise;
-    const lp = keyCtx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = space ? 400 + Math.random() * 250 : 550 + Math.random() * 650;
-    lp.Q.value = 0.7;
+    const flt = keyCtx.createBiquadFilter();
+    flt.type = P.tex[0];
+    flt.frequency.value = rnd(P.tex[1], P.tex[2]) * (space ? 0.75 : 1);
+    flt.Q.value = P.tex[0] === 'bandpass' ? 1.0 : 0.7;
     const g = keyCtx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime((space ? 0.04 : 0.03) * jitter, t + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
-    src.connect(lp);
-    lp.connect(g);
+    g.gain.exponentialRampToValueAtTime(P.texGain * (space ? 1.3 : 1) * jitter, t + Math.max(P.attack * 0.6, 0.001));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + P.texDecay);
+    src.connect(flt);
+    flt.connect(g);
     g.connect(keyCtx.destination);
     src.start(t);
-    src.stop(t + 0.06);
+    src.stop(t + P.texDecay + 0.01);
   } catch { /* no audio in this environment */ }
 }
 
@@ -211,7 +224,8 @@ class TerminalController {
       if (saved >= 1 && saved <= 10) this.typeScale = saved;
     } catch { /* private mode */ }
     el.dataset.typeScale = String(this.typeScale);
-    this.typeSound = el.dataset.typeSound !== 'off';
+    const snd = (el.dataset.typeSound || 'creamy').toLowerCase();
+    this.typeSound = snd === 'off' ? null : (KEY_PROFILES[snd] ? snd : 'creamy');
     this.maxStep = (parseFloat(el.dataset.maxStep || '2.5') || 2.5) * 1000;
     this.visibleRows = parseInt(el.dataset.rows || '', 10) || Math.min(cast.meta.rows || DEFAULT_VISIBLE_ROWS, DEFAULT_VISIBLE_ROWS);
     this.epoch = 0;        // bumped to cancel in-flight animations
@@ -323,7 +337,7 @@ class TerminalController {
     if (!step.raw) {
       for (let c = 1; c <= cmd.length; c++) {
         if (this.epoch !== epoch) return;
-        if (this.typeSound) keyClick(cmd[c - 1]);
+        if (this.typeSound) keyClick(cmd[c - 1], this.typeSound);
         this.linesEl.innerHTML = base + this._promptHtml() +
           `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
         this._scrollToEnd();
@@ -355,7 +369,7 @@ class TerminalController {
         // an interactive answer gets typed, character by character
         for (const ch of ev.d) {
           if (this.epoch !== epoch) return;
-          if (this.typeSound) keyClick(ch);
+          if (this.typeSound) keyClick(ch, this.typeSound);
           screen.write(ch);
           paint();
           await sleep(60 / speedFactor);
@@ -422,7 +436,7 @@ class TerminalController {
       if (!step.raw) {
         for (let c = 1; c <= cmd.length; c++) {
           if (this.epoch !== epoch) { this._playedUpTo = s; return; }
-          if (this.typeSound) keyClick(cmd[c - 1]);
+          if (this.typeSound) keyClick(cmd[c - 1], this.typeSound);
           this.linesEl.innerHTML = base + this._promptHtml() +
             `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
           this._scrollToEnd();
@@ -447,7 +461,7 @@ class TerminalController {
         if (this.epoch !== epoch) { this._playedUpTo = s; return; }
         if (ev.kind === 'i') {
           for (const ch of ev.d) {
-            if (this.typeSound) keyClick(ch);
+            if (this.typeSound) keyClick(ch, this.typeSound);
             screen.write(ch); paint(); await sleep(60 / speedFactor);
           }
         } else { screen.write(ev.d); paint(); }

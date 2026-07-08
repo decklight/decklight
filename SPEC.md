@@ -259,7 +259,7 @@ absent — no compatibility break in either direction.
 ```
 
 - `data-mode="step"` (default): registers a build provider — each advance **types the command**
-  (synthesized keystrokes, 60–110ms jitter, each landing with a soft "creamy switch" thock) then streams its real
+  (synthesized keystrokes, 60–110ms jitter, each landing with a synthesized switch sound: data-type-sound="creamy" (default) | "thocky" | "clacky" | "off") then streams its real
   output with recorded pacing compressed to ≤2.5s per step (`data-max-step` override).
   Provider is idempotent: `apply(i)` renders steps `< i` instantly-complete, animates step `i` if
   reached by a forward advance, clears the rest.
