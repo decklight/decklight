@@ -146,6 +146,7 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `O` | overview grid |
 | `S` | speaker view (again: rehearse mode) |
 | `B` / `F` | blackout / fullscreen |
+| `D` | debug log (events, theme/font/narration, errors) |
 | `T` | theme picker (type to filter) |
 | `/` | command palette |
 | `V` | narration on/off |

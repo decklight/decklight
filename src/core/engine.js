@@ -144,6 +144,24 @@ export function init(userConfig = {}) {
   if (params.has('embedded')) config.controls = false;
   const printMode = params.has('print');
 
+  // ----- debug log (D) -------------------------------------------------------
+  // Ring buffer lives from init so events are captured even while the panel
+  // is closed; D pops the window over the deck. Declared this early because
+  // theme restoration logs during init, before the chrome exists.
+  const debugT0 = Date.now();
+  const debugBuf = [];
+  let debugEl = null;
+  function debugLog(kind, msg) {
+    debugBuf.push({ t: ((Date.now() - debugT0) / 1000).toFixed(3), kind, msg });
+    if (debugBuf.length > 200) debugBuf.shift();
+    if (debugEl) {
+      appendDebugRow(debugBuf[debugBuf.length - 1]);
+      updateDebugState();
+      const log = debugEl.querySelector('.dbg-log');
+      log.scrollTop = log.scrollHeight;
+    }
+  }
+
   const root = document.querySelector('.decklight');
   if (!root) throw new Error('Decklight: no .decklight element found');
 
@@ -291,6 +309,7 @@ export function init(userConfig = {}) {
       try { localStorage.setItem(themeKey, name); } catch { /* file:// or private mode */ }
     }
     if (!silent) toast(name);
+    debugLog('theme', name);
     updateCanvas(); // hoisted; inline/generated swaps take effect synchronously
   }
   // ── theme packs (SPEC §8) — baked from themes/packs.json at build time ────
@@ -814,6 +833,7 @@ export function init(userConfig = {}) {
       { label: 'Overview', hint: 'O', run: toggleOverview },
       (playlist || hasMarkersDOM) && { label: 'Module…', hint: 'M', run: toggleModuleMenu },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
+      { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: 'Fullscreen', hint: 'F', run: () => document.documentElement.requestFullscreen?.() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
@@ -985,6 +1005,7 @@ export function init(userConfig = {}) {
       checkOverflow(instance._sections[instance.state.slide - 1], instance.state.slide);
     }
     if (!silent) toast(`font: ${name}`);
+    debugLog('font', name);
   }
   function cycleFont(dir) { applyFont(fontIdx + dir); }
   try {
@@ -1461,6 +1482,48 @@ export function init(userConfig = {}) {
   }
 
   let helpEl = null;
+  // ----- debug log window (D) — UI over the ring buffer declared up top -----
+  function debugStateLine() {
+    const rec = instance._records?.[instance.state.slide - 1];
+    return `slide ${instance.state.slide}/${instance.state.totalSlides}`
+      + ` · step ${instance.state.step}/${rec ? rec.groups.length : 0}`
+      + ` · theme ${currentTheme() ?? '—'}`
+      + ` · narration ${narrating ? 'on' : 'off'}`;
+  }
+  function appendDebugRow(e) {
+    const row = document.createElement('div');
+    row.className = 'dbg-row dbg-' + e.kind;
+    for (const [cls, text] of [['dbg-t', e.t], ['dbg-k', e.kind], ['dbg-m', e.msg]]) {
+      const span = document.createElement('span');
+      span.className = cls;
+      span.textContent = text;
+      row.appendChild(span);
+    }
+    debugEl.querySelector('.dbg-log').appendChild(row);
+  }
+  function updateDebugState() {
+    const el = debugEl?.querySelector('.dbg-state');
+    if (el) el.textContent = debugStateLine();
+  }
+  function toggleDebug() {
+    if (debugEl) { debugEl.remove(); debugEl = null; return; }
+    debugEl = document.createElement('div');
+    debugEl.className = 'decklight-debug';
+    debugEl.innerHTML = '<div class="dbg-head">debug log — D closes</div><div class="dbg-state"></div><div class="dbg-log"></div>';
+    root.appendChild(debugEl);
+    debugBuf.forEach(appendDebugRow);
+    updateDebugState();
+    const log = debugEl.querySelector('.dbg-log');
+    log.scrollTop = log.scrollHeight;
+  }
+  // feed the log: engine events + page errors (theme/font/narration log at
+  // their call sites). The panel is passive chrome — keys keep driving the
+  // deck while it's open, so you can watch events land as you navigate.
+  instance.on('ready', (e) => debugLog('ready', `${e.slides} slides${e.print ? ' · print' : ''}`));
+  instance.on('slide', (e) => { debugLog('slide', `→ ${e.slide}/${e.total} (${e.direction})`); updateDebugState(); });
+  instance.on('build', (e) => { debugLog('build', `slide ${e.slide} step ${e.index}/${e.total} (${e.direction})`); updateDebugState(); });
+  window.addEventListener('error', (e) => debugLog('error', String(e.message)));
+
   function toggleHelp() {
     if (helpEl) { helpEl.remove(); helpEl = null; return; }
     helpEl = document.createElement('div');
@@ -1475,6 +1538,7 @@ export function init(userConfig = {}) {
       <tr><td>N</td><td>narration track</td></tr>
       <tr><td>⇧V</td><td>record offline narration (live voice)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
+      <tr><td>D</td><td>debug log</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
@@ -1618,6 +1682,7 @@ export function init(userConfig = {}) {
       case 'End': instance.goto(instance.state.totalSlides, 0); break;
       case 'o': case 'O': toggleOverview(); break;
       case 'b': case 'B': toggleBlackout(); break;
+      case 'd': case 'D': toggleDebug(); break;
       case 'f': case 'F': document.documentElement.requestFullscreen?.(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
       case 'n': case 'N': openNarrPicker(); break;
@@ -1803,6 +1868,7 @@ export function init(userConfig = {}) {
       if (sl < instance.state.totalSlides) fetchLive(sl + 1).catch(() => { /* prefetch only */ });
     } catch {
       if (!liveWarned) { toast('live voice bridge unreachable — run: decklight tts'); liveWarned = true; }
+      debugLog('narr', `live synth failed (slide ${sl})`);
     }
   }
   function playSlideFile() {
@@ -1820,10 +1886,12 @@ export function init(userConfig = {}) {
     if (narrating) {
       const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
       toast(`🔊 ${what} — V stops · N picks`);
+      debugLog('narr', `on — ${what}`);
       playSlideFile();
     } else {
       narrAudio?.pause();
       toast('narration off');
+      debugLog('narr', 'off');
     }
   }
   instance.on('slide', () => { if (narrating) playSlideFile(); });
