@@ -138,29 +138,41 @@
       </aside>
     </section>
 
-    <!-- 4+5 · auto-animate pair -->
+    <!-- 4+5 · auto-animate pair: three boxes → zoom into the middle one -->
     <section data-auto-animate>
       <h2>Auto-Animate</h2>
       <p>Magic Move between adjacent slides</p>
-      <div data-id="chip" style="display:inline-block; align-self:flex-start; margin-left: 6%; padding: 10px 26px; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 10px; font-size: 0.8em;">
-        <code>data-id="chip"</code>
+      <div style="display:flex; justify-content:center; gap:44px; margin-top:0.5em;">
+        <div data-id="aa-a" style="width:280px; height:150px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
+          <span style="font-size:0.75em; font-weight:700;">Extract</span>
+        </div>
+        <div data-id="aa-b" style="width:280px; height:150px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
+          <span data-id="aa-b-label" style="font-size:0.75em; font-weight:700;">Transform</span>
+        </div>
+        <div data-id="aa-c" style="width:280px; height:150px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
+          <span style="font-size:0.75em; font-weight:700;">Load</span>
+        </div>
       </div>
-      <p style="font-size:0.6em; opacity:.75">Advance once — watch the chip travel and grow.</p>
+      <p style="font-size:0.6em; opacity:.75">Advance once — the middle box takes over the stage.</p>
       <aside class="notes">
-        <p>Magic Move, the Keynote party trick — Decklight calls it auto-animate. Two adjacent slides opt in, matching elements share a data-id. Keep your eye on the chip.</p>
+        <p>Magic Move, the Keynote party trick — Decklight calls it auto-animate. Three equal boxes, three data-ids. On the next slide only one of them survives — keep your eye on the middle.</p>
       </aside>
-      <aside class="rehearse"><p>Watch the chip</p></aside>
+      <aside class="rehearse"><p>3 boxes — watch the middle</p></aside>
     </section>
     <section data-auto-animate>
       <h2>Auto-Animate</h2>
-      <p>Position, size, color — FLIP-morphed, HTML and SVG alike</p>
-      <div data-id="chip" style="display:inline-block; align-self:center; padding: 26px 64px; background: var(--accent); color: var(--accent-contrast); border: 2px solid var(--accent); border-radius: 18px; font-size: 1.15em; font-weight: 700;">
-        <code>data-id="chip"</code>
+      <p>Zoom into the detail — FLIP-morphed, HTML and SVG alike</p>
+      <div data-id="aa-b" style="width:760px; height:340px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; margin:0.4em auto 0; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 20px;">
+        <span data-id="aa-b-label" style="font-size:1.0em; font-weight:800;">Transform</span>
+        <div style="display:flex; gap:26px;">
+          <div style="padding: 20px 30px; background: var(--d-fill-2); border: 1.5px solid var(--d-stroke); border-radius: 16px; font-size:0.62em; color: var(--d-text);">validate the schema</div>
+          <div style="padding: 20px 30px; background: var(--d-fill-4); border: 1.5px solid var(--d-stroke); border-radius: 16px; font-size:0.62em; color: var(--d-text);">enrich with lookups</div>
+        </div>
       </div>
       <aside class="notes">
-        <p>Same chip, new life. The engine measures both slides and FLIP-animates the difference — position, size, color, radius. And it works on inline SVG too, which is where it gets genuinely fun.</p>
+        <p>And there it goes — the middle box grew into the whole stage. Same element, FLIP-morphed geometry; the neighbors bowed out, and the two detail steps inside faded in as fresh content. That zoom-into-the-details move you love in Keynote? One attribute and matching ids. Nobody wrote a keyframe.</p>
       </aside>
-      <aside class="rehearse"><p>FLIP morph — geometry + color</p></aside>
+      <aside class="rehearse"><p>Middle box zooms — details fade in</p></aside>
     </section>
 
     <!-- 6 · element animations -->
