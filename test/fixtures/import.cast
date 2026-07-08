@@ -1,0 +1,7 @@
+{"version":2,"width":80,"height":24,"timestamp":1751824800,"env":{"SHELL":"zsh","TERM":"xterm-256color"}}
+[0,"m","uname -s"]
+[0.05,"o","$ uname -s\r\n"]
+[0.2,"o","Darwin\r\n"]
+[0.9,"m","echo imported"]
+[0.95,"o","$ echo imported\r\n"]
+[1.1,"o","\u001b[32mimported\u001b[0m\r\n"]

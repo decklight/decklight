@@ -1,0 +1,80 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · linen
+   light · Natural fiber — unbleached warm white, olive and clay
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #f8f6f1;
+  --bg-accent: #efece2;
+  --fg: #3c3a33;
+  --muted: #6e6b60;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: Seravek, "Gill Sans", "Segoe UI", Verdana, sans-serif;
+  --font-heading: Seravek, "Gill Sans", "Segoe UI", Verdana, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #55601e;
+  --heading-weight: 600;
+  --link: #5c6e14;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #5f7d1f;
+  --accent-contrast: #f7ffe2;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #fdfcf8;
+  --block-border: 1px solid #e0dccc;
+  --block-radius: 6px;
+  --shadow: 0 3px 12px rgba(80, 75, 50, 0.07);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #efece2;
+  --code-fg: #3a3830;
+  --hl-keyword: #55601e;
+  --hl-string: #8a4a10;
+  --hl-number: #1d5f8a;
+  --hl-comment: #6b685c;
+  --hl-function: #256e60;
+  --hl-type: #7a3f92;
+  --hl-punct: #565348;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #7c7a5e;
+  --d-text: #3c3a33;
+  --d-muted: #787564;
+  --d-accent: #5f7d1f;
+  --d-fill-1: #ebe8d2;
+  --d-fill-2: #f0ecda;
+  --d-fill-3: #e4e4cc;
+  --d-fill-4: #f4eed8;
+  --d-fill-5: #e8e8d8;
+  --d-fill-6: #eee9cd;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #26251d;
+  --term-fg: #e8e6da;
+  --term-prompt: #c2d078;
+  --term-cursor: #c2d078;
+  --term-selection: rgba(194, 208, 120, 0.26);
+  --ansi-black: #959282;
+  --ansi-red: #f08d7c;
+  --ansi-green: #b0cc72;
+  --ansi-yellow: #e2c368;
+  --ansi-blue: #92b2d8;
+  --ansi-magenta: #c8a5c8;
+  --ansi-cyan: #92ccb2;
+  --ansi-white: #e8e5da;
+  --ansi-bright-black: #a8a494;
+  --ansi-bright-red: #f5ae9e;
+  --ansi-bright-green: #c8de95;
+  --ansi-bright-yellow: #eed592;
+  --ansi-bright-blue: #b0c8e8;
+  --ansi-bright-magenta: #dabfda;
+  --ansi-bright-cyan: #afdfc8;
+  --ansi-bright-white: #fbfaf5;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}

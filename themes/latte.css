@@ -1,0 +1,80 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · latte
+   light · Steamed milk and espresso — soft, warm café tones
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #f6efe7;
+  --bg-accent: #eee2d4;
+  --fg: #3b2f2a;
+  --muted: #6f5f55;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #6b4226;
+  --heading-weight: 700;
+  --link: #8a5022;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #a15b2e;
+  --accent-contrast: #fff5ec;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #fcf7f0;
+  --block-border: 1px solid #e5d5c2;
+  --block-radius: 16px;
+  --shadow: 0 8px 26px rgba(110, 70, 40, 0.1);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #eee2d4;
+  --code-fg: #3a2f28;
+  --hl-keyword: #8a5022;
+  --hl-string: #276238;
+  --hl-number: #8a2e42;
+  --hl-comment: #6d5f52;
+  --hl-function: #1d558a;
+  --hl-type: #7a3f92;
+  --hl-punct: #584a40;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #8a705c;
+  --d-text: #3b2f2a;
+  --d-muted: #7c6a5e;
+  --d-accent: #a15b2e;
+  --d-fill-1: #f0dfc8;
+  --d-fill-2: #ead8c8;
+  --d-fill-3: #f5e5cd;
+  --d-fill-4: #e5d2bc;
+  --d-fill-5: #f0dcd0;
+  --d-fill-6: #ecdabf;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #291f18;
+  --term-fg: #ece2d6;
+  --term-prompt: #e8a878;
+  --term-cursor: #e8a878;
+  --term-selection: rgba(232, 168, 120, 0.26);
+  --ansi-black: #9c8a7c;
+  --ansi-red: #ef8a76;
+  --ansi-green: #aac882;
+  --ansi-yellow: #e8c06e;
+  --ansi-blue: #9cb2d8;
+  --ansi-magenta: #cfa2c0;
+  --ansi-cyan: #95cab5;
+  --ansi-white: #ebe0d4;
+  --ansi-bright-black: #ad9c8e;
+  --ansi-bright-red: #f4ab97;
+  --ansi-bright-green: #c2daa2;
+  --ansi-bright-yellow: #f2d295;
+  --ansi-bright-blue: #b8c9e8;
+  --ansi-bright-magenta: #dfbad2;
+  --ansi-bright-cyan: #b2ddcb;
+  --ansi-bright-white: #faf4ec;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}

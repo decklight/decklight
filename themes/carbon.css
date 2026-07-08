@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · carbon
+   dark · IDE-native — cool graphite, blue/violet duotone syntax
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #121417;
+  --bg-accent: #191c21;
+  --fg: #e4e7eb;
+  --muted: #9da5b0;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "JetBrains Mono", "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-mono: "JetBrains Mono", "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #9db8ff;
+  --heading-weight: 700;
+  --link: #82aaff;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #81a5ea;
+  --accent-contrast: #001536;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #191d22;
+  --block-border: 1px solid #262b33;
+  --block-radius: 8px;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #0d0f12;
+  --code-fg: #dfe3e8;
+  --hl-keyword: #8badf6;
+  --hl-string: #8dd3a4;
+  --hl-number: #c0a8f5;
+  --hl-comment: #7e8794;
+  --hl-function: #b0baf5;
+  --hl-type: #7cc7e8;
+  --hl-punct: #a2aab5;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #5c6b85;
+  --d-text: #e4e7eb;
+  --d-muted: #8d95a3;
+  --d-accent: #6c9fff;
+  --d-fill-1: #1c2230;
+  --d-fill-2: #202940;
+  --d-fill-3: #232030;
+  --d-fill-4: #1a2a3d;
+  --d-fill-5: #252b3a;
+  --d-fill-6: #1e2536;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0a0c0f;
+  --term-fg: #d9dde2;
+  --term-prompt: #6c9fff;
+  --term-cursor: #6c9fff;
+  --term-selection: rgba(108, 159, 255, 0.28);
+  --ansi-black: #89919f;
+  --ansi-red: #d2726a;
+  --ansi-green: #6ad26d;
+  --ansi-yellow: #d2b76a;
+  --ansi-blue: #6a9bd2;
+  --ansi-magenta: #bb6ad2;
+  --ansi-cyan: #6ad2c4;
+  --ansi-white: #dee0e3;
+  --ansi-bright-black: #a7abb4;
+  --ansi-bright-red: #e69a94;
+  --ansi-bright-green: #94e696;
+  --ansi-bright-yellow: #e6d194;
+  --ansi-bright-blue: #94bae6;
+  --ansi-bright-magenta: #d394e6;
+  --ansi-bright-cyan: #94e6da;
+  --ansi-bright-white: #f2f2f3;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.28;
+}

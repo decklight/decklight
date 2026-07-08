@@ -1,0 +1,82 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · friends
+   light · warm cream, door purple, frame yellow, couch orange
+   Inspired by Friends — the purple door, the yellow frame, the orange couch — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #f7f1e2;
+  --bg-accent: none;
+  --fg: #3a3129;
+  --muted: #7d7261;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #6b4d9e;
+  --heading-weight: 700;
+  --link: #8a5f3f;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #7b5aa6;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #e9e5db;
+  --block-border: 1px solid #d0ccc1;
+  --block-radius: 12px;
+  --shadow: 0 5px 18px rgba(30, 30, 40, 0.12);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #3a3129;
+  --code-fg: #f2ead8;
+  --hl-keyword: #c8a8f0;
+  --hl-string: #b9cd89;
+  --hl-number: #eeb062;
+  --hl-comment: #94897a;
+  --hl-function: #8fc0e8;
+  --hl-type: #e8c078;
+  --hl-punct: #d8cfc0;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #7d7261;
+  --d-text: #3a3129;
+  --d-muted: #7d7261;
+  --d-accent: #7b5aa6;
+  --d-fill-1: #ddd6e5;
+  --d-fill-2: #e3decd;
+  --d-fill-3: #e2cec4;
+  --d-fill-4: #dde5d6;
+  --d-fill-5: #cddae3;
+  --d-fill-6: #e2c4d3;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #332b24;
+  --term-fg: #eceae6;
+  --term-prompt: #8b6eb1;
+  --term-cursor: #8b6eb1;
+  --term-selection: rgba(123, 90, 166, 0.28);
+  --ansi-black: #92899f;
+  --ansi-red: #c38b79;
+  --ansi-green: #79c388;
+  --ansi-yellow: #c3bc79;
+  --ansi-blue: #7990c3;
+  --ansi-magenta: #bf79c3;
+  --ansi-cyan: #79c1c3;
+  --ansi-white: #e0dee3;
+  --ansi-bright-black: #ada7b4;
+  --ansi-bright-red: #dbad9e;
+  --ansi-bright-green: #9edbaa;
+  --ansi-bright-yellow: #dbd69e;
+  --ansi-bright-blue: #9eb1db;
+  --ansi-bright-magenta: #d89edb;
+  --ansi-bright-cyan: #9edadb;
+  --ansi-bright-white: #f2f2f3;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}

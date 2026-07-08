@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · reveal-night
+   dark · true dark, Montserrat caps, amber links
+   Inspired by Reveal.js 'night' — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #111111;
+  --bg-accent: none;
+  --fg: #eeeeee;
+  --muted: #9c9c98;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: Montserrat, "Avenir Next", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #eeeeee;
+  --heading-weight: 700;
+  --link: #e5ac55;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #e5ac55;
+  --accent-contrast: #131313;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #1c1a1a;
+  --block-border: 1px solid #352a2a;
+  --block-radius: 8px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #1d1d1b;
+  --code-fg: #eeeeec;
+  --hl-keyword: #f93078;
+  --hl-string: #e6db74;
+  --hl-number: #ae81ff;
+  --hl-comment: #75715e;
+  --hl-function: #a6e22e;
+  --hl-type: #66d9ef;
+  --hl-punct: #f8f8f2;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #9c9c98;
+  --d-text: #eeeeee;
+  --d-muted: #9c9c98;
+  --d-accent: #e5ac55;
+  --d-fill-1: #251b1b;
+  --d-fill-2: #2e251d;
+  --d-fill-3: #1f2e36;
+  --d-fill-4: #20251b;
+  --d-fill-5: #231d2e;
+  --d-fill-6: #361f2b;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0b0a0a;
+  --term-fg: #e6e6e2;
+  --term-prompt: #e5ac55;
+  --term-cursor: #e5ac55;
+  --term-selection: rgba(229, 172, 85, 0.28);
+  --ansi-black: #9f9689;
+  --ansi-red: #d36e69;
+  --ansi-green: #69d369;
+  --ansi-yellow: #d3b569;
+  --ansi-blue: #699fd3;
+  --ansi-magenta: #b869d3;
+  --ansi-cyan: #69d3c1;
+  --ansi-white: #e3e1de;
+  --ansi-bright-black: #b4afa7;
+  --ansi-bright-red: #e79793;
+  --ansi-bright-green: #93e793;
+  --ansi-bright-yellow: #e7ce93;
+  --ansi-bright-blue: #93bde7;
+  --ansi-bright-magenta: #d193e7;
+  --ansi-bright-cyan: #93e7d8;
+  --ansi-bright-white: #f3f2f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { letter-spacing: -0.01em; }

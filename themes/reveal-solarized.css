@@ -1,0 +1,83 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · reveal-solarized
+   light · the canonical base3 cream, equal-lightness accents
+   Inspired by Reveal.js 'solarized' / Ethan Schoonover's Solarized Light — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R2 the canonical Solarized base3 cream canvas
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #fdf6e3;
+  --bg-accent: none;
+  --fg: #5e737a;
+  --muted: #7d8e8e;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #586e75;
+  --heading-weight: 600;
+  --link: #268bd2;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #268bd2;
+  --accent-contrast: #1c1c17;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #ece9e0;
+  --block-border: 1px solid #d3d0c5;
+  --block-radius: 8px;
+  --shadow: 0 5px 18px rgba(30, 30, 40, 0.12);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #eee8d5;
+  --code-fg: #54696f;
+  --hl-keyword: #5d6b00;
+  --hl-string: #1d706a;
+  --hl-number: #bc2970;
+  --hl-comment: #738484;
+  --hl-function: #1d6ca2;
+  --hl-type: #826200;
+  --hl-punct: #55686f;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #93a1a1;
+  --d-text: #657b83;
+  --d-muted: #738484;
+  --d-accent: #2485c9;
+  --d-fill-1: #e7e4da;
+  --d-fill-2: #e6d8d2;
+  --d-fill-3: #c9d9e4;
+  --d-fill-4: #e6e7da;
+  --d-fill-5: #e6d2db;
+  --d-fill-6: #c9e4e2;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #002b36;
+  --term-fg: #eceae6;
+  --term-prompt: #268bd2;
+  --term-cursor: #268bd2;
+  --term-selection: rgba(38, 139, 210, 0.28);
+  --ansi-black: #93a1a1;
+  --ansi-red: #dc322f;
+  --ansi-green: #859900;
+  --ansi-yellow: #b58900;
+  --ansi-blue: #268bd2;
+  --ansi-magenta: #d33682;
+  --ansi-cyan: #2aa198;
+  --ansi-white: #eee8d5;
+  --ansi-bright-black: #b4bdbd;
+  --ansi-bright-red: #e56663;
+  --ansi-bright-green: #bad600;
+  --ansi-bright-yellow: #f2b700;
+  --ansi-bright-blue: #55a7e0;
+  --ansi-bright-magenta: #de68a1;
+  --ansi-bright-cyan: #3cccc1;
+  --ansi-bright-white: #f9f7f0;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}

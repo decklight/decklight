@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · porcelain
+   light · Warm gallery white, ink-blue serif type, hairline restraint
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #faf7f2;
+  --bg-accent: #f1ece2;
+  --fg: #28313e;
+  --muted: #68707c;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: Fraunces, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #1d3557;
+  --heading-weight: 600;
+  --link: #20558a;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #1d3557;
+  --accent-contrast: #f5f9ff;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #fafafa;
+  --block-border: 1px solid #e3dccf;
+  --block-radius: 10px;
+  --shadow: 0 4px 18px rgba(60, 50, 30, 0.08);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #f1ece2;
+  --code-fg: #2b3440;
+  --hl-keyword: #8a3ba8;
+  --hl-string: #276b46;
+  --hl-number: #a04d10;
+  --hl-comment: #6d7480;
+  --hl-function: #1f5aa8;
+  --hl-type: #0f6e73;
+  --hl-punct: #4c545f;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #5b6779;
+  --d-text: #28313e;
+  --d-muted: #727a86;
+  --d-accent: #1d3557;
+  --d-fill-1: #e8eef6;
+  --d-fill-2: #e4efe6;
+  --d-fill-3: #f4ead8;
+  --d-fill-4: #ece5f2;
+  --d-fill-5: #e0eef0;
+  --d-fill-6: #f2e6e0;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #20262e;
+  --term-fg: #e5e9ee;
+  --term-prompt: #8fd0a8;
+  --term-cursor: #e5e9ee;
+  --term-selection: rgba(143, 208, 168, 0.28);
+  --ansi-black: #8994a3;
+  --ansi-red: #f28b93;
+  --ansi-green: #95d5a2;
+  --ansi-yellow: #e8c982;
+  --ansi-blue: #8db8e8;
+  --ansi-magenta: #c8a5dd;
+  --ansi-cyan: #8ad2ca;
+  --ansi-white: #e6eaef;
+  --ansi-bright-black: #a0aab8;
+  --ansi-bright-red: #f8adb3;
+  --ansi-bright-green: #b3e5bd;
+  --ansi-bright-yellow: #f2daa5;
+  --ansi-bright-blue: #aeccf0;
+  --ansi-bright-magenta: #dabfe8;
+  --ansi-bright-cyan: #a9e2dc;
+  --ansi-bright-white: #fafafa;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}

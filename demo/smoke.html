@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Decklight — core smoke deck</title>
+  <link rel="stylesheet" href="../dist/decklight.css">
+  <style>
+    /* Stub theme: the full §5 token contract, inline (real themes are a
+       separate subsystem). */
+    .decklight {
+      --bg: #14161d; --bg-accent: none; --fg: #e8eaf2; --muted: #8b90a3;
+      --font-body: system-ui, -apple-system, sans-serif;
+      --font-heading: system-ui, -apple-system, sans-serif;
+      --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+      --heading-color: #ffffff; --heading-weight: 750; --link: #8ab4ff;
+      --accent: #7c9cff; --accent-contrast: #0b0d14;
+      --block-bg: #1e212c; --block-border: #333747; --block-radius: 10px;
+      --shadow: 0 8px 30px rgba(0,0,0,.4);
+      --code-bg: #1b1e28; --code-fg: #e6e8f0;
+      --hl-keyword: #c792ea; --hl-string: #a5d6a7; --hl-number: #f78c6c;
+      --hl-comment: #7d8799; --hl-function: #82aaff; --hl-type: #ffcb6b; --hl-punct: #89ddff;
+      --d-stroke: #9aa3bd; --d-text: #e8eaf2; --d-muted: #8b90a3; --d-accent: #7c9cff;
+      --d-fill-1: #24335c; --d-fill-2: #274035; --d-fill-3: #4a3057;
+      --d-fill-4: #52402a; --d-fill-5: #23444d; --d-fill-6: #4d2b34;
+      --term-bg: #0e1017; --term-fg: #d8dee9; --term-prompt: #7ee787;
+      --term-cursor: #d8dee9; --term-selection: rgba(120,150,255,.35);
+      --ansi-black:#21222c; --ansi-red:#ff5555; --ansi-green:#50fa7b; --ansi-yellow:#f1fa8c;
+      --ansi-blue:#6272a4; --ansi-magenta:#ff79c6; --ansi-cyan:#8be9fd; --ansi-white:#f8f8f2;
+      --ansi-bright-black:#6272a4; --ansi-bright-red:#ff6e6e; --ansi-bright-green:#69ff94;
+      --ansi-bright-yellow:#ffffa5; --ansi-bright-blue:#d6acff; --ansi-bright-magenta:#ff92df;
+      --ansi-bright-cyan:#a4ffff; --ansi-bright-white:#ffffff;
+    }
+  </style>
+</head>
+<body>
+<div class="decklight">
+
+  <!-- 1: HTML slide, list build -->
+  <section>
+    <h2>Builds: the container opts in</h2>
+    <ul data-build>
+      <li>First point</li>
+      <li>Second — with <strong>bold</strong> and <code>inline code</code></li>
+      <li data-build="pop">Third, with a per-item style override</li>
+    </ul>
+    <p data-build="fade-up">A leaf build after the list.</p>
+    <aside class="notes">
+      Intro on arrival.
+      ⟨CLICK⟩ First point beat.
+      ⟨CLICK⟩ Second point beat — the whole line reveals, bold included.
+      ⟨CLICK⟩ Third pops.
+      ⟨CLICK⟩ And a closing paragraph.
+    </aside>
+  </section>
+
+  <!-- 2: SVG build with draw + id namespacing + data-build-stay -->
+  <section>
+    <h2>SVG: progressive diagram</h2>
+    <svg viewBox="0 0 800 300" data-build="draw" role="img" aria-label="three-node flow" style="max-width:85%">
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="var(--d-accent)"/>
+        </marker>
+      </defs>
+      <text x="400" y="30" text-anchor="middle" fill="var(--d-muted)" data-build-stay>static caption</text>
+      <g>
+        <rect x="60" y="110" width="180" height="70" rx="10" fill="var(--d-fill-1)" stroke="var(--d-stroke)" stroke-width="2"/>
+        <text x="150" y="152" text-anchor="middle" fill="var(--d-text)">Source</text>
+      </g>
+      <g>
+        <line x1="250" y1="145" x2="340" y2="145" stroke="var(--d-accent)" stroke-width="2.5" marker-end="url(#arrow)"/>
+        <rect x="350" y="110" width="180" height="70" rx="10" fill="var(--d-fill-2)" stroke="var(--d-stroke)" stroke-width="2"/>
+        <text x="440" y="152" text-anchor="middle" fill="var(--d-text)">Process</text>
+      </g>
+      <g>
+        <line x1="540" y1="145" x2="630" y2="145" stroke="var(--d-accent)" stroke-width="2.5" marker-end="url(#arrow)"/>
+        <rect x="640" y="110" width="120" height="70" rx="10" fill="var(--d-fill-3)" stroke="var(--d-stroke)" stroke-width="2"/>
+        <text x="700" y="152" text-anchor="middle" fill="var(--d-text)">Sink</text>
+      </g>
+    </svg>
+    <aside class="notes">Diagram slide. ⟨CLICK⟩ Source. ⟨CLICK⟩ Process draws in. ⟨CLICK⟩ Sink.</aside>
+  </section>
+
+  <!-- 3 + 4: auto-animate pair -->
+  <section data-auto-animate>
+    <h2 data-id="title">Auto-animate</h2>
+    <div data-id="box" style="width:180px;height:110px;background:var(--d-fill-1);border-radius:10px;margin:20px auto;"></div>
+    <p data-id="label" style="font-size:0.8em;">small label</p>
+  </section>
+  <section data-auto-animate>
+    <h2 data-id="title" style="color:var(--accent)">Auto-animate</h2>
+    <div data-id="box" style="width:420px;height:150px;background:var(--d-fill-3);border-radius:28px;margin:20px auto;"></div>
+    <p data-id="label" style="font-size:1.3em;">a much bigger label</p>
+    <p>Fresh content fades in.</p>
+  </section>
+
+  <!-- 5: markdown slide -->
+  <section data-markdown>
+    <script type="text/template">
+## Markdown slide
+
+Regular paragraph with **bold** and `code`.
+
+::: build
+- markdown build one
+- markdown build two
+:::
+
+| tool | verdict |
+|------|---------|
+| decklight | ✅ |
+
+```sql
+SELECT customer_id, COUNT(*) AS orders
+FROM orders            -- a comment
+GROUP BY customer_id;
+```
+
+Note:
+Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
+    </script>
+  </section>
+
+  <!-- 6: code line stepping -->
+  <section>
+    <h2>Code stepping</h2>
+    <pre data-lines="1|3-5|all" data-lines-numbers><code class="language-sql">CREATE TABLE customer_profiles (
+  `key` STRING,
+  name STRING,
+  plan STRING,
+  /* a multi-line
+     comment to exercise span splitting */
+  PRIMARY KEY (`key`) NOT ENFORCED
+) WITH ('changelog.mode' = 'upsert');</code></pre>
+    <aside class="notes">Code. ⟨CLICK⟩ Line 1. ⟨CLICK⟩ Lines 3–5. ⟨CLICK⟩ All lines.</aside>
+  </section>
+
+  <!-- 7: element animations + transition override -->
+  <section data-transition="scale">
+    <h2>Element animations</h2>
+    <p><span data-animate="pulse" style="display:inline-block;padding:.2em .6em;background:var(--block-bg);border-radius:8px;">pulse</span>
+       <span data-animate="float" style="display:inline-block;padding:.2em .6em;background:var(--block-bg);border-radius:8px;">float</span>
+       <span data-animate="blink" style="display:inline-block;padding:.2em .6em;background:var(--block-bg);border-radius:8px;">blink</span></p>
+    <aside class="notes">Scale transition into this one.</aside>
+  </section>
+
+</div>
+
+<script>
+  window.__errors = [];
+  window.addEventListener('error', (e) => window.__errors.push(String(e.message)));
+</script>
+<script src="../dist/decklight.js"></script>
+<script>
+  const deck = Decklight.init({ transition: 'fade', slideNumber: 'n/N' });
+  // Error/status sink for the headless harness: dump-dom can't read the
+  // console, so results are written into the DOM.
+  setTimeout(() => {
+    const sink = document.createElement('div');
+    sink.id = 'test-sink';
+    sink.style.display = 'none';
+    const rec = (name, value) => `${name}=${value}`;
+    const stage = document.querySelector('.decklight-stage');
+    sink.textContent = [
+      rec('errors', window.__errors.length ? 'ERROR:' + window.__errors.join(';') : 'none'),
+      rec('slides', deck.state.totalSlides),
+      rec('slide1steps', document.querySelectorAll('section[data-slide-index="1"] .build-step').length),
+      rec('svgsteps', document.querySelectorAll('section[data-slide-index="2"] .build-step').length),
+      rec('mdsteps', document.querySelectorAll('section[data-slide-index="5"] .build-step').length),
+      rec('codelines', document.querySelectorAll('section[data-slide-index="6"] .code-line').length),
+      rec('hljs', document.querySelectorAll('section[data-slide-index="6"] .hljs-keyword').length > 0),
+      rec('nsids', document.querySelectorAll('svg [id^="svg0-"]').length),
+      rec('nsrefs', stage.innerHTML.includes('url(#svg0-arrow)')),
+      rec('mdrendered', !!document.querySelector('section[data-slide-index="5"] h2')),
+      rec('mdnotes', !!document.querySelector('section[data-slide-index="5"] aside.notes')),
+      rec('mdtable', !!document.querySelector('section[data-slide-index="5"] table')),
+      rec('drawlen', document.querySelectorAll('.draw-stroke').length),
+    ].join('\n');
+    document.body.appendChild(sink);
+  }, 300);
+</script>
+</body>
+</html>

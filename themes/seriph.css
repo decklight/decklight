@@ -1,0 +1,82 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · seriph
+   light · warm white, quiet serif display, a single restrained gold
+   Inspired by Slidev's 'seriph' aesthetic — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #fdfcf9;
+  --bg-accent: none;
+  --fg: #2b2a27;
+  --muted: #807b71;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #1f1e1b;
+  --heading-weight: 600;
+  --link: #8a6d33;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #9c7c3c;
+  --accent-contrast: #171712;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #f4f3ed;
+  --block-border: 1px solid #e4e0d5;
+  --block-radius: 4px;
+  --shadow: 0 4px 14px rgba(40, 36, 28, 0.10);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #26241f;
+  --code-fg: #ece9e2;
+  --hl-keyword: #d8b56a;
+  --hl-string: #a8bd8c;
+  --hl-number: #d89a72;
+  --hl-comment: #8b8778;
+  --hl-function: #9ebcd8;
+  --hl-type: #cfc39d;
+  --hl-punct: #b5b2a8;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #807b71;
+  --d-text: #2b2a27;
+  --d-muted: #807b71;
+  --d-accent: #9c7c3c;
+  --d-fill-1: #f0ede7;
+  --d-fill-2: #ede4e0;
+  --d-fill-3: #d7e2ec;
+  --d-fill-4: #ecf0e7;
+  --d-fill-5: #e7e0ed;
+  --d-fill-6: #ecd7e2;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #2b271d;
+  --term-fg: #eceae6;
+  --term-prompt: #9c7c3c;
+  --term-cursor: #9c7c3c;
+  --term-selection: rgba(156, 124, 60, 0.28);
+  --ansi-black: #9f9789;
+  --ansi-red: #c37f79;
+  --ansi-green: #79c37c;
+  --ansi-yellow: #c3b179;
+  --ansi-blue: #799cc3;
+  --ansi-magenta: #b379c3;
+  --ansi-cyan: #79c3b9;
+  --ansi-white: #e3e1de;
+  --ansi-bright-black: #b4b0a7;
+  --ansi-bright-red: #dba39e;
+  --ansi-bright-green: #9edba0;
+  --ansi-bright-yellow: #dbcc9e;
+  --ansi-bright-blue: #9ebbdb;
+  --ansi-bright-magenta: #ce9edb;
+  --ansi-bright-cyan: #9edbd3;
+  --ansi-bright-white: #f3f2f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}

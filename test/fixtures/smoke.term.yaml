@@ -1,0 +1,6 @@
+shell: zsh
+prompt: "$ "
+steps:
+  - cmd: echo "hello decklight"
+  - cmd: printf '\e[31mred\e[0m \e[1;32mboldgreen\e[0m \e[38;5;208morange256\e[0m\n'
+  - cmd: printf 'multi\nline\noutput\n'

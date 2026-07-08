@@ -1,0 +1,84 @@
+@import url('https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · reveal-simple
+   light · bare white, black Lato, one blue
+   Inspired by Reveal.js 'simple' — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #fdfdfd;
+  --bg-accent: none;
+  --fg: #1a1a1a;
+  --muted: #70706c;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: Lato, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-heading: Lato, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #1a1a1a;
+  --heading-weight: 800;
+  --link: #3b7bd0;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #2f6ec3;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #f3f2f2;
+  --block-border: 1px solid #d8d8d4;
+  --block-radius: 4px;
+  --shadow: 0 5px 18px rgba(30, 30, 40, 0.12);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #22242a;
+  --code-fg: #eceef2;
+  --hl-keyword: #fa4989;
+  --hl-string: #e6db74;
+  --hl-number: #ae81ff;
+  --hl-comment: #75715e;
+  --hl-function: #a6e22e;
+  --hl-type: #66d9ef;
+  --hl-punct: #f8f8f2;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #70706c;
+  --d-text: #1a1a1a;
+  --d-muted: #70706c;
+  --d-accent: #2f6ec3;
+  --d-fill-1: #f2eaea;
+  --d-fill-2: #efe9e2;
+  --d-fill-3: #dae7ed;
+  --d-fill-4: #eef2ea;
+  --d-fill-5: #e7e2ef;
+  --d-fill-6: #eddae4;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #2b1d1d;
+  --term-fg: #eceae6;
+  --term-prompt: #3070c7;
+  --term-cursor: #3070c7;
+  --term-selection: rgba(47, 110, 195, 0.28);
+  --ansi-black: #89929f;
+  --ansi-red: #cb7472;
+  --ansi-green: #74cb72;
+  --ansi-yellow: #cbaf72;
+  --ansi-blue: #72a0cb;
+  --ansi-magenta: #b272cb;
+  --ansi-cyan: #72cbba;
+  --ansi-white: #dee0e3;
+  --ansi-bright-black: #a7acb4;
+  --ansi-bright-red: #e09b99;
+  --ansi-bright-green: #9be099;
+  --ansi-bright-yellow: #e0cb99;
+  --ansi-bright-blue: #99bee0;
+  --ansi-bright-magenta: #cd99e0;
+  --ansi-bright-cyan: #99e0d3;
+  --ansi-bright-white: #f2f2f3;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}

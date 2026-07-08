@@ -1,0 +1,83 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · reveal-dracula
+   dark · the vampire palette: purple headings, pink links, neon syntax
+   Inspired by Dracula (Zeno Rocha) / Reveal.js 'dracula' — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R3 the canonical Dracula purple/pink accents are the identity
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #282a36;
+  --bg-accent: none;
+  --fg: #f8f8f2;
+  --muted: #9ba3c6;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #bd93f9;
+  --heading-weight: 700;
+  --link: #ff79c6;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #bd93f9;
+  --accent-contrast: #131313;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #2f3243;
+  --block-border: 1px solid #444757;
+  --block-radius: 8px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #21222c;
+  --code-fg: #f8f8f2;
+  --hl-keyword: #ff79c6;
+  --hl-string: #f1fa8c;
+  --hl-number: #bd93f9;
+  --hl-comment: #6272a4;
+  --hl-function: #50fa7b;
+  --hl-type: #8be9fd;
+  --hl-punct: #f8f8f2;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #9ba3c6;
+  --d-text: #f8f8f2;
+  --d-muted: #9ba3c6;
+  --d-accent: #bd93f9;
+  --d-fill-1: #2f3241;
+  --d-fill-2: #362c44;
+  --d-fill-3: #48283a;
+  --d-fill-4: #2f4134;
+  --d-fill-5: #2c4044;
+  --d-fill-6: #454828;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #1e1f29;
+  --term-fg: #e6e6e2;
+  --term-prompt: #bd93f9;
+  --term-cursor: #bd93f9;
+  --term-selection: rgba(189, 147, 249, 0.28);
+  --ansi-black: #8a91b5;
+  --ansi-red: #ff5555;
+  --ansi-green: #50fa7b;
+  --ansi-yellow: #f1fa8c;
+  --ansi-blue: #8be9fd;
+  --ansi-magenta: #ff79c6;
+  --ansi-cyan: #8be9fd;
+  --ansi-white: #f8f8f2;
+  --ansi-bright-black: #afb4cd;
+  --ansi-bright-red: #ff9292;
+  --ansi-bright-green: #8cfca8;
+  --ansi-bright-yellow: #f8fdc7;
+  --ansi-bright-blue: #c7f4fe;
+  --ansi-bright-magenta: #ffb6e0;
+  --ansi-bright-cyan: #c7f4fe;
+  --ansi-bright-white: #f8f8f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}

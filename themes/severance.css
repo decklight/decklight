@@ -1,0 +1,82 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · severance
+   dark · lumon midnight, cold fluorescent teal, unsettling calm
+   Inspired by Severance — the severed floor and its green terminals — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #06131c;
+  --bg-accent: none;
+  --fg: #cfe4e4;
+  --muted: #7fa0a4;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #a8e8dc;
+  --heading-weight: 500;
+  --link: #6fd0c0;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #48b8a4;
+  --accent-contrast: #131313;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #141c22;
+  --block-border: 1px solid #2a3135;
+  --block-radius: 4px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #0a1c26;
+  --code-fg: #c8e8e4;
+  --hl-keyword: #7fe0d0;
+  --hl-string: #a8d0e8;
+  --hl-number: #d0e090;
+  --hl-comment: #5f8084;
+  --hl-function: #98c8f0;
+  --hl-type: #c0e8c8;
+  --hl-punct: #8fb0b4;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #7fa0a4;
+  --d-text: #cfe4e4;
+  --d-muted: #7fa0a4;
+  --d-accent: #48b8a4;
+  --d-fill-1: #1b2525;
+  --d-fill-2: #1d282e;
+  --d-fill-3: #1f3632;
+  --d-fill-4: #1b1f25;
+  --d-fill-5: #1d2e27;
+  --d-fill-6: #1f2336;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #040e15;
+  --term-fg: #e6e6e2;
+  --term-prompt: #48b8a4;
+  --term-cursor: #48b8a4;
+  --term-selection: rgba(72, 184, 164, 0.28);
+  --ansi-black: #6f9094;
+  --ansi-red: #e09088;
+  --ansi-green: #8fd8b8;
+  --ansi-yellow: #d0d090;
+  --ansi-blue: #88b8e0;
+  --ansi-magenta: #b0a0d0;
+  --ansi-cyan: #7fe0d0;
+  --ansi-white: #e0efee;
+  --ansi-bright-black: #92abae;
+  --ansi-bright-red: #edbdb9;
+  --ansi-bright-green: #bce8d5;
+  --ansi-bright-yellow: #e2e2bb;
+  --ansi-bright-blue: #b9d5ed;
+  --ansi-bright-magenta: #d2c9e4;
+  --ansi-bright-cyan: #b0ece2;
+  --ansi-bright-white: #f2f8f8;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.25;
+}

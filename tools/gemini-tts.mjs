@@ -1,0 +1,95 @@
+// Shared Gemini TTS synthesis (Vertex AI) — used by tools/voiceover.mjs
+// (batch pre-render) and tools/voiceover-server.mjs (live bridge for the
+// player). generateContent with responseModalities AUDIO returns base64 raw
+// PCM (audio/L16, 24 kHz mono); we wrap a WAV header so both afconvert and
+// the browser's <audio> can read it. Auth is ADC via gcloud; the model id /
+// location pair is probed once (GA vs -preview, global vs us-central1) and
+// cached for the synth's lifetime.
+
+import { execFileSync } from 'node:child_process';
+
+// The prebuilt voice roster (docs' flavor words) — the player shows this
+// same list, keep the two in sync (engine.js GEMINI_VOICES).
+export const GEMINI_VOICES = [
+  ['Zephyr', 'bright'], ['Puck', 'upbeat'], ['Charon', 'informative'],
+  ['Kore', 'firm'], ['Fenrir', 'excitable'], ['Leda', 'youthful'],
+  ['Orus', 'firm'], ['Aoede', 'breezy'], ['Callirrhoe', 'easy-going'],
+  ['Autonoe', 'bright'], ['Enceladus', 'breathy'], ['Iapetus', 'clear'],
+  ['Umbriel', 'easy-going'], ['Algieba', 'smooth'], ['Despina', 'smooth'],
+  ['Erinome', 'clear'], ['Algenib', 'gravelly'], ['Rasalgethi', 'informative'],
+  ['Laomedeia', 'upbeat'], ['Achernar', 'soft'], ['Alnilam', 'firm'],
+  ['Schedar', 'even'], ['Gacrux', 'mature'], ['Pulcherrima', 'forward'],
+  ['Achird', 'friendly'], ['Zubenelgenubi', 'casual'], ['Vindemiatrix', 'gentle'],
+  ['Sadachbia', 'lively'], ['Sadaltager', 'knowledgeable'], ['Sulafat', 'warm'],
+];
+
+function gcloudToken() {
+  return execFileSync('gcloud', ['auth', 'application-default', 'print-access-token'],
+    { encoding: 'utf8' }).trim();
+}
+
+function wavFromPcm(pcm, rate) {
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVE', 8);
+  h.write('fmt ', 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
+  h.writeUInt32LE(rate, 24); h.writeUInt32LE(rate * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
+  h.write('data', 36); h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+
+/**
+ * Returns async (text, { voice, style }) → WAV Buffer.
+ * `style` is prepended in-prompt (the documented TTS steering pattern:
+ * "Say cheerfully: …") — spoken-delivery guidance, not read aloud.
+ */
+export function createSynth({ project, ttsModel, location } = {}) {
+  if (!project) throw new Error('Gemini TTS needs a GCP project — pass { project } (CLI: --project <id> or set GOOGLE_CLOUD_PROJECT)');
+  let token = null;
+  let route = null;
+
+  async function call(text, voice, model, loc) {
+    const host = loc === 'global' ? 'aiplatform.googleapis.com' : `${loc}-aiplatform.googleapis.com`;
+    const url = `https://${host}/v1/projects/${project}/locations/${loc}/publishers/google/models/${model}:generateContent`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text }] }],
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+        },
+      }),
+    });
+    if (!res.ok) { const e = new Error(`${res.status} ${(await res.text()).slice(0, 200)}`); e.status = res.status; throw e; }
+    const data = (await res.json()).candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData;
+    if (!data) throw new Error('no audio in response');
+    const rate = Number(/rate=(\d+)/.exec(data.mimeType)?.[1] ?? 24000);
+    return wavFromPcm(Buffer.from(data.data, 'base64'), rate);
+  }
+
+  return async function synth(text, { voice = 'Alnilam', style = '' } = {}) {
+    token ??= gcloudToken();
+    const prompt = style ? `${style}\n\n${text}` : text;
+    const routes = route ? [route]
+      : [ttsModel ?? 'gemini-2.5-pro-tts', 'gemini-2.5-pro-preview-tts']
+        .flatMap((m) => [location ?? 'global', 'us-central1'].map((l) => ({ model: m, location: l })))
+        .filter((r, i, a) => a.findIndex((x) => x.model === r.model && x.location === r.location) === i);
+    let lastErr;
+    for (const r of routes) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const wav = await call(prompt, voice, r.model, r.location);
+          route ??= r;
+          return wav;
+        } catch (e) {
+          lastErr = e;
+          if (e.status === 429) { await new Promise((ok) => setTimeout(ok, 15000 * (attempt + 1))); continue; }
+          if (e.status === 401) { token = gcloudToken(); continue; }
+          break; // 404/400 → next route
+        }
+      }
+    }
+    throw lastErr;
+  };
+}

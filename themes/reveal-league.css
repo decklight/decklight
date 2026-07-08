@@ -1,0 +1,88 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · reveal-league
+   dark · gunmetal wash, condensed uppercase display, electric cyan
+   Inspired by Reveal.js 'league' (the original reveal look) — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R3 the canonical league cyan (#13daec) is the identity
+   rule-exception: R2 the canonical gunmetal wash canvas
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: linear-gradient(180deg, #555a5f 0%, #1c1e20 100%);
+  --bg-accent: none;
+  --fg: #eeeeee;
+  --muted: #b8bcbf;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "League Gothic", Oswald, "Arial Narrow", "Avenir Next Condensed", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #eeeeee;
+  --heading-weight: 500;
+  --link: #13daec;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #13daec;
+  --accent-contrast: #131313;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #5c646d;
+  --block-border: 1px solid #6a7987;
+  --block-radius: 4px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #272822;
+  --code-fg: #f8f8f2;
+  --hl-keyword: #fa4e8c;
+  --hl-string: #e6db74;
+  --hl-number: #ae81ff;
+  --hl-comment: #787460;
+  --hl-function: #a6e22e;
+  --hl-type: #66d9ef;
+  --hl-punct: #f8f8f2;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #b8bcbf;
+  --d-text: #eeeeee;
+  --d-muted: #b8bcbf;
+  --d-accent: #13daec;
+  --d-fill-1: #2f3841;
+  --d-fill-2: #2c2c44;
+  --d-fill-3: #484328;
+  --d-fill-4: #412f41;
+  --d-fill-5: #30442c;
+  --d-fill-6: #284848;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #485057;
+  --term-fg: #e6e6e2;
+  --term-prompt: #13daec;
+  --term-cursor: #13daec;
+  --term-selection: rgba(19, 218, 236, 0.28);
+  --ansi-black: #92a4a5;
+  --ansi-red: #e38582;
+  --ansi-green: #62dc60;
+  --ansi-yellow: #dcb760;
+  --ansi-blue: #69a5de;
+  --ansi-magenta: #cb86e4;
+  --ansi-cyan: #60dcc5;
+  --ansi-white: #dee2e3;
+  --ansi-bright-black: #a7b3b4;
+  --ansi-bright-red: #eb918e;
+  --ansi-bright-green: #90eb8e;
+  --ansi-bright-yellow: #ebcf8e;
+  --ansi-bright-blue: #8ebeeb;
+  --ansi-bright-magenta: #d28eeb;
+  --ansi-bright-cyan: #8eebda;
+  --ansi-bright-white: #f2f3f3;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.02em; }

@@ -1,0 +1,84 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · genesis
+   dark · console black, Sega blue, one red stripe, a bar of gold
+   Inspired by the Sega Genesis — black shell, red stripe, 16-BIT gold — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #101013;
+  --bg-accent: none;
+  --fg: #e6e6ea;
+  --muted: #9a9aa4;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #4f8fe8;
+  --heading-weight: 800;
+  --link: #6aa8f0;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #2b6cd7;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #18181f;
+  --block-border: 1px solid #2a2a36;
+  --block-radius: 6px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #16161b;
+  --code-fg: #e8e8ec;
+  --hl-keyword: #6aa8f0;
+  --hl-string: #caa544;
+  --hl-number: #e07a68;
+  --hl-comment: #70707c;
+  --hl-function: #8fc0f8;
+  --hl-type: #d8b868;
+  --hl-punct: #b0b0bc;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #9a9aa4;
+  --d-text: #e6e6ea;
+  --d-muted: #9a9aa4;
+  --d-accent: #e05a48;
+  --d-fill-1: #1c1f26;
+  --d-fill-2: #2e291e;
+  --d-fill-3: #37211f;
+  --d-fill-4: #1c1c26;
+  --d-fill-5: #2e251e;
+  --d-fill-6: #1f2f37;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0c0c10;
+  --term-fg: #e6e6e2;
+  --term-prompt: #2b6cd7;
+  --term-cursor: #2b6cd7;
+  --term-selection: rgba(43, 108, 215, 0.28);
+  --ansi-black: #89919f;
+  --ansi-red: #d0726c;
+  --ansi-green: #6cd06d;
+  --ansi-yellow: #d0b46c;
+  --ansi-blue: #6c9dd0;
+  --ansi-magenta: #b86cd0;
+  --ansi-cyan: #6cd0c0;
+  --ansi-white: #dee0e3;
+  --ansi-bright-black: #a7acb4;
+  --ansi-bright-red: #e49a95;
+  --ansi-bright-green: #95e496;
+  --ansi-bright-yellow: #e4ce95;
+  --ansi-bright-blue: #95bce4;
+  --ansi-bright-magenta: #d195e4;
+  --ansi-bright-cyan: #95e4d7;
+  --ansi-bright-white: #f2f2f3;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.06em; font-style: italic; }

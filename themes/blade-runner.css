@@ -1,0 +1,83 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · blade-runner
+   dark · off-world night, neon cyan + magenta, spinner amber
+   Inspired by Blade Runner — neon noir over the rain — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R2 the neon-noir duotone canvas is the identity
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: linear-gradient(200deg, #0b0e18 0%, #140b1a 100%);
+  --bg-accent: none;
+  --fg: #e2e6f0;
+  --muted: #8f95ac;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #4fd8e8;
+  --heading-weight: 600;
+  --link: #e884c8;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #c957aa;
+  --accent-contrast: #171712;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #141823;
+  --block-border: 1px solid #2a2d36;
+  --block-radius: 8px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #10131f;
+  --code-fg: #e0e4f0;
+  --hl-keyword: #e884c8;
+  --hl-string: #6fd8e8;
+  --hl-number: #e8b860;
+  --hl-comment: #6a708a;
+  --hl-function: #8fa8f0;
+  --hl-type: #c8a0e8;
+  --hl-punct: #a8aec4;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #8f95ac;
+  --d-text: #e2e6f0;
+  --d-muted: #8f95ac;
+  --d-accent: #c957aa;
+  --d-fill-1: #1c2426;
+  --d-fill-2: #2e1e29;
+  --d-fill-3: #1f2337;
+  --d-fill-4: #26231c;
+  --d-fill-5: #261e2e;
+  --d-fill-6: #1f372f;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0a0d16;
+  --term-fg: #e6e6e2;
+  --term-prompt: #c957aa;
+  --term-cursor: #c957aa;
+  --term-selection: rgba(201, 87, 170, 0.28);
+  --ansi-black: #8a90a8;
+  --ansi-red: #e88a90;
+  --ansi-green: #7fd0a8;
+  --ansi-yellow: #e8c070;
+  --ansi-blue: #8fa8f0;
+  --ansi-magenta: #e884c8;
+  --ansi-cyan: #6fd8e8;
+  --ansi-white: #eceef6;
+  --ansi-bright-black: #adb1c2;
+  --ansi-bright-red: #f2bdc1;
+  --ansi-bright-green: #ace0c6;
+  --ansi-bright-yellow: #f0d7a5;
+  --ansi-bright-blue: #c5d2f7;
+  --ansi-bright-magenta: #f2b8df;
+  --ansi-bright-cyan: #a4e6f0;
+  --ansi-bright-white: #f1f3f8;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.25;
+}

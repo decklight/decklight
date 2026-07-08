@@ -1,0 +1,80 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · berry
+   light · Raspberry on white — energetic, pink-tinted blocks
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #fffbfd;
+  --bg-accent: #fceef5;
+  --fg: #3d2436;
+  --muted: #75596a;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #a8175c;
+  --heading-weight: 800;
+  --link: #b3216a;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #c2296a;
+  --accent-contrast: #fff4f9;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #fdf1f6;
+  --block-border: 1px solid #f2d5e3;
+  --block-radius: 14px;
+  --shadow: 0 6px 20px rgba(180, 40, 100, 0.09);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #f8e9f0;
+  --code-fg: #3f2838;
+  --hl-keyword: #b3216a;
+  --hl-string: #276b46;
+  --hl-number: #8a4a10;
+  --hl-comment: #755d6a;
+  --hl-function: #1e5aa8;
+  --hl-type: #7038d8;
+  --hl-punct: #5c4252;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #96607e;
+  --d-text: #3d2436;
+  --d-muted: #84687a;
+  --d-accent: #d23b77;
+  --d-fill-1: #fadce9;
+  --d-fill-2: #f5e0f0;
+  --d-fill-3: #fce5dc;
+  --d-fill-4: #efdcf5;
+  --d-fill-5: #fde0e2;
+  --d-fill-6: #f8ecda;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #2b1a24;
+  --term-fg: #eddfe8;
+  --term-prompt: #ff8ab8;
+  --term-cursor: #ff8ab8;
+  --term-selection: rgba(255, 138, 184, 0.26);
+  --ansi-black: #a08795;
+  --ansi-red: #ff8095;
+  --ansi-green: #93d0a0;
+  --ansi-yellow: #e8c072;
+  --ansi-blue: #90b0ec;
+  --ansi-magenta: #e096d5;
+  --ansi-cyan: #88cfc5;
+  --ansi-white: #ecdfe7;
+  --ansi-bright-black: #b29ca9;
+  --ansi-bright-red: #ffa5b5;
+  --ansi-bright-green: #b0e2bc;
+  --ansi-bright-yellow: #f2d49a;
+  --ansi-bright-blue: #b0c8f5;
+  --ansi-bright-magenta: #eab5e5;
+  --ansi-bright-cyan: #a8e0da;
+  --ansi-bright-white: #fdf5fa;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}

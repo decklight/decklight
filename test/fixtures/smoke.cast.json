@@ -1,0 +1,60 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 28,
+  "recorded": "2026-07-06T16:43:37.919Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "prompt": "$ ",
+  "steps": [
+   {
+    "cmd": "echo \"hello decklight\""
+   },
+   {
+    "cmd": "printf '\\e[31mred\\e[0m \\e[1;32mboldgreen\\e[0m \\e[38;5;208morange256\\e[0m\\n'"
+   },
+   {
+    "cmd": "printf 'multi\\nline\\noutput\\n'"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "echo \"hello decklight\"",
+   "output": [
+    [
+     0,
+     "hello decklight"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.016
+  },
+  {
+   "cmd": "printf '\\e[31mred\\e[0m \\e[1;32mboldgreen\\e[0m \\e[38;5;208morange256\\e[0m\\n'",
+   "output": [
+    [
+     0,
+     "\u001b[31mred\u001b[0m \u001b[1;32mboldgreen\u001b[0m \u001b[38;5;208morange256\u001b[0m"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.017
+  },
+  {
+   "cmd": "printf 'multi\\nline\\noutput\\n'",
+   "output": [
+    [
+     0,
+     "multi\r\nline\r\noutput"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.017
+  }
+ ]
+}

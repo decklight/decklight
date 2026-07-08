@@ -1,0 +1,85 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · c64
+   dark · blue on blue, light-blue border type, PETSCII spirit
+   Inspired by the Commodore 64 boot screen — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R2 the canonical C64 blue screen is the identity
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #40318d;
+  --bg-accent: none;
+  --fg: #b3a8ec;
+  --muted: #9186d3;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-heading: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #8d82e0;
+  --heading-weight: 600;
+  --link: #9fd0ff;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #867ade;
+  --accent-contrast: #1f1f19;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #574e85;
+  --block-border: 1px solid #736f8d;
+  --block-radius: 0px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #352a75;
+  --code-fg: #c8c0f0;
+  --hl-keyword: #a2d0fc;
+  --hl-string: #8bdc9e;
+  --hl-number: #e8d878;
+  --hl-comment: #847ac5;
+  --hl-function: #d0a8e8;
+  --hl-type: #8fe0e0;
+  --hl-punct: #b0a8e8;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #8a7fd0;
+  --d-text: #a597e8;
+  --d-muted: #8a7fd0;
+  --d-accent: #867ade;
+  --d-fill-1: #322f41;
+  --d-fill-2: #2c3044;
+  --d-fill-3: #352848;
+  --d-fill-4: #2f3841;
+  --d-fill-5: #3c2c44;
+  --d-fill-6: #284048;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #352a75;
+  --term-fg: #e6e6e2;
+  --term-prompt: #867ade;
+  --term-cursor: #867ade;
+  --term-selection: rgba(134, 122, 222, 0.28);
+  --ansi-black: #8a7fd0;
+  --ansi-red: #e08a80;
+  --ansi-green: #8fd8a0;
+  --ansi-yellow: #e8d878;
+  --ansi-blue: #9fd0ff;
+  --ansi-magenta: #d0a8e8;
+  --ansi-cyan: #8fe0e0;
+  --ansi-white: #e8e5f8;
+  --ansi-bright-black: #b3ace0;
+  --ansi-bright-red: #ecb7b1;
+  --ansi-bright-green: #bce8c7;
+  --ansi-bright-yellow: #f1e7ac;
+  --ansi-bright-blue: #dceeff;
+  --ansi-bright-magenta: #ead8f5;
+  --ansi-bright-cyan: #bfeded;
+  --ansi-bright-white: #f1effb;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.05em; }

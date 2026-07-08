@@ -1,0 +1,82 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · glacier
+   light · Arctic daylight — ice blue, crisp thin lines
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #f3f7fb;
+  --bg-accent: #e7eef6;
+  --fg: #233140;
+  --muted: #5d6b7c;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Avenir Next", Avenir, Futura, "Century Gothic", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #1c4d7c;
+  --heading-weight: 500;
+  --link: #1e62a8;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #2a6ea8;
+  --accent-contrast: #f4faff;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #fafafa;
+  --block-border: 1px solid #d5e0ec;
+  --block-radius: 8px;
+  --shadow: 0 4px 16px rgba(30, 60, 100, 0.08);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #e7eef6;
+  --code-fg: #27343f;
+  --hl-keyword: #1e62a8;
+  --hl-string: #276b46;
+  --hl-number: #8a4a10;
+  --hl-comment: #61708a;
+  --hl-function: #7a3f92;
+  --hl-type: #0f6e73;
+  --hl-punct: #48566a;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #54718c;
+  --d-text: #233140;
+  --d-muted: #6a7889;
+  --d-accent: #2f7fc4;
+  --d-fill-1: #dce9f5;
+  --d-fill-2: #d2e5f2;
+  --d-fill-3: #e2eef8;
+  --d-fill-4: #c9e2f0;
+  --d-fill-5: #d8ecf5;
+  --d-fill-6: #e5f0fa;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #16222e;
+  --term-fg: #dce5ee;
+  --term-prompt: #7cc2e8;
+  --term-cursor: #7cc2e8;
+  --term-selection: rgba(124, 194, 232, 0.26);
+  --ansi-black: #8494a5;
+  --ansi-red: #ee8a92;
+  --ansi-green: #8fd0a0;
+  --ansi-yellow: #e0c478;
+  --ansi-blue: #7cb5e5;
+  --ansi-magenta: #bda2d8;
+  --ansi-cyan: #7ed0d0;
+  --ansi-white: #e0e7ee;
+  --ansi-bright-black: #9caab9;
+  --ansi-bright-red: #f5acb2;
+  --ansi-bright-green: #aee2bc;
+  --ansi-bright-yellow: #ecd69e;
+  --ansi-bright-blue: #a3ccf0;
+  --ansi-bright-magenta: #d3bee8;
+  --ansi-bright-cyan: #a3e2e2;
+  --ansi-bright-white: #f8fbfd;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}
+
+.decklight h1, .decklight h2 { letter-spacing: 0.01em; }

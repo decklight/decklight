@@ -1,0 +1,84 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · peony
+   light · Editorial blush — pine-green ink, peony pink, italic serif
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #fdf6f7;
+  --bg-accent: #f8e8ec;
+  --fg: #1e3a34;
+  --muted: #537067;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Playfair Display", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #16302b;
+  --heading-weight: 700;
+  --link: #b3325f;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #c23360;
+  --accent-contrast: #fff2f6;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #fafafa;
+  --block-border: 1px solid #f0d8de;
+  --block-radius: 10px;
+  --shadow: 0 5px 20px rgba(180, 80, 110, 0.08);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #f5e6e9;
+  --code-fg: #243d37;
+  --hl-keyword: #b3325f;
+  --hl-string: #276b46;
+  --hl-number: #8a4a10;
+  --hl-comment: #5f7068;
+  --hl-function: #1e5aa8;
+  --hl-type: #7038d8;
+  --hl-punct: #40544d;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #5d7d72;
+  --d-text: #1e3a34;
+  --d-muted: #68847a;
+  --d-accent: #d64571;
+  --d-fill-1: #fadce4;
+  --d-fill-2: #dcefe6;
+  --d-fill-3: #f8e5d5;
+  --d-fill-4: #e2ecf5;
+  --d-fill-5: #f5dceb;
+  --d-fill-6: #e8f2dc;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #1c2f2a;
+  --term-fg: #dfe9e5;
+  --term-prompt: #ff9ab8;
+  --term-cursor: #ff9ab8;
+  --term-selection: rgba(255, 154, 184, 0.26);
+  --ansi-black: #84988f;
+  --ansi-red: #f58a9c;
+  --ansi-green: #8fd0a5;
+  --ansi-yellow: #e2c478;
+  --ansi-blue: #8ab2e2;
+  --ansi-magenta: #d59fc8;
+  --ansi-cyan: #85cfc2;
+  --ansi-white: #e2eae6;
+  --ansi-bright-black: #9cada4;
+  --ansi-bright-red: #f8abb8;
+  --ansi-bright-green: #aee2c0;
+  --ansi-bright-yellow: #eed69e;
+  --ansi-bright-blue: #aac9ec;
+  --ansi-bright-magenta: #e5bad8;
+  --ansi-bright-cyan: #a6e0d6;
+  --ansi-bright-white: #f8fcfa;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}
+
+.decklight h1, .decklight h2 { font-style: italic; }

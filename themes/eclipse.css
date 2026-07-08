@@ -1,0 +1,82 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · eclipse
+   dark · Total black, one corona of gold — maximum drama, minimum palette
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #0b0b0d;
+  --bg-accent: radial-gradient(circle at 50% 0%, #262008 0%, #0b0b0d 60%);
+  --fg: #ecebe6;
+  --muted: #a5a49c;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Avenir Next", Avenir, Futura, "Century Gothic", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #f5c542;
+  --heading-weight: 900;
+  --link: #e0c268;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #e3bd54;
+  --accent-contrast: #241a00;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #141416;
+  --block-border: 1px solid #26262a;
+  --block-radius: 6px;
+  --shadow: 0 10px 32px rgba(0, 0, 0, 0.7);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #101012;
+  --code-fg: #e6e5e0;
+  --hl-keyword: #ecc14b;
+  --hl-string: #b9cc8c;
+  --hl-number: #e8a86b;
+  --hl-comment: #84837c;
+  --hl-function: #b3b3dd;
+  --hl-type: #d8cfa0;
+  --hl-punct: #a8a7a0;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #8f8455;
+  --d-text: #ecebe6;
+  --d-muted: #98978f;
+  --d-accent: #f5c542;
+  --d-fill-1: #1a1812;
+  --d-fill-2: #211d10;
+  --d-fill-3: #191919;
+  --d-fill-4: #262014;
+  --d-fill-5: #1e1c15;
+  --d-fill-6: #232118;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0d0d0f;
+  --term-fg: #e2e1dc;
+  --term-prompt: #f5c542;
+  --term-cursor: #f5c542;
+  --term-selection: rgba(245, 197, 66, 0.25);
+  --ansi-black: #8a8981;
+  --ansi-red: #e5897d;
+  --ansi-green: #a5c987;
+  --ansi-yellow: #f5c542;
+  --ansi-blue: #96abd0;
+  --ansi-magenta: #c2a0c8;
+  --ansi-cyan: #93ccc0;
+  --ansi-white: #e8e7e2;
+  --ansi-bright-black: #a2a199;
+  --ansi-bright-red: #f0aba1;
+  --ansi-bright-green: #c0dca6;
+  --ansi-bright-yellow: #fad76e;
+  --ansi-bright-blue: #b3c4e2;
+  --ansi-bright-magenta: #d8bcdd;
+  --ansi-bright-cyan: #b0e0d5;
+  --ansi-bright-white: #fdfcf7;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.25;
+}
+
+.decklight h1, .decklight h2 { letter-spacing: -0.03em; text-transform: uppercase; }

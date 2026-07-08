@@ -1,0 +1,84 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · terminator
+   dark · gunmetal chrome, target-lock red, cold machine grays
+   Inspired by The Terminator — chrome endoskeleton, HUD red — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: linear-gradient(180deg, #16181d 0%, #0d0e12 100%);
+  --bg-accent: none;
+  --fg: #dde1e8;
+  --muted: #8f95a0;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #e04248;
+  --heading-weight: 800;
+  --link: #ef7a74;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #c42f38;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #1e212a;
+  --block-border: 1px solid #31353f;
+  --block-radius: 3px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #101318;
+  --code-fg: #dfe3ea;
+  --hl-keyword: #e78186;
+  --hl-string: #a4b8cc;
+  --hl-number: #e2a866;
+  --hl-comment: #6a707a;
+  --hl-function: #8fb8e0;
+  --hl-type: #c3c9dd;
+  --hl-punct: #a0a6b0;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #8f95a0;
+  --d-text: #dde1e8;
+  --d-muted: #8f95a0;
+  --d-accent: #d55159;
+  --d-fill-1: #22272f;
+  --d-fill-2: #382425;
+  --d-fill-3: #253841;
+  --d-fill-4: #22222f;
+  --d-fill-5: #382e24;
+  --d-fill-6: #254141;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0b0d11;
+  --term-fg: #e6e6e2;
+  --term-prompt: #c42f38;
+  --term-cursor: #c42f38;
+  --term-selection: rgba(196, 47, 56, 0.28);
+  --ansi-black: #9f898a;
+  --ansi-red: #cb8872;
+  --ansi-green: #72cb83;
+  --ansi-yellow: #cbc372;
+  --ansi-blue: #728dcb;
+  --ansi-magenta: #c672cb;
+  --ansi-cyan: #72c8cb;
+  --ansi-white: #e3dede;
+  --ansi-bright-black: #b4a7a8;
+  --ansi-bright-red: #e0ab99;
+  --ansi-bright-green: #99e0a7;
+  --ansi-bright-yellow: #e0da99;
+  --ansi-bright-blue: #99afe0;
+  --ansi-bright-magenta: #dd99e0;
+  --ansi-bright-cyan: #99dee0;
+  --ansi-bright-white: #f3f2f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.25;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.03em; }

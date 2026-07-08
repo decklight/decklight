@@ -1,0 +1,118 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · gameboy
+   light · four shades of pea-soup green, chunky pixels at heart
+   Inspired by the original Game Boy DMG-01 LCD — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R1 a four-shade monochrome LCD is the identity
+   rule-exception: R2 the canonical DMG pea-green screen
+   rule-exception: R8 everything is pea-soup green on this hardware
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #9bbc0f;
+  --bg-accent: none;
+  --fg: #0f380f;
+  --muted: #2f5a1f;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-heading: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #0f380f;
+  --heading-weight: 800;
+  --link: #1f4a14;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #306230;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #828d53;
+  --block-border: 1px solid #8d9375;
+  --block-radius: 4px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #0f380f;
+  --code-fg: #9bbc0f;
+  --hl-keyword: #aed81f;
+  --hl-string: #8bac0f;
+  --hl-number: #c8e858;
+  --hl-comment: #648841;
+  --hl-function: #9bd83f;
+  --hl-type: #bcd85f;
+  --hl-punct: #8fb04f;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #2f5a1f;
+  --d-text: #0f380f;
+  --d-muted: #2f5a1f;
+  --d-accent: #306230;
+  --d-fill-1: #c3d654;
+  --d-fill-2: #b8cf48;
+  --d-fill-3: #cbdd66;
+  --d-fill-4: #b2c93e;
+  --d-fill-5: #c8da5e;
+  --d-fill-6: #bdd24e;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #9bbc0f;
+  --term-fg: #0f380f;
+  --term-prompt: #1d4a12;
+  --term-cursor: #0f380f;
+  --term-selection: rgba(15, 56, 15, 0.22);
+  --ansi-black: #0f380f;
+  --ansi-red: #2b4f14;
+  --ansi-green: #1a4a10;
+  --ansi-yellow: #2f5716;
+  --ansi-blue: #14421c;
+  --ansi-magenta: #254c1e;
+  --ansi-cyan: #175018;
+  --ansi-white: #306230;
+  --ansi-bright-black: #204a18;
+  --ansi-bright-red: #33581a;
+  --ansi-bright-green: #245414;
+  --ansi-bright-yellow: #365c1c;
+  --ansi-bright-blue: #1c4a22;
+  --ansi-bright-magenta: #2c5424;
+  --ansi-bright-cyan: #1f561e;
+  --ansi-bright-white: #0f380f;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* ── DMG-01 LCD character ────────────────────────────────────────────────────
+   Not a CRT: no scanlines, no tear. The Game Boy look is a visible pixel
+   matrix (both axes), the famous LCD ghosting smear, a reflective
+   no-backlight vignette — and no window chrome at all. Static by nature,
+   so nothing to disable under reduced motion. */
+.decklight { --term-chrome: none; }
+.decklight .terminal-screen {
+  position: relative;
+  overflow: hidden;
+  border: 10px solid #6f7a72;               /* the bezel */
+  border-radius: 8px;
+  box-shadow: inset 0 0 26px rgba(15, 56, 15, 0.30);
+  text-shadow: 1.5px 0 0 rgba(15, 56, 15, 0.20);  /* LCD ghosting smear */
+}
+.decklight .terminal-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(0deg, rgba(15, 56, 15, 0.12) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(15, 56, 15, 0.12) 0 1px, transparent 1px 3px);
+}
+.decklight .terminal-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 28% 18%, rgba(255, 255, 255, 0.12), transparent 46%);
+}

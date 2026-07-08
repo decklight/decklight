@@ -1,0 +1,84 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · stranger-things
+   dark · upside-down black, title red, a serif that means business
+   Inspired by Stranger Things — the red title in the dark — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #0d0a0e;
+  --bg-accent: none;
+  --fg: #e8dfd8;
+  --muted: #9a8d88;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #e2242e;
+  --heading-weight: 700;
+  --link: #ef6a5e;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #c42832;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #18121b;
+  --block-border: 1px solid #2d2530;
+  --block-radius: 4px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #141014;
+  --code-fg: #e8e0da;
+  --hl-keyword: #ee7c72;
+  --hl-string: #cab988;
+  --hl-number: #e8a860;
+  --hl-comment: #7a6f6c;
+  --hl-function: #a8b8e0;
+  --hl-type: #d8c0a0;
+  --hl-punct: #b0a8a4;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #9a8d88;
+  --d-text: #e8dfd8;
+  --d-muted: #9a8d88;
+  --d-accent: #c42832;
+  --d-fill-1: #201718;
+  --d-fill-2: #281e19;
+  --d-fill-3: #1b1e30;
+  --d-fill-4: #201d17;
+  --d-fill-5: #231928;
+  --d-fill-6: #1b2930;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0a080b;
+  --term-fg: #e6e6e2;
+  --term-prompt: #c42832;
+  --term-cursor: #c42832;
+  --term-selection: rgba(196, 40, 50, 0.28);
+  --ansi-black: #9f898b;
+  --ansi-red: #ce866e;
+  --ansi-green: #6ece81;
+  --ansi-yellow: #cec66e;
+  --ansi-blue: #6e8bce;
+  --ansi-magenta: #c96ece;
+  --ansi-cyan: #6ecbce;
+  --ansi-white: #e3dede;
+  --ansi-bright-black: #b4a7a8;
+  --ansi-bright-red: #e3a997;
+  --ansi-bright-green: #97e3a5;
+  --ansi-bright-yellow: #e3dc97;
+  --ansi-bright-blue: #97aee3;
+  --ansi-bright-magenta: #df97e3;
+  --ansi-bright-cyan: #97e1e3;
+  --ansi-bright-white: #f3f2f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.25;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.08em; }

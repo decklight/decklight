@@ -1,0 +1,85 @@
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · reveal-sky
+   light · pale sky wash, rounded type, sea-blue links
+   Inspired by Reveal.js 'sky' — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R2 the canonical sky wash canvas
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: linear-gradient(180deg, #f7fbfc 0%, #add9e4 100%);
+  --bg-accent: none;
+  --fg: #333333;
+  --muted: #5f7078;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: Quicksand, ui-rounded, "SF Pro Rounded", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #333333;
+  --heading-weight: 600;
+  --link: #3b759e;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #3b759e;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #ecf2f3;
+  --block-border: 1px solid #d0d9dc;
+  --block-radius: 8px;
+  --shadow: 0 5px 18px rgba(30, 30, 40, 0.12);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #272822;
+  --code-fg: #f8f8f2;
+  --hl-keyword: #fa4e8c;
+  --hl-string: #e6db74;
+  --hl-number: #ae81ff;
+  --hl-comment: #787460;
+  --hl-function: #a6e22e;
+  --hl-type: #66d9ef;
+  --hl-punct: #f8f8f2;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #5f7078;
+  --d-text: #333333;
+  --d-muted: #5f7078;
+  --d-accent: #3b759e;
+  --d-fill-1: #e6edef;
+  --d-fill-2: #dee2ec;
+  --d-fill-3: #ebe1d5;
+  --d-fill-4: #ece6ef;
+  --d-fill-5: #e5ecde;
+  --d-fill-6: #d5ebe4;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #1d282b;
+  --term-fg: #eceae6;
+  --term-prompt: #3e7aa5;
+  --term-cursor: #3e7aa5;
+  --term-selection: rgba(59, 117, 158, 0.28);
+  --ansi-black: #89969f;
+  --ansi-red: #c38a79;
+  --ansi-green: #79c387;
+  --ansi-yellow: #c3bb79;
+  --ansi-blue: #7991c3;
+  --ansi-magenta: #be79c3;
+  --ansi-cyan: #79c2c3;
+  --ansi-white: #dee1e3;
+  --ansi-bright-black: #a7afb4;
+  --ansi-bright-red: #dbac9e;
+  --ansi-bright-green: #9edba9;
+  --ansi-bright-yellow: #dbd59e;
+  --ansi-bright-blue: #9eb2db;
+  --ansi-bright-magenta: #d79edb;
+  --ansi-bright-cyan: #9edadb;
+  --ansi-bright-white: #f2f2f3;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}

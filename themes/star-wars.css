@@ -1,0 +1,85 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · star-wars
+   dark · deep space black, crawl yellow, saber blue
+   Inspired by Star Wars — the opening crawl — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R3 the canonical crawl yellow (#ffe81f) is the identity
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #0a0a10;
+  --bg-accent: none;
+  --fg: #e6e2d2;
+  --muted: #98948a;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #ffe81f;
+  --heading-weight: 800;
+  --link: #f0d860;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #e8c825;
+  --accent-contrast: #131313;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #11111d;
+  --block-border: 1px solid #262631;
+  --block-radius: 4px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #10101a;
+  --code-fg: #e8e4d8;
+  --hl-keyword: #f0d860;
+  --hl-string: #7fc8f0;
+  --hl-number: #f0a860;
+  --hl-comment: #70706a;
+  --hl-function: #8fd08f;
+  --hl-type: #e88a80;
+  --hl-punct: #b8b4a8;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #98948a;
+  --d-text: #e6e2d2;
+  --d-muted: #98948a;
+  --d-accent: #4fb8f0;
+  --d-fill-1: #211f18;
+  --d-fill-2: #1a2129;
+  --d-fill-3: #311c1c;
+  --d-fill-4: #182118;
+  --d-fill-5: #1a1d29;
+  --d-fill-6: #31281c;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #08080e;
+  --term-fg: #e6e6e2;
+  --term-prompt: #e8c825;
+  --term-cursor: #e8c825;
+  --term-selection: rgba(232, 200, 37, 0.28);
+  --ansi-black: #9f9b89;
+  --ansi-red: #d97963;
+  --ansi-green: #63d973;
+  --ansi-yellow: #d9c763;
+  --ansi-blue: #638ed9;
+  --ansi-magenta: #cb63d9;
+  --ansi-cyan: #63d9d5;
+  --ansi-white: #e3e2de;
+  --ansi-bright-black: #b4b2a7;
+  --ansi-bright-red: #eaa08f;
+  --ansi-bright-green: #8fea9b;
+  --ansi-bright-yellow: #eadd8f;
+  --ansi-bright-blue: #8fb0ea;
+  --ansi-bright-magenta: #e08fea;
+  --ansi-bright-cyan: #8feae7;
+  --ansi-bright-white: #f3f3f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.04em; }

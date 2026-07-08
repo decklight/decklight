@@ -1,0 +1,32 @@
+{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 80,
+  "rows": 24,
+  "recorded": "2026-07-06T18:00:00.000Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "prompt": "$ ",
+  "steps": [
+   { "cmd": "export STAGE=demo", "hide": true },
+   { "cmd": "echo one" },
+   { "sleep": 0.2 },
+   { "cmd": "sh -c 'printf \"Password: \"; read -r P; echo; echo welcome'",
+     "interact": [ { "expect": "Password: ", "send": { "secret": "$DEMO_PASS\n" } } ],
+     "type_speed": 4 },
+   { "cmd": "echo done" }
+  ]
+ },
+ "steps": [
+  { "cmd": "export STAGE=demo", "output": [[0.005, "setup-ok"]], "exit": 0, "duration": 0.01, "hidden": true },
+  { "cmd": "echo one", "output": [[0.004, "one"]], "exit": 0, "duration": 0.01 },
+  { "sleep": 0.2 },
+  { "cmd": "sh -c 'printf \"Password: \"; read -r P; echo; echo welcome'",
+    "output": [[0.01, "Password: "], [0.09, "\r\nwelcome"]],
+    "input": [[0.05, "▓▓▓"]],
+    "exit": 0, "duration": 0.12, "typeSpeed": 4 },
+  { "cmd": "echo done", "output": [[0.004, "done"]], "exit": 0, "duration": 0.01 }
+ ]
+}

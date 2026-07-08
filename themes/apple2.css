@@ -1,0 +1,126 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · apple2
+   dark · black glass, one green phosphor, mono display type
+   Inspired by the Apple ][ green phosphor CRT — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R1 a single-phosphor monochrome display is the identity
+   rule-exception: R3 phosphor green burns bright by design
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #0c0f0c;
+  --bg-accent: none;
+  --fg: #7fe87f;
+  --muted: #4f9f5b;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-heading: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #8ff98f;
+  --heading-weight: 600;
+  --link: #a8ff9f;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #37d63d;
+  --accent-contrast: #131313;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #141b14;
+  --block-border: 1px solid #273127;
+  --block-radius: 2px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #101510;
+  --code-fg: #8ff98f;
+  --hl-keyword: #a8ff9f;
+  --hl-string: #5fd68f;
+  --hl-number: #d6d65f;
+  --hl-comment: #3f7a4a;
+  --hl-function: #7fe8b0;
+  --hl-type: #c8e87f;
+  --hl-punct: #6fbf7f;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #4f9f5b;
+  --d-text: #7fe87f;
+  --d-muted: #4f9f5b;
+  --d-accent: #37d63d;
+  --d-fill-1: #182119;
+  --d-fill-2: #1d291a;
+  --d-fill-3: #1c3223;
+  --d-fill-4: #1c2118;
+  --d-fill-5: #1a2923;
+  --d-fill-6: #2b321c;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0a0d0a;
+  --term-fg: #e6e6e2;
+  --term-prompt: #37d63d;
+  --term-cursor: #37d63d;
+  --term-selection: rgba(55, 214, 61, 0.28);
+  --ansi-black: #7a8a7a;
+  --ansi-red: #e08a6a;
+  --ansi-green: #6fd66f;
+  --ansi-yellow: #d6c258;
+  --ansi-blue: #7fb3d0;
+  --ansi-magenta: #c79ac0;
+  --ansi-cyan: #7fd0c0;
+  --ansi-white: #dfe8df;
+  --ansi-bright-black: #9ba79b;
+  --ansi-bright-red: #ebb29d;
+  --ansi-bright-green: #9fe49f;
+  --ansi-bright-yellow: #e2d489;
+  --ansi-bright-blue: #accee0;
+  --ansi-bright-magenta: #ddc1d9;
+  --ansi-bright-cyan: #ace0d6;
+  --ansi-bright-white: #f3f6f3;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.22;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ── CRT character: the Monitor /// look ─────────────────────────────────────
+   Scanlines + phosphor bloom + a slow raster roll + the occasional horizontal
+   sync tear. Subtle by design; all motion sits out prefers-reduced-motion. */
+.decklight .terminal-screen {
+  position: relative;
+  overflow: hidden;
+  text-shadow: 0 0 5px rgba(90, 240, 110, 0.4);
+  animation: a2-tear 7s steps(1) infinite;
+}
+.decklight .terminal-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.20) 0 1px, transparent 1px 3px);
+}
+.decklight .terminal-screen::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -25%;
+  height: 22%;
+  pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(130, 255, 150, 0.055), transparent);
+  animation: a2-roll 8s linear infinite;
+}
+@keyframes a2-roll { to { transform: translateY(560%); } }
+@keyframes a2-tear {
+  0%, 93.9% { transform: none; }
+  94% { transform: translateX(2px); }
+  94.7% { transform: translateX(-3px) skewX(0.5deg); }
+  95.4% { transform: translateX(1px); }
+  96%, 100% { transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .decklight .terminal-screen,
+  .decklight .terminal-screen::before { animation: none; }
+}

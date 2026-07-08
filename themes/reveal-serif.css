@@ -1,0 +1,82 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · reveal-serif
+   light · ivory, Palatino headings, browns and quiet inks
+   Inspired by Reveal.js 'serif' — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #f0f1eb;
+  --bg-accent: none;
+  --fg: #16161a;
+  --muted: #6e6a5e;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "Palatino Linotype", Palatino, "Iowan Old Style", Georgia, serif;
+  --font-heading: "Palatino Linotype", Palatino, "Iowan Old Style", Georgia, serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #383d3d;
+  --heading-weight: 600;
+  --link: #51483d;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #51483d;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #e8eade;
+  --block-border: 1px solid #cfd2c3;
+  --block-radius: 6px;
+  --shadow: 0 5px 18px rgba(30, 30, 40, 0.12);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #26251f;
+  --code-fg: #eceae2;
+  --hl-keyword: #fa4989;
+  --hl-string: #e6db74;
+  --hl-number: #ae81ff;
+  --hl-comment: #75715e;
+  --hl-function: #a6e22e;
+  --hl-type: #66d9ef;
+  --hl-punct: #f8f8f2;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #6e6a5e;
+  --d-text: #16161a;
+  --d-muted: #6e6a5e;
+  --d-accent: #51483d;
+  --d-fill-1: #e3e6d8;
+  --d-fill-2: #d6e4cf;
+  --d-fill-3: #d4c6e3;
+  --d-fill-4: #d8e6e1;
+  --d-fill-5: #e4cfda;
+  --d-fill-6: #e3d9c6;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #282b1d;
+  --term-fg: #eceae6;
+  --term-prompt: #857764;
+  --term-cursor: #857764;
+  --term-selection: rgba(81, 72, 61, 0.28);
+  --ansi-black: #9f9589;
+  --ansi-red: #c37a79;
+  --ansi-green: #7cc379;
+  --ansi-yellow: #c3ab79;
+  --ansi-blue: #79a1c3;
+  --ansi-magenta: #ae79c3;
+  --ansi-cyan: #79c3b4;
+  --ansi-white: #e3e1de;
+  --ansi-bright-black: #b4aea7;
+  --ansi-bright-red: #db9f9e;
+  --ansi-bright-green: #a0db9e;
+  --ansi-bright-yellow: #dbc89e;
+  --ansi-bright-blue: #9ebfdb;
+  --ansi-bright-magenta: #ca9edb;
+  --ansi-bright-cyan: #9edbcf;
+  --ansi-bright-white: #f3f2f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}

@@ -1,0 +1,84 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · pulp-fiction
+   dark · dime-novel black, poster yellow, royale red
+   Inspired by Pulp Fiction — the paperback cover — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #171310;
+  --bg-accent: none;
+  --fg: #efe5d0;
+  --muted: #a39784;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: Rockwell, "Rockwell Nova", "Roboto Slab", "DejaVu Serif", serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #e8b93b;
+  --heading-weight: 800;
+  --link: #ef9a3f;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #c03a2b;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #241d17;
+  --block-border: 1px solid #38312c;
+  --block-radius: 6px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #1e1914;
+  --code-fg: #ece2ce;
+  --hl-keyword: #ecc664;
+  --hl-string: #bacc8c;
+  --hl-number: #ee9a71;
+  --hl-comment: #7d7364;
+  --hl-function: #97b8d1;
+  --hl-type: #d8c090;
+  --hl-punct: #b0a894;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #a39784;
+  --d-text: #efe5d0;
+  --d-muted: #a39784;
+  --d-accent: #c83d2d;
+  --d-fill-1: #28251d;
+  --d-fill-2: #31211f;
+  --d-fill-3: #3a2c20;
+  --d-fill-4: #28281d;
+  --d-fill-5: #1f2831;
+  --d-fill-6: #3a2025;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #120f0c;
+  --term-fg: #e6e6e2;
+  --term-prompt: #c03a2b;
+  --term-cursor: #c03a2b;
+  --term-selection: rgba(192, 58, 43, 0.28);
+  --ansi-black: #9f8b89;
+  --ansi-red: #cc7470;
+  --ansi-green: #71cc70;
+  --ansi-yellow: #ccb170;
+  --ansi-blue: #709fcc;
+  --ansi-magenta: #b570cc;
+  --ansi-cyan: #70ccbc;
+  --ansi-white: #e3dede;
+  --ansi-bright-black: #b4a8a7;
+  --ansi-bright-red: #e29b98;
+  --ansi-bright-green: #98e298;
+  --ansi-bright-yellow: #e2cc98;
+  --ansi-bright-blue: #98bde2;
+  --ansi-bright-magenta: #cf98e2;
+  --ansi-bright-cyan: #98e2d5;
+  --ansi-bright-white: #f3f2f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.27;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.02em; }

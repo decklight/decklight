@@ -1,0 +1,80 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · dune
+   light · Desert noon — sandstone, terracotta, wide serif display
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #f1e9db;
+  --bg-accent: #ecdfc6;
+  --fg: #453322;
+  --muted: #78644d;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #8a4519;
+  --heading-weight: 700;
+  --link: #9c4a12;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #aa4c1c;
+  --accent-contrast: #fff6ee;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #faf4e8;
+  --block-border: 1px solid #ddceb2;
+  --block-radius: 10px;
+  --shadow: 0 5px 18px rgba(120, 80, 30, 0.1);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #ecdfc6;
+  --code-fg: #42342a;
+  --hl-keyword: #9c4a12;
+  --hl-string: #276238;
+  --hl-number: #8a2e42;
+  --hl-comment: #6f5f4a;
+  --hl-function: #1d558a;
+  --hl-type: #7a4092;
+  --hl-punct: #5c4c38;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #8a6f4e;
+  --d-text: #453322;
+  --d-muted: #7d6a52;
+  --d-accent: #c05621;
+  --d-fill-1: #ecdcbb;
+  --d-fill-2: #f0e2cd;
+  --d-fill-3: #e6d4b0;
+  --d-fill-4: #f4e6c2;
+  --d-fill-5: #e9dabd;
+  --d-fill-6: #efe0b6;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #2a2015;
+  --term-fg: #eee3d0;
+  --term-prompt: #f0a868;
+  --term-cursor: #f0a868;
+  --term-selection: rgba(240, 168, 104, 0.26);
+  --ansi-black: #9a8a74;
+  --ansi-red: #f08a72;
+  --ansi-green: #adc576;
+  --ansi-yellow: #eec063;
+  --ansi-blue: #96b3d8;
+  --ansi-magenta: #cfa0c0;
+  --ansi-cyan: #93ccb0;
+  --ansi-white: #ece0cc;
+  --ansi-bright-black: #ab9c86;
+  --ansi-bright-red: #f5a992;
+  --ansi-bright-green: #c5d898;
+  --ansi-bright-yellow: #f5d38a;
+  --ansi-bright-blue: #b3c8e5;
+  --ansi-bright-magenta: #dfbad5;
+  --ansi-bright-cyan: #b0dfc6;
+  --ansi-bright-white: #faf3e6;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}

@@ -1,0 +1,86 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · cosmos
+   dark · Nebula purples on space black — stargazer magenta
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+/* palette-rule exceptions (test/palette-rules.mjs):
+   rule-exception: R2 the nebula duotone canvas is the identity
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: linear-gradient(200deg, #0e0619 0%, #1c0f3d 55%, #2a1152 100%);
+  --bg-accent: radial-gradient(ellipse at 30% 20%, #3b1a6e 0%, #14082b 70%);
+  --fg: #ece5fb;
+  --muted: #b3a5d6;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Avenir Next", Avenir, Futura, "Century Gothic", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #fafafa;
+  --heading-weight: 800;
+  --link: #a88fff;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #eb82c2;
+  --accent-contrast: #33001d;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: rgba(40, 20, 78, 0.5);
+  --block-border: 1px solid rgba(168, 143, 255, 0.28);
+  --block-radius: 16px;
+  --shadow: 0 14px 44px rgba(8, 2, 24, 0.6);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #150b2e;
+  --code-fg: #e6defa;
+  --hl-keyword: #c79bff;
+  --hl-string: #8be8c8;
+  --hl-number: #ffb2d9;
+  --hl-comment: #8f82b8;
+  --hl-function: #8fb5ff;
+  --hl-type: #6fd7e8;
+  --hl-punct: #b2a6d4;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #8f6fdc;
+  --d-text: #ece5fb;
+  --d-muted: #a394cc;
+  --d-accent: #ff6ec7;
+  --d-fill-1: #241348;
+  --d-fill-2: #31175c;
+  --d-fill-3: #1e1f52;
+  --d-fill-4: #3a1550;
+  --d-fill-5: #291c5e;
+  --d-fill-6: #351d68;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #100822;
+  --term-fg: #e0d8f5;
+  --term-prompt: #ff6ec7;
+  --term-cursor: #ff6ec7;
+  --term-selection: rgba(255, 110, 199, 0.26);
+  --ansi-black: #8d81b0;
+  --ansi-red: #ff7e9e;
+  --ansi-green: #7ce8b8;
+  --ansi-yellow: #ffd082;
+  --ansi-blue: #8fa3ff;
+  --ansi-magenta: #d79bff;
+  --ansi-cyan: #7edcf0;
+  --ansi-white: #e8e2f8;
+  --ansi-bright-black: #a89cc8;
+  --ansi-bright-red: #ffa5bc;
+  --ansi-bright-green: #a5f2ce;
+  --ansi-bright-yellow: #ffdfa5;
+  --ansi-bright-blue: #b0bcff;
+  --ansi-bright-magenta: #e5bcff;
+  --ansi-bright-cyan: #a8e9f5;
+  --ansi-bright-white: #fafafa;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { letter-spacing: 0.04em; }

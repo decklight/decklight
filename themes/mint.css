@@ -1,0 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · mint
+   light · Cool spearmint SaaS-fresh — pill shapes, modern grotesk
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #f2faf7;
+  --bg-accent: #e2f4ec;
+  --fg: #1f3a34;
+  --muted: #546b64;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "Space Grotesk", "Avenir Next", Avenir, Futura, "Century Gothic", "Segoe UI", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #0b6653;
+  --heading-weight: 700;
+  --link: #0c7a63;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #13725c;
+  --accent-contrast: #eafff8;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #fafafa;
+  --block-border: 1px solid #cfe8dd;
+  --block-radius: 22px;
+  --shadow: 0 6px 24px rgba(13, 147, 115, 0.09);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #e2f2eb;
+  --code-fg: #22403a;
+  --hl-keyword: #0c7a63;
+  --hl-string: #8a4a10;
+  --hl-number: #b3216a;
+  --hl-comment: #5c7068;
+  --hl-function: #1e5aa8;
+  --hl-type: #7038d8;
+  --hl-punct: #42584f;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #4d7a6d;
+  --d-text: #1f3a34;
+  --d-muted: #618078;
+  --d-accent: #0d9373;
+  --d-fill-1: #cdeee0;
+  --d-fill-2: #daf2e8;
+  --d-fill-3: #c2e8dc;
+  --d-fill-4: #e5f5e0;
+  --d-fill-5: #d2eee8;
+  --d-fill-6: #ddf0d5;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #132a24;
+  --term-fg: #d9e8e2;
+  --term-prompt: #5ce8bb;
+  --term-cursor: #5ce8bb;
+  --term-selection: rgba(92, 232, 187, 0.26);
+  --ansi-black: #7e948c;
+  --ansi-red: #f0897e;
+  --ansi-green: #5ce0a8;
+  --ansi-yellow: #dcc26e;
+  --ansi-blue: #7eb2e0;
+  --ansi-magenta: #c2a0d8;
+  --ansi-cyan: #6cd5ca;
+  --ansi-white: #dee9e4;
+  --ansi-bright-black: #97a8a1;
+  --ansi-bright-red: #f5aba2;
+  --ansi-bright-green: #8feec5;
+  --ansi-bright-yellow: #ead294;
+  --ansi-bright-blue: #a5caec;
+  --ansi-bright-magenta: #d6bce5;
+  --ansi-bright-cyan: #98e5dc;
+  --ansi-bright-white: #f4fbf8;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.35;
+}

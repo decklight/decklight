@@ -1,0 +1,87 @@
+{
+  "order": [
+    "default",
+    "classics",
+    "oldmachines",
+    "tvseries",
+    "movies"
+  ],
+  "labels": {
+    "default": "Default",
+    "classics": "Classics",
+    "oldmachines": "Old Machines",
+    "tvseries": "TV Series",
+    "movies": "Movies"
+  },
+  "packs": {
+    "default": [
+      "aurora",
+      "eclipse",
+      "midnight",
+      "fjord",
+      "cosmos",
+      "ink",
+      "storm",
+      "carbon",
+      "synthwave",
+      "obsidian",
+      "graphite",
+      "ember",
+      "moss",
+      "velvet",
+      "porcelain",
+      "paper",
+      "linen",
+      "sepia",
+      "glacier",
+      "mint",
+      "latte",
+      "dune",
+      "coastal",
+      "harvest",
+      "meadow",
+      "orchid",
+      "peony",
+      "slate",
+      "berry",
+      "citrus"
+    ],
+    "classics": [
+      "reveal-black",
+      "reveal-white",
+      "reveal-league",
+      "reveal-beige",
+      "reveal-sky",
+      "reveal-night",
+      "reveal-serif",
+      "reveal-simple",
+      "reveal-solarized",
+      "reveal-moon",
+      "reveal-blood",
+      "reveal-dracula",
+      "metropolis",
+      "seriph"
+    ],
+    "oldmachines": [
+      "apple2",
+      "c64",
+      "gameboy",
+      "snes",
+      "genesis"
+    ],
+    "tvseries": [
+      "miami-vice",
+      "friends",
+      "severance",
+      "stranger-things"
+    ],
+    "movies": [
+      "aliens",
+      "blade-runner",
+      "star-wars",
+      "terminator",
+      "godfather",
+      "pulp-fiction"
+    ]
+  }
+}

@@ -1,0 +1,87 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · reveal-beige
+   light · parchment wash, warm browns, condensed display type
+   Inspired by Reveal.js 'beige' — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R2 the canonical white→beige parchment wash
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: linear-gradient(180deg, #fdfdf8 0%, #f7f2d3 100%);
+  --bg-accent: none;
+  --fg: #333333;
+  --muted: #7c7461;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "League Gothic", Oswald, "Arial Narrow", "Avenir Next Condensed", sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #333333;
+  --heading-weight: 500;
+  --link: #8b743d;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #846e3a;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #f4f4ed;
+  --block-border: 1px solid #dcdcd1;
+  --block-radius: 4px;
+  --shadow: 0 5px 18px rgba(30, 30, 40, 0.12);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #272822;
+  --code-fg: #f8f8f2;
+  --hl-keyword: #fa4e8c;
+  --hl-string: #e6db74;
+  --hl-number: #ae81ff;
+  --hl-comment: #787460;
+  --hl-function: #a6e22e;
+  --hl-type: #66d9ef;
+  --hl-punct: #f8f8f2;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #7c7461;
+  --d-text: #333333;
+  --d-muted: #7c7461;
+  --d-accent: #846e3a;
+  --d-fill-1: #f0f0e7;
+  --d-fill-2: #e6eddf;
+  --d-fill-3: #ded7eb;
+  --d-fill-4: #e7f0eb;
+  --d-fill-5: #eddfe8;
+  --d-fill-6: #ebe1d7;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #2b2b1d;
+  --term-fg: #eceae6;
+  --term-prompt: #8f773f;
+  --term-cursor: #8f773f;
+  --term-selection: rgba(132, 110, 58, 0.28);
+  --ansi-black: #9f9889;
+  --ansi-red: #c38179;
+  --ansi-green: #79c37d;
+  --ansi-yellow: #c3b279;
+  --ansi-blue: #799ac3;
+  --ansi-magenta: #b579c3;
+  --ansi-cyan: #79c3bb;
+  --ansi-white: #e3e1de;
+  --ansi-bright-black: #b4b0a7;
+  --ansi-bright-red: #dba59e;
+  --ansi-bright-green: #9edba2;
+  --ansi-bright-yellow: #dbcd9e;
+  --ansi-bright-blue: #9eb9db;
+  --ansi-bright-magenta: #cf9edb;
+  --ansi-bright-cyan: #9edbd4;
+  --ansi-bright-white: #f3f3f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.02em; }

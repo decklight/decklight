@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="960" height="540" role="img"
+     aria-label="A Decklight slide building in: title, bullets and a diagram step in one by one, then the theme cycles from indigo light to dark to warm parchment.">
+  <!-- Hand-authored animated demo (no JS — safe in <img>). One 14s loop:
+       0–43%   builds step in (title, subtitle, bullets, diagram draw)
+       47–51%  theme cycles to dark            (as if pressing .)
+       53–72%  generator toast (⌃T)
+       73–77%  theme cycles to warm parchment
+       97–100% content fades for the loop restart
+       Reduced motion: animations off → static, fully-built slide. -->
+  <style>
+    * { animation-duration: 14s; animation-timing-function: linear; animation-iteration-count: infinite; }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .mono { font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace; }
+
+    .bg    { fill: #f6f6fa; animation-name: kBg; }
+    .ttl   { fill: #23268f; animation-name: kTtl; }
+    .ink   { fill: #2b2e44; animation-name: kInk; }
+    .mut   { fill: #7c8095; animation-name: kMut; }
+    .acc   { fill: #3438c9; animation-name: kAcc; }
+    .strk  { stroke: #9297cf; animation-name: kStrk; }
+    /* animation-name lists don't merge across rules: anything needing a
+       color animation AND a reveal/draw animation names both in ONE rule */
+    .nf1   { fill: #e4e5f7; stroke: #9297cf; animation-name: kF1, kStrk; }
+    .nf2   { fill: #dfeaf6; stroke: #9297cf; animation-name: kF2, kStrk; }
+    .nf3   { fill: #ece3f4; stroke: #9297cf; animation-name: kF3, kStrk; }
+
+    .rTitle { animation-name: kTtl, kInTitle; }
+    .rSub   { animation-name: kMut, kInSub; }
+    .rB1    { animation-name: kInB1; }
+    .rB2    { animation-name: kInB2; }
+    .rB3    { animation-name: kInB3; }
+    .rN1    { animation-name: kInN1; }
+    .rN2    { animation-name: kInN2; }
+    .rN3    { animation-name: kInN3; }
+    .rA1    { animation-name: kStrk, kDrawA1; }
+    .rA2    { animation-name: kStrk, kDrawA2; }
+    .rA1h   { animation-name: kAcc, kA1Head; }
+    .rA2h   { animation-name: kAcc, kA2Head; }
+    .toast  { animation-name: kToast; }
+    .pfill  { animation-name: kAcc, kProgress; transform-origin: 0 0; }
+
+    /* theme color cycle: A(indigo light) → B(night) → C(parchment) → A */
+    @keyframes kBg   { 0%,47% {fill:#f6f6fa} 51%,73% {fill:#131519} 77%,97% {fill:#faf7f2} 100% {fill:#f6f6fa} }
+    @keyframes kTtl  { 0%,47% {fill:#23268f} 51%,73% {fill:#e9edf4} 77%,97% {fill:#4d5527} 100% {fill:#23268f} }
+    @keyframes kInk  { 0%,47% {fill:#2b2e44} 51%,73% {fill:#c9d1dc} 77%,97% {fill:#2e2a24} 100% {fill:#2b2e44} }
+    @keyframes kMut  { 0%,47% {fill:#7c8095} 51%,73% {fill:#848da0} 77%,97% {fill:#8d8577} 100% {fill:#7c8095} }
+    @keyframes kAcc  { 0%,47% {fill:#3438c9} 51%,73% {fill:#8fbfe8} 77%,97% {fill:#75823f} 100% {fill:#3438c9} }
+    @keyframes kF1   { 0%,47% {fill:#e4e5f7} 51%,73% {fill:#232833} 77%,97% {fill:#e7e5d4} 100% {fill:#e4e5f7} }
+    @keyframes kF2   { 0%,47% {fill:#dfeaf6} 51%,73% {fill:#223028} 77%,97% {fill:#dfe6df} 100% {fill:#dfeaf6} }
+    @keyframes kF3   { 0%,47% {fill:#ece3f4} 51%,73% {fill:#2a2536} 77%,97% {fill:#ece2d8} 100% {fill:#ece3f4} }
+    @keyframes kStrk { 0%,47% {stroke:#9297cf} 51%,73% {stroke:#9db8cd} 77%,97% {stroke:#837e5a} 100% {stroke:#9297cf} }
+
+    /* builds (Keynote-style steps) */
+    @keyframes kInTitle { 0% {opacity:0; transform:translateY(14px)} 3.5% {opacity:1; transform:none} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kInSub   { 0%,4%  {opacity:0; transform:translateY(10px)} 7%  {opacity:1; transform:none} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kInB1    { 0%,9%  {opacity:0; transform:translateY(10px)} 12% {opacity:1; transform:none} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kInB2    { 0%,15% {opacity:0; transform:translateY(10px)} 18% {opacity:1; transform:none} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kInB3    { 0%,21% {opacity:0; transform:translateY(10px)} 24% {opacity:1; transform:none} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kInN1    { 0%,27% {opacity:0; transform:translateY(10px)} 30% {opacity:1; transform:none} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kInN2    { 0%,33.5% {opacity:0; transform:translateY(10px)} 36.5% {opacity:1; transform:none} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kInN3    { 0%,40% {opacity:0; transform:translateY(10px)} 43% {opacity:1; transform:none} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kDrawA1  { 0%,30% {opacity:0; stroke-dashoffset:1} 30.5% {opacity:1} 33.5% {stroke-dashoffset:0} 96.5% {opacity:1; stroke-dashoffset:0} 100% {opacity:0} }
+    @keyframes kDrawA2  { 0%,36.5% {opacity:0; stroke-dashoffset:1} 37% {opacity:1} 40% {stroke-dashoffset:0} 96.5% {opacity:1; stroke-dashoffset:0} 100% {opacity:0} }
+    @keyframes kA1Head  { 0%,33% {opacity:0} 34.5% {opacity:1} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kA2Head  { 0%,39.5% {opacity:0} 41% {opacity:1} 96.5% {opacity:1} 100% {opacity:0} }
+    @keyframes kToast   { 0%,52% {opacity:0; transform:translateY(8px)} 55% {opacity:1; transform:none} 69% {opacity:1; transform:none} 72% {opacity:0} 100% {opacity:0} }
+    @keyframes kProgress{ 0% {transform:scaleX(0.04)} 11% {transform:scaleX(0.04)} 12% {transform:scaleX(0.2)}
+                          17% {transform:scaleX(0.2)} 18% {transform:scaleX(0.36)} 23% {transform:scaleX(0.36)}
+                          24% {transform:scaleX(0.52)} 29% {transform:scaleX(0.52)} 30% {transform:scaleX(0.68)}
+                          36% {transform:scaleX(0.68)} 36.5% {transform:scaleX(0.84)} 42% {transform:scaleX(0.84)}
+                          43%,100% {transform:scaleX(1)} }
+
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+
+  <rect class="bg" width="960" height="540"/>
+
+  <!-- chrome -->
+  <text class="mut" x="912" y="38" font-size="15" text-anchor="end">12 / 40</text>
+  <rect class="mut" x="0" y="536" width="960" height="4" opacity="0.22"/>
+  <rect class="acc pfill" x="0" y="536" width="960" height="4"/>
+
+  <!-- pinned title + subtitle -->
+  <text class="ttl rTitle" x="480" y="96" font-size="44" font-weight="700" text-anchor="middle">Composing Agents</text>
+  <text class="mut rSub" x="480" y="132" font-size="19" text-anchor="middle">Patterns for multi-agent systems</text>
+
+  <!-- bullets (one data-build container in a real deck) -->
+  <g class="rB1">
+    <circle class="acc" cx="96" cy="238" r="5"/>
+    <text class="ink" x="120" y="246" font-size="22">Sequential — hand off step by step</text>
+  </g>
+  <g class="rB2">
+    <circle class="acc" cx="96" cy="308" r="5"/>
+    <text class="ink" x="120" y="316" font-size="22">Parallel — fan out, then aggregate</text>
+  </g>
+  <g class="rB3">
+    <circle class="acc" cx="96" cy="378" r="5"/>
+    <text class="ink" x="120" y="386" font-size="22">Supervisor — one agent routes the rest</text>
+  </g>
+
+  <!-- diagram (an inline SVG with data-build="draw" in a real deck) -->
+  <g class="rN1">
+    <rect class="nf1" x="620" y="180" width="240" height="62" rx="12" stroke-width="2"/>
+    <text class="ink" x="740" y="218" font-size="19" font-weight="600" text-anchor="middle">Intent Agent</text>
+  </g>
+  <line class="strk rA1" x1="740" y1="244" x2="740" y2="276" stroke-width="2.5" pathLength="1" stroke-dasharray="1"/>
+  <path class="acc rA1h" d="M 733 272 L 747 272 L 740 283 Z"/>
+  <g class="rN2">
+    <rect class="nf2" x="620" y="286" width="240" height="62" rx="12" stroke-width="2"/>
+    <text class="ink" x="740" y="324" font-size="19" font-weight="600" text-anchor="middle">Research Agent</text>
+  </g>
+  <line class="strk rA2" x1="740" y1="350" x2="740" y2="382" stroke-width="2.5" pathLength="1" stroke-dasharray="1"/>
+  <path class="acc rA2h" d="M 733 378 L 747 378 L 740 389 Z"/>
+  <g class="rN3">
+    <rect class="nf3" x="620" y="392" width="240" height="62" rx="12" stroke-width="2"/>
+    <text class="ink" x="740" y="430" font-size="19" font-weight="600" text-anchor="middle">Response Agent</text>
+  </g>
+
+  <!-- generator toast (⌃T) -->
+  <g class="toast">
+    <rect x="290" y="472" width="380" height="34" rx="17" fill="#333338" opacity="0.92"/>
+    <text class="mono" x="480" y="494" font-size="14" fill="#f2f2f4" text-anchor="middle">✨ gen-onyx-0b81 — ⌃T re-roll · ⌃⇧T save</text>
+  </g>
+</svg>

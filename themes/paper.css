@@ -1,0 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=Courier+Prime:wght@400;700&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · paper
+   light · Typewriter manuscript — cream stock, red pencil, light terminal
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #f5f1e6;
+  --bg-accent: #ede7d6;
+  --fg: #3a3733;
+  --muted: #6e6a62;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "Courier Prime", "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-heading: "Courier Prime", "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-mono: "Courier Prime", "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #26231f;
+  --heading-weight: 700;
+  --link: #a03d2e;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #bd4433;
+  --accent-contrast: #fff8f5;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #fbf8f0;
+  --block-border: 1px dashed #c9c2b2;
+  --block-radius: 2px;
+  --shadow: none;
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #ede7d6;
+  --code-fg: #38352f;
+  --hl-keyword: #a03d2e;
+  --hl-string: #33691e;
+  --hl-number: #825008;
+  --hl-comment: #6d6a5e;
+  --hl-function: #1d558a;
+  --hl-type: #6541b0;
+  --hl-punct: #55524a;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #5f5b51;
+  --d-text: #3a3733;
+  --d-muted: #767268;
+  --d-accent: #c94f3d;
+  --d-fill-1: #efe8d3;
+  --d-fill-2: #e8e4d8;
+  --d-fill-3: #f2ead6;
+  --d-fill-4: #e5e0d0;
+  --d-fill-5: #ede4c9;
+  --d-fill-6: #e9e6dc;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #ede7d6;
+  --term-fg: #3a3733;
+  --term-prompt: #a03d2e;
+  --term-cursor: #3a3733;
+  --term-selection: rgba(160, 61, 46, 0.18);
+  --term-chrome: none;
+  --ansi-black: #3a3733;
+  --ansi-red: #9c3428;
+  --ansi-green: #33691e;
+  --ansi-yellow: #7d4b00;
+  --ansi-blue: #1d558a;
+  --ansi-magenta: #7a3f92;
+  --ansi-cyan: #0d6b70;
+  --ansi-white: #6e6a60;
+  --ansi-bright-black: #55524a;
+  --ansi-bright-red: #7d2a20;
+  --ansi-bright-green: #28541a;
+  --ansi-bright-yellow: #6b4000;
+  --ansi-bright-blue: #17456f;
+  --ansi-bright-magenta: #623276;
+  --ansi-bright-cyan: #0a565a;
+  --ansi-bright-white: #837e70;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.4;
+}

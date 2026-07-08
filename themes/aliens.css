@@ -1,0 +1,84 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · aliens
+   dark · military phosphor, tracker green, amber warnings
+   Inspired by Aliens — the motion tracker and the Sulaco CRTs — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #0a0f0d;
+  --bg-accent: none;
+  --fg: #b8e0c8;
+  --muted: #6f9a80;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #8fe8b0;
+  --heading-weight: 600;
+  --link: #e8c060;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #58d364;
+  --accent-contrast: #131313;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #111c18;
+  --block-border: 1px solid #26302c;
+  --block-radius: 3px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #0e1511;
+  --code-fg: #b8e8c8;
+  --hl-keyword: #8fe8b0;
+  --hl-string: #e8d080;
+  --hl-number: #e8a850;
+  --hl-comment: #557a64;
+  --hl-function: #7fd8d0;
+  --hl-type: #c8e890;
+  --hl-punct: #8fb89c;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #6f9a80;
+  --d-text: #b8e0c8;
+  --d-muted: #6f9a80;
+  --d-accent: #e8b840;
+  --d-fill-1: #17201b;
+  --d-fill-2: #28251a;
+  --d-fill-3: #1b312a;
+  --d-fill-4: #172019;
+  --d-fill-5: #1a2827;
+  --d-fill-6: #22311b;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #080c0a;
+  --term-fg: #e6e6e2;
+  --term-prompt: #58d364;
+  --term-cursor: #58d364;
+  --term-selection: rgba(88, 211, 100, 0.28);
+  --ansi-black: #7a8a7a;
+  --ansi-red: #e08a6a;
+  --ansi-green: #6fd66f;
+  --ansi-yellow: #d6c258;
+  --ansi-blue: #7fb3d0;
+  --ansi-magenta: #c79ac0;
+  --ansi-cyan: #7fd0c0;
+  --ansi-white: #dfe8df;
+  --ansi-bright-black: #9ba79b;
+  --ansi-bright-red: #ebb29d;
+  --ansi-bright-green: #9fe49f;
+  --ansi-bright-yellow: #e2d489;
+  --ansi-bright-blue: #accee0;
+  --ansi-bright-magenta: #ddc1d9;
+  --ansi-bright-cyan: #ace0d6;
+  --ansi-bright-white: #f3f6f3;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.22;
+}
+
+.decklight h1, .decklight h2 { text-transform: uppercase; letter-spacing: 0.05em; }

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Decklight terminal player — standalone harness</title>
+  <link rel="stylesheet" href="../src/terminal/terminal.css">
+  <style>
+    body { background: #1a1d23; color: #eee; font-family: sans-serif; padding: 2rem; max-width: 900px; margin: auto; }
+    .terminal { margin: 1.5rem 0; }
+    #assert { white-space: pre-wrap; background: #000; padding: 1rem; font-family: monospace; }
+    /* minimal token stand-ins (normally provided by a theme) */
+    :root { --term-bg: #101418; --term-fg: #e6e6e6; --term-prompt: #7ee787; --term-cursor: #aeb8c2; }
+  </style>
+</head>
+<body>
+  <h1>Terminal player harness (mock Decklight)</h1>
+
+  <div id="t-step" class="terminal" data-cast="fixtures/smoke.cast.json" data-mode="step" data-title="step mode"></div>
+  <div id="t-play" class="terminal" data-cast="fixtures/smoke.cast.json" data-mode="play" data-title="play mode"></div>
+  <div id="t-missing" class="terminal" data-cast="fixtures/does-not-exist.cast.json" data-title="broken"></div>
+  <div id="t-feat" class="terminal" data-cast="fixtures/features.cast.json" data-mode="step" data-poster="1" data-title="features"></div>
+  <div id="t-import" class="terminal" data-cast="fixtures/import.cast" data-mode="step" data-title="asciicast import"></div>
+  <div id="t-import-plain" class="terminal" data-cast="fixtures/import.cast" data-mode="play" data-title="asciicast import (play)"></div>
+
+  <h2>Assertions</h2>
+  <pre id="assert">running…</pre>
+
+  <script type="module">
+    import { registerTerminals } from '../src/terminal/player.mjs';
+
+    // Mock of the core engine: just collects providers (SPEC §2.4 surface).
+    const providers = [];
+    const MockDecklight = {
+      registerBuildProvider(el, provider) { providers.push({ el, provider }); },
+    };
+    window.__providers = providers;
+
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const results = {};
+
+    try {
+      await registerTerminals(MockDecklight);
+      const p = providers.find(x => x.el.id === 't-step')?.provider;
+      results.providerCount = p?.count;
+      results.labels = [p?.label(0), p?.label(2)];
+
+      // idempotency drive: full -> back to 1 -> forward-animate to 2
+      p.apply(3);
+      const fullText = document.querySelector('#t-step .terminal-lines').innerText;
+      results.fullHasAllCmds = ['echo "hello decklight"', 'orange256', 'multi'].every(s => fullText.includes(s));
+
+      p.apply(1);
+      const oneText = document.querySelector('#t-step .terminal-lines').innerText;
+      results.step1HasFirst = oneText.includes('hello decklight');
+      results.step1LacksSecond = !oneText.includes('orange256');
+
+      p.apply(2); // single forward step -> animated (virtual time fast-forwards)
+      await sleep(9_000); // generous for type+stream+settle, well under the budget
+      const twoHtml = document.querySelector('#t-step .terminal-lines').innerHTML;
+      results.step2Animated = twoHtml.includes('boldgreen');
+      results.step2Colored = /ansi-fg-1/.test(twoHtml) && /ansi-bold/.test(twoHtml);
+      results.step2Inline256 = /rgb\(255,135,0\)/.test(twoHtml); // xterm 208
+      results.cursorPresent = twoHtml.includes('terminal-cursor');
+      results.noEscapeLeak = !document.querySelector('#t-step').innerText.includes('');
+
+      // play mode chrome
+      results.playButtons = !!document.querySelector('#t-play .terminal-play') &&
+        !!document.querySelector('#t-play .terminal-speed');
+
+      // broken cast -> visible error panel, no throw (message varies by
+      // origin: HTTP gives our "failed to load cast (404)", file:// gives
+      // the browser's fetch TypeError — the ⚠ panel is the contract)
+      results.errorPanel = document.querySelector('#t-missing').innerText.includes('⚠');
+
+      // ---- feature cast: hidden step, sleep step, poster, interactive input
+      const pf = providers.find(x => x.el.id === 't-feat')?.provider;
+      // playable = 3 (hidden + sleep excluded); poster=1 -> provider count 2
+      results.featProviderCount = pf?.count;
+      const featText0 = document.querySelector('#t-feat .terminal-lines').innerText;
+      results.featPosterShowsFirst = featText0.includes('one');
+      results.featPosterHidesRest = !featText0.includes('welcome');
+      pf.apply(2); // jump to full (instant path)
+      const featText = document.querySelector('#t-feat .terminal-lines').innerText;
+      results.featHiddenSkipped = !featText.includes('setup-ok');
+      results.featInputMasked = featText.includes('▓▓▓');
+      results.featOutputShown = featText.includes('welcome') && featText.includes('done');
+
+      // ---- asciicast v2 import: markers -> steps; raw stream (no double prompt)
+      const pi = providers.find(x => x.el.id === 't-import')?.provider;
+      results.importProviderCount = pi?.count;
+      pi.apply(2);
+      const impText = document.querySelector('#t-import .terminal-lines').innerText;
+      results.importPlays = impText.includes('Darwin') && impText.includes('imported');
+      results.importNoDoublePrompt = !/\$ \$ /.test(impText);
+      results.importColored = /ansi-fg-2/.test(document.querySelector('#t-import .terminal-lines').innerHTML);
+      // play-mode import still gets timeline controls
+      results.importPlayControls = !!document.querySelector('#t-import-plain .terminal-play');
+
+      results.PASS = Object.entries(results).every(([k, v]) => k === 'PASS' || v === true ||
+        (k === 'providerCount' && v === 3) || (k === 'featProviderCount' && v === 2) ||
+        (k === 'importProviderCount' && v === 2) ||
+        (k === 'labels' && v[0].includes('echo') && v[1].includes('multi')));
+    } catch (e) {
+      results.exception = String(e && e.stack || e);
+      results.PASS = false;
+    }
+    document.getElementById('assert').textContent = 'DECKLIGHT-PLAYER-RESULTS ' + JSON.stringify(results, null, 1);
+  </script>
+</body>
+</html>

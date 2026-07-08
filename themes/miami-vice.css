@@ -1,0 +1,84 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · miami-vice
+   dark · night-ocean navy, flamingo pink, seafoam teal
+   Inspired by Miami Vice — pastel neon over a hot night — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R2 the neon-night duotone canvas is the identity
+   rule-exception: R3 vice pink does not do pastel-muted
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: linear-gradient(180deg, #131a2c 0%, #1e1430 100%);
+  --bg-accent: none;
+  --fg: #f0e9ef;
+  --muted: #a89ab4;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #57e0c8;
+  --heading-weight: 700;
+  --link: #f78fc0;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #ef6fae;
+  --accent-contrast: #303027;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #1f2535;
+  --block-border: 1px solid #373b46;
+  --block-radius: 10px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #181022;
+  --code-fg: #f0e8f0;
+  --hl-keyword: #f78fc0;
+  --hl-string: #6fe0c8;
+  --hl-number: #f0c880;
+  --hl-comment: #8a7a9a;
+  --hl-function: #8fb8f8;
+  --hl-type: #d8a8f0;
+  --hl-punct: #c0b4cc;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #a89ab4;
+  --d-text: #f0e9ef;
+  --d-muted: #a89ab4;
+  --d-accent: #ef6fae;
+  --d-fill-1: #36272f;
+  --d-fill-2: #283f3c;
+  --d-fill-3: #332848;
+  --d-fill-4: #272f36;
+  --d-fill-5: #3f3028;
+  --d-fill-6: #482848;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #120c1c;
+  --term-fg: #e6e6e2;
+  --term-prompt: #ef6fae;
+  --term-cursor: #ef6fae;
+  --term-selection: rgba(239, 111, 174, 0.28);
+  --ansi-black: #9a8aa8;
+  --ansi-red: #f08a9a;
+  --ansi-green: #6fe0c8;
+  --ansi-yellow: #f0c880;
+  --ansi-blue: #8fb8f8;
+  --ansi-magenta: #f78fc0;
+  --ansi-cyan: #7fe0e8;
+  --ansi-white: #f4eef4;
+  --ansi-bright-black: #b8adc2;
+  --ansi-bright-red: #f7c0c9;
+  --ansi-bright-green: #a1ebdb;
+  --ansi-bright-yellow: #f6e0b7;
+  --ansi-bright-blue: #c9ddfc;
+  --ansi-bright-magenta: #fbc8e0;
+  --ansi-bright-cyan: #b3edf1;
+  --ansi-bright-white: #f7f3f7;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.28;
+}

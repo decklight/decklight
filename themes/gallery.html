@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Decklight — Theme Gallery</title>
+<style>
+  /* Gallery chrome (independent of the Decklight runtime) */
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 40px 80px;
+    background: #eceef2; color: #1c2430;
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header { max-width: 1400px; margin: 0 auto 20px; }
+  header h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: #5b6675; }
+  #filters { max-width: 1400px; margin: 14px auto 26px; display: flex; gap: 8px; }
+  #filters button {
+    border: 1px solid #c6cdd8; background: #fff; color: #38445a;
+    padding: 5px 14px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  }
+  #filters button.on { background: #1c2430; color: #fff; border-color: #1c2430; }
+  #warn {
+    display: none; max-width: 1400px; margin: 0 auto 24px; padding: 14px 18px;
+    background: #fff3cd; border: 1px solid #e0c76a; border-radius: 10px; color: #5c4a00;
+  }
+  #warn code { background: #f5e7ad; padding: 1px 6px; border-radius: 4px; }
+  #grid {
+    max-width: 1400px; margin: 0 auto; display: grid; gap: 22px;
+    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  }
+  .card { border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 3px 14px rgba(20, 30, 50, 0.1); }
+  .card footer {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 10px 14px; font-size: 13px; color: #38445a; background: #fff;
+  }
+  .card footer .mode { color: #7a8494; font-size: 12px; }
+
+  /* Mini slide — consumes ONLY theme tokens */
+  .mini {
+    background: var(--bg); color: var(--fg);
+    font-family: var(--font-body);
+    padding: 18px 20px 16px; min-height: 300px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .mini h3 {
+    margin: 0; font-family: var(--font-heading); color: var(--heading-color);
+    font-weight: var(--heading-weight); font-size: 21px; line-height: 1.15;
+  }
+  .mini .body { margin: 0; font-size: 12.5px; line-height: 1.45; }
+  .mini .body .mut { color: var(--muted); }
+  .mini .body a { color: var(--link); }
+  .mini .chips { display: flex; gap: 8px; align-items: center; }
+  .mini .chip {
+    background: var(--accent); color: var(--accent-contrast);
+    font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  }
+  .mini .block-demo {
+    background: var(--block-bg); border: var(--block-border);
+    border-radius: var(--block-radius); box-shadow: var(--shadow);
+    color: var(--fg); font-size: 11px; padding: 4px 10px;
+  }
+  .mini pre {
+    margin: 0; background: var(--code-bg); color: var(--code-fg);
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.55;
+    padding: 9px 12px; border-radius: 8px; overflow: hidden;
+  }
+  .mini pre .k { color: var(--hl-keyword); font-weight: 600; }
+  .mini pre .s { color: var(--hl-string); }
+  .mini pre .n { color: var(--hl-number); }
+  .mini pre .c { color: var(--hl-comment); font-style: italic; }
+  .mini pre .f { color: var(--hl-function); }
+  .mini pre .t { color: var(--hl-type); }
+  .mini pre .p { color: var(--hl-punct); }
+  .mini .term {
+    background: var(--term-bg); color: var(--term-fg);
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.6;
+    padding: 8px 12px; border-radius: 8px;
+  }
+  .mini .term .pr { color: var(--term-prompt); font-weight: 700; }
+  .mini .term .a-r { color: var(--ansi-red); } .mini .term .a-g { color: var(--ansi-green); }
+  .mini .term .a-y { color: var(--ansi-yellow); } .mini .term .a-b { color: var(--ansi-blue); }
+  .mini .term .a-m { color: var(--ansi-magenta); } .mini .term .a-c { color: var(--ansi-cyan); }
+  .mini svg { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Decklight themes</h1>
+  <p>75 themes on one token contract — canvas · type · accent · blocks · code · diagram · terminal. All WCAG-validated by <code style="font-size:13px">test/contrast.mjs</code>.</p>
+</header>
+<div id="filters">
+  <button data-f="all" class="on">All 30</button>
+  <button data-f="light">Light</button>
+  <button data-f="dark">Dark</button>
+</div>
+<div id="warn">
+  Theme files couldn’t be fetched — you’re probably viewing this over <code>file://</code>.
+  Serve the directory instead: <code>python3 -m http.server</code> (or <code>npx serve</code>) in <code>themes/</code>, then open <code>http://localhost:8000/gallery.html</code>.
+</div>
+<div id="grid"></div>
+
+<script>
+const THEMES = [
+  ['aurora','dark','northern-lights gradient'],       ['graphite','dark','machined charcoal + orange'],
+  ['obsidian','dark','volcanic, ember red, hard edges'],['midnight','dark','indigo + lamplight amber'],
+  ['fjord','dark','nordic dusk, glacial pastels'],     ['cosmos','dark','nebula purples, stargazer pink'],
+  ['ember','dark','fireside umber + coals'],           ['moss','dark','old-forest greens, serif'],
+  ['apple2','dark','green phosphor, mono display'],       ['c64','dark','blue on blue, PETSCII spirit'],
+  ['gameboy','light','four shades of pea-soup green'],     ['snes','light','console gray, ABXY pops'],
+  ['genesis','dark','Sega black, blue + red stripe'],      ['miami-vice','dark','flamingo pink, seafoam teal'],
+  ['friends','light','cream, door purple, frame yellow'],  ['severance','dark','lumon midnight, cold teal'],
+  ['stranger-things','dark','upside-down black, title red'],['aliens','dark','motion-tracker phosphor + amber'],
+  ['blade-runner','dark','neon noir, cyan + magenta'],     ['star-wars','dark','space black, crawl yellow'],
+  ['terminator','dark','gunmetal chrome, HUD red'],        ['godfather','dark','undertaker black, serif ivory'],
+  ['pulp-fiction','dark','dime-novel black, poster yellow'],
+  ['reveal-black','dark','the Reveal.js default, classic blue'], ['reveal-white','light','plain white, Reveal blue, monokai code'],
+  ['reveal-league','dark','gunmetal wash, condensed caps, cyan'], ['reveal-beige','light','parchment wash, warm browns'],
+  ['reveal-sky','light','pale sky wash, rounded type'],          ['reveal-night','dark','true dark, Montserrat, amber'],
+  ['reveal-serif','light','ivory, Palatino, quiet inks'],        ['reveal-simple','light','bare white, black Lato, one blue'],
+  ['reveal-solarized','light','canonical Solarized base3 cream'],['reveal-moon','dark','Solarized base03 deep teal'],
+  ['reveal-blood','dark','coal black, dried-blood red'],         ['reveal-dracula','dark','the vampire palette, neon syntax'],
+  ['metropolis','light','Beamer metropolis: spruce + one orange'],['seriph','light','warm white, serif display, one gold'],
+  ['velvet','dark','plum + rose gold, serif'],         ['carbon','dark','IDE graphite, duotone syntax'],
+  ['synthwave','dark','neon horizon, retro-future'],   ['ink','dark','sumi-e minimal, vermillion'],
+  ['eclipse','dark','black + one corona of gold'],     ['storm','dark','squall slate + lightning'],
+  ['porcelain','light','gallery white, serif ink-blue'],['paper','light','typewriter manuscript'],
+  ['meadow','light','spring grass + clover'],          ['glacier','light','arctic daylight, crisp'],
+  ['citrus','light','lime + tangerine, rounded'],      ['dune','light','sandstone + terracotta serif'],
+  ['orchid','light','lilac tint, feather headings'],   ['harvest','light','october ivory, slab'],
+  ['coastal','light','sea-sky gradient + coral'],      ['linen','light','unbleached fiber + olive'],
+  ['berry','light','raspberry energy'],                ['slate','light','boardroom neutral (on purpose)'],
+  ['latte','light','steamed milk + espresso'],         ['peony','light','editorial blush, italic serif'],
+  ['mint','light','spearmint SaaS-fresh, pills'],      ['sepia','light','antique folio, oxblood'],
+];
+
+const MINI = (id) => `
+  <div class="mini" id="${id}">
+    <h3>Real-Time AI, Slide by Slide</h3>
+    <p class="body">Body text with <span class="mut">muted detail</span>, a <a href="#">link</a>, and
+    <span class="chip">accent</span></p>
+    <div class="chips"><span class="block-demo">block surface</span></div>
+    <pre><span class="c">-- create a streaming agent</span>
+<span class="k">CREATE AGENT</span> <span class="f">triage</span> <span class="k">USING MODEL</span> <span class="t">claude</span>
+<span class="k">WITH</span> <span class="p">(</span><span class="s">'max_iterations'</span> <span class="p">=</span> <span class="n">5</span><span class="p">);</span></pre>
+    <div class="term"><span class="pr">$</span> decklight-rec demo.term.yaml<br>
+      <span class="a-g">✓ recorded</span> <span class="a-c">3 steps</span> · <span class="a-y">1.8s</span> · <span class="a-m">redacted 1</span> <span class="a-r">0 failed</span></div>
+    <svg viewBox="0 0 300 54">
+      <rect x="4" y="10" width="84" height="34" rx="7" fill="var(--d-fill-1)" stroke="var(--d-stroke)"/>
+      <text x="46" y="31" text-anchor="middle" font-size="11" fill="var(--d-text)">Kafka</text>
+      <line x1="92" y1="27" x2="124" y2="27" stroke="var(--d-accent)" stroke-width="2"/>
+      <rect x="128" y="10" width="84" height="34" rx="7" fill="var(--d-fill-2)" stroke="var(--d-stroke)"/>
+      <text x="170" y="31" text-anchor="middle" font-size="11" fill="var(--d-text)">Agent</text>
+      <line x1="216" y1="27" x2="248" y2="27" stroke="var(--d-muted)" stroke-width="2" stroke-dasharray="4 3"/>
+      <rect x="252" y="10" width="44" height="34" rx="7" fill="var(--d-fill-3)" stroke="var(--d-stroke)"/>
+      <text x="274" y="31" text-anchor="middle" font-size="11" fill="var(--d-text)">Act</text>
+    </svg>
+  </div>`;
+
+async function load() {
+  const grid = document.getElementById('grid');
+  const importSet = new Set();
+  let failed = false;
+
+  for (const [name, mode, tag] of THEMES) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.mode = mode;
+    card.innerHTML = MINI('g-' + name) + `<footer><strong>${name}</strong><span>${tag} <span class="mode">· ${mode}</span></span></footer>`;
+    grid.appendChild(card);
+    try {
+      const res = await fetch(`./${name}.css`);
+      if (!res.ok) throw new Error(res.status);
+      let css = await res.text();
+      for (const imp of css.match(/@import\s+url\([^)]*\)[^;]*;/g) ?? []) importSet.add(imp);
+      css = css.replace(/@import\s+url\([^)]*\)[^;]*;/g, '');
+      css = css.replace(/\.decklight\b/g, `#g-${name}`);   // scope tokens + theme extras to this card
+      const style = document.createElement('style');
+      style.textContent = css;
+      document.head.appendChild(style);
+    } catch (e) { failed = true; }
+  }
+  if (importSet.size) {
+    const s = document.createElement('style');
+    s.textContent = [...importSet].join('\n');
+    document.head.prepend(s);
+  }
+  if (failed) document.getElementById('warn').style.display = 'block';
+}
+
+document.getElementById('filters').addEventListener('click', (e) => {
+  const f = e.target.dataset.f; if (!f) return;
+  document.querySelectorAll('#filters button').forEach(b => b.classList.toggle('on', b === e.target));
+  document.querySelectorAll('.card').forEach(c => c.style.display = (f === 'all' || c.dataset.mode === f) ? '' : 'none');
+});
+
+load();
+</script>
+</body>
+</html>

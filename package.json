@@ -1,0 +1,28 @@
+{
+  "name": "decklight",
+  "version": "0.1.0",
+  "description": "A presentation library designed to be authored by AI agents and humans alike: single-file decks, Keynote-style builds, theme-aware SVG diagrams, and truthful terminal recordings.",
+  "type": "module",
+  "main": "dist/decklight.js",
+  "bin": {
+    "decklight": "cli/decklight.mjs"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test 'test/*.test.mjs'",
+    "verify": "npm run build && node test/render.mjs && node test/contrast.mjs && node test/palette-rules.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "highlight.js": "^11.10.0",
+    "marked": "^15.0.0"
+  },
+  "optionalDependencies": {
+    "js-yaml": "^4.3.0",
+    "node-pty": "^1.1.0"
+  },
+  "license": "MIT"
+}

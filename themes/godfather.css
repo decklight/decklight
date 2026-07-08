@@ -1,0 +1,82 @@
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · godfather
+   dark · undertaker black, serif ivory, one dark red rose
+   Inspired by The Godfather — black suits, a rose, old gold — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #131110;
+  --bg-accent: none;
+  --fg: #e8e0cc;
+  --muted: #9a9081;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-heading: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #efe6ce;
+  --heading-weight: 600;
+  --link: #c8a05f;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #8e2f35;
+  --accent-contrast: #fbfbfa;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #1f1b18;
+  --block-border: 1px solid #362e2a;
+  --block-radius: 4px;
+  --shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #1a1715;
+  --code-fg: #e8e2d2;
+  --hl-keyword: #d8b878;
+  --hl-string: #b0c090;
+  --hl-number: #d09080;
+  --hl-comment: #7a7266;
+  --hl-function: #a8b8c8;
+  --hl-type: #c8b898;
+  --hl-punct: #aaa294;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #9a9081;
+  --d-text: #e8e0cc;
+  --d-muted: #9a9081;
+  --d-accent: #b08c4a;
+  --d-fill-1: #26231c;
+  --d-fill-2: #2e1e1f;
+  --d-fill-3: #37291f;
+  --d-fill-4: #26261c;
+  --d-fill-5: #1e262e;
+  --d-fill-6: #371f27;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0f0d0c;
+  --term-fg: #e6e6e2;
+  --term-prompt: #b03a42;
+  --term-cursor: #b03a42;
+  --term-selection: rgba(142, 47, 53, 0.28);
+  --ansi-black: #9f898b;
+  --ansi-red: #c38b79;
+  --ansi-green: #79c388;
+  --ansi-yellow: #c3bc79;
+  --ansi-blue: #7990c3;
+  --ansi-magenta: #bf79c3;
+  --ansi-cyan: #79c1c3;
+  --ansi-white: #e3dede;
+  --ansi-bright-black: #b4a7a8;
+  --ansi-bright-red: #dbad9e;
+  --ansi-bright-green: #9edbaa;
+  --ansi-bright-yellow: #dbd69e;
+  --ansi-bright-blue: #9eb1db;
+  --ansi-bright-magenta: #d89edb;
+  --ansi-bright-cyan: #9ed9db;
+  --ansi-bright-white: #f3f2f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.25;
+}

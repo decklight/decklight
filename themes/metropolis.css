@@ -1,0 +1,85 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;600&display=swap');
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · metropolis
+   light · FiraSans minimalism: paper white, spruce ink, one orange
+   Inspired by the Beamer metropolis theme (Matthias Vogelgesang) — palette kept canonical where possible,
+   every gated pair fitted to the WCAG contract.
+   rule-exception: R3 the canonical metropolis orange (#eb811b) is the identity
+   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #fafaf8;
+  --bg-accent: none;
+  --fg: #23373b;
+  --muted: #5f7175;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: "Fira Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-heading: "Fira Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #23373b;
+  --heading-weight: 600;
+  --link: #c96a12;
+
+  /* ── accent ─────────────────────────────── */
+  --accent: #eb811b;
+  --accent-contrast: #333329;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #f2f2eb;
+  --block-border: 1px solid #d9ddda;
+  --block-radius: 2px;
+  --shadow: 0 3px 12px rgba(35, 55, 59, 0.14);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #23373b;
+  --code-fg: #eef2f2;
+  --hl-keyword: #e2ac5c;
+  --hl-string: #86cdbd;
+  --hl-number: #e39a72;
+  --hl-comment: #7e979b;
+  --hl-function: #85bce4;
+  --hl-type: #cfc088;
+  --hl-punct: #cfdadb;
+
+  /* ── diagram ────────────────────────────── */
+  --d-stroke: #5f7175;
+  --d-text: #23373b;
+  --d-muted: #5f7175;
+  --d-accent: #d06f12;
+  --d-fill-1: #e5edee;
+  --d-fill-2: #ece4dd;
+  --d-fill-3: #dcead5;
+  --d-fill-4: #e5eaee;
+  --d-fill-5: #ecdde5;
+  --d-fill-6: #eae8d5;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #1d2e31;
+  --term-fg: #eceae6;
+  --term-prompt: #eb811b;
+  --term-cursor: #eb811b;
+  --term-selection: rgba(235, 129, 27, 0.28);
+  --ansi-black: #9f9489;
+  --ansi-red: #db8361;
+  --ansi-green: #61db7d;
+  --ansi-yellow: #dbd461;
+  --ansi-blue: #6182db;
+  --ansi-magenta: #d861db;
+  --ansi-cyan: #61d4db;
+  --ansi-white: #e3e0de;
+  --ansi-bright-black: #b4ada7;
+  --ansi-bright-red: #eba88e;
+  --ansi-bright-green: #8eeba3;
+  --ansi-bright-yellow: #ebe68e;
+  --ansi-bright-blue: #8ea8eb;
+  --ansi-bright-magenta: #e98eeb;
+  --ansi-bright-cyan: #8ee5eb;
+  --ansi-bright-white: #f3f2f2;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
