@@ -113,15 +113,19 @@ for (let i = 0; i < slides.length; i++) {
   const wav = join(outDir, `slide-${n}.wav`);
   const m4a = join(outDir, `slide-${n}.m4a`);
   writeFileSync(txt, text);
+  let costNote = '';
   if (engine === 'gemini') {
-    writeFileSync(wav, await synthGemini(text, { voice, style }));
+    const { wav: buf, usage } = await synthGemini(text, { voice, style });
+    writeFileSync(wav, buf);
+    totalCost += usage.cost;
+    costNote = ` · ~$${usage.cost.toFixed(4)}`;
   } else {
     execFileSync('piper', ['-m', voice, '--data-dir', dataDir, '-f', wav], { input: text });
   }
   execFileSync('afconvert', ['-f', 'm4af', '-d', 'aac', wav, m4a]);
   rmSync(wav);
   manifest.push(`slide-${n}.m4a`);
-  console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}`);
+  console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}${costNote}`);
 }
 writeFileSync(join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 1));
 console.log(`done → ${outDir}`);

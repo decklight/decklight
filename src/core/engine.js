@@ -151,6 +151,7 @@ export function init(userConfig = {}) {
   const debugT0 = Date.now();
   const debugBuf = [];
   let debugEl = null;
+  let ttsSpend = 0; // estimated $ across live-bridge calls (x-tts-cost header)
   function debugLog(kind, msg) {
     debugBuf.push({ t: ((Date.now() - debugT0) / 1000).toFixed(3), kind, msg });
     if (debugBuf.length > 200) debugBuf.shift();
@@ -1495,7 +1496,8 @@ export function init(userConfig = {}) {
       + ` · step ${instance.state.step}/${rec ? rec.groups.length : 0}`
       + ` · theme ${currentTheme() ?? '—'}`
       + ` · narration ${narrating ? 'on' : 'off'} (${narrWhat})`
-      + (narrRate !== 1 ? ` · ${narrRate}×` : '');
+      + (narrRate !== 1 ? ` · ${narrRate}×` : '')
+      + (ttsSpend > 0 ? ` · tts ~$${ttsSpend.toFixed(4)}` : '');
   }
   function appendDebugRow(e) {
     const row = document.createElement('div');
@@ -1877,7 +1879,10 @@ export function init(userConfig = {}) {
           });
           if (!res.ok) throw new Error(String(res.status));
           const blob = await res.blob();
-          debugLog('tts', `${label} · ${liveCfg.voice} · ${text.length} chars → ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+          const cost = parseFloat(res.headers?.get?.('x-tts-cost') ?? '') || 0;
+          if (cost) ttsSpend += cost;
+          debugLog('tts', `${label} · ${liveCfg.voice} · ${text.length} chars → ${((Date.now() - t0) / 1000).toFixed(1)}s`
+            + (cost ? ` · ~$${cost.toFixed(4)}` : ''));
           return URL.createObjectURL(blob);
         } catch (e) {
           debugLog('tts', `${label} · ${liveCfg.voice} FAILED after ${((Date.now() - t0) / 1000).toFixed(1)}s (${String(e.message || e)})`);
@@ -2095,7 +2100,10 @@ export function init(userConfig = {}) {
         });
         if (!res.ok) throw new Error(String(res.status));
         const blob = await res.blob();
-        debugLog('tts', `preview ${voice}${style ? ' (styled)' : ''} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        const cost = parseFloat(res.headers?.get?.('x-tts-cost') ?? '') || 0;
+        if (cost) ttsSpend += cost;
+        debugLog('tts', `preview ${voice}${style ? ' (styled)' : ''} · ${((Date.now() - t0) / 1000).toFixed(1)}s`
+          + (cost ? ` · ~$${cost.toFixed(4)}` : ''));
         return URL.createObjectURL(blob);
       })();
       // failures self-evict so a retry can succeed; resolved entries stay

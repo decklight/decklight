@@ -28,6 +28,17 @@ function gcloudToken() {
     { encoding: 'utf8' }).trim();
 }
 
+// Published Vertex AI list prices (USD per 1M tokens) — the API returns
+// token counts in usageMetadata, never dollars, so cost is an ESTIMATE.
+const PRICES = [
+  [/flash/i, { input: 0.50, output: 10.00 }],
+  [/./, { input: 1.00, output: 20.00 }], // gemini-2.5-pro-tts
+];
+function estimateCost(model, usage) {
+  const p = PRICES.find(([re]) => re.test(model))[1];
+  return ((usage.promptTokenCount ?? 0) * p.input + (usage.candidatesTokenCount ?? 0) * p.output) / 1e6;
+}
+
 function wavFromPcm(pcm, rate) {
   const h = Buffer.alloc(44);
   h.write('RIFF', 0); h.writeUInt32LE(36 + pcm.length, 4); h.write('WAVE', 8);
@@ -38,7 +49,9 @@ function wavFromPcm(pcm, rate) {
 }
 
 /**
- * Returns async (text, { voice, style }) → WAV Buffer.
+ * Returns async (text, { voice, style }) → { wav: Buffer, usage } where
+ * usage = { model, promptTokens, audioTokens, cost } (cost is an estimate
+ * from published list prices — the API only reports token counts).
  * `style` is prepended in-prompt (the documented TTS steering pattern:
  * "Say cheerfully: …") — spoken-delivery guidance, not read aloud.
  */
@@ -62,10 +75,20 @@ export function createSynth({ project, ttsModel, location } = {}) {
       }),
     });
     if (!res.ok) { const e = new Error(`${res.status} ${(await res.text()).slice(0, 200)}`); e.status = res.status; throw e; }
-    const data = (await res.json()).candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData;
+    const json = await res.json();
+    const data = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData;
     if (!data) throw new Error('no audio in response');
     const rate = Number(/rate=(\d+)/.exec(data.mimeType)?.[1] ?? 24000);
-    return wavFromPcm(Buffer.from(data.data, 'base64'), rate);
+    const um = json.usageMetadata ?? {};
+    return {
+      wav: wavFromPcm(Buffer.from(data.data, 'base64'), rate),
+      usage: {
+        model,
+        promptTokens: um.promptTokenCount ?? 0,
+        audioTokens: um.candidatesTokenCount ?? 0,
+        cost: estimateCost(model, um),
+      },
+    };
   }
 
   return async function synth(text, { voice = 'Alnilam', style = '' } = {}) {
@@ -79,9 +102,9 @@ export function createSynth({ project, ttsModel, location } = {}) {
     for (const r of routes) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const wav = await call(prompt, voice, r.model, r.location);
+          const out = await call(prompt, voice, r.model, r.location);
           route ??= r;
-          return wav;
+          return out;
         } catch (e) {
           lastErr = e;
           if (e.status === 429) { await new Promise((ok) => setTimeout(ok, 15000 * (attempt + 1))); continue; }
