@@ -718,6 +718,9 @@
   cursor: pointer;
 }
 .decklight-narr .narr-prev-btn:hover { opacity: 1; border-color: rgba(255, 255, 255, .4); }
+.decklight-narr .narr-preview-row { display: flex; align-items: center; gap: 6px; }
+.decklight-narr .narr-preview-row .narr-input { flex: 1 1 auto; width: auto; }
+.decklight-narr .narr-reset-btn { margin: 8px 0 4px; padding: 7px 9px; }
 .decklight-narr .narr-row.narr-sel { background: rgba(255, 255, 255, .14); }
 .decklight-narr .narr-row.narr-cur::after { content: ' ✓'; opacity: .7; }
 .decklight-narr .narr-flavor { opacity: .5; font-size: .85em; margin-left: 6px; }

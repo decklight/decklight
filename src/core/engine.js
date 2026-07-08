@@ -1938,16 +1938,31 @@ export function init(userConfig = {}) {
   }
   // ▶ voice preview: speaks a short test sentence through the live bridge
   // in the row's voice (neutral tone), so voices can be auditioned before
-  // committing. The sentence is editable at the top of the voices view;
-  // synths cache per (voice, text) and failures self-evict.
-  let previewText = 'Hey, this is Decklight';
+  // committing. TWO caches (voice → promise of a blob URL): the DEFAULT
+  // sentence's cache is permanent — once an entry resolves it is never
+  // invalidated — while the custom cache holds exactly one sentence and is
+  // swapped out (old blobs freed) when the user's text changes. After any
+  // preview plays, the remaining 29 voices prefetch sequentially in the
+  // background, so auditioning the roster becomes instant.
+  const PREVIEW_DEFAULT = 'Hey, this is Decklight';
+  let previewText = PREVIEW_DEFAULT;
   let previewAudio = null;
-  const previewCache = new Map(); // voice|text → promise of a blob URL
-  function previewVoice(name, btn) {
-    const text = previewText.trim();
-    if (!text) return;
-    const key = `${name}|${text}`;
-    if (!previewCache.has(key)) {
+  const previewDefaultCache = new Map();
+  let previewCustomCache = new Map();
+  let previewCustomText = null;
+  const previewPrefetching = new Set(); // texts with a prefetch loop running
+  function previewCacheFor(text) {
+    if (text === PREVIEW_DEFAULT) return previewDefaultCache;
+    if (text !== previewCustomText) {
+      // new custom sentence: retire the old bucket and free its audio
+      for (const p of previewCustomCache.values()) p.then((u) => URL.revokeObjectURL(u)).catch(() => {});
+      previewCustomCache = new Map();
+      previewCustomText = text;
+    }
+    return previewCustomCache;
+  }
+  function ensurePreviewIn(cache, name, text) {
+    if (!cache.has(name)) {
       const p = (async () => {
         const res = await fetch(LIVE_URL, {
           method: 'POST',
@@ -1957,16 +1972,43 @@ export function init(userConfig = {}) {
         if (!res.ok) throw new Error(String(res.status));
         return URL.createObjectURL(await res.blob());
       })();
-      p.catch(() => { if (previewCache.get(key) === p) previewCache.delete(key); });
-      previewCache.set(key, p);
+      // failures self-evict so a retry can succeed; resolved entries stay
+      p.catch(() => { if (cache.get(name) === p) cache.delete(name); });
+      cache.set(name, p);
     }
+    return cache.get(name);
+  }
+  async function prefetchAllVoices(text) {
+    if (previewPrefetching.has(text)) return;
+    previewPrefetching.add(text);
+    const isDefault = text === PREVIEW_DEFAULT;
+    const cache = isDefault ? previewDefaultCache : previewCustomCache;
+    try {
+      debugLog('narr', `preview prefetch (${isDefault ? 'default' : 'custom'} sentence)`);
+      // sequential on purpose: the bridge synthesizes serially and 30
+      // parallel POSTs would just queue-jump the presenter's own clicks
+      for (const [name] of GEMINI_VOICES) {
+        if (!isDefault && previewCustomText !== text) return; // superseded
+        if (cache.has(name)) continue;
+        await ensurePreviewIn(cache, name, text).catch(() => { /* background — no toast */ });
+      }
+      debugLog('narr', 'preview prefetch complete');
+    } finally {
+      previewPrefetching.delete(text);
+    }
+  }
+  function previewVoice(name, btn) {
+    const text = previewText.trim();
+    if (!text) return;
+    const cache = previewCacheFor(text);
     if (btn) btn.textContent = '…';
-    previewCache.get(key).then((url) => {
+    ensurePreviewIn(cache, name, text).then((url) => {
       if (btn?.isConnected) btn.textContent = '▶';
       previewAudio ??= new Audio();
       previewAudio.src = url;
       previewAudio.play().catch(() => { /* autoplay policy */ });
       debugLog('narr', `preview ${name}`);
+      prefetchAllVoices(text); // warm the rest of the roster in the background
     }).catch(() => {
       if (btn?.isConnected) btn.textContent = '▶';
       toast('live voice bridge unreachable — run: decklight tts');
@@ -1995,6 +2037,8 @@ export function init(userConfig = {}) {
       });
     } else if (view === 'voices') {
       head.textContent = 'live voice — pick a voice · ▶ previews';
+      const wrap = document.createElement('div');
+      wrap.className = 'narr-preview-row';
       const test = document.createElement('input');
       test.className = 'narr-input narr-preview-text';
       test.value = previewText;
@@ -2006,7 +2050,19 @@ export function init(userConfig = {}) {
         if (e.key === 'Escape') { narrBack(); e.preventDefault(); }
         e.stopPropagation();
       });
-      card.appendChild(test);
+      const reset = document.createElement('button');
+      reset.type = 'button';
+      reset.className = 'narr-prev-btn narr-reset-btn';
+      reset.textContent = '↺';
+      reset.title = 'restore the default sentence';
+      reset.setAttribute('aria-label', 'restore the default preview sentence');
+      reset.addEventListener('click', (e) => {
+        e.stopPropagation();
+        previewText = PREVIEW_DEFAULT;
+        test.value = PREVIEW_DEFAULT;
+      });
+      wrap.append(test, reset);
+      card.appendChild(wrap);
       GEMINI_VOICES.forEach(([name, flavor]) => narrRows.push({
         text: `${name} <span class="narr-flavor">${flavor}</span>`,
         html: true,
