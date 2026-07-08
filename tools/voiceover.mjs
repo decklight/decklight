@@ -40,8 +40,8 @@ const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
 const engine = opt('--engine', 'piper');
 const voice = opt('--voice', engine === 'gemini' ? 'Alnilam' : 'en_US-ryan-high');
 const style = opt('--style',
-  "Read in a warm, welcoming tone. You're a friendly and battle-hardened " +
-  'senior engineer, still curious and savvy about new technologies.');
+  'Read in a warm, welcoming tone, like a friendly battle-hardened senior ' +
+  'engineer who is still curious about new technology.');
 const dataDir = resolve(opt('--data-dir', join(homedir(), '.local', 'share', 'piper')));
 const project = opt('--project', process.env.GOOGLE_CLOUD_PROJECT);
 const model = opt('--model', 'qwen3:30b-a3b');

@@ -1819,7 +1819,9 @@ export function init(userConfig = {}) {
     ['Sadachbia', 'lively'], ['Sadaltager', 'knowledgeable'], ['Sulafat', 'warm'],
   ];
   const TONES = [
-    ['Warm senior engineer', "Read in a warm, welcoming tone. You're a friendly and battle-hardened senior engineer, still curious and savvy about new technologies."],
+    // single directive clauses: instruction-shaped text steers; persona
+    // sentences ("You're a…") can stochastically be read aloud
+    ['Warm senior engineer', 'Read in a warm, welcoming tone, like a friendly battle-hardened senior engineer who is still curious about new technology.'],
     ['Professional', 'Read in a clear, professional tone — measured, confident, and articulate.'],
     ['Too serious', 'Read in an extremely grave, deadly serious tone, as if announcing news of the utmost importance.'],
     ['Joyful', 'Read in a joyful, light-hearted tone, smiling through every sentence.'],

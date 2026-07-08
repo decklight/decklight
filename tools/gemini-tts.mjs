@@ -49,11 +49,33 @@ function wavFromPcm(pcm, rate) {
 }
 
 /**
+ * Compose the steering prompt in the DOCUMENTED shape: one directive
+ * clause ending in a colon, fused to the content ("Say cheerfully: …").
+ * Free-form styles are normalized — multi-sentence personas collapse into
+ * a single clause (periods → semicolons) and anything not already phrased
+ * as a speech directive gets wrapped in one — because instruction-looking
+ * text is steering, but content-looking text ("You're a friendly senior
+ * engineer…") can stochastically be read aloud, especially when the
+ * instruction dwarfs a short sentence.
+ */
+export function styledPrompt(style, text) {
+  const s = (style ?? '').trim();
+  if (!s) return text;
+  const clause = s
+    .replace(/\s+/g, ' ')
+    .replace(/[.!?;:\s]+$/, '')   // drop trailing punctuation
+    .replace(/\.\s+/g, '; ');     // fuse sentences into one clause
+  const directive = /^(read|say|speak|narrate|deliver|announce|whisper|shout|recite|tell)\b/i.test(clause)
+    ? clause
+    : `Say this in the following style — ${clause}`;
+  return `${directive}: ${text}`;
+}
+
+/**
  * Returns async (text, { voice, style }) → { wav: Buffer, usage } where
  * usage = { model, promptTokens, audioTokens, cost } (cost is an estimate
  * from published list prices — the API only reports token counts).
- * `style` is prepended in-prompt (the documented TTS steering pattern:
- * "Say cheerfully: …") — spoken-delivery guidance, not read aloud.
+ * `style` steers delivery via styledPrompt() — never spoken content.
  */
 export function createSynth({ project, ttsModel, location } = {}) {
   if (!project) throw new Error('Gemini TTS needs a GCP project — pass { project } (CLI: --project <id> or set GOOGLE_CLOUD_PROJECT)');
@@ -93,7 +115,7 @@ export function createSynth({ project, ttsModel, location } = {}) {
 
   return async function synth(text, { voice = 'Alnilam', style = '' } = {}) {
     token ??= gcloudToken();
-    const prompt = style ? `${style}\n\n${text}` : text;
+    const prompt = styledPrompt(style, text);
     const routes = route ? [route]
       : [ttsModel ?? 'gemini-2.5-pro-tts', 'gemini-2.5-pro-preview-tts']
         .flatMap((m) => [location ?? 'global', 'us-central1'].map((l) => ({ model: m, location: l })))
