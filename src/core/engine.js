@@ -1861,6 +1861,11 @@ export function init(userConfig = {}) {
   function fetchLiveSeg(sl, step) {
     return synthLive(notesSegs(sl)[step] ?? '', `${sl}|s${step}|${liveCfg.voice}|${liveCfg.style}`);
   }
+  // data-narration="hold": an interactive slide (quiz, exercise, live
+  // demo) — narration plays whatever notes it has and builds still sync,
+  // but the deck NEVER auto-advances off it; the presenter moves on
+  // manually and narration resumes on the next slide.
+  const narrationHolds = (sl) => instance._sections[sl - 1]?.dataset.narration === 'hold';
   // When a segment finishes, reveal the next build; after the last step,
   // move to the next slide. Guarded on (slide, step) so any manual
   // navigation mid-clip silently wins over the pending advance.
@@ -1870,12 +1875,13 @@ export function init(userConfig = {}) {
     if (instance.state.slide !== sl || instance.state.step !== step) return;
     const rec = instance._records[sl - 1];
     if (step < (rec ? rec.groups.length : 0)) instance.next();
-    else if (sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+    else if (!narrationHolds(sl) && sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
   }
   async function playLive() {
     const sl = instance.state.slide, step = instance.state.step;
     const gen = ++liveSegGen;
     if (!notesText(sl)) {
+      if (narrationHolds(sl)) { debugLog('narr', `hold on slide ${sl} — manual advance`); return; }
       // nothing to say on this slide at all — skip it after a short beat
       setTimeout(() => {
         if (gen !== liveSegGen || !narrating || !narrSet?.live) return;
