@@ -17,7 +17,16 @@
 
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, watch, existsSync, statSync } from 'node:fs';
-import { resolve, extname, sep } from 'node:path';
+import { resolve, extname, sep, basename } from 'node:path';
+
+// file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
+// exactly like the tts bridge — so the endpoints are CORS-open. The server
+// still binds 127.0.0.1 only.
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type',
+};
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -84,12 +93,13 @@ export async function editMain(args) {
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://x');
+      if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
       if (req.method === 'GET' && url.pathname === '/edit/ping') {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ ok: true, deck: deckUrl }));
+        res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true, deck: deckUrl, name: basename(deckPath) }));
       }
       if (req.method === 'GET' && url.pathname === '/edit/events') {
-        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+        res.writeHead(200, { ...CORS, 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         res.write(': connected\n\n');
         clients.add(res);
         req.on('close', () => clients.delete(res));
@@ -103,7 +113,7 @@ export async function editMain(args) {
         const html = readFileSync(deckPath, 'utf8');
         writeFileSync(deckPath, setSlideNotes(html, slide, notesTextToAside(text)));
         console.log(`  notes saved: slide ${slide} (${text.length} chars)`);
-        res.writeHead(200, { 'content-type': 'application/json' });
+        res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
         return res.end(JSON.stringify({ ok: true }));
       }
       // ── static files from the cwd ────────────────────────────────────
@@ -119,7 +129,7 @@ export async function editMain(args) {
       res.end();
     } catch (e) {
       console.error(`  edit error: ${String(e).slice(0, 120)}`);
-      if (!res.headersSent) res.writeHead(400);
+      if (!res.headersSent) res.writeHead(400, CORS);
       res.end(String(e.message || e));
     }
   });

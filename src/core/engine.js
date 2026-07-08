@@ -2219,16 +2219,37 @@ export function init(userConfig = {}) {
   // Served by `decklight edit`: the deck subscribes to /edit/events and
   // reloads whenever the file changes on disk (any editor works — the
   // #/slide/step hash restores the position). E opens a notes editor whose
-  // Save writes the current slide's aside back through the server.
+  // Save writes the current slide's aside back through the server. Decks
+  // opened via file:// probe the server at its default localhost port
+  // (CORS-open, like the tts bridge) — the printed URL and a double-clicked
+  // file both work; config.edit.url overrides. A basename guard refuses to
+  // wire up against a server that's editing a DIFFERENT deck.
   let editAvailable = false;
-  if (!printMode && /^https?:$/.test(location.protocol) && !params.has('embedded')) {
-    fetch('/edit/ping').then((r) => (r.ok ? r.json() : null)).then((j) => {
-      if (!j?.ok) return;
-      editAvailable = true;
-      const es = new EventSource('/edit/events');
-      es.onmessage = () => location.reload();
-      debugLog('edit', 'live reload connected');
-    }).catch(() => { /* not served by decklight edit */ });
+  let editBase = '';
+  if (!printMode && !params.has('embedded')) {
+    const bases = config.edit?.url ? [config.edit.url]
+      : /^https?:$/.test(location.protocol) ? [''] : ['http://127.0.0.1:8788'];
+    (async () => {
+      for (const base of bases) {
+        try {
+          const r = await fetch(base + '/edit/ping');
+          if (!r.ok) continue;
+          const j = await r.json();
+          if (!j?.ok) continue;
+          const here = decodeURIComponent(location.pathname.split('/').pop() || '');
+          if (here && j.name && here !== j.name) {
+            debugLog('edit', `server edits ${j.name}, this deck is ${here} — not wiring up`);
+            continue;
+          }
+          editBase = base;
+          editAvailable = true;
+          const es = new EventSource(base + '/edit/events');
+          es.onmessage = () => location.reload();
+          debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`);
+          return;
+        } catch { /* not served by decklight edit */ }
+      }
+    })();
   }
   let editEl = null;
   function toggleEditor() {
@@ -2255,7 +2276,7 @@ export function init(userConfig = {}) {
     ta.spellcheck = false;
     const save = async () => {
       try {
-        const res = await fetch('/edit/notes', {
+        const res = await fetch(editBase + '/edit/notes', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ slide: sl, text: ta.value }),
