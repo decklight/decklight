@@ -26,6 +26,42 @@ const TYPE_SPEED_KEY = 'decklight-term-typespeed:' + location.pathname;
 const clampScale = (n) => Math.max(1, Math.min(10, n));
 const typeRate = (s) => 2 ** ((s - 5) / 2.5);
 
+// Subtle synthesized key clicks while commands type — no audio asset: each
+// keystroke is a ~35ms bandpass-filtered noise tick with jittered pitch and
+// level. The shared AudioContext resumes on the first (gesture-driven)
+// advance; data-type-sound="off" opts a terminal out.
+let keyCtx = null;
+let keyNoise = null;
+function keyClick(intensity = 1) {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    keyCtx ??= new AC();
+    if (keyCtx.state === 'suspended') keyCtx.resume();
+    if (!keyNoise) {
+      const len = Math.floor(keyCtx.sampleRate * 0.03);
+      keyNoise = keyCtx.createBuffer(1, len, keyCtx.sampleRate);
+      const d = keyNoise.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    const src = keyCtx.createBufferSource();
+    src.buffer = keyNoise;
+    const bp = keyCtx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 2400 + Math.random() * 2200;
+    bp.Q.value = 1.2;
+    const g = keyCtx.createGain();
+    const t = keyCtx.currentTime;
+    g.gain.setValueAtTime(0.05 * intensity * (0.7 + Math.random() * 0.6), t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.035);
+    src.connect(bp);
+    bp.connect(g);
+    g.connect(keyCtx.destination);
+    src.start(t);
+    src.stop(t + 0.04);
+  } catch { /* no audio in this environment */ }
+}
+
 /**
  * Scan `root` for terminal elements, load their casts, build DOM, and (in
  * step mode) register build providers on `Decklight`. Returns a Promise that
@@ -149,6 +185,7 @@ class TerminalController {
       if (saved >= 1 && saved <= 10) this.typeScale = saved;
     } catch { /* private mode */ }
     el.dataset.typeScale = String(this.typeScale);
+    this.typeSound = el.dataset.typeSound !== 'off';
     this.maxStep = (parseFloat(el.dataset.maxStep || '2.5') || 2.5) * 1000;
     this.visibleRows = parseInt(el.dataset.rows || '', 10) || Math.min(cast.meta.rows || DEFAULT_VISIBLE_ROWS, DEFAULT_VISIBLE_ROWS);
     this.epoch = 0;        // bumped to cancel in-flight animations
@@ -260,6 +297,7 @@ class TerminalController {
     if (!step.raw) {
       for (let c = 1; c <= cmd.length; c++) {
         if (this.epoch !== epoch) return;
+        if (this.typeSound) keyClick(cmd[c - 1] === ' ' ? 0.7 : 1);
         this.linesEl.innerHTML = base + this._promptHtml() +
           `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
         this._scrollToEnd();
@@ -291,6 +329,7 @@ class TerminalController {
         // an interactive answer gets typed, character by character
         for (const ch of ev.d) {
           if (this.epoch !== epoch) return;
+          if (this.typeSound) keyClick(ch === ' ' ? 0.7 : 1);
           screen.write(ch);
           paint();
           await sleep(35 / speedFactor);
@@ -357,6 +396,7 @@ class TerminalController {
       if (!step.raw) {
         for (let c = 1; c <= cmd.length; c++) {
           if (this.epoch !== epoch) { this._playedUpTo = s; return; }
+          if (this.typeSound) keyClick(cmd[c - 1] === ' ' ? 0.7 : 1);
           this.linesEl.innerHTML = base + this._promptHtml() +
             `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
           this._scrollToEnd();
@@ -380,7 +420,10 @@ class TerminalController {
         if (gap > 4) await sleep(gap);
         if (this.epoch !== epoch) { this._playedUpTo = s; return; }
         if (ev.kind === 'i') {
-          for (const ch of ev.d) { screen.write(ch); paint(); await sleep(35 / speedFactor); }
+          for (const ch of ev.d) {
+            if (this.typeSound) keyClick(ch === ' ' ? 0.7 : 1);
+            screen.write(ch); paint(); await sleep(35 / speedFactor);
+          }
         } else { screen.write(ev.d); paint(); }
       }
       await sleep(350 / this.speed);

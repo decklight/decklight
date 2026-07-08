@@ -263,6 +263,10 @@ absent — no compatibility break in either direction.
   output with recorded pacing compressed to ≤2.5s per step (`data-max-step` override).
   Provider is idempotent: `apply(i)` renders steps `< i` instantly-complete, animates step `i` if
   reached by a forward advance, clears the rest.
+- **Typing sound**: a subtle synthesized key click accompanies each typed character
+  (WebAudio — a ~35ms bandpassed noise tick with jittered pitch/level, no asset;
+  spaces click softer). On by default in both modes; `data-type-sound="off"` opts a
+  terminal out. Degrades to silence where audio is unavailable.
 - **Typing speed**: `data-type-speed` is a `1` (slow) … `10` (fast) scale, default `5`
   (the classic pace; the mapping is exponential — 1 ≈ ⅓×, 10 ≈ 4×). A `⌨ n` titlebar
   button lets the presenter cycle it live; that choice persists per deck in localStorage
