@@ -1936,6 +1936,43 @@ export function init(userConfig = {}) {
     else if (narrView === 'voices' && narrSets.length) renderNarr('tracks');
     else closeNarrPicker();
   }
+  // ▶ voice preview: speaks a short test sentence through the live bridge
+  // in the row's voice (neutral tone), so voices can be auditioned before
+  // committing. The sentence is editable at the top of the voices view;
+  // synths cache per (voice, text) and failures self-evict.
+  let previewText = 'Hey, this is Decklight';
+  let previewAudio = null;
+  const previewCache = new Map(); // voice|text → promise of a blob URL
+  function previewVoice(name, btn) {
+    const text = previewText.trim();
+    if (!text) return;
+    const key = `${name}|${text}`;
+    if (!previewCache.has(key)) {
+      const p = (async () => {
+        const res = await fetch(LIVE_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text, voice: name, style: '' }),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        return URL.createObjectURL(await res.blob());
+      })();
+      p.catch(() => { if (previewCache.get(key) === p) previewCache.delete(key); });
+      previewCache.set(key, p);
+    }
+    if (btn) btn.textContent = '…';
+    previewCache.get(key).then((url) => {
+      if (btn?.isConnected) btn.textContent = '▶';
+      previewAudio ??= new Audio();
+      previewAudio.src = url;
+      previewAudio.play().catch(() => { /* autoplay policy */ });
+      debugLog('narr', `preview ${name}`);
+    }).catch(() => {
+      if (btn?.isConnected) btn.textContent = '▶';
+      toast('live voice bridge unreachable — run: decklight tts');
+      debugLog('narr', `preview ${name} failed`);
+    });
+  }
   function renderNarr(view) {
     narrView = view;
     const card = narrEl.querySelector('.narr-card');
@@ -1957,10 +1994,23 @@ export function init(userConfig = {}) {
         commit: () => renderNarr('voices'),
       });
     } else if (view === 'voices') {
-      head.textContent = 'live voice — pick a voice';
+      head.textContent = 'live voice — pick a voice · ▶ previews';
+      const test = document.createElement('input');
+      test.className = 'narr-input narr-preview-text';
+      test.value = previewText;
+      test.placeholder = 'Preview sentence';
+      test.setAttribute('aria-label', 'Preview sentence');
+      test.addEventListener('input', () => { previewText = test.value; });
+      // onKey ignores inputs; only Escape needs wiring (back out of the view)
+      test.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') { narrBack(); e.preventDefault(); }
+        e.stopPropagation();
+      });
+      card.appendChild(test);
       GEMINI_VOICES.forEach(([name, flavor]) => narrRows.push({
         text: `${name} <span class="narr-flavor">${flavor}</span>`,
         html: true,
+        preview: name,
         cur: narrSet?.live && liveCfg.voice === name,
         commit: () => { liveDraft = name; renderNarr('tones'); },
       }));
@@ -1993,7 +2043,20 @@ export function init(userConfig = {}) {
     narrRows.forEach((row, i) => {
       const el = document.createElement('div');
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '');
-      if (row.html) el.innerHTML = row.text; else el.textContent = row.text;
+      const label = document.createElement('span');
+      label.className = 'narr-row-label';
+      if (row.html) label.innerHTML = row.text; else label.textContent = row.text;
+      el.appendChild(label);
+      if (row.preview) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'narr-prev-btn';
+        btn.textContent = '▶';
+        btn.title = `preview ${row.preview}`;
+        btn.setAttribute('aria-label', `preview ${row.preview}`);
+        btn.addEventListener('click', (e) => { e.stopPropagation(); previewVoice(row.preview, btn); });
+        el.appendChild(btn);
+      }
       el.addEventListener('mouseenter', () => selectNarrRow(i));
       el.addEventListener('click', () => { selectNarrRow(i); commitNarrRow(); });
       card.appendChild(el);
