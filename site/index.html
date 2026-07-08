@@ -49,6 +49,22 @@
     .trait h3 { margin: 0 0 6px; font-size: 1rem; color: var(--accent); }
     .trait p { margin: 0; font-size: 0.92rem; color: var(--muted); }
 
+    /* the creamy easter egg: click the word, get the lab note */
+    .egg-trigger { border-bottom: 1px dotted var(--accent); cursor: help; }
+    .egg {
+      display: none;
+      margin: -30px 0 44px;
+      padding: 14px 18px;
+      background: var(--card);
+      border: 1px dashed var(--accent);
+      border-radius: 12px;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+    .egg.open { display: block; }
+    .egg strong { color: var(--accent); }
+
     /* the get-started terminal: Decklight's own player, playing a cast;
        terminal tokens supplied here since no theme stylesheet is loaded */
     .start { margin: 0 0 44px; }
@@ -131,7 +147,7 @@
       </div>
       <div class="trait">
         <h3>Terminals</h3>
-        <p>Real PTY recordings replayed truthfully, never a video, with the sound of the best mechanical keyboards: thocky, creamy, or clacky.</p>
+        <p>Real PTY recordings replayed truthfully, never a video, with the sound of the best mechanical keyboards: thocky, <span class="egg-trigger" title="psst">creamy</span>, or clacky.</p>
       </div>
       <div class="trait">
         <h3>Live narration</h3>
@@ -142,6 +158,16 @@
         <p>No binary formats anywhere, so decks diff cleanly in git and agents can read, review, and edit every byte.</p>
       </div>
     </section>
+
+    <aside class="egg" id="egg-creamy">
+      <strong>You found the lab note.</strong> The creamy sound is the agent's recreation of a
+      Rainy 75, made by dissecting a recording of the real board strike by strike: each keystroke
+      is a short bright contact click at 1.4 to 2.8kHz that dies within ~10ms, a quiet 60-110Hz
+      thump that blooms a few milliseconds later and rings ~40ms at roughly a quarter of the
+      strike's peak (I measured 23% in the recording and calibrated to exactly that), a second
+      lighter click 35 to 80ms later which is the key release, and a ~4x loudness spread between
+      grazed and bottomed-out keys. Synthesized live in WebAudio. No samples were harmed.
+    </aside>
 
     <section class="start" aria-label="Get started">
       <h2>Get started in thirty seconds</h2>
@@ -243,6 +269,11 @@
 
   <script src="dist/decklight.js"></script>
   <script>
+    // easter egg: clicking "creamy" (or arriving at #creamy) reveals the lab note
+    const egg = document.getElementById('egg-creamy');
+    document.querySelector('.egg-trigger').addEventListener('click', () => egg.classList.toggle('open'));
+    if (location.hash === '#creamy') egg.classList.add('open');
+
     // activate the standalone terminal, then auto-play it on first scroll-into-view
     Decklight.initTerminals().then(() => {
       const term = document.querySelector('.terminal');
