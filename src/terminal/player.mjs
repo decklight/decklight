@@ -35,7 +35,7 @@ const typeRate = (s) => 2 ** ((s - 5) / 2.5);
 // opts a terminal out.
 let keyCtx = null;
 let keyNoise = null;
-function keyClick(intensity = 1) {
+function keyClick(ch = '') {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -48,31 +48,37 @@ function keyClick(intensity = 1) {
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     }
     const t = keyCtx.currentTime;
-    const jitter = 0.7 + Math.random() * 0.6;
-    // thock body: a low sine dropping ~an octave over its short life
+    const space = ch === ' ';
+    // no two keys sound the same: a full octave of pitch spread, and the
+    // drop ratio and decay wander per keystroke. The spacebar is the big
+    // key on the board: deeper (80-120Hz) and reliably LOUDER than letters.
+    const jitter = space ? 0.9 + Math.random() * 0.3 : 0.65 + Math.random() * 0.7;
+    const f0 = space ? 80 + Math.random() * 40 : 105 + Math.random() * 115;
+    const drop = 0.45 + Math.random() * 0.25;
+    const body = space ? 0.13 : 0.085;
+    const decay = (space ? 0.12 : 0.08) + Math.random() * 0.03;
     const osc = keyCtx.createOscillator();
     osc.type = 'sine';
-    const f0 = 140 + Math.random() * 55;
     osc.frequency.setValueAtTime(f0, t);
-    osc.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + 0.055);
+    osc.frequency.exponentialRampToValueAtTime(f0 * drop, t + decay * 0.6);
     const og = keyCtx.createGain();
     og.gain.setValueAtTime(0.0001, t);
-    og.gain.exponentialRampToValueAtTime(0.085 * intensity * jitter, t + 0.005);
-    og.gain.exponentialRampToValueAtTime(0.0001, t + 0.095);
+    og.gain.exponentialRampToValueAtTime(body * jitter, t + 0.005);
+    og.gain.exponentialRampToValueAtTime(0.0001, t + decay);
     osc.connect(og);
     og.connect(keyCtx.destination);
     osc.start(t);
-    osc.stop(t + 0.1);
+    osc.stop(t + decay + 0.01);
     // tactile texture: noise through a gentle lowpass, softer than the body
     const src = keyCtx.createBufferSource();
     src.buffer = keyNoise;
     const lp = keyCtx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 750 + Math.random() * 450;
+    lp.frequency.value = space ? 400 + Math.random() * 250 : 550 + Math.random() * 650;
     lp.Q.value = 0.7;
     const g = keyCtx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.03 * intensity * jitter, t + 0.003);
+    g.gain.exponentialRampToValueAtTime((space ? 0.04 : 0.03) * jitter, t + 0.003);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.055);
     src.connect(lp);
     lp.connect(g);
@@ -317,7 +323,7 @@ class TerminalController {
     if (!step.raw) {
       for (let c = 1; c <= cmd.length; c++) {
         if (this.epoch !== epoch) return;
-        if (this.typeSound) keyClick(cmd[c - 1] === ' ' ? 0.7 : 1);
+        if (this.typeSound) keyClick(cmd[c - 1]);
         this.linesEl.innerHTML = base + this._promptHtml() +
           `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
         this._scrollToEnd();
@@ -349,7 +355,7 @@ class TerminalController {
         // an interactive answer gets typed, character by character
         for (const ch of ev.d) {
           if (this.epoch !== epoch) return;
-          if (this.typeSound) keyClick(ch === ' ' ? 0.7 : 1);
+          if (this.typeSound) keyClick(ch);
           screen.write(ch);
           paint();
           await sleep(60 / speedFactor);
@@ -416,7 +422,7 @@ class TerminalController {
       if (!step.raw) {
         for (let c = 1; c <= cmd.length; c++) {
           if (this.epoch !== epoch) { this._playedUpTo = s; return; }
-          if (this.typeSound) keyClick(cmd[c - 1] === ' ' ? 0.7 : 1);
+          if (this.typeSound) keyClick(cmd[c - 1]);
           this.linesEl.innerHTML = base + this._promptHtml() +
             `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
           this._scrollToEnd();
@@ -441,7 +447,7 @@ class TerminalController {
         if (this.epoch !== epoch) { this._playedUpTo = s; return; }
         if (ev.kind === 'i') {
           for (const ch of ev.d) {
-            if (this.typeSound) keyClick(ch === ' ' ? 0.7 : 1);
+            if (this.typeSound) keyClick(ch);
             screen.write(ch); paint(); await sleep(60 / speedFactor);
           }
         } else { screen.write(ev.d); paint(); }
