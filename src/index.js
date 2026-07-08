@@ -22,3 +22,12 @@ export function init(config = {}) {
   }
   return instance;
 }
+
+/** Docs-page use (SPEC §7.3): activate .terminal elements WITHOUT a deck —
+ *  play mode is fully interactive standalone; step mode renders complete. */
+export function initTerminals(root = document) {
+  const register = terminal.registerTerminals || terminal.default?.registerTerminals;
+  return typeof register === 'function'
+    ? Promise.resolve(register({ registerBuildProvider }, root))
+    : Promise.resolve();
+}

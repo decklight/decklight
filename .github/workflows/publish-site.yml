@@ -32,6 +32,8 @@ jobs:
         run: |
           mkdir -p out
           cp site/index.html out/index.html
+          mkdir -p out/dist
+          cp dist/decklight.js dist/decklight.css out/dist/
           node cli/decklight.mjs bundle demo/showcase.html --themes all -o out/showcase.html
           printf 'decklight.io' > out/CNAME
           {
