@@ -1828,10 +1828,16 @@ export function init(userConfig = {}) {
     const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
     return t.replace(/⟨CLICK⟩/g, ' ').replace(/\s+/g, ' ').trim();
   }
-  function fetchLive(sl) {
-    const text = notesText(sl);
+  // Build-synced narration: the ⟨CLICK⟩ markers that already segment the
+  // notes for the speaker view segment the AUDIO too — segment k narrates
+  // build step k (0 = arrival, before any build), exactly like a presenter
+  // reading the notes and clicking between segments.
+  function notesSegs(sl) {
+    const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
+    return t.split('⟨CLICK⟩').map((s) => s.replace(/\s+/g, ' ').trim());
+  }
+  function synthLive(text, key) {
     if (!text) return Promise.resolve(null);
-    const key = `${sl}|${liveCfg.voice}|${liveCfg.style}`;
     if (!liveCache.has(key)) {
       const p = (async () => {
         const res = await fetch(LIVE_URL, {
@@ -1847,28 +1853,61 @@ export function init(userConfig = {}) {
     }
     return liveCache.get(key);
   }
-  // Live voice narrates a whole slide as one clip (SPEC: builds aren't
-  // step-synced to audio), so "done talking" means "done with this slide" —
-  // auto-advance jumps straight to the next slide, not the next build step.
-  function autoAdvance(sl) {
-    if (!narrating || !narrSet?.live || instance.state.slide !== sl) return;
-    if (sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+  // whole-slide clip — the ⇧V offline recorder's unit (one file per slide)
+  function fetchLive(sl) {
+    return synthLive(notesText(sl), `${sl}|full|${liveCfg.voice}|${liveCfg.style}`);
+  }
+  // per-build-segment clip — the live player's unit
+  function fetchLiveSeg(sl, step) {
+    return synthLive(notesSegs(sl)[step] ?? '', `${sl}|s${step}|${liveCfg.voice}|${liveCfg.style}`);
+  }
+  // When a segment finishes, reveal the next build; after the last step,
+  // move to the next slide. Guarded on (slide, step) so any manual
+  // navigation mid-clip silently wins over the pending advance.
+  let liveSegGen = 0; // cancels pending silent-beat timers and stale onended
+  function advanceFrom(sl, step) {
+    if (!narrating || !narrSet?.live) return;
+    if (instance.state.slide !== sl || instance.state.step !== step) return;
+    const rec = instance._records[sl - 1];
+    if (step < (rec ? rec.groups.length : 0)) instance.next();
+    else if (sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
   }
   async function playLive() {
-    const sl = instance.state.slide;
+    const sl = instance.state.slide, step = instance.state.step;
+    const gen = ++liveSegGen;
+    if (!notesText(sl)) {
+      // nothing to say on this slide at all — skip it after a short beat
+      setTimeout(() => {
+        if (gen !== liveSegGen || !narrating || !narrSet?.live) return;
+        if (instance.state.slide === sl && sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+      }, 400);
+      return;
+    }
+    const segs = notesSegs(sl);
+    if (!segs[step]) {
+      // a build beat with no words — reveal the next step after a pause
+      setTimeout(() => { if (gen === liveSegGen) advanceFrom(sl, step); }, 600);
+      return;
+    }
     try {
-      const url = await fetchLive(sl);
-      // stale guard: synthesis takes seconds — only play if still on this slide
-      if (!narrating || instance.state.slide !== sl) return;
-      if (!url) { autoAdvance(sl); return; } // nothing to narrate — don't stall
+      const url = await fetchLiveSeg(sl, step);
+      // stale guards: synthesis takes seconds — only play if nothing moved
+      if (gen !== liveSegGen || !narrating || instance.state.slide !== sl || instance.state.step !== step) return;
       narrAudio ??= new Audio();
       narrAudio.src = url;
-      narrAudio.onended = () => autoAdvance(sl);
+      narrAudio.onended = () => { if (gen === liveSegGen) advanceFrom(sl, step); };
       narrAudio.play().catch(() => { /* autoplay policy */ });
-      if (sl < instance.state.totalSlides) fetchLive(sl + 1).catch(() => { /* prefetch only */ });
+      // prefetch what's next while this segment speaks: the next segment on
+      // this slide, else the next slide's opening segment
+      const rec = instance._records[sl - 1];
+      if (step < (rec ? rec.groups.length : 0) && segs[step + 1]) {
+        fetchLiveSeg(sl, step + 1).catch(() => { /* prefetch only */ });
+      } else if (sl < instance.state.totalSlides) {
+        fetchLiveSeg(sl + 1, 0).catch(() => { /* prefetch only */ });
+      }
     } catch {
       if (!liveWarned) { toast('live voice bridge unreachable — run: decklight tts'); liveWarned = true; }
-      debugLog('narr', `live synth failed (slide ${sl})`);
+      debugLog('narr', `live synth failed (slide ${sl} step ${step})`);
     }
   }
   function playSlideFile() {
@@ -1889,12 +1928,16 @@ export function init(userConfig = {}) {
       debugLog('narr', `on — ${what}`);
       playSlideFile();
     } else {
+      liveSegGen++; // cancel any pending silent-beat advance
       narrAudio?.pause();
       toast('narration off');
       debugLog('narr', 'off');
     }
   }
   instance.on('slide', () => { if (narrating) playSlideFile(); });
+  // builds re-sync the live voice too — whether the advance came from the
+  // narration itself or from the presenter pressing → mid-sentence
+  instance.on('build', () => { if (narrating && narrSet?.live) playLive(); });
   if (params.has('voiceover') && narrSet && !printMode) {
     // whichever gesture fires first must disarm the OTHER listener too, or
     // the survivor re-arms narration on the next key/click after V stops it
