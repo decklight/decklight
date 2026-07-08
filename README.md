@@ -151,6 +151,7 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `T` | theme picker (type to filter) |
 | `/` | command palette |
 | `G` | slide finder (live preview) |
+| `E` | edit speaker notes (with `decklight edit` running) |
 | `V` | narration on/off |
 | `N` | narration picker (tracks, live voice, tone) |
 | `⇧V` | record offline narration (live voice) |
@@ -174,6 +175,7 @@ Two sources, one `V` toggle (`N` picks):
 
 - **Command palette** (`/`): every command with its shortcut, type-to-filter, Enter runs — argument commands drill into their pickers, `goto 27` (or just `27`) jumps to a slide, and unmatched text becomes a slide search.
 - **Transcript** (palette → Transcript…): the deck's full spoken script in an overlay — click a title to jump — with one-click export to `.txt` or `.md`.
+- **Edit mode** (`E`, with `decklight edit deck.html` running): a notes editor over the current slide — plain text with `⟨CLICK⟩` lines between beats — whose Save writes the `<aside class="notes">` back into the file; the server watches the deck and every connected browser **auto-reloads** (the hash keeps your slide/step). Editing the file in your own editor live-reloads too.
 - **Slide finder** (`G`, palette → Find slide, or just type words in the palette): type words, get matching slides — title matches rank first, body matches follow — with a live preview of the selected slide on the right. `Enter` jumps. (Deliberately not `⌘F` — browser find stays sacred.)
 - **Speaker view** (`S`): current + next thumbnails, notes with `⟨CLICK⟩` segments highlighted as builds land, elapsed timer, step list. Works on `file://`. Press `S` again for **rehearse mode** — big cue cards (the deck's rehearse notes) instead of full prose, so you practice recalling the material rather than reading it.
 - **Overview** (`O`): scaled grid of every slide, arrow-key navigation.
@@ -201,6 +203,7 @@ One HTML file with the runtime, structure CSS, chosen themes, casts, and images 
 | `decklight export cast.json` | flatten to asciicast v2 |
 | `decklight bundle deck.html [--all]` | self-contained single-file HTML |
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
+| `decklight edit deck.html` | live-editing server — `E` edits notes back into the file, saves auto-reload |
 
 `decklight help` for flags and examples. The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 

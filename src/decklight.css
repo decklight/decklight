@@ -844,6 +844,16 @@
 }
 .decklight-captions.show { display: block; }
 
+/* notes editor (E, served by `decklight edit`) */
+.decklight-editor .narr-card { width: min(640px, 88vw); }
+.decklight-editor .edit-notes {
+  min-height: 240px;
+  resize: vertical;
+  line-height: 1.6;
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
 /* transcript overlay (palette → Transcript…) */
 .decklight-transcript .narr-card { width: min(680px, 88vw); }
 .decklight-transcript .tr-actions { display: flex; gap: 8px; padding: 4px 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, .09); }

@@ -30,6 +30,8 @@ Commands:
            EXAMPLE: decklight bundle deck.html --all --title "My Course"   (merge the whole playlist into one file)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
+  edit     serve the deck with live reload; E in the player edits speaker notes back into the file
+           EXAMPLE: decklight edit demo/showcase.html   (then open the printed URL)
   help     show this help, or a command's help: decklight help bundle
 `;
 
@@ -73,6 +75,11 @@ switch (cmd) {
   case 'tts': {
     const { ttsMain } = await import('../tools/voiceover-server.mjs');
     await ttsMain(rest);
+    break;
+  }
+  case 'edit': {
+    const { editMain } = await import('./edit.mjs');
+    await editMain(rest);
     break;
   }
   default:

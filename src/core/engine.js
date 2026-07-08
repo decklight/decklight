@@ -840,6 +840,7 @@ export function init(userConfig = {}) {
       { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: `Narration ${narrPaused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
+      { label: 'Edit speaker notes…', hint: 'E', alias: 'edit mode notes write', run: toggleEditor },
       { label: 'Fullscreen', hint: 'F', run: () => document.documentElement.requestFullscreen?.() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
@@ -1557,6 +1558,7 @@ export function init(userConfig = {}) {
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
+      <tr><td>E</td><td>edit speaker notes (decklight edit server)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
@@ -1629,6 +1631,10 @@ export function init(userConfig = {}) {
     if (transcriptEl) {
       if (e.key === 'Escape') { toggleTranscript(); e.preventDefault(); }
       return; // a reading surface — trap navigation while it's up
+    }
+    if (editEl) {
+      if (e.key === 'Escape') { toggleEditor(); e.preventDefault(); }
+      return; // typing surface — the textarea handles its own keys
     }
     if (recEl) {
       if (e.key === 'Escape') closeRecordDialog();
@@ -1707,6 +1713,7 @@ export function init(userConfig = {}) {
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
+      case 'e': case 'E': toggleEditor(); break;
       case 'f': case 'F': document.documentElement.requestFullscreen?.(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
       case 'n': case 'N': openNarrPicker(); break;
@@ -2207,6 +2214,79 @@ export function init(userConfig = {}) {
     root.appendChild(transcriptEl);
   }
   instance.transcript = { open: toggleTranscript, text: () => transcriptString(false), markdown: () => transcriptString(true) };
+
+  // ── edit mode (E) + live reload — SPEC §8 ────────────────────────────────
+  // Served by `decklight edit`: the deck subscribes to /edit/events and
+  // reloads whenever the file changes on disk (any editor works — the
+  // #/slide/step hash restores the position). E opens a notes editor whose
+  // Save writes the current slide's aside back through the server.
+  let editAvailable = false;
+  if (!printMode && /^https?:$/.test(location.protocol) && !params.has('embedded')) {
+    fetch('/edit/ping').then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (!j?.ok) return;
+      editAvailable = true;
+      const es = new EventSource('/edit/events');
+      es.onmessage = () => location.reload();
+      debugLog('edit', 'live reload connected');
+    }).catch(() => { /* not served by decklight edit */ });
+  }
+  let editEl = null;
+  function toggleEditor() {
+    if (editEl) { editEl.remove(); editEl = null; return; }
+    const sl = instance.state.slide;
+    if (!editAvailable) {
+      toast('edit mode needs the server — run: decklight edit <deck.html>', 2200);
+      return;
+    }
+    if (instance._sections[sl - 1]?.hasAttribute('data-was-markdown')) {
+      toast('markdown-authored slide — its notes live in the template; edit the file', 2200);
+      return;
+    }
+    editEl = document.createElement('div');
+    editEl.className = 'decklight-narr decklight-editor';
+    const card = document.createElement('div');
+    card.className = 'narr-card';
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    head.textContent = `edit notes — slide ${sl} · ⌘⏎ saves · Esc closes`;
+    const ta = document.createElement('textarea');
+    ta.className = 'narr-input edit-notes';
+    ta.value = notesSegs(sl).filter((s, i, a) => s || i < a.length).join('\n\n⟨CLICK⟩\n\n');
+    ta.spellcheck = false;
+    const save = async () => {
+      try {
+        const res = await fetch('/edit/notes', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ slide: sl, text: ta.value }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        debugLog('edit', `notes saved — slide ${sl}`);
+        toast('notes saved — reloading');
+        // the server's watcher broadcasts the reload; nothing else to do
+      } catch (e) {
+        toast(`save failed: ${String(e.message || e).slice(0, 60)}`);
+      }
+    };
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { save(); e.preventDefault(); }
+      else if (e.key === 'Escape') { toggleEditor(); e.preventDefault(); }
+      e.stopPropagation();
+    });
+    const actions = document.createElement('div');
+    actions.className = 'tr-actions';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'narr-prev-btn';
+    btn.textContent = '💾 save to file';
+    btn.addEventListener('click', save);
+    actions.appendChild(btn);
+    card.append(head, ta, actions);
+    editEl.appendChild(card);
+    editEl.addEventListener('click', (e) => { if (e.target === editEl) toggleEditor(); });
+    root.appendChild(editEl);
+    setTimeout(() => ta.focus(), 0);
+  }
   if (params.has('voiceover') && narrSet && !printMode) {
     // whichever gesture fires first must disarm the OTHER listener too, or
     // the survivor re-arms narration on the next key/click after V stops it
