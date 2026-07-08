@@ -14,6 +14,9 @@
  * 5 is the default pace. The ⌨ titlebar button cycles it live, persisted
  * per deck (the presenter's choice wins over the authored attribute).
  *
+ * The A titlebar button cycles the terminal's font size (75% … 160% of the
+ * inherited size), persisted per page — present in both modes.
+ *
  * play mode: timeline playback with play/pause, speed cycling, restart.
  */
 
@@ -25,6 +28,11 @@ const DEFAULT_VISIBLE_ROWS = 24;
 const TYPE_SPEED_KEY = 'decklight-term-typespeed:' + location.pathname;
 const clampScale = (n) => Math.max(1, Math.min(10, n));
 const typeRate = (s) => 2 ** ((s - 5) / 2.5);
+
+// font-size steps for the A titlebar button, in em so they scale whatever
+// base size the page gives the terminal; 1 is "as authored"
+const TERM_FONT_KEY = 'decklight-term-fontsize:' + location.pathname;
+const FONT_STEPS = [0.75, 0.9, 1, 1.15, 1.35, 1.6];
 
 // Subtle synthesized key thocks while commands type — no audio asset. The
 // voicing aims for a "creamy" lubed mechanical switch, not a clacky one:
@@ -228,6 +236,12 @@ class TerminalController {
       if (saved >= 1 && saved <= 10) this.typeScale = saved;
     } catch { /* private mode */ }
     el.dataset.typeScale = String(this.typeScale);
+    this.fontIdx = FONT_STEPS.indexOf(1);
+    try {
+      const saved = parseInt(localStorage.getItem(TERM_FONT_KEY) ?? '', 10);
+      if (saved >= 0 && saved < FONT_STEPS.length) this.fontIdx = saved;
+    } catch { /* private mode */ }
+    this._applyFont();
     const snd = (el.dataset.typeSound || 'creamy').toLowerCase();
     this.typeSound = snd === 'off' ? null : (KEY_PROFILES[snd] ? snd : 'creamy');
     this.maxStep = (parseFloat(el.dataset.maxStep || '2.5') || 2.5) * 1000;
@@ -286,6 +300,29 @@ class TerminalController {
 
   _scrollToEnd() { this.screenEl.scrollTop = this.screenEl.scrollHeight; }
 
+  _applyFont() {
+    const scale = FONT_STEPS[this.fontIdx];
+    this.el.style.fontSize = scale === 1 ? '' : `${scale}em`;
+  }
+
+  // A n% — font-size chooser; click cycles 75% → 160% and wraps. Appended
+  // after each mode sets controlsEl.innerHTML, so both modes get it.
+  _mountFontButton() {
+    const btn = document.createElement('button');
+    btn.className = 'terminal-btn terminal-fontsize';
+    btn.title = 'font size — click cycles 75% to 160%';
+    btn.setAttribute('aria-label', 'font size');
+    const label = () => { btn.textContent = `A ${Math.round(FONT_STEPS[this.fontIdx] * 100)}%`; };
+    label();
+    btn.addEventListener('click', () => {
+      this.fontIdx = (this.fontIdx + 1) % FONT_STEPS.length;
+      this._applyFont();
+      try { localStorage.setItem(TERM_FONT_KEY, String(this.fontIdx)); } catch { /* private mode */ }
+      label();
+    });
+    this.controlsEl.appendChild(btn);
+  }
+
   // ------------------------------------------------------------- step mode
 
   mountStepMode(Decklight) {
@@ -299,6 +336,7 @@ class TerminalController {
       try { localStorage.setItem(TYPE_SPEED_KEY, String(this.typeScale)); } catch { /* private mode */ }
       e.target.textContent = `⌨ ${this.typeScale}`;
     });
+    this._mountFontButton();
     const steps = this.playable;
     // Poster steps arrive pre-rendered and are excluded from the build
     // sequence: provider count = playable - poster, apply(i) shows poster+i.
@@ -396,6 +434,7 @@ class TerminalController {
       `<button class="terminal-btn terminal-play" aria-label="play">▶</button>` +
       `<button class="terminal-btn terminal-speed" aria-label="speed">1×</button>` +
       `<button class="terminal-btn terminal-restart" aria-label="restart">↺</button>`;
+    this._mountFontButton();
     const playBtn = this.controlsEl.querySelector('.terminal-play');
     const speedBtn = this.controlsEl.querySelector('.terminal-speed');
     this.controlsEl.querySelector('.terminal-restart').addEventListener('click', () => this._restart(playBtn));
