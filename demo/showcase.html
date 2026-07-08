@@ -865,20 +865,19 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
   <script>
   // Quiz grading: pure DOM scan, no dependency on the Decklight instance —
   // the question text and correct-answer label are read straight off each
-  // .quiz-q slide, so there's exactly one place that can be wrong.
+  // .quiz-q slide, so there's exactly one place that can be wrong. Grading
+  // is LIVE once revealed: change any answer and the score, the pass/fail
+  // verdict, and the recap all recalculate immediately.
   (() => {
     const questions = [...document.querySelectorAll('.quiz-q')];
-    // Clicking a label focuses its radio, and a focused radiogroup owns the
-    // arrow keys (native selection-move) — the deck would stop advancing on
-    // →. Blur right after each pick so navigation keys reach the engine.
-    for (const section of questions) section.addEventListener('change', (e) => e.target.blur());
     const checkBtn = document.getElementById('quiz-check');
     const scoreEl = document.getElementById('quiz-score');
     const passEl = document.getElementById('quiz-pass');
     const failEl = document.getElementById('quiz-fail');
     const recapEl = document.getElementById('quiz-recap');
+    let revealed = false;
 
-    checkBtn.addEventListener('click', () => {
+    function grade() {
       const misses = [];
       let correct = 0;
       for (const section of questions) {
@@ -899,24 +898,34 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       scoreEl.textContent = `${correct} / ${questions.length} correct (${pct}%)`;
       scoreEl.hidden = false;
       checkBtn.hidden = true;
-      if (pct >= 80) {
-        passEl.hidden = false;
-      } else {
-        // question/label text came from textContent (entities decoded) —
-        // build the recap with textContent too, never re-parse it as HTML
-        recapEl.replaceChildren(...misses.map((m) => {
-          const li = document.createElement('li');
-          const q = document.createElement('strong');
-          q.textContent = `Q${m.n}. `;
-          const ans = document.createElement('span');
-          ans.className = 'quiz-correct';
-          ans.textContent = `Correct answer: ${m.correctLabel}`;
-          li.append(q, m.question, document.createElement('br'), ans);
-          return li;
-        }));
-        failEl.hidden = false;
-      }
-    });
+      const pass = pct >= 80;
+      passEl.hidden = !pass;
+      failEl.hidden = pass;
+      // question/label text came from textContent (entities decoded) —
+      // build the recap with textContent too, never re-parse it as HTML
+      recapEl.replaceChildren(...(pass ? [] : misses.map((m) => {
+        const li = document.createElement('li');
+        const q = document.createElement('strong');
+        q.textContent = `Q${m.n}. `;
+        const ans = document.createElement('span');
+        ans.className = 'quiz-correct';
+        ans.textContent = `Correct answer: ${m.correctLabel}`;
+        li.append(q, m.question, document.createElement('br'), ans);
+        return li;
+      })));
+    }
+
+    checkBtn.addEventListener('click', () => { revealed = true; grade(); });
+    for (const section of questions) {
+      section.addEventListener('change', (e) => {
+        // Clicking a label focuses its radio, and a focused radiogroup owns
+        // the arrow keys (native selection-move) — the deck would stop
+        // advancing on →. Blur right after each pick so navigation keys
+        // reach the engine.
+        e.target.blur();
+        if (revealed) grade(); // answers changed after reveal → recalculate
+      });
+    }
   })();
   </script>
 </body>
