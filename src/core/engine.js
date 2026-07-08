@@ -815,7 +815,7 @@ export function init(userConfig = {}) {
   function paletteCommands() {
     const has = (fn) => typeof fn === 'function';
     const all = [
-      { label: 'Find slide…', hint: '/', alias: 'search', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
+      { label: 'Find slide…', hint: 'G', alias: 'search grep goto', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: openThemePicker },
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
@@ -1556,6 +1556,7 @@ export function init(userConfig = {}) {
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
+      <tr><td>G</td><td>slide finder (live preview)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
@@ -1703,6 +1704,9 @@ export function init(userConfig = {}) {
       case 'd': case 'D': toggleDebug(); break;
       case 'c': case 'C': toggleCaptions(); break;
       case 'p': case 'P': toggleNarrPause(); break;
+      // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
+      // browser find is sacred, and / already belongs to the palette.
+      case 'g': case 'G': openSlideFinder(); break;
       case 'f': case 'F': document.documentElement.requestFullscreen?.(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
       case 'n': case 'N': openNarrPicker(); break;

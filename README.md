@@ -150,6 +150,7 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `C` | captions — the current notes segment, YouTube-style |
 | `T` | theme picker (type to filter) |
 | `/` | command palette |
+| `G` | slide finder (live preview) |
 | `V` | narration on/off |
 | `N` | narration picker (tracks, live voice, tone) |
 | `⇧V` | record offline narration (live voice) |
@@ -173,7 +174,7 @@ Two sources, one `V` toggle (`N` picks):
 
 - **Command palette** (`/`): every command with its shortcut, type-to-filter, Enter runs — argument commands drill into their pickers, `goto 27` (or just `27`) jumps to a slide, and unmatched text becomes a slide search.
 - **Transcript** (palette → Transcript…): the deck's full spoken script in an overlay — click a title to jump — with one-click export to `.txt` or `.md`.
-- **Slide finder** (palette → Find slide, or just type words in the palette): type words, get matching slides — title matches rank first, body matches follow — with a live preview of the selected slide on the right. `Enter` jumps.
+- **Slide finder** (`G`, palette → Find slide, or just type words in the palette): type words, get matching slides — title matches rank first, body matches follow — with a live preview of the selected slide on the right. `Enter` jumps. (Deliberately not `⌘F` — browser find stays sacred.)
 - **Speaker view** (`S`): current + next thumbnails, notes with `⟨CLICK⟩` segments highlighted as builds land, elapsed timer, step list. Works on `file://`. Press `S` again for **rehearse mode** — big cue cards (the deck's rehearse notes) instead of full prose, so you practice recalling the material rather than reading it.
 - **Overview** (`O`): scaled grid of every slide, arrow-key navigation.
 - **Brand logo**: `logo: { onLight: '#logo-dark-art', onDark: '#logo-light-art' }` puts a mark on every slide; the engine picks the variant from the applied theme's real background luminance, so the right logo follows every theme switch — generated themes included. `data-logo` on a section swaps the corner mark for a large in-flow one above the slide's title (module openers, covers).
