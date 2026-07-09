@@ -68,8 +68,9 @@
     .start { margin: 0 0 44px; }
     .start h2 { font-size: 1.35rem; margin: 0 0 4px; color: var(--fg); }
     .start p { margin: 0 0 14px; color: var(--muted); font-size: 0.95rem; }
+    .start.after-deck { margin-top: 44px; }
     .term-wrap {
-      font-size: 45px;
+      font-size: clamp(16px, 5vw, 45px);
       --term-bg: #0d0d0f; --term-fg: #e2e1dc; --term-prompt: #f5c542;
       --term-cursor: #f5c542; --term-selection: rgba(245, 197, 66, 0.25);
       --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
@@ -197,6 +198,14 @@
       grazed and bottomed-out keys. Synthesized live in WebAudio. No samples were harmed.
     </aside>
 
+    <section class="start" aria-label="Create a deck">
+      <h2>Create a deck</h2>
+      <p>No install needed: <code>npx</code> runs the CLI straight from npm. <code>init</code> scaffolds a self-contained deck plus an agent skill, so Claude Code knows the authoring contract. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
+      <div class="term-wrap">
+        <div class="terminal" data-cast-inline="#cast-init" data-mode="play" data-rows="8" data-title="create a deck"></div>
+      </div>
+    </section>
+
     <div class="deck-caption">
       <span>The pitch <em>is</em> the product. This is the showcase deck, live, and it narrates itself: click it and it starts speaking. <strong>→</strong> advances, <strong>V</strong> toggles the voice, <strong>N</strong> changes it, <strong>?</strong> shows all keys.</span>
       <a href="showcase.html?voiceover">Open full screen ↗</a>
@@ -205,11 +214,11 @@
       <iframe src="showcase.html?voiceover" title="The Decklight showcase deck" loading="lazy" allow="fullscreen"></iframe>
     </div>
 
-    <section class="start" aria-label="For the full experience">
-      <h2>For the full experience</h2>
-      <p>No install needed: <code>npx</code> runs the CLI straight from npm. Scaffold a deck (with an agent skill so Claude Code knows the contract), edit it live, record a truthful terminal cast, or flatten everything into one file. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
+    <section class="start after-deck" aria-label="Getting the full experience">
+      <h2>Getting the full experience</h2>
+      <p>The same CLI does the rest: serve the deck live with in-browser note editing, record truthful terminal casts, bridge live narration, then flatten everything into one self-contained file.</p>
       <div class="term-wrap">
-        <div class="terminal" data-cast-inline="#cast-start" data-mode="play" data-rows="12" data-title="getting started"></div>
+        <div class="terminal" data-cast-inline="#cast-cli" data-mode="play" data-rows="12" data-title="the full cli"></div>
       </div>
     </section>
 
@@ -219,7 +228,7 @@
     </footer>
   </div>
 
-  <script type="application/json" id="cast-start">{
+  <script type="application/json" id="cast-init">{
  "decklightCast": 1,
  "meta": {
   "shell": "zsh",
@@ -229,11 +238,11 @@
  },
  "steps": [
   {
-   "cmd": "npx decklight init \"My Deck\"",
+   "cmd": "npx decklight init \"My Deck\" -o my-deck.html",
    "output": [
     [
      0.5,
-     "created \u001b[33mdeck.html\u001b[m (self-contained \u2014 double-click it, no server)\r\n"
+     "created \u001b[33mmy-deck.html\u001b[m (self-contained \u2014 double-click it, no server)\r\n"
     ],
     [
      0.75,
@@ -248,42 +257,34 @@
    "duration": 1.1
   },
   {
-   "cmd": "npx decklight",
+   "cmd": "open my-deck.html",
    "output": [
     [
      0.5,
-     "decklight: author, record, and package Decklight presentations\r\n\r\n"
-    ],
-    [
-     0.65,
-     "  \u001b[36minit\u001b[m     scaffold a starter deck, plus an agent skill\r\n"
-    ],
-    [
-     0.8,
-     "  \u001b[36medit\u001b[m     serve a deck: live reload + in-browser notes editing (E)\r\n"
-    ],
-    [
-     0.95,
-     "  \u001b[36mrec\u001b[m      record a truthful terminal cast in a real PTY\r\n"
-    ],
-    [
-     1.1,
-     "  \u001b[36mtts\u001b[m      live voice bridge, the deck narrates itself\r\n"
-    ],
-    [
-     1.25,
-     "  \u001b[36mbundle\u001b[m   flatten a deck into ONE self-contained HTML file\r\n"
+     "\u001b[90m# your deck opens in the browser \u2014 see it live below \u2193\u001b[m\r\n"
     ]
    ],
    "exit": 0,
-   "duration": 1.3
-  },
+   "duration": 0.7
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-cli">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 16,
+  "prompt": "$ "
+ },
+ "steps": [
   {
-   "cmd": "npx decklight edit deck.html",
+   "cmd": "npx decklight edit my-deck.html",
    "output": [
     [
      0.6,
-     "\u001b[32mdecklight edit\u001b[m on http://127.0.0.1:8788/deck.html. E edits notes, saves reload the deck\r\n"
+     "\u001b[32mdecklight edit\u001b[m on http://127.0.0.1:8788/my-deck.html \u2014 E edits notes, saves reload the deck\r\n"
     ]
    ],
    "exit": 0,
@@ -294,22 +295,33 @@
    "output": [
     [
      0.7,
-     "  recording in a real PTY … \u001b[32m✓\u001b[m 3 steps · 2.1s · secrets redacted → demo.cast.json\r\n"
+     "  recording in a real PTY \u2026 \u001b[32m\u2713\u001b[m 3 steps \u00b7 2.1s \u00b7 secrets redacted \u2192 demo.cast.json\r\n"
     ]
    ],
    "exit": 0,
    "duration": 1.0
   },
   {
-   "cmd": "npx decklight bundle deck.html --themes all",
+   "cmd": "npx decklight tts",
+   "output": [
+    [
+     0.6,
+     "\u001b[32mdecklight tts\u001b[m on http://127.0.0.1:8787/tts \u2014 pick \u201cLive voice\u2026\u201d in the deck's / palette\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.8
+  },
+  {
+   "cmd": "npx decklight bundle my-deck.html --themes all",
    "output": [
     [
      0.8,
-     "bundled deck.html → \u001b[33mdeck.bundle.html\u001b[m (523 KB · 61 themes · works offline)\r\n"
+     "bundled my-deck.html \u2192 \u001b[33mmy-deck.bundle.html\u001b[m (523 KB \u00b7 61 themes \u00b7 works offline)\r\n"
     ],
     [
      1.2,
-     "\r\nThat's it: one file. Open it, press \u001b[33m→\u001b[m to advance, \u001b[33m?\u001b[m for every key.\r\n"
+     "\r\nThat's it: one file. Open it, press \u001b[33m\u2192\u001b[m to advance, \u001b[33m?\u001b[m for every key.\r\n"
     ]
    ],
    "exit": 0,
@@ -327,14 +339,15 @@
 
     // activate the standalone terminal, then auto-play it on first scroll-into-view
     Decklight.initTerminals().then(() => {
-      const term = document.querySelector('.terminal');
-      const btn = term && term.querySelector('.terminal-play');
-      if (!btn) return;
-      new IntersectionObserver((entries, obs) => {
-        if (!entries[0].isIntersecting) return;
-        obs.disconnect();
-        btn.click();
-      }, { threshold: 0.5 }).observe(term);
+      document.querySelectorAll('.terminal').forEach((term) => {
+        const btn = term.querySelector('.terminal-play');
+        if (!btn) return;
+        new IntersectionObserver((entries, obs) => {
+          if (!entries[0].isIntersecting) return;
+          obs.disconnect();
+          btn.click();
+        }, { threshold: 0.5 }).observe(term);
+      });
     });
   </script>
 </body>
