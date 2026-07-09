@@ -482,7 +482,8 @@ class TerminalController {
           this.linesEl.innerHTML = base + this._promptHtml() +
             `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
           this._scrollToEnd();
-          await sleep(75 / speedFactor);
+          // human cadence, jittered: the reference board types ~118ms/key median
+          await sleep((95 + Math.random() * 45) / speedFactor);
         }
       }
       // stream at original pacing / speed
