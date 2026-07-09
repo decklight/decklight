@@ -4,11 +4,23 @@
 
 # Decklight
 
-**The presentation library that can prove its deck works.**
+**The presentation library that presents itself.**
 
-Decklight is a presentation library in the Reveal.js tradition, designed to be **authored by AI agents and humans alike**. A deck is a single HTML file. The runtime is one JS + one CSS + one theme CSS. There is no build step, no dev server — double-click the file and present. And because agents can't eyeball a slide, every feature is designed to be **verifiable by a headless render**: clipped content marks itself in the DOM, every theme passes machine-checked contrast gates, terminal demos are recorded truth rather than screenshots.
+Slides as a single HTML file, written by your agent — no build, no server, no framework. Decklight is a presentation library in the Reveal.js tradition, designed to be **authored by AI agents and humans alike**. A deck is a single HTML file. The runtime is one JS + one CSS + one theme CSS. There is no build step, no dev server — double-click the file and present. And because agents can't eyeball a slide, every feature is designed to be **verifiable by a headless render**: clipped content marks itself in the DOM, every theme passes machine-checked contrast gates, terminal demos are recorded truth rather than screenshots.
 
-`SPEC.md` is the contract; this README is the tour. For the tour that gives itself, open **`demo/showcase.html`** — a deck about Decklight where every slide live-demos the feature it describes, ending in a pop quiz.
+**See it live at [decklight.io](https://decklight.io)** — the showcase deck, embedded and narrating itself; the whole page ships from one `decklight bundle` command. `SPEC.md` is the contract; this README is the tour. For the tour that gives itself, open **`demo/showcase.html`** — a deck about Decklight where every slide live-demos the feature it describes, ending in a pop quiz.
+
+## Why Decklight
+
+- **One file, zero build** — author a single HTML file, double-click it, present.
+- **Agent-native authoring** — describe a slide in plain English to your favorite agent; overflow flags, contrast gates and headless render assertions let it verify the result without eyes.
+- **Diagrams & graphics** — not only bullet lists: shapes, diagrams and full graphics, all native, theme-aware SVG.
+- **Animation** — progressive builds, Magic Move between slides, and SVG diagrams that literally draw themselves in.
+- **61 built-in themes** — every one passes WCAG contrast gates and codified palette rules; diagrams and terminals reskin too. Generate your own with a keystroke.
+- **Truthful terminals** — real PTY recordings replayed truthfully, never a video, down to the synthesized key clicks.
+- **Live narration** — text-to-speech, on the fly or cached, presents the deck by itself, perfectly in sync — captions and pop quiz included.
+- **Everything is text** — no binary formats anywhere, so decks diff cleanly in git and agents can read, review, and edit every byte.
+- **Command palette** — press `/` for every command with its shortcut; type to filter, `Enter` runs it.
 
 ## Quick start
 
@@ -38,7 +50,7 @@ Decklight is a presentation library in the Reveal.js tradition, designed to be *
 </html>
 ```
 
-Open the file in a browser — `file://` works for everything, no server needed. See `demo/showcase.html` for the self-demonstrating tour, `demo/smoke.html` for the feature smoke deck, and `themes/gallery.html` to browse themes.
+Open the file in a browser — `file://` works for everything, no server needed. See `demo/showcase.html` for the self-demonstrating tour (hosted live at [decklight.io](https://decklight.io)), `demo/smoke.html` for the feature smoke deck, and `themes/gallery.html` to browse themes.
 
 ## Authoring
 
