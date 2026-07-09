@@ -68,11 +68,15 @@ const FONT_STEPS = [0.75, 0.9, 1, 1.15, 1.35, 1.6];
 // The shared AudioContext resumes on the first (gesture-driven) advance;
 // data-type-sound="off" opts a terminal out.
 // The three voicings differ in click band and click:thump balance:
-// thocky = dark click, biggest thump, longest ring (wooden);
+// thocky = dark click over a tightly-damped woody body, tuned strike-by-strike
+//   to a dedicated reference board (thocky.mp4): a short, gentle, click-forward
+//   pop, not a low boom. thumpF2 gives it the reference's pitch spread — most
+//   strikes land woody (thumpF) with a deep-thock minority (thumpF2), the way a
+//   real board mixes bottom-outs with lighter keys;
 // creamy = mid-bright click, felted thump, tight damping (the reference);
 // clacky = high thin snap, minimal thump, fastest decay.
 const KEY_PROFILES = {
-  thocky: { click: 0.22, clickF: [800, 1500], clickQ: 0.9, lp: 2400, clickDecay: [0.009, 0.014], thump: 0.011, thumpF: [55, 95], ring: [0.075, 0.110] },
+  thocky: { click: 0.17, clickF: [680, 1250], clickQ: 0.9, lp: 1800, clickDecay: [0.012, 0.017], thump: 0.008, thumpF: [130, 185], thumpF2: [58, 85], thumpF2Prob: 0.22, ring: [0.005, 0.009] },
   creamy: { click: 0.30, clickF: [1400, 2850], clickQ: 0.95, lp: 3800, clickDecay: [0.007, 0.011], thump: 0.0056, thumpF: [60, 110], ring: [0.065, 0.095] },
   clacky: { click: 0.34, clickF: [2300, 3900], clickQ: 1.1, lp: 6800, clickDecay: [0.005, 0.008], thump: 0.003, thumpF: [90, 140], ring: [0.035, 0.055] },
 };
@@ -145,15 +149,19 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
       osc.connect(g); g.connect(keyCtx.destination);
       osc.start(at); osc.stop(at + ring * 2 + 0.01);
     };
+    // Body pitch: a profile may carry a second cluster (thumpF2) so strikes
+    // vary in pitch — mostly the woody thumpF band, a deep-thock minority from
+    // thumpF2. Picked once per keystroke so key-down and key-up agree.
+    const tf = (P.thumpF2 && Math.random() < (P.thumpF2Prob ?? 0.4)) ? P.thumpF2 : P.thumpF;
     // key-down…
     click(t, P.click * amp * (space ? 0.82 : 1), fc, rnd(...P.clickDecay) * (space ? 1.2 : 1));
-    thump(t, P.thump * amp * (space ? 2.4 : 1), rnd(...P.thumpF) * (space ? 0.7 : 1), ring);
+    thump(t, P.thump * amp * (space ? 2.4 : 1), rnd(...tf) * (space ? 0.7 : 1), ring);
     // …and key-up: lighter, brighter, no finger mass behind it. Clamp the
     // release into this keystroke's own window so it never lands on top of
     // the next key-down at fast speeds — clicks stay locked to their glyphs.
     const up = t + Math.max(0.01, Math.min(rnd(0.035, 0.08), gapSec * 0.55));
     click(up, P.click * amp * rnd(0.35, 0.55), fc * 1.15, rnd(...P.clickDecay) * 0.8);
-    thump(up, P.thump * amp * (space ? 0.5 : 0.25), rnd(...P.thumpF) * (space ? 0.7 : 1), ring * 0.6);
+    thump(up, P.thump * amp * (space ? 0.5 : 0.25), rnd(...tf) * (space ? 0.7 : 1), ring * 0.6);
   } catch { /* no audio in this environment */ }
 }
 
