@@ -59,15 +59,16 @@ const KEY_PROFILES = {
 // Inter-keystroke gap in ms, before the speed factor is applied. Humans
 // don't type on a metronome: most keys land in a tight core band, word
 // breaks and shell punctuation earn a beat of hesitation, and every so
-// often a longer "thinking" pause slips in. This is the jitter that keeps
-// the typing — and the per-key clicks fired with it — from sounding
-// mechanical. Callers divide the result by their own speed factor.
+// often a longer "thinking" pause slips in. Tuned so the default speed
+// (typeScale 5) reads at roughly 55 wpm (about 218ms mean per key). This
+// jitter is what keeps the typing, and the per-key clicks fired with it,
+// from sounding mechanical. Callers divide the result by their speed factor.
 function keyGap(ch) {
-  let ms = 45 + Math.random() * 60;                     // 45-105ms core band
-  if (Math.random() < 0.15) ms += Math.random() * 120;  // fatter right tail
-  if (ch === ' ') ms += 35 + Math.random() * 110;       // pause between words
-  else if ('.,:;/|&>-_="\'`()'.includes(ch)) ms += 20 + Math.random() * 70;
-  if (Math.random() < 0.035) ms += 150 + Math.random() * 220; // rare hesitation
+  let ms = 90 + Math.random() * 120;                    // 90-210ms core band
+  if (Math.random() < 0.15) ms += Math.random() * 240;  // fatter right tail
+  if (ch === ' ') ms += 70 + Math.random() * 220;       // pause between words
+  else if ('.,:;/|&>-_="\'`()'.includes(ch)) ms += 40 + Math.random() * 140;
+  if (Math.random() < 0.035) ms += 300 + Math.random() * 440; // rare hesitation
   return ms;
 }
 
