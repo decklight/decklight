@@ -24,6 +24,8 @@
  * step mode; the ♪ and A buttons are present in play mode too.
  *
  * play mode: timeline playback with play/pause, speed cycling, restart.
+ * data-speed sets the initial playback multiplier (1, 2, or 4); the ×-button
+ * cycles it from there.
  */
 
 import { AnsiScreen, spansToHtml, escapeHtml } from './ansi.mjs';
@@ -155,6 +157,33 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
   } catch { /* no audio in this environment */ }
 }
 
+// The WebAudio clock is born suspended and only resumes inside a user gesture.
+// The first keyClick fires from deep inside an async typing loop, after awaits,
+// so the browser no longer credits the original click as the gesture and the
+// context stays muted until the next direct interaction. Fix it by resuming
+// synchronously on the very first pointer/key event anywhere on the page, so
+// audio is already live by the time a character is typed.
+function primeKeyAudio() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    keyCtx ??= new AC();
+    if (keyCtx.state === 'suspended') keyCtx.resume();
+  } catch { /* no audio in this environment */ }
+}
+let audioUnlockArmed = false;
+function armAudioUnlock() {
+  if (audioUnlockArmed || typeof document === 'undefined') return;
+  audioUnlockArmed = true;
+  const unlock = () => {
+    primeKeyAudio();
+    document.removeEventListener('pointerdown', unlock, true);
+    document.removeEventListener('keydown', unlock, true);
+  };
+  document.addEventListener('pointerdown', unlock, true);
+  document.addEventListener('keydown', unlock, true);
+}
+
 /**
  * Scan `root` for terminal elements, load their casts, build DOM, and (in
  * step mode) register build providers on `Decklight`. Returns a Promise that
@@ -163,6 +192,7 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
  */
 export function registerTerminals(Decklight, root = document) {
   const els = [...root.querySelectorAll('.terminal[data-cast], .terminal[data-cast-inline]')];
+  if (els.length) armAudioUnlock();   // resume audio on the first real gesture
   return Promise.all(els.map(el => setupTerminal(el, Decklight).catch(err => {
     renderError(el, err);
   })));
@@ -530,11 +560,14 @@ class TerminalController {
   // ------------------------------------------------------------- play mode
 
   mountPlayMode() {
-    this.speed = 1;
+    // authored initial playback speed via data-speed; the ×-button cycles 1→2→4.
+    const SPEEDS = [1, 2, 4];
+    const authored = parseFloat(this.el.dataset.speed);
+    this.speed = SPEEDS.includes(authored) ? authored : 1;
     this.playing = false;
     this.controlsEl.innerHTML =
       `<button class="terminal-btn terminal-play" aria-label="play">▶</button>` +
-      `<button class="terminal-btn terminal-speed" aria-label="speed">1×</button>` +
+      `<button class="terminal-btn terminal-speed" aria-label="speed">${this.speed}×</button>` +
       `<button class="terminal-btn terminal-restart" aria-label="restart">↺</button>`;
     this._mountSoundButton();
     this._mountFontButton();
