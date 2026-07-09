@@ -12,11 +12,16 @@
  * any i (deep links, reverse navigation, print).
  *
  * data-type-speed picks the typing speed on a 1 (slow) … 10 (fast) scale;
- * 5 is the default pace. The ⌨ titlebar button cycles it live, persisted
- * per deck (the presenter's choice wins over the authored attribute).
+ * 5 is the default pace, about 55 wpm. The ⌨ titlebar button is a
+ * words-per-minute picker that cycles it live, persisted per deck (the
+ * presenter's choice wins over the authored attribute).
+ *
+ * data-type-sound picks the key voicing (creamy, clacky, thocky, or off;
+ * default creamy). The ♪ titlebar button cycles it live, persisted per deck.
  *
  * The A titlebar button cycles the terminal's font size (75% … 160% of the
- * inherited size), persisted per page — present in both modes.
+ * inherited size), persisted per page. All three controls are present in
+ * step mode; the ♪ and A buttons are present in play mode too.
  *
  * play mode: timeline playback with play/pause, speed cycling, restart.
  */
@@ -25,10 +30,24 @@ import { AnsiScreen, spansToHtml, escapeHtml } from './ansi.mjs';
 
 const DEFAULT_VISIBLE_ROWS = 24;
 
-// typing-speed scale → rate multiplier: 1 → ⅓×, 5 → 1× (classic), 10 → 4×
-const TYPE_SPEED_KEY = 'decklight-term-typespeed:' + location.pathname;
+// Authored typing speed is a 1 (slow) … 10 (fast) scale; typeRate maps it to a
+// rate multiplier (1 → ⅓×, 5 → 1× classic, 10 → 4×). The default pace (factor
+// 1) reads at ~55 wpm, so the multiplier is effectively "wpm / 55".
 const clampScale = (n) => Math.max(1, Math.min(10, n));
 const typeRate = (s) => 2 ** ((s - 5) / 2.5);
+
+// The ⌨ titlebar button is a words-per-minute picker: it cycles these presets
+// and drives typing as wpm / BASE_WPM (55 wpm is the tuned default). Persisted
+// per deck; the presenter's pick wins over the authored data-type-speed, which
+// maps to the nearest preset.
+const BASE_WPM = 55;
+const WPM_STEPS = [30, 45, 55, 70, 90, 120, 160];
+const TYPE_WPM_KEY = 'decklight-term-wpm:' + location.pathname;
+const nearestWpm = (w) => WPM_STEPS.reduce((a, b) => Math.abs(b - w) < Math.abs(a - w) ? b : a);
+
+// The ♪ titlebar button is a key-sound picker cycling these; "off" mutes.
+const SOUND_STEPS = ['creamy', 'clacky', 'thocky', 'off'];
+const TYPE_SOUND_KEY = 'decklight-term-typesound:' + location.pathname;
 
 // font-size steps for the A titlebar button, in em so they scale whatever
 // base size the page gives the terminal; 1 is "as authored"
@@ -60,7 +79,7 @@ const KEY_PROFILES = {
 // don't type on a metronome: most keys land in a tight core band, word
 // breaks and shell punctuation earn a beat of hesitation, and every so
 // often a longer "thinking" pause slips in. Tuned so the default speed
-// (typeScale 5) reads at roughly 55 wpm (about 218ms mean per key). This
+// (scale 5, the 55 wpm preset) reads at about 218ms mean per key. This
 // jitter is what keeps the typing, and the per-key clicks fired with it,
 // from sounding mechanical. Callers divide the result by their speed factor.
 function keyGap(ch) {
@@ -251,22 +270,33 @@ class TerminalController {
     this.el = el;
     this.cast = cast;
     this.prompt = cast.meta.prompt ?? '$ ';
-    // authored scale (1 slow … 10 fast, 5 default); a per-deck presenter
-    // override from the ⌨ button takes precedence
-    this.typeScale = clampScale(parseInt(el.dataset.typeSpeed ?? '5', 10) || 5);
+    // typing speed in words per minute. The authored data-type-speed is the
+    // legacy 1-10 scale; map it to the nearest wpm preset, then let a per-deck
+    // presenter pick (the ⌨ button) override.
+    const authoredScale = clampScale(parseInt(el.dataset.typeSpeed ?? '5', 10) || 5);
+    this.typeWpm = nearestWpm(BASE_WPM * typeRate(authoredScale));
     try {
-      const saved = parseInt(localStorage.getItem(TYPE_SPEED_KEY) ?? '', 10);
-      if (saved >= 1 && saved <= 10) this.typeScale = saved;
+      const saved = parseInt(localStorage.getItem(TYPE_WPM_KEY) ?? '', 10);
+      if (WPM_STEPS.includes(saved)) this.typeWpm = saved;
     } catch { /* private mode */ }
-    el.dataset.typeScale = String(this.typeScale);
+    el.dataset.typeWpm = String(this.typeWpm);
     this.fontIdx = FONT_STEPS.indexOf(1);
     try {
       const saved = parseInt(localStorage.getItem(TERM_FONT_KEY) ?? '', 10);
       if (saved >= 0 && saved < FONT_STEPS.length) this.fontIdx = saved;
     } catch { /* private mode */ }
     this._applyFont();
-    const snd = (el.dataset.typeSound || 'creamy').toLowerCase();
-    this.typeSound = snd === 'off' ? null : (KEY_PROFILES[snd] ? snd : 'creamy');
+    // key sound: authored data-type-sound is the default voicing; a presenter
+    // pick (the ♪ button) overrides. this.soundName is the picker's selection
+    // (a profile name or "off"); this.typeSound is the active profile, or null
+    // when muted.
+    const authoredSnd = (el.dataset.typeSound || 'creamy').toLowerCase();
+    this.soundName = SOUND_STEPS.includes(authoredSnd) ? authoredSnd : 'creamy';
+    try {
+      const saved = localStorage.getItem(TYPE_SOUND_KEY);
+      if (saved && SOUND_STEPS.includes(saved)) this.soundName = saved;
+    } catch { /* private mode */ }
+    this.typeSound = this.soundName === 'off' ? null : this.soundName;
     this.maxStep = (parseFloat(el.dataset.maxStep || '2.5') || 2.5) * 1000;
     this.visibleRows = parseInt(el.dataset.rows || '', 10) || Math.min(cast.meta.rows || DEFAULT_VISIBLE_ROWS, DEFAULT_VISIBLE_ROWS);
     this.epoch = 0;        // bumped to cancel in-flight animations
@@ -333,7 +363,7 @@ class TerminalController {
   _mountFontButton() {
     const btn = document.createElement('button');
     btn.className = 'terminal-btn terminal-fontsize';
-    btn.title = 'font size — click cycles 75% to 160%';
+    btn.title = 'font size: click cycles 75% to 160%';
     btn.setAttribute('aria-label', 'font size');
     const label = () => { btn.textContent = `A ${Math.round(FONT_STEPS[this.fontIdx] * 100)}%`; };
     label();
@@ -341,6 +371,47 @@ class TerminalController {
       this.fontIdx = (this.fontIdx + 1) % FONT_STEPS.length;
       this._applyFont();
       try { localStorage.setItem(TERM_FONT_KEY, String(this.fontIdx)); } catch { /* private mode */ }
+      label();
+    });
+    this.controlsEl.appendChild(btn);
+  }
+
+  // ⌨ n wpm: words-per-minute picker. Click cycles the presets and wraps,
+  // persisted per deck so every terminal (and the next session) follows.
+  _mountSpeedButton() {
+    const btn = document.createElement('button');
+    btn.className = 'terminal-btn terminal-typespeed';
+    btn.title = 'typing speed: click cycles words per minute';
+    btn.setAttribute('aria-label', 'typing speed');
+    const label = () => { btn.textContent = `⌨ ${this.typeWpm} wpm`; };
+    label();
+    btn.addEventListener('click', () => {
+      const i = (WPM_STEPS.indexOf(this.typeWpm) + 1) % WPM_STEPS.length;
+      this.typeWpm = WPM_STEPS[i];
+      this.el.dataset.typeWpm = String(this.typeWpm);
+      try { localStorage.setItem(TYPE_WPM_KEY, String(this.typeWpm)); } catch { /* private mode */ }
+      label();
+    });
+    this.controlsEl.appendChild(btn);
+  }
+
+  // ♪ voice: key-sound picker. Click cycles creamy → clacky → thocky → off and
+  // wraps, playing one click as feedback (which also unlocks the AudioContext
+  // on the gesture). Persisted per deck.
+  _mountSoundButton() {
+    const btn = document.createElement('button');
+    btn.className = 'terminal-btn terminal-typesound';
+    btn.title = 'key sound: click cycles creamy, clacky, thocky, off';
+    btn.setAttribute('aria-label', 'key sound');
+    const label = () => { btn.textContent = `♪ ${this.soundName}`; };
+    label();
+    btn.addEventListener('click', () => {
+      const i = (SOUND_STEPS.indexOf(this.soundName) + 1) % SOUND_STEPS.length;
+      this.soundName = SOUND_STEPS[i];
+      this.typeSound = this.soundName === 'off' ? null : this.soundName;
+      this.el.dataset.typeSound = this.soundName;
+      try { localStorage.setItem(TYPE_SOUND_KEY, this.soundName); } catch { /* private mode */ }
+      if (this.typeSound) keyClick('a', this.typeSound, 0.12);
       label();
     });
     this.controlsEl.appendChild(btn);
@@ -368,16 +439,11 @@ class TerminalController {
   // ------------------------------------------------------------- step mode
 
   mountStepMode(Decklight) {
-    // ⌨ n — presenter's typing-speed chooser; click cycles 1 → 10 and wraps.
-    // Persisted per deck so every terminal (and the next session) follows.
-    this.controlsEl.innerHTML =
-      `<button class="terminal-btn terminal-typespeed" title="typing speed — click cycles 1 (slow) to 10 (fast)" aria-label="typing speed">⌨ ${this.typeScale}</button>`;
-    this.controlsEl.querySelector('.terminal-typespeed').addEventListener('click', (e) => {
-      this.typeScale = this.typeScale % 10 + 1;
-      this.el.dataset.typeScale = String(this.typeScale);
-      try { localStorage.setItem(TYPE_SPEED_KEY, String(this.typeScale)); } catch { /* private mode */ }
-      e.target.textContent = `⌨ ${this.typeScale}`;
-    });
+    // presenter chrome: typing speed (wpm), key sound, and font size, all
+    // persisted per deck so every terminal (and the next session) follows.
+    this.controlsEl.innerHTML = '';
+    this._mountSpeedButton();
+    this._mountSoundButton();
     this._mountFontButton();
     const steps = this.playable;
     // Poster steps arrive pre-rendered and are excluded from the build
@@ -410,7 +476,7 @@ class TerminalController {
 
   async _animateStep(stepIdx, epoch) {
     const step = this.playable[stepIdx];
-    const speedFactor = typeRate(this.typeScale) * (step.typeSpeed || 1);
+    const speedFactor = (this.typeWpm / BASE_WPM) * (step.typeSpeed || 1);
     // Base: everything before this step, no trailing cursor/prompt.
     const parts = [];
     for (let s = 0; s < stepIdx; s++) parts.push(this._stepHtml(this.playable[s]));
@@ -470,6 +536,7 @@ class TerminalController {
       `<button class="terminal-btn terminal-play" aria-label="play">▶</button>` +
       `<button class="terminal-btn terminal-speed" aria-label="speed">1×</button>` +
       `<button class="terminal-btn terminal-restart" aria-label="restart">↺</button>`;
+    this._mountSoundButton();
     this._mountFontButton();
     const playBtn = this.controlsEl.querySelector('.terminal-play');
     const speedBtn = this.controlsEl.querySelector('.terminal-speed');
@@ -509,7 +576,7 @@ class TerminalController {
       const shown = this.cast.steps.slice(0, s).filter(x => !x.hidden && x.sleep == null);
       const parts = shown.map(x => this._stepHtml(x));
       const base = parts.length ? parts.join('\n') + '\n' : '';
-      const speedFactor = this.speed * (step.typeSpeed || 1) * typeRate(this.typeScale);
+      const speedFactor = this.speed * (step.typeSpeed || 1) * (this.typeWpm / BASE_WPM);
       // type (imported raw streams carry their own echo)
       const cmd = step.cmd || '';
       if (!step.raw) {
