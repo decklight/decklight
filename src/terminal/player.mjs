@@ -6,7 +6,8 @@
  *      data-title="Terminal" data-rows="24"></div>
  *
  * step mode (default): registers a Build Provider — each advance types the
- * next command (jittered keystrokes) then streams its recorded output with
+ * next command (humanized keystroke cadence, a key-click locked to every
+ * glyph) then streams its recorded output with
  * pacing compressed to ≤ data-max-step seconds. apply(i) is idempotent for
  * any i (deep links, reverse navigation, print).
  *
@@ -55,9 +56,24 @@ const KEY_PROFILES = {
   clacky: { click: 0.34, clickF: [2300, 3900], clickQ: 1.1, lp: 6800, clickDecay: [0.005, 0.008], thump: 0.003, thumpF: [90, 140], ring: [0.035, 0.055] },
 };
 
+// Inter-keystroke gap in ms, before the speed factor is applied. Humans
+// don't type on a metronome: most keys land in a tight core band, word
+// breaks and shell punctuation earn a beat of hesitation, and every so
+// often a longer "thinking" pause slips in. This is the jitter that keeps
+// the typing — and the per-key clicks fired with it — from sounding
+// mechanical. Callers divide the result by their own speed factor.
+function keyGap(ch) {
+  let ms = 45 + Math.random() * 60;                     // 45-105ms core band
+  if (Math.random() < 0.15) ms += Math.random() * 120;  // fatter right tail
+  if (ch === ' ') ms += 35 + Math.random() * 110;       // pause between words
+  else if ('.,:;/|&>-_="\'`()'.includes(ch)) ms += 20 + Math.random() * 70;
+  if (Math.random() < 0.035) ms += 150 + Math.random() * 220; // rare hesitation
+  return ms;
+}
+
 let keyCtx = null;
 let keyNoise = null;
-function keyClick(ch = '', profile = 'creamy') {
+function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -105,8 +121,10 @@ function keyClick(ch = '', profile = 'creamy') {
     // key-down…
     click(t, P.click * amp, fc, rnd(...P.clickDecay) * (space ? 1.15 : 1));
     thump(t, P.thump * amp * (space ? 1.6 : 1), rnd(...P.thumpF) * (space ? 0.85 : 1), rnd(...P.ring));
-    // …and key-up: lighter, brighter, no finger mass behind it
-    const up = t + rnd(0.035, 0.08);
+    // …and key-up: lighter, brighter, no finger mass behind it. Clamp the
+    // release into this keystroke's own window so it never lands on top of
+    // the next key-down at fast speeds — clicks stay locked to their glyphs.
+    const up = t + Math.max(0.01, Math.min(rnd(0.035, 0.08), gapSec * 0.55));
     click(up, P.click * amp * rnd(0.35, 0.55), fc * 1.15, rnd(...P.clickDecay) * 0.8);
     thump(up, P.thump * amp * 0.25, rnd(...P.thumpF), rnd(...P.ring) * 0.6);
   } catch { /* no audio in this environment */ }
@@ -322,6 +340,25 @@ class TerminalController {
     this.controlsEl.appendChild(btn);
   }
 
+  /** Type `cmd` at the prompt one glyph at a time with humanized cadence.
+   *  Each keystroke's synth click is fired on the same tick its glyph is
+   *  painted, and is told how long until the next key so its release tail
+   *  stays inside this keystroke's window — sound and typing can't drift.
+   *  Returns false if a newer epoch cancelled the run mid-command. */
+  async _typeCmd(cmd, base, speedFactor, epoch) {
+    for (let c = 1; c <= cmd.length; c++) {
+      if (this.epoch !== epoch) return false;
+      const ch = cmd[c - 1];
+      const gap = keyGap(ch) / speedFactor;
+      if (this.typeSound) keyClick(ch, this.typeSound, gap / 1000);
+      this.linesEl.innerHTML = base + this._promptHtml() +
+        `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
+      this._scrollToEnd();
+      await sleep(gap);
+    }
+    return true;
+  }
+
   // ------------------------------------------------------------- step mode
 
   mountStepMode(Decklight) {
@@ -376,14 +413,7 @@ class TerminalController {
     // 1) type the command (imported raw streams carry their own echo)
     const cmd = step.cmd || '';
     if (!step.raw) {
-      for (let c = 1; c <= cmd.length; c++) {
-        if (this.epoch !== epoch) return;
-        if (this.typeSound) keyClick(cmd[c - 1], this.typeSound);
-        this.linesEl.innerHTML = base + this._promptHtml() +
-          `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
-        this._scrollToEnd();
-        await sleep((80 + Math.random() * 55) / speedFactor);
-      }
+      if (!(await this._typeCmd(cmd, base, speedFactor, epoch))) return;
       await sleep(120 / speedFactor);
     }
 
@@ -410,10 +440,11 @@ class TerminalController {
         // an interactive answer gets typed, character by character
         for (const ch of ev.d) {
           if (this.epoch !== epoch) return;
-          if (this.typeSound) keyClick(ch, this.typeSound);
+          const gap = keyGap(ch) / speedFactor;
+          if (this.typeSound) keyClick(ch, this.typeSound, gap / 1000);
           screen.write(ch);
           paint();
-          await sleep(60 / speedFactor);
+          await sleep(gap);
         }
       } else {
         screen.write(ev.d);
@@ -476,15 +507,7 @@ class TerminalController {
       // type (imported raw streams carry their own echo)
       const cmd = step.cmd || '';
       if (!step.raw) {
-        for (let c = 1; c <= cmd.length; c++) {
-          if (this.epoch !== epoch) { this._playedUpTo = s; return; }
-          if (this.typeSound) keyClick(cmd[c - 1], this.typeSound);
-          this.linesEl.innerHTML = base + this._promptHtml() +
-            `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
-          this._scrollToEnd();
-          // human cadence, jittered: the reference board types ~118ms/key median
-          await sleep((95 + Math.random() * 45) / speedFactor);
-        }
+        if (!(await this._typeCmd(cmd, base, speedFactor, epoch))) { this._playedUpTo = s; return; }
       }
       // stream at original pacing / speed
       const screen = new AnsiScreen();
@@ -504,8 +527,10 @@ class TerminalController {
         if (this.epoch !== epoch) { this._playedUpTo = s; return; }
         if (ev.kind === 'i') {
           for (const ch of ev.d) {
-            if (this.typeSound) keyClick(ch, this.typeSound);
-            screen.write(ch); paint(); await sleep(60 / speedFactor);
+            if (this.epoch !== epoch) { this._playedUpTo = s; return; }
+            const gap = keyGap(ch) / speedFactor;
+            if (this.typeSound) keyClick(ch, this.typeSound, gap / 1000);
+            screen.write(ch); paint(); await sleep(gap);
           }
         } else { screen.write(ev.d); paint(); }
       }
