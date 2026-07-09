@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * decklight-rec — record truthful terminal casts for Decklight decks (SPEC §7.1/§7.2).
  *

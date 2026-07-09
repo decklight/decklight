@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * decklight bundle — flatten Decklight decks into ONE self-contained HTML file
  * (send it to anyone; opens from disk, no server, no sibling files).

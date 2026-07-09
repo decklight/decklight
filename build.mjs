@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Build: src/index.js → dist/decklight.js (IIFE, global Decklight) + CSS copy.
 // 'virtual:terminal' resolves to src/terminal/player.mjs when it exists so
 // the core bundle works before the terminal subsystem lands.
@@ -60,6 +63,7 @@ await build({
   format: 'iife',
   globalName: 'Decklight',
   outfile: resolve(here, 'dist/decklight.js'),
+  banner: { js: '/*! Decklight — Copyright 2026 Gilles Philippart — SPDX-License-Identifier: Apache-2.0 */' },
   plugins: [virtualTerminal],
   define: {
     __DECKLIGHT_THEMES__: JSON.stringify(shippedThemes),

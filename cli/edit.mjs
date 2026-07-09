@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // decklight edit — the live-editing dev server (SPEC §8 edit mode).
 //
 //   decklight edit <deck.html> [--port 8788]

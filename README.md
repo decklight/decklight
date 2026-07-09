@@ -245,4 +245,4 @@ One HTML file and one theme stylesheet feed a **zero-dependency browser runtime*
 
 ## License
 
-MIT
+Decklight is free and open source, released under the [Apache License 2.0](LICENSE). Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off required).

@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // SVG id-namespacing — SPEC §3. Eliminates the defs-collision bug class:
 // every inline <svg> gets a unique prefix on all ids, with url(#…) and
 // href="#…" references rewritten within that svg only.

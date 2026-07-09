@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Headless-render verification of demo/smoke.html — the "prove the deck
 // works" harness (SPEC intro + §10). Exits non-zero on any failed assertion.
 

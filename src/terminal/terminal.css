@@ -1,3 +1,6 @@
+/* Copyright 2026 Gilles Philippart
+   SPDX-License-Identifier: Apache-2.0 */
+
 /* Decklight terminal player chrome (SPEC §7.3).
  * Shipped from src/terminal/ so the terminal subsystem is self-contained;
  * the core build concatenates this into dist/decklight.css.

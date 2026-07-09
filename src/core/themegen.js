@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Theme generator — SPEC §5/§8. Pure module (no DOM): generates a complete,
 // contract-satisfying token set with WCAG-gated color engineering. Every
 // token is derived with luminance math and iterated until it passes the same

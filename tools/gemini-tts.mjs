@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Shared Gemini TTS synthesis (Vertex AI) — used by tools/voiceover.mjs
 // (batch pre-render) and tools/voiceover-server.mjs (live bridge for the
 // player). generateContent with responseModalities AUDIO returns base64 raw

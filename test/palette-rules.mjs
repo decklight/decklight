@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Decklight theme palette-rule grader — the codified R-rules (SPEC §5,
 // src/core/themegen.js) applied to the SHIPPED themes. Zero dependencies.
 // Usage: node test/palette-rules.mjs [themes-dir]

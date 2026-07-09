@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Decklight theme validator — WCAG contrast + token-contract presence checks.
 // Zero dependencies. Usage: node test/contrast.mjs [themes-dir]
 // Exit code 0 = all themes pass; 1 = failures (listed per theme).

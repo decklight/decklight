@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Theme generator property tests — every generated theme must satisfy the
 // full SPEC §5 token contract and the same WCAG gates test/contrast.mjs
 // enforces on shipped themes. The contrast math here is an independent copy
