@@ -841,7 +841,7 @@ export function init(userConfig = {}) {
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: `Narration ${narrPaused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
       { label: 'Edit speaker notes…', hint: 'E', alias: 'edit mode notes write', run: toggleEditor },
-      { label: 'Fullscreen', hint: 'F', run: () => document.documentElement.requestFullscreen?.() },
+      { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
       { label: 'Last slide', hint: 'End', run: () => instance.goto(instance.state.totalSlides, 0) },
@@ -1351,6 +1351,33 @@ export function init(userConfig = {}) {
     root.appendChild(progress);
     progressBar = progress.querySelector('.bar');
   }
+
+  // Touch chrome (mounted after narration is set up, below): phones and
+  // tablets have no keyboard, so surface the two controls a presenter needs
+  // there — fullscreen and sound (narration on/off). CSS shows the cluster
+  // only on pointer:coarse; desktop keeps F and V.
+  const TC_ICON = {
+    full: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+    unfull: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>',
+    sound: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
+    mute: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M17 10l5 4M22 10l-5 4"/></svg>',
+  };
+  let fsBtn = null, soundBtn = null;
+  function toggleFullscreen() {
+    const el = root || document.documentElement;
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else el.requestFullscreen?.()?.catch?.(() => {});
+  }
+  document.addEventListener('fullscreenchange', () => {
+    if (fsBtn) fsBtn.innerHTML = document.fullscreenElement ? TC_ICON.unfull : TC_ICON.full;
+  });
+  function syncSoundBtn() {
+    if (!soundBtn) return;
+    soundBtn.innerHTML = narrating ? TC_ICON.sound : TC_ICON.mute;
+    soundBtn.setAttribute('aria-label', narrating ? 'Mute narration' : 'Play narration');
+    soundBtn.setAttribute('aria-pressed', String(narrating));
+  }
+
   if ((config.slideNumber || playlist || hasMarkersDOM) && !printMode) {
     slideNumEl = document.createElement('div');
     slideNumEl.className = 'decklight-slide-number';
@@ -1714,7 +1741,7 @@ export function init(userConfig = {}) {
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
       case 'e': case 'E': toggleEditor(); break;
-      case 'f': case 'F': document.documentElement.requestFullscreen?.(); break;
+      case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
       case 'n': case 'N': openNarrPicker(); break;
       case 's': case 'S': {
@@ -2096,6 +2123,7 @@ export function init(userConfig = {}) {
       toast('narration off');
       debugLog('narr', 'off');
     }
+    syncSoundBtn();
   }
   instance.on('slide', () => { if (narrating) playSlideFile(); });
   // builds re-sync the live voice too — whether the advance came from the
@@ -2318,6 +2346,33 @@ export function init(userConfig = {}) {
     };
     window.addEventListener('pointerdown', arm, { once: true });
     window.addEventListener('keydown', arm, { once: true });
+  }
+
+  // ----- touch controls (mount) -------------------------------------------
+  // Everything they need (toggleFullscreen, toggleNarration, narrSets) is
+  // now in scope. Fullscreen always; sound only when narration is available.
+  if (!printMode) {
+    const tc = document.createElement('div');
+    tc.className = 'decklight-touch-controls';
+    fsBtn = document.createElement('button');
+    fsBtn.type = 'button';
+    fsBtn.className = 'decklight-touch-btn';
+    fsBtn.setAttribute('aria-label', 'Fullscreen');
+    fsBtn.innerHTML = TC_ICON.full;
+    fsBtn.addEventListener('click', toggleFullscreen);
+    tc.appendChild(fsBtn);
+    if (narrSets.length) {
+      soundBtn = document.createElement('button');
+      soundBtn.type = 'button';
+      soundBtn.className = 'decklight-touch-btn';
+      // swallow pointerdown so the ?voiceover first-gesture arm (on window)
+      // doesn't fire on this very tap and immediately undo the toggle
+      soundBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      soundBtn.addEventListener('click', () => toggleNarration());
+      tc.appendChild(soundBtn);
+      syncSoundBtn();
+    }
+    root.appendChild(tc);
   }
 
   // N: narration picker — tracks → live voices → tones → custom tone
