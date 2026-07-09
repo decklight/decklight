@@ -19,6 +19,8 @@ Usage:
   decklight <command> [options]        (decklight <command> --help for full flags)
 
 Commands:
+  init     scaffold a starter deck, plus an agent skill (.claude/skills/decklight/, AGENTS.md)
+           EXAMPLE: decklight init "My Deck"
   rec      record a truthful terminal cast by running a YAML command script in a real PTY
            EXAMPLE: decklight rec deck.term.yaml -o deck.cast.json
   refresh  re-execute the script embedded in each cast; rewrite the ones whose output drifted
@@ -52,6 +54,11 @@ if (cmd === 'help') {
 }
 
 switch (cmd) {
+  case 'init': {
+    const { initMain } = await import('./init.mjs');
+    await initMain(rest);
+    break;
+  }
   case 'rec': {
     const { recMain } = await import('./rec.mjs');
     await recMain(rest);

@@ -24,6 +24,14 @@ Slides as a single HTML file, written by your agent — no build, no server, no 
 
 ## Quick start
 
+```
+npx decklight init "My Deck"
+```
+
+Scaffolds a self-contained `deck.html` (double-click it, no server) plus `.claude/skills/decklight/` — so Claude Code (or anything reading `AGENTS.md`) has the full authoring contract on hand instead of guessing from Reveal.js memory or a web search.
+
+Or hand-author the anatomy directly:
+
 ```html
 <!doctype html>
 <html lang="en">
@@ -210,6 +218,7 @@ One HTML file with the runtime, structure CSS, chosen themes, casts, and images 
 
 | Command | Purpose |
 |---|---|
+| `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (`.claude/skills/decklight/`, `AGENTS.md`) |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
 | `decklight refresh <dir\|casts…>` | re-record embedded scripts, report drift |
 | `decklight export cast.json` | flatten to asciicast v2 |

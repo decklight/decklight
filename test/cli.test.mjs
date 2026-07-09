@@ -11,12 +11,12 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 
-test('global help lists all four subcommands with runnable examples', () => {
+test('global help lists all subcommands with runnable examples', () => {
   const out = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  for (const sub of ['rec', 'refresh', 'export', 'bundle']) {
+  for (const sub of ['init', 'rec', 'refresh', 'export', 'bundle']) {
     assert.match(out, new RegExp(`^  ${sub} `, 'm'), `missing subcommand: ${sub}`);
   }
-  assert.equal((out.match(/EXAMPLE:/g) || []).length >= 4, true, 'one example per subcommand');
+  assert.equal((out.match(/EXAMPLE:/g) || []).length >= 5, true, 'one example per subcommand');
 });
 
 test('help <sub> shows the subcommand help', () => {
@@ -42,5 +42,71 @@ test('a tiny rec runs through the dispatcher end-to-end', () => {
   assert.equal(cast.decklightCast, 1);
   assert.equal(cast.steps[0].cmd, 'echo dispatcher-ok');
   assert.match(cast.steps[0].output.map((o) => o[1]).join(''), /dispatcher-ok/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init scaffolds a self-contained deck and the agent skill', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  const out = execFileSync('node', [CLI, 'init', 'Test Deck', '--dir', dir], { encoding: 'utf8' });
+  assert.match(out, /created .*deck\.html/);
+  assert.match(out, /SKILL\.md,reference\.md/);
+  assert.match(out, /created AGENTS\.md/);
+
+  const deck = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
+  assert.match(deck, /<title>Test Deck<\/title>/);
+  assert.match(deck, /<div class="decklight">/);
+  assert.match(deck, /<section>/);
+  assert.match(deck, /aside class="notes"/);
+  // fully self-contained: no link/src referencing an external file
+  assert.doesNotMatch(deck, /<link\b[^>]*rel=["']stylesheet["']/);
+  assert.doesNotMatch(deck, /<script\b[^>]*\bsrc=/);
+
+  const skillDir = path.join(dir, '.claude', 'skills', 'decklight');
+  const skill = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8');
+  assert.match(skill, /^---\nname: decklight\n/);
+  assert.match(skill, /reference\.md/);
+  const reference = fs.readFileSync(path.join(skillDir, 'reference.md'), 'utf8');
+  assert.match(reference, /## 1\. Deck anatomy/);
+  assert.match(reference, /## 9\. Public JS API/);
+  assert.doesNotMatch(reference, /## 10\. Repository layout/);
+
+  const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /decklight:skill/);
+  assert.match(agents, /\.claude\/skills\/decklight\/reference\.md/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init refuses to overwrite an existing deck without --force', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
+  const r = spawnSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /already exists.*--force/);
+  execFileSync('node', [CLI, 'init', 'Renamed', '--dir', dir, '--force'], { encoding: 'utf8' });
+  assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Renamed<\/title>/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --no-skill writes only the deck', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill'], { encoding: 'utf8' });
+  assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
+  assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
+  assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init appends a marked section to an existing AGENTS.md, and refresh is idempotent', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), '# My project\n\nExisting notes.\n');
+  execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
+  const first = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.match(first, /Existing notes\./);
+  assert.match(first, /decklight:skill/);
+
+  execFileSync('node', [CLI, 'init', '--dir', dir, '--force'], { encoding: 'utf8' });
+  const second = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.equal(first, second, 're-running must not duplicate or drift the marked section');
   fs.rmSync(dir, { recursive: true, force: true });
 });

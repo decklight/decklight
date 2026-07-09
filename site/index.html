@@ -207,7 +207,7 @@
 
     <section class="start" aria-label="For the full experience">
       <h2>For the full experience</h2>
-      <p>No install needed: <code>npx</code> runs the CLI straight from npm. Edit a deck live, record a truthful terminal cast, or flatten everything into one file. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
+      <p>No install needed: <code>npx</code> runs the CLI straight from npm. Scaffold a deck (with an agent skill so Claude Code knows the contract), edit it live, record a truthful terminal cast, or flatten everything into one file. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-start" data-mode="play" data-rows="12" data-title="getting started"></div>
       </div>
@@ -229,6 +229,25 @@
  },
  "steps": [
   {
+   "cmd": "npx decklight init \"My Deck\"",
+   "output": [
+    [
+     0.5,
+     "created \u001b[33mdeck.html\u001b[m (self-contained \u2014 double-click it, no server)\r\n"
+    ],
+    [
+     0.75,
+     "wrote \u001b[36m.claude/skills/decklight/\u001b[m \u2014 the authoring contract, for your agent\r\n"
+    ],
+    [
+     0.95,
+     "created \u001b[33mAGENTS.md\u001b[m\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.1
+  },
+  {
    "cmd": "npx decklight",
    "output": [
     [
@@ -236,24 +255,28 @@
      "decklight: author, record, and package Decklight presentations\r\n\r\n"
     ],
     [
-     0.7,
+     0.65,
+     "  \u001b[36minit\u001b[m     scaffold a starter deck, plus an agent skill\r\n"
+    ],
+    [
+     0.8,
      "  \u001b[36medit\u001b[m     serve a deck: live reload + in-browser notes editing (E)\r\n"
     ],
     [
-     0.85,
+     0.95,
      "  \u001b[36mrec\u001b[m      record a truthful terminal cast in a real PTY\r\n"
     ],
     [
-     1.0,
+     1.1,
      "  \u001b[36mtts\u001b[m      live voice bridge, the deck narrates itself\r\n"
     ],
     [
-     1.15,
+     1.25,
      "  \u001b[36mbundle\u001b[m   flatten a deck into ONE self-contained HTML file\r\n"
     ]
    ],
    "exit": 0,
-   "duration": 1.2
+   "duration": 1.3
   },
   {
    "cmd": "npx decklight edit deck.html",
