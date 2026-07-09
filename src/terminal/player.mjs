@@ -91,7 +91,12 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
     const t = keyCtx.currentTime;
     const space = ch === ' ';
     const amp = rnd(0.45, 1.3) * (space ? 1.25 : 1);
-    const fc = rnd(...P.clickF) * (space ? 0.8 : 1);
+    const fc = rnd(...P.clickF) * (space ? 0.7 : 1);
+    // The spacebar is the biggest, most damped key on the board. Pull its
+    // bright click back a touch and let a deeper, louder, longer-ringing
+    // thump carry it, so the bar lands with an audible thock and real bass
+    // under the words instead of just a louder tick.
+    const ring = rnd(...P.ring) * (space ? 1.5 : 1);
     const click = (at, gain, f, decay) => {
       const src = keyCtx.createBufferSource();
       src.buffer = keyNoise;
@@ -120,14 +125,14 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
       osc.start(at); osc.stop(at + ring * 2 + 0.01);
     };
     // key-down…
-    click(t, P.click * amp, fc, rnd(...P.clickDecay) * (space ? 1.15 : 1));
-    thump(t, P.thump * amp * (space ? 1.6 : 1), rnd(...P.thumpF) * (space ? 0.85 : 1), rnd(...P.ring));
+    click(t, P.click * amp * (space ? 0.82 : 1), fc, rnd(...P.clickDecay) * (space ? 1.2 : 1));
+    thump(t, P.thump * amp * (space ? 2.4 : 1), rnd(...P.thumpF) * (space ? 0.7 : 1), ring);
     // …and key-up: lighter, brighter, no finger mass behind it. Clamp the
     // release into this keystroke's own window so it never lands on top of
     // the next key-down at fast speeds — clicks stay locked to their glyphs.
     const up = t + Math.max(0.01, Math.min(rnd(0.035, 0.08), gapSec * 0.55));
     click(up, P.click * amp * rnd(0.35, 0.55), fc * 1.15, rnd(...P.clickDecay) * 0.8);
-    thump(up, P.thump * amp * 0.25, rnd(...P.thumpF), rnd(...P.ring) * 0.6);
+    thump(up, P.thump * amp * (space ? 0.5 : 0.25), rnd(...P.thumpF) * (space ? 0.7 : 1), ring * 0.6);
   } catch { /* no audio in this environment */ }
 }
 
