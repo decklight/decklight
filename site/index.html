@@ -110,9 +110,38 @@
     }
     footer a { color: var(--accent); text-decoration: none; }
     footer a:hover { text-decoration: underline; }
+
+    /* classic diagonal GitHub band, top right */
+    .gh-band {
+      position: absolute;
+      top: 0; right: 0;
+      width: 150px; height: 150px;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .gh-band a {
+      position: absolute;
+      top: 38px; right: -52px;
+      display: block;
+      width: 220px;
+      padding: 8px 0;
+      transform: rotate(45deg);
+      background: var(--accent);
+      color: #1a1400;
+      border: 1px dashed rgba(0, 0, 0, 0.4);
+      outline: 3px solid var(--accent);
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      pointer-events: auto;
+    }
   </style>
 </head>
 <body>
+  <div class="gh-band"><a href="https://github.com/decklight/decklight">Fork me on GitHub</a></div>
   <div class="wrap">
     <header>
       <h1>Decklight</h1>
@@ -152,6 +181,10 @@
         <h3>Everything is text</h3>
         <p>No binary formats anywhere, so decks diff cleanly in git and agents can read, review, and edit every byte.</p>
       </div>
+      <div class="trait">
+        <h3>Command palette</h3>
+        <p>Press <strong>/</strong> for a Claude-style palette: every command with its shortcut, type to filter, Enter runs it. Type a number to jump to that slide.</p>
+      </div>
     </section>
 
     <aside class="egg" id="egg-creamy">
@@ -173,11 +206,11 @@
     </section>
 
     <div class="deck-caption">
-      <span>The pitch <em>is</em> the product. This is the showcase deck, live. Click it, then <strong>→</strong> to advance (press <strong>?</strong> for all keys, <strong>,</strong>/<strong>.</strong> to switch themes).</span>
-      <a href="showcase.html">Open full screen ↗</a>
+      <span>The pitch <em>is</em> the product. This is the showcase deck, live, and it narrates itself: click it and it starts speaking. <strong>→</strong> advances, <strong>V</strong> toggles the voice, <strong>N</strong> changes it, <strong>?</strong> shows all keys.</span>
+      <a href="showcase.html?voiceover">Open full screen ↗</a>
     </div>
     <div class="deckbox">
-      <iframe src="showcase.html" title="The Decklight showcase deck" loading="lazy" allow="fullscreen"></iframe>
+      <iframe src="showcase.html?voiceover" title="The Decklight showcase deck" loading="lazy" allow="fullscreen"></iframe>
     </div>
 
     <footer>
