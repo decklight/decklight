@@ -4,13 +4,14 @@
  * Code (and any AGENTS.md-reading agent) knows the authoring contract
  * without a web search or a guess from Reveal.js memory.
  *
- *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--force] [--no-skill]
+ *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
  *
- * The deck is fully self-contained (runtime + theme inlined, like
- * `decklight bundle` produces) — double-click it, it presents, no sibling
- * files. The skill is regenerated every run (it's derived, not authored
- * content) so re-running after an upgrade refreshes it; the deck file is
- * only touched with --force.
+ * The deck is fully self-contained (runtime + every theme inlined, like
+ * `decklight bundle --themes all` produces) — double-click it, it presents,
+ * no sibling files, and the in-deck picker is fully stocked. Pass --themes to
+ * ship a narrower set. The skill is regenerated every run (it's derived, not
+ * authored content) so re-running after an upgrade refreshes it; the deck
+ * file is only touched with --force.
  */
 
 import fs from 'node:fs';
@@ -28,11 +29,38 @@ function fail(msg) {
 
 const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\u0021--');
 
+// aurora is the deck's starting look; init ships every theme by default so the
+// in-deck picker (/ → themes) is fully stocked, unless --themes narrows it.
 const STARTER_THEME = 'aurora';
+const THEMES_DIR = path.join(PKG_ROOT, 'themes');
 
-function starterDeck(title) {
+// 'all' → every shipped theme; otherwise a comma list of names (validated).
+function resolveThemes(sel) {
+  if (sel === 'all') {
+    return fs.readdirSync(THEMES_DIR)
+      .filter((f) => f.endsWith('.css'))
+      .map((f) => f.slice(0, -4))
+      .sort();
+  }
+  const names = sel.split(',').map((s) => s.trim()).filter(Boolean);
+  if (!names.length) fail('--themes: no theme names given');
+  for (const n of names) {
+    if (!fs.existsSync(path.join(THEMES_DIR, `${n}.css`))) {
+      fail(`--themes: theme not found: ${n} (see themes/ for the full list)`);
+    }
+  }
+  return names;
+}
+
+function starterDeck(title, themeNames, activeTheme) {
   const css = fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.css'), 'utf8');
-  const theme = fs.readFileSync(path.join(PKG_ROOT, 'themes', `${STARTER_THEME}.css`), 'utf8');
+  // one <style data-theme> per theme; only the active one applies (the rest
+  // carry media="not all", which the runtime's inline-theme mode toggles).
+  const themeBlocks = themeNames.map((name) => {
+    const theme = fs.readFileSync(path.join(THEMES_DIR, `${name}.css`), 'utf8');
+    const media = name === activeTheme ? '' : ' media="not all"';
+    return `  <style data-theme="${name}"${media}>\n${theme}\n  </style>`;
+  }).join('\n');
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -41,9 +69,7 @@ function starterDeck(title) {
   <style>
 ${css}
   </style>
-  <style data-theme="${STARTER_THEME}">
-${theme}
-  </style>
+${themeBlocks}
 </head>
 <body>
   <div class="decklight">
@@ -148,13 +174,17 @@ export async function initMain(argv = process.argv.slice(2)) {
     process.stdout.write(`decklight init — scaffold a starter deck + agent skill
 
 Usage:
-  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--force] [--no-skill]
+  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
 
 Options:
-  -o <file>     deck output path (default: deck.html)
-  --dir <path>  target directory (default: current directory)
-  --force       overwrite an existing deck file (default: refuses)
-  --no-skill    skip .claude/skills/decklight/ and AGENTS.md
+  -o <file>       deck output path (default: deck.html)
+  --dir <path>    target directory (default: current directory)
+  --themes <sel>  which themes to inline into the deck:
+                    all           every shipped theme (default)
+                    name,name,…   an explicit list (aurora stays active when
+                                  included, else the first listed)
+  --force         overwrite an existing deck file (default: refuses)
+  --no-skill      skip .claude/skills/decklight/ and AGENTS.md
 
 Always writes/refreshes the skill files (they're generated from the
 installed version's SPEC.md, so re-running after an upgrade updates them)
@@ -163,18 +193,21 @@ unless --no-skill is given. The deck file is only touched with --force.
     process.exit(0);
   }
 
-  let title = null, outFile = 'deck.html', dir = '.', force = false, withSkill = true;
+  let title = null, outFile = 'deck.html', dir = '.', force = false, withSkill = true, themesSel = 'all';
   const args = [...argv];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '-o') outFile = args[++i];
     else if (a === '--dir') dir = args[++i];
+    else if (a === '--themes') themesSel = args[++i];
     else if (a === '--force') force = true;
     else if (a === '--no-skill') withSkill = false;
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
   title = title || 'My Deck';
+  const themeNames = resolveThemes(themesSel);
+  const activeTheme = themeNames.includes(STARTER_THEME) ? STARTER_THEME : themeNames[0];
 
   const root = path.resolve(dir);
   fs.mkdirSync(root, { recursive: true });
@@ -183,8 +216,11 @@ unless --no-skill is given. The deck file is only touched with --force.
   if (fs.existsSync(deckPath) && !force) {
     fail(`${path.relative('.', deckPath) || outFile} already exists — pass --force to overwrite`);
   }
-  fs.writeFileSync(deckPath, starterDeck(title));
-  process.stdout.write(`created ${path.relative('.', deckPath) || outFile}\n`);
+  fs.writeFileSync(deckPath, starterDeck(title, themeNames, activeTheme));
+  const themeNote = themeNames.length === 1
+    ? `theme: ${themeNames[0]}`
+    : `${themeNames.length} themes, ${activeTheme} active`;
+  process.stdout.write(`created ${path.relative('.', deckPath) || outFile} (${themeNote})\n`);
 
   if (!withSkill) return;
 

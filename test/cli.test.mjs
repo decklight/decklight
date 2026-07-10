@@ -61,6 +61,12 @@ test('init scaffolds a self-contained deck and the agent skill', () => {
   assert.doesNotMatch(deck, /<link\b[^>]*rel=["']stylesheet["']/);
   assert.doesNotMatch(deck, /<script\b[^>]*\bsrc=/);
 
+  // ships every theme by default, aurora active — the in-deck picker is stocked
+  const themeCount = fs.readdirSync(path.resolve(here, '../themes')).filter((f) => f.endsWith('.css')).length;
+  const blocks = [...deck.matchAll(/<style data-theme="([\w-]+)"( media="not all")?>/g)];
+  assert.equal(blocks.length, themeCount);
+  assert.deepEqual(blocks.filter((m) => !m[2]).map((m) => m[1]), ['aurora']);
+
   const skillDir = path.join(dir, '.claude', 'skills', 'decklight');
   const skill = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8');
   assert.match(skill, /^---\nname: decklight\n/);
@@ -85,6 +91,24 @@ test('init refuses to overwrite an existing deck without --force', () => {
   assert.match(r.stderr, /already exists.*--force/);
   execFileSync('node', [CLI, 'init', 'Renamed', '--dir', dir, '--force'], { encoding: 'utf8' });
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Renamed<\/title>/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --themes ships only the named set; missing theme fails cleanly', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  // pick a real non-aurora theme so we exercise "first listed is active"
+  const other = fs.readdirSync(path.resolve(here, '../themes'))
+    .filter((f) => f.endsWith('.css')).map((f) => f.slice(0, -4)).find((n) => n !== 'aurora');
+  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--themes', `${other},aurora`], { encoding: 'utf8' });
+  const deck = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
+  const blocks = [...deck.matchAll(/<style data-theme="([\w-]+)"( media="not all")?>/g)];
+  assert.deepEqual(blocks.map((m) => m[1]), [other, 'aurora']);
+  // aurora stays active even when not listed first
+  assert.deepEqual(blocks.filter((m) => !m[2]).map((m) => m[1]), ['aurora']);
+
+  const bad = spawnSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--force', '--themes', 'nope123'], { encoding: 'utf8' });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /theme not found: nope123/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
