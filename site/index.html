@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decklight: the presentation library that presents itself</title>
+  <meta name="description" content="Single-file decks, Keynote-grade motion, 61 WCAG-gated themes, truthful terminal recordings, live TTS narration. Authored by humans and AI agents alike.">
+  <link rel="stylesheet" href="dist/decklight.css">
+  <style>
+    :root {
+      --bg: #0b0b0d; --fg: #ecebe6; --muted: #a5a49c;
+      --accent: #e3bd54; --card: #141416; --border: #26262a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      background-image: radial-gradient(ellipse 90% 40% at 50% -5%, #262008 0%, #0b0b0d 70%);
+      color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.55;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 56px 24px 40px; }
+    header { text-align: center; margin-bottom: 40px; }
+    h1 {
+      margin: 0;
+      font-size: clamp(2.4rem, 6vw, 3.6rem);
+      letter-spacing: -0.02em;
+      text-transform: uppercase;
+      font-weight: 900;
+      color: var(--accent);
+    }
+    .tagline { margin: 10px 0 0; font-size: 1.15rem; color: var(--fg); }
+
+    .traits {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 14px;
+      margin: 36px 0 44px;
+    }
+    .trait {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .trait h3 { margin: 0 0 6px; font-size: 1rem; color: var(--accent); }
+    .trait p { margin: 0; font-size: 0.92rem; color: var(--muted); }
+
+    /* the creamy easter egg: click the word, get the lab note */
+    .egg-trigger { border-bottom: 1px dotted var(--accent); cursor: help; }
+    .egg {
+      display: none;
+      margin: -30px 0 44px;
+      padding: 14px 18px;
+      background: var(--card);
+      border: 1px dashed var(--accent);
+      border-radius: 12px;
+      font-size: 0.88rem;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+    .egg.open { display: block; }
+    .egg strong { color: var(--accent); }
+
+    /* the get-started terminal: Decklight's own player, playing a cast;
+       terminal tokens supplied here since no theme stylesheet is loaded */
+    .start { margin: 0 0 44px; }
+    .start h2 { font-size: 1.35rem; margin: 0 0 4px; color: var(--fg); }
+    .start p { margin: 0 0 14px; color: var(--muted); font-size: 0.95rem; }
+    .start.after-deck { margin-top: 44px; }
+    .term-wrap {
+      font-size: clamp(16px, 5vw, 45px);
+      --term-bg: #0d0d0f; --term-fg: #e2e1dc; --term-prompt: #f5c542;
+      --term-cursor: #f5c542; --term-selection: rgba(245, 197, 66, 0.25);
+      --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+      --block-radius: 12px;
+      --ansi-black: #8a8981; --ansi-red: #e5897d; --ansi-green: #a5c987; --ansi-yellow: #f5c542;
+      --ansi-blue: #96abd0; --ansi-magenta: #c2a0c8; --ansi-cyan: #93ccc0; --ansi-white: #e8e7e2;
+      --ansi-bright-black: #a2a199; --ansi-bright-red: #f0aba1; --ansi-bright-green: #c0dca6;
+      --ansi-bright-yellow: #fad76e; --ansi-bright-blue: #b3c4e2; --ansi-bright-magenta: #d8bcdd;
+      --ansi-bright-cyan: #b0e0d5; --ansi-bright-white: #fdfcf7;
+    }
+
+    .deck-caption {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin: 0 0 10px;
+      font-size: 0.95rem;
+      color: var(--muted);
+    }
+    .deck-caption a { color: var(--accent); text-decoration: none; white-space: nowrap; }
+    .deck-caption a:hover { text-decoration: underline; }
+    .deckbox {
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+      background: #000;
+    }
+    .deckbox iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+    footer {
+      margin-top: 44px;
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* classic diagonal GitHub band, top right */
+    .gh-band {
+      position: absolute;
+      top: 0; right: 0;
+      width: 150px; height: 150px;
+      overflow: hidden;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .gh-band a {
+      position: absolute;
+      top: 38px; right: -52px;
+      display: block;
+      width: 220px;
+      padding: 8px 0;
+      transform: rotate(45deg);
+      background: var(--accent);
+      color: #1a1400;
+      border: 1px dashed rgba(0, 0, 0, 0.4);
+      outline: 3px solid var(--accent);
+      text-align: center;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+      pointer-events: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="gh-band"><a href="https://github.com/decklight/decklight">Fork me on GitHub</a></div>
+  <div class="wrap">
+    <header>
+      <h1>Decklight</h1>
+      <p class="tagline">Slides as a single HTML file. Written by your agent.<br>No build, no server, no framework.</p>
+    </header>
+
+    <section class="traits" aria-label="Top characteristics">
+      <div class="trait">
+        <h3>One file, zero build</h3>
+        <p>Author a single HTML file, double-click it, present.</p>
+      </div>
+      <div class="trait">
+        <h3>Agent-native authoring</h3>
+        <p>Describe a slide in plain English to your favorite agent, boom, done.</p>
+      </div>
+      <div class="trait">
+        <h3>Diagrams &amp; graphics</h3>
+        <p>Not only bullet lists: shapes, diagrams, and full graphics, all native SVG.</p>
+      </div>
+      <div class="trait">
+        <h3>Animation</h3>
+        <p>Display content progressively, Magic Move between slides, and complex SVG diagrams that literally draw themselves in.</p>
+      </div>
+      <div class="trait">
+        <h3>61 built-in themes</h3>
+        <p>Every theme passes WCAG contrast gates and codified palette rules; diagrams and terminals reskin too. Generate yours with a keystroke.</p>
+      </div>
+      <div class="trait">
+        <h3>Terminals</h3>
+        <p>Real PTY recordings replayed truthfully, never a video, with the sound of the best mechanical keyboards: thocky, <span class="egg-trigger" title="psst">creamy</span>, or clacky.</p>
+      </div>
+      <div class="trait">
+        <h3>Live narration</h3>
+        <p>Live text-to-speech, on the fly or cached, presents the deck by itself, perfectly in sync. Captions and pop quiz included.</p>
+      </div>
+      <div class="trait">
+        <h3>Everything is text</h3>
+        <p>No binary formats anywhere, so decks diff cleanly in git and agents can read, review, and edit every byte.</p>
+      </div>
+      <div class="trait">
+        <h3>Command palette</h3>
+        <p>Press <strong>/</strong> for a Claude-style palette: every command with its shortcut, type to filter, Enter runs it. Type a number to jump to that slide.</p>
+      </div>
+    </section>
+
+    <aside class="egg" id="egg-creamy">
+      <strong>You found the lab note.</strong> The creamy sound is the agent's recreation of a
+      Rainy 75, made by dissecting a recording of the real board strike by strike: each keystroke
+      is a short bright contact click at 1.4 to 2.8kHz that dies within ~10ms, a quiet 60-110Hz
+      thump that blooms a few milliseconds later and rings ~40ms at roughly a quarter of the
+      strike's peak (I measured 23% in the recording and calibrated to exactly that), a second
+      lighter click 35 to 80ms later which is the key release, and a ~4x loudness spread between
+      grazed and bottomed-out keys. Synthesized live in WebAudio. No samples were harmed.
+    </aside>
+
+    <section class="start" aria-label="Create a deck">
+      <h2>Create a deck</h2>
+      <p>No install needed: <code>npx</code> runs the CLI straight from npm. <code>init</code> scaffolds a self-contained deck plus an agent skill, so Claude Code knows the authoring contract. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
+      <div class="term-wrap">
+        <div class="terminal" data-cast-inline="#cast-init" data-mode="play" data-speed="2" data-type-sound="creamy" data-rows="8" data-title="create a deck"></div>
+      </div>
+    </section>
+
+    <div class="deck-caption">
+      <span>The pitch <em>is</em> the product. This is the showcase deck, live, and it narrates itself: click it and it starts speaking. <strong>→</strong> advances, <strong>V</strong> toggles the voice, <strong>N</strong> changes it, <strong>?</strong> shows all keys.</span>
+      <a href="showcase.html?voiceover">Open full screen ↗</a>
+    </div>
+    <div class="deckbox">
+      <iframe src="showcase.html?voiceover" title="The Decklight showcase deck" loading="lazy" allow="fullscreen"></iframe>
+    </div>
+
+    <section class="start after-deck" aria-label="Getting the full experience">
+      <h2>Getting the full experience</h2>
+      <p>The same CLI does the rest: serve the deck live with in-browser note editing, record truthful terminal casts, bridge live narration, then flatten everything into one self-contained file.</p>
+      <div class="term-wrap">
+        <div class="terminal" data-cast-inline="#cast-cli" data-mode="play" data-speed="2" data-type-sound="creamy" data-rows="12" data-title="the full cli"></div>
+      </div>
+    </section>
+
+    <footer>
+      <a href="https://github.com/decklight/decklight">GitHub</a> · MIT ·
+      this page and the deck ship from one <code>decklight bundle</code> command
+    </footer>
+  </div>
+
+  <script type="application/json" id="cast-init">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 16,
+  "prompt": "$ "
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight init \"My Deck\" -o my-deck.html",
+   "output": [
+    [
+     0.5,
+     "created \u001b[33mmy-deck.html\u001b[m (self-contained \u2014 double-click it, no server)\r\n"
+    ],
+    [
+     0.75,
+     "wrote \u001b[36m.claude/skills/decklight/\u001b[m \u2014 the authoring contract, for your agent\r\n"
+    ],
+    [
+     0.95,
+     "created \u001b[33mAGENTS.md\u001b[m\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.1
+  },
+  {
+   "cmd": "open my-deck.html",
+   "output": [
+    [
+     0.5,
+     "\u001b[90m# your deck opens in the browser \u2014 see it live below \u2193\u001b[m\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.7
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-cli">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 16,
+  "prompt": "$ "
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight edit my-deck.html",
+   "output": [
+    [
+     0.6,
+     "\u001b[32mdecklight edit\u001b[m on http://127.0.0.1:8788/my-deck.html \u2014 E edits notes, saves reload the deck\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.8
+  },
+  {
+   "cmd": "npx decklight rec demo.term.yaml",
+   "output": [
+    [
+     0.7,
+     "  recording in a real PTY \u2026 \u001b[32m\u2713\u001b[m 3 steps \u00b7 2.1s \u00b7 secrets redacted \u2192 demo.cast.json\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.0
+  },
+  {
+   "cmd": "npx decklight tts",
+   "output": [
+    [
+     0.6,
+     "\u001b[32mdecklight tts\u001b[m on http://127.0.0.1:8787/tts \u2014 pick \u201cLive voice\u2026\u201d in the deck's / palette\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.8
+  },
+  {
+   "cmd": "npx decklight bundle my-deck.html --themes all",
+   "output": [
+    [
+     0.8,
+     "bundled my-deck.html \u2192 \u001b[33mmy-deck.bundle.html\u001b[m (523 KB \u00b7 61 themes \u00b7 works offline)\r\n"
+    ],
+    [
+     1.2,
+     "\r\nThat's it: one file. Open it, press \u001b[33m\u2192\u001b[m to advance, \u001b[33m?\u001b[m for every key.\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.4
+  }
+ ]
+}</script>
+
+  <script src="dist/decklight.js"></script>
+  <script>
+    // easter egg: clicking "creamy" (or arriving at #creamy) reveals the lab note
+    const egg = document.getElementById('egg-creamy');
+    document.querySelector('.egg-trigger').addEventListener('click', () => egg.classList.toggle('open'));
+    if (location.hash === '#creamy') egg.classList.add('open');
+
+    // activate the standalone terminal, then auto-play it on first scroll-into-view
+    Decklight.initTerminals().then(() => {
+      document.querySelectorAll('.terminal').forEach((term) => {
+        const btn = term.querySelector('.terminal-play');
+        if (!btn) return;
+        new IntersectionObserver((entries, obs) => {
+          if (!entries[0].isIntersecting) return;
+          obs.disconnect();
+          btn.click();
+        }, { threshold: 0.5 }).observe(term);
+      });
+    });
+  </script>
+</body>
+</html>

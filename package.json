@@ -1,12 +1,38 @@
 {
   "name": "decklight",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A presentation library designed to be authored by AI agents and humans alike: single-file decks, Keynote-style builds, theme-aware SVG diagrams, and truthful terminal recordings.",
   "type": "module",
   "main": "dist/decklight.js",
   "bin": {
     "decklight": "cli/decklight.mjs"
   },
+  "files": [
+    "cli/",
+    "tools/",
+    "dist/",
+    "themes/",
+    "docs/",
+    "SPEC.md"
+  ],
+  "homepage": "https://decklight.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/decklight/decklight.git"
+  },
+  "bugs": "https://github.com/decklight/decklight/issues",
+  "keywords": [
+    "presentation",
+    "slides",
+    "deck",
+    "reveal",
+    "keynote",
+    "terminal",
+    "asciicast",
+    "tts",
+    "ai",
+    "agent"
+  ],
   "scripts": {
     "build": "node build.mjs",
     "test": "node --test 'test/*.test.mjs'",

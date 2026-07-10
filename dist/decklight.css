@@ -564,6 +564,21 @@
   margin-right: 12px;
   font-family: var(--font-body, system-ui, sans-serif);
 }
+/* touch chrome — shown only where there's no keyboard (see engine.js) */
+.decklight-touch-controls { position: absolute; left: 14px; top: 14px; z-index: 41; display: none; gap: 8px; }
+.decklight-touch-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px;
+  border-radius: 12px;
+  border: 1px solid rgba(160, 160, 160, .28);
+  background: rgba(20, 20, 22, .5);
+  color: var(--fg, #e6e6e6);
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  -webkit-tap-highlight-color: transparent;
+}
+.decklight-touch-btn:active { background: rgba(70, 70, 74, .6); }
+@media (pointer: coarse) { .decklight-touch-controls { display: flex; } }
 
 /* module menu (playlist): list overlay, same pattern as the theme picker */
 .decklight-module-menu {
@@ -888,7 +903,7 @@
 @media print {
   @page { size: 1280px 720px; margin: 0; }
   .decklight.decklight-print .decklight-stage > section { border-bottom: 0; }
-  .decklight-controls, .decklight-progress { display: none !important; }
+  .decklight-controls, .decklight-progress, .decklight-touch-controls { display: none !important; }
 }
 
 /* ---------- reduced motion ------------------------------------------------- */

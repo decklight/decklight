@@ -30,6 +30,7 @@
 // doesn't re-roll the narration. Audio is a build artifact, not source.
 
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -102,7 +103,18 @@ function narrate(text, slideNo) {
 }
 
 // ── synthesize ────────────────────────────────────────────────────────────────
+// Incremental: the manifest stores a hash of (engine, voice, style, text) per
+// slide, so a rerun only synthesizes slides whose narration actually changed.
 mkdirSync(outDir, { recursive: true });
+let totalCost = 0;
+const slideHash = (text) =>
+  createHash('sha256').update(`${engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
+let prev = null;
+try {
+  const m = JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8'));
+  if (m && Array.isArray(m.slides)) prev = m;
+} catch { /* no previous manifest, or the old array format: regenerate all */ }
+let skipped = 0;
 const manifest = [];
 for (let i = 0; i < slides.length; i++) {
   const n = String(i + 1).padStart(2, '0');
@@ -116,6 +128,13 @@ for (let i = 0; i < slides.length; i++) {
   const wav = join(outDir, `slide-${n}.wav`);
   const m4a = join(outDir, `slide-${n}.m4a`);
   writeFileSync(txt, text);
+  const hash = slideHash(text);
+  manifest.push({ file: `slide-${n}.m4a`, hash });
+  if (prev?.slides?.[i]?.hash === hash && existsSync(m4a)) {
+    skipped++;
+    console.log(`  slide ${n}: unchanged — kept`);
+    continue;
+  }
   let costNote = '';
   if (engine === 'gemini') {
     const { wav: buf, usage } = await synthGemini(text, { voice, style });
@@ -127,8 +146,13 @@ for (let i = 0; i < slides.length; i++) {
   }
   execFileSync('afconvert', ['-f', 'm4af', '-d', 'aac', wav, m4a]);
   rmSync(wav);
-  manifest.push(`slide-${n}.m4a`);
   console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}${costNote}`);
+  // crash-safe: persist progress after every slide so an interrupted run
+  // resumes incrementally instead of re-synthesizing everything
+  writeFileSync(join(outDir, 'manifest.json'),
+    JSON.stringify({ engine, voice, style, slides: manifest }, null, 1));
 }
-writeFileSync(join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 1));
-console.log(`done → ${outDir}`);
+writeFileSync(join(outDir, 'manifest.json'),
+  JSON.stringify({ engine, voice, style, slides: manifest }, null, 1));
+console.log(`done → ${outDir}${skipped ? ` (${skipped} unchanged, skipped)` : ''}`
+  + (totalCost ? ` · estimated cost ~$${totalCost.toFixed(4)}` : ''));

@@ -1,0 +1,10 @@
+{
+  "comment": "Voices demonstrated on decklight.io. Audio lives ONLY in the decklight.github.io repo (voices/<dir>/); generate/refresh locally with: GOOGLE_CLOUD_PROJECT=<project> node tools/voiceover.mjs demo/showcase.html --engine gemini --voice <Voice> --no-llm -o demo/voiceover-site/<dir>  (incremental: only changed slides re-synthesize), then upload the changed files to the site repo.",
+  "tone": "Warm senior engineer",
+  "voices": [
+    { "label": "Algenib · gravelly", "voice": "Algenib", "dir": "voices/algenib" },
+    { "label": "Aoede · breezy", "voice": "Aoede", "dir": "voices/aoede" },
+    { "label": "Enceladus · breathy", "voice": "Enceladus", "dir": "voices/enceladus" },
+    { "label": "Vindemiatrix · gentle", "voice": "Vindemiatrix", "dir": "voices/vindemiatrix" }
+  ]
+}

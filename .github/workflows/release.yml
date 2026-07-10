@@ -1,0 +1,52 @@
+# Publishes the `decklight` package to npm via Trusted Publishing (OIDC) — no
+# tokens anywhere. Bump the version in package.json, commit, then push a
+# matching tag (e.g. v0.2.0); CI builds, tests, and publishes with provenance.
+#
+# The trust relationship lives on npmjs.com, not here: package → Settings →
+# Trusted Publisher, pinned to decklight/decklight and this workflow file
+# (release.yml). Nothing secret is stored in the repo.
+name: release to npm
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # required for npm Trusted Publishing (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing needs npm >= 11.5.1; pin the 11.x line (npm@latest
+      # is now 12.x, which requires a newer Node than the runner ships)
+      - run: npm install -g npm@11
+
+      # node-pty (optional dep) is CLI-recording only — skip its native build
+      - run: npm ci --omit=optional
+
+      - run: node build.mjs
+      - run: npm test
+
+      # a tag push must match the version we're about to publish
+      - name: verify tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          pkg="$(node -p "require('./package.json').version")"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$pkg" != "$tag" ]; then
+            echo "tag $tag does not match package.json version $pkg" >&2
+            exit 1
+          fi
+          echo "publishing decklight@$pkg"
+
+      - run: npm publish

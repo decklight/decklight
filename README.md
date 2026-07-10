@@ -4,13 +4,33 @@
 
 # Decklight
 
-**The presentation library that can prove its deck works.**
+**The presentation library that presents itself.**
 
-Decklight is a presentation library in the Reveal.js tradition, designed to be **authored by AI agents and humans alike**. A deck is a single HTML file. The runtime is one JS + one CSS + one theme CSS. There is no build step, no dev server — double-click the file and present. And because agents can't eyeball a slide, every feature is designed to be **verifiable by a headless render**: clipped content marks itself in the DOM, every theme passes machine-checked contrast gates, terminal demos are recorded truth rather than screenshots.
+Slides as a single HTML file, written by your agent — no build, no server, no framework. Decklight is a presentation library in the Reveal.js tradition, designed to be **authored by AI agents and humans alike**. A deck is a single HTML file. The runtime is one JS + one CSS + one theme CSS. There is no build step, no dev server — double-click the file and present. And because agents can't eyeball a slide, every feature is designed to be **verifiable by a headless render**: clipped content marks itself in the DOM, every theme passes machine-checked contrast gates, terminal demos are recorded truth rather than screenshots.
 
-`SPEC.md` is the contract; this README is the tour. For the tour that gives itself, open **`demo/showcase.html`** — a deck about Decklight where every slide live-demos the feature it describes, ending in a pop quiz.
+**See it live at [decklight.io](https://decklight.io)** — the showcase deck, embedded and narrating itself; the whole page ships from one `decklight bundle` command. `SPEC.md` is the contract; this README is the tour. For the tour that gives itself, open **`demo/showcase.html`** — a deck about Decklight where every slide live-demos the feature it describes, ending in a pop quiz.
+
+## Why Decklight
+
+- **One file, zero build** — author a single HTML file, double-click it, present.
+- **Agent-native authoring** — describe a slide in plain English to your favorite agent; overflow flags, contrast gates and headless render assertions let it verify the result without eyes.
+- **Diagrams & graphics** — not only bullet lists: shapes, diagrams and full graphics, all native, theme-aware SVG.
+- **Animation** — progressive builds, Magic Move between slides, and SVG diagrams that literally draw themselves in.
+- **61 built-in themes** — every one passes WCAG contrast gates and codified palette rules; diagrams and terminals reskin too. Generate your own with a keystroke.
+- **Truthful terminals** — real PTY recordings replayed truthfully, never a video, down to the synthesized key clicks.
+- **Live narration** — text-to-speech, on the fly or cached, presents the deck by itself, perfectly in sync — captions and pop quiz included.
+- **Everything is text** — no binary formats anywhere, so decks diff cleanly in git and agents can read, review, and edit every byte.
+- **Command palette** — press `/` for every command with its shortcut; type to filter, `Enter` runs it.
 
 ## Quick start
+
+```
+npx decklight init "My Deck"
+```
+
+Scaffolds a self-contained `deck.html` (double-click it, no server) plus `.claude/skills/decklight/` — so Claude Code (or anything reading `AGENTS.md`) has the full authoring contract on hand instead of guessing from Reveal.js memory or a web search.
+
+Or hand-author the anatomy directly:
 
 ```html
 <!doctype html>
@@ -38,7 +58,7 @@ Decklight is a presentation library in the Reveal.js tradition, designed to be *
 </html>
 ```
 
-Open the file in a browser — `file://` works for everything, no server needed. See `demo/showcase.html` for the self-demonstrating tour, `demo/smoke.html` for the feature smoke deck, and `themes/gallery.html` to browse themes.
+Open the file in a browser — `file://` works for everything, no server needed. See `demo/showcase.html` for the self-demonstrating tour (hosted live at [decklight.io](https://decklight.io)), `demo/smoke.html` for the feature smoke deck, and `themes/gallery.html` to browse themes.
 
 ## Authoring
 
@@ -103,7 +123,7 @@ steps:
         send: { secret: "$APP_PASSWORD\n" }   # sent for real; recorded as ▓▓▓
 ```
 
-- **Playback**: `<div class="terminal" data-cast="demo.cast.json" data-mode="step">` — each advance *types* the command (jittered keystrokes) then streams the recorded output; `data-mode="play"` gives timeline playback with speed control. Typing speed is a 1 (slow) to 10 (fast) scale — `data-type-speed` to author it, the `⌨` titlebar button to change it live (persists per deck) — and each keystroke lands with a subtle synthesized key click (`data-type-sound="off"` opts out). ANSI colors render through an owned parser (16 named colors map to theme tokens; 256/truecolor pass through). `data-cast-inline="#id"` embeds the cast for `file://`. Terminals keep a stable 16:9-floored footprint and scroll internally.
+- **Playback**: `<div class="terminal" data-cast="demo.cast.json" data-mode="step">` — each advance *types* the command (jittered keystrokes) then streams the recorded output; `data-mode="play"` gives timeline playback with speed control. Typing speed is authored with `data-type-speed` (a 1-slow to 10-fast scale) and changed live by the `⌨` titlebar button, a words-per-minute picker (persists per deck). Each keystroke lands with a subtle synthesized switch sound: pick your board with `data-type-sound="creamy|thocky|clacky|off"` (default creamy) or the `♪` titlebar button, which cycles the voices live (also persists per deck). ANSI colors render through an owned parser (16 named colors map to theme tokens; 256/truecolor pass through). `data-cast-inline="#id"` embeds the cast for `file://`. Terminals keep a stable 16:9-floored footprint and scroll internally.
 - **Refreshable**: casts embed their own script — `decklight refresh` re-records everything and reports drift when your tools change.
 - **Interop**: `decklight export` flattens to asciicast v2 (`agg` GIFs, asciinema.org); plain asciicast v2 files can be played directly, with `m` markers becoming steps.
 - **Secrets**: redaction regexes, `hide:` steps, and `secret:` sends that are typed for real but stored as `▓▓▓`.
@@ -198,6 +218,7 @@ One HTML file with the runtime, structure CSS, chosen themes, casts, and images 
 
 | Command | Purpose |
 |---|---|
+| `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (`.claude/skills/decklight/`, `AGENTS.md`) |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
 | `decklight refresh <dir\|casts…>` | re-record embedded scripts, report drift |
 | `decklight export cast.json` | flatten to asciicast v2 |
