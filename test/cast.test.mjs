@@ -22,6 +22,11 @@ try { require.resolve('node-pty'); require.resolve('js-yaml'); }
 catch { recSkip = 'node-pty/js-yaml not installed (optional deps)'; }
 const test = (name, fn) => baseTest(name, { skip: recSkip }, fn);
 
+// Record under zsh when it's present (macOS default — exercises the
+// zsh-specific prompt taming), else bash (Linux/CI). rec supports both
+// (cli/rec.mjs shellArgs/setupLine); only these fixtures were pinned to zsh.
+const SHELL = fs.existsSync('/bin/zsh') ? 'zsh' : 'bash';
+
 function tmpdir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-cast-'));
 }
@@ -44,7 +49,7 @@ test('CLI end-to-end: structure, state carry-over, redaction, notes', () => {
   const dir = tmpdir();
   const script = path.join(dir, 'demo.term.yaml');
   fs.writeFileSync(script, [
-    'shell: zsh',
+    `shell: ${SHELL}`,
     'prompt: "% "',
     'cols: 90',
     'redact:',
@@ -63,7 +68,7 @@ test('CLI end-to-end: structure, state carry-over, redaction, notes', () => {
   assert.equal(cast.decklightCast, 1);
   assert.equal(cast.meta.prompt, '% ');
   assert.equal(cast.meta.cols, 90);
-  assert.equal(cast.meta.shell, 'zsh');
+  assert.equal(cast.meta.shell, SHELL);
   assert.ok(cast.meta.recorded.match(/^\d{4}-\d{2}-\d{2}T/));
   assert.deepEqual(cast.script.steps.length, 2, 'script embedded verbatim');
   assert.equal(cast.steps.length, 2);
@@ -89,7 +94,7 @@ test('CLI end-to-end: structure, state carry-over, redaction, notes', () => {
 test('non-zero exit aborts without --allow-fail, records with it', () => {
   const dir = tmpdir();
   const script = path.join(dir, 'fail.term.yaml');
-  fs.writeFileSync(script, ['shell: zsh', 'steps:', '  - cmd: false', '  - cmd: echo after'].join('\n'));
+  fs.writeFileSync(script, [`shell: ${SHELL}`, 'steps:', '  - cmd: false', '  - cmd: echo after'].join('\n'));
 
   assert.match(runExpectFail([script, '--quiet']), /exited 1/);
 
@@ -102,7 +107,7 @@ test('non-zero exit aborts without --allow-fail, records with it', () => {
 test('timeout aborts with a step-identifying error', () => {
   const dir = tmpdir();
   const script = path.join(dir, 'slow.term.yaml');
-  fs.writeFileSync(script, ['shell: zsh', 'steps:', '  - cmd: sleep 5', '    timeout: 1'].join('\n'));
+  fs.writeFileSync(script, [`shell: ${SHELL}`, 'steps:', '  - cmd: sleep 5', '    timeout: 1'].join('\n'));
   assert.match(runExpectFail([script, '--quiet']), /timeout waiting for step 1/);
 });
 
@@ -111,7 +116,7 @@ test('refresh: idempotent when output is stable, rewrites on drift', () => {
   const stateFile = path.join(dir, 'drift.txt');
   fs.writeFileSync(stateFile, 'v1');
   const script = path.join(dir, 'refresh.term.yaml');
-  fs.writeFileSync(script, ['shell: zsh', 'steps:', `  - cmd: cat ${stateFile}`].join('\n'));
+  fs.writeFileSync(script, [`shell: ${SHELL}`, 'steps:', `  - cmd: cat ${stateFile}`].join('\n'));
   run([script, '--quiet']);
   const castPath = path.join(dir, 'refresh.cast.json');
   const before = fs.readFileSync(castPath, 'utf8');
@@ -134,7 +139,7 @@ test('directives: hide records but marks hidden; sleep records a marker; state f
   const dir = tmpdir();
   const script = path.join(dir, 'directives.term.yaml');
   fs.writeFileSync(script, [
-    'shell: zsh',
+    `shell: ${SHELL}`,
     'steps:',
     '  - cmd: HIDDEN_VAR=carried',
     '    hide: true',
@@ -155,7 +160,7 @@ test('wait_for: passes when output matches, times out with an identifying error 
   const dir = tmpdir();
   const ok = path.join(dir, 'wait-ok.term.yaml');
   fs.writeFileSync(ok, [
-    'shell: zsh',
+    `shell: ${SHELL}`,
     'steps:',
     "  - cmd: sh -c 'sleep 0.2; echo status=RUNNING; echo done'",
     '    wait_for: "RUNNING"',
@@ -166,7 +171,7 @@ test('wait_for: passes when output matches, times out with an identifying error 
 
   const bad = path.join(dir, 'wait-bad.term.yaml');
   fs.writeFileSync(bad, [
-    'shell: zsh',
+    `shell: ${SHELL}`,
     'steps:',
     '  - cmd: echo nothing-to-see',
     '    wait_for: "NEVER_APPEARS"',
@@ -179,7 +184,7 @@ test('interact: answers prompts; secret sends are masked in input, redacted in o
   const dir = tmpdir();
   const script = path.join(dir, 'interact.term.yaml');
   fs.writeFileSync(script, [
-    'shell: zsh',
+    `shell: ${SHELL}`,
     'env: { DEMO_TOKEN: fake-tok-12345 }',
     'steps:',
     // prompt for a name (plain send) then a token (secret via $ENV), then leak both
@@ -223,7 +228,7 @@ test('interact: command exiting before an expect matches aborts (unless --allow-
   const dir = tmpdir();
   const script = path.join(dir, 'noprompt.term.yaml');
   fs.writeFileSync(script, [
-    'shell: zsh',
+    `shell: ${SHELL}`,
     'steps:',
     '  - cmd: echo no prompt here',
     '    interact:',
@@ -238,7 +243,7 @@ test('max_idle clamps recorded gaps at capture time', () => {
   const dir = tmpdir();
   const script = path.join(dir, 'idle.term.yaml');
   fs.writeFileSync(script, [
-    'shell: zsh',
+    `shell: ${SHELL}`,
     'max_idle: 0.3',
     'steps:',
     "  - cmd: sh -c 'echo first; sleep 1.2; echo second'",
@@ -257,7 +262,7 @@ test('export: asciicast v2 with markers, injected prompt/command, hidden steps o
   const dir = tmpdir();
   const script = path.join(dir, 'exp.term.yaml');
   fs.writeFileSync(script, [
-    'shell: zsh',
+    `shell: ${SHELL}`,
     'prompt: "% "',
     'steps:',
     '  - cmd: SECRET_SETUP=1',

@@ -107,6 +107,10 @@ function shellArgs(shellPath) {
 function setupLine(shellBase) {
   const common = `stty -echo; printf '${GS_OCTAL}DECKLIGHT-READY${GS_OCTAL}\\n'`;
   if (shellBase === 'zsh') return `unsetopt zle prompt_cr prompt_sp banghist 2>/dev/null; PS1=''; PROMPT=''; PS2=''; PROMPT2=''; ${common}\n`;
+  // bash: readline wraps each command in bracketed-paste markers
+  // (\e[?2004h/l) that would pollute the cast — turn them off, as zsh's
+  // `unsetopt zle` does implicitly.
+  if (shellBase === 'bash') return `bind 'set enable-bracketed-paste off' 2>/dev/null; PS1=''; PS2=''; ${common}\n`;
   return `PS1=''; PS2=''; ${common}\n`;
 }
 
