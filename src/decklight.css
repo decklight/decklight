@@ -862,6 +862,63 @@
 }
 .decklight-captions.show { display: block; }
 
+/* animated character (N → Character…) — lip-synced narration companion.
+   The controller sets data-viseme on the overlay each frame; one
+   [data-mouth] group shows at a time. [data-eyelid]/[data-idle] are the
+   default art's blink + sway — custom art gets them for free too. */
+.decklight-character {
+  position: absolute;
+  width: var(--character-size, 220px);
+  height: var(--character-size, 220px);
+  z-index: 44; /* under the captions bar */
+  pointer-events: none;
+  display: none;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, .35));
+}
+.decklight-character.show { display: block; }
+.decklight-character.pos-br { right: 28px; bottom: 28px; }
+.decklight-character.pos-bl { left: 28px; bottom: 28px; }
+.decklight-character.pos-tr { right: 28px; top: 28px; }
+.decklight-character.pos-tl { left: 28px; top: 28px; }
+.decklight-character svg, .decklight-character img { width: 100%; height: 100%; display: block; }
+.decklight-character.mode-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  background: rgba(8, 9, 12, .6);
+}
+.decklight-character [data-mouth] { visibility: hidden; }
+.decklight-character[data-viseme="A"] [data-mouth="A"],
+.decklight-character[data-viseme="B"] [data-mouth="B"],
+.decklight-character[data-viseme="C"] [data-mouth="C"],
+.decklight-character[data-viseme="D"] [data-mouth="D"],
+.decklight-character[data-viseme="E"] [data-mouth="E"],
+.decklight-character[data-viseme="F"] [data-mouth="F"],
+.decklight-character[data-viseme="G"] [data-mouth="G"],
+.decklight-character[data-viseme="H"] [data-mouth="H"],
+.decklight-character[data-viseme="X"] [data-mouth="X"] { visibility: visible; }
+.decklight-character [data-eyelid] {
+  transform-box: fill-box;
+  transform-origin: 50% 10%;
+  transform: scaleY(0);
+  animation: decklight-blink 4.7s infinite;
+}
+@keyframes decklight-blink {
+  0%, 94.5%, 99.5%, 100% { transform: scaleY(0); }
+  96%, 98% { transform: scaleY(1); }
+}
+.decklight-character [data-idle] {
+  transform-box: fill-box;
+  transform-origin: 50% 85%;
+  animation: decklight-idle 6.4s ease-in-out infinite alternate;
+}
+@keyframes decklight-idle {
+  from { transform: rotate(-1.1deg) translateY(0); }
+  to { transform: rotate(1.1deg) translateY(1.5px); }
+}
+.decklight.decklight-print .decklight-character { display: none !important; }
+
 /* notes editor (E, served by `decklight edit`) */
 .decklight-editor .narr-card { width: min(640px, 88vw); }
 .decklight-editor .edit-notes {

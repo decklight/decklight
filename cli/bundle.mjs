@@ -359,6 +359,40 @@ html = html.replace(
     return tag.replace(m[0], `data-cast-inline="#${id}"`);
   });
 
+// ---------------------------------------------- narration lip-sync sidecars
+
+// slide-NN.visemes.json next to a narration track (tools/lipsync.mjs, or the
+// ⇧V export) inlines as a data-decklight-visemes block — fetch() is blocked
+// on file:// and a bundle should not depend on a sidecar folder. Per-slide
+// MP4s stay external: video cannot inline sanely (a deck's worth is
+// 50–150 MB), same posture as playlist links.
+{
+  const seen = new Set();
+  const narrDirs = [...new Set(
+    [...html.matchAll(/\b(?:dir|files)\s*:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))];
+  for (const d of narrDirs) {
+    const abs = path.resolve(deckDir, d);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) continue;
+    let mp4s = 0;
+    for (const f of fs.readdirSync(abs).sort()) {
+      const vm = f.match(/^slide-(\d+)\.visemes\.json$/);
+      if (vm) {
+        if (seen.has(vm[1])) {
+          notices.push(`character visemes: ${d}/${f} skipped — slide ${vm[1]} already inlined from another track`);
+          continue;
+        }
+        seen.add(vm[1]);
+        embeds.push(`<script type="application/json" data-decklight-visemes="slide-${vm[1]}">\n`
+          + `${jsonSafe(fs.readFileSync(path.join(abs, f), 'utf8'))}\n</script>`);
+      } else if (/^slide-\d+\.mp4$/.test(f)) mp4s++;
+    }
+    if (mp4s) {
+      notices.push(`character video: ${mp4s} slide-NN.mp4 in ${d}/ stay external — ship the folder next to the bundle`);
+    }
+  }
+  if (seen.size) notices.push(`character visemes: inlined ${seen.size} slide timeline(s)`);
+}
+
 // -------------------------------------------------------------- assemble
 
 // Anchor to the LAST </body>: the inlined runtime contains the speaker-view

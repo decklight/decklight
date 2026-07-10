@@ -9,6 +9,8 @@
 //                            [--project <id>] [--location global]
 //                            [--tts-model gemini-2.5-pro-tts]
 //                            [--model qwen3:30b-a3b] [--no-llm] [--reuse-text]
+//                            [--keep-wav]  (keep the lossless intermediates —
+//                                           tools/lipsync.mjs consumes them)
 //
 // Engines (the built-in macOS voices were dropped: not good enough):
 //   piper  — neural local TTS, fully offline. --voice takes a piper model
@@ -51,6 +53,7 @@ const project = opt('--project', process.env.GOOGLE_CLOUD_PROJECT);
 const model = opt('--model', 'qwen3:30b-a3b');
 const useLlm = !args.includes('--no-llm');
 const reuseText = args.includes('--reuse-text');
+const keepWav = args.includes('--keep-wav');
 if (engine === 'gemini' && !project) {
   console.error('gemini engine needs a GCP project — pass --project <id> or set GOOGLE_CLOUD_PROJECT'); process.exit(1);
 }
@@ -145,7 +148,7 @@ for (let i = 0; i < slides.length; i++) {
     execFileSync('piper', ['-m', voice, '--data-dir', dataDir, '-f', wav], { input: text });
   }
   execFileSync('afconvert', ['-f', 'm4af', '-d', 'aac', wav, m4a]);
-  rmSync(wav);
+  if (!keepWav) rmSync(wav);
   console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}${costNote}`);
   // crash-safe: persist progress after every slide so an interrupted run
   // resumes incrementally instead of re-synthesizing everything

@@ -11,6 +11,7 @@ import { initMarkdown } from '../md/markdown.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView, notesSegments } from './speaker.js';
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
+import { createCharacter, concatTimelines } from './character.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -828,6 +829,7 @@ export function init(userConfig = {}) {
       { label: `Narration ${narrating ? 'off' : 'on'}`, hint: 'V', run: toggleNarration },
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
+      { label: 'Character…', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
       { label: 'Record offline narration…', hint: '⇧V', alias: 'export download batch wav tts', run: openRecordDialog },
       { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
@@ -1900,6 +1902,11 @@ export function init(userConfig = {}) {
     debugLog('narr', `rate ${narrRate}×`);
     updateDebugState();
   }
+  // Animated lip-synced character (SPEC §8): an overlay whose mouth follows
+  // the narration. Live mode rides the sentence pipeline below (prefetch in
+  // the lookahead worker, beginSentence per clip); recorded mode loads
+  // slide-NN sidecar files. Configured in the N picker ("Character…").
+  const character = createCharacter({ root, config, debugLog, toast });
   // slide|voice|style → PROMISE of a blob URL. Caching the promise (not the
   // resolved URL) dedups concurrent misses: the prefetch and a play (or a
   // ⇧V recording pass) for the same slide share one POST instead of racing
@@ -2008,6 +2015,15 @@ export function init(userConfig = {}) {
         if (!hole) return; // window full — the next slide/build event re-arms
         try {
           await fetchLiveSentence(hole[0], hole[1], hole[2]);
+          // the character's lip-sync data prefetches through the SAME
+          // window: hand the sentence's audio promise to the controller so
+          // visemes/video for the next 10 sentences warm alongside the voice
+          if (character.mode !== 'off') {
+            const [sl, step, i] = hole;
+            character.prefetchSentence(sentenceKey(sl, step, i),
+              liveCache.get(sentenceKey(sl, step, i)),
+              splitSentences(notesSegs(sl)[step])[i] ?? '');
+          }
         } catch {
           return; // bridge unreachable — stop; the next event retries
         }
@@ -2083,6 +2099,14 @@ export function init(userConfig = {}) {
         if (!clip) continue;
         setCaption(sentences[i]); // captions follow the voice, not the notes
         narrAudio ??= new Audio();
+        // character is strictly opt-in: with mode 'off' narration runs with
+        // zero lip-sync footprint. When on, begin* is fire-and-forget —
+        // audio never waits on lip-sync; a late timeline lands mid-sentence
+        // and the fallback animates until it does.
+        if (character.mode !== 'off') {
+          character.attachAudio(narrAudio);
+          character.beginSentence(sentenceKey(sl, step, i), clip, sentences[i]);
+        }
         narrAudio.src = clip.url;
         narrAudio.playbackRate = narrRate;
         let blocked = false;
@@ -2108,6 +2132,10 @@ export function init(userConfig = {}) {
     // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
     narrAudio.src = `${narrSet.dir}/slide-${String(instance.state.slide).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
     narrAudio.playbackRate = narrRate;
+    if (character.mode !== 'off') {
+      character.attachAudio(narrAudio);
+      character.beginSlide(narrSet, instance.state.slide);
+    }
     narrAudio.play().catch(() => { /* no file for this slide */ });
   }
   function toggleNarration() {
@@ -2123,6 +2151,7 @@ export function init(userConfig = {}) {
       bufferGen++;  // stop the lookahead loop
       narrPaused = false;
       narrAudio?.pause();
+      character.stop();
       toast('narration off');
       debugLog('narr', 'off');
     }
@@ -2405,8 +2434,17 @@ export function init(userConfig = {}) {
   function narrBack() {
     if (narrView === 'custom') renderNarr('tones');
     else if (narrView === 'tones') renderNarr('voices');
-    else if (narrView === 'voices' && narrSets.length) renderNarr('tracks');
+    else if (narrView === 'charvideo') renderNarr('character');
+    else if ((narrView === 'voices' || narrView === 'character') && narrSets.length) renderNarr('tracks');
     else closeNarrPicker();
+  }
+  let charProbed = false; // one bridge probe per picker open
+  function applyCharacter(m, opts) {
+    character.setMode(m, opts);
+    closeNarrPicker();
+    toast(m === 'off' ? 'character off'
+      : m === 'viseme' ? `🎭 character on — lips follow the narration${narrating ? '' : ' · V starts it'}`
+        : `🎥 character video — ${character.engine} · ${character.portrait}${narrating ? '' : ' · V starts narration'}`);
   }
   // ▶ voice preview: speaks a short test sentence through the live bridge
   // in the row's voice (neutral tone), so voices can be auditioned before
@@ -2523,6 +2561,49 @@ export function init(userConfig = {}) {
         cur: narrSet?.live,
         commit: () => renderNarr('voices'),
       });
+      narrRows.push({
+        text: '🧑 Character — animated narrator…',
+        cur: character.mode !== 'off',
+        commit: () => renderNarr('character'),
+      });
+    } else if (view === 'character') {
+      head.textContent = 'character — an animated narrator lip-syncs the voice';
+      // availability comes from the lipsync bridge; probe once per picker
+      // open and re-render when the answer lands
+      if (!charProbed) {
+        charProbed = true;
+        character.probe().then(() => { if (narrEl && narrView === 'character') renderNarr('character'); });
+      }
+      const bi = character.bridgeInfo;
+      const vids = bi?.engines?.video ?? [];
+      narrRows.push({ text: 'Off', cur: character.mode === 'off', commit: () => applyCharacter('off') });
+      narrRows.push({
+        text: `🎭 2D character — offline visemes${bi?.engines?.viseme ? '' : ' <span class="narr-flavor">bridge offline — amplitude fallback</span>'}`,
+        html: true,
+        cur: character.mode === 'viseme',
+        commit: () => applyCharacter('viseme'),
+      });
+      narrRows.push({
+        text: `🎥 Neural video — local GPU${vids.length ? '…' : ' <span class="narr-flavor">needs the bridge — run: decklight lipsync</span>'}`,
+        html: true,
+        cur: character.mode === 'video',
+        commit: () => {
+          if (vids.length) renderNarr('charvideo');
+          else toast('video needs wav2lip/sadtalker on the bridge — run: decklight lipsync');
+        },
+      });
+    } else if (view === 'charvideo') {
+      head.textContent = 'neural video — pick engine · portrait';
+      const bi = character.bridgeInfo;
+      for (const eng of bi?.engines?.video ?? []) {
+        for (const p of (bi?.portraits?.length ? bi.portraits : ['default'])) {
+          narrRows.push({
+            text: `🎥 ${eng} · ${p}`,
+            cur: character.mode === 'video' && character.engine === eng && character.portrait === p,
+            commit: () => applyCharacter('video', { engine: eng, portrait: p }),
+          });
+        }
+      }
     } else if (view === 'voices') {
       head.textContent = 'live voice — pick a voice · ▶ previews';
       const wrap = document.createElement('div');
@@ -2643,6 +2724,7 @@ export function init(userConfig = {}) {
   function closeNarrPicker() {
     narrEl?.remove();
     narrEl = null;
+    charProbed = false; // next open re-probes the lipsync bridge
   }
 
   // ⇧V: batch-record the whole deck offline with the current live voice/tone.
@@ -2735,6 +2817,34 @@ export function init(userConfig = {}) {
     }
     return chunks.length ? stitchWav(chunks, rate) : null;
   }
+  // Viseme counterpart of stitchSlideWav: the SAME sentences, the SAME
+  // silence gaps, so the merged timeline lines up with the stitched WAV.
+  // Cache-first through the character's own promise cache — sentences whose
+  // visemes the lookahead already fetched are free. Any failure (bridge
+  // down) just skips the sidecar; the WAV still records.
+  async function stitchSlideVisemes(sl, run) {
+    if (character.mode !== 'viseme') return null;
+    const rec = instance._records[sl - 1];
+    const max = rec ? rec.groups.length : 0;
+    const segs = notesSegs(sl);
+    const parts = [];
+    try {
+      for (let step = 0; step <= max; step++) {
+        const sentences = splitSentences(segs[step]);
+        for (let i = 0; i < sentences.length; i++) {
+          const tl = await character.ensureTimeline(
+            sentenceKey(sl, step, i), fetchLiveSentence(sl, step, i), sentences[i]);
+          if (run !== recRun) return null;
+          if (!tl) continue;
+          parts.push({ timeline: tl, gap: parts.length ? (i === 0 ? SEG_GAP_S : SENT_GAP_S) : 0 });
+        }
+      }
+    } catch {
+      debugLog('lipsync', `slide ${sl}: viseme sidecar skipped (bridge unreachable)`);
+      return null;
+    }
+    return parts.length ? concatTimelines(parts) : null;
+  }
   async function startRecording() {
     const list = slidesWithNotes();
     const run = ++recRun;
@@ -2751,6 +2861,15 @@ export function init(userConfig = {}) {
           downloadFromUrl(url, `slide-${String(sl).padStart(2, '0')}.wav`);
           setTimeout(() => URL.revokeObjectURL(url), 5000);
           saved++;
+          // character on: the matching viseme sidecar downloads too, so the
+          // recorded set plays back lip-synced without the bridge
+          const tl = await stitchSlideVisemes(sl, run);
+          if (run !== recRun) return;
+          if (tl) {
+            const jurl = URL.createObjectURL(new Blob([JSON.stringify(tl)], { type: 'application/json' }));
+            downloadFromUrl(jurl, `slide-${String(sl).padStart(2, '0')}.visemes.json`);
+            setTimeout(() => URL.revokeObjectURL(jurl), 5000);
+          }
         }
       } catch {
         toast(`slide ${sl}: recording failed`);

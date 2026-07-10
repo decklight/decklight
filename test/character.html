@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>character overlay — headless verification</title>
+<link rel="stylesheet" href="../dist/decklight.css">
+</head>
+<body>
+<div class="decklight" id="root"></div>
+<!-- recorded-path sidecar, as `decklight bundle` would inline it -->
+<script type="application/json" data-decklight-visemes="slide-01">
+{ "v": 1, "kind": "visemes", "duration": 1.0, "source": "test",
+  "cues": [ { "t": 0, "v": "X" }, { "t": 0.4, "v": "E" } ] }
+</script>
+<script type="module">
+// Drives src/core/character.js directly (no engine, no bridge, no audio
+// device): the bridge is a stubbed fetch, the narration audio a plain mock
+// object — the controller only ever reads paused/ended/currentTime from it.
+// static import: dynamic import() under --virtual-time-budget is flaky
+// (module fetch races the budget); static module graphs load before it starts
+import { createCharacter, cueAt } from '../src/core/character.js';
+const results = { PASS: false };
+// two 33 ms sync-loop ticks — the controller runs on setInterval, not rAF
+const raf2 = () => new Promise((r) => setTimeout(r, 80));
+try {
+  const timeline = {
+    v: 1, kind: 'visemes', duration: 2.0, source: 'stub',
+    cues: [{ t: 0, v: 'X' }, { t: 0.3, v: 'B' }, { t: 0.6, v: 'D' }, { t: 1.2, v: 'F' }],
+  };
+  window.fetch = async () => new Response(JSON.stringify(timeline), {
+    status: 200, headers: { 'content-type': 'application/json' },
+  });
+
+  const root = document.getElementById('root');
+  const character = createCharacter({
+    root,
+    config: { narration: { character: { mode: 'viseme' } } },
+    debugLog: () => {},
+    toast: () => {},
+  });
+  results.mode = character.mode;
+
+  const audio = { paused: false, ended: false, currentTime: 0, playbackRate: 1, addEventListener() {} };
+  character.attachAudio(audio);
+  character.beginSentence('slide1|s0|n0', { url: 'blob:stub', blob: new Blob(['wav']) }, 'Hello there.');
+  await new Promise((r) => setTimeout(r, 60)); // stubbed timeline lands
+  await raf2();
+
+  const el = root.querySelector('.decklight-character');
+  results.mounted = !!el;
+  results.shown = !!el?.classList.contains('show');
+  results.mouthShapes = el ? el.querySelectorAll('[data-mouth]').length : 0;
+
+  audio.currentTime = 0.35;
+  await raf2();
+  results.visemeMidB = el?.getAttribute('data-viseme');
+  audio.currentTime = 0.7;
+  await raf2();
+  results.visemeMidD = el?.getAttribute('data-viseme');
+  audio.paused = true;
+  await raf2();
+  results.visemeWhenPaused = el?.getAttribute('data-viseme');
+  audio.paused = false;
+
+  // recorded path: the inline sidecar above, no fetch involved
+  character.beginSlide({ dir: 'voiceover' }, 1);
+  await new Promise((r) => setTimeout(r, 30));
+  audio.currentTime = 0.5;
+  await raf2();
+  results.visemeFromSidecar = el?.getAttribute('data-viseme');
+
+  character.stop();
+  results.hiddenAfterStop = !el?.classList.contains('show');
+  results.cueAtSpot = cueAt(timeline, 1.5);
+
+  results.PASS = results.mounted && results.shown && results.mouthShapes === 9
+    && results.visemeMidB === 'B' && results.visemeMidD === 'D'
+    && results.visemeWhenPaused === 'X' && results.visemeFromSidecar === 'E'
+    && results.hiddenAfterStop && results.cueAtSpot === 'F';
+} catch (e) {
+  results.error = String(e && e.stack || e);
+}
+document.body.appendChild(Object.assign(document.createElement('pre'),
+  { textContent: 'DECKLIGHT-CHARACTER-RESULTS ' + JSON.stringify(results) }));
+</script>
+</body>
+</html>

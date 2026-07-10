@@ -10,6 +10,7 @@
  *   decklight export   convert a cast to asciicast v2
  *   decklight bundle   flatten a deck into one self-contained HTML file
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
+ *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
  *
  * The subcommand implementations live in rec.mjs and
  * bundle.mjs (importable modules; direct execution still works but
@@ -35,6 +36,8 @@ Commands:
            EXAMPLE: decklight bundle deck.html --all --title "My Course"   (merge the whole playlist into one file)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
+  lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)
+           EXAMPLE: decklight lipsync    (then pick "Character…" in the deck's / palette)
   edit     serve the deck with live reload; E in the player edits speaker notes back into the file
            EXAMPLE: decklight edit demo/showcase.html   (then open the printed URL)
   help     show this help, or a command's help: decklight help bundle
@@ -85,6 +88,11 @@ switch (cmd) {
   case 'tts': {
     const { ttsMain } = await import('../tools/voiceover-server.mjs');
     await ttsMain(rest);
+    break;
+  }
+  case 'lipsync': {
+    const { lipsyncMain } = await import('../tools/lipsync-server.mjs');
+    await lipsyncMain(rest);
     break;
   }
   case 'edit': {
