@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Markdown slides — SPEC §1 + §2.1 (`::: build` directive).
 // Pure string transforms are exported for node:test; DOM application is in
 // initMarkdown (browser only).

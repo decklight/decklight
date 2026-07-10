@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Decklight entry point. Bundled by esbuild as an IIFE with globalName
 // "Decklight" — the module namespace becomes the public API (SPEC §9).
 //

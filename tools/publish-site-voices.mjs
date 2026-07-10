@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Sync the locally generated voice tracks (demo/voiceover-site/<dir>/) to the
 // decklight.github.io repo under voices/<dir>/, in ONE commit via the Git
 // Data API. Only files whose git blob sha differs from the remote are

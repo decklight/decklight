@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // The `decklight` dispatcher: global help, routing, exit codes.
 
 import { test } from 'node:test';

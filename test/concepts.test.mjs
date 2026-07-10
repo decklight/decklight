@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Concept colors — SPEC §3. Pure-function tests for the slot resolution;
 // the DOM application is covered by the deck-level headless verification.
 

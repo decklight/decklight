@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Engine — init, navigation, transitions, overview/blackout/help, hash,
 // scaling, print. SPEC §2.2, §4.1, §8, §9.
 

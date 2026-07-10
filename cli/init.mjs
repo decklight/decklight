@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * decklight init — scaffold a starter deck, plus an agent skill so Claude
  * Code (and any AGENTS.md-reading agent) knows the authoring contract

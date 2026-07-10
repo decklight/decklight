@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Auto-animate (Magic Move) — SPEC §4.2. FLIP on data-id matches between two
 // adjacent sections, plus opacity/color/background/border-radius/font-size.
 

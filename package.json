@@ -50,5 +50,6 @@
     "js-yaml": "^4.3.0",
     "node-pty": "^1.1.0"
   },
-  "license": "MIT"
+  "author": "Gilles Philippart <gilles.philippart@gmail.com>",
+  "license": "Apache-2.0"
 }

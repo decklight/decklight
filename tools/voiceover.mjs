@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 // Voice-over generator: per-slide narration audio from a deck's speaker notes.
 //
 //   node tools/voiceover.mjs <deck.html> [-o <dir>] [--engine piper|gemini]

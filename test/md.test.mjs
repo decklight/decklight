@@ -1,3 +1,6 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { dedent, splitNotes, applyBuildDirective, renderMarkdownSlide } from '../src/md/markdown.js';
