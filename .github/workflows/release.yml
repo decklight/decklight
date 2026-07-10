@@ -24,11 +24,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
-      # Trusted Publishing needs npm >= 11.5.1; Node 20 ships an older npm
-      - run: npm install -g npm@latest
+      # Trusted Publishing needs npm >= 11.5.1; pin the 11.x line (npm@latest
+      # is now 12.x, which requires a newer Node than the runner ships)
+      - run: npm install -g npm@11
 
       # node-pty (optional dep) is CLI-recording only — skip its native build
       - run: npm ci --omit=optional
