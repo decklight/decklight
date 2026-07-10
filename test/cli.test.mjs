@@ -6,10 +6,18 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
+
+// `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
+// recording test when they're absent (e.g. CI installs with --omit=optional).
+const require = createRequire(import.meta.url);
+let recSkip = false;
+try { require.resolve('node-pty'); require.resolve('js-yaml'); }
+catch { recSkip = 'node-pty/js-yaml not installed (optional deps)'; }
 
 test('global help lists all subcommands with runnable examples', () => {
   const out = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
@@ -33,7 +41,7 @@ test('unknown subcommand exits 1 with the global help', () => {
   assert.match(r.stdout, /Commands:/);
 });
 
-test('a tiny rec runs through the dispatcher end-to-end', () => {
+test('a tiny rec runs through the dispatcher end-to-end', { skip: recSkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-cli-'));
   const yamlPath = path.join(dir, 'tiny.term.yaml');
   fs.writeFileSync(yamlPath, 'steps:\n  - cmd: echo dispatcher-ok\n');
