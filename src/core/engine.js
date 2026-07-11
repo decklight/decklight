@@ -20,7 +20,7 @@ const DEFAULTS = {
   slideNumber: false,
   width: 1280,
   height: 720,
-  pinTitles: false,
+  pinTitles: true,
 };
 
 // Pinned-title default Y (design px from the stage top). Measured from the
@@ -52,7 +52,8 @@ export function registerBuildProvider(el, provider) {
  * slides stay centered. Per-slide overrides: data-pin (force), data-pin="none"
  * (opt out), data-pin="<number>" (custom Y). data-layout (§8 layout cycling)
  * wins over data-pin: "pinned" forces the pin (a numeric data-pin still sets
- * the Y), "centered" and "top" lay out in flow.
+ * the Y), "centered" and "top" lay out in flow; the split layouts keep the
+ * deck's auto pin resolution for their header.
  */
 function leadingHeading(section) {
   for (const el of section.children) {
@@ -78,31 +79,41 @@ function detectSubtitle(section, heading) {
   return section.querySelector(':scope > p.subtitle');
 }
 
-function setupPinnedTitles(sections, config) {
-  const deckY = config.pinTitles === true ? PIN_DEFAULT_Y
+function deckPinY(config) {
+  return config.pinTitles === true ? PIN_DEFAULT_Y
     : (typeof config.pinTitles === 'number' && isFinite(config.pinTitles)) ? config.pinTitles
     : null;
+}
+
+// The pin Y a section resolves to under AUTO layout (no data-layout override):
+// data-pin first, then the deck config + pinnable heuristic. null = no pin.
+function autoPinY(sec, config) {
+  const deckY = deckPinY(config);
+  const attr = sec.getAttribute('data-pin');
+  if (attr === 'none') return null;
+  if (attr !== null && attr !== '') {
+    const n = parseFloat(attr);
+    return isFinite(n) ? n : (deckY ?? PIN_DEFAULT_Y);
+  }
+  if (attr === '') return deckY ?? PIN_DEFAULT_Y; // bare data-pin forces even when config is off
+  if (deckY === null) return null;
+  const hasContent = [...sec.querySelectorAll(PINNABLE_CONTENT)]
+    .some((el) => !el.closest('aside') && !el.closest('.decklight-hero-logo'));
+  return hasContent ? deckY : null;
+}
+
+function setupPinnedTitles(sections, config) {
   sections.forEach((sec) => {
     const heading = leadingHeading(sec);
-    const attr = sec.getAttribute('data-pin');
     const layout = sec.getAttribute('data-layout');
-    let y = null;
+    let y;
     if (layout === 'pinned') {
-      const n = parseFloat(attr);
-      y = isFinite(n) ? n : (deckY ?? PIN_DEFAULT_Y);
+      const n = parseFloat(sec.getAttribute('data-pin'));
+      y = isFinite(n) ? n : (deckPinY(config) ?? PIN_DEFAULT_Y);
     } else if (layout === 'centered' || layout === 'top') {
       y = null;
-    } else if (attr === 'none') {
-      y = null;
-    } else if (attr !== null && attr !== '') {
-      const n = parseFloat(attr);
-      y = isFinite(n) ? n : (deckY ?? PIN_DEFAULT_Y);
-    } else if (attr === '') {
-      y = deckY ?? PIN_DEFAULT_Y; // bare data-pin forces even when config is off
-    } else if (deckY !== null) {
-      const hasContent = [...sec.querySelectorAll(PINNABLE_CONTENT)]
-        .some((el) => !el.closest('aside') && !el.closest('.decklight-hero-logo'));
-      if (hasContent) y = deckY;
+    } else {
+      y = autoPinY(sec, config); // auto and the split layouts keep the deck's pin
     }
     const subtitle = detectSubtitle(sec, heading);
     sec.querySelector(':scope > .pin-title')?.classList.remove('pin-title');
@@ -130,6 +141,27 @@ function setupPinnedTitles(sections, config) {
     }
     sec.classList.remove('pin-measure');
     sec.style.setProperty('--pin-space', Math.round(headerBottom + PIN_GAP) + 'px');
+  });
+}
+
+/**
+ * Split layouts (SPEC §8): a slide's content blocks — everything after the
+ * title + subtitle header — lay out in two sides, first block left and the
+ * rest right ("split-flip" mirrors). A slide whose ONLY content block is a
+ * list can't take sides; the engine marks it .split-columns instead and the
+ * list itself splits across two CSS columns.
+ */
+function splitContent(sec) {
+  return [...sec.children].filter((el) =>
+    !el.matches('h1, h2, .subtitle, aside, script, style, .decklight-hero-logo'));
+}
+
+function setupSplit(sections) {
+  sections.forEach((sec) => {
+    sec.querySelectorAll(':scope > .split-columns').forEach((el) => el.classList.remove('split-columns'));
+    if (!/^split/.test(sec.getAttribute('data-layout') || '')) return;
+    const content = splitContent(sec);
+    if (content.length === 1 && content[0].matches('ul, ol')) content[0].classList.add('split-columns');
   });
 }
 
@@ -834,7 +866,7 @@ export function init(userConfig = {}) {
       { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
       genTheme && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
-      { label: 'Cycle slide layout', hint: 'L', alias: 'pin pinned centered top auto arrange', run: () => cycleLayout(1) },
+      { label: 'Cycle slide layout', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
       { label: `Narration ${narrating ? 'off' : 'on'}`, hint: 'V', run: toggleNarration },
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
@@ -1131,14 +1163,15 @@ export function init(userConfig = {}) {
   initCode(stage, registerBuildProvider);
 
   // ----- slide layout cycling (L / ⇧L) — SPEC §8 -----------------------------
-  // Walk the CURRENT slide through the layout set. The pick lands on the
+  // Walk the CURRENT slide through the layout ring. The pick lands on the
   // section as data-layout — the same attribute an author can write in the
   // file — and wins over data-pin: 'pinned' forces the pin, 'centered'/'top'
-  // lay out in flow ('top' additionally top-aligns via CSS). 'auto' removes
-  // the attribute — deck default (pinTitles config + pinnable heuristic).
-  // Like theme and font, the choice persists per deck path (keyed by slide
+  // lay out in flow ('top' additionally top-aligns via CSS), the split pair
+  // lays the content out in two sides. 'auto' removes the attribute — deck
+  // default (pinTitles config, on by default, + pinnable heuristic). Like
+  // theme and font, the choice persists per deck path (keyed by slide
   // index); embedded instances never persist.
-  const LAYOUTS = ['auto', 'centered', 'pinned', 'top'];
+  const LAYOUTS = ['auto', 'centered', 'pinned', 'top', 'split', 'split-flip'];
   const layoutKey = 'decklight-layout:' + location.pathname;
   let layoutSaved = {};
   try { layoutSaved = JSON.parse(localStorage.getItem(layoutKey)) || {}; } catch { /* ignore */ }
@@ -1152,9 +1185,15 @@ export function init(userConfig = {}) {
     const idx = instance.state.slide;
     const sec = instance._sections[idx - 1];
     if (!sec) return;
+    // Skip ring entries that cannot change this slide's look — every press
+    // shows something new: 'pinned' when auto already pins, 'split-flip'
+    // when there aren't two content blocks to swap sides.
+    const ring = LAYOUTS.filter((n) =>
+      (n !== 'pinned' || autoPinY(sec, config) === null) &&
+      (n !== 'split-flip' || splitContent(sec).length > 1));
     const cur = sec.getAttribute('data-layout') || 'auto';
-    const at = Math.max(0, LAYOUTS.indexOf(cur));
-    const name = LAYOUTS[(at + dir + LAYOUTS.length) % LAYOUTS.length];
+    const at = Math.max(0, ring.indexOf(cur));
+    const name = ring[(at + dir + ring.length) % ring.length];
     if (name === 'auto') sec.removeAttribute('data-layout');
     else sec.setAttribute('data-layout', name);
     if (!params.has('embedded')) {
@@ -1168,6 +1207,7 @@ export function init(userConfig = {}) {
     }
     // geometry changed: pinned titles and the overflow guardrail re-derive
     setupPinnedTitles(instance._sections, config);
+    setupSplit(instance._sections);
     checkOverflow(sec, idx);
     toast(`layout: ${name}`);
     debugLog('layout', `slide ${idx}: ${name}`);
@@ -1197,6 +1237,7 @@ export function init(userConfig = {}) {
       applyConcepts(stage, config.concepts); // idempotent; covers dynamic slides
       setupHeroLogos(this._sections);        // idempotent; before pin measurement
       setupPinnedTitles(this._sections, config);
+      setupSplit(this._sections);            // after pins — .subtitle is marked there
       this._records = this._sections.map((s) => scanSlide(s));
       this.state.totalSlides = this._sections.length;
       this.state.slide = Math.min(this.state.slide, this.state.totalSlides || 1);
@@ -1645,7 +1686,7 @@ export function init(userConfig = {}) {
       <tr><td>E</td><td>edit speaker notes (decklight edit server)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
-      <tr><td>L / ⇧L</td><td>slide layout (auto · centered · pinned · top)</td></tr>
+      <tr><td>L / ⇧L</td><td>slide layout (auto · centered · pinned · top · split ⇄)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
       ${(playlist || hasMarkersDOM) ? '<tr><td>M</td><td>module menu</td></tr>' : ''}

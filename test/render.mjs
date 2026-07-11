@@ -44,7 +44,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   const html = dump(deckUrl);
   const s = sink(html);
   check('no runtime errors', s.errors, 'none');
-  check('slide count', s.slides, '9');
+  check('slide count', s.slides, '11');
   check('slide 1 build steps (3 li + 1 leaf)', s.slide1steps, '4');
   check('slide 2 svg steps (3 g, caption stays)', s.svgsteps, '3');
   check('markdown build steps', s.mdsteps, '2');
@@ -56,10 +56,14 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('markdown notes extracted', s.mdnotes, 'true');
   check('markdown gfm table', s.mdtable, 'true');
   check('draw strokes prepared', Number(s.drawlen) >= 3, true);
+  check('auto layout pins by default', s.autopinned, 'true');
   check('data-layout=pinned pins the title', s.layoutpinned, 'true');
   check('data-layout=top stays unpinned, top-aligned', s.layouttop, 'true');
-  check('cycleLayout(1): auto → centered', s.layoutcycle, 'centered');
+  check('data-layout=split is a wrapping flex row', s.splitrow, 'true');
+  check('lone-list split gets two columns', s.splitcols, 'true');
+  check('cycleLayout(1): auto → centered (pinned skipped)', s.layoutcycle, 'centered');
   check('cycleLayout(-1): back to auto, storage cleared', s.layoutreset, 'true');
+  check('one content block: split-flip skipped in the ring', s.flipskip, 'true');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',
