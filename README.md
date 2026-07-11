@@ -179,6 +179,7 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `P` | pause / resume narration |
 | `,` / `.` | cycle theme |
 | `[` / `]` | cycle font |
+| `L` / `⇧L` | cycle slide layout (auto · centered · pinned · top) |
 | `⌃T` / `⌃⇧T` | generate a theme / save it |
 | `M` | module menu (playlists & merged decks) |
 | `?` | help overlay |
@@ -210,6 +211,7 @@ In live voice mode, lip-sync data rides the **same 10-sentence lookahead** as th
 - **Overview** (`O`): scaled grid of every slide, arrow-key navigation.
 - **Brand logo**: `logo: { onLight: '#logo-dark-art', onDark: '#logo-light-art' }` puts a mark on every slide; the engine picks the variant from the applied theme's real background luminance, so the right logo follows every theme switch — generated themes included. `data-logo` on a section swaps the corner mark for a large in-flow one above the slide's title (module openers, covers).
 - **Pinned titles**: `pinTitles: true` keeps slide titles at one vertical position deck-wide instead of drifting with content height (title cards and quote slides stay centered; `data-pin` / `data-pin="none"` / `data-pin="<px>"` per slide). Subtitles join the pinned header.
+- **Slide layouts**: `L`/`⇧L` cycle the current slide through `auto → centered → pinned → top` while you look at it. The pick lands on the section as `data-layout` — the same attribute you can author in the file — and persists per deck, so trying a slide's arrangement live costs one keystroke.
 - **Playlists**: `playlist: { modules: [{title, href}…], index }` chains decks at their boundaries; `M` opens the module menu. Merged single-file decks navigate by in-file markers instead — no page loads.
 - **Print**: `?print` renders every slide with all builds complete, one per page — print to PDF from there.
 - Touch swipe, hash deep-links (`#/<slide>/<step>`), `slideNumber`, prev/next chrome and progress bar via `controls`.

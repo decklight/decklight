@@ -103,6 +103,12 @@
 /* momentary measurement state: laid out, never painted (same-task add/remove) */
 .decklight-stage > section.pin-measure { display: flex; visibility: hidden; }
 
+/* ---------- per-slide layout override (SPEC §8) ----------------------------
+   data-layout on a section — cycled live with L/⇧L or authored directly.
+   'pinned' and 'centered' resolve in the engine (pin vs in-flow); 'top' also
+   anchors the flow to the top of the slide instead of centering it. */
+.decklight-stage > section[data-layout="top"] { justify-content: flex-start; }
+
 /* ---------- subtitle (SPEC §1) ---------------------------------------------
    The <p> directly after a slide's leading heading. One canonical look
    everywhere — markdown or HTML authored, pinned or centered. Absolute size
@@ -683,6 +689,7 @@
   margin: 0;
   max-width: none;
 }
+.decklight-overview-grid .ov-clone[data-layout="top"] { justify-content: flex-start; }
 .decklight-overview-grid .ov-num {
   position: absolute; left: 8px; top: 6px; z-index: 2;
   font-size: 12px; color: var(--fg, #eee); background: rgba(0,0,0,.5); border-radius: 4px; padding: 0 7px;

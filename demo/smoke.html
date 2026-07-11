@@ -145,6 +145,17 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
     <aside class="notes">Scale transition into this one.</aside>
   </section>
 
+  <!-- 8 + 9: per-slide layout overrides (data-layout, L/⇧L cycling) -->
+  <section data-layout="pinned">
+    <h2>Layout: pinned</h2>
+    <p>A subtitle that joins the pinned header.</p>
+    <ul><li>content centers below the pinned title</li></ul>
+  </section>
+  <section data-layout="top">
+    <h2>Layout: top</h2>
+    <p>Everything flows from the top of the slide.</p>
+  </section>
+
 </div>
 
 <script>
@@ -176,6 +187,20 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
       rec('mdnotes', !!document.querySelector('section[data-slide-index="5"] aside.notes')),
       rec('mdtable', !!document.querySelector('section[data-slide-index="5"] table')),
       rec('drawlen', document.querySelectorAll('.draw-stroke').length),
+      rec('layoutpinned', document.querySelector('section[data-slide-index="8"]').hasAttribute('data-pinned')),
+      rec('layouttop', (() => {
+        const s = document.querySelector('section[data-slide-index="9"]');
+        return !s.hasAttribute('data-pinned') && getComputedStyle(s).justifyContent === 'flex-start';
+      })()),
+      rec('layoutcycle', (() => {
+        deck.cycleLayout(1); // slide 1: auto → centered
+        return document.querySelector('section[data-slide-index="1"]').getAttribute('data-layout');
+      })()),
+      rec('layoutreset', (() => {
+        deck.cycleLayout(-1); // back to auto: attribute and persistence both clear
+        const s = document.querySelector('section[data-slide-index="1"]');
+        return !s.hasAttribute('data-layout') && !localStorage.getItem('decklight-layout:' + location.pathname);
+      })()),
     ].join('\n');
     document.body.appendChild(sink);
   }, 300);

@@ -50,7 +50,9 @@ export function registerBuildProvider(el, provider) {
  * Pinnable heuristic: a leading h1/h2 AND real content (list/svg/pre/table/
  * terminal/img/columns) outside the notes — title cards and quote/statement
  * slides stay centered. Per-slide overrides: data-pin (force), data-pin="none"
- * (opt out), data-pin="<number>" (custom Y).
+ * (opt out), data-pin="<number>" (custom Y). data-layout (§8 layout cycling)
+ * wins over data-pin: "pinned" forces the pin (a numeric data-pin still sets
+ * the Y), "centered" and "top" lay out in flow.
  */
 function leadingHeading(section) {
   for (const el of section.children) {
@@ -83,8 +85,14 @@ function setupPinnedTitles(sections, config) {
   sections.forEach((sec) => {
     const heading = leadingHeading(sec);
     const attr = sec.getAttribute('data-pin');
+    const layout = sec.getAttribute('data-layout');
     let y = null;
-    if (attr === 'none') {
+    if (layout === 'pinned') {
+      const n = parseFloat(attr);
+      y = isFinite(n) ? n : (deckY ?? PIN_DEFAULT_Y);
+    } else if (layout === 'centered' || layout === 'top') {
+      y = null;
+    } else if (attr === 'none') {
       y = null;
     } else if (attr !== null && attr !== '') {
       const n = parseFloat(attr);
@@ -826,6 +834,7 @@ export function init(userConfig = {}) {
       { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
       genTheme && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
+      { label: 'Cycle slide layout', hint: 'L', alias: 'pin pinned centered top auto arrange', run: () => cycleLayout(1) },
       { label: `Narration ${narrating ? 'off' : 'on'}`, hint: 'V', run: toggleNarration },
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
@@ -1120,6 +1129,49 @@ export function init(userConfig = {}) {
   initMarkdown(stage);
   namespaceSvgIds(stage);
   initCode(stage, registerBuildProvider);
+
+  // ----- slide layout cycling (L / ⇧L) — SPEC §8 -----------------------------
+  // Walk the CURRENT slide through the layout set. The pick lands on the
+  // section as data-layout — the same attribute an author can write in the
+  // file — and wins over data-pin: 'pinned' forces the pin, 'centered'/'top'
+  // lay out in flow ('top' additionally top-aligns via CSS). 'auto' removes
+  // the attribute — deck default (pinTitles config + pinnable heuristic).
+  // Like theme and font, the choice persists per deck path (keyed by slide
+  // index); embedded instances never persist.
+  const LAYOUTS = ['auto', 'centered', 'pinned', 'top'];
+  const layoutKey = 'decklight-layout:' + location.pathname;
+  let layoutSaved = {};
+  try { layoutSaved = JSON.parse(localStorage.getItem(layoutKey)) || {}; } catch { /* ignore */ }
+  // restore BEFORE the first sync so the initial pin measurement sees the
+  // overrides (sections exist — the markdown pipeline just ran)
+  stage.querySelectorAll(':scope > section').forEach((sec, i) => {
+    const name = layoutSaved[i + 1];
+    if (LAYOUTS.includes(name) && name !== 'auto') sec.setAttribute('data-layout', name);
+  });
+  function cycleLayout(dir) {
+    const idx = instance.state.slide;
+    const sec = instance._sections[idx - 1];
+    if (!sec) return;
+    const cur = sec.getAttribute('data-layout') || 'auto';
+    const at = Math.max(0, LAYOUTS.indexOf(cur));
+    const name = LAYOUTS[(at + dir + LAYOUTS.length) % LAYOUTS.length];
+    if (name === 'auto') sec.removeAttribute('data-layout');
+    else sec.setAttribute('data-layout', name);
+    if (!params.has('embedded')) {
+      try {
+        // 'auto' = whatever the deck says (like font entry 0) — drop the entry
+        if (name === 'auto') delete layoutSaved[idx];
+        else layoutSaved[idx] = name;
+        if (Object.keys(layoutSaved).length) localStorage.setItem(layoutKey, JSON.stringify(layoutSaved));
+        else localStorage.removeItem(layoutKey);
+      } catch { /* private mode */ }
+    }
+    // geometry changed: pinned titles and the overflow guardrail re-derive
+    setupPinnedTitles(instance._sections, config);
+    checkOverflow(sec, idx);
+    toast(`layout: ${name}`);
+    debugLog('layout', `slide ${idx}: ${name}`);
+  }
 
   const instance = {
     root, stage, config,
@@ -1593,6 +1645,7 @@ export function init(userConfig = {}) {
       <tr><td>E</td><td>edit speaker notes (decklight edit server)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
+      <tr><td>L / ⇧L</td><td>slide layout (auto · centered · pinned · top)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
       ${(playlist || hasMarkersDOM) ? '<tr><td>M</td><td>module menu</td></tr>' : ''}
@@ -1764,6 +1817,7 @@ export function init(userConfig = {}) {
       case '<': changeNarrRate(-0.25); break;  // youtube's ⇧<
       case ']': cycleFont(1); break;
       case '[': cycleFont(-1); break;
+      case 'l': case 'L': cycleLayout(e.shiftKey ? -1 : 1); break;
       case 'm': case 'M': if (!playlist && !hasMarkersDOM) return; toggleModuleMenu(); break;
       case '?': toggleHelp(); break;
       case 'Escape':
@@ -1832,6 +1886,7 @@ export function init(userConfig = {}) {
   instance.themePicker = { open: openThemePicker, close: closeThemePicker };
   instance.generateTheme = rollTheme;                       // ⌃T, programmatic
   instance.cycleFont = cycleFont;                           // [ / ], programmatic (±1)
+  instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1)
   instance.toggleNarration = toggleNarration;               // V, programmatic
 
   // ── narration (V) + picker (N) — SPEC §8 ────────────────────────────────
