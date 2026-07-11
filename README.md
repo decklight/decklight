@@ -179,6 +179,7 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `P` | pause / resume narration |
 | `,` / `.` | cycle theme |
 | `[` / `]` | cycle font |
+| `L` / `⇧L` | cycle slide layout (auto · centered · pinned · top · split ⇄) |
 | `⌃T` / `⌃⇧T` | generate a theme / save it |
 | `M` | module menu (playlists & merged decks) |
 | `?` | help overlay |
@@ -209,7 +210,8 @@ In live voice mode, lip-sync data rides the **same 10-sentence lookahead** as th
 - **Speaker view** (`S`): current + next thumbnails, notes with `⟨CLICK⟩` segments highlighted as builds land, elapsed timer, step list. Works on `file://`. Press `S` again for **rehearse mode** — big cue cards (the deck's rehearse notes) instead of full prose, so you practice recalling the material rather than reading it.
 - **Overview** (`O`): scaled grid of every slide, arrow-key navigation.
 - **Brand logo**: `logo: { onLight: '#logo-dark-art', onDark: '#logo-light-art' }` puts a mark on every slide; the engine picks the variant from the applied theme's real background luminance, so the right logo follows every theme switch — generated themes included. `data-logo` on a section swaps the corner mark for a large in-flow one above the slide's title (module openers, covers).
-- **Pinned titles**: `pinTitles: true` keeps slide titles at one vertical position deck-wide instead of drifting with content height (title cards and quote slides stay centered; `data-pin` / `data-pin="none"` / `data-pin="<px>"` per slide). Subtitles join the pinned header.
+- **Pinned titles**: on by default — slide titles hold one vertical position deck-wide instead of drifting with content height (title cards and quote slides stay centered; `pinTitles: false` opts the deck out; `data-pin` / `data-pin="none"` / `data-pin="<px>"` per slide). Subtitles join the pinned header.
+- **Slide layouts**: `L`/`⇧L` cycle the current slide through `auto → centered → pinned → top → split → split-flip` while you look at it — the **split** pair puts the content in two sides (bullets left · diagram right, flipped to diagram left · bullets right), and a lone long list splits itself across two columns. Ring entries that wouldn't change the look are skipped (`pinned` when auto already pins, the flip when there's nothing to swap). The pick lands on the section as `data-layout` — the same attribute you can author in the file — and persists per deck, so trying a slide's arrangement live costs one keystroke.
 - **Playlists**: `playlist: { modules: [{title, href}…], index }` chains decks at their boundaries; `M` opens the module menu. Merged single-file decks navigate by in-file markers instead — no page loads.
 - **Print**: `?print` renders every slide with all builds complete, one per page — print to PDF from there.
 - Touch swipe, hash deep-links (`#/<slide>/<step>`), `slideNumber`, prev/next chrome and progress bar via `controls`.
