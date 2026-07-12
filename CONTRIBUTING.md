@@ -9,9 +9,17 @@ welcome — bug reports, themes, docs, and code.
 Decklight is plain JavaScript (ESM) with no runtime dependencies.
 
 - Node.js >= 20
-- `npm install` — dev dependencies (esbuild, highlight.js, marked)
+- `npm install` — dev dependencies (esbuild, highlight.js, marked), and it
+  builds `dist/` for you via the `prepare` script
 - `npm test` — run the test suite (`node --test`)
 - `npm run build` — bundle `src/index.js` → `dist/decklight.js`
+
+`dist/` is build output and is **not** in git — it is derived from `src/`, so
+versioning it would only buy unreviewable minified diffs and source/dist drift.
+`npm install` builds it, `npm publish`/`npm pack` rebuild it, and CI rebuilds it
+before both the npm release and the site deploy. It is still shipped in the npm
+package (`package.json`'s `files`). If the demos under `demo/` come up blank in
+a fresh checkout, you skipped `npm install`.
 
 ## Submitting changes
 
