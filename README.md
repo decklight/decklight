@@ -237,6 +237,9 @@ One HTML file with the runtime, structure CSS, chosen themes, casts, and images 
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
 | `decklight lipsync` | lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU) for the character |
 | `decklight edit deck.html` | live-editing server — `E` edits notes back into the file, saves auto-reload |
+| `decklight dev deck.html` | **the whole loop in one command** — `edit` plus every bridge this machine can run, one Ctrl-C |
+
+`decklight dev` is the one to reach for while authoring. It starts the edit server and then brings up `tts` and `lipsync` **only if their prerequisites are there** — a bridge with no GCP project or no rhubarb is *skipped with the reason and the fix*, never a hard failure, so a bare machine still gets live reload and notes editing. Each bridge keeps its own process on its own port, exactly as if you had started it by hand: a Wav2Lip crash or an expired Google token can't take down the server you are editing through (it just drops out, and the player degrades on its own). `--no-tts` / `--no-lipsync` opt out; every `tts`/`lipsync` flag passes straight through.
 
 `decklight help` for flags and examples. The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
