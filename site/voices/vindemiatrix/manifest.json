@@ -1,0 +1,97 @@
+{
+ "engine": "gemini",
+ "voice": "Vindemiatrix",
+ "style": "Read in a warm, welcoming tone, like a friendly battle-hardened senior engineer who is still curious about new technology.",
+ "slides": [
+  {
+   "file": "slide-01.m4a",
+   "hash": "0f8a7d3b03832ebd"
+  },
+  {
+   "file": "slide-02.m4a",
+   "hash": "4f119a3c25dc5c85"
+  },
+  {
+   "file": "slide-03.m4a",
+   "hash": "4741e607f22fbcb8"
+  },
+  {
+   "file": "slide-04.m4a",
+   "hash": "7f467d874367d25c"
+  },
+  {
+   "file": "slide-05.m4a",
+   "hash": "9f26e75dd3c67e06"
+  },
+  {
+   "file": "slide-06.m4a",
+   "hash": "eb7f0c834dff5119"
+  },
+  {
+   "file": "slide-07.m4a",
+   "hash": "9eb5d1f8984390c7"
+  },
+  {
+   "file": "slide-08.m4a",
+   "hash": "ad039e926fd5a424"
+  },
+  {
+   "file": "slide-09.m4a",
+   "hash": "04c3b92f7d7eb34d"
+  },
+  {
+   "file": "slide-10.m4a",
+   "hash": "7e4bbcbd37616756"
+  },
+  {
+   "file": "slide-11.m4a",
+   "hash": "10e4857fd5b163ad"
+  },
+  {
+   "file": "slide-12.m4a",
+   "hash": "04d8283fc6c7e0ab"
+  },
+  {
+   "file": "slide-13.m4a",
+   "hash": "183b625a2e2fb05e"
+  },
+  {
+   "file": "slide-14.m4a",
+   "hash": "e4082f5df06931ac"
+  },
+  {
+   "file": "slide-15.m4a",
+   "hash": "d0f14c3a723b3513"
+  },
+  {
+   "file": "slide-16.m4a",
+   "hash": "4798d7e67986ca71"
+  },
+  {
+   "file": "slide-17.m4a",
+   "hash": "2de91df31bd4b6fe"
+  },
+  {
+   "file": "slide-18.m4a",
+   "hash": "d1cb1508d6e194d3"
+  },
+  {
+   "file": "slide-19.m4a",
+   "hash": "ff62212e8d58e749"
+  },
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  null,
+  {
+   "file": "slide-30.m4a",
+   "hash": "37eabdd2ef02c87b"
+  }
+ ]
+}

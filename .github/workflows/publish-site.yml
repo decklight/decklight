@@ -1,8 +1,8 @@
 # Publishes decklight.io: every push to main rebuilds the runtime, bundles
 # demo/showcase.html with every theme into ONE self-contained file, and
-# deploys it to decklight/decklight.github.io (GitHub Pages behind the
-# custom domain). Auth is a write-only deploy key on the site repo, stored
-# here as the SITE_DEPLOY_KEY Actions secret.
+# deploys the assembled site to GitHub Pages on THIS repo (decklight.io is
+# the repo's custom domain, set in Settings → Pages). Auth is the workflow's
+# own OIDC token — no stored credential anywhere.
 name: publish decklight.io
 
 on:
@@ -12,10 +12,20 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+# one Pages deployment at a time; never cancel one mid-flight
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,13 +40,17 @@ jobs:
 
       - name: assemble the site
         run: |
-          mkdir -p out
+          mkdir -p out/dist out/themes
           cp site/index.html out/index.html
-          mkdir -p out/dist
           cp dist/decklight.js dist/decklight.css out/dist/
+          # the paper-planes decks the landing page embeds: the bundled one is
+          # vendored in site/ (its source lives nowhere else); the starter one
+          # loads dist/ and themes/paper.css relative to the site root
+          cp site/paper-planes.html site/paper-planes-start.html out/
+          cp themes/paper.css themes/meadow.css out/themes/
+          # demo voice tracks for the showcase (see site/voices.json)
+          cp -r site/voices out/voices
           node cli/decklight.mjs bundle demo/showcase.html --themes all -o out/showcase.html
-          # the site's showcase gets the demo voice tracks (audio lives only
-          # in the site repo; keep_files below preserves it across deploys)
           node -e '
             const fs = require("fs");
             const cfg = JSON.parse(fs.readFileSync("site/voices.json", "utf8"));
@@ -48,20 +62,10 @@ jobs:
             fs.writeFileSync(p, out);
             console.log("narration config injected:", cfg.voices.length, "voices");
           '
-          printf 'decklight.io' > out/CNAME
-          {
-            echo '# decklight.io'
-            echo
-            echo 'Built automatically by decklight/decklight → .github/workflows/publish-site.yml —'
-            echo 'the landing page (site/index.html) plus the showcase bundled to a single file.'
-            echo 'Do not edit by hand.'
-          } > out/README.md
 
-      - uses: peaceiris/actions-gh-pages@v4
+      - uses: actions/upload-pages-artifact@v3
         with:
-          deploy_key: ${{ secrets.SITE_DEPLOY_KEY }}
-          external_repository: decklight/decklight.github.io
-          publish_branch: main
-          publish_dir: ./out
-          keep_files: true
-          commit_message: 'publish showcase from ${{ github.sha }}'
+          path: ./out
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

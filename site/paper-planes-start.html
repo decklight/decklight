@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paper Planes</title>
+  <link rel="stylesheet" href="dist/decklight.css">
+  <link rel="stylesheet" href="themes/paper.css">
+</head>
+<body>
+  <div class="decklight">
+
+    <section>
+      <h1>Paper Planes</h1>
+      <p>A new Decklight deck</p>
+      <aside class="notes">
+        Welcome to your new deck. Press the right arrow to advance.
+      </aside>
+    </section>
+
+    <section>
+      <h2>Your first slide</h2>
+      <p>Three things to know</p>
+      <ul data-build>
+        <li>Every slide is a plain <code>&lt;section&gt;</code> in this one file</li>
+        <li><code>data-build</code> reveals content step by step — press <strong>→</strong></li>
+        <li>Ask your agent for the rest: the authoring contract is in <code>.claude/skills/decklight/</code></li>
+      </ul>
+      <aside class="notes">
+        The scaffold ships one example slide.
+        ⟨CLICK⟩ Slides are sections in this file.
+        ⟨CLICK⟩ Builds are one attribute on the container.
+        ⟨CLICK⟩ Your agent already knows the authoring contract — just describe the deck you want.
+      </aside>
+    </section>
+
+  </div>
+  <script src="dist/decklight.js"></script>
+  <script>Decklight.init({ transition: 'fade', slideNumber: true, controls: true });</script>
+</body>
+</html>
