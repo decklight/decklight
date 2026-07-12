@@ -69,6 +69,21 @@ if (engine === 'piper') {
   process.exit(1);
 }
 
+// WAV → AAC. ffmpeg everywhere; afconvert is Core Audio, so it only exists on
+// macOS — probing in that order keeps this working off a Mac (as tools/lipsync.mjs
+// already does), and both engines' output goes through here.
+const have = (bin, flags = ['-version']) => {
+  try { execFileSync(bin, flags, { stdio: 'ignore' }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
+};
+const encoder = have('ffmpeg') ? 'ffmpeg' : have('afconvert') ? 'afconvert' : null;
+if (!encoder) {
+  console.error('no AAC encoder — install ffmpeg (apt install ffmpeg / brew install ffmpeg)');
+  process.exit(1);
+}
+const toAac = (wav, m4a) => execFileSync(encoder, encoder === 'ffmpeg'
+  ? ['-y', '-i', wav, '-c:a', 'aac', '-b:a', '128k', m4a]
+  : ['-f', 'm4af', '-d', 'aac', wav, m4a], { stdio: 'ignore' });
+
 // ── extract per-slide narration text ─────────────────────────────────────────
 const html = readFileSync(deckPath, 'utf8');
 const sections = html.split(/<section\b/).slice(1);
@@ -147,7 +162,7 @@ for (let i = 0; i < slides.length; i++) {
   } else {
     execFileSync('piper', ['-m', voice, '--data-dir', dataDir, '-f', wav], { input: text });
   }
-  execFileSync('afconvert', ['-f', 'm4af', '-d', 'aac', wav, m4a]);
+  toAac(wav, m4a);
   if (!keepWav) rmSync(wav);
   console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}${costNote}`);
   // crash-safe: persist progress after every slide so an interrupted run
