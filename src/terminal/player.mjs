@@ -14,10 +14,11 @@
  * pacing compressed to ≤ data-max-step seconds. apply(i) is idempotent for
  * any i (deep links, reverse navigation, print).
  *
- * data-type-speed picks the typing speed on a 1 (slow) … 10 (fast) scale;
- * 5 is the default pace, about 55 wpm. The ⌨ titlebar button is a
- * words-per-minute picker that cycles it live, persisted per deck (the
- * presenter's choice wins over the authored attribute).
+ * data-type-speed picks the typing speed on a 1 (slow) … 10 (fast) scale,
+ * which maps to the nearest wpm preset. The ⌨ titlebar button is a
+ * words-per-minute picker that cycles the presets, persisted per deck (the
+ * presenter's choice wins over the authored attribute). A change applies to
+ * the keystroke being typed — not at the next build.
  *
  * data-type-sound picks the key voicing (creamy, clacky, thocky, or off;
  * default creamy). The ♪ titlebar button cycles it live, persisted per deck.
@@ -42,11 +43,14 @@ const clampScale = (n) => Math.max(1, Math.min(10, n));
 const typeRate = (s) => 2 ** ((s - 5) / 2.5);
 
 // The ⌨ titlebar button is a words-per-minute picker: it cycles these presets
-// and drives typing as wpm / BASE_WPM (55 wpm is the tuned default). Persisted
-// per deck; the presenter's pick wins over the authored data-type-speed, which
-// maps to the nearest preset.
+// and drives typing as wpm / BASE_WPM. BASE_WPM is the normalization constant
+// the humanized keyGap distribution was tuned against (factor 1 ≈ 55 wpm) — it
+// is NOT a preset. The presets are deliberately brisk: anything slower reads as
+// dead air on a slide. Persisted per deck; the presenter's pick wins over the
+// authored data-type-speed, which maps to the nearest preset. A stored pick
+// that is no longer a preset is ignored, so trimming this list self-heals.
 const BASE_WPM = 55;
-const WPM_STEPS = [30, 45, 55, 70, 90, 120, 160];
+const WPM_STEPS = [120, 160];
 const TYPE_WPM_KEY = 'decklight-term-wpm:' + location.pathname;
 const nearestWpm = (w) => WPM_STEPS.reduce((a, b) => Math.abs(b - w) < Math.abs(a - w) ? b : a);
 
@@ -87,10 +91,12 @@ const KEY_PROFILES = {
 // Inter-keystroke gap in ms, before the speed factor is applied. Humans
 // don't type on a metronome: most keys land in a tight core band, word
 // breaks and shell punctuation earn a beat of hesitation, and every so
-// often a longer "thinking" pause slips in. Tuned so the default speed
-// (scale 5, the 55 wpm preset) reads at about 218ms mean per key. This
-// jitter is what keeps the typing, and the per-key clicks fired with it,
-// from sounding mechanical. Callers divide the result by their speed factor.
+// often a longer "thinking" pause slips in. Tuned against BASE_WPM, where a
+// factor of 1 reads at about 218ms mean per key; the presets scale it from
+// there. This unevenness is DELIBERATE — it is what keeps the typing, and the
+// per-key clicks fired with it, from sounding mechanical. It is not the same
+// thing as the envelope jitter KEY_LOOKAHEAD fixes, which was an artifact.
+// Callers divide the result by their speed factor.
 function keyGap(ch) {
   let ms = 90 + Math.random() * 120;                    // 90-210ms core band
   if (Math.random() < 0.15) ms += Math.random() * 240;  // fatter right tail
@@ -100,8 +106,38 @@ function keyGap(ch) {
   return ms;
 }
 
+// Lookahead for every scheduled keystroke: comfortably more than one render
+// quantum (2.7ms at 48kHz, 2.9ms at 44.1kHz) on any sane device, and far below
+// the threshold where the click would read as detached from its glyph.
+const KEY_LOOKAHEAD = 0.012;
+
 let keyCtx = null;
 let keyNoise = null;
+
+// Every source a keystroke schedules, until it ends. A keystroke is scheduled
+// slightly AHEAD of the clock (the key-up lands tens of ms after the key-down,
+// and the thump rings on past it), so cancelling the typing loop is not enough
+// to go quiet — the WebAudio graph would happily play out what is already
+// booked. Leaving a slide has to reach in and stop these.
+const liveKeyNodes = new Set();
+const trackKeyNode = (node) => {
+  liveKeyNodes.add(node);
+  node.addEventListener('ended', () => liveKeyNodes.delete(node), { once: true });
+};
+
+/** Silence every key sound that is still sounding or merely scheduled.
+ *  Stopping the SOURCE is what does it — the gain envelopes hang off the
+ *  source, so killing it kills the tail; a source whose start() is still in
+ *  the future never sounds at all. */
+export function stopKeySounds() {
+  if (!keyCtx) return;
+  const now = keyCtx.currentTime;
+  for (const node of liveKeyNodes) {
+    try { node.stop(now); } catch { /* already finished */ }
+  }
+  liveKeyNodes.clear();
+}
+
 function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -116,7 +152,18 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
     }
     const P = KEY_PROFILES[profile] ?? KEY_PROFILES.creamy;
     const rnd = (lo, hi) => lo + Math.random() * (hi - lo);
-    const t = keyCtx.currentTime;
+    // Schedule a hair AHEAD of the clock, never at it. currentTime advances one
+    // render quantum at a time (128 frames — 2.7ms at 48kHz) and reports the
+    // START of the block already being rendered, so `at = currentTime` is a time
+    // in the past: the 0.7ms attack ramp is skipped outright (the gain jumps to
+    // peak) and the decay ramp loses however much of the block was left. The
+    // loss is a fixed slice of a per-profile envelope, so it bites hardest on
+    // the shortest one — clacky's 5-8ms click can lose half its decay, and by a
+    // varying amount, which is exactly what "jitter" sounds like. One quantum of
+    // lookahead puts every automation point safely in the future, so the
+    // envelope renders as designed. Well under the ~20ms audio-visual sync
+    // threshold, so the click still reads as landing on its glyph.
+    const t = keyCtx.currentTime + KEY_LOOKAHEAD;
     const space = ch === ' ';
     const amp = rnd(0.45, 1.3) * (space ? 1.25 : 1);
     const fc = rnd(...P.clickF) * (space ? 0.7 : 1);
@@ -138,6 +185,7 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
       g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
       src.connect(bp); bp.connect(lo); lo.connect(g); g.connect(keyCtx.destination);
       src.start(at); src.stop(at + decay + 0.01);
+      trackKeyNode(src);
     };
     const thump = (at, gain, f0, ring) => {
       const osc = keyCtx.createOscillator();
@@ -151,6 +199,7 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
       g.gain.exponentialRampToValueAtTime(0.0001, at + ring * 2);         // …then gone
       osc.connect(g); g.connect(keyCtx.destination);
       osc.start(at); osc.stop(at + ring * 2 + 0.01);
+      trackKeyNode(osc);
     };
     // Body pitch: a profile may carry a second cluster (thumpF2) so strikes
     // vary in pitch — mostly the woody thumpF band, a deep-thock minority from
@@ -236,6 +285,7 @@ async function setupTerminal(el, Decklight) {
   }
   const cast = parseCast(text, src);
   const controller = new TerminalController(el, cast);
+  el._decklightTerminal = controller;  // handle for tests and console debugging
   let mode = el.dataset.mode || 'step';
   // An imported asciicast without markers has no step structure — only the
   // timeline is playable.
@@ -345,6 +395,34 @@ class TerminalController {
     // hidden steps never play; sleep steps pace play mode but are not builds
     this.playable = cast.steps.filter(s => !s.hidden && s.sleep == null);
     this._mountChrome();
+    this._watchSlide();
+  }
+
+  /** Cancel whatever is in flight and go quiet AT ONCE. Bumping the epoch only
+   *  stops the loop from scheduling the NEXT keystroke; the clicks already
+   *  booked on the audio clock have to be stopped by hand, or they play on
+   *  over the following slide. */
+  stop() {
+    this.epoch += 1;
+    stopKeySounds();
+    if (this.playing) {
+      this.playing = false;
+      const playBtn = this.controlsEl?.querySelector('.terminal-play');
+      if (playBtn) playBtn.textContent = '▶';
+    }
+  }
+
+  /** Leaving the slide stops the cast. The engine strips `active` from the
+   *  outgoing <section>, so watch that rather than the engine's slide event —
+   *  the event does not bubble, and this also covers play-mode terminals,
+   *  which are not build providers and so get no apply() call to notice with. */
+  _watchSlide() {
+    const section = this.el.closest('section');
+    if (!section || typeof MutationObserver !== 'function') return;
+    const mo = new MutationObserver(() => {
+      if (!section.classList.contains('active')) this.stop();
+    });
+    mo.observe(section, { attributes: true, attributeFilter: ['class'] });
   }
 
   _mountChrome() {
@@ -458,16 +536,24 @@ class TerminalController {
     this.controlsEl.appendChild(btn);
   }
 
+  /** Live typing multiplier. Read PER KEYSTROKE, never captured up front: the
+   *  ⌨ picker (and play mode's ×-speed) must land on the very next glyph, not
+   *  at the next build. */
+  _typeFactor(step, play = false) {
+    const playSpeed = play ? (this.speed || 1) : 1;
+    return playSpeed * (this.typeWpm / BASE_WPM) * (step.typeSpeed || 1);
+  }
+
   /** Type `cmd` at the prompt one glyph at a time with humanized cadence.
    *  Each keystroke's synth click is fired on the same tick its glyph is
    *  painted, and is told how long until the next key so its release tail
    *  stays inside this keystroke's window — sound and typing can't drift.
    *  Returns false if a newer epoch cancelled the run mid-command. */
-  async _typeCmd(cmd, base, speedFactor, epoch) {
+  async _typeCmd(cmd, base, step, epoch, play = false) {
     for (let c = 1; c <= cmd.length; c++) {
       if (this.epoch !== epoch) return false;
       const ch = cmd[c - 1];
-      const gap = keyGap(ch) / speedFactor;
+      const gap = keyGap(ch) / this._typeFactor(step, play);
       if (this.typeSound) keyClick(ch, this.typeSound, gap / 1000);
       this.linesEl.innerHTML = base + this._promptHtml() +
         `<span class="terminal-cmd">${escapeHtml(cmd.slice(0, c))}</span><span class="terminal-cursor"></span>`;
@@ -517,7 +603,6 @@ class TerminalController {
 
   async _animateStep(stepIdx, epoch) {
     const step = this.playable[stepIdx];
-    const speedFactor = (this.typeWpm / BASE_WPM) * (step.typeSpeed || 1);
     // Base: everything before this step, no trailing cursor/prompt.
     const parts = [];
     for (let s = 0; s < stepIdx; s++) parts.push(this._stepHtml(this.playable[s]));
@@ -526,8 +611,8 @@ class TerminalController {
     // 1) type the command (imported raw streams carry their own echo)
     const cmd = step.cmd || '';
     if (!step.raw) {
-      if (!(await this._typeCmd(cmd, base, speedFactor, epoch))) return;
-      await sleep(120 / speedFactor);
+      if (!(await this._typeCmd(cmd, base, step, epoch))) return;
+      await sleep(120 / this._typeFactor(step));
     }
 
     // 2) stream output + interactive input with recorded pacing, ≤ maxStep
@@ -553,7 +638,7 @@ class TerminalController {
         // an interactive answer gets typed, character by character
         for (const ch of ev.d) {
           if (this.epoch !== epoch) return;
-          const gap = keyGap(ch) / speedFactor;
+          const gap = keyGap(ch) / this._typeFactor(step);
           if (this.typeSound) keyClick(ch, this.typeSound, gap / 1000);
           screen.write(ch);
           paint();
@@ -620,11 +705,10 @@ class TerminalController {
       const shown = this.cast.steps.slice(0, s).filter(x => !x.hidden && x.sleep == null);
       const parts = shown.map(x => this._stepHtml(x));
       const base = parts.length ? parts.join('\n') + '\n' : '';
-      const speedFactor = this.speed * (step.typeSpeed || 1) * (this.typeWpm / BASE_WPM);
       // type (imported raw streams carry their own echo)
       const cmd = step.cmd || '';
       if (!step.raw) {
-        if (!(await this._typeCmd(cmd, base, speedFactor, epoch))) { this._playedUpTo = s; return; }
+        if (!(await this._typeCmd(cmd, base, step, epoch, true))) { this._playedUpTo = s; return; }
       }
       // stream at original pacing / speed
       const screen = new AnsiScreen();
@@ -645,7 +729,7 @@ class TerminalController {
         if (ev.kind === 'i') {
           for (const ch of ev.d) {
             if (this.epoch !== epoch) { this._playedUpTo = s; return; }
-            const gap = keyGap(ch) / speedFactor;
+            const gap = keyGap(ch) / this._typeFactor(step, true);
             if (this.typeSound) keyClick(ch, this.typeSound, gap / 1000);
             screen.write(ch); paint(); await sleep(gap);
           }
