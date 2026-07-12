@@ -54,6 +54,36 @@ test('voice comes up when a project is available (flag or env)', () => {
   assert.deepEqual(svc(viaEnv, 'tts').args, ['tts', '--port', '8787', '--project', 'proj-2']);
 });
 
+test('piper needs no project — the cloud engines do', () => {
+  // the free engine must not be gated on a GCP project it never uses
+  const offline = plan(['deck.html', '--tts-engine', 'piper'], { hasBin: ALL_BINS });
+  assert.ok(names(offline).includes('tts'), 'piper comes up with no project at all');
+  assert.deepEqual(svc(offline, 'tts').args, ['tts', '--port', '8787', '--engine', 'piper']);
+
+  // …but without the binary there is nothing to run, and we say so
+  const noBin = plan(['deck.html', '--tts-engine', 'piper']);
+  assert.ok(!names(noBin).includes('tts'));
+  assert.match(why(noBin, 'voice'), /piper not on PATH/);
+
+  // chirp is cloud: project required, and the skip reason points at the way out
+  const chirp = plan(['deck.html', '--tts-engine', 'chirp']);
+  assert.ok(!names(chirp).includes('tts'));
+  assert.match(why(chirp, 'voice'), /chirp needs a GCP project/);
+  assert.match(why(chirp, 'voice'), /--tts-engine piper/, 'offers the free way out');
+
+  const chirpOk = plan(['deck.html', '--tts-engine', 'chirp', '--project', 'decklight-tts']);
+  assert.deepEqual(svc(chirpOk, 'tts').args,
+    ['tts', '--port', '8787', '--engine', 'chirp', '--project', 'decklight-tts']);
+
+  // gemini stays the default, so an existing command line keeps working
+  const dflt = plan(['deck.html'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-1' } });
+  assert.deepEqual(svc(dflt, 'tts').args, ['tts', '--port', '8787', '--project', 'proj-1']);
+
+  const bogus = plan(['deck.html', '--tts-engine', 'espeak'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-1' } });
+  assert.ok(!names(bogus).includes('tts'));
+  assert.match(why(bogus, 'voice'), /unknown --tts-engine 'espeak'/);
+});
+
 test('a malformed project id is caught here, not by Vertex', () => {
   // 'decklight-tts,' — the trailing comma is real: it rides along when the id
   // is copied out of a sentence. The bridge used to start, look healthy, and

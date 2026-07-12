@@ -35,7 +35,9 @@ export const GEMINI_VOICES = [
   ['Sadachbia', 'lively'], ['Sadaltager', 'knowledgeable'], ['Sulafat', 'warm'],
 ];
 
-function gcloudToken() {
+// ADC, not `gcloud auth login` — a separate credential store, and the one every
+// Google client library reads. Shared with the Chirp engine (tools/tts-engines.mjs).
+export function gcloudToken() {
   return execFileSync('gcloud', ['auth', 'application-default', 'print-access-token'],
     { encoding: 'utf8' }).trim();
 }
@@ -121,6 +123,9 @@ export function createSynth({ project, ttsModel, location } = {}) {
         model,
         promptTokens: um.promptTokenCount ?? 0,
         audioTokens: um.candidatesTokenCount ?? 0,
+        chars: text.length,
+        // every engine reports a `note`, so the bridge logs one line for all
+        note: `${um.promptTokenCount ?? 0}+${um.candidatesTokenCount ?? 0} tokens`,
         cost: estimateCost(model, um),
       },
     };

@@ -1958,6 +1958,30 @@ export function init(userConfig = {}) {
     ['Achird', 'friendly'], ['Zubenelgenubi', 'casual'], ['Vindemiatrix', 'gentle'],
     ['Sadachbia', 'lively'], ['Sadaltager', 'knowledgeable'], ['Sulafat', 'warm'],
   ];
+  // What the bridge can ACTUALLY speak. We ship the Gemini roster because it is
+  // also Chirp's, but the bridge may be running piper — one local model, not
+  // thirty star names — and a picker offering 29 voices that silently do nothing
+  // is a lie. /ping tells us; until it answers, the built-in roster stands.
+  const PING_URL = LIVE_URL.replace(/\/tts\/?$/, '/ping');
+  let liveVoices = GEMINI_VOICES;
+  let liveStylable = true;  // only gemini takes a delivery instruction
+  let liveEngine = null;
+  let livePing = null;
+  function probeLive() {
+    livePing ??= fetch(PING_URL)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (!p) return null;
+        liveEngine = p.engine ?? null;
+        if (Array.isArray(p.voices) && p.voices.length) liveVoices = p.voices;
+        liveStylable = p.stylable !== false;
+        debugLog('tts', `bridge: ${p.engine} · ${p.model} · ${liveVoices.length} voice(s)`
+          + (liveStylable ? '' : ' · no style'));
+        return p;
+      })
+      .catch(() => null); // no bridge — the picker still works, V just warns
+    return livePing;
+  }
   const TONES = [
     // single directive clauses: instruction-shaped text steers; persona
     // sentences ("You're a…") can stochastically be read aloud
@@ -2136,6 +2160,7 @@ export function init(userConfig = {}) {
   let narrPaused = false;     // P — freezes audio, captions and auto-advance
   let liveChainActive = false; // a sentence chain is running for liveChainGen
   let liveChainGen = 0;
+  let liveDeadSegs = 0; // consecutive segments that had words but spoke none
   function toggleNarrPause() {
     if (!narrating) { toast('narration is off — V starts it'); return; }
     narrPaused = !narrPaused;
@@ -2183,6 +2208,7 @@ export function init(userConfig = {}) {
     const stale = () => gen !== liveSegGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
     liveChainGen = gen;
     liveChainActive = true;
+    let spoke = 0;
     try {
       for (let i = 0; i < sentences.length; i++) {
         while (narrPaused) { // P holds the chain between sentences too
@@ -2190,7 +2216,17 @@ export function init(userConfig = {}) {
           await new Promise((r) => setTimeout(r, 150));
         }
         if (stale()) return;
-        const clip = await fetchLiveSentence(sl, step, i);
+        let clip;
+        try {
+          clip = await fetchLiveSentence(sl, step, i);
+        } catch {
+          // One sentence failing (a quota 429, a bridge restart) must not strand
+          // the deck: skip it and keep the chain, so the segment's advance below
+          // still fires. A silent beat beats a frozen presentation.
+          debugLog('narr', `sentence failed (slide ${sl} seg ${step} #${i + 1}) — skipped`);
+          if (!liveWarned) { toast('live voice stumbled — skipping ahead'); liveWarned = true; }
+          continue;
+        }
         if (stale()) return;
         if (!clip) continue;
         setCaption(sentences[i]); // captions follow the voice, not the notes
@@ -2211,11 +2247,16 @@ export function init(userConfig = {}) {
           narrAudio.play().catch(() => { blocked = true; done(); });
         });
         if (blocked) return; // autoplay policy — a user gesture restarts
+        spoke++;
       }
-      if (!stale()) advanceFrom(sl, step);
-    } catch {
-      if (!liveWarned) { toast('live voice bridge unreachable — run: decklight tts'); liveWarned = true; }
-      debugLog('narr', `live synth failed (slide ${sl} step ${step})`);
+      if (stale()) return;
+      // A segment that said NOTHING when it had words to say means the bridge is
+      // failing, not stumbling — and advancing on every silent segment would race
+      // the deck to the end at fetch-error speed. Carry on through the first one
+      // (a lone 429 shouldn't cost the presentation), then stop.
+      if (spoke || !sentences.length) { liveDeadSegs = 0; advanceFrom(sl, step); return; }
+      if (++liveDeadSegs >= 2) return stopNarration('live voice bridge unreachable — narration off · run: decklight tts');
+      advanceFrom(sl, step);
     } finally {
       if (liveChainGen === gen) liveChainActive = false;
     }
@@ -2234,23 +2275,28 @@ export function init(userConfig = {}) {
     }
     narrAudio.play().catch(() => { /* no file for this slide */ });
   }
+  // the one teardown: V, and the bridge giving up, must leave the same state
+  function stopNarration(msg = 'narration off') {
+    narrating = false;
+    liveSegGen++; // cancel any pending silent-beat advance
+    bufferGen++;  // stop the lookahead loop
+    narrPaused = false;
+    narrAudio?.pause();
+    character.stop();
+    toast(msg);
+    debugLog('narr', msg);
+    syncSoundBtn();
+  }
   function toggleNarration() {
     if (!narrSet) { openNarrPicker(narrSets.length ? 'tracks' : 'voices'); return; }
-    narrating = !narrating;
-    if (narrating) {
-      const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
-      toast(`🔊 ${what} — V stops · N picks`);
-      debugLog('narr', `on — ${what}`);
-      playSlideFile();
-    } else {
-      liveSegGen++; // cancel any pending silent-beat advance
-      bufferGen++;  // stop the lookahead loop
-      narrPaused = false;
-      narrAudio?.pause();
-      character.stop();
-      toast('narration off');
-      debugLog('narr', 'off');
-    }
+    if (narrating) return stopNarration();
+    narrating = true;
+    liveDeadSegs = 0; // a fresh start forgives an earlier bridge outage
+    liveWarned = false;
+    const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
+    toast(`🔊 ${what} — V stops · N picks`);
+    debugLog('narr', `on — ${what}`);
+    playSlideFile();
     syncSoundBtn();
   }
   instance.on('slide', () => { if (narrating) playSlideFile(); });
@@ -2728,12 +2774,18 @@ export function init(userConfig = {}) {
       });
       wrap.append(test, reset);
       card.appendChild(wrap);
-      GEMINI_VOICES.forEach(([name, flavor]) => narrRows.push({
+      liveVoices.forEach(([name, flavor]) => narrRows.push({
         text: `${name} <span class="narr-flavor">${flavor}</span>`,
         html: true,
         preview: { voice: name, style: '', prefetch: 'voices' },
         cur: narrSet?.live && liveCfg.voice === name,
-        commit: () => { liveDraft = name; renderNarr('tones'); },
+        // chirp and piper have no delivery-instruction channel, so there is no
+        // tone to pick — committing the voice IS the whole choice
+        commit: () => {
+          liveDraft = name;
+          if (liveStylable) return renderNarr('tones');
+          applyLive(liveEngine ?? 'plain', '');
+        },
       }));
     } else if (view === 'tones') {
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone · ▶ previews`;
@@ -2816,6 +2868,9 @@ export function init(userConfig = {}) {
       root.appendChild(narrEl);
     }
     renderNarr(view ?? (narrSets.length ? 'tracks' : 'voices'));
+    // ask the bridge what it can speak, and repaint if the answer changes the
+    // list under the user — but only while they are still looking at it
+    probeLive().then((p) => { if (p && narrEl && narrView === 'voices') renderNarr('voices'); });
   }
   function closeNarrPicker() {
     narrEl?.remove();
