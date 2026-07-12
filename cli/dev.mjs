@@ -25,6 +25,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { delimiter, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validProjectId } from '../tools/gemini-tts.mjs';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
@@ -101,6 +102,11 @@ export function planServices({ args = [], env = process.env, hasBin = onPath } =
     skip.push({ name: 'voice', why: 'disabled with --no-tts' });
   } else if (!project) {
     skip.push({ name: 'voice', why: 'no GCP project — pass --project <id> or set GOOGLE_CLOUD_PROJECT' });
+  } else if (!validProjectId(project)) {
+    // caught here rather than at the first narration: the bridge would start,
+    // look healthy, and only fail on a keypress — with a 403 naming a project
+    // nobody typed
+    skip.push({ name: 'voice', why: `not a GCP project id: ${JSON.stringify(project)} — stray punctuation from a copy-paste?` });
   } else {
     run.push({
       name: 'tts',
