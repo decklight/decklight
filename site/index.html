@@ -69,6 +69,7 @@
     .start h2 { font-size: 1.35rem; margin: 0 0 4px; color: var(--fg); }
     .start p { margin: 0 0 14px; color: var(--muted); font-size: 0.95rem; }
     .start.after-deck { margin-top: 44px; }
+    .deck-caption.after-deck { margin-top: 44px; }
     .term-wrap {
       font-size: clamp(16px, 5vw, 45px);
       --term-bg: #0d0d0f; --term-fg: #e2e1dc; --term-prompt: #f5c542;
@@ -207,6 +208,30 @@
     </section>
 
     <div class="deck-caption">
+      <span>Out of the box: a title slide and a starter slide — presentable the moment <code>init</code> returns. This is the actual file, live.</span>
+      <a href="paper-planes-start.html">Open full screen ↗</a>
+    </div>
+    <div class="deckbox">
+      <iframe src="paper-planes-start.html" title="The freshly scaffolded Paper Planes deck" loading="lazy" allow="fullscreen"></iframe>
+    </div>
+
+    <section class="start after-deck" aria-label="Describe the rest to your agent">
+      <h2>Describe the rest to your agent</h2>
+      <p><code>init</code> dropped the authoring contract next to the deck, so any agent that can edit a file can author slides — builds, SVG diagrams, animation and all. Here, Claude Code gets one prompt and edits the same HTML file:</p>
+      <div class="term-wrap">
+        <div class="terminal" data-cast-inline="#cast-claude" data-mode="play" data-speed="2" data-type-sound="creamy" data-rows="10" data-title="one prompt later"></div>
+      </div>
+    </section>
+
+    <div class="deck-caption">
+      <span>The same file after the prompt: step-by-step folds as a progressive SVG — <strong>→</strong> advances one crease at a time — ending in the meadow flight.</span>
+      <a href="paper-planes.html">Open full screen ↗</a>
+    </div>
+    <div class="deckbox">
+      <iframe src="paper-planes.html" title="The Paper Planes deck after one agent prompt" loading="lazy" allow="fullscreen"></iframe>
+    </div>
+
+    <div class="deck-caption after-deck">
       <span>The pitch <em>is</em> the product. This is the showcase deck, live, and it narrates itself: click it and it starts speaking. <strong>→</strong> advances, <strong>V</strong> toggles the voice, <strong>N</strong> changes it, <strong>?</strong> shows all keys.</span>
       <a href="showcase.html?voiceover">Open full screen ↗</a>
     </div>
@@ -238,11 +263,11 @@
  },
  "steps": [
   {
-   "cmd": "npx decklight init \"My Deck\" -o my-deck.html",
+   "cmd": "npx decklight init \"Paper Planes\" -o paper-planes.html",
    "output": [
     [
      0.5,
-     "created \u001b[33mmy-deck.html\u001b[m (self-contained \u2014 double-click it, no server)\r\n"
+     "created \u001b[33mpaper-planes.html\u001b[m (self-contained \u2014 double-click it, no server)\r\n"
     ],
     [
      0.75,
@@ -257,15 +282,54 @@
    "duration": 1.1
   },
   {
-   "cmd": "open my-deck.html",
+   "cmd": "open paper-planes.html",
    "output": [
     [
      0.5,
-     "\u001b[90m# your deck opens in the browser \u2014 see it live below \u2193\u001b[m\r\n"
+     "\u001b[90m# your deck opens in the browser \u2014 out of the box, it looks like this \u2193\u001b[m\r\n"
     ]
    ],
    "exit": 0,
    "duration": 0.7
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-claude">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 16,
+  "prompt": "$ "
+ },
+ "steps": [
+  {
+   "cmd": "claude -p \"This deck must show how to make a paper plane: detailed step-by-step instructions to fold your first dart, then an animation of the plane flying across a meadow.\"",
+   "output": [
+    [
+     1.0,
+     "\u001b[36m\u25cf\u001b[m Read \u001b[33m.claude/skills/decklight/SKILL.md\u001b[m \u2014 the authoring contract\r\n"
+    ],
+    [
+     2.2,
+     "\u001b[36m\u25cf\u001b[m Edit \u001b[33mpaper-planes.html\u001b[m \u2014 +3 slides: what you need, six fold steps as a\r\n  progressive SVG diagram, and a meadow flight scene on a motion path\r\n"
+    ],
+    [
+     3.0,
+     "\u001b[36m\u25cf\u001b[m Applied the \u001b[33mmeadow\u001b[m theme \u2014 diagrams and terminals recolor themselves\r\n"
+    ],
+    [
+     3.8,
+     "\u001b[36m\u25cf\u001b[m Verify: headless render \u2014 4 slides \u00b7 no overflow \u00b7 contrast AA \u001b[32m\u2713\u001b[m\r\n"
+    ],
+    [
+     4.6,
+     "\r\nDone. The deck folds a dart in six creases and ends in flight \u2014\r\n\u001b[33m\u2192\u001b[m advances one crease at a time. It's live below \u2193\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 5.2
   }
  ]
 }</script>
@@ -280,11 +344,11 @@
  },
  "steps": [
   {
-   "cmd": "npx decklight edit my-deck.html",
+   "cmd": "npx decklight edit paper-planes.html",
    "output": [
     [
      0.6,
-     "\u001b[32mdecklight edit\u001b[m on http://127.0.0.1:8788/my-deck.html \u2014 E edits notes, saves reload the deck\r\n"
+     "\u001b[32mdecklight edit\u001b[m on http://127.0.0.1:8788/paper-planes.html \u2014 E edits notes, saves reload the deck\r\n"
     ]
    ],
    "exit": 0,
@@ -313,11 +377,11 @@
    "duration": 0.8
   },
   {
-   "cmd": "npx decklight bundle my-deck.html --themes all",
+   "cmd": "npx decklight bundle paper-planes.html --themes all",
    "output": [
     [
      0.8,
-     "bundled my-deck.html \u2192 \u001b[33mmy-deck.bundle.html\u001b[m (523 KB \u00b7 61 themes \u00b7 works offline)\r\n"
+     "bundled paper-planes.html \u2192 \u001b[33mpaper-planes.bundle.html\u001b[m (523 KB \u00b7 61 themes \u00b7 works offline)\r\n"
     ],
     [
      1.2,
