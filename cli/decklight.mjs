@@ -40,6 +40,8 @@ Commands:
            EXAMPLE: decklight lipsync    (then pick "Character…" in the deck's / palette)
   edit     serve the deck with live reload; E in the player edits speaker notes back into the file
            EXAMPLE: decklight edit demo/showcase.html   (then open the printed URL)
+  dev      one command for the whole loop: edit + every bridge this machine can run, one Ctrl-C
+           EXAMPLE: decklight dev demo/showcase.html   (bridges without prerequisites are skipped)
   help     show this help, or a command's help: decklight help bundle
 `;
 
@@ -98,6 +100,11 @@ switch (cmd) {
   case 'edit': {
     const { editMain } = await import('./edit.mjs');
     await editMain(rest);
+    break;
+  }
+  case 'dev': {
+    const { devMain } = await import('./dev.mjs');
+    await devMain(rest);
     break;
   }
   default:

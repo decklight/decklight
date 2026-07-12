@@ -3,3 +3,9 @@ node_modules/
 *.log
 bundles/
 demo/voiceover*/
+
+# Build output. Derived from src/, so it is not versioned: the "prepare" script
+# rebuilds it on npm install (contributors, git installs) and before npm
+# publish/pack, and CI rebuilds it before both the npm release and the site
+# deploy. It is still SHIPPED — package.json's "files" allowlist wins over this.
+dist/

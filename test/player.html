@@ -22,10 +22,60 @@
   <div id="t-import" class="terminal" data-cast="fixtures/import.cast" data-mode="step" data-title="asciicast import"></div>
   <div id="t-import-plain" class="terminal" data-cast="fixtures/import.cast" data-mode="play" data-title="asciicast import (play)"></div>
 
+  <!-- A terminal that lives on a slide, so leaving the slide can be simulated
+       by dropping `active` exactly as the engine does. -->
+  <section id="s-slide" class="active">
+    <div id="t-slide" class="terminal" data-cast="fixtures/smoke.cast.json" data-mode="step" data-title="on a slide"></div>
+  </section>
+
   <h2>Assertions</h2>
   <pre id="assert">running…</pre>
 
   <script type="module">
+    // Fake WebAudio, installed BEFORE the player module runs (it caches an
+    // AudioContext on first keystroke). Records every source it schedules and
+    // whether that source was later stopped — which is how "the key sounds
+    // stop when you leave the slide" becomes an assertable fact.
+    const scheduled = [];
+    // NOTE: keyClick() runs inside a try/catch that swallows "no audio in this
+    // environment". A param this mock forgets (Q, say) therefore does not blow
+    // up loudly — it silently aborts the keystroke and the test quietly lies.
+    // Every AudioParam the player touches must exist here.
+    const ctxNow = () => performance.now() / 1000;
+    const param = () => ({ value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} });
+    const node = (kind) => {
+      const n = {
+        kind, startedAt: null, stoppedAt: null,
+        frequency: param(), gain: param(), Q: param(), detune: param(),
+        type: '', buffer: null,
+        connect() {}, disconnect() {},
+        addEventListener() {},
+        // lead = how far AHEAD of the audio clock this source was booked.
+        // Must be positive: currentTime is the start of the block already being
+        // rendered, so scheduling AT it means scheduling in the past, and the
+        // envelope gets clipped by whatever is left of the block.
+        start(t) { this.startedAt = t ?? 0; this.lead = (t ?? 0) - ctxNow(); },
+        // Scheduling a source ALREADY books a stop at its natural end, so a
+        // bare "was stop() called" boolean is true either way and proves
+        // nothing. Keep every stop time: a cancel shows up as a second, EARLIER
+        // stop than the one the keystroke booked.
+        stop(t) { (this.stops ??= []).push(t ?? 0); },
+      };
+      if (kind === 'source' || kind === 'osc') scheduled.push(n);
+      return n;
+    };
+    window.AudioContext = class {
+      constructor() { this.state = 'running'; this.sampleRate = 48000; this.destination = node('dest'); }
+      get currentTime() { return ctxNow(); }
+      resume() {}
+      createBuffer(ch, len) { return { getChannelData: () => new Float32Array(len) }; }
+      createBufferSource() { return node('source'); }
+      createOscillator() { return node('osc'); }
+      createGain() { return node('gain'); }
+      createBiquadFilter() { return node('filter'); }
+    };
+    window.__scheduled = scheduled;
+
     import { registerTerminals } from '../src/terminal/player.mjs';
 
     // Mock of the core engine: just collects providers (SPEC §2.4 surface).
@@ -95,6 +145,50 @@
       results.importColored = /ansi-fg-2/.test(document.querySelector('#t-import .terminal-lines').innerHTML);
       // play-mode import still gets timeline controls
       results.importPlayControls = !!document.querySelector('#t-import-plain .terminal-play');
+
+      // --- typing speed: only the brisk presets, and changes land LIVE -------
+      const slideEl = document.querySelector('#t-slide');
+      const ctrl = slideEl._decklightTerminal;
+      const wpmBtn = document.querySelector('#t-slide .terminal-typespeed');
+
+      // the ⌨ picker cycles exactly the presets, and wraps
+      const seen = [ctrl.typeWpm];
+      wpmBtn.click(); seen.push(ctrl.typeWpm);
+      wpmBtn.click(); seen.push(ctrl.typeWpm);   // wraps back to the first
+      results.wpmPresets = JSON.stringify(seen) === JSON.stringify([120, 160, 120]);
+
+      // the multiplier is recomputed per keystroke, so a mid-command change to
+      // typeWpm is visible AT ONCE — not captured once at the start of a build
+      const step0 = ctrl.playable[0];
+      ctrl.typeWpm = 120; const f120 = ctrl._typeFactor(step0);
+      ctrl.typeWpm = 160; const f160 = ctrl._typeFactor(step0);
+      results.wpmLive = f160 > f120 && Math.abs(f160 / f120 - 160 / 120) < 1e-9;
+
+      // --- leaving the slide stops the cast, and silences it AT ONCE ---------
+      // apply() runs synchronously up to its first await, so one glyph is
+      // painted and its key sounds are scheduled before we leave the slide.
+      const ps = providers.find(x => x.el.id === 't-slide')?.provider;
+      const mark = scheduled.length;
+      ps.apply(1);                                  // start typing the command
+      const made = scheduled.slice(mark);           // sources this keystroke booked
+      document.querySelector('#s-slide').classList.remove('active');  // leave the slide
+      await sleep(400);                             // ample time to have typed on
+
+      results.leaveSchedulesSound = made.length > 0;
+      // every source the keystroke booked was cut short: a second stop, earlier
+      // than the natural end it was scheduled with
+      results.leaveSilencesSound = made.every(n =>
+        n.stops && n.stops.length >= 2 && n.stops[n.stops.length - 1] < n.stops[0]);
+
+      // --- key sounds are booked AHEAD of the audio clock, never at it -------
+      // Scheduling at currentTime lands in the block already being rendered, so
+      // the attack ramp is skipped and the decay is clipped by a varying slice
+      // of a render quantum — audible as jitter, worst on the shortest envelope
+      // (clacky). Require at least a full quantum (2.7ms @48k) of lead.
+      const QUANTUM = 128 / 48000;
+      results.soundBookedAhead = made.every(n => n.lead > QUANTUM);
+      const slideText = document.querySelector('#t-slide .terminal-lines').innerText;
+      results.leaveStopsTyping = !slideText.includes('hello decklight');
 
       results.PASS = Object.entries(results).every(([k, v]) => k === 'PASS' || v === true ||
         (k === 'providerCount' && v === 3) || (k === 'featProviderCount' && v === 2) ||

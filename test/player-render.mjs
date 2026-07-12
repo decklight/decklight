@@ -10,13 +10,26 @@
  * file:// + ES modules + fetch() need --allow-file-access-from-files.
  */
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'player.html');
-const CHROME = process.env.CHROME ||
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+// $CHROME wins; otherwise take the first browser that is actually here, so the
+// harness runs on Linux/CI and not just a Mac.
+const CANDIDATES = [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium', '/usr/bin/chromium-browser',
+  '/snap/bin/chromium',
+];
+const CHROME = process.env.CHROME || CANDIDATES.find((p) => existsSync(p));
+if (!CHROME) {
+  console.error('player-render: no Chrome found — install one, or point $CHROME at it');
+  process.exit(1);
+}
 
 const html = execFileSync(CHROME, [
   '--headless', '--disable-gpu',

@@ -35,6 +35,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
+    "prepare": "npm run build",
     "test": "node --test 'test/*.test.mjs'",
     "verify": "npm run build && node test/render.mjs && node test/contrast.mjs && node test/palette-rules.mjs"
   },
