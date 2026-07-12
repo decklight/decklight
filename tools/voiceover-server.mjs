@@ -105,7 +105,13 @@ export async function ttsMain(args) {
         for await (const chunk of req) body += chunk;
         const { text, voice, style } = JSON.parse(body);
         if (!text?.trim()) { res.writeHead(400, CORS); return res.end('no text'); }
-        const key = createHash('sha256').update(`${engine.name} ${voice} ${style} ${text}`).digest('hex');
+        // NUL joins the fields so they cannot run together (a style ending in a
+        // space and a text starting with one must not hash like their neighbours)
+        // — but written as an ESCAPE, not a raw byte. This file used to carry
+        // literal NULs, and git calls any file with one in its first 8 KB binary:
+        // it silently became undiffable and unreviewable.
+        const key = createHash('sha256')
+          .update([engine.name, voice, style, text].join('\u0000')).digest('hex');
         const fresh = !cache.has(key);
         if (fresh) {
           process.stdout.write(`  ${engine.name} ${voice}: ${text.length} chars … `);
