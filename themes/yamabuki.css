@@ -1,0 +1,120 @@
+/* Copyright 2026 Gilles Philippart
+   SPDX-License-Identifier: Apache-2.0 */
+
+/* ═══════════════════════════════════════════════════════════════
+   Decklight theme · yamabuki
+   dark · 山吹 — the Japanese golden-yellow, on cool ink
+   Named for 山吹色, the gold of the kerria flower. One warm accent on a
+   near-neutral cool ground; the red is reserved for things that fail.
+   Mono headings — the type is machine-set, like the subject.
+   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   ═══════════════════════════════════════════════════════════════ */
+
+.decklight {
+  /* ── canvas ─────────────────────────────── */
+  --bg: #14171c;
+  --bg-accent: #1b1f26;
+  --fg: #edece7;
+  --muted: #a0a4ab;
+
+  /* ── type ───────────────────────────────── */
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --font-mono: "SF Mono", SFMono-Regular, ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --heading-color: #f2b32c;
+  --heading-weight: 600;
+  --link: #f5c25c;
+
+  /* ── accent ─────────────────────────────── */
+  /* 山吹 proper is #f2b32c, which is s88 — over R3's saturation cap of 75. It
+     stays as the *displayed* gold (headings, diagram accent, prompt, keyword),
+     none of which R3 gates. --accent drives chrome, so it sits three points
+     under the cap at s74: the same gold, dimmed just enough to obey the rule
+     rather than claim an exception from it. */
+  --accent: #e3b445;
+  --accent-contrast: #171309;
+
+  /* ── blocks ─────────────────────────────── */
+  --block-bg: #1b1f26;
+  --block-border: 1px solid #2c313a;
+  --block-radius: 2px;
+  --shadow: 0 10px 30px rgba(6, 8, 11, 0.7);
+
+  /* ── code ───────────────────────────────── */
+  --code-bg: #1a1d23;
+  --code-fg: #edece7;
+  --hl-keyword: #f2b32c;
+  --hl-string: #b9cc72;
+  --hl-number: #e8a45e;
+  --hl-comment: #7c828c;
+  --hl-function: #85b4e3;
+  --hl-type: #cb9ada;
+  --hl-punct: #a0a4ab;
+
+  /* ── diagram ────────────────────────────── */
+  /* The fills stay dark: --d-muted is the binding gate (2.6 against every one
+     of them), and a light box would fail it long before the canvas noticed. */
+  --d-stroke: #7f858f;
+  --d-text: #edece7;
+  --d-muted: #a0a4ab;
+  --d-accent: #f2b32c;
+  --d-fill-1: #232830;
+  --d-fill-2: #2b2519;
+  --d-fill-3: #1e2730;
+  --d-fill-4: #2a2430;
+  --d-fill-5: #1f2c28;
+  --d-fill-6: #302422;
+
+  /* ── terminal ───────────────────────────── */
+  --term-bg: #0f1216;
+  --term-fg: #e2e0da;
+  --term-prompt: #f2b32c;
+  --term-cursor: #f2b32c;
+  --term-selection: rgba(242, 179, 44, 0.28);
+  --ansi-black: #8a8e96;
+  --ansi-red: #e0574b;
+  --ansi-green: #9cc474;
+  --ansi-yellow: #f2b32c;
+  --ansi-blue: #7fa8d8;
+  --ansi-magenta: #c99ad6;
+  --ansi-cyan: #79c6c0;
+  --ansi-white: #e2e0da;
+  --ansi-bright-black: #a8acb4;
+  --ansi-bright-red: #ef7f74;
+  --ansi-bright-green: #b7d996;
+  --ansi-bright-yellow: #f8cc6a;
+  --ansi-bright-blue: #a3c3e8;
+  --ansi-bright-magenta: #dcb6e5;
+  --ansi-bright-cyan: #9adcd7;
+  --ansi-bright-white: #f4f2ed;
+
+  /* ── builds ─────────────────────────────── */
+  --dim-opacity: 0.3;
+}
+
+/* Uppercase, tightly tracked eyebrows are part of the identity; the mono
+   heading face carries it without needing a webfont. */
+.decklight h1,
+.decklight h2 {
+  letter-spacing: -0.01em;
+}
+
+/* The subject renders one scanline at a time, so the canvas does too — a
+   1-in-3 line at ~2% opacity. Screen only, never in print, and it steps aside
+   for anyone who asked for less motion-and-texture. */
+@media screen {
+  .decklight::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.022) 0px,
+      rgba(255, 255, 255, 0.022) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+}
