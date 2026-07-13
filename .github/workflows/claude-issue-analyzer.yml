@@ -1,0 +1,63 @@
+# Analyses every incoming issue for bug-report quality and posts a single
+# structured triage comment (it updates that same comment on later edits
+# rather than piling on new ones). This is the repo-owned, always-on version
+# of the issue-analysis loop — it fires the moment an issue is opened or
+# edited, so it does not depend on any Claude session staying alive.
+#
+# Auth: add ONE repository secret.
+#   • CLAUDE_CODE_OAUTH_TOKEN — bills against a Claude Pro/Max subscription;
+#     generate locally with `claude setup-token`. (Used below.)
+#   • or ANTHROPIC_API_KEY — bills usage credits; swap the `with:` line.
+name: claude issue analyzer
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+# read the code so Claude can cite likely-involved files; write issues so it
+# can post the triage comment. No write access to code — this loop never edits.
+permissions:
+  contents: read
+  issues: write
+
+# one analysis per issue at a time; a fresh edit supersedes an in-flight run
+concurrency:
+  group: issue-analyzer-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            You are triaging issue #${{ github.event.issue.number }} in this
+            repository. Post ONE concise, friendly triage comment (update your
+            existing comment instead of adding a new one on re-runs).
+
+            First decide if this is a bug report. If it is a feature request or
+            a question, say so in one line and skip the rubric below.
+
+            For a bug report, assess it against this rubric:
+            1. Clarity — is the problem described unambiguously? What is missing?
+            2. Version — which decklight / build / OS version is it reported
+               against? If absent, ask for it.
+            3. Error message — is there one? If not, request the exact text or
+               stack trace.
+            4. Reproduction — are there step-by-step repro instructions? Try to
+               reproduce it yourself from the code when feasible.
+            5. What else the author can provide — a minimal repro deck, config,
+               screenshots, or logs.
+
+            Enrich with your own insight: skim the relevant source (README.md,
+            SPEC.md, src/, cli/) and name the files or functions likely
+            involved. If it genuinely helps, include a SHORT log excerpt. Keep
+            the whole comment tight — a scannable checklist, not an essay.
+          claude_args: |
+            --max-turns 20
+            --model claude-sonnet-5
+            --allowedTools "Read,Grep,Glob,Bash"

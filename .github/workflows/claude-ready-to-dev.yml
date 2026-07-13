@@ -1,0 +1,77 @@
+# Implements any issue the moment it is labeled `ready-to-dev`: Claude reads
+# the issue, cuts a fresh branch off the default branch, writes the change,
+# runs the build and tests, and opens a ready-for-review PR that closes the
+# issue. The repo-owned, always-on version of the ready-to-dev loop.
+#
+# Reviews still gate the merge — this only opens the PR, it never merges.
+#
+# Auth: add ONE repository secret.
+#   • CLAUDE_CODE_OAUTH_TOKEN — bills against a Claude Pro/Max subscription;
+#     generate locally with `claude setup-token`. (Used below.)
+#   • or ANTHROPIC_API_KEY — bills usage credits; swap the `with:` line.
+name: claude ready-to-dev
+
+on:
+  issues:
+    types: [labeled]
+
+# only act on the `ready-to-dev` label; every other label is ignored
+jobs:
+  implement:
+    if: github.event.label.name == 'ready-to-dev'
+    runs-on: ubuntu-latest
+
+    # write code to push a branch, open/close PRs, and comment on the issue
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    # never run two implementations for the same issue at once
+    concurrency:
+      group: ready-to-dev-${{ github.event.issue.number }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: anthropics/claude-code-action@v1
+        env:
+          # lets Claude push the branch and open the PR via the gh CLI
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Implement issue #${{ github.event.issue.number }} end-to-end.
+
+            1. Read the issue (title, body, and comments) to understand the
+               scope. Keep the change focused on exactly what it asks.
+            2. Cut a fresh branch off the default branch:
+                 git fetch origin main
+                 git checkout -B claude/issue-${{ github.event.issue.number }}-<short-slug> origin/main
+            3. Implement the change. Skim the surrounding code first
+               (README.md, SPEC.md, src/, cli/) and match its style.
+            4. Verify before pushing: `npm ci --omit=optional`, then
+               `node build.mjs` and `npm test`. Do not push if tests fail —
+               instead comment on the issue describing the blocker and stop.
+            5. Commit with a clear message AND a DCO sign-off trailer that
+               matches the commit author, e.g. `git commit -s` (this repo's
+               DCO check requires `Signed-off-by:` on every commit — see
+               CONTRIBUTING.md).
+            6. Push the branch and open a PR that is READY FOR REVIEW (not a
+               draft) whose body contains `Closes #${{ github.event.issue.number }}`.
+               Mirror .github/pull_request_template.md if one exists. Use the
+               gh CLI (GH_TOKEN is set): `gh pr create --base main --head <branch>`.
+            7. Comment on the issue linking the PR.
+
+            Do NOT merge the PR — leave it for human review.
+          claude_args: |
+            --max-turns 40
+            --model claude-opus-4-8
+            --allowedTools "Read,Grep,Glob,Edit,Write,Bash"
