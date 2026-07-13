@@ -167,12 +167,12 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `S` | speaker view (again: rehearse mode) |
 | `B` / `F` | blackout / fullscreen |
 | `D` | debug log (events, theme/font/narration, errors) |
-| ``` | messages — the key left of `1`; the log of everything the deck told you (`⌃``/`⌥`` also works while editing notes) |
+| `` ` `` | messages — the key left of `1`; the log of everything the deck told you (`` ⌃` ``/`` ⌥` `` also works while editing notes) |
 | `C` | captions — the current notes segment, YouTube-style |
 | `T` | theme picker (type to filter) |
 | `/` | command palette |
 | `G` | find a slide — or another module, in a playlist (live preview) |
-| `E` | edit speaker notes (with `decklight edit` running) |
+| `E` | edit speaker notes (dev mode) |
 | `V` | narration on/off |
 | `N` | narration picker (tracks, live voice, tone) |
 | `⇧V` | record offline narration (live voice) |
@@ -180,7 +180,9 @@ The picker's first row, **✨ Generate new…**, rolls candidates with live prev
 | `P` | pause / resume narration |
 | `,` / `.` | cycle theme |
 | `[` / `]` | cycle font |
-| `L` / `⇧L` | cycle slide layout (auto · centered · pinned · top · split ⇄) |
+| `L` / `⇧L` | cycle slide layout — writes the file (dev mode) |
+| `Z` / `⇧Z` | undo / redo deck edits (dev mode) |
+| `A` | ask an AI agent to edit the deck (dev mode) |
 | `⌃T` / `⌃⇧T` | generate a theme / save it |
 | `?` | help overlay |
 
@@ -221,7 +223,7 @@ In live voice mode, lip-sync data rides the **same 10-sentence lookahead** as th
 - **Overview** (`O`): scaled grid of every slide, arrow-key navigation.
 - **Brand logo**: `logo: { onLight: '#logo-dark-art', onDark: '#logo-light-art' }` puts a mark on every slide; the engine picks the variant from the applied theme's real background luminance, so the right logo follows every theme switch — generated themes included. `data-logo` on a section swaps the corner mark for a large in-flow one above the slide's title (module openers, covers).
 - **Pinned titles**: on by default — slide titles hold one vertical position deck-wide instead of drifting with content height (title cards and quote slides stay centered; `pinTitles: false` opts the deck out; `data-pin` / `data-pin="none"` / `data-pin="<px>"` per slide). Subtitles join the pinned header.
-- **Slide layouts**: `L`/`⇧L` cycle the current slide through `auto → centered → pinned → top → split → split-flip` while you look at it — the **split** pair puts the content in two sides (bullets left · diagram right, flipped to diagram left · bullets right), and a lone long list splits itself across two columns. Ring entries that wouldn't change the look are skipped (`pinned` when auto already pins, the flip when there's nothing to swap). The pick lands on the section as `data-layout` — the same attribute you can author in the file — and persists per deck, so trying a slide's arrangement live costs one keystroke.
+- **Slide layouts** (dev mode): `L`/`⇧L` cycle the current slide through `auto → centered → pinned → top → split → split-flip` while you look at it — the **split** pair puts the content in two sides (bullets left · diagram right, flipped to diagram left · bullets right), and a lone long list splits itself across two columns. Ring entries that wouldn't change the look are skipped (`pinned` when auto already pins, the flip when there's nothing to swap). The pick lands on the section as `data-layout` — the same attribute you can author in the file — **and is written back into the file** through the dev server, so trying a slide's arrangement costs one keystroke and survives forever. Because a pick persists, cycling only works in dev mode; presenting never silently forks the deck from what's on disk. `Z`/`⇧Z` **undo/redo** any deck edit (layouts, notes, agent runs — one history, independent of the git autocommits below).
 - **Playlists**: `playlist: { modules: [{title, href}…], index }` chains decks at their boundaries, and the other modules show up in the slide finder (`G`) as `▸ <title> — module` — one place to jump anywhere, a slide here or a deck next door. Merged single-file decks navigate by in-file markers instead — no page loads.
 - **Print**: `?print` renders every slide with all builds complete, one per page — print to PDF from there.
 - Touch swipe, hash deep-links (`#/<slide>/<step>`), `slideNumber`, prev/next chrome and progress bar via `controls`.
@@ -246,10 +248,12 @@ One HTML file with the runtime, structure CSS, chosen themes, casts, and images 
 | `decklight bundle deck.html [--all]` | self-contained single-file HTML |
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
 | `decklight lipsync` | lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU) for the character |
-| `decklight edit deck.html` | live-editing server — `E` edits notes back into the file, saves auto-reload |
+| `decklight edit deck.html` | live-editing server — notes (`E`), layouts (`L`), undo/redo (`Z`), agent asks (`A`) write back into the file; saves auto-reload |
 | `decklight dev deck.html` | **the whole loop in one command** — `edit` plus every bridge this machine can run, one Ctrl-C |
 
 `decklight dev` is the one to reach for while authoring. It starts the edit server and then brings up `tts` and `lipsync` **only if their prerequisites are there** — a bridge with no GCP project or no rhubarb is *skipped with the reason and the fix*, never a hard failure, so a bare machine still gets live reload and notes editing. Each bridge keeps its own process on its own port, exactly as if you had started it by hand: a Wav2Lip crash or an expired Google token can't take down the server you are editing through (it just drops out, and the player degrades on its own). `--no-tts` / `--no-lipsync` opt out; every `tts`/`lipsync` flag passes straight through.
+
+Dev mode also keeps history two ways. **Undo/redo**: every edit made through the server — a layout pick, a notes save, an agent run — snapshots into one in-memory stack; `Z`/`⇧Z` in the player walk it, wholly independent of git. **Git**: dev offers to `git init` when the deck isn't in a repository (or pass `--git`/`--no-git`), then auto-commits the deck every 5 minutes when it changed (`--commit-every` tunes it) plus a final commit on Ctrl-C. And `A` **asks an installed AI agent** to edit the deck for you — Claude Code, Codex CLI, IBM Bob, Gemini CLI, GitHub Copilot CLI, OpenCode, Goose, Aider, Cursor CLI, or Qwen Code, auto-detected from `$PATH`, run headlessly in one shot; the deck reloads when the agent saves, and `Z` takes its edit back like any other.
 
 `decklight help` for flags and examples. The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 

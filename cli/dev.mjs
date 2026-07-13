@@ -21,24 +21,32 @@
 // gives you live reload and notes editing, and the player degrades on its own
 // (each bridge is probed via /ping).
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { delimiter, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline/promises';
+import { onPath, detectAgents } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
+
+export { onPath }; // historical home — dev grew it, agents.mjs owns it now
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
 const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper] [--project <id>] [--no-tts] [--no-lipsync]
+                    [--git | --no-git] [--commit-every <s>] [--agent <name>]
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
 
-  --port N          edit server (live reload + notes write-back)      [8788]
+  --port N          edit server (live reload + edit write-back)       [8788]
   --tts-port N      live voice bridge                                 [8787]
   --lipsync-port N  lip-sync bridge (visemes + talking head)          [8789]
   --no-tts          don't start the voice bridge
   --no-lipsync      don't start the lip-sync bridge
+  --git / --no-git  auto-commit the deck on a cadence / never touch git
+                    (no repo + no flag: dev ASKS whether to create one)
+  --commit-every N  autocommit cadence in seconds                     [300]
+  --agent <name>    preferred AI agent for A (default: first detected)
 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
                     chirp   Cloud TTS Chirp 3: HD — same voices, ~1s, 1M chars/month free
@@ -55,25 +63,14 @@ const VALUE_FLAGS = new Set([
   '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--project', '--tts-model',
   '--location', '--voice', '--data-dir', '--lang',
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
-  '--python', '--cache-dir',
+  '--python', '--cache-dir', '--commit-every', '--agent',
 ]);
-
-/** Is `bin` runnable — an explicit path that exists, or a name on $PATH? */
-export function onPath(bin, env = process.env) {
-  if (!bin) return false;
-  if (bin.includes('/')) return existsSync(bin);
-  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
-  for (const dir of (env.PATH || '').split(delimiter)) {
-    if (!dir) continue;
-    for (const ext of exts) if (existsSync(join(dir, bin + ext))) return true;
-  }
-  return false;
-}
 
 /**
  * Decide what to bring up, WITHOUT starting anything — the whole capability
  * policy in one pure function, so it can be tested without binding a port.
- * Returns { deck, run: [{name, tag, args, url}], skip: [{name, why}] }.
+ * Returns { deck, run: [{name, tag, args, url}], skip: [{name, why}],
+ * agents: [names the machine can run] }.
  */
 export function planServices({ args = [], env = process.env, hasBin = onPath } = {}) {
   const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
@@ -98,7 +95,9 @@ export function planServices({ args = [], env = process.env, hasBin = onPath } =
   run.push({
     name: 'edit',
     tag: 'deck',
-    args: ['edit', deck, '--port', editPort],
+    args: ['edit', deck, '--port', editPort,
+      ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
+      ...pass('--commit-every'), ...pass('--agent')],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
 
@@ -156,7 +155,15 @@ export function planServices({ args = [], env = process.env, hasBin = onPath } =
     });
   }
 
-  return { deck, run, skip };
+  return { deck, run, skip, agents: detectAgents({ env, hasBin }).map((a) => a.name) };
+}
+
+/** Is `dir` inside a git work tree? (execFile injectable for tests) */
+export function inGitRepo(dir, exec = execFileSync) {
+  try {
+    return exec('git', ['rev-parse', '--is-inside-work-tree'],
+      { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() === 'true';
+  } catch { return false; }
 }
 
 const COLORS = { deck: '\x1b[36m', voice: '\x1b[35m', lips: '\x1b[33m' };
@@ -166,7 +173,8 @@ const RESET = '\x1b[0m';
 export async function devMain(args) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
 
-  const { deck, run, skip } = planServices({ args });
+  let plan = planServices({ args });
+  const deck = plan.deck;
   if (!deck) {
     console.error('decklight dev needs a deck: decklight dev <deck.html>\n');
     console.error(USAGE);
@@ -178,6 +186,22 @@ export async function devMain(args) {
     process.exitCode = 1;
     return;
   }
+
+  // No repo, no flag: offer one. A repo is where the regular autocommits go —
+  // the durable record behind the player's fast undo/redo loop. Only a TTY
+  // can be asked; headless runs stay git-less until --git says otherwise.
+  if (!args.includes('--git') && !args.includes('--no-git') && !inGitRepo(process.cwd())) {
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await rl.question('  no git repository here — create one and auto-commit the deck as you edit? [Y/n] ');
+      rl.close();
+      if (!/^n/i.test(answer.trim())) plan = planServices({ args: [...args, '--git'] });
+      else plan = planServices({ args: [...args, '--no-git'] });
+    } else {
+      console.log('  git: no repository here — pass --git to create one and auto-commit the deck');
+    }
+  }
+  const { run, skip, agents } = plan;
 
   const tty = process.stdout.isTTY;
   const paint = (tag) => (tty ? `${COLORS[tag] ?? ''}${tag.padEnd(5)}${RESET}` : `${tag.padEnd(5)}`);
@@ -221,6 +245,7 @@ export async function devMain(args) {
   }
 
   for (const s of skip) console.log(note(`  ${s.name.padEnd(8)} skipped — ${s.why}`));
+  if (!agents.length) console.log(note('  agents   none detected — install claude, codex, or bob to ask an agent from the deck (A)'));
   console.log(note('  Ctrl-C stops everything.\n'));
 
   function shutdown(code = 0) {

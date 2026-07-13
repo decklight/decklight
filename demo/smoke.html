@@ -223,28 +223,14 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
         const ul = document.querySelector('section[data-slide-index="11"] ul');
         return ul.classList.contains('split-columns') && getComputedStyle(ul).columnCount === '2';
       })()),
-      rec('layoutcycle', (() => {
-        // slide 1 auto-pins under the deck default, so the ring skips
-        // 'pinned' — one press lands on 'centered', not a look-alike
+      rec('layoutgate', (() => {
+        // layout is a PERSISTED deck edit — without the dev server the key
+        // must change nothing, or the show would silently fork from disk
         deck.cycleLayout(1);
-        return document.querySelector('section[data-slide-index="1"]').getAttribute('data-layout');
+        return !document.querySelector('section[data-slide-index="1"]').hasAttribute('data-layout');
       })()),
-      rec('layoutreset', (() => {
-        deck.cycleLayout(-1); // back to auto: attribute and persistence both clear
-        const s = document.querySelector('section[data-slide-index="1"]');
-        return !s.hasAttribute('data-layout') && !localStorage.getItem('decklight-layout:' + location.pathname);
-      })()),
-      rec('flipskip', (() => {
-        // slide 11 has ONE content block: the ring must skip 'split-flip',
-        // so forward from 'split' wraps straight to 'auto'
-        deck.goto(11, 0);
-        deck.cycleLayout(1);
-        const s = document.querySelector('section[data-slide-index="11"]');
-        const skipped = !s.hasAttribute('data-layout');
-        deck.cycleLayout(-1); // restore the authored 'split'
-        localStorage.removeItem('decklight-layout:' + location.pathname);
-        return skipped && s.getAttribute('data-layout') === 'split';
-      })()),
+      rec('ring1', deck.layoutRing(1).join(' ')),   // auto-pinned slide: 'pinned' skipped
+      rec('ring11', deck.layoutRing(11).join(' ')), // lone-list slide: 'split-flip' skipped too
     ].join('\n');
     document.body.appendChild(sink);
   }, 300);
