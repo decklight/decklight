@@ -86,7 +86,17 @@
     // pick the live voice exactly as the N picker persists it
     localStorage.setItem(key, JSON.stringify({ live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
 
-    const deck = Decklight.init({ narration: { liveUrl: 'http://127.0.0.1:8899/tts' } });
+    const cfg = { narration: { liveUrl: 'http://127.0.0.1:8899/tts' } };
+    if (mode === 'modules') {
+      cfg.playlist = {
+        index: 0,
+        modules: [
+          { title: 'This module', href: 'narration.html' },
+          { title: 'Deep dive', href: 'other-module.html' },
+        ],
+      };
+    }
+    const deck = Decklight.init(cfg);
 
     // The message shortcut has to reach the presenter WHEREVER they are: mid-talk,
     // and mid-edit — where a focused textarea owns every bare keystroke, so `i`
@@ -99,28 +109,61 @@
       const r = {};
       try {
         if (mode === 'keys') {
-          // play mode: a bare `i` toggles the log
-          press('i', document.body);
+          // The shortcut is the key LEFT OF 1 — matched on e.code, because what
+          // it prints depends on the layout: ` on US, ² on a French AZERTY. Both
+          // are sent below, and both must work.
+          const TICK = { code: 'Backquote', key: '`' };
+          const DEUX = { code: 'Backquote', key: '²' };   // same physical key, AZERTY
+
+          press('`', document.body, TICK);
           r.playOpens = logOpen();
-          press('i', document.body);
+          press('`', document.body, TICK);
           r.playCloses = !logOpen();
+
+          press('²', document.body, DEUX);   // a French keyboard reaches it too
+          r.azertyOpens = logOpen();
+          press('²', document.body, DEUX);
 
           // edit mode: a textarea has focus (this is what `E` gives you)
           const ta = document.createElement('textarea');
           document.body.appendChild(ta);
           ta.focus();
 
-          press('i', ta);                       // must be swallowed by the textarea
+          press('`', ta, TICK);                          // the textarea keeps it
           r.editIgnoresBareKey = !logOpen();
-          press('i', ta, { ctrlKey: true });    // …but the modifier form gets through
+          press('`', ta, { ...TICK, ctrlKey: true });    // …the modifier form gets through
           r.editCtrlOpens = logOpen();
-          press('i', ta, { ctrlKey: true });
+          press('`', ta, { ...TICK, ctrlKey: true });
           r.editCtrlCloses = !logOpen();
-          press('i', ta, { altKey: true });     // ⌥I too, for keyboards where ⌃I is taken
+          press('`', ta, { ...TICK, altKey: true });     // ⌥ too
           r.editAltOpens = logOpen();
+          if (logOpen()) press('`', ta, { ...TICK, altKey: true });
+          ta.remove();
 
-          r.PASS = r.playOpens && r.playCloses && r.editIgnoresBareKey
+          r.PASS = r.playOpens && r.playCloses && r.azertyOpens && r.editIgnoresBareKey
             && r.editCtrlOpens && r.editCtrlCloses && r.editAltOpens;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'modules') {
+          // The module menu (M) is gone: the finder (G) does both of its jobs.
+          // Marked slides were always ordinary slides it indexed; a playlist's
+          // other modules are now rows in it — the one thing M could do that G
+          // could not.
+          press('m', document.body);
+          r.noModuleMenu = !document.querySelector('.decklight-module-menu');
+
+          press('g', document.body);
+          const rows = [...document.querySelectorAll('.decklight-finder .tp-row')].map((el) => el.textContent);
+          r.finderOpens = rows.length > 0;
+          r.listsSlides = rows.some((t) => /Two/.test(t));
+          r.listsModules = rows.some((t) => /Deep dive/.test(t));   // another FILE
+          r.hidesCurrentModule = !rows.some((t) => /This module/.test(t));
+          r.moduleRowMarked = !!document.querySelector('.decklight-finder .tp-row.tp-module');
+
+          r.PASS = r.noModuleMenu && r.finderOpens && r.listsSlides
+            && r.listsModules && r.hidesCurrentModule && r.moduleRowMarked;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

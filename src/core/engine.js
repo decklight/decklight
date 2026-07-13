@@ -758,7 +758,7 @@ export function init(userConfig = {}) {
   let finderEl = null, finderSel = 0, finderQuery = '', finderMatches = [], finderDebounce;
   let finderFrameReady = false, finderPending = null;
   function finderIndex() {
-    return instance._sections.map((sec, i) => {
+    const slides = instance._sections.map((sec, i) => {
       const contentEls = [...sec.children].filter((el) => !el.matches('aside, script, style'));
       const heading = sec.querySelector('h1, h2, h3');
       const body = contentEls.map((el) => el.textContent).join(' ').replace(/\s+/g, ' ').trim();
@@ -766,6 +766,15 @@ export function init(userConfig = {}) {
         || (body.slice(0, 60) || `slide ${i + 1}`);
       return { slide: i + 1, title, haystack: body.toLowerCase() };
     });
+    // A playlist's other modules are separate FILES — the one thing the old
+    // module menu could do that this finder could not, since the index only ever
+    // saw the current document's sections. They belong here: "go somewhere" is
+    // one question, and it should have one answer. (In-file data-module markers
+    // need nothing: they are ordinary slides, already indexed above.)
+    const modules = (playlist?.modules ?? [])
+      .map((m, i) => ({ module: i, title: m.title, href: m.href, haystack: (m.title || '').toLowerCase() }))
+      .filter((m) => m.module !== playlistIndex);
+    return [...slides, ...modules];
   }
   function renderFinderList() {
     const listBox = finderEl.querySelector('.tp-list');
@@ -780,8 +789,10 @@ export function init(userConfig = {}) {
     listBox.textContent = '';
     finderMatches.forEach((m, i) => {
       const row = document.createElement('div');
-      row.className = 'tp-row' + (m.slide === instance.state.slide ? ' tp-current' : '');
-      row.textContent = `${m.slide} · ${m.title}`;
+      row.className = 'tp-row' + (m.slide === instance.state.slide ? ' tp-current' : '')
+        + (m.href ? ' tp-module' : '');
+      // a module leaves this file, so it says so — it is not slide N of here
+      row.textContent = m.href ? `▸ ${m.title} — module` : `${m.slide} · ${m.title}`;
       row.addEventListener('mouseenter', () => selectFinderRow(i, false));
       row.addEventListener('click', () => { selectFinderRow(i, true); commitFinder(); });
       listBox.appendChild(row);
@@ -789,20 +800,24 @@ export function init(userConfig = {}) {
     if (!finderMatches.length) {
       const none = document.createElement('div');
       none.className = 'tp-none';
-      none.textContent = 'no slides match';
+      none.textContent = 'no matches';
       listBox.appendChild(none);
     }
     const bar = finderEl.querySelector('.tp-filter');
-    bar.textContent = finderQuery || 'type to find a slide…';
+    bar.textContent = finderQuery || (playlist ? 'type to find a slide or module…' : 'type to find a slide…');
     bar.classList.toggle('tp-active', !!finderQuery);
   }
-  function finderPreviewSwap(frame, slide) {
-    if (!frame.dataset.booted) {
-      frame.dataset.booted = '1';
+  // `entry` is a finder row: a slide of THIS deck, or a module — another file,
+  // which the iframe has to actually load rather than postMessage a goto into
+  function finderPreviewSwap(frame, entry) {
+    const doc = entry.href ?? location.pathname;
+    const slide = entry.slide ?? 1;
+    if (frame.dataset.doc !== doc) {
+      frame.dataset.doc = doc;
       finderFrameReady = false;
       frame.addEventListener('load', () => {
         finderFrameReady = true;
-        if (finderPending !== null && finderEl) {
+        if (finderPending && finderEl) {
           const p = finderPending;
           finderPending = null;
           finderPreviewSwap(frame, p);
@@ -813,12 +828,12 @@ export function init(userConfig = {}) {
       const hash = '#/' + slide + '/0';
       const cand = customThemes[name] ? { name, tokens: customThemes[name] }
         : (genTheme && name === genTheme.name) ? genTheme : null;
-      frame.src = location.pathname + (cand
+      frame.src = doc + (cand
         ? '?embedded&gen=' + b64uEncode(cand)
         : name ? '?embedded&theme=' + encodeURIComponent(name) : '?embedded') + hash;
       return;
     }
-    if (!finderFrameReady) { finderPending = slide; return; }
+    if (!finderFrameReady) { finderPending = entry; return; }
     frame.contentWindow?.postMessage({ __decklightPreview: { goto: [slide, 0] } }, '*');
   }
   function selectFinderRow(i, immediate) {
@@ -828,11 +843,13 @@ export function init(userConfig = {}) {
     rows.forEach((r, j) => r.classList.toggle('tp-selected', j === finderSel));
     rows[finderSel]?.scrollIntoView({ block: 'nearest' });
     const m = finderMatches[finderSel];
-    finderEl.querySelector('.tp-caption').textContent = `slide ${m.slide} — ${m.title}`;
+    finderEl.querySelector('.tp-caption').textContent = m.href
+      ? `module — ${m.title} (${m.href})`
+      : `slide ${m.slide} — ${m.title}`;
     clearTimeout(finderDebounce);
     const frame = finderEl.querySelector('iframe');
-    if (immediate) finderPreviewSwap(frame, m.slide);
-    else finderDebounce = setTimeout(() => finderPreviewSwap(frame, m.slide), 60);
+    if (immediate) finderPreviewSwap(frame, m);
+    else finderDebounce = setTimeout(() => finderPreviewSwap(frame, m), 60);
   }
   function setFinderQuery(q) {
     finderQuery = q;
@@ -843,7 +860,9 @@ export function init(userConfig = {}) {
   function commitFinder() {
     const m = finderMatches[finderSel];
     closeSlideFinder();
-    if (m) instance.goto(m.slide, 0);
+    if (!m) return;
+    if (m.href) return navigateToModule(m.module); // another file — a page load
+    instance.goto(m.slide, 0);
   }
   function openSlideFinder() {
     if (finderEl) return closeSlideFinder();
@@ -878,7 +897,7 @@ export function init(userConfig = {}) {
   function paletteCommands() {
     const has = (fn) => typeof fn === 'function';
     const all = [
-      { label: 'Find slide…', hint: 'G', alias: 'search grep goto', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
+      { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: openThemePicker },
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
@@ -886,7 +905,7 @@ export function init(userConfig = {}) {
       genTheme && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
       { label: 'Cycle slide layout', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
-      { label: 'Messages', hint: 'I', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
+      { label: 'Messages', hint: '`', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
       { label: `Narration ${narrating ? 'off' : 'on'}`, hint: 'V', run: toggleNarration },
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
@@ -900,7 +919,6 @@ export function init(userConfig = {}) {
         else instance.__speakerWin = openSpeakerView(instance);
       } },
       { label: 'Overview', hint: 'O', run: toggleOverview },
-      (playlist || hasMarkersDOM) && { label: 'Module…', hint: 'M', run: toggleModuleMenu },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
@@ -1500,9 +1518,9 @@ export function init(userConfig = {}) {
     slideNumEl = document.createElement('div');
     slideNumEl.className = 'decklight-slide-number';
     if (playlist || hasMarkersDOM) {
-      slideNumEl.title = 'M — module menu';
+      slideNumEl.title = 'G — find a slide or module';
       slideNumEl.style.cursor = 'pointer';
-      slideNumEl.addEventListener('click', () => toggleModuleMenu());
+      slideNumEl.addEventListener('click', () => openSlideFinder());
     }
     root.appendChild(slideNumEl);
   }
@@ -1579,52 +1597,6 @@ export function init(userConfig = {}) {
   }
 
   // ----- module menu (playlist or in-file markers) ---------------------------
-  let moduleMenuEl = null, mmSel = 0, mmMode = null;
-  function mmSelect(i) {
-    const rows = moduleMenuEl.querySelectorAll('.mm-row');
-    mmSel = Math.max(0, Math.min(i, rows.length - 1));
-    rows.forEach((r, j) => r.classList.toggle('mm-selected', j === mmSel));
-    rows[mmSel]?.scrollIntoView({ block: 'nearest' });
-  }
-  function mmCommit(i) {
-    if (mmMode.useMarkers) {
-      const target = mmMode.markers[i];
-      toggleModuleMenu();
-      if (target) instance.goto(target.slide, 0, { force: true });
-    } else if (i === playlistIndex) {
-      toggleModuleMenu();
-    } else {
-      navigateToModule(i);
-    }
-  }
-  function toggleModuleMenu() {
-    if (moduleMenuEl) { moduleMenuEl.remove(); moduleMenuEl = null; mmMode = null; return; }
-    const markers = inFileMarkers();
-    const useMarkers = markers.length > 0; // in-file mode wins over playlist
-    if (!useMarkers && !playlist) return;
-    mmMode = { useMarkers, markers };
-    const entries = useMarkers ? markers : playlist.modules;
-    const curIdx = useMarkers ? Math.max(0, currentMarkerIndex(markers)) : playlistIndex;
-    moduleMenuEl = document.createElement('div');
-    moduleMenuEl.className = 'decklight-module-menu';
-    moduleMenuEl.innerHTML =
-      '<div class="mm-panel"><div class="mm-title">Modules</div>' +
-      '<div class="mm-list" role="listbox" aria-label="Modules"></div></div>';
-    const listBox = moduleMenuEl.querySelector('.mm-list');
-    entries.forEach((m, i) => {
-      const row = document.createElement('div');
-      row.className = 'mm-row' + (i === curIdx ? ' mm-current' : '');
-      row.setAttribute('role', 'option');
-      row.textContent = m.title;
-      row.addEventListener('mouseenter', () => mmSelect(i));
-      row.addEventListener('click', () => mmCommit(i));
-      listBox.appendChild(row);
-    });
-    moduleMenuEl.addEventListener('click', (e) => { if (e.target === moduleMenuEl) toggleModuleMenu(); });
-    root.appendChild(moduleMenuEl);
-    mmSelect(curIdx);
-  }
-
   let blackoutEl = null;
   function toggleBlackout() {
     if (blackoutEl) { blackoutEl.remove(); blackoutEl = null; return; }
@@ -1677,6 +1649,10 @@ export function init(userConfig = {}) {
   // when you were looking at the slide, not the corner — so every one is kept
   // and can be read back. Reachable while presenting AND while editing notes:
   // the reason the voice died is the one thing you always need to see.
+  // The message LOG (I). Messages fade after a few seconds — which is exactly
+  // when you were looking at the slide, not the corner — so every one is kept
+  // and can be read back. Reachable while presenting AND while editing notes:
+  // the reason the voice died is the one thing you always need to see.
   function renderMsgList() {
     const log = msgListEl?.querySelector('.msg-log');
     if (!log) return;
@@ -1706,7 +1682,7 @@ export function init(userConfig = {}) {
     if (msgListEl) { msgListEl.remove(); msgListEl = null; return; }
     msgListEl = document.createElement('div');
     msgListEl.className = 'decklight-msglog';
-    msgListEl.innerHTML = '<div class="msg-head">messages — I closes</div><div class="msg-log"></div>';
+    msgListEl.innerHTML = '<div class="msg-head">messages — the key left of 1 closes</div><div class="msg-log"></div>';
     root.appendChild(msgListEl);
     renderMsgList();
   }
@@ -1735,7 +1711,7 @@ export function init(userConfig = {}) {
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
-      <tr><td>I</td><td>messages (⌃I / ⌥I also works while editing notes)</td></tr>
+      <tr><td>&#96;</td><td>messages — the key left of 1 (⌃&#96; / ⌥&#96; also works while editing notes)</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
@@ -1748,22 +1724,30 @@ export function init(userConfig = {}) {
       <tr><td>L / ⇧L</td><td>slide layout (auto · centered · pinned · top · split ⇄)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
-      ${(playlist || hasMarkersDOM) ? '<tr><td>M</td><td>module menu</td></tr>' : ''}
       <tr><td>?</td><td>this help</td></tr></table></div>`;
     helpEl.addEventListener('click', toggleHelp);
     root.appendChild(helpEl);
   }
 
   // ----- input -------------------------------------------------------------
+  // The messages key: physically the one left of "1". `code` is the layout-
+  // independent name for that position; the `key` fallbacks cover browsers or
+  // remappings that report no code (` and ~ on US/UK, ² on AZERTY).
+  const isMsgKey = (e) => e.code === 'Backquote'
+    || e.key === '`' || e.key === '~' || e.key === '²';
   function onKey(e) {
-    // Messages (I) — the ONE shortcut that must reach you wherever you are.
+    // Messages (`) — the ONE shortcut that must reach you wherever you are.
     // Every guard below this line drops keys: the notes editor swallows them
     // (a textarea owns its typing), pickers trap them, the finder eats letters
     // into its query. But the message that explains why the voice died has to
     // be readable while presenting AND while editing, so the modifier form is
-    // handled first, before any of that — and the bare `i` falls through to the
+    // handled first, before any of that — and the bare key falls through to the
     // main table, where a typing surface has already claimed it.
-    if ((e.metaKey || e.ctrlKey || e.altKey) && !e.shiftKey && (e.key === 'i' || e.key === 'I')) {
+    //
+    // Matched on e.code, not e.key: this is the key LEFT OF "1", and what it
+    // prints depends on the layout (` on a US keyboard, ² on a French one).
+    // The position is the shortcut; the character is an accident.
+    if (isMsgKey(e) && (e.metaKey || e.ctrlKey || e.altKey)) {
       toggleMessages();
       e.preventDefault();
       return;
@@ -1873,17 +1857,6 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
-    if (moduleMenuEl) {
-      switch (e.key) {
-        case 'ArrowDown': mmSelect(mmSel + 1); break;
-        case 'ArrowUp': mmSelect(mmSel - 1); break;
-        case 'Enter': mmCommit(mmSel); break;
-        case 'Escape': case 'm': case 'M': toggleModuleMenu(); break;
-        default: return;
-      }
-      e.preventDefault();
-      return;
-    }
     if (overviewEl) {
       switch (e.key) {
         case 'ArrowRight': ovSelect(ovSel + 1); break;
@@ -1897,6 +1870,8 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
+    // positional, so it cannot be a `case` in a switch over e.key
+    if (isMsgKey(e)) { toggleMessages(); e.preventDefault(); return; }
     switch (e.key) {
       case 'ArrowRight': case ' ': case 'PageDown': instance.next(); break;
       case 'ArrowLeft': case 'PageUp': instance.prev(); break;
@@ -1905,7 +1880,6 @@ export function init(userConfig = {}) {
       case 'o': case 'O': toggleOverview(); break;
       case 'b': case 'B': toggleBlackout(); break;
       case 'd': case 'D': toggleDebug(); break;
-      case 'i': case 'I': toggleMessages(); break;
       case 'c': case 'C': toggleCaptions(); break;
       case 'p': case 'P': toggleNarrPause(); break;
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
@@ -1931,7 +1905,6 @@ export function init(userConfig = {}) {
       case ']': cycleFont(1); break;
       case '[': cycleFont(-1); break;
       case 'l': case 'L': cycleLayout(e.shiftKey ? -1 : 1); break;
-      case 'm': case 'M': if (!playlist && !hasMarkersDOM) return; toggleModuleMenu(); break;
       case '?': toggleHelp(); break;
       case 'Escape':
         if (cancelCyclePending()) break;
@@ -2333,7 +2306,7 @@ export function init(userConfig = {}) {
       // must not move on. (A segment with no words at all is a legitimate silent
       // beat and still advances.)
       if (!spoke && sentences.length) {
-        stopNarration('🔇 the voice did not play — auto-advance stopped · I shows why');
+        stopNarration('🔇 the voice did not play — auto-advance stopped · press the key left of 1 for messages');
         return;
       }
       advanceFrom(sl, step);
@@ -2349,7 +2322,7 @@ export function init(userConfig = {}) {
       return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight dev --tts-engine chirp';
     }
     if (/^\d{3}/.test(s)) {
-      return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · I shows the messages`;
+      return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · press the key left of 1 for messages`;
     }
     return '🔇 voice bridge unreachable — auto-advance stopped · start it with: decklight tts';
   }
@@ -2370,7 +2343,7 @@ export function init(userConfig = {}) {
     // nothing on screen, an unnarrated slide is indistinguishable from a broken one
     narrAudio.onerror = () => {
       debugLog('narr', `no audio: ${file}`);
-      toast(`🔇 no narration for slide ${instance.state.slide} (${file}) · I shows the messages`);
+      toast(`🔇 no narration for slide ${instance.state.slide} (${file}) · press the key left of 1 for messages`);
     };
     narrAudio.play().catch(() => {
       toast('🔇 the browser blocked audio — click the deck once, then V');

@@ -53,13 +53,19 @@ function run(mode) {
 }
 
 let bad = 0;
-for (const mode of ['healthy', 'flaky', 'dead', 'keys']) {
+for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules']) {
   const r = run(mode);
   const ok = r.PASS === true;
   if (!ok) bad++;
   if (mode === 'keys') {
-    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} play: i opens=${r.playOpens} closes=${r.playCloses}`
-      + ` · edit: bare-i ignored=${r.editIgnoresBareKey} ⌃I opens=${r.editCtrlOpens} ⌥I opens=${r.editAltOpens}`
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} play: \` opens=${r.playOpens} closes=${r.playCloses} azerty(²)=${r.azertyOpens}`
+      + ` · edit: bare ignored=${r.editIgnoresBareKey} ⌃\` opens=${r.editCtrlOpens} ⌥\` opens=${r.editAltOpens}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'modules') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} M gone=${r.noModuleMenu} · finder lists slides=${r.listsSlides}`
+      + ` modules=${r.listsModules} (marked=${r.moduleRowMarked}, current hidden=${r.hidesCurrentModule})`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

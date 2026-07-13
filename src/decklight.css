@@ -672,45 +672,8 @@
 .decklight-touch-btn:active { background: rgba(70, 70, 74, .6); }
 @media (pointer: coarse) { .decklight-touch-controls { display: flex; } }
 
-/* module menu (playlist): list overlay, same pattern as the theme picker */
-.decklight-module-menu {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  background: rgba(0, 0, 0, .55);
-  backdrop-filter: blur(3px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.decklight-module-menu .mm-panel {
-  width: min(460px, 80vw);
-  max-height: min(560px, 80vh);
-  display: flex;
-  flex-direction: column;
-  background: #16181d;
-  color: #e8eaee;
-  border-radius: 14px;
-  padding: 18px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
-  font: 15px/1.4 system-ui, sans-serif;
-}
-.decklight-module-menu .mm-title {
-  font-weight: 600;
-  opacity: .7;
-  padding: 0 12px 10px;
-  text-transform: uppercase;
-  font-size: 12px;
-  letter-spacing: .08em;
-}
-.decklight-module-menu .mm-list { overflow-y: auto; }
-.decklight-module-menu .mm-row {
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-.decklight-module-menu .mm-row.mm-selected { background: rgba(255, 255, 255, .14); }
-.decklight-module-menu .mm-row.mm-current::after { content: ' ✓'; opacity: .7; }
+/* a finder row that is another module (a separate file), not a slide here */
+.decklight-finder .tp-row.tp-module { color: #cbb6ff; }
 
 /* overview */
 .decklight-overview-grid {
