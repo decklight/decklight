@@ -10,7 +10,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { planServices } from '../cli/dev.mjs';
+import { planServices, inGitRepo } from '../cli/dev.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -81,6 +81,30 @@ test('ports and bridge flags pass through to the right child', () => {
   assert.equal(svc(p, 'edit').args.at(-1), '9000');
   assert.deepEqual(svc(p, 'tts').args, ['tts', '--port', '9001', '--project', 'p', '--tts-model', 'm']);
   assert.deepEqual(svc(p, 'lipsync').args, ['lipsync', '--port', '9002', '--wav2lip-dir', '/w']);
+});
+
+test('git and agent flags ride along to the edit child', () => {
+  const p = plan(['deck.html', '--git', '--commit-every', '60', '--agent', 'codex']);
+  assert.deepEqual(svc(p, 'edit').args,
+    ['edit', 'deck.html', '--port', '8788', '--git', '--commit-every', '60', '--agent', 'codex']);
+  assert.ok(svc(plan(['deck.html', '--no-git']), 'edit').args.includes('--no-git'));
+  // the deck is still found past the new value flags
+  assert.equal(plan(['--agent', 'claude', 'deck.html']).deck, 'deck.html');
+  assert.equal(plan(['--commit-every', '60', 'deck.html']).deck, 'deck.html');
+});
+
+test('the agent roster is part of the plan — the big three included', () => {
+  const all = plan(['deck.html'], { hasBin: ALL_BINS });
+  for (const name of ['claude', 'codex', 'bob']) {
+    assert.ok(all.agents.includes(name), `${name} missing`);
+  }
+  assert.deepEqual(plan(['deck.html']).agents, [], 'a bare machine has none');
+});
+
+test('inGitRepo trusts git\'s answer and treats failure as "no repo"', () => {
+  assert.equal(inGitRepo('/anywhere', () => 'true\n'), true);
+  assert.equal(inGitRepo('/anywhere', () => 'false\n'), false);
+  assert.equal(inGitRepo('/anywhere', () => { throw new Error('not a repo'); }), false);
 });
 
 test('dev is routed and documented by the dispatcher', () => {
