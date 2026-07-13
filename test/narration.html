@@ -88,9 +88,43 @@
 
     const deck = Decklight.init({ narration: { liveUrl: 'http://127.0.0.1:8899/tts' } });
 
+    // The message shortcut has to reach the presenter WHEREVER they are: mid-talk,
+    // and mid-edit — where a focused textarea owns every bare keystroke, so `i`
+    // must type an "i" and the modifier form must still open the log.
+    const press = (k, target, opts = {}) => target.dispatchEvent(
+      new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+    const logOpen = () => !!document.querySelector('.decklight-msglog');
+
     (async () => {
       const r = {};
       try {
+        if (mode === 'keys') {
+          // play mode: a bare `i` toggles the log
+          press('i', document.body);
+          r.playOpens = logOpen();
+          press('i', document.body);
+          r.playCloses = !logOpen();
+
+          // edit mode: a textarea has focus (this is what `E` gives you)
+          const ta = document.createElement('textarea');
+          document.body.appendChild(ta);
+          ta.focus();
+
+          press('i', ta);                       // must be swallowed by the textarea
+          r.editIgnoresBareKey = !logOpen();
+          press('i', ta, { ctrlKey: true });    // …but the modifier form gets through
+          r.editCtrlOpens = logOpen();
+          press('i', ta, { ctrlKey: true });
+          r.editCtrlCloses = !logOpen();
+          press('i', ta, { altKey: true });     // ⌥I too, for keyboards where ⌃I is taken
+          r.editAltOpens = logOpen();
+
+          r.PASS = r.playOpens && r.playCloses && r.editIgnoresBareKey
+            && r.editCtrlOpens && r.editCtrlCloses && r.editAltOpens;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
         deck.toggleNarration();                                  // V
         await new Promise((ok) => setTimeout(ok, 3000));         // let the chain run
 
@@ -99,10 +133,29 @@
         r.total = deck.state.totalSlides;
         r.ttsCalls = calls;
         r.failures = failures;
-        // healthy/flaky: narration walks the deck to the end.
-        // dead: it must NOT race through — it gives up after 2 silent segments.
-        r.advanced = mode === 'dead' ? deck.state.slide <= 2 : deck.state.slide === deck.state.totalSlides;
-        r.PASS = r.advanced === true;
+
+        const msgs = deck.messages().map((m) => m.text);
+        r.messages = msgs.length;
+
+        if (mode === 'healthy') {
+          // the voice carries the deck to the last slide, on its own
+          r.PASS = deck.state.slide === deck.state.totalSlides;
+        } else {
+          // THE VOICE IS THE CLOCK. It could not speak, so the deck must not
+          // have moved on — and it must SAY why, in a message that is kept.
+          const stopped = deck.state.slide === 1;
+          const explained = msgs.some((m) => /voice|auto-advance/i.test(m));
+          // the message window is on screen, top-left, and the log opens over it
+          const windowUp = !!document.querySelector('.decklight-messages .decklight-toast');
+          deck.toggleMessages();
+          const logUp = !!document.querySelector('.decklight-msglog .msg-row');
+          r.stopped = stopped;
+          r.explained = explained;
+          r.windowUp = windowUp;
+          r.logUp = logUp;
+          r.lastMessage = msgs[msgs.length - 1] ?? '';
+          r.PASS = stopped && explained && windowUp && logUp;
+        }
       } catch (e) {
         r.exception = String(e && e.stack || e);
         r.PASS = false;

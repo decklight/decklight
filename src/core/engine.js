@@ -313,18 +313,37 @@ export function init(userConfig = {}) {
       ? themeStyles.find((s) => s.media !== 'not all')?.dataset.theme
       : (themeLink ? themeOf(themeLink.href) : undefined);
   };
-  let toastEl, toastTimer;
-  function toast(msg, ms = 1200) {
+  // Messages (SPEC §8): the deck talks back in the top-left corner — big enough
+  // to read from the back of a room, gone a few seconds later. Every one is also
+  // KEPT: a message that explains why the voice stopped is worthless if it faded
+  // while you were looking at the slide. `I` shows the log (see toggleMessages).
+  const MSG_KEEP = 200;   // ring buffer
+  const MSG_STACK = 4;    // visible at once — beyond that the oldest goes early
+  const msgLog = [];
+  let msgEl = null;
+  let msgListEl = null;
+  function messages() { return msgLog; }
+  function toast(msg, ms = 3200) {
+    msgLog.push({ at: new Date(), text: String(msg) });
+    if (msgLog.length > MSG_KEEP) msgLog.shift();
+    if (msgListEl) renderMsgList();   // the log is open — keep it live
     if (printMode) return;
-    if (!toastEl) {
-      toastEl = document.createElement('div');
-      toastEl.className = 'decklight-toast';
-      root.appendChild(toastEl);
+    if (!msgEl) {
+      msgEl = document.createElement('div');
+      msgEl.className = 'decklight-messages';
+      root.appendChild(msgEl);
     }
-    toastEl.textContent = msg;
-    toastEl.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+    const row = document.createElement('div');
+    row.className = 'decklight-toast';
+    row.textContent = msg;
+    msgEl.appendChild(row);
+    requestAnimationFrame(() => row.classList.add('show'));
+    while (msgEl.children.length > MSG_STACK) msgEl.firstChild.remove();
+    const drop = () => {
+      row.classList.remove('show');
+      setTimeout(() => row.remove(), 260); // after the fade
+    };
+    setTimeout(drop, ms);
   }
   function applyTheme(name, silent = false) {
     if (!name || !/^[\w-]+$/.test(name)) return;
@@ -867,6 +886,7 @@ export function init(userConfig = {}) {
       genTheme && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
       { label: 'Cycle slide layout', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
+      { label: 'Messages', hint: 'I', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
       { label: `Narration ${narrating ? 'off' : 'on'}`, hint: 'V', run: toggleNarration },
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
@@ -1653,6 +1673,44 @@ export function init(userConfig = {}) {
     const log = debugEl.querySelector('.dbg-log');
     log.scrollTop = log.scrollHeight;
   }
+  // The message LOG (I). Messages fade after a few seconds — which is exactly
+  // when you were looking at the slide, not the corner — so every one is kept
+  // and can be read back. Reachable while presenting AND while editing notes:
+  // the reason the voice died is the one thing you always need to see.
+  function renderMsgList() {
+    const log = msgListEl?.querySelector('.msg-log');
+    if (!log) return;
+    log.innerHTML = '';
+    if (!msgLog.length) {
+      const empty = document.createElement('div');
+      empty.className = 'msg-empty';
+      empty.textContent = 'no messages yet';
+      log.appendChild(empty);
+      return;
+    }
+    msgLog.forEach(({ at, text }) => {
+      const row = document.createElement('div');
+      row.className = 'msg-row';
+      const t = document.createElement('span');
+      t.className = 'msg-time';
+      t.textContent = at.toLocaleTimeString([], { hour12: false });
+      const m = document.createElement('span');
+      m.className = 'msg-text';
+      m.textContent = text;
+      row.append(t, m);
+      log.appendChild(row);
+    });
+    log.scrollTop = log.scrollHeight;
+  }
+  function toggleMessages() {
+    if (msgListEl) { msgListEl.remove(); msgListEl = null; return; }
+    msgListEl = document.createElement('div');
+    msgListEl.className = 'decklight-msglog';
+    msgListEl.innerHTML = '<div class="msg-head">messages — I closes</div><div class="msg-log"></div>';
+    root.appendChild(msgListEl);
+    renderMsgList();
+  }
+
   // feed the log: engine events + page errors (theme/font/narration log at
   // their call sites). The panel is passive chrome — keys keep driving the
   // deck while it's open, so you can watch events land as you navigate.
@@ -1677,6 +1735,7 @@ export function init(userConfig = {}) {
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
+      <tr><td>I</td><td>messages (⌃I / ⌥I also works while editing notes)</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
@@ -1697,6 +1756,18 @@ export function init(userConfig = {}) {
 
   // ----- input -------------------------------------------------------------
   function onKey(e) {
+    // Messages (I) — the ONE shortcut that must reach you wherever you are.
+    // Every guard below this line drops keys: the notes editor swallows them
+    // (a textarea owns its typing), pickers trap them, the finder eats letters
+    // into its query. But the message that explains why the voice died has to
+    // be readable while presenting AND while editing, so the modifier form is
+    // handled first, before any of that — and the bare `i` falls through to the
+    // main table, where a typing surface has already claimed it.
+    if ((e.metaKey || e.ctrlKey || e.altKey) && !e.shiftKey && (e.key === 'i' || e.key === 'I')) {
+      toggleMessages();
+      e.preventDefault();
+      return;
+    }
     if (/^(input|textarea|select)$/i.test(e.target.tagName)) return;
     // ⌃T generates, ⌃⇧T saves — both must precede the modifier early-return
     // (macOS tab shortcuts are ⌘-based, so Ctrl reaches the page; on
@@ -1834,6 +1905,7 @@ export function init(userConfig = {}) {
       case 'o': case 'O': toggleOverview(); break;
       case 'b': case 'B': toggleBlackout(); break;
       case 'd': case 'D': toggleDebug(); break;
+      case 'i': case 'I': toggleMessages(); break;
       case 'c': case 'C': toggleCaptions(); break;
       case 'p': case 'P': toggleNarrPause(); break;
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
@@ -1929,6 +2001,8 @@ export function init(userConfig = {}) {
   instance.cycleFont = cycleFont;                           // [ / ], programmatic (±1)
   instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1)
   instance.toggleNarration = toggleNarration;               // V, programmatic
+  instance.toggleMessages = toggleMessages;                 // I, programmatic
+  instance.messages = messages;                             // [{ at, text }] — every message shown
 
   // ── narration (V) + picker (N) — SPEC §8 ────────────────────────────────
   // Two sources, one V toggle. RECORDED: pre-rendered per-slide audio
@@ -2160,7 +2234,6 @@ export function init(userConfig = {}) {
   let narrPaused = false;     // P — freezes audio, captions and auto-advance
   let liveChainActive = false; // a sentence chain is running for liveChainGen
   let liveChainGen = 0;
-  let liveDeadSegs = 0; // consecutive segments that had words but spoke none
   function toggleNarrPause() {
     if (!narrating) { toast('narration is off — V starts it'); return; }
     narrPaused = !narrPaused;
@@ -2219,13 +2292,14 @@ export function init(userConfig = {}) {
         let clip;
         try {
           clip = await fetchLiveSentence(sl, step, i);
-        } catch {
-          // One sentence failing (a quota 429, a bridge restart) must not strand
-          // the deck: skip it and keep the chain, so the segment's advance below
-          // still fires. A silent beat beats a frozen presentation.
-          debugLog('narr', `sentence failed (slide ${sl} seg ${step} #${i + 1}) — skipped`);
-          if (!liveWarned) { toast('live voice stumbled — skipping ahead'); liveWarned = true; }
-          continue;
+        } catch (err) {
+          // The VOICE IS THE CLOCK. If it cannot speak, the deck must not keep
+          // moving: auto-advancing in silence would walk the talk past slides
+          // nobody has heard, and the presenter — watching the slides, not the
+          // console — would have no idea why. Stop, and say what happened.
+          debugLog('narr', `sentence failed (slide ${sl} seg ${step} #${i + 1}) — narration stopped`);
+          stopNarration(liveFailure(err));
+          return;
         }
         if (stale()) return;
         if (!clip) continue;
@@ -2246,20 +2320,38 @@ export function init(userConfig = {}) {
           narrAudio.onended = done;
           narrAudio.play().catch(() => { blocked = true; done(); });
         });
-        if (blocked) return; // autoplay policy — a user gesture restarts
+        if (blocked) {
+          // the browser refused to play unprompted — the audio exists, so this
+          // is one click away, and the deck waits rather than running on mute
+          stopNarration('🔇 the browser blocked audio — click the deck once, then V — the slides wait for the voice');
+          return;
+        }
         spoke++;
       }
       if (stale()) return;
-      // A segment that said NOTHING when it had words to say means the bridge is
-      // failing, not stumbling — and advancing on every silent segment would race
-      // the deck to the end at fetch-error speed. Carry on through the first one
-      // (a lone 429 shouldn't cost the presentation), then stop.
-      if (spoke || !sentences.length) { liveDeadSegs = 0; advanceFrom(sl, step); return; }
-      if (++liveDeadSegs >= 2) return stopNarration('live voice bridge unreachable — narration off · run: decklight tts');
+      // Nothing spoken, but words to speak: the audio never played, so the deck
+      // must not move on. (A segment with no words at all is a legitimate silent
+      // beat and still advances.)
+      if (!spoke && sentences.length) {
+        stopNarration('🔇 the voice did not play — auto-advance stopped · I shows why');
+        return;
+      }
       advanceFrom(sl, step);
     } finally {
       if (liveChainGen === gen) liveChainActive = false;
     }
+  }
+  // What went wrong, in the presenter's words — and what to do about it. The
+  // bridge throws the HTTP status; a dead bridge throws a TypeError from fetch.
+  function liveFailure(err) {
+    const s = String(err?.message ?? err);
+    if (s.startsWith('429')) {
+      return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight dev --tts-engine chirp';
+    }
+    if (/^\d{3}/.test(s)) {
+      return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · I shows the messages`;
+    }
+    return '🔇 voice bridge unreachable — auto-advance stopped · start it with: decklight tts';
   }
   function playSlideFile() {
     if (!narrSet) return;
@@ -2267,13 +2359,22 @@ export function init(userConfig = {}) {
     narrAudio ??= new Audio();
     // state.slide and the files are BOTH 1-based (slide-01 = first section).
     // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
-    narrAudio.src = `${narrSet.dir}/slide-${String(instance.state.slide).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
+    const file = `${narrSet.dir}/slide-${String(instance.state.slide).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
+    narrAudio.src = file;
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
       character.attachAudio(narrAudio);
       character.beginSlide(narrSet, instance.state.slide);
     }
-    narrAudio.play().catch(() => { /* no file for this slide */ });
+    // a track with no file for this slide used to fail in total silence — with
+    // nothing on screen, an unnarrated slide is indistinguishable from a broken one
+    narrAudio.onerror = () => {
+      debugLog('narr', `no audio: ${file}`);
+      toast(`🔇 no narration for slide ${instance.state.slide} (${file}) · I shows the messages`);
+    };
+    narrAudio.play().catch(() => {
+      toast('🔇 the browser blocked audio — click the deck once, then V');
+    });
   }
   // the one teardown: V, and the bridge giving up, must leave the same state
   function stopNarration(msg = 'narration off') {
@@ -2291,7 +2392,6 @@ export function init(userConfig = {}) {
     if (!narrSet) { openNarrPicker(narrSets.length ? 'tracks' : 'voices'); return; }
     if (narrating) return stopNarration();
     narrating = true;
-    liveDeadSegs = 0; // a fresh start forgives an earlier bridge outage
     liveWarned = false;
     const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
     toast(`🔊 ${what} — V stops · N picks`);

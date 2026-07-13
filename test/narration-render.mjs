@@ -5,12 +5,16 @@
 /**
  * Narration auto-advance, and what a failing voice bridge does to it.
  *
+ * The voice is the clock: the deck advances when a segment finishes speaking.
+ * So when the voice CANNOT be played, the deck must stop — advancing in silence
+ * would walk the talk past slides nobody has heard — and it must say why, where
+ * the presenter is actually looking.
+ *
  * Three runs of test/narration.html (audio and bridge both mocked in-page):
  *   healthy — every sentence synthesizes: the deck walks itself to the last slide
- *   flaky   — the first sentence 429s: the deck must STILL reach the last slide
- *             (one bad clip used to strand the presentation where it landed)
- *   dead    — every sentence 429s: narration must give up, NOT race the deck to
- *             the end in silence at fetch-error speed
+ *   flaky   — the first sentence 429s: the deck HOLDS on slide 1, shows a message
+ *             explaining it, and keeps that message in the log (I)
+ *   dead    — every sentence 429s: same, and it never races ahead
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -49,12 +53,22 @@ function run(mode) {
 }
 
 let bad = 0;
-for (const mode of ['healthy', 'flaky', 'dead']) {
+for (const mode of ['healthy', 'flaky', 'dead', 'keys']) {
   const r = run(mode);
   const ok = r.PASS === true;
   if (!ok) bad++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} slide ${r.slide}/${r.total} · ${r.ttsCalls} tts calls, ${r.failures} failed`
+  if (mode === 'keys') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} play: i opens=${r.playOpens} closes=${r.playCloses}`
+      + ` · edit: bare-i ignored=${r.editIgnoresBareKey} ⌃I opens=${r.editCtrlOpens} ⌥I opens=${r.editAltOpens}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  const detail = mode === 'healthy'
+    ? ''
+    : ` · stopped=${r.stopped} explained=${r.explained} window=${r.windowUp} log=${r.logUp}`;
+  console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} slide ${r.slide}/${r.total} · ${r.ttsCalls} tts calls, ${r.failures} failed${detail}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+  if (r.lastMessage) console.log(`       message: "${r.lastMessage}"`);
 }
 if (bad) { console.error('narration-render: FAILED'); process.exit(1); }
 console.log('narration-render: PASS');
