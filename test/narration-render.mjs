@@ -53,13 +53,19 @@ function run(mode) {
 }
 
 let bad = 0;
-for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules']) {
+for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded']) {
   const r = run(mode);
   const ok = r.PASS === true;
   if (!ok) bad++;
   if (mode === 'keys') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} play: \` opens=${r.playOpens} closes=${r.playCloses} azerty(²)=${r.azertyOpens}`
       + ` · edit: bare ignored=${r.editIgnoresBareKey} ⌃\` opens=${r.editCtrlOpens} ⌥\` opens=${r.editAltOpens}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'recorded') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} silent slide stays quiet=${r.quietOnSlideWithNoNotes}`
+      + ` · missing file warns=${r.warnsOnMissingFile}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

@@ -18,7 +18,7 @@
   -->
   <div class="decklight">
     <section><h1>One</h1><aside class="notes">First sentence here. Second sentence here.</aside></section>
-    <section><h2>Two</h2><aside class="notes">Slide two speaks.</aside></section>
+    <section><h2>Two</h2></section>
     <section><h2>Three</h2><aside class="notes">Slide three speaks.</aside></section>
     <section><h2>Four</h2><aside class="notes">Slide four speaks.</aside></section>
   </div>
@@ -29,13 +29,20 @@
     // ── mock <audio>: every clip "plays" and ends on the next tick ───────────
     window.Audio = class {
       constructor() {
-        this.onended = null; this.paused = true; this.ended = false;
+        this.onended = null; this.onerror = null; this.paused = true; this.ended = false;
         this.currentTime = 0; this.playbackRate = 1; this._src = '';
       }
       get src() { return this._src; }
       set src(v) { this._src = v; this.ended = false; }
       play() {
         this.paused = false;
+        // only slide-01 and slide-04 have files. slide-02 was never generated (no
+        // notes) and slide-03 is missing — a real <audio> 404s on both, and the
+        // browser reports it as an `error` event, not a rejected play()
+        if (this._src.includes('slide-02') || this._src.includes('slide-03')) {
+          setTimeout(() => this.onerror?.(new Event('error')), 5);
+          return Promise.resolve();
+        }
         setTimeout(() => { this.ended = true; this.paused = true; this.onended?.(); }, 10);
         return Promise.resolve();
       }
@@ -83,10 +90,19 @@
   <script>
     const sink = document.getElementById('test-sink');
     const key = 'decklight-narration:' + location.pathname;
-    // pick the live voice exactly as the N picker persists it
-    localStorage.setItem(key, JSON.stringify({ live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
+    // pick the voice exactly as the N picker persists it — a recorded TRACK for
+    // the recorded case, the live bridge otherwise (a persisted live voice wins
+    // over config.narration.files, which is what made this test lie the first time)
+    localStorage.setItem(key, JSON.stringify(mode === 'recorded'
+      ? { dir: 'voices' }
+      : { live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
 
     const cfg = { narration: { liveUrl: 'http://127.0.0.1:8899/tts' } };
+    if (mode === 'recorded') {
+      // slide 2 has NO notes (nothing to say → no file, and that is fine);
+      // slide 3 has notes but its file is missing (that IS worth saying)
+      cfg.narration = { files: [{ label: 'Test', dir: 'voices' }] };
+    }
     if (mode === 'modules') {
       cfg.playlist = {
         index: 0,
@@ -142,6 +158,24 @@
 
           r.PASS = r.playOpens && r.playCloses && r.azertyOpens && r.editIgnoresBareKey
             && r.editCtrlOpens && r.editCtrlCloses && r.editAltOpens;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'recorded') {
+          deck.toggleNarration();                 // V — plays slide 1's clip
+          await new Promise((ok) => setTimeout(ok, 300));
+          deck.goto(2, 0);                        // no notes → no file → must stay quiet
+          await new Promise((ok) => setTimeout(ok, 300));
+          const afterSilentSlide = deck.messages().map((m) => m.text);
+          r.quietOnSlideWithNoNotes = !afterSilentSlide.some((m) => /no narration/.test(m));
+
+          deck.goto(3, 0);                        // has notes, file is missing → say so
+          await new Promise((ok) => setTimeout(ok, 400));
+          const msgs = deck.messages().map((m) => m.text);
+          r.warnsOnMissingFile = msgs.some((m) => /no narration for slide 3/.test(m));
+          r.lastMessage = msgs[msgs.length - 1] ?? '';
+          r.PASS = r.quietOnSlideWithNoNotes && r.warnsOnMissingFile;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

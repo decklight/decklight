@@ -1596,7 +1596,7 @@ export function init(userConfig = {}) {
     window.addEventListener('resize', layoutOverview);
   }
 
-  // ----- module menu (playlist or in-file markers) ---------------------------
+  // ----- blackout (B) --------------------------------------------------------
   let blackoutEl = null;
   function toggleBlackout() {
     if (blackoutEl) { blackoutEl.remove(); blackoutEl = null; return; }
@@ -2329,6 +2329,11 @@ export function init(userConfig = {}) {
   function playSlideFile() {
     if (!narrSet) return;
     if (narrSet.live) return playLive();
+    // A slide with nothing to say has no file, and that is NOT a failure: the
+    // pre-render tool only emits audio for slides that have notes (the showcase
+    // is 30 slides and 20 clips). Warning here would fire ten times on a deck
+    // that is behaving perfectly — so only a slide that SHOULD speak can complain.
+    if (!notesText(instance.state.slide)) { narrAudio?.pause(); return; }
     narrAudio ??= new Audio();
     // state.slide and the files are BOTH 1-based (slide-01 = first section).
     // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
