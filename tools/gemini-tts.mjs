@@ -11,6 +11,15 @@
 
 import { execFileSync } from 'node:child_process';
 
+/**
+ * GCP project ids: 6–30 chars, lowercase, leading letter, no trailing hyphen.
+ * Worth checking rather than letting Vertex answer, because `project` is
+ * interpolated straight into the request path — punctuation dragged in from a
+ * copy-paste comes back as an opaque 403 on a project that "doesn't exist",
+ * and a stray slash would rewrite the URL outright.
+ */
+export const validProjectId = (id) => /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(id ?? '');
+
 // The prebuilt voice roster (docs' flavor words) — the player shows this
 // same list, keep the two in sync (engine.js GEMINI_VOICES).
 export const GEMINI_VOICES = [
@@ -26,7 +35,9 @@ export const GEMINI_VOICES = [
   ['Sadachbia', 'lively'], ['Sadaltager', 'knowledgeable'], ['Sulafat', 'warm'],
 ];
 
-function gcloudToken() {
+// ADC, not `gcloud auth login` — a separate credential store, and the one every
+// Google client library reads. Shared with the Chirp engine (tools/tts-engines.mjs).
+export function gcloudToken() {
   return execFileSync('gcloud', ['auth', 'application-default', 'print-access-token'],
     { encoding: 'utf8' }).trim();
 }
@@ -82,6 +93,7 @@ export function styledPrompt(style, text) {
  */
 export function createSynth({ project, ttsModel, location } = {}) {
   if (!project) throw new Error('Gemini TTS needs a GCP project — pass { project } (CLI: --project <id> or set GOOGLE_CLOUD_PROJECT)');
+  if (!validProjectId(project)) throw new Error(`not a GCP project id: ${JSON.stringify(project)} — expected 6-30 chars, lowercase letters, digits and hyphens, starting with a letter (stray punctuation from a copy-paste?)`);
   let token = null;
   let route = null;
 
@@ -111,6 +123,9 @@ export function createSynth({ project, ttsModel, location } = {}) {
         model,
         promptTokens: um.promptTokenCount ?? 0,
         audioTokens: um.candidatesTokenCount ?? 0,
+        chars: text.length,
+        // every engine reports a `note`, so the bridge logs one line for all
+        note: `${um.promptTokenCount ?? 0}+${um.candidatesTokenCount ?? 0} tokens`,
         cost: estimateCost(model, um),
       },
     };

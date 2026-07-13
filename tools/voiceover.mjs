@@ -4,25 +4,28 @@
 
 // Voice-over generator: per-slide narration audio from a deck's speaker notes.
 //
-//   node tools/voiceover.mjs <deck.html> [-o <dir>] [--engine piper|gemini]
+//   node tools/voiceover.mjs <deck.html> [-o <dir>] [--engine piper|chirp|gemini]
 //                            [--voice <name>] [--data-dir <dir>]
-//                            [--project <id>] [--location global]
+//                            [--project <id>] [--location global] [--lang en-US]
 //                            [--tts-model gemini-2.5-pro-tts]
 //                            [--model qwen3:30b-a3b] [--no-llm] [--reuse-text]
 //                            [--keep-wav]  (keep the lossless intermediates —
 //                                           tools/lipsync.mjs consumes them)
 //
-// Engines (the built-in macOS voices were dropped: not good enough):
-//   piper  — neural local TTS, fully offline. --voice takes a piper model
-//            name (default en_US-ryan-high, a natural US male). Install:
+// Engines (tools/tts-engines.mjs — the same three the live bridge speaks with;
+// the built-in macOS voices were dropped: not good enough):
+//   piper  — neural local TTS, fully offline, unlimited, free. --voice takes a
+//            piper model name (default en_US-ryan-high, a natural US male):
 //              uv tool install piper-tts
 //              python -m piper.download_voices en_US-ryan-high  (in --data-dir)
-//   gemini — gemini-2.5-pro-tts on Vertex AI. Set the GCP project with
-//            --project or $GOOGLE_CLOUD_PROJECT. --voice takes a prebuilt voice name (default Alnilam;
-//            also Charon, Puck, Fenrir, Iapetus, Kore…). --style sets the
-//            delivery instruction prepended to every slide (default: warm,
-//            welcoming battle-hardened senior engineer).
-//            Auth: gcloud auth application-default login.
+//   chirp  — Chirp 3: HD on the Cloud Text-to-Speech API. Same 30 star-named
+//            voices as gemini, ~1s a sentence, and 1M characters a month free.
+//            No --style: Chirp has no delivery-instruction channel.
+//   gemini — gemini-2.5-{pro,flash}-tts on Vertex AI. The only engine that
+//            honors --style (default: warm, welcoming battle-hardened senior
+//            engineer). No free tier, and pro is slow.
+//   Cloud engines: --project or $GOOGLE_CLOUD_PROJECT, auth via
+//   gcloud auth application-default login.
 //
 // Pipeline: extract each slide's notes (HTML asides or markdown Note: blocks,
 // ⟨CLICK⟩ markers removed) → optionally rewrite into flowing narration with a
@@ -36,7 +39,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
-import { createSynth } from './gemini-tts.mjs';
+import { createEngine } from './tts-engines.mjs';
 
 const args = process.argv.slice(2);
 const deckPath = args.find((a) => !a.startsWith('-'));
@@ -44,7 +47,7 @@ if (!deckPath) { console.error('usage: voiceover.mjs <deck.html> [-o dir] [--eng
 const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
 const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
 const engine = opt('--engine', 'piper');
-const voice = opt('--voice', engine === 'gemini' ? 'Alnilam' : 'en_US-ryan-high');
+const voice = opt('--voice', engine === 'piper' ? 'en_US-ryan-high' : 'Alnilam');
 const style = opt('--style',
   'Read in a warm, welcoming tone, like a friendly battle-hardened senior ' +
   'engineer who is still curious about new technology.');
@@ -54,20 +57,33 @@ const model = opt('--model', 'qwen3:30b-a3b');
 const useLlm = !args.includes('--no-llm');
 const reuseText = args.includes('--reuse-text');
 const keepWav = args.includes('--keep-wav');
-if (engine === 'gemini' && !project) {
-  console.error('gemini engine needs a GCP project — pass --project <id> or set GOOGLE_CLOUD_PROJECT'); process.exit(1);
-}
-const synthGemini = engine === 'gemini'
-  ? createSynth({ project, ttsModel: opt('--tts-model'), location: opt('--location') })
-  : null;
 
-if (engine === 'piper') {
-  try { execFileSync('piper', ['--help'], { stdio: 'ignore' }); }
-  catch { console.error('piper not found — install with: uv tool install piper-tts'); process.exit(1); }
-} else if (engine !== 'gemini') {
-  console.error(`unknown engine '${engine}' — use piper or gemini`);
+// one factory, three engines — the same ones the live bridge speaks with
+let tts;
+try {
+  tts = createEngine({
+    engine, project, voice, dataDir,
+    model: opt('--tts-model'), location: opt('--location'), lang: opt('--lang'),
+  });
+} catch (e) {
+  console.error(e.message);
   process.exit(1);
 }
+
+// WAV → AAC. ffmpeg everywhere; afconvert is Core Audio, so it only exists on
+// macOS — probing in that order keeps this working off a Mac (as tools/lipsync.mjs
+// already does), and both engines' output goes through here.
+const have = (bin, flags = ['-version']) => {
+  try { execFileSync(bin, flags, { stdio: 'ignore' }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
+};
+const encoder = have('ffmpeg') ? 'ffmpeg' : have('afconvert') ? 'afconvert' : null;
+if (!encoder) {
+  console.error('no AAC encoder — install ffmpeg (apt install ffmpeg / brew install ffmpeg)');
+  process.exit(1);
+}
+const toAac = (wav, m4a) => execFileSync(encoder, encoder === 'ffmpeg'
+  ? ['-y', '-i', wav, '-c:a', 'aac', '-b:a', '128k', m4a]
+  : ['-f', 'm4af', '-d', 'aac', wav, m4a], { stdio: 'ignore' });
 
 // ── extract per-slide narration text ─────────────────────────────────────────
 const html = readFileSync(deckPath, 'utf8');
@@ -138,16 +154,11 @@ for (let i = 0; i < slides.length; i++) {
     console.log(`  slide ${n}: unchanged — kept`);
     continue;
   }
-  let costNote = '';
-  if (engine === 'gemini') {
-    const { wav: buf, usage } = await synthGemini(text, { voice, style });
-    writeFileSync(wav, buf);
-    totalCost += usage.cost;
-    costNote = ` · ~$${usage.cost.toFixed(4)}`;
-  } else {
-    execFileSync('piper', ['-m', voice, '--data-dir', dataDir, '-f', wav], { input: text });
-  }
-  execFileSync('afconvert', ['-f', 'm4af', '-d', 'aac', wav, m4a]);
+  const { wav: buf, usage } = await tts.synth(text, { voice, style });
+  writeFileSync(wav, buf);
+  totalCost += usage.cost;
+  const costNote = usage.cost ? ` · ~$${usage.cost.toFixed(4)}` : '';
+  toAac(wav, m4a);
   if (!keepWav) rmSync(wav);
   console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}${costNote}`);
   // crash-safe: persist progress after every slide so an interrupted run

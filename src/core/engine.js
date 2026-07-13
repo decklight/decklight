@@ -313,18 +313,37 @@ export function init(userConfig = {}) {
       ? themeStyles.find((s) => s.media !== 'not all')?.dataset.theme
       : (themeLink ? themeOf(themeLink.href) : undefined);
   };
-  let toastEl, toastTimer;
-  function toast(msg, ms = 1200) {
+  // Messages (SPEC §8): the deck talks back in the top-left corner — big enough
+  // to read from the back of a room, gone a few seconds later. Every one is also
+  // KEPT: a message that explains why the voice stopped is worthless if it faded
+  // while you were looking at the slide. `I` shows the log (see toggleMessages).
+  const MSG_KEEP = 200;   // ring buffer
+  const MSG_STACK = 4;    // visible at once — beyond that the oldest goes early
+  const msgLog = [];
+  let msgEl = null;
+  let msgListEl = null;
+  function messages() { return msgLog; }
+  function toast(msg, ms = 3200) {
+    msgLog.push({ at: new Date(), text: String(msg) });
+    if (msgLog.length > MSG_KEEP) msgLog.shift();
+    if (msgListEl) renderMsgList();   // the log is open — keep it live
     if (printMode) return;
-    if (!toastEl) {
-      toastEl = document.createElement('div');
-      toastEl.className = 'decklight-toast';
-      root.appendChild(toastEl);
+    if (!msgEl) {
+      msgEl = document.createElement('div');
+      msgEl.className = 'decklight-messages';
+      root.appendChild(msgEl);
     }
-    toastEl.textContent = msg;
-    toastEl.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+    const row = document.createElement('div');
+    row.className = 'decklight-toast';
+    row.textContent = msg;
+    msgEl.appendChild(row);
+    requestAnimationFrame(() => row.classList.add('show'));
+    while (msgEl.children.length > MSG_STACK) msgEl.firstChild.remove();
+    const drop = () => {
+      row.classList.remove('show');
+      setTimeout(() => row.remove(), 260); // after the fade
+    };
+    setTimeout(drop, ms);
   }
   function applyTheme(name, silent = false) {
     if (!name || !/^[\w-]+$/.test(name)) return;
@@ -739,7 +758,7 @@ export function init(userConfig = {}) {
   let finderEl = null, finderSel = 0, finderQuery = '', finderMatches = [], finderDebounce;
   let finderFrameReady = false, finderPending = null;
   function finderIndex() {
-    return instance._sections.map((sec, i) => {
+    const slides = instance._sections.map((sec, i) => {
       const contentEls = [...sec.children].filter((el) => !el.matches('aside, script, style'));
       const heading = sec.querySelector('h1, h2, h3');
       const body = contentEls.map((el) => el.textContent).join(' ').replace(/\s+/g, ' ').trim();
@@ -747,6 +766,15 @@ export function init(userConfig = {}) {
         || (body.slice(0, 60) || `slide ${i + 1}`);
       return { slide: i + 1, title, haystack: body.toLowerCase() };
     });
+    // A playlist's other modules are separate FILES — the one thing the old
+    // module menu could do that this finder could not, since the index only ever
+    // saw the current document's sections. They belong here: "go somewhere" is
+    // one question, and it should have one answer. (In-file data-module markers
+    // need nothing: they are ordinary slides, already indexed above.)
+    const modules = (playlist?.modules ?? [])
+      .map((m, i) => ({ module: i, title: m.title, href: m.href, haystack: (m.title || '').toLowerCase() }))
+      .filter((m) => m.module !== playlistIndex);
+    return [...slides, ...modules];
   }
   function renderFinderList() {
     const listBox = finderEl.querySelector('.tp-list');
@@ -761,8 +789,10 @@ export function init(userConfig = {}) {
     listBox.textContent = '';
     finderMatches.forEach((m, i) => {
       const row = document.createElement('div');
-      row.className = 'tp-row' + (m.slide === instance.state.slide ? ' tp-current' : '');
-      row.textContent = `${m.slide} · ${m.title}`;
+      row.className = 'tp-row' + (m.slide === instance.state.slide ? ' tp-current' : '')
+        + (m.href ? ' tp-module' : '');
+      // a module leaves this file, so it says so — it is not slide N of here
+      row.textContent = m.href ? `▸ ${m.title} — module` : `${m.slide} · ${m.title}`;
       row.addEventListener('mouseenter', () => selectFinderRow(i, false));
       row.addEventListener('click', () => { selectFinderRow(i, true); commitFinder(); });
       listBox.appendChild(row);
@@ -770,20 +800,24 @@ export function init(userConfig = {}) {
     if (!finderMatches.length) {
       const none = document.createElement('div');
       none.className = 'tp-none';
-      none.textContent = 'no slides match';
+      none.textContent = 'no matches';
       listBox.appendChild(none);
     }
     const bar = finderEl.querySelector('.tp-filter');
-    bar.textContent = finderQuery || 'type to find a slide…';
+    bar.textContent = finderQuery || (playlist ? 'type to find a slide or module…' : 'type to find a slide…');
     bar.classList.toggle('tp-active', !!finderQuery);
   }
-  function finderPreviewSwap(frame, slide) {
-    if (!frame.dataset.booted) {
-      frame.dataset.booted = '1';
+  // `entry` is a finder row: a slide of THIS deck, or a module — another file,
+  // which the iframe has to actually load rather than postMessage a goto into
+  function finderPreviewSwap(frame, entry) {
+    const doc = entry.href ?? location.pathname;
+    const slide = entry.slide ?? 1;
+    if (frame.dataset.doc !== doc) {
+      frame.dataset.doc = doc;
       finderFrameReady = false;
       frame.addEventListener('load', () => {
         finderFrameReady = true;
-        if (finderPending !== null && finderEl) {
+        if (finderPending && finderEl) {
           const p = finderPending;
           finderPending = null;
           finderPreviewSwap(frame, p);
@@ -794,12 +828,12 @@ export function init(userConfig = {}) {
       const hash = '#/' + slide + '/0';
       const cand = customThemes[name] ? { name, tokens: customThemes[name] }
         : (genTheme && name === genTheme.name) ? genTheme : null;
-      frame.src = location.pathname + (cand
+      frame.src = doc + (cand
         ? '?embedded&gen=' + b64uEncode(cand)
         : name ? '?embedded&theme=' + encodeURIComponent(name) : '?embedded') + hash;
       return;
     }
-    if (!finderFrameReady) { finderPending = slide; return; }
+    if (!finderFrameReady) { finderPending = entry; return; }
     frame.contentWindow?.postMessage({ __decklightPreview: { goto: [slide, 0] } }, '*');
   }
   function selectFinderRow(i, immediate) {
@@ -809,11 +843,13 @@ export function init(userConfig = {}) {
     rows.forEach((r, j) => r.classList.toggle('tp-selected', j === finderSel));
     rows[finderSel]?.scrollIntoView({ block: 'nearest' });
     const m = finderMatches[finderSel];
-    finderEl.querySelector('.tp-caption').textContent = `slide ${m.slide} — ${m.title}`;
+    finderEl.querySelector('.tp-caption').textContent = m.href
+      ? `module — ${m.title} (${m.href})`
+      : `slide ${m.slide} — ${m.title}`;
     clearTimeout(finderDebounce);
     const frame = finderEl.querySelector('iframe');
-    if (immediate) finderPreviewSwap(frame, m.slide);
-    else finderDebounce = setTimeout(() => finderPreviewSwap(frame, m.slide), 60);
+    if (immediate) finderPreviewSwap(frame, m);
+    else finderDebounce = setTimeout(() => finderPreviewSwap(frame, m), 60);
   }
   function setFinderQuery(q) {
     finderQuery = q;
@@ -824,7 +860,9 @@ export function init(userConfig = {}) {
   function commitFinder() {
     const m = finderMatches[finderSel];
     closeSlideFinder();
-    if (m) instance.goto(m.slide, 0);
+    if (!m) return;
+    if (m.href) return navigateToModule(m.module); // another file — a page load
+    instance.goto(m.slide, 0);
   }
   function openSlideFinder() {
     if (finderEl) return closeSlideFinder();
@@ -859,7 +897,7 @@ export function init(userConfig = {}) {
   function paletteCommands() {
     const has = (fn) => typeof fn === 'function';
     const all = [
-      { label: 'Find slide…', hint: 'G', alias: 'search grep goto', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
+      { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: openThemePicker },
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
@@ -870,6 +908,7 @@ export function init(userConfig = {}) {
       { label: 'Undo deck edit (dev)', hint: 'Z', alias: 'revert back history', run: () => deckHistory('undo') },
       { label: 'Redo deck edit (dev)', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') },
       { label: 'Ask agent… (dev)', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk },
+      { label: 'Messages', hint: '`', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
       { label: `Narration ${narrating ? 'off' : 'on'}`, hint: 'V', run: toggleNarration },
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
@@ -883,7 +922,6 @@ export function init(userConfig = {}) {
         else instance.__speakerWin = openSpeakerView(instance);
       } },
       { label: 'Overview', hint: 'O', run: toggleOverview },
-      (playlist || hasMarkersDOM) && { label: 'Module…', hint: 'M', run: toggleModuleMenu },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
@@ -1497,9 +1535,9 @@ export function init(userConfig = {}) {
     slideNumEl = document.createElement('div');
     slideNumEl.className = 'decklight-slide-number';
     if (playlist || hasMarkersDOM) {
-      slideNumEl.title = 'M — module menu';
+      slideNumEl.title = 'G — find a slide or module';
       slideNumEl.style.cursor = 'pointer';
-      slideNumEl.addEventListener('click', () => toggleModuleMenu());
+      slideNumEl.addEventListener('click', () => openSlideFinder());
     }
     root.appendChild(slideNumEl);
   }
@@ -1575,53 +1613,7 @@ export function init(userConfig = {}) {
     window.addEventListener('resize', layoutOverview);
   }
 
-  // ----- module menu (playlist or in-file markers) ---------------------------
-  let moduleMenuEl = null, mmSel = 0, mmMode = null;
-  function mmSelect(i) {
-    const rows = moduleMenuEl.querySelectorAll('.mm-row');
-    mmSel = Math.max(0, Math.min(i, rows.length - 1));
-    rows.forEach((r, j) => r.classList.toggle('mm-selected', j === mmSel));
-    rows[mmSel]?.scrollIntoView({ block: 'nearest' });
-  }
-  function mmCommit(i) {
-    if (mmMode.useMarkers) {
-      const target = mmMode.markers[i];
-      toggleModuleMenu();
-      if (target) instance.goto(target.slide, 0, { force: true });
-    } else if (i === playlistIndex) {
-      toggleModuleMenu();
-    } else {
-      navigateToModule(i);
-    }
-  }
-  function toggleModuleMenu() {
-    if (moduleMenuEl) { moduleMenuEl.remove(); moduleMenuEl = null; mmMode = null; return; }
-    const markers = inFileMarkers();
-    const useMarkers = markers.length > 0; // in-file mode wins over playlist
-    if (!useMarkers && !playlist) return;
-    mmMode = { useMarkers, markers };
-    const entries = useMarkers ? markers : playlist.modules;
-    const curIdx = useMarkers ? Math.max(0, currentMarkerIndex(markers)) : playlistIndex;
-    moduleMenuEl = document.createElement('div');
-    moduleMenuEl.className = 'decklight-module-menu';
-    moduleMenuEl.innerHTML =
-      '<div class="mm-panel"><div class="mm-title">Modules</div>' +
-      '<div class="mm-list" role="listbox" aria-label="Modules"></div></div>';
-    const listBox = moduleMenuEl.querySelector('.mm-list');
-    entries.forEach((m, i) => {
-      const row = document.createElement('div');
-      row.className = 'mm-row' + (i === curIdx ? ' mm-current' : '');
-      row.setAttribute('role', 'option');
-      row.textContent = m.title;
-      row.addEventListener('mouseenter', () => mmSelect(i));
-      row.addEventListener('click', () => mmCommit(i));
-      listBox.appendChild(row);
-    });
-    moduleMenuEl.addEventListener('click', (e) => { if (e.target === moduleMenuEl) toggleModuleMenu(); });
-    root.appendChild(moduleMenuEl);
-    mmSelect(curIdx);
-  }
-
+  // ----- blackout (B) --------------------------------------------------------
   let blackoutEl = null;
   function toggleBlackout() {
     if (blackoutEl) { blackoutEl.remove(); blackoutEl = null; return; }
@@ -1670,6 +1662,48 @@ export function init(userConfig = {}) {
     const log = debugEl.querySelector('.dbg-log');
     log.scrollTop = log.scrollHeight;
   }
+  // The message LOG (I). Messages fade after a few seconds — which is exactly
+  // when you were looking at the slide, not the corner — so every one is kept
+  // and can be read back. Reachable while presenting AND while editing notes:
+  // the reason the voice died is the one thing you always need to see.
+  // The message LOG (I). Messages fade after a few seconds — which is exactly
+  // when you were looking at the slide, not the corner — so every one is kept
+  // and can be read back. Reachable while presenting AND while editing notes:
+  // the reason the voice died is the one thing you always need to see.
+  function renderMsgList() {
+    const log = msgListEl?.querySelector('.msg-log');
+    if (!log) return;
+    log.innerHTML = '';
+    if (!msgLog.length) {
+      const empty = document.createElement('div');
+      empty.className = 'msg-empty';
+      empty.textContent = 'no messages yet';
+      log.appendChild(empty);
+      return;
+    }
+    msgLog.forEach(({ at, text }) => {
+      const row = document.createElement('div');
+      row.className = 'msg-row';
+      const t = document.createElement('span');
+      t.className = 'msg-time';
+      t.textContent = at.toLocaleTimeString([], { hour12: false });
+      const m = document.createElement('span');
+      m.className = 'msg-text';
+      m.textContent = text;
+      row.append(t, m);
+      log.appendChild(row);
+    });
+    log.scrollTop = log.scrollHeight;
+  }
+  function toggleMessages() {
+    if (msgListEl) { msgListEl.remove(); msgListEl = null; return; }
+    msgListEl = document.createElement('div');
+    msgListEl.className = 'decklight-msglog';
+    msgListEl.innerHTML = '<div class="msg-head">messages — the key left of 1 closes</div><div class="msg-log"></div>';
+    root.appendChild(msgListEl);
+    renderMsgList();
+  }
+
   // feed the log: engine events + page errors (theme/font/narration log at
   // their call sites). The panel is passive chrome — keys keep driving the
   // deck while it's open, so you can watch events land as you navigate.
@@ -1694,6 +1728,7 @@ export function init(userConfig = {}) {
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
+      <tr><td>&#96;</td><td>messages — the key left of 1 (⌃&#96; / ⌥&#96; also works while editing notes)</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
@@ -1708,14 +1743,34 @@ export function init(userConfig = {}) {
       <tr><td>A</td><td>ask an AI agent to edit the deck (dev mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
-      ${(playlist || hasMarkersDOM) ? '<tr><td>M</td><td>module menu</td></tr>' : ''}
       <tr><td>?</td><td>this help</td></tr></table></div>`;
     helpEl.addEventListener('click', toggleHelp);
     root.appendChild(helpEl);
   }
 
   // ----- input -------------------------------------------------------------
+  // The messages key: physically the one left of "1". `code` is the layout-
+  // independent name for that position; the `key` fallbacks cover browsers or
+  // remappings that report no code (` and ~ on US/UK, ² on AZERTY).
+  const isMsgKey = (e) => e.code === 'Backquote'
+    || e.key === '`' || e.key === '~' || e.key === '²';
   function onKey(e) {
+    // Messages (`) — the ONE shortcut that must reach you wherever you are.
+    // Every guard below this line drops keys: the notes editor swallows them
+    // (a textarea owns its typing), pickers trap them, the finder eats letters
+    // into its query. But the message that explains why the voice died has to
+    // be readable while presenting AND while editing, so the modifier form is
+    // handled first, before any of that — and the bare key falls through to the
+    // main table, where a typing surface has already claimed it.
+    //
+    // Matched on e.code, not e.key: this is the key LEFT OF "1", and what it
+    // prints depends on the layout (` on a US keyboard, ² on a French one).
+    // The position is the shortcut; the character is an accident.
+    if (isMsgKey(e) && (e.metaKey || e.ctrlKey || e.altKey)) {
+      toggleMessages();
+      e.preventDefault();
+      return;
+    }
     if (/^(input|textarea|select)$/i.test(e.target.tagName)) return;
     // ⌃T generates, ⌃⇧T saves — both must precede the modifier early-return
     // (macOS tab shortcuts are ⌘-based, so Ctrl reaches the page; on
@@ -1825,17 +1880,6 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
-    if (moduleMenuEl) {
-      switch (e.key) {
-        case 'ArrowDown': mmSelect(mmSel + 1); break;
-        case 'ArrowUp': mmSelect(mmSel - 1); break;
-        case 'Enter': mmCommit(mmSel); break;
-        case 'Escape': case 'm': case 'M': toggleModuleMenu(); break;
-        default: return;
-      }
-      e.preventDefault();
-      return;
-    }
     if (overviewEl) {
       switch (e.key) {
         case 'ArrowRight': ovSelect(ovSel + 1); break;
@@ -1849,6 +1893,8 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
+    // positional, so it cannot be a `case` in a switch over e.key
+    if (isMsgKey(e)) { toggleMessages(); e.preventDefault(); return; }
     switch (e.key) {
       case 'ArrowRight': case ' ': case 'PageDown': instance.next(); break;
       case 'ArrowLeft': case 'PageUp': instance.prev(); break;
@@ -1884,7 +1930,6 @@ export function init(userConfig = {}) {
       case 'l': case 'L': cycleLayout(e.shiftKey ? -1 : 1); break;
       case 'z': case 'Z': deckHistory(e.shiftKey ? 'redo' : 'undo'); break;
       case 'a': case 'A': toggleAgentAsk(); break;
-      case 'm': case 'M': if (!playlist && !hasMarkersDOM) return; toggleModuleMenu(); break;
       case '?': toggleHelp(); break;
       case 'Escape':
         if (cancelCyclePending()) break;
@@ -1955,6 +2000,8 @@ export function init(userConfig = {}) {
   instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1); dev mode only
   instance.layoutRing = layoutRing;                         // the ring a slide would cycle (skips applied)
   instance.toggleNarration = toggleNarration;               // V, programmatic
+  instance.toggleMessages = toggleMessages;                 // I, programmatic
+  instance.messages = messages;                             // [{ at, text }] — every message shown
 
   // ── narration (V) + picker (N) — SPEC §8 ────────────────────────────────
   // Two sources, one V toggle. RECORDED: pre-rendered per-slide audio
@@ -1984,6 +2031,30 @@ export function init(userConfig = {}) {
     ['Achird', 'friendly'], ['Zubenelgenubi', 'casual'], ['Vindemiatrix', 'gentle'],
     ['Sadachbia', 'lively'], ['Sadaltager', 'knowledgeable'], ['Sulafat', 'warm'],
   ];
+  // What the bridge can ACTUALLY speak. We ship the Gemini roster because it is
+  // also Chirp's, but the bridge may be running piper — one local model, not
+  // thirty star names — and a picker offering 29 voices that silently do nothing
+  // is a lie. /ping tells us; until it answers, the built-in roster stands.
+  const PING_URL = LIVE_URL.replace(/\/tts\/?$/, '/ping');
+  let liveVoices = GEMINI_VOICES;
+  let liveStylable = true;  // only gemini takes a delivery instruction
+  let liveEngine = null;
+  let livePing = null;
+  function probeLive() {
+    livePing ??= fetch(PING_URL)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (!p) return null;
+        liveEngine = p.engine ?? null;
+        if (Array.isArray(p.voices) && p.voices.length) liveVoices = p.voices;
+        liveStylable = p.stylable !== false;
+        debugLog('tts', `bridge: ${p.engine} · ${p.model} · ${liveVoices.length} voice(s)`
+          + (liveStylable ? '' : ' · no style'));
+        return p;
+      })
+      .catch(() => null); // no bridge — the picker still works, V just warns
+    return livePing;
+  }
   const TONES = [
     // single directive clauses: instruction-shaped text steers; persona
     // sentences ("You're a…") can stochastically be read aloud
@@ -2209,6 +2280,7 @@ export function init(userConfig = {}) {
     const stale = () => gen !== liveSegGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
     liveChainGen = gen;
     liveChainActive = true;
+    let spoke = 0;
     try {
       for (let i = 0; i < sentences.length; i++) {
         while (narrPaused) { // P holds the chain between sentences too
@@ -2216,7 +2288,18 @@ export function init(userConfig = {}) {
           await new Promise((r) => setTimeout(r, 150));
         }
         if (stale()) return;
-        const clip = await fetchLiveSentence(sl, step, i);
+        let clip;
+        try {
+          clip = await fetchLiveSentence(sl, step, i);
+        } catch (err) {
+          // The VOICE IS THE CLOCK. If it cannot speak, the deck must not keep
+          // moving: auto-advancing in silence would walk the talk past slides
+          // nobody has heard, and the presenter — watching the slides, not the
+          // console — would have no idea why. Stop, and say what happened.
+          debugLog('narr', `sentence failed (slide ${sl} seg ${step} #${i + 1}) — narration stopped`);
+          stopNarration(liveFailure(err));
+          return;
+        }
         if (stale()) return;
         if (!clip) continue;
         setCaption(sentences[i]); // captions follow the voice, not the notes
@@ -2236,47 +2319,88 @@ export function init(userConfig = {}) {
           narrAudio.onended = done;
           narrAudio.play().catch(() => { blocked = true; done(); });
         });
-        if (blocked) return; // autoplay policy — a user gesture restarts
+        if (blocked) {
+          // the browser refused to play unprompted — the audio exists, so this
+          // is one click away, and the deck waits rather than running on mute
+          stopNarration('🔇 the browser blocked audio — click the deck once, then V — the slides wait for the voice');
+          return;
+        }
+        spoke++;
       }
-      if (!stale()) advanceFrom(sl, step);
-    } catch {
-      if (!liveWarned) { toast('live voice bridge unreachable — run: decklight tts'); liveWarned = true; }
-      debugLog('narr', `live synth failed (slide ${sl} step ${step})`);
+      if (stale()) return;
+      // Nothing spoken, but words to speak: the audio never played, so the deck
+      // must not move on. (A segment with no words at all is a legitimate silent
+      // beat and still advances.)
+      if (!spoke && sentences.length) {
+        stopNarration('🔇 the voice did not play — auto-advance stopped · press the key left of 1 for messages');
+        return;
+      }
+      advanceFrom(sl, step);
     } finally {
       if (liveChainGen === gen) liveChainActive = false;
     }
   }
+  // What went wrong, in the presenter's words — and what to do about it. The
+  // bridge throws the HTTP status; a dead bridge throws a TypeError from fetch.
+  function liveFailure(err) {
+    const s = String(err?.message ?? err);
+    if (s.startsWith('429')) {
+      return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight dev --tts-engine chirp';
+    }
+    if (/^\d{3}/.test(s)) {
+      return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · press the key left of 1 for messages`;
+    }
+    return '🔇 voice bridge unreachable — auto-advance stopped · start it with: decklight tts';
+  }
   function playSlideFile() {
     if (!narrSet) return;
     if (narrSet.live) return playLive();
+    // A slide with nothing to say has no file, and that is NOT a failure: the
+    // pre-render tool only emits audio for slides that have notes (the showcase
+    // is 30 slides and 20 clips). Warning here would fire ten times on a deck
+    // that is behaving perfectly — so only a slide that SHOULD speak can complain.
+    if (!notesText(instance.state.slide)) { narrAudio?.pause(); return; }
     narrAudio ??= new Audio();
     // state.slide and the files are BOTH 1-based (slide-01 = first section).
     // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
-    narrAudio.src = `${narrSet.dir}/slide-${String(instance.state.slide).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
+    const file = `${narrSet.dir}/slide-${String(instance.state.slide).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
+    narrAudio.src = file;
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
       character.attachAudio(narrAudio);
       character.beginSlide(narrSet, instance.state.slide);
     }
-    narrAudio.play().catch(() => { /* no file for this slide */ });
+    // a track with no file for this slide used to fail in total silence — with
+    // nothing on screen, an unnarrated slide is indistinguishable from a broken one
+    narrAudio.onerror = () => {
+      debugLog('narr', `no audio: ${file}`);
+      toast(`🔇 no narration for slide ${instance.state.slide} (${file}) · press the key left of 1 for messages`);
+    };
+    narrAudio.play().catch(() => {
+      toast('🔇 the browser blocked audio — click the deck once, then V');
+    });
+  }
+  // the one teardown: V, and the bridge giving up, must leave the same state
+  function stopNarration(msg = 'narration off') {
+    narrating = false;
+    liveSegGen++; // cancel any pending silent-beat advance
+    bufferGen++;  // stop the lookahead loop
+    narrPaused = false;
+    narrAudio?.pause();
+    character.stop();
+    toast(msg);
+    debugLog('narr', msg);
+    syncSoundBtn();
   }
   function toggleNarration() {
     if (!narrSet) { openNarrPicker(narrSets.length ? 'tracks' : 'voices'); return; }
-    narrating = !narrating;
-    if (narrating) {
-      const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
-      toast(`🔊 ${what} — V stops · N picks`);
-      debugLog('narr', `on — ${what}`);
-      playSlideFile();
-    } else {
-      liveSegGen++; // cancel any pending silent-beat advance
-      bufferGen++;  // stop the lookahead loop
-      narrPaused = false;
-      narrAudio?.pause();
-      character.stop();
-      toast('narration off');
-      debugLog('narr', 'off');
-    }
+    if (narrating) return stopNarration();
+    narrating = true;
+    liveWarned = false;
+    const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
+    toast(`🔊 ${what} — V stops · N picks`);
+    debugLog('narr', `on — ${what}`);
+    playSlideFile();
     syncSoundBtn();
   }
   instance.on('slide', () => { if (narrating) playSlideFile(); });
@@ -2876,12 +3000,18 @@ export function init(userConfig = {}) {
       });
       wrap.append(test, reset);
       card.appendChild(wrap);
-      GEMINI_VOICES.forEach(([name, flavor]) => narrRows.push({
+      liveVoices.forEach(([name, flavor]) => narrRows.push({
         text: `${name} <span class="narr-flavor">${flavor}</span>`,
         html: true,
         preview: { voice: name, style: '', prefetch: 'voices' },
         cur: narrSet?.live && liveCfg.voice === name,
-        commit: () => { liveDraft = name; renderNarr('tones'); },
+        // chirp and piper have no delivery-instruction channel, so there is no
+        // tone to pick — committing the voice IS the whole choice
+        commit: () => {
+          liveDraft = name;
+          if (liveStylable) return renderNarr('tones');
+          applyLive(liveEngine ?? 'plain', '');
+        },
       }));
     } else if (view === 'tones') {
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone · ▶ previews`;
@@ -2964,6 +3094,9 @@ export function init(userConfig = {}) {
       root.appendChild(narrEl);
     }
     renderNarr(view ?? (narrSets.length ? 'tracks' : 'voices'));
+    // ask the bridge what it can speak, and repaint if the answer changes the
+    // list under the user — but only while they are still looking at it
+    probeLive().then((p) => { if (p && narrEl && narrView === 'voices') renderNarr('voices'); });
   }
   function closeNarrPicker() {
     narrEl?.remove();

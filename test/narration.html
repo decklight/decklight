@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Decklight narration — auto-advance and failure harness</title>
+  <link rel="stylesheet" href="../dist/decklight.css">
+</head>
+<body>
+  <!--
+    Live narration drives the deck: when a segment's audio ends, the build
+    advances; after the last segment, the slide does. This harness pins that,
+    and pins what happens when the voice bridge FAILS — the case that used to
+    strand a presentation on whichever slide the error landed.
+
+    Audio is mocked (headless Chrome has no output device, so a real <audio>
+    would take the autoplay-blocked path and prove nothing). The bridge is
+    mocked too, so a 429 is deterministic instead of a quota you have to earn.
+  -->
+  <div class="decklight">
+    <section><h1>One</h1><aside class="notes">First sentence here. Second sentence here.</aside></section>
+    <section><h2>Two</h2></section>
+    <section><h2>Three</h2><aside class="notes">Slide three speaks.</aside></section>
+    <section><h2>Four</h2><aside class="notes">Slide four speaks.</aside></section>
+  </div>
+
+  <pre id="test-sink">running…</pre>
+
+  <script>
+    // ── mock <audio>: every clip "plays" and ends on the next tick ───────────
+    window.Audio = class {
+      constructor() {
+        this.onended = null; this.onerror = null; this.paused = true; this.ended = false;
+        this.currentTime = 0; this.playbackRate = 1; this._src = '';
+      }
+      get src() { return this._src; }
+      set src(v) { this._src = v; this.ended = false; }
+      play() {
+        this.paused = false;
+        // only slide-01 and slide-04 have files. slide-02 was never generated (no
+        // notes) and slide-03 is missing — a real <audio> 404s on both, and the
+        // browser reports it as an `error` event, not a rejected play()
+        if (this._src.includes('slide-02') || this._src.includes('slide-03')) {
+          setTimeout(() => this.onerror?.(new Event('error')), 5);
+          return Promise.resolve();
+        }
+        setTimeout(() => { this.ended = true; this.paused = true; this.onended?.(); }, 10);
+        return Promise.resolve();
+      }
+      pause() { this.paused = true; }
+      addEventListener() {}
+      removeEventListener() {}
+    };
+
+    // ── mock bridge: `mode` decides how /tts behaves ─────────────────────────
+    // healthy   — always 200
+    // flaky     — 429s the FIRST sentence only, then 200 (a transient quota hit)
+    // dead      — 429s everything (the bridge is down)
+    const params = new URLSearchParams(location.search);
+    const mode = params.get('mode') ?? 'healthy';
+    let calls = 0, failures = 0;
+
+    // The bridge lives on its own port and NOTHING else may be intercepted.
+    // Matching a bare "/ping" also swallows the edit server's /edit/ping probe,
+    // which leaves the deck believing a live-reload server is up — and a fetch
+    // left pending freezes Chrome's virtual clock, so the page hangs forever
+    // instead of failing. Match this bridge, and only this bridge.
+    const BRIDGE = 'http://127.0.0.1:8899';
+    // .bind: an unbound window.fetch called as a bare function throws "Illegal
+    // invocation", so every non-bridge request would die in the fallthrough
+    const realFetch = window.fetch.bind(window);
+    window.fetch = async (url, opts) => {
+      const u = String(url);
+      if (!u.startsWith(BRIDGE)) return realFetch(url, opts);
+      if (u.endsWith('/ping')) {
+        return new Response(JSON.stringify({ ok: true, engine: 'mock', model: 'mock', stylable: true, voices: [['Alnilam', 'firm']] }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (u.endsWith('/tts')) {
+        calls++;
+        const fail = mode === 'dead' || (mode === 'flaky' && calls === 1);
+        if (fail) { failures++; return new Response('Quota exceeded', { status: 429 }); }
+        return new Response(new Blob([new Uint8Array(64)], { type: 'audio/wav' }), { status: 200 });
+      }
+      return new Response('', { status: 404 });
+    };
+    window.URL.createObjectURL = () => 'blob:mock';
+  </script>
+
+  <script src="../dist/decklight.js"></script>
+  <script>
+    const sink = document.getElementById('test-sink');
+    const key = 'decklight-narration:' + location.pathname;
+    // pick the voice exactly as the N picker persists it — a recorded TRACK for
+    // the recorded case, the live bridge otherwise (a persisted live voice wins
+    // over config.narration.files, which is what made this test lie the first time)
+    localStorage.setItem(key, JSON.stringify(mode === 'recorded'
+      ? { dir: 'voices' }
+      : { live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
+
+    const cfg = { narration: { liveUrl: 'http://127.0.0.1:8899/tts' } };
+    if (mode === 'recorded') {
+      // slide 2 has NO notes (nothing to say → no file, and that is fine);
+      // slide 3 has notes but its file is missing (that IS worth saying)
+      cfg.narration = { files: [{ label: 'Test', dir: 'voices' }] };
+    }
+    if (mode === 'modules') {
+      cfg.playlist = {
+        index: 0,
+        modules: [
+          { title: 'This module', href: 'narration.html' },
+          { title: 'Deep dive', href: 'other-module.html' },
+        ],
+      };
+    }
+    const deck = Decklight.init(cfg);
+
+    // The message shortcut has to reach the presenter WHEREVER they are: mid-talk,
+    // and mid-edit — where a focused textarea owns every bare keystroke, so `i`
+    // must type an "i" and the modifier form must still open the log.
+    const press = (k, target, opts = {}) => target.dispatchEvent(
+      new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+    const logOpen = () => !!document.querySelector('.decklight-msglog');
+
+    (async () => {
+      const r = {};
+      try {
+        if (mode === 'keys') {
+          // The shortcut is the key LEFT OF 1 — matched on e.code, because what
+          // it prints depends on the layout: ` on US, ² on a French AZERTY. Both
+          // are sent below, and both must work.
+          const TICK = { code: 'Backquote', key: '`' };
+          const DEUX = { code: 'Backquote', key: '²' };   // same physical key, AZERTY
+
+          press('`', document.body, TICK);
+          r.playOpens = logOpen();
+          press('`', document.body, TICK);
+          r.playCloses = !logOpen();
+
+          press('²', document.body, DEUX);   // a French keyboard reaches it too
+          r.azertyOpens = logOpen();
+          press('²', document.body, DEUX);
+
+          // edit mode: a textarea has focus (this is what `E` gives you)
+          const ta = document.createElement('textarea');
+          document.body.appendChild(ta);
+          ta.focus();
+
+          press('`', ta, TICK);                          // the textarea keeps it
+          r.editIgnoresBareKey = !logOpen();
+          press('`', ta, { ...TICK, ctrlKey: true });    // …the modifier form gets through
+          r.editCtrlOpens = logOpen();
+          press('`', ta, { ...TICK, ctrlKey: true });
+          r.editCtrlCloses = !logOpen();
+          press('`', ta, { ...TICK, altKey: true });     // ⌥ too
+          r.editAltOpens = logOpen();
+          if (logOpen()) press('`', ta, { ...TICK, altKey: true });
+          ta.remove();
+
+          r.PASS = r.playOpens && r.playCloses && r.azertyOpens && r.editIgnoresBareKey
+            && r.editCtrlOpens && r.editCtrlCloses && r.editAltOpens;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'recorded') {
+          deck.toggleNarration();                 // V — plays slide 1's clip
+          await new Promise((ok) => setTimeout(ok, 300));
+          deck.goto(2, 0);                        // no notes → no file → must stay quiet
+          await new Promise((ok) => setTimeout(ok, 300));
+          const afterSilentSlide = deck.messages().map((m) => m.text);
+          r.quietOnSlideWithNoNotes = !afterSilentSlide.some((m) => /no narration/.test(m));
+
+          deck.goto(3, 0);                        // has notes, file is missing → say so
+          await new Promise((ok) => setTimeout(ok, 400));
+          const msgs = deck.messages().map((m) => m.text);
+          r.warnsOnMissingFile = msgs.some((m) => /no narration for slide 3/.test(m));
+          r.lastMessage = msgs[msgs.length - 1] ?? '';
+          r.PASS = r.quietOnSlideWithNoNotes && r.warnsOnMissingFile;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'modules') {
+          // The module menu (M) is gone: the finder (G) does both of its jobs.
+          // Marked slides were always ordinary slides it indexed; a playlist's
+          // other modules are now rows in it — the one thing M could do that G
+          // could not.
+          press('m', document.body);
+          r.noModuleMenu = !document.querySelector('.decklight-module-menu');
+
+          press('g', document.body);
+          const rows = [...document.querySelectorAll('.decklight-finder .tp-row')].map((el) => el.textContent);
+          r.finderOpens = rows.length > 0;
+          r.listsSlides = rows.some((t) => /Two/.test(t));
+          r.listsModules = rows.some((t) => /Deep dive/.test(t));   // another FILE
+          r.hidesCurrentModule = !rows.some((t) => /This module/.test(t));
+          r.moduleRowMarked = !!document.querySelector('.decklight-finder .tp-row.tp-module');
+
+          r.PASS = r.noModuleMenu && r.finderOpens && r.listsSlides
+            && r.listsModules && r.hidesCurrentModule && r.moduleRowMarked;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        deck.toggleNarration();                                  // V
+        await new Promise((ok) => setTimeout(ok, 3000));         // let the chain run
+
+        r.mode = mode;
+        r.slide = deck.state.slide;
+        r.total = deck.state.totalSlides;
+        r.ttsCalls = calls;
+        r.failures = failures;
+
+        const msgs = deck.messages().map((m) => m.text);
+        r.messages = msgs.length;
+
+        if (mode === 'healthy') {
+          // the voice carries the deck to the last slide, on its own
+          r.PASS = deck.state.slide === deck.state.totalSlides;
+        } else {
+          // THE VOICE IS THE CLOCK. It could not speak, so the deck must not
+          // have moved on — and it must SAY why, in a message that is kept.
+          const stopped = deck.state.slide === 1;
+          const explained = msgs.some((m) => /voice|auto-advance/i.test(m));
+          // the message window is on screen, top-left, and the log opens over it
+          const windowUp = !!document.querySelector('.decklight-messages .decklight-toast');
+          deck.toggleMessages();
+          const logUp = !!document.querySelector('.decklight-msglog .msg-row');
+          r.stopped = stopped;
+          r.explained = explained;
+          r.windowUp = windowUp;
+          r.logUp = logUp;
+          r.lastMessage = msgs[msgs.length - 1] ?? '';
+          r.PASS = stopped && explained && windowUp && logUp;
+        }
+      } catch (e) {
+        r.exception = String(e && e.stack || e);
+        r.PASS = false;
+      }
+      sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+    })();
+  </script>
+</body>
+</html>

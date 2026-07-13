@@ -24,8 +24,10 @@ const CANDIDATES = [
   '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
   '/usr/bin/chromium', '/usr/bin/chromium-browser',
   '/snap/bin/chromium',
+  `${process.env.HOME}/.nix-profile/bin/chromium`,
 ];
-const CHROME = process.env.CHROME || CANDIDATES.find((p) => existsSync(p));
+const CHROME = process.env.CHROME || process.env.DECKLIGHT_CHROME
+  || CANDIDATES.find((p) => existsSync(p));
 if (!CHROME) {
   console.error('player-render: no Chrome found — install one, or point $CHROME at it');
   process.exit(1);

@@ -54,6 +54,50 @@ test('voice comes up when a project is available (flag or env)', () => {
   assert.deepEqual(svc(viaEnv, 'tts').args, ['tts', '--port', '8787', '--project', 'proj-2']);
 });
 
+test('piper needs no project — the cloud engines do', () => {
+  // the free engine must not be gated on a GCP project it never uses
+  const offline = plan(['deck.html', '--tts-engine', 'piper'], { hasBin: ALL_BINS });
+  assert.ok(names(offline).includes('tts'), 'piper comes up with no project at all');
+  assert.deepEqual(svc(offline, 'tts').args, ['tts', '--port', '8787', '--engine', 'piper']);
+
+  // …but without the binary there is nothing to run, and we say so
+  const noBin = plan(['deck.html', '--tts-engine', 'piper']);
+  assert.ok(!names(noBin).includes('tts'));
+  assert.match(why(noBin, 'voice'), /piper not on PATH/);
+
+  // chirp is cloud: project required, and the skip reason points at the way out
+  const chirp = plan(['deck.html', '--tts-engine', 'chirp']);
+  assert.ok(!names(chirp).includes('tts'));
+  assert.match(why(chirp, 'voice'), /chirp needs a GCP project/);
+  assert.match(why(chirp, 'voice'), /--tts-engine piper/, 'offers the free way out');
+
+  const chirpOk = plan(['deck.html', '--tts-engine', 'chirp', '--project', 'decklight-tts']);
+  assert.deepEqual(svc(chirpOk, 'tts').args,
+    ['tts', '--port', '8787', '--engine', 'chirp', '--project', 'decklight-tts']);
+
+  // gemini stays the default, so an existing command line keeps working
+  const dflt = plan(['deck.html'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-1' } });
+  assert.deepEqual(svc(dflt, 'tts').args, ['tts', '--port', '8787', '--project', 'proj-1']);
+
+  const bogus = plan(['deck.html', '--tts-engine', 'espeak'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-1' } });
+  assert.ok(!names(bogus).includes('tts'));
+  assert.match(why(bogus, 'voice'), /unknown --tts-engine 'espeak'/);
+});
+
+test('a malformed project id is caught here, not by Vertex', () => {
+  // 'decklight-tts,' — the trailing comma is real: it rides along when the id
+  // is copied out of a sentence. The bridge used to start, look healthy, and
+  // 403 on the first keypress, naming a project nobody typed.
+  const p = plan(['deck.html', '--project', 'decklight-tts,']);
+  assert.deepEqual(names(p), ['edit'], 'voice must not start on a bad id');
+  assert.match(why(p, 'voice'), /decklight-tts,/, 'the reason quotes the id back');
+
+  for (const bad of ['decklight tts', 'Decklight-TTS', 'x', 'proj-', '1proj', 'a/../b'])
+    assert.ok(!names(plan(['deck.html', '--project', bad])).includes('tts'), `rejected: ${bad}`);
+  for (const ok of ['decklight-tts', 'proj-1', 'a1b2c3'])
+    assert.ok(names(plan(['deck.html', '--project', ok])).includes('tts'), `accepted: ${ok}`);
+});
+
 test('lip-sync comes up when rhubarb is on PATH, or when explicitly configured', () => {
   const onPath = plan(['deck.html'], { hasBin: ALL_BINS });
   assert.ok(names(onPath).includes('lipsync'));
@@ -75,11 +119,11 @@ test('--no-tts / --no-lipsync opt out, and say so', () => {
 test('ports and bridge flags pass through to the right child', () => {
   const p = plan(
     ['deck.html', '--port', '9000', '--tts-port', '9001', '--lipsync-port', '9002',
-      '--project', 'p', '--tts-model', 'm', '--wav2lip-dir', '/w'],
+      '--project', 'proj-9', '--tts-model', 'm', '--wav2lip-dir', '/w'],
     { hasBin: ALL_BINS },
   );
   assert.equal(svc(p, 'edit').args.at(-1), '9000');
-  assert.deepEqual(svc(p, 'tts').args, ['tts', '--port', '9001', '--project', 'p', '--tts-model', 'm']);
+  assert.deepEqual(svc(p, 'tts').args, ['tts', '--port', '9001', '--project', 'proj-9', '--tts-model', 'm']);
   assert.deepEqual(svc(p, 'lipsync').args, ['lipsync', '--port', '9002', '--wav2lip-dir', '/w']);
 });
 
