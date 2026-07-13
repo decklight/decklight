@@ -61,9 +61,9 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('data-layout=top stays unpinned, top-aligned', s.layouttop, 'true');
   check('data-layout=split is a wrapping flex row', s.splitrow, 'true');
   check('lone-list split gets two columns', s.splitcols, 'true');
-  check('cycleLayout(1): auto → centered (pinned skipped)', s.layoutcycle, 'centered');
-  check('cycleLayout(-1): back to auto, storage cleared', s.layoutreset, 'true');
-  check('one content block: split-flip skipped in the ring', s.flipskip, 'true');
+  check('cycleLayout without the dev server changes nothing', s.layoutgate, 'true');
+  check('layout ring skips pinned when auto already pins', s.ring1, 'auto centered top split split-flip');
+  check('lone list: ring skips split-flip too', s.ring11, 'auto centered top split');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',

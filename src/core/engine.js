@@ -866,7 +866,10 @@ export function init(userConfig = {}) {
       { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
       genTheme && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
-      { label: 'Cycle slide layout', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
+      { label: 'Cycle slide layout (dev)', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
+      { label: 'Undo deck edit (dev)', hint: 'Z', alias: 'revert back history', run: () => deckHistory('undo') },
+      { label: 'Redo deck edit (dev)', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') },
+      { label: 'Ask agent… (dev)', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk },
       { label: `Narration ${narrating ? 'off' : 'on'}`, hint: 'V', run: toggleNarration },
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
@@ -1163,48 +1166,62 @@ export function init(userConfig = {}) {
   initCode(stage, registerBuildProvider);
 
   // ----- slide layout cycling (L / ⇧L) — SPEC §8 -----------------------------
-  // Walk the CURRENT slide through the layout ring. The pick lands on the
-  // section as data-layout — the same attribute an author can write in the
-  // file — and wins over data-pin: 'pinned' forces the pin, 'centered'/'top'
-  // lay out in flow ('top' additionally top-aligns via CSS), the split pair
-  // lays the content out in two sides. 'auto' removes the attribute — deck
-  // default (pinTitles config, on by default, + pinnable heuristic). Like
-  // theme and font, the choice persists per deck path (keyed by slide
-  // index); embedded instances never persist.
+  // Walk the CURRENT slide through the layout ring. Dev-mode ONLY: the pick
+  // is a persisted deck edit — it lands on the section as data-layout AND is
+  // written back into the file through the edit server (the same attribute
+  // an author writes by hand; 'auto' removes it). It wins over data-pin:
+  // 'pinned' forces the pin, 'centered'/'top' lay out in flow ('top'
+  // additionally top-aligns via CSS), the split pair lays the content out
+  // in two sides. Without the server the key explains itself and changes
+  // nothing — a presenter can't silently fork the deck from what's on disk.
   const LAYOUTS = ['auto', 'centered', 'pinned', 'top', 'split', 'split-flip'];
-  const layoutKey = 'decklight-layout:' + location.pathname;
-  let layoutSaved = {};
-  try { layoutSaved = JSON.parse(localStorage.getItem(layoutKey)) || {}; } catch { /* ignore */ }
-  // restore BEFORE the first sync so the initial pin measurement sees the
-  // overrides (sections exist — the markdown pipeline just ran)
-  stage.querySelectorAll(':scope > section').forEach((sec, i) => {
-    const name = layoutSaved[i + 1];
-    if (LAYOUTS.includes(name) && name !== 'auto') sec.setAttribute('data-layout', name);
-  });
+  // Write-through is debounced: the pick applies to the DOM instantly, and
+  // the FINAL pick of a cycling burst goes to the server (each write makes
+  // the watcher reload every browser — one reload per decision, not per L).
+  let layoutPending = null; // { slide, name }
+  let layoutTimer = null;
+  function saveLayout() {
+    clearTimeout(layoutTimer);
+    const p = layoutPending;
+    layoutPending = null;
+    if (!p) return;
+    fetch(editBase + '/edit/layout', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ slide: p.slide, layout: p.name }),
+    }).then((r) => { if (!r.ok) throw new Error(r.status); debugLog('layout', `slide ${p.slide}: ${p.name} → saved to file`); })
+      .catch(() => toast('layout save failed — is the dev server still up?', 2200));
+  }
+  // The ring for one slide, entries that cannot change its look SKIPPED so
+  // every press shows something new: 'pinned' when auto already pins,
+  // 'split-flip' when there aren't two content blocks to swap sides.
+  // Public (instance.layoutRing) so headless verification can assert the
+  // skip logic without a dev server to cycle through.
+  function layoutRing(idx = instance.state.slide) {
+    const sec = instance._sections[idx - 1];
+    if (!sec) return [];
+    return LAYOUTS.filter((n) =>
+      (n !== 'pinned' || autoPinY(sec, config) === null) &&
+      (n !== 'split-flip' || splitContent(sec).length > 1));
+  }
   function cycleLayout(dir) {
+    if (!editAvailable) {
+      toast('layout is a deck edit — it needs dev mode: decklight dev <deck.html>', 2600);
+      return;
+    }
     const idx = instance.state.slide;
     const sec = instance._sections[idx - 1];
     if (!sec) return;
-    // Skip ring entries that cannot change this slide's look — every press
-    // shows something new: 'pinned' when auto already pins, 'split-flip'
-    // when there aren't two content blocks to swap sides.
-    const ring = LAYOUTS.filter((n) =>
-      (n !== 'pinned' || autoPinY(sec, config) === null) &&
-      (n !== 'split-flip' || splitContent(sec).length > 1));
+    const ring = layoutRing(idx);
     const cur = sec.getAttribute('data-layout') || 'auto';
     const at = Math.max(0, ring.indexOf(cur));
     const name = ring[(at + dir + ring.length) % ring.length];
     if (name === 'auto') sec.removeAttribute('data-layout');
     else sec.setAttribute('data-layout', name);
-    if (!params.has('embedded')) {
-      try {
-        // 'auto' = whatever the deck says (like font entry 0) — drop the entry
-        if (name === 'auto') delete layoutSaved[idx];
-        else layoutSaved[idx] = name;
-        if (Object.keys(layoutSaved).length) localStorage.setItem(layoutKey, JSON.stringify(layoutSaved));
-        else localStorage.removeItem(layoutKey);
-      } catch { /* private mode */ }
-    }
+    if (layoutPending && layoutPending.slide !== idx) saveLayout(); // a different slide's pick must not be dropped
+    layoutPending = { slide: idx, name };
+    clearTimeout(layoutTimer);
+    layoutTimer = setTimeout(saveLayout, 600);
     // geometry changed: pinned titles and the overflow guardrail re-derive
     setupPinnedTitles(instance._sections, config);
     setupSplit(instance._sections);
@@ -1683,10 +1700,12 @@ export function init(userConfig = {}) {
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
-      <tr><td>E</td><td>edit speaker notes (decklight edit server)</td></tr>
+      <tr><td>E</td><td>edit speaker notes (dev mode)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
-      <tr><td>L / ⇧L</td><td>slide layout (auto · centered · pinned · top · split ⇄)</td></tr>
+      <tr><td>L / ⇧L</td><td>slide layout — writes the file (dev mode)</td></tr>
+      <tr><td>Z / ⇧Z</td><td>undo / redo deck edits (dev mode)</td></tr>
+      <tr><td>A</td><td>ask an AI agent to edit the deck (dev mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
       ${(playlist || hasMarkersDOM) ? '<tr><td>M</td><td>module menu</td></tr>' : ''}
@@ -1760,6 +1779,10 @@ export function init(userConfig = {}) {
     }
     if (editEl) {
       if (e.key === 'Escape') { toggleEditor(); e.preventDefault(); }
+      return; // typing surface — the textarea handles its own keys
+    }
+    if (agentEl) {
+      if (e.key === 'Escape') { toggleAgentAsk(); e.preventDefault(); }
       return; // typing surface — the textarea handles its own keys
     }
     if (recEl) {
@@ -1859,6 +1882,8 @@ export function init(userConfig = {}) {
       case ']': cycleFont(1); break;
       case '[': cycleFont(-1); break;
       case 'l': case 'L': cycleLayout(e.shiftKey ? -1 : 1); break;
+      case 'z': case 'Z': deckHistory(e.shiftKey ? 'redo' : 'undo'); break;
+      case 'a': case 'A': toggleAgentAsk(); break;
       case 'm': case 'M': if (!playlist && !hasMarkersDOM) return; toggleModuleMenu(); break;
       case '?': toggleHelp(); break;
       case 'Escape':
@@ -1927,7 +1952,8 @@ export function init(userConfig = {}) {
   instance.themePicker = { open: openThemePicker, close: closeThemePicker };
   instance.generateTheme = rollTheme;                       // ⌃T, programmatic
   instance.cycleFont = cycleFont;                           // [ / ], programmatic (±1)
-  instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1)
+  instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1); dev mode only
+  instance.layoutRing = layoutRing;                         // the ring a slide would cycle (skips applied)
   instance.toggleNarration = toggleNarration;               // V, programmatic
 
   // ── narration (V) + picker (N) — SPEC §8 ────────────────────────────────
@@ -2382,6 +2408,8 @@ export function init(userConfig = {}) {
   // wire up against a server that's editing a DIFFERENT deck.
   let editAvailable = false;
   let editBase = '';
+  let editAgents = [];   // [{name, label}] the dev machine can run
+  let agentBusy = null;  // {agent, prompt, startedAt} while a one-shot runs
   if (!printMode && !params.has('embedded')) {
     const bases = config.edit?.url ? [config.edit.url]
       : /^https?:$/.test(location.protocol) ? [''] : ['http://127.0.0.1:8788'];
@@ -2399,13 +2427,133 @@ export function init(userConfig = {}) {
           }
           editBase = base;
           editAvailable = true;
+          editAgents = Array.isArray(j.agents) ? j.agents : [];
+          agentBusy = j.agentBusy || null; // an agent may already be mid-run across a reload
+          if (agentBusy) toast(`${agentBusy.agent} is editing the deck…`, 2000);
           const es = new EventSource(base + '/edit/events');
           es.onmessage = () => location.reload();
-          debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`);
+          es.addEventListener('agent', (ev) => {
+            try {
+              const d = JSON.parse(ev.data);
+              if (d.state === 'start') {
+                agentBusy = d;
+                toast(`🤖 ${d.agent} is editing the deck…`, 2200);
+                debugLog('agent', `${d.agent} start: ${(d.prompt || '').slice(0, 80)}`);
+              } else if (d.state === 'done') {
+                agentBusy = null;
+                const status = d.ok ? '' : d.error ? ` — ${d.error}` : ` (exit ${d.code})`;
+                toast(d.changed ? `🤖 ${d.agent} edited the deck — Z undoes${status}`
+                  : `🤖 ${d.agent} finished — no changes${status}`, 3000);
+                debugLog('agent', `${d.agent} done ok=${d.ok} changed=${d.changed}${status}`);
+              }
+            } catch { /* malformed event */ }
+          });
+          debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`
+            + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
           return;
         } catch { /* not served by decklight edit */ }
       }
     })();
+  }
+
+  // undo/redo (Z / ⇧Z) — the dev server's edit history: layout picks, notes
+  // saves, and agent runs all snapshot into ONE stack, wholly independent of
+  // the git autocommits. The server writes the restored file; its watcher
+  // then reloads every browser (the hash keeps the position).
+  async function deckHistory(dir) {
+    if (!editAvailable) {
+      toast(`${dir} needs dev mode — run: decklight dev <deck.html>`, 2600);
+      return;
+    }
+    try {
+      const res = await fetch(editBase + '/edit/' + dir, { method: 'POST' });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { toast(j.error || `${dir} failed`); return; }
+      toast(`${dir} — ${j.undo} back · ${j.redo} forward`);
+      debugLog('edit', `${dir} → ${j.undo} back, ${j.redo} forward`);
+    } catch {
+      toast(`${dir} failed — is the dev server still up?`, 2200);
+    }
+  }
+
+  // ask an agent (A) — hand an installed coding agent (claude, codex, bob, …)
+  // a one-shot editing task; the file watcher reloads the deck when it saves,
+  // and the server snapshots first so Z takes the agent's edit back.
+  let agentEl = null;
+  function toggleAgentAsk() {
+    if (agentEl) { agentEl.remove(); agentEl = null; return; }
+    if (!editAvailable) {
+      toast('asking an agent needs dev mode — run: decklight dev <deck.html>', 2600);
+      return;
+    }
+    if (!editAgents.length) {
+      toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600);
+      return;
+    }
+    if (agentBusy) {
+      toast(`${agentBusy.agent} is still working on the last ask`, 2200);
+      return;
+    }
+    agentEl = document.createElement('div');
+    agentEl.className = 'decklight-narr decklight-editor';
+    const card = document.createElement('div');
+    card.className = 'narr-card';
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    head.textContent = `ask an agent — edits the deck file · ⌘⏎ sends · Esc closes`;
+    const ta = document.createElement('textarea');
+    ta.className = 'narr-input edit-notes';
+    ta.placeholder = `e.g. "make slide ${instance.state.slide} a split layout with the diagram on the left"`;
+    ta.spellcheck = false;
+    let pickedAgent = editAgents[0].name;
+    const actions = document.createElement('div');
+    actions.className = 'tr-actions';
+    if (editAgents.length > 1) {
+      const sel = document.createElement('select');
+      sel.className = 'narr-prev-btn';
+      for (const a of editAgents) {
+        const o = document.createElement('option');
+        o.value = a.name;
+        o.textContent = a.label;
+        sel.appendChild(o);
+      }
+      sel.addEventListener('change', () => { pickedAgent = sel.value; });
+      sel.addEventListener('keydown', (e) => e.stopPropagation());
+      actions.appendChild(sel);
+    }
+    const send = async () => {
+      const prompt = ta.value.trim();
+      if (!prompt) return;
+      try {
+        const res = await fetch(editBase + '/edit/agent', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt, agent: pickedAgent }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(j.error || res.status);
+        toggleAgentAsk();
+        // progress lands as SSE 'agent' events → toasts; the reload follows the save
+      } catch (e) {
+        toast(`ask failed: ${String(e.message || e).slice(0, 60)}`, 2200);
+      }
+    };
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { send(); e.preventDefault(); }
+      else if (e.key === 'Escape') { toggleAgentAsk(); e.preventDefault(); }
+      e.stopPropagation();
+    });
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'narr-prev-btn';
+    btn.textContent = '🤖 send to agent';
+    btn.addEventListener('click', send);
+    actions.appendChild(btn);
+    card.append(head, ta, actions);
+    agentEl.appendChild(card);
+    agentEl.addEventListener('click', (e) => { if (e.target === agentEl) toggleAgentAsk(); });
+    root.appendChild(agentEl);
+    setTimeout(() => ta.focus(), 0);
   }
   let editEl = null;
   function toggleEditor() {
