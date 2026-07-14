@@ -37,7 +37,7 @@
     "build": "node build.mjs",
     "prepare": "npm run build",
     "test": "node --test test/*.test.mjs",
-    "verify": "npm run build && node test/render.mjs && node test/player-render.mjs && node test/narration-render.mjs && node test/contrast.mjs && node test/palette-rules.mjs"
+    "verify": "npm run build && node test/render.mjs && node test/player-render.mjs && node test/narration-render.mjs && node test/character-render.mjs && node test/contrast.mjs && node test/palette-rules.mjs"
   },
   "engines": {
     "node": ">=20"

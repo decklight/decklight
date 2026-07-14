@@ -913,6 +913,7 @@ export function init(userConfig = {}) {
       { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
       { label: 'Character…', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
+      { label: `Character solo ${character.solo ? 'off' : 'on'}`, alias: 'centre center stage narrator only fullscreen avatar', run: () => applySolo(!character.solo) },
       { label: 'Record offline narration…', hint: '⇧V', alias: 'export download batch wav tts', run: openRecordDialog },
       { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
@@ -2869,6 +2870,17 @@ export function init(userConfig = {}) {
       : m === 'viseme' ? `🎭 character on — lips follow the narration${narrating ? '' : ' · V starts it'}`
         : `🎥 character video — ${character.engine} · ${character.portrait}${narrating ? '' : ' · V starts narration'}`);
   }
+  // solo: the narrator centre stage, the slide out of the way (SPEC §8)
+  function applySolo(v) {
+    if (character.mode === 'off') {
+      toast('turn the character on first — N · Character…');
+      return;
+    }
+    character.setSolo(v);
+    closeNarrPicker();
+    toast(v ? '🎭 solo — the narrator has the stage · N brings the slides back'
+      : 'solo off — the slides are back');
+  }
   // ▶ voice preview: speaks a short test sentence through the live bridge
   // in the row's voice (neutral tone), so voices can be auditioned before
   // committing. TWO caches (voice → promise of a blob URL): the DEFAULT
@@ -3015,6 +3027,15 @@ export function init(userConfig = {}) {
           else toast('video needs wav2lip/sadtalker on the bridge — run: decklight lipsync');
         },
       });
+      // a toggle, not a mode: solo works with either look above
+      if (character.mode !== 'off') {
+        narrRows.push({
+          text: `${character.solo ? '◉' : '○'} Solo — the narrator takes the stage <span class="narr-flavor">slide content steps aside</span>`,
+          html: true,
+          cur: character.solo,
+          commit: () => applySolo(!character.solo),
+        });
+      }
     } else if (view === 'charvideo') {
       head.textContent = 'neural video — pick engine · portrait';
       const bi = character.bridgeInfo;
