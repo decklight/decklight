@@ -83,7 +83,15 @@ jobs:
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # A subscription token, not a metered API key. The loop's first two runs
+          # died on a prepaid balance: one burned $1.26 and stopped mid-ticket at
+          # turn 16 of 80, the next was refused on its very first call having spent
+          # nothing — a credit ceiling wearing the costume of a bug, since the
+          # action reports `is_error: true` with no message at all.
+          # Minted by `claude setup-token`; only ONE credential may be set here,
+          # because ANTHROPIC_API_KEY in the environment takes precedence and a
+          # dead key left alongside this one would quietly keep being used.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
             --model claude-fable-5
             --max-turns 80
