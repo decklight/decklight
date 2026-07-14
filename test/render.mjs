@@ -70,6 +70,10 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('clock: elapsed idle until the first advance', s.clockidle, '+00:00');
   check('clock: elapsed runs from the first advance', s.clockruns, '+00:02');
   check('clock: K again removes it', s.clockoff, 'true');
+  check('progress bar: off by default', s.progressdefault, 'true');
+  check('progress bar: H shows it', s.progressshown, 'true');
+  check('progress bar: width tracks the position (slide 1 ≠ last, last = full)', s.progresstracks, 'true');
+  check('progress bar: H again removes it', s.progressoff, 'true');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',
@@ -93,6 +97,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
     (html.match(/data-build-state="pending"/g) || []).length, 0);
   check('print: print class set', /decklight-print/.test(html), true);
   check('print: no presenter clock', /decklight-clock"/.test(html), false);
+  check('print: no progress bar', /decklight-progress"/.test(html), false);
 }
 
 // --- demo/intro.html: the short "what is Decklight" deck a newcomer opens

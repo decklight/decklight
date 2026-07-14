@@ -927,6 +927,7 @@ export function init(userConfig = {}) {
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
       { label: `Clock ${clockOn ? 'off' : 'on'}`, hint: 'K', alias: 'time elapsed timer talk wall watch', run: toggleClock },
+      { label: `Progress bar ${progressOn ? 'off' : 'on'}`, hint: 'H', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: `Narration ${narrPaused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
       { label: 'Edit speaker notes…', hint: 'E', alias: 'edit mode notes write', run: toggleEditor },
@@ -1489,7 +1490,7 @@ export function init(userConfig = {}) {
   }
 
   // ----- chrome ------------------------------------------------------------
-  let progressBar = null;
+  let progressBar = null; // mounted by the progress bar toggle (H), below
   let slideNumEl = null;
   if (config.controls && !printMode) {
     const controls = document.createElement('div');
@@ -1500,11 +1501,6 @@ export function init(userConfig = {}) {
     root.appendChild(controls);
     controls.querySelector('.prev').addEventListener('click', () => instance.prev());
     controls.querySelector('.next').addEventListener('click', () => instance.next());
-    const progress = document.createElement('div');
-    progress.className = 'decklight-progress';
-    progress.innerHTML = '<div class="bar"></div>';
-    root.appendChild(progress);
-    progressBar = progress.querySelector('.bar');
   }
 
   // Touch chrome (mounted after narration is set up, below): phones and
@@ -1733,6 +1729,7 @@ export function init(userConfig = {}) {
       <tr><td>&#96;</td><td>messages — the key left of 1 (⌃&#96; / ⌥&#96; also works while editing notes)</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>K</td><td>clock — wall time + elapsed talk</td></tr>
+      <tr><td>H</td><td>progress bar — position in the deck, bottom edge</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
@@ -1908,6 +1905,7 @@ export function init(userConfig = {}) {
       case 'd': case 'D': toggleDebug(); break;
       case 'c': case 'C': toggleCaptions(); break;
       case 'k': case 'K': toggleClock(); break;
+      case 'h': case 'H': toggleProgress(); break;
       case 'p': case 'P': toggleNarrPause(); break;
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
@@ -2502,6 +2500,35 @@ export function init(userConfig = {}) {
   instance.on('build', startTalk);
   instance.toggleClock = toggleClock; // K programmatically
   if (clockOn && !printMode) showClock();
+
+  // ── progress bar (H) — SPEC §8 ────────────────────────────────────────────
+  // A hairline along the bottom edge whose width IS the position in the deck —
+  // the shape of the talk at a glance, without counting slides. A passive
+  // readout of state.slide/step (the fraction _updateChrome computes); it
+  // never drives navigation or auto-advance.
+  // Off by default; persists per deck. Never rendered in ?print.
+  const progressKey = 'decklight-progress:' + location.pathname;
+  let progressOn = false;
+  try { progressOn = localStorage.getItem(progressKey) === '1'; } catch { /* ignore */ }
+  let progressEl = null;
+  function showProgress() {
+    progressEl = document.createElement('div');
+    progressEl.className = 'decklight-progress';
+    progressEl.innerHTML = '<div class="bar"></div>';
+    root.appendChild(progressEl);
+    progressBar = progressEl.querySelector('.bar');
+    instance._updateChrome(); // arrive at the current width, not a sweep from 0
+  }
+  function toggleProgress() {
+    progressOn = !progressOn;
+    try { localStorage.setItem(progressKey, progressOn ? '1' : '0'); } catch { /* ignore */ }
+    if (progressOn) showProgress();
+    else { progressEl?.remove(); progressEl = null; progressBar = null; }
+    toast(`progress bar ${progressOn ? 'on' : 'off'}`);
+    debugLog('nav', `progress bar ${progressOn ? 'on' : 'off'}`);
+  }
+  instance.toggleProgress = toggleProgress; // H programmatically
+  if (progressOn && !printMode) showProgress();
 
   // ── transcript (palette command) — SPEC §8 ───────────────────────────────
   // The deck's full spoken script: every slide's notes segments, in order,
