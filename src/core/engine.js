@@ -925,6 +925,7 @@ export function init(userConfig = {}) {
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
+      { label: `Clock ${clockOn ? 'off' : 'on'}`, hint: 'K', alias: 'time elapsed timer talk wall watch', run: toggleClock },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: `Narration ${narrPaused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
       { label: 'Edit speaker notes…', hint: 'E', alias: 'edit mode notes write', run: toggleEditor },
@@ -1730,6 +1731,7 @@ export function init(userConfig = {}) {
       <tr><td>D</td><td>debug log</td></tr>
       <tr><td>&#96;</td><td>messages — the key left of 1 (⌃&#96; / ⌥&#96; also works while editing notes)</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
+      <tr><td>K</td><td>clock — wall time + elapsed talk</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
@@ -1904,6 +1906,7 @@ export function init(userConfig = {}) {
       case 'b': case 'B': toggleBlackout(); break;
       case 'd': case 'D': toggleDebug(); break;
       case 'c': case 'C': toggleCaptions(); break;
+      case 'k': case 'K': toggleClock(); break;
       case 'p': case 'P': toggleNarrPause(); break;
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
@@ -2446,6 +2449,58 @@ export function init(userConfig = {}) {
   instance.on('slide', updateCaption);
   instance.on('build', updateCaption);
   if (captionsOn && !printMode) showCaptions();
+
+  // ── presenter clock (K) — SPEC §8 ─────────────────────────────────────────
+  // Wall time + elapsed talk time under the slide number — the two numbers a
+  // presenter otherwise checks a phone for, and the room notices a phone.
+  // Elapsed counts from the deck's FIRST advance, not page load: a deck
+  // idling on its title slide while people file in is not a talk yet.
+  // Off by default; persists per deck. Never rendered in ?print.
+  const clockKey = 'decklight-clock:' + location.pathname;
+  let clockOn = false;
+  try { clockOn = localStorage.getItem(clockKey) === '1'; } catch { /* ignore */ }
+  let clockEl = null, clockTimer = null, talkStart = null, clockArmed = false;
+  const pad2 = (n) => String(n).padStart(2, '0');
+  function fmtElapsed(ms) {
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    return (h ? h + ':' : '') + pad2(Math.floor(s / 60) % 60) + ':' + pad2(s % 60);
+  }
+  function updateClock() {
+    if (!clockEl) return;
+    const now = new Date();
+    clockEl.querySelector('.clk-time').textContent = pad2(now.getHours()) + ':' + pad2(now.getMinutes());
+    clockEl.querySelector('.clk-elapsed').textContent =
+      '+' + fmtElapsed(talkStart == null ? 0 : Date.now() - talkStart);
+  }
+  function showClock() {
+    clockEl = document.createElement('div');
+    clockEl.className = 'decklight-clock';
+    clockEl.innerHTML = '<span class="clk-time"></span><span class="clk-elapsed"></span>';
+    root.appendChild(clockEl);
+    updateClock();
+    clockTimer = setInterval(updateClock, 1000);
+  }
+  function toggleClock() {
+    clockOn = !clockOn;
+    try { localStorage.setItem(clockKey, clockOn ? '1' : '0'); } catch { /* ignore */ }
+    if (clockOn) showClock();
+    else { clearInterval(clockTimer); clockTimer = null; clockEl?.remove(); clockEl = null; }
+    toast(`clock ${clockOn ? 'on' : 'off'}`);
+    debugLog('nav', `clock ${clockOn ? 'on' : 'off'}`);
+  }
+  // Arm only after init's opening goto (and any deep-link landing): the
+  // first navigation AFTER ready is the start of the talk.
+  instance.on('ready', () => { clockArmed = true; });
+  const startTalk = () => {
+    if (!clockArmed || talkStart != null) return;
+    talkStart = Date.now();
+    updateClock();
+  };
+  instance.on('slide', startTalk);
+  instance.on('build', startTalk);
+  instance.toggleClock = toggleClock; // K programmatically
+  if (clockOn && !printMode) showClock();
 
   // ── transcript (palette command) — SPEC §8 ───────────────────────────────
   // The deck's full spoken script: every slide's notes segments, in order,

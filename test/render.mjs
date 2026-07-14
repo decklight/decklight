@@ -64,6 +64,12 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('cycleLayout without the dev server changes nothing', s.layoutgate, 'true');
   check('layout ring skips pinned when auto already pins', s.ring1, 'auto centered top split split-flip');
   check('lone list: ring skips split-flip too', s.ring11, 'auto centered top split');
+  check('clock: off by default', s.clockdefault, 'true');
+  check('clock: K shows it', s.clockshown, 'true');
+  check('clock: wall time is HH:MM', s.clockwall, 'true');
+  check('clock: elapsed idle until the first advance', s.clockidle, '+00:00');
+  check('clock: elapsed runs from the first advance', s.clockruns, '+00:02');
+  check('clock: K again removes it', s.clockoff, 'true');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',
@@ -86,6 +92,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: everything built',
     (html.match(/data-build-state="pending"/g) || []).length, 0);
   check('print: print class set', /decklight-print/.test(html), true);
+  check('print: no presenter clock', /decklight-clock"/.test(html), false);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall render checks passed');
