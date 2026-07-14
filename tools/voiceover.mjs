@@ -168,5 +168,8 @@ for (let i = 0; i < slides.length; i++) {
 }
 writeFileSync(join(outDir, 'manifest.json'),
   JSON.stringify({ engine, voice, style, slides: manifest }, null, 1));
+// piper is held resident (§ createPiper) — without this the tool prints `done`
+// and then hangs on the live child process
+tts.synth.close?.();
 console.log(`done → ${outDir}${skipped ? ` (${skipped} unchanged, skipped)` : ''}`
   + (totalCost ? ` · estimated cost ~$${totalCost.toFixed(4)}` : ''));
