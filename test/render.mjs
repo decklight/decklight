@@ -95,5 +95,20 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: no presenter clock', /decklight-clock"/.test(html), false);
 }
 
+// --- demo/intro.html: the short "what is Decklight" deck a newcomer opens
+// first. It has no test-sink, so assert against the rendered DOM directly.
+// This block exists because the inline terminal cast once shipped with raw
+// ESC bytes that broke JSON.parse and rendered a `.terminal-broken` box on
+// the flagship "Truthful Terminals" slide — invisible to a harness that only
+// renders smoke.html.
+{
+  const introUrl = 'file://' + resolve(here, '../demo/intro.html');
+  const html = dump(introUrl);
+  check('intro: 12 slides', /data-slide-index="12"/.test(html) && !/data-slide-index="13"/.test(html), true);
+  check('intro: no clipped slides', /data-overflow/.test(html), false);
+  check('intro: terminal cast parsed (a real terminal, not the error box)',
+    /terminal-window/.test(html) && !/terminal-broken/.test(html), true);
+}
+
 console.log(failures ? `\n${failures} FAILED` : '\nall render checks passed');
 process.exit(failures ? 1 : 0);
