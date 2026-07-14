@@ -73,6 +73,7 @@ The whole loop is agent-friendly, one file end to end:
 
 | Feature | In one line | More |
 |---|---|---|
+| **Markdown** | opt a slide into CommonMark with `data-markdown`; HTML stays the default | [SPEC §1](SPEC.md#1-deck-anatomy) |
 | **Builds** | `data-build` on a container — each child is a step; the layout never jumps | [SPEC §2](SPEC.md#2-builds-keynote-style-reveal-calls-these-fragments) |
 | **SVG diagrams** | inline SVG authored with `var(--d-*)` tokens; recolors with every theme, strokes draw in | [SPEC §3](SPEC.md#3-svg-diagrams-first-class) |
 | **Motion** | slide transitions, Magic Move auto-animate, looping element effects — all respect reduced-motion | [SPEC §4](SPEC.md#4-motion) |
@@ -92,7 +93,7 @@ The whole loop is agent-friendly, one file end to end:
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML |
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
 
-`decklight help` for every command and flag. The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only. See [SPEC §10](SPEC.md#10-repository-layout--tooling) for the rest (`refresh`, `export`, `edit`, `lipsync`).
+`decklight help` for every command and flag — `refresh` and `export` are in [SPEC §7](SPEC.md#7-terminal-recordings), `edit` and `lipsync` in [SPEC §8](SPEC.md#8-presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#9-public-js-api). The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
 ## Keys
 

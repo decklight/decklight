@@ -342,41 +342,57 @@ decklight bundle deck.html --all          # merge a whole playlist</code></pre>
   <script type="application/json" id="cast-init">{
  "decklightCast": 1,
  "meta": {
-  "shell": "zsh",
+  "shell": "bash",
   "cols": 100,
   "rows": 12,
-  "recorded": "2026-07-14T10:00:00.000Z",
+  "recorded": "2026-07-14T13:13:34.791Z",
   "prompt": "$ "
  },
  "script": {
-  "shell": "zsh",
-  "cwd": ".",
+  "shell": "bash",
+  "cols": 100,
+  "rows": 12,
   "prompt": "$ ",
+  "cwd": "./work",
   "steps": [
-   { "cmd": "npx decklight init \"My Talk\"", "note": "scaffold a deck + agent skill" },
-   { "cmd": "ls -a", "note": "what init wrote" }
+   {
+    "cmd": "decklight init \"My Talk\""
+   },
+   {
+    "cmd": "ls -a"
+   }
   ]
  },
  "steps": [
   {
-   "cmd": "npx decklight init \"My Talk\"",
+   "cmd": "decklight init \"My Talk\"",
    "output": [
-    [ 0.02, "created deck.html (61 themes, aurora active)\r\n" ],
-    [ 0.18, "wrote .claude/skills/decklight/{SKILL.md,reference.md} (v0.1.1)\r\n" ],
-    [ 0.03, "created AGENTS.md\r\n" ]
+    [
+     0.111,
+     "created deck.html (61 themes, aurora active)\r\n"
+    ],
+    [
+     0.113,
+     "wrote .claude/skills/decklight/{SKILL.md,reference.md} (v0.1.1)\r\n"
+    ],
+    [
+     0.113,
+     "created AGENTS.md"
+    ]
    ],
    "exit": 0,
-   "duration": 0.23,
-   "note": "scaffold a deck + agent skill"
+   "duration": 0.123
   },
   {
    "cmd": "ls -a",
    "output": [
-    [ 0.01, "[1;34m.[m  [1;34m..[m  [1;34m.claude[m  AGENTS.md  deck.html\r\n" ]
+    [
+     0.003,
+     ".  ..  .claude\tAGENTS.md  deck.html"
+    ]
    ],
    "exit": 0,
-   "duration": 0.02,
-   "note": "what init wrote"
+   "duration": 0.015
   }
  ]
 }</script>
