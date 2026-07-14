@@ -1,0 +1,4 @@
+# The Product Owner owns the deck. Every pull request — a human's or the
+# ready-to-dev loop's — requests his review automatically, and branch protection
+# will not let one merge without it.
+* @gphilipp
