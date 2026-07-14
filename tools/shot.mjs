@@ -22,6 +22,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { chromeBin, chromeArgs } from './chrome.mjs';
 
 const args = process.argv.slice(2);
 const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
@@ -32,19 +33,6 @@ if (!page || args.includes('--help')) {
   process.exit(page ? 0 : 1);
 }
 
-const CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
-  '/usr/bin/chromium', '/usr/bin/chromium-browser',
-  '/snap/bin/chromium',
-  `${process.env.HOME}/.nix-profile/bin/chromium`,
-];
-const CHROME = process.env.CHROME || process.env.DECKLIGHT_CHROME
-  || CANDIDATES.find((p) => existsSync(p));
-if (!CHROME) {
-  console.error('shot: no Chrome found — install one, or point $CHROME at it');
-  process.exit(1);
-}
 
 const out = resolve(opt('-o', 'shot.png'));
 const size = opt('--size', '1280x720');
@@ -77,15 +65,15 @@ writeFileSync(tmp, html);
 
 mkdirSync(dirname(out), { recursive: true });
 try {
-  execFileSync(CHROME, [
-    '--headless', '--disable-gpu', '--hide-scrollbars',
+  execFileSync(chromeBin('shot'), chromeArgs(
+    '--hide-scrollbars',
     '--allow-file-access-from-files',
     '--autoplay-policy=no-user-gesture-required',
     `--window-size=${size.replace('x', ',')}`,
     `--virtual-time-budget=${wait}`,
     `--screenshot=${out}`,
     `file://${tmp}${slide ? `#/${slide}/0` : ''}`,
-  ], { stdio: ['ignore', 'ignore', 'ignore'] });
+  ), { stdio: ['ignore', 'ignore', 'ignore'] });
 } finally {
   rmSync(tmp, { force: true });
 }

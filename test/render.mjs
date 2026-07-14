@@ -5,34 +5,18 @@
 // works" harness (SPEC intro + §10). Exits non-zero on any failed assertion.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const CHROME = chromeBin('render');
 
-// $DECKLIGHT_CHROME (or $CHROME) wins; otherwise take the first browser that is
-// actually installed, so this runs on Linux and CI and not only on a Mac —
-// test/player-render.mjs resolves the same way.
-const CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
-  '/usr/bin/chromium', '/usr/bin/chromium-browser',
-  '/snap/bin/chromium',
-  `${process.env.HOME}/.nix-profile/bin/chromium`,
-];
-const CHROME = process.env.DECKLIGHT_CHROME || process.env.CHROME
-  || CANDIDATES.find((p) => existsSync(p));
-if (!CHROME) {
-  console.error('render: no Chrome found — install one, or point $DECKLIGHT_CHROME at it');
-  process.exit(1);
-}
 
 function dump(url) {
-  return execFileSync(CHROME, [
-    '--headless', '--disable-gpu', '--virtual-time-budget=5000',
-    '--dump-dom', url,
-  ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync(CHROME, chromeArgs(
+    '--virtual-time-budget=5000', '--dump-dom', url,
+  ), { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
 function sink(html) {
