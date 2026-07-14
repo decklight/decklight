@@ -1,0 +1,103 @@
+# The triage loop. The ready-to-dev loop implements a ticket once it is clean;
+# nothing, until now, made a ticket clean. A bug report arrives half-formed — no
+# version, no error text, a repro only its author can run — and it sits until a
+# human asks the same five questions by hand.
+#
+#   an issue opens  →  Claude reads it AND the code it blames
+#                   →  it posts one triage comment: is this clear, which version,
+#                      what's the error, can anyone else reproduce it, and what is
+#                      still missing — with the files likely involved named, so the
+#                      first reply already points at the code.
+#
+# It never touches the source (contents: read) and it never labels or closes — it
+# only leaves a comment. A human still decides what the issue is worth.
+name: issue-analyzer
+
+on:
+  issues:
+    types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: issue number to triage
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+  # the action exchanges an OIDC token even when it authenticates with an API key;
+  # without this it dies before it ever reads the prompt:
+  #   "Could not fetch an OIDC token. Did you remember to add id-token: write?"
+  id-token: write
+  actions: read
+
+# one triage per issue at a time; a reopen supersedes an in-flight run
+concurrency:
+  group: issue-analyzer-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    name: read the report, ask the missing questions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: the ticket
+        id: ticket
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ github.event.issue.number || inputs.issue }}
+        run: |
+          set -euo pipefail
+          echo "number=$N" >> "$GITHUB_OUTPUT"
+          gh issue view "$N" --json title,body,labels > /tmp/ticket.json
+          {
+            echo 'body<<TICKET_EOF'
+            jq -r '"# " + .title + "\n\n" + (.body // "(no description)")' /tmp/ticket.json
+            echo TICKET_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: triage it
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --model claude-fable-5
+            --max-turns 20
+            --allowedTools Bash,Read,Glob,Grep
+          prompt: |
+            You are triaging issue #${{ steps.ticket.outputs.number }} in the
+            decklight repository.
+
+            THE TICKET
+            ${{ steps.ticket.outputs.body }}
+
+            First decide what this is. If it is a feature request or a question,
+            say so in one line and stop — the rubric below is for bug reports only.
+
+            For a bug report, skim the code it implicates (README.md, SPEC.md,
+            src/, cli/, tools/) and then post ONE concise, friendly comment that
+            works through:
+
+              1. Clarity — is the problem described unambiguously? Name what is
+                 missing.
+              2. Version — which decklight / build / OS version is it against? If
+                 absent, ask.
+              3. Error message — is there one? If not, request the exact text or
+                 stack trace.
+              4. Reproduction — are there step-by-step instructions? Try to
+                 reproduce it yourself from the code, and say whether you could.
+              5. What else the author can give — a minimal repro deck, config,
+                 a screenshot, logs.
+
+            Earn your keep with the enrichment: name the files or functions likely
+            involved so the author's next reply lands on the right code. Keep it a
+            scannable checklist, not an essay. Post it with:
+
+              gh issue comment ${{ steps.ticket.outputs.number }} --body-file <file>
+
+            Do not label, close, or edit the issue — only comment.
