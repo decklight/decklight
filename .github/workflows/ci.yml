@@ -64,4 +64,8 @@ jobs:
         with:
           name: shots
           path: .shots/
+          # .shots is a DOTTED directory and upload-artifact skips hidden files by
+          # default — without this it uploads nothing, cheerfully, and the step
+          # still goes green
+          include-hidden-files: true
           retention-days: 14
