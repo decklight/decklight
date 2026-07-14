@@ -1,0 +1,229 @@
+# The ready-to-dev loop.
+#
+#   label an issue `ready-to-dev`  →  Claude implements it on a branch
+#                                  →  npm test + npm run verify must pass
+#                                  →  the feature is EXERCISED in a browser and
+#                                     screenshotted
+#                                  →  a PR opens with those screenshots inline,
+#                                     review requested from the Product Owner
+#                                  →  @gphilipp eyeballs it and merges. Nothing
+#                                     reaches main without a human looking at it.
+#
+# The screenshots are the point. A green suite says "the code does what its tests
+# say"; only a picture says "the thing the ticket asked for is actually there".
+# They are pushed to an orphan `shots` branch (evidence, never source) so the PR
+# body can render them without an artifact download.
+name: ready-to-dev
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: issue number to implement
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: ready-to-dev-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: false # never kill a half-finished implementation
+
+jobs:
+  implement:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ready-to-dev'
+    name: implement, prove, hand to the PO
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the DCO check reads history; so does a rebase
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci --omit=optional
+
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+
+      - name: the ticket
+        id: ticket
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ github.event.issue.number || inputs.issue }}
+        run: |
+          set -euo pipefail
+          echo "number=$N" >> "$GITHUB_OUTPUT"
+          echo "branch=ticket/$N" >> "$GITHUB_OUTPUT"
+          gh issue view "$N" --json title,body,labels > /tmp/ticket.json
+          {
+            echo 'body<<TICKET_EOF'
+            jq -r '"# " + .title + "\n\n" + (.body // "(no description)")' /tmp/ticket.json
+            echo TICKET_EOF
+          } >> "$GITHUB_OUTPUT"
+          gh issue edit "$N" --add-label in-dev --remove-label ready-to-dev || true
+
+      - name: implement it
+        uses: anthropics/claude-code-action@v1
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --model claude-fable-5
+            --max-turns 80
+            --allowedTools Bash,Read,Edit,Write,Glob,Grep
+          prompt: |
+            You are implementing issue #${{ steps.ticket.outputs.number }} in the decklight repository.
+
+            THE TICKET
+            ${{ steps.ticket.outputs.body }}
+
+            Read SPEC.md and CONTRIBUTING.md first — SPEC.md is the contract this
+            library keeps, and a change that contradicts it is a change to it: update
+            the SPEC in the same commit, or do not make the change.
+
+            WHAT "DONE" MEANS HERE. All four, or the PR is not worth opening:
+
+            1. It works. `npm test` and `npm run verify` both pass. verify drives a
+               real headless browser; CHROME is already set for you.
+
+            2. It is tested. A behaviour worth shipping is worth a test that FAILS
+               without your change — write it, then check it discriminates by
+               reverting your fix and watching it go red. A test that passes either
+               way is worse than no test: it is a lie that costs nothing to keep.
+
+            3. It is SEEN. Produce at least one screenshot that shows the feature
+               actually working, into .shots/ :
+
+                 node tools/shot.mjs demo/showcase.html -o .shots/<name>.png \
+                   --drive shots/<name>.mjs --wait 3000
+
+               --drive runs a snippet inside the page after the deck boots, so you
+               can exercise the feature exactly as a presenter would (`press('v')`,
+               `await sleep(300)`, `window.__deck`). Commit the driver under shots/
+               so the reviewer can see HOW it was exercised, not just the result.
+               If the ticket changes nothing visible, screenshot the surface it does
+               touch and say so in the PR.
+
+            4. It is honest. If you could not do part of it, say so in the PR body
+               under "What I did not do". Do not quietly narrow the ticket.
+
+            COMMITS. This repo enforces the DCO: every commit needs a Signed-off-by
+            line matching its author exactly, or CI rejects the PR.
+
+              git config user.name  "claude[bot]"
+              git config user.email "claude[bot]@users.noreply.github.com"
+              git checkout -b ${{ steps.ticket.outputs.branch }}
+              git commit -s -m "..."           # -s is not optional
+
+            Write the message for whoever reads it in a year: what changed, and why
+            it had to. Close with:
+
+              Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+            Then push the branch. Do NOT open the pull request yourself and do NOT
+            merge anything — the next step opens the PR with your screenshots
+            attached, and a human decides whether it ships.
+
+      - name: publish the screenshots
+        id: shots
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.ticket.outputs.number }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          pngs=(.shots/*.png)
+          if [ ${#pngs[@]} -eq 0 ]; then
+            echo "none=1" >> "$GITHUB_OUTPUT"
+            echo "::warning::no screenshots were produced — the PO gets no picture to look at"
+            exit 0
+          fi
+          # An orphan branch: evidence, not source. It never merges into main, so a
+          # year of PNGs cannot bloat the history everyone else clones.
+          tmp=$(mktemp -d)
+          url="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git clone --quiet --depth 1 --branch shots "$url" "$tmp" 2>/dev/null; then
+            :
+          else
+            git clone --quiet --depth 1 "$url" "$tmp"
+            git -C "$tmp" checkout --quiet --orphan shots
+            git -C "$tmp" rm -rqf . 2>/dev/null || true
+          fi
+          mkdir -p "$tmp/issue-$N"
+          rm -f "$tmp/issue-$N"/*.png
+          cp .shots/*.png "$tmp/issue-$N/"
+          git -C "$tmp" config user.name  "claude[bot]"
+          git -C "$tmp" config user.email "claude[bot]@users.noreply.github.com"
+          git -C "$tmp" add -A
+          git -C "$tmp" commit -qs -m "shots for #$N" || { echo "none=1" >> "$GITHUB_OUTPUT"; exit 0; }
+          git -C "$tmp" push -q "$url" shots
+          sha=$(git -C "$tmp" rev-parse HEAD)
+          {
+            echo 'md<<SHOTS_EOF'
+            for f in .shots/*.png; do
+              b=$(basename "$f")
+              echo "### $b"
+              echo "![${b}](https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${sha}/issue-${N}/${b})"
+              echo
+            done
+            echo SHOTS_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: open the PR and hand it to the Product Owner
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ steps.ticket.outputs.number }}
+          BRANCH: ${{ steps.ticket.outputs.branch }}
+          SHOTS: ${{ steps.shots.outputs.md }}
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            gh issue comment "$N" --body "The ready-to-dev run finished without pushing a branch — nothing to review. See the [run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+            gh issue edit "$N" --remove-label in-dev --add-label ready-to-dev || true
+            exit 1
+          fi
+
+          # written to a file, NOT an indented heredoc: leading spaces would make
+          # GitHub render the whole body as a code block
+          {
+            echo "Implements #${N}."
+            echo
+            echo "## Does it actually work?"
+            echo
+            echo "${SHOTS:-_No screenshot was produced — ask why before approving._}"
+            echo
+            echo "## Before you approve"
+            echo
+            echo "CI proves the tests pass. It cannot prove the feature is the one the"
+            echo "ticket asked for — that is what your eyes are for."
+            echo
+            echo "- [ ] the screenshots above show the ticket's outcome, not a near miss"
+            echo "- [ ] the tests would fail without this change"
+            echo "- [ ] SPEC.md still describes what the code does"
+            echo
+            echo "🤖 opened by the ready-to-dev loop · implemented by Claude Code"
+          } > /tmp/pr-body.md
+
+          gh pr create \
+            --base main --head "$BRANCH" \
+            --title "$(gh issue view "$N" --json title --jq .title)" \
+            --body-file /tmp/pr-body.md \
+            --reviewer gphilipp \
+            --label needs-po-review || \
+          gh pr edit "$BRANCH" --add-reviewer gphilipp --add-label needs-po-review
+
+          gh issue comment "$N" --body "Implemented on \`$BRANCH\` — PR open, waiting on @gphilipp to look at the screenshots."

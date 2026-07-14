@@ -9,3 +9,7 @@ demo/voiceover*/
 # publish/pack, and CI rebuilds it before both the npm release and the site
 # deploy. It is still SHIPPED — package.json's "files" allowlist wins over this.
 dist/
+
+# Screenshots produced by tools/shot.mjs. Evidence, not source: CI publishes
+# them to the orphan `shots` branch so a PR can show them inline.
+.shots/
