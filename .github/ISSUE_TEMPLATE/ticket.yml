@@ -1,0 +1,55 @@
+name: Ticket
+description: A unit of work an agent can pick up and finish
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Label this `ready-to-dev` when it is ready, and the loop implements it:
+        tests, a screenshot of it actually working, and a pull request for
+        @gphilipp to eyeball. The clearer the acceptance criteria, the less the
+        agent has to guess — and the less you have to send back.
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What should be true when this is done?
+      description: The outcome, not the implementation. Write it so someone can check it.
+      placeholder: |
+        Pressing S during a talk opens a stopwatch in the corner, so I can see
+        how long I have been on this slide without looking at my phone.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: The list you will actually check before approving.
+      placeholder: |
+        - [ ] S toggles it; it is off by default
+        - [ ] it survives a slide change
+        - [ ] it never covers the slide number
+    validations:
+      required: true
+
+  - type: textarea
+    id: demo
+    attributes:
+      label: How would you demo it?
+      description: >
+        The keystrokes or steps that show it working. This becomes the screenshot
+        the reviewer looks at — say what you would need to SEE to believe it.
+      placeholder: |
+        Open demo/showcase.html, press S, advance two slides — the timer should
+        still be running and readable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything the agent should know
+      description: Constraints, prior art in the codebase, things that must not break.
+      placeholder: |
+        SPEC §8 lists the key bindings — S is taken by the speaker view.

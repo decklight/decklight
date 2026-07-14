@@ -1,0 +1,71 @@
+# The build loop. Until now nothing ran the tests on a pull request — the suite
+# only ever ran on a release tag, which is the one moment it is too late to hear
+# about a failure. Every PR and every push to main now builds, tests, renders the
+# deck in a real browser, and leaves a screenshot behind as an artifact.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# a second push supersedes the first: nobody needs the results of a commit that
+# has already been replaced
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: build · test · render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20 # the floor in package.json engines — test what we promise
+          cache: npm
+
+      # node-pty (optional dep) is CLI-recording only — skip its native build
+      - run: npm ci --omit=optional
+
+      # the render harnesses drive a real headless browser; without one they exit
+      # 1 rather than pretending to pass
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+
+      - name: unit tests
+        run: npm test
+
+      - name: build, render, contrast, palette (npm run verify)
+        run: npm run verify
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      # The deck has to still LOOK like a deck. A render harness proves the DOM;
+      # this proves the pixels, and it is the same tool the ready-to-dev loop uses
+      # to show a reviewer what a change actually did.
+      - name: screenshot the demo deck
+        run: |
+          mkdir -p .shots
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase.png --wait 2500
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase-slide-3.png --slide 3 --wait 2500
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shots
+          path: .shots/
+          # .shots is a DOTTED directory and upload-artifact skips hidden files by
+          # default — without this it uploads nothing, cheerfully, and the step
+          # still goes green
+          include-hidden-files: true
+          retention-days: 14

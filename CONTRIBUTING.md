@@ -21,6 +21,33 @@ before both the npm release and the site deploy. It is still shipped in the npm
 package (`package.json`'s `files`). If the demos under `demo/` come up blank in
 a fresh checkout, you skipped `npm install`.
 
+## The ready-to-dev loop
+
+A ticket labelled **`ready-to-dev`** is picked up automatically:
+
+1. **Claude implements it** on `ticket/<n>`, having read `SPEC.md` first — a change
+   that contradicts the spec is a change *to* it, and updates it in the same commit.
+2. **`npm test` and `npm run verify` must pass.** `verify` drives a real headless
+   browser; a test that would pass without the change is treated as a bug.
+3. **It has to be seen.** The agent exercises the feature in a browser and
+   screenshots it (`tools/shot.mjs`, whose `--drive` runs a snippet inside the page
+   so the shot shows the *feature*, not the title slide). The driver is committed
+   under `shots/` so a reviewer can see how it was exercised.
+4. **A PR opens with those screenshots inline**, review requested from the Product
+   Owner ([@gphilipp](https://github.com/gphilipp)).
+5. **He looks at it.** Branch protection will not merge a PR without his approval.
+   A green suite says the code does what its tests say; only a picture says the
+   feature is the one the ticket asked for.
+
+Write the ticket so step 3 is possible: the issue template asks *"how would you demo
+it?"* precisely because that answer becomes the screenshot.
+
+Kicking it off by hand: label an issue `ready-to-dev`, or run the workflow with an
+issue number (`gh workflow run ready-to-dev.yml -f issue=42`).
+
+Screenshots live on an orphan `shots` branch — evidence, never source — so a year of
+PNGs never lands in the history everyone clones.
+
 ## Submitting changes
 
 1. Fork the repo and create a branch.

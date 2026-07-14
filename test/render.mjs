@@ -7,16 +7,16 @@
 import { execFileSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CHROME = process.env.DECKLIGHT_CHROME ||
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME = chromeBin('render');
+
 
 function dump(url) {
-  return execFileSync(CHROME, [
-    '--headless', '--disable-gpu', '--virtual-time-budget=5000',
-    '--dump-dom', url,
-  ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync(CHROME, chromeArgs(
+    '--virtual-time-budget=5000', '--dump-dom', url,
+  ), { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
 function sink(html) {
@@ -61,9 +61,15 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('data-layout=top stays unpinned, top-aligned', s.layouttop, 'true');
   check('data-layout=split is a wrapping flex row', s.splitrow, 'true');
   check('lone-list split gets two columns', s.splitcols, 'true');
-  check('cycleLayout(1): auto → centered (pinned skipped)', s.layoutcycle, 'centered');
-  check('cycleLayout(-1): back to auto, storage cleared', s.layoutreset, 'true');
-  check('one content block: split-flip skipped in the ring', s.flipskip, 'true');
+  check('cycleLayout without the dev server changes nothing', s.layoutgate, 'true');
+  check('layout ring skips pinned when auto already pins', s.ring1, 'auto centered top split split-flip');
+  check('lone list: ring skips split-flip too', s.ring11, 'auto centered top split');
+  check('clock: off by default', s.clockdefault, 'true');
+  check('clock: K shows it', s.clockshown, 'true');
+  check('clock: wall time is HH:MM', s.clockwall, 'true');
+  check('clock: elapsed idle until the first advance', s.clockidle, '+00:00');
+  check('clock: elapsed runs from the first advance', s.clockruns, '+00:02');
+  check('clock: K again removes it', s.clockoff, 'true');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',
@@ -86,6 +92,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: everything built',
     (html.match(/data-build-state="pending"/g) || []).length, 0);
   check('print: print class set', /decklight-print/.test(html), true);
+  check('print: no presenter clock', /decklight-clock"/.test(html), false);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall render checks passed');
