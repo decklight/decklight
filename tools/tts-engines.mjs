@@ -25,7 +25,7 @@
 // denominated in.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId } from './gemini-tts.mjs';
@@ -114,21 +114,34 @@ function createPiper({ voice = 'en_US-ryan-high', dataDir }) {
   const models = dataDir ?? join(homedir(), '.local', 'share', 'piper');
   const byPath = voice.includes('/') || voice.endsWith('.onnx');
 
-  let proc = null, spool = null, seen = null;
+  let proc = null, spool = null;
   let fatal = null;      // a config error (missing voice) — retrying cannot fix it
   let chain = Promise.resolve();
+  const finished = [];   // paths piper has announced as written, in order
+  let wake = null;
 
   function ensure() {
     if (proc) return;
     if (fatal) throw new Error(fatal);
     spool = mkdtempSync(join(tmpdir(), 'decklight-piper-'));
-    seen = new Set();
+    finished.length = 0;
     const p = spawn('piper', [
       '-m', voice, ...(byPath ? [] : ['--data-dir', models]),
       '-d', spool, '--output-dir-naming', 'timestamp',
     ], { stdio: ['pipe', 'ignore', 'pipe'] });
     let err = '';
-    p.stderr.on('data', (b) => { err = (err + b).slice(-4000); });
+    let tail = '';
+    p.stderr.on('data', (b) => {
+      err = (err + b).slice(-4000);
+      // `INFO:__main__:Wrote <path>` — piper's end-of-utterance signal
+      tail += b;
+      const lines = tail.split('\n');
+      tail = lines.pop() ?? '';
+      for (const line of lines) {
+        const m = /Wrote (.+\.wav)\s*$/.exec(line);
+        if (m) { finished.push(m[1].trim()); wake?.(); }
+      }
+    });
     p.on('exit', (code) => {
       if (proc === p) proc = null;
       rmSync(spool, { recursive: true, force: true });
@@ -144,35 +157,61 @@ function createPiper({ voice = 'en_US-ryan-high', dataDir }) {
   }
   let lastExit = null;
 
-  // A WAV is complete when the RIFF header's declared length matches the bytes
-  // on disk — piper patches that length when it closes the file. That is an
-  // exact signal; "the size stopped changing" is not, since a write can simply
-  // stall, and half a WAV is a corrupt WAV. (Belt and braces: if some build
-  // never patched the header, fall back to a file that has not grown for ~1s.)
-  const complete = (b) => b.length > 44 && b.readUInt32LE(4) + 8 === b.length;
+  // The FILE cannot tell you when an utterance is done — only piper can.
+  //
+  // The obvious signal is a lie. Piper keeps the RIFF header in sync as it
+  // streams, so "the header's declared length matches the bytes on disk" is
+  // already true at the FIRST sentence boundary. And because piper synthesizes
+  // sentence by sentence, the file then sits at exactly that size for as long
+  // as the next sentence takes to generate — so "wait until it stops growing"
+  // fails too, however long you wait. Any file-watching heuristic hands back a
+  // well-formed WAV holding only the first sentence, and nothing downstream can
+  // tell: the deck just says half the line, in a clip whose duration looks
+  // plausible. (Measured on en_US-ryan-high: header first matched at 151084
+  // bytes of a 301612-byte file — half the utterance.)
+  //
+  // Piper announces each finished utterance on stderr:
+  //     INFO:__main__:Wrote /tmp/decklight-piper-XXXX/1234567890.wav
+  // That says no further sentence is coming — the one thing the file cannot.
+  // It does NOT mean every byte is on disk (piper logs it before closing the
+  // handle, so reading immediately still truncates at the last flush boundary:
+  // a 7.44s and a 7.24s clip both came back as the same 314924 bytes). So the
+  // two signals compose, and neither alone would do: stderr ends the utterance,
+  // and only THEN does header-match + settled-size mean "closed" rather than
+  // "between sentences".
+  const headerMatches = (b) => b.length > 44 && b.readUInt32LE(4) + 8 === b.length;
 
+  async function drain(f, timeoutMs = 10_000) {
+    const t0 = Date.now();
+    let last = -1;
+    for (;;) {
+      const b = readFileSync(f);
+      if (headerMatches(b) && b.length === last) return b;   // closed
+      last = b.length;
+      if (Date.now() - t0 >= timeoutMs) return b;            // never settled — take it
+      await sleep(20);
+    }
+  }
+
+  // Requests are serialized (one line in → one file out, in order), so the next
+  // announced path is ours.
   async function nextWav(timeoutMs = 180_000) {
     const t0 = Date.now();
-    while (Date.now() - t0 < timeoutMs) {
+    for (;;) {
       if (!proc) throw new Error(fatal ?? lastExit ?? 'piper stopped');
-      // one line in → one file out, in order, and we serialize: the next file
-      // we have not seen is this request's
-      const [name] = readdirSync(spool).filter((f) => f.endsWith('.wav') && !seen.has(f));
-      if (name) {
-        const f = join(spool, name);
-        let last = -1, still = 0;
-        for (;;) {
-          const b = readFileSync(f);
-          if (complete(b)) { seen.add(name); rmSync(f, { force: true }); return b; }
-          still = b.length === last ? still + 1 : 0;
-          last = b.length;
-          if (still >= 12 && b.length > 44) { seen.add(name); rmSync(f, { force: true }); return b; }
-          await sleep(80);
-        }
+      const f = finished.shift();
+      if (f) {
+        const b = await drain(f);
+        rmSync(f, { force: true });
+        return b;
       }
-      await sleep(40);
+      if (Date.now() - t0 >= timeoutMs) throw new Error('piper timed out');
+      await new Promise((resolve) => {
+        wake = resolve;
+        setTimeout(resolve, 50);   // also covers a missed wake
+      });
+      wake = null;
     }
-    throw new Error('piper timed out');
   }
 
   function synth(text) {
@@ -191,6 +230,11 @@ function createPiper({ voice = 'en_US-ryan-high', dataDir }) {
   // the presenter's first keypress pays the whole ~13s load, which reads as a
   // hung deck. By the time anyone has opened a slide, piper is warm.
   synth.warm = () => { try { ensure(); } catch { /* reported at synth time */ } };
+  // The resident process outlives the work: its piped stdio keeps Node's event
+  // loop alive, so a BATCH caller that simply stops calling synth() never exits
+  // (the bridge doesn't care — it is a server — but tools/voiceover.mjs hung on
+  // its own success). Batch callers close when they are done.
+  synth.close = () => { proc?.kill(); proc = null; };
   return synth;
 }
 
