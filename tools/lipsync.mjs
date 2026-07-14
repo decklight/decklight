@@ -30,6 +30,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
 import { normalizeRhubarb } from './visemes.mjs';
+import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -50,6 +51,20 @@ const wav2lipDir = opt('--wav2lip-dir');
 const wav2lipCkpt = opt('--wav2lip-ckpt');
 const sadtalkerDir = opt('--sadtalker-dir');
 const python = opt('--python', 'python3');
+// --veo: animate the portrait ONCE through Vertex (tools/veo.mjs) and give
+// wav2lip that clip instead of the still, so the recorded narrator moves
+// instead of staring. One billed call per portrait, cached next to the audio.
+const veoOn = args.includes('--veo');
+
+const veo = veoOn ? createVeo({
+  project: opt('--veo-project', process.env.GOOGLE_CLOUD_PROJECT),
+  location: opt('--veo-location', 'us-central1'),
+  model: opt('--veo-model', VEO_MODELS[0]),
+  seconds: Number(opt('--veo-seconds', 8)),
+  prompt: opt('--veo-prompt', DEFAULT_PROMPT),
+  faceY: Number(opt('--veo-face-y', 0.12)),
+  cacheDir: dir,
+}) : null;
 
 const have = (bin, flags = ['--version']) => {
   try { execFileSync(bin, flags, { stdio: 'ignore' }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
@@ -93,6 +108,11 @@ function toWav(nn) {
   return { path: tmp, tmp: true };
 }
 
+// One portrait → one motion clip → every slide. Bought before the loop so the
+// cost is one call, not one per slide, and so a failure stops us before any
+// GPU time is spent.
+const face = veo && engine === 'wav2lip' ? await veo.motionFor(portrait) : portrait;
+
 let made = 0, kept = 0;
 for (const nn of slides) {
   const audioFile = ['wav', 'm4a'].map((e) => join(dir, `slide-${nn}.${e}`)).find(existsSync);
@@ -108,7 +128,7 @@ for (const nn of slides) {
     const outFile = join(dir, job === 'visemes' ? `slide-${nn}.visemes.json` : `slide-${nn}.mp4`);
     const hash = job === 'visemes'
       ? sha('visemes|', text, '|', audioBytes)
-      : sha('video|', engine, '|', readFileSync(portrait), '|', audioBytes);
+      : sha('video|', engine, '|', readFileSync(face), '|', audioBytes);   // `face`, so --veo re-renders
     if (st[job] === hash && existsSync(outFile)) {
       kept++;
       console.log(`  slide ${nn}: ${job} unchanged — kept`);
@@ -130,8 +150,12 @@ for (const nn of slides) {
       } else {
         const tmpMp4 = join(dir, `slide-${nn}.tmp.mp4`);
         if (engine === 'wav2lip') {
+          // a --veo clip is hundreds of frames to detect faces in, not one:
+          // batch small or an 8GB card dies with "Image too big to run face
+          // detection on GPU" (see lipsync-server.mjs)
+          const batches = face === portrait ? [] : ['--face_det_batch_size', '4', '--wav2lip_batch_size', '32'];
           execFileSync(python, ['inference.py', '--checkpoint_path', resolve(wav2lipCkpt),
-            '--face', portrait, '--audio', wav.path, '--outfile', tmpMp4],
+            '--face', face, '--audio', wav.path, '--outfile', tmpMp4, ...batches],
           { cwd: resolve(wav2lipDir), stdio: 'inherit' });
         } else {
           const resDir = join(dir, `slide-${nn}.tmp.d`);
