@@ -5,34 +5,18 @@
 // works" harness (SPEC intro + §10). Exits non-zero on any failed assertion.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const CHROME = chromeBin('render');
 
-// $DECKLIGHT_CHROME (or $CHROME) wins; otherwise take the first browser that is
-// actually installed, so this runs on Linux and CI and not only on a Mac —
-// test/player-render.mjs resolves the same way.
-const CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
-  '/usr/bin/chromium', '/usr/bin/chromium-browser',
-  '/snap/bin/chromium',
-  `${process.env.HOME}/.nix-profile/bin/chromium`,
-];
-const CHROME = process.env.DECKLIGHT_CHROME || process.env.CHROME
-  || CANDIDATES.find((p) => existsSync(p));
-if (!CHROME) {
-  console.error('render: no Chrome found — install one, or point $DECKLIGHT_CHROME at it');
-  process.exit(1);
-}
 
 function dump(url) {
-  return execFileSync(CHROME, [
-    '--headless', '--disable-gpu', '--virtual-time-budget=5000',
-    '--dump-dom', url,
-  ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return execFileSync(CHROME, chromeArgs(
+    '--virtual-time-budget=5000', '--dump-dom', url,
+  ), { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
 function sink(html) {
@@ -80,6 +64,12 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('cycleLayout without the dev server changes nothing', s.layoutgate, 'true');
   check('layout ring skips pinned when auto already pins', s.ring1, 'auto centered top split split-flip');
   check('lone list: ring skips split-flip too', s.ring11, 'auto centered top split');
+  check('clock: off by default', s.clockdefault, 'true');
+  check('clock: K shows it', s.clockshown, 'true');
+  check('clock: wall time is HH:MM', s.clockwall, 'true');
+  check('clock: elapsed idle until the first advance', s.clockidle, '+00:00');
+  check('clock: elapsed runs from the first advance', s.clockruns, '+00:02');
+  check('clock: K again removes it', s.clockoff, 'true');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',
@@ -102,6 +92,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: everything built',
     (html.match(/data-build-state="pending"/g) || []).length, 0);
   check('print: print class set', /decklight-print/.test(html), true);
+  check('print: no presenter clock', /decklight-clock"/.test(html), false);
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall render checks passed');

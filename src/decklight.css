@@ -656,6 +656,27 @@
   margin-right: 12px;
   font-family: var(--font-body, system-ui, sans-serif);
 }
+/* presenter clock (K) — wall time + elapsed talk time, directly BELOW the
+   slide number: messages own the top-left, the logo defaults bottom-left,
+   the arrows sit bottom-right, so this is the corner slot that covers no
+   other chrome. Own scrim, not theme tokens — readable on any canvas. */
+.decklight-clock {
+  position: absolute;
+  right: 20px;
+  top: 42px;
+  z-index: 40;
+  display: flex;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(8, 9, 12, .72);
+  color: #fff;
+  font-size: 15px;
+  font-family: var(--font-mono, monospace);
+  pointer-events: none;
+  user-select: none;
+}
+.decklight-clock .clk-elapsed { color: var(--accent, #6af); }
 /* touch chrome — shown only where there's no keyboard (see engine.js) */
 .decklight-touch-controls { position: absolute; left: 14px; top: 14px; z-index: 41; display: none; gap: 8px; }
 .decklight-touch-btn {

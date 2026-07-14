@@ -17,36 +17,23 @@
  *   dead    — every sentence 429s: same, and it never races ahead
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'narration.html');
+const CHROME = chromeBin('narration-render');
 
-const CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
-  '/usr/bin/chromium', '/usr/bin/chromium-browser',
-  '/snap/bin/chromium',
-  `${process.env.HOME}/.nix-profile/bin/chromium`,
-];
-const CHROME = process.env.CHROME || process.env.DECKLIGHT_CHROME
-  || CANDIDATES.find((p) => existsSync(p));
-if (!CHROME) {
-  console.error('narration-render: no Chrome found — install one, or point $CHROME at it');
-  process.exit(1);
-}
 
 function run(mode) {
-  const html = execFileSync(CHROME, [
-    '--headless', '--disable-gpu',
+  // stderr is ignored: a headless Chrome on a machine with no D-Bus/UPower prints
+  // pages of unrelated noise that would bury the actual result
+  const html = execFileSync(CHROME, chromeArgs(
     '--allow-file-access-from-files',
     '--virtual-time-budget=30000',
     '--dump-dom', `file://${page}?mode=${mode}`,
-    // stderr is ignored: a headless Chrome on a machine with no D-Bus/UPower
-    // prints pages of unrelated noise that would bury the actual result
-  ], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+  ), { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
   const m = html.match(/DECKLIGHT-NARRATION-RESULTS (\{[\s\S]*?\})\s*</);
   if (!m) throw new Error(`no results marker for mode=${mode}`);
   return JSON.parse(m[1]);
