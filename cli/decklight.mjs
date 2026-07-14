@@ -17,6 +17,8 @@
  * this dispatcher is the documented entry point).
  */
 
+import { readFileSync } from 'node:fs';
+
 const GLOBAL_HELP = `decklight — author, record, and package Decklight presentations
 
 Usage:
@@ -43,6 +45,7 @@ Commands:
   dev      one command for the whole loop: edit + every bridge this machine can run, one Ctrl-C
            EXAMPLE: decklight dev demo/showcase.html   (bridges without prerequisites are skipped)
   help     show this help, or a command's help: decklight help bundle
+  version  print the installed version (also --version / -v)
 `;
 
 function globalHelp(exitCode = 0) {
@@ -54,12 +57,24 @@ const argv = process.argv.slice(2);
 let cmd = argv[0];
 let rest = argv.slice(1);
 
+const { version } = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+);
+
 if (!cmd || cmd === '--help' || cmd === '-h') globalHelp();
+if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
+  process.stdout.write(`decklight ${version}\n`);
+  process.exit(0);
+}
 if (cmd === 'help') {
   if (!rest[0]) globalHelp();
   cmd = rest[0];
   rest = ['--help'];
 }
+
+// every real command announces the version it runs as — on stderr, so piped
+// output (export, bundle) stays clean
+process.stderr.write(`decklight ${version}\n`);
 
 switch (cmd) {
   case 'init': {
