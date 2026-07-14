@@ -10,18 +10,17 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'character.html');
-const CHROME = process.env.CHROME ||
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME = chromeBin('character-render');
 
-const html = execFileSync(CHROME, [
-  '--headless', '--disable-gpu',
+const html = execFileSync(CHROME, chromeArgs(
   '--allow-file-access-from-files',
   '--virtual-time-budget=60000',
   '--dump-dom', `file://${page}`,
-], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+), { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 
 const m = html.match(/DECKLIGHT-CHARACTER-RESULTS (\{[\s\S]*?\})\s*</);
 if (!m) {

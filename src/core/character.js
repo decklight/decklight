@@ -77,9 +77,11 @@ export function createCharacter({ root, config, debugLog, toast }) {
   let mode = cfg.mode ?? 'off';           // 'off' | 'viseme' | 'video'
   let engine = cfg.engine ?? 'wav2lip';   // video-mode synth engine
   let portrait = cfg.portrait ?? 'default';
+  let solo = cfg.solo ?? false;           // narrator centre stage, slides hidden
   try {
     const s = JSON.parse(localStorage.getItem(storeKey));
     if (s?.mode) { mode = s.mode; engine = s.engine ?? engine; portrait = s.portrait ?? portrait; }
+    if (typeof s?.solo === 'boolean') solo = s.solo;
   } catch { /* ignore */ }
 
   let el = null, videoEl = null, artMode = null;
@@ -96,7 +98,15 @@ export function createCharacter({ root, config, debugLog, toast }) {
   const videoKey = (key) => `${key}|${engine}|${portrait}`;
 
   function persist() {
-    try { localStorage.setItem(storeKey, JSON.stringify({ mode, engine, portrait })); } catch { /* ignore */ }
+    try { localStorage.setItem(storeKey, JSON.stringify({ mode, engine, portrait, solo })); } catch { /* ignore */ }
+  }
+  // Solo lives on the ROOT, not the overlay: the character is a sibling of
+  // .decklight-stage, so hiding the stage is what clears the slide away. The
+  // class is only ever set while the character is actually on screen —
+  // otherwise stopping the narration would leave a blank deck behind.
+  function applySolo() {
+    root.classList.toggle('decklight-solo',
+      solo && mode !== 'off' && !!el?.classList.contains('show'));
   }
   function warnOnce() {
     if (warned) return;
@@ -152,6 +162,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
     mount();
     el.classList.add('show');
     if (!timer) timer = setInterval(tick, 33);
+    applySolo();
   }
   function stop() {
     if (timer) { clearInterval(timer); timer = 0; }
@@ -160,6 +171,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
     timeline = null;
     currentKey = null;
     setViseme('X');
+    applySolo();
   }
   function setViseme(v) {
     if (v === lastV || !el) return;
@@ -342,17 +354,34 @@ export function createCharacter({ root, config, debugLog, toast }) {
     if (opts.portrait) portrait = opts.portrait;
     persist();
     if (mode === 'off') stop();
-    else { warned = false; mount(); }
+    // solo is remembered across an off/on switch: coming back to a character
+    // that is meant to own the stage, show it now rather than wait for V
+    else { warned = false; mount(); if (solo) show(); }
+    applySolo();
     debugLog('lipsync', mode === 'off' ? 'character off'
       : `character ${mode}${mode === 'video' ? ` · ${engine} · ${portrait}` : ''}`);
+  }
+  // Turning solo ON shows the character straight away — you flip it while
+  // authoring and the narrator is simply there, idling (blink and sway), so
+  // the stage never goes empty waiting for V. Turning it OFF between clips
+  // puts the character away again, exactly as stopping the narration does.
+  function setSolo(v) {
+    solo = !!v;
+    persist();
+    const playing = !!audioEl && !audioEl.paused && !audioEl.ended;
+    if (solo && mode !== 'off') show();
+    else if (!solo && !playing) stop();
+    applySolo();
+    debugLog('lipsync', `character solo ${solo ? 'on' : 'off'}`);
   }
 
   return {
     get mode() { return mode; },
     get engine() { return engine; },
     get portrait() { return portrait; },
+    get solo() { return solo; },
     get bridgeInfo() { return bridgeInfo; },
-    setMode, prefetchSentence, beginSentence, beginSlide,
+    setMode, setSolo, prefetchSentence, beginSentence, beginSlide,
     attachAudio, stop, probe, ensureTimeline,
   };
 }

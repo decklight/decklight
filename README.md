@@ -77,7 +77,7 @@ The whole loop is agent-friendly, one file end to end:
 | **Builds** | `data-build` on a container — each child is a step; the layout never jumps | [SPEC §2](SPEC.md#2-builds-keynote-style-reveal-calls-these-fragments) |
 | **SVG diagrams** | inline SVG authored with `var(--d-*)` tokens; recolors with every theme, strokes draw in | [SPEC §3](SPEC.md#3-svg-diagrams-first-class) |
 | **Motion** | slide transitions, Magic Move auto-animate, looping element effects — all respect reduced-motion | [SPEC §4](SPEC.md#4-motion) |
-| **Theming** | 61 themes in 5 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC §5](SPEC.md#5-theming--the-token-contract) |
+| **Theming** | 62 themes in 5 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC §5](SPEC.md#5-theming--the-token-contract) |
 | **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC §6](SPEC.md#6-code) |
 | **Terminals** | `decklight rec` captures real PTY output; replayed by typing then streaming, never a video | [SPEC §7](SPEC.md#7-terminal-recordings) |
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC §8](SPEC.md#8-presenting--output) |
