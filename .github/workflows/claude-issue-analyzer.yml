@@ -86,7 +86,11 @@ jobs:
       - name: draft the triage
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # A subscription token (`claude setup-token`), not a metered API key —
+          # the ready-to-dev loop died twice on an exhausted prepaid balance. Only
+          # ONE credential may be set: ANTHROPIC_API_KEY in the environment takes
+          # precedence, so a dead key left alongside this would still be the one used.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # No Bash, no Edit, no GH_TOKEN in this step's env. Read the repo, write
           # one file. That is the whole capability.
           claude_args: |
