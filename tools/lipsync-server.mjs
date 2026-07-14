@@ -38,6 +38,7 @@ import { join, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import { normalizeRhubarb } from './visemes.mjs';
+import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 
 const run = promisify(execFile);
 
@@ -62,11 +63,24 @@ export async function lipsyncMain(args) {
   [--wav2lip-dir <repo> --wav2lip-ckpt <checkpoint.pth>]
   [--sadtalker-dir <repo>] [--python python3]
   [--cache-dir ~/.cache/decklight/lipsync]
+  [--veo] [--veo-project <id>] [--veo-model veo-3.1-lite-generate-001]
+  [--veo-seconds 4|6|8] [--veo-prompt "..."] [--veo-location us-central1]
+  [--veo-face-y 0.12]                   where the square crop starts, as a fraction of height
 
 Viseme timelines need rhubarb on PATH (or --rhubarb):
   https://github.com/DanielSWolf/rhubarb-lip-sync
 Talking-head video needs a local Wav2Lip and/or SadTalker checkout, a GPU,
-and at least one --portrait. Everything runs offline on this machine.`);
+and at least one --portrait. Everything runs offline on this machine.
+
+--veo is the exception, and the only thing here that leaves the machine: it
+animates each portrait ONCE through Veo on Vertex AI (head turns, blinks,
+shoulders) and hands Wav2Lip that clip instead of the still, so the narrator
+moves like a person instead of staring. One billed call per portrait, cached
+in --cache-dir forever; the per-sentence lip-sync stays local on your GPU.
+Give it a HEAD-AND-SHOULDERS portrait (3:4 or taller). The clip is cropped
+square around the head for the deck's circular overlay, and a tight square
+photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
+--veo-face-y up (~0.22) for such a portrait, or feed it one with headroom.`);
     return;
   }
   const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
@@ -79,6 +93,29 @@ and at least one --portrait. Everything runs offline on this machine.`);
   const sadtalkerDir = opt('--sadtalker-dir');
   const cacheDir = resolve(opt('--cache-dir', join(homedir(), '.cache', 'decklight', 'lipsync')));
   mkdirSync(cacheDir, { recursive: true });
+
+  // Veo: the portrait's MOTION, bought once (tools/veo.mjs). Only wav2lip can
+  // use it — SadTalker animates the head itself and wants a still.
+  const veoOn = args.includes('--veo');
+  let veo = null;
+  if (veoOn) {
+    try {
+      veo = createVeo({
+        project: opt('--veo-project', process.env.GOOGLE_CLOUD_PROJECT),
+        location: opt('--veo-location', 'us-central1'),
+        model: opt('--veo-model', VEO_MODELS[0]),
+        seconds: Number(opt('--veo-seconds', 8)),
+        prompt: opt('--veo-prompt', DEFAULT_PROMPT),
+        faceY: Number(opt('--veo-face-y', 0.12)),
+        cacheDir,
+      });
+    } catch (e) {
+      // A misconfigured --veo must not cost you the whole bridge: visemes and
+      // still-portrait video still work, so say what broke and carry on.
+      console.error(`veo disabled — ${e.message}`);
+      veo = null;
+    }
+  }
 
   // portraits: --portrait alice=face.png (or a bare path — named by basename)
   const portraits = new Map();
@@ -150,8 +187,16 @@ and at least one --portrait. Everything runs offline on this machine.`);
 
   async function video(wav, engine, portraitName) {
     if (!videoEngines.includes(engine)) throw new Error(`engine '${engine}' not available`);
-    const face = portraits.get(portraitName);
-    if (!face) throw new Error(`unknown portrait '${portraitName}'`);
+    const still = portraits.get(portraitName);
+    if (!still) throw new Error(`unknown portrait '${portraitName}'`);
+    // With --veo, wav2lip's source is the portrait's motion clip rather than the
+    // portrait: same model, same per-sentence cost, but the head is alive under
+    // the new mouth. Bought once per portrait and cached (tools/veo.mjs), so
+    // this awaits a network call only the very first time. SadTalker is left
+    // alone — it makes its own head motion and needs the still.
+    const face = veo && engine === 'wav2lip' ? await veo.motionFor(still) : still;
+    // the key reads `face`, so a veo clip and a still can never share a cache
+    // entry — flip --veo off and yesterday's clips are still there, untouched
     const key = sha('video|', engine, '|', readFileSync(face), '|', wav);
     const out = join(cacheDir, `${key}.mp4`);
     if (existsSync(out)) return { body: readFileSync(out), cached: true };
@@ -165,8 +210,15 @@ and at least one --portrait. Everything runs offline on this machine.`);
         const t0 = Date.now();
         process.stdout.write(`  video ${engine} · ${portraitName}: ${(wav.length / 1024).toFixed(0)} KB wav … `);
         if (engine === 'wav2lip') {
+          // A still is ONE frame to detect a face in; a --veo motion clip is a
+          // couple of hundred. Wav2Lip's face detector batches 16 frames by
+          // default, halving on CUDA OOM until it gives up at 1 with "Image too
+          // big to run face detection on GPU" — which it will do on an 8 GB card
+          // that a desktop is already using half of. Batch small instead: the
+          // clip is short, and the GPU queue is serial anyway.
+          const batches = face === still ? [] : ['--face_det_batch_size', '4', '--wav2lip_batch_size', '32'];
           await run(python, ['inference.py', '--checkpoint_path', resolve(wav2lipCkpt),
-            '--face', face, '--audio', tmpWav, '--outfile', tmpMp4],
+            '--face', face, '--audio', tmpWav, '--outfile', tmpMp4, ...batches],
           { cwd: resolve(wav2lipDir), timeout: 600000, maxBuffer: 64 * 1024 * 1024 });
         } else {
           mkdirSync(tmpDir, { recursive: true });
@@ -208,6 +260,8 @@ and at least one --portrait. Everything runs offline on this machine.`);
       return res.end(JSON.stringify({
         ok: true,
         engines: { viseme: visemeOk, video: videoEngines },
+        // what the head is driven from: a veo motion clip, or the still photo
+        motion: veo ? { engine: 'veo', model: veo.model, seconds: veo.seconds } : null,
         portraits: [...portraits.keys()],
       }));
     }
@@ -241,6 +295,10 @@ and at least one --portrait. Everything runs offline on this machine.`);
   server.listen(port, '127.0.0.1', () => {
     const what = [visemeOk && 'visemes (rhubarb)', ...videoEngines.map((e) => `video (${e})`)].filter(Boolean).join(' · ');
     console.log(`decklight lipsync bridge on http://127.0.0.1:${port} — ${what} — Ctrl-C stops`);
+    if (veo) {
+      console.log(`veo: ${veo.model} · ${veo.seconds}s — each portrait is animated ONCE (billed), `
+        + 'then wav2lip re-syncs that clip locally for every sentence');
+    }
     console.log(`cache: ${cacheDir}`);
   });
   return server;

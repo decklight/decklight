@@ -55,7 +55,9 @@ const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] 
   tts flags     --project <id> (or $GOOGLE_CLOUD_PROJECT; gemini/chirp only),
                 --tts-model, --location, --voice, --data-dir, --lang
   lipsync flags --rhubarb <bin>, --portrait <name=img.png>…, --wav2lip-dir,
-                --wav2lip-ckpt, --sadtalker-dir, --python, --cache-dir
+                --wav2lip-ckpt, --sadtalker-dir, --python, --cache-dir,
+                --veo (animate the portrait once through Vertex — BILLED),
+                --veo-project, --veo-model, --veo-seconds, --veo-face-y
   (all passed straight through — see decklight tts --help / lipsync --help)`;
 
 // flags that take a value (so the deck argument can be found past them)
@@ -64,6 +66,7 @@ const VALUE_FLAGS = new Set([
   '--location', '--voice', '--data-dir', '--lang',
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
   '--python', '--cache-dir', '--commit-every', '--agent',
+  '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
 ]);
 
 /**
@@ -150,6 +153,13 @@ export function planServices({ args = [], env = process.env, hasBin = onPath } =
         ...opts('--portrait').flatMap((p) => ['--portrait', p]),
         ...pass('--wav2lip-dir'), ...pass('--wav2lip-ckpt'),
         ...pass('--sadtalker-dir'), ...pass('--python'), ...pass('--cache-dir'),
+        // --veo animates the portrait through Vertex (once, then cached) so the
+        // narrator moves while you author; it is the one bridge flag that spends
+        // money, so it is opt-in here exactly as it is on `decklight lipsync`
+        ...(has('--veo') ? ['--veo'] : []),
+        ...pass('--veo-project'), ...pass('--veo-model'),
+        ...pass('--veo-seconds'), ...pass('--veo-prompt'), ...pass('--veo-location'),
+        ...pass('--veo-face-y'),
       ],
       url: `http://127.0.0.1:${lipPort}`,
     });

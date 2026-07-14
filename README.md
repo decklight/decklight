@@ -92,6 +92,7 @@ The whole loop is agent-friendly, one file end to end:
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML |
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
+| `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait so the narrator moves, not just its mouth |
 
 `decklight help` for every command and flag — `refresh` and `export` are in [SPEC §7](SPEC.md#7-terminal-recordings), `edit` and `lipsync` in [SPEC §8](SPEC.md#8-presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#9-public-js-api). The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
