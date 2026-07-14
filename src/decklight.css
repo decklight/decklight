@@ -640,6 +640,11 @@
   padding: 2px 10px;
 }
 .decklight-arrow:hover { color: var(--accent, #6af); }
+/* progress bar (H) — a hairline along the very bottom edge; its width is the
+   position in the deck. Below the captions bar (bottom: 7%, z45), the
+   character overlay (z44) and the corner chrome, so it covers nothing.
+   Track is a translucent neutral (readable on any canvas, like the clock's
+   scrim); the fill is the theme's accent. */
 .decklight-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 40; background: rgba(128,128,128,.2); }
 .decklight-progress .bar { height: 100%; width: 0; background: var(--accent, #6af); transition: width 200ms ease; }
 .decklight-slide-number {

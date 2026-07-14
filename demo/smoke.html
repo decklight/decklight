@@ -186,9 +186,13 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
 </script>
 <script src="../dist/decklight.js"></script>
 <script>
-  // The clock toggle persists per deck — scrub any state a previous (possibly
-  // crashed) harness run left behind, so every dump starts from the default.
-  try { localStorage.removeItem('decklight-clock:' + location.pathname); } catch { /* ignore */ }
+  // The clock and progress-bar toggles persist per deck — scrub any state a
+  // previous (possibly crashed) harness run left behind, so every dump starts
+  // from the default.
+  try {
+    localStorage.removeItem('decklight-clock:' + location.pathname);
+    localStorage.removeItem('decklight-progress:' + location.pathname);
+  } catch { /* ignore */ }
   const deck = Decklight.init({ transition: 'fade', slideNumber: 'n/N' });
   // Error/status sink for the headless harness: dump-dom can't read the
   // console, so results are written into the DOM.
@@ -252,6 +256,18 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
       press('k');
       recs.push(rec('clockoff', !document.querySelector('.decklight-clock')));
       deck.prev(); // …restore the step the other assertions dumped
+      // progress bar (H) — same shape as the clock: off, on, tracks, off.
+      recs.push(rec('progressdefault', !document.querySelector('.decklight-progress')));
+      press('h');
+      const bar = document.querySelector('.decklight-progress .bar');
+      recs.push(rec('progressshown', !!bar));
+      const wStart = bar?.style.width;                 // near the start — nearly empty
+      const restore = { ...deck.state };               // a deep-link dump lands on #/1/2 — put it back exactly
+      deck.goto(deck.state.totalSlides, 0);            // End: last slide — full
+      recs.push(rec('progresstracks', !!bar && wStart !== bar.style.width && parseFloat(bar.style.width) === 100));
+      deck.goto(restore.slide, restore.step);          // …restore for the dump
+      press('h');
+      recs.push(rec('progressoff', !document.querySelector('.decklight-progress')));
     }
     sink.textContent = recs.join('\n');
     document.body.appendChild(sink);
