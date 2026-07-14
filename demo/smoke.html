@@ -186,16 +186,19 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
 </script>
 <script src="../dist/decklight.js"></script>
 <script>
+  // The clock toggle persists per deck — scrub any state a previous (possibly
+  // crashed) harness run left behind, so every dump starts from the default.
+  try { localStorage.removeItem('decklight-clock:' + location.pathname); } catch { /* ignore */ }
   const deck = Decklight.init({ transition: 'fade', slideNumber: 'n/N' });
   // Error/status sink for the headless harness: dump-dom can't read the
   // console, so results are written into the DOM.
-  setTimeout(() => {
+  setTimeout(async () => {
     const sink = document.createElement('div');
     sink.id = 'test-sink';
     sink.style.display = 'none';
     const rec = (name, value) => `${name}=${value}`;
     const stage = document.querySelector('.decklight-stage');
-    sink.textContent = [
+    const recs = [
       rec('errors', window.__errors.length ? 'ERROR:' + window.__errors.join(';') : 'none'),
       rec('slides', deck.state.totalSlides),
       rec('slide1steps', document.querySelectorAll('section[data-slide-index="1"] .build-step').length),
@@ -231,7 +234,26 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
       })()),
       rec('ring1', deck.layoutRing(1).join(' ')),   // auto-pinned slide: 'pinned' skipped
       rec('ring11', deck.layoutRing(11).join(' ')), // lone-list slide: 'split-flip' skipped too
-    ].join('\n');
+    ];
+    // presenter clock (K) — pressed exactly as a presenter would. Skipped in
+    // ?print (no key handler there; the render test asserts no clock either).
+    if (!new URLSearchParams(location.search).has('print')) {
+      const press = (k) => document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+      recs.push(rec('clockdefault', !document.querySelector('.decklight-clock')));
+      press('k');
+      const clock = document.querySelector('.decklight-clock');
+      recs.push(rec('clockshown', !!clock));
+      recs.push(rec('clockwall', /^\d{2}:\d{2}$/.test(clock?.querySelector('.clk-time')?.textContent ?? '')));
+      recs.push(rec('clockidle', clock?.querySelector('.clk-elapsed')?.textContent ?? ''));
+      deck.next(); // the FIRST advance starts the talk…
+      await new Promise((r) => setTimeout(r, 2400)); // virtual time — instant in CI
+      recs.push(rec('clockruns', clock?.querySelector('.clk-elapsed')?.textContent ?? ''));
+      press('k');
+      recs.push(rec('clockoff', !document.querySelector('.decklight-clock')));
+      deck.prev(); // …restore the step the other assertions dumped
+    }
+    sink.textContent = recs.join('\n');
     document.body.appendChild(sink);
   }, 300);
 </script>
