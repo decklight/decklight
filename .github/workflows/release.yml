@@ -22,10 +22,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # NO registry-url. setup-node's registry-url writes an .npmrc auth entry
+      # fed by $NODE_AUTH_TOKEN and exports a literal XXXXX placeholder for it —
+      # and a configured token pre-empts the Trusted Publishing OIDC exchange, so
+      # v0.2.0's first publish went out authenticated as "XXXXX-XXXXX-XXXXX-XXXXX"
+      # and died with a misleading E404. With no token configured, npm >= 11.5
+      # performs the OIDC exchange against the trusted publisher registered on
+      # npmjs.com (decklight/decklight, release.yml) — and if that registration
+      # is missing, it fails with an honest auth error instead.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
 
       # Trusted Publishing needs npm >= 11.5.1; pin the 11.x line (npm@latest
       # is now 12.x, which requires a newer Node than the runner ships)
