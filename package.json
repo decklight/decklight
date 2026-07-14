@@ -1,6 +1,6 @@
 {
   "name": "decklight",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "A presentation library designed to be authored by AI agents and humans alike: single-file decks, Keynote-style builds, theme-aware SVG diagrams, and truthful terminal recordings.",
   "type": "module",
   "main": "dist/decklight.js",
