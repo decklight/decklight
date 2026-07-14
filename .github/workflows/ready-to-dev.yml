@@ -92,18 +92,6 @@ jobs:
           # because ANTHROPIC_API_KEY in the environment takes precedence and a
           # dead key left alongside this one would quietly keep being used.
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # TEMPORARY — REMOVE ONCE THE LOOP IS GREEN.
-          # Four runs have failed and not one said why: the action reports
-          # `is_error: true` with `subtype: "success"` and an empty message, having
-          # printed "Running Claude Code via SDK (full output hidden for security)".
-          # Diagnosing that from turn counts and dollar amounts produced two
-          # confident, wrong answers (a credit ceiling; then the trigger type). The
-          # error has to be read, not inferred.
-          #
-          # This prints every Claude message INCLUDING TOOL RESULTS into a run log
-          # that is public on a public repo. It is a debug switch, not a setting:
-          # take it out in the same breath as the fix.
-          show_full_output: true
           claude_args: |
             --model claude-fable-5
             --max-turns 80
