@@ -69,14 +69,35 @@ try {
   await raf2();
   results.visemeFromSidecar = el?.getAttribute('data-viseme');
 
+  // solo: the class lands on the ROOT (the stage is what gets hidden), and
+  // only while the character is on screen — a stopped narration or a
+  // switched-off character must never leave the deck staring at a blank stage
+  character.setSolo(true);
+  await raf2();
+  results.soloOnRoot = root.classList.contains('decklight-solo');
+  results.soloPersisted = character.solo;
+  character.setMode('off');
+  await raf2();
+  results.soloDroppedWhenOff = !root.classList.contains('decklight-solo');
+  character.setMode('viseme');   // solo is remembered across the mode switch
+  await raf2();
+  results.soloBackOnWhenShown = root.classList.contains('decklight-solo');
+  character.setSolo(false);
+  await raf2();
+  results.soloOffClears = !root.classList.contains('decklight-solo');
+
   character.stop();
   results.hiddenAfterStop = !el?.classList.contains('show');
+  results.soloDroppedWhenStopped = !root.classList.contains('decklight-solo');
   results.cueAtSpot = cueAt(timeline, 1.5);
 
   results.PASS = results.mounted && results.shown && results.mouthShapes === 9
     && results.visemeMidB === 'B' && results.visemeMidD === 'D'
     && results.visemeWhenPaused === 'X' && results.visemeFromSidecar === 'E'
-    && results.hiddenAfterStop && results.cueAtSpot === 'F';
+    && results.hiddenAfterStop && results.cueAtSpot === 'F'
+    && results.soloOnRoot && results.soloPersisted && results.soloDroppedWhenOff
+    && results.soloBackOnWhenShown && results.soloOffClears
+    && results.soloDroppedWhenStopped;
 } catch (e) {
   results.error = String(e && e.stack || e);
 }

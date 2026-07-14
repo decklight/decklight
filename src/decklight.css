@@ -963,6 +963,24 @@
 .decklight-character.pos-bl { left: 28px; bottom: 28px; }
 .decklight-character.pos-tr { right: 28px; top: 28px; }
 .decklight-character.pos-tl { left: 28px; top: 28px; }
+
+/* solo — the narrator takes the stage. The slide steps aside and the
+   character centers, sized to the stage: `inset: 0` pins all four offsets
+   (overriding whichever pos-* corner is set) and `margin: auto` does the
+   centering. The arrows and the captions stay — you still need to navigate,
+   and the captions ARE the narration, not slide content. */
+.decklight.decklight-solo .decklight-stage,
+.decklight.decklight-solo .decklight-progress,
+.decklight.decklight-solo .decklight-slide-number { visibility: hidden; }
+/* width/height are set directly, NOT through --character-size: `size` in the
+   config writes that variable inline on the element, and an inline custom
+   property would beat this rule. */
+.decklight.decklight-solo .decklight-character {
+  inset: 0;
+  margin: auto;
+  width: var(--character-solo-size, min(74vh, 74vw));
+  height: var(--character-solo-size, min(74vh, 74vw));
+}
 .decklight-character svg, .decklight-character img { width: 100%; height: 100%; display: block; }
 .decklight-character.mode-video video {
   width: 100%;
