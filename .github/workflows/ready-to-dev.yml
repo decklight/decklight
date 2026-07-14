@@ -28,6 +28,11 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  # the action exchanges an OIDC token even when it authenticates with an API key;
+  # without this it dies before it ever reads the prompt:
+  #   "Could not fetch an OIDC token. Did you remember to add id-token: write?"
+  id-token: write
+  actions: read
 
 concurrency:
   group: ready-to-dev-${{ github.event.issue.number || inputs.issue }}
