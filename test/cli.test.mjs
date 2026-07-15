@@ -24,7 +24,7 @@ catch { recSkip = 'node-pty/js-yaml not installed (optional deps)'; }
 
 test('global help lists all subcommands with runnable examples', () => {
   const out = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  for (const sub of ['init', 'rec', 'refresh', 'export', 'bundle']) {
+  for (const sub of ['init', 'skills', 'rec', 'refresh', 'export', 'bundle']) {
     assert.match(out, new RegExp(`^  ${sub} `, 'm'), `missing subcommand: ${sub}`);
   }
   assert.equal((out.match(/EXAMPLE:/g) || []).length >= 5, true, 'one example per subcommand');
@@ -143,5 +143,102 @@ test('init appends a marked section to an existing AGENTS.md, and refresh is ide
   execFileSync('node', [CLI, 'init', '--dir', dir, '--force'], { encoding: 'utf8' });
   const second = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.equal(first, second, 're-running must not duplicate or drift the marked section');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- decklight skills --------------------------------------------------------
+
+const mkdir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-skills-'));
+
+test('skills claude writes only the Claude skill, no AGENTS.md', () => {
+  const dir = mkdir();
+  const out = execFileSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' });
+  assert.match(out, /for Claude Code/);
+  const skillDir = path.join(dir, '.claude', 'skills', 'decklight');
+  const skill = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8');
+  assert.match(skill, /^---\nname: decklight\n/);
+  const reference = fs.readFileSync(path.join(skillDir, 'reference.md'), 'utf8');
+  assert.match(reference, /## 1\. Deck anatomy/);
+  assert.match(reference, /## 9\. Public JS API/);
+  assert.doesNotMatch(reference, /## 10\. Repository layout/);
+  // claude-only: no AGENTS.md and no standalone reference copy
+  assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
+  assert.equal(fs.existsSync(path.join(dir, '.decklight')), false);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('skills for AGENTS.md agents writes the shared reference + a marked section', () => {
+  const dir = mkdir();
+  const out = execFileSync('node', [CLI, 'skills', 'codex', 'opencode', '--dir', dir], { encoding: 'utf8' });
+  assert.match(out, /OpenAI Codex, OpenCode/);
+  // no Claude target → the reference stands alone under .decklight/
+  const reference = fs.readFileSync(path.join(dir, '.decklight', 'reference.md'), 'utf8');
+  assert.match(reference, /## 1\. Deck anatomy/);
+  assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
+  const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /decklight:skill/);
+  assert.match(agents, /\.decklight\/reference\.md/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('skills claude + an AGENTS.md agent keeps one reference, pointed at the skill copy', () => {
+  const dir = mkdir();
+  execFileSync('node', [CLI, 'skills', 'claude', 'bob', '--dir', dir], { encoding: 'utf8' });
+  // Claude present → the skill dir copy is canonical; no duplicate under .decklight/
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'decklight', 'reference.md')), true);
+  assert.equal(fs.existsSync(path.join(dir, '.decklight')), false);
+  const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /\.claude\/skills\/decklight\/reference\.md/);
+  assert.doesNotMatch(agents, /\.decklight\/reference\.md/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('skills --all installs every supported agent', () => {
+  const dir = mkdir();
+  const out = execFileSync('node', [CLI, 'skills', '--all', '--dir', dir], { encoding: 'utf8' });
+  for (const label of ['Claude Code', 'OpenAI Codex', 'OpenCode', 'IBM Bob']) {
+    assert.match(out, new RegExp(label));
+  }
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
+  assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), true);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('skills refuses an existing skill file without --force, overwrites with it', () => {
+  const dir = mkdir();
+  execFileSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' });
+  const skillFile = path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md');
+  fs.writeFileSync(skillFile, 'stale');
+  const r = spawnSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /already exists.*--force/);
+  execFileSync('node', [CLI, 'skills', 'claude', '--dir', dir, '--force'], { encoding: 'utf8' });
+  assert.match(fs.readFileSync(skillFile, 'utf8'), /^---\nname: decklight\n/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('skills re-run is idempotent — the AGENTS.md section never duplicates', () => {
+  const dir = mkdir();
+  execFileSync('node', [CLI, 'skills', 'codex', '--dir', dir], { encoding: 'utf8' });
+  const first = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  execFileSync('node', [CLI, 'skills', 'codex', '--dir', dir, '--force'], { encoding: 'utf8' });
+  const second = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.equal(first, second, 're-running must not duplicate or drift the marked section');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('skills rejects an unknown agent, and errors when none is detected', () => {
+  const dir = mkdir();
+  const bad = spawnSync('node', [CLI, 'skills', 'frobnicate', '--dir', dir], { encoding: 'utf8' });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /unknown agent: frobnicate/);
+  // no agent named and a PATH with none of the agents on it → nothing
+  // detected, clean failure (no guess). node itself is launched by its
+  // absolute path, so the empty PATH only starves the agent probe.
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-emptypath-'));
+  const none = spawnSync(process.execPath, [CLI, 'skills', '--dir', dir], { encoding: 'utf8', env: { ...process.env, PATH: empty } });
+  assert.equal(none.status, 1);
+  assert.match(none.stderr, /no supported agent detected/);
+  fs.rmSync(empty, { recursive: true, force: true });
   fs.rmSync(dir, { recursive: true, force: true });
 });
