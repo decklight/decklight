@@ -227,6 +227,49 @@ test('skills re-run is idempotent — the AGENTS.md section never duplicates', (
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// a HOME the agents' global config dirs derive from, with any inherited
+// per-agent overrides cleared so the run resolves under this HOME alone
+const fakeHomeEnv = (home) => {
+  const env = { ...process.env, HOME: home };
+  delete env.CLAUDE_CONFIG_DIR; delete env.CODEX_HOME;
+  delete env.XDG_CONFIG_HOME; delete env.BOB_HOME;
+  return env;
+};
+
+test('skills --global installs into each agent config home, not the project', () => {
+  const home = mkdir();
+  const cwd = mkdir();
+  const out = execFileSync(process.execPath, [CLI, 'skills', '--all', '--global'], { encoding: 'utf8', cwd, env: fakeHomeEnv(home) });
+  assert.match(out, /globally for/);
+  // Claude → a real skill under ~/.claude; the AGENTS.md agents → their own homes
+  assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
+  assert.equal(fs.existsSync(path.join(home, '.codex', 'AGENTS.md')), true);
+  assert.equal(fs.existsSync(path.join(home, '.config', 'opencode', 'AGENTS.md')), true);
+  assert.equal(fs.existsSync(path.join(home, '.bob', 'AGENTS.md')), true);
+  const codexRef = fs.readFileSync(path.join(home, '.codex', '.decklight', 'reference.md'), 'utf8');
+  assert.match(codexRef, /## 1\. Deck anatomy/);
+  // global must not scribble in the working directory
+  assert.equal(fs.existsSync(path.join(cwd, '.claude')), false);
+  assert.equal(fs.existsSync(path.join(cwd, 'AGENTS.md')), false);
+  fs.rmSync(home, { recursive: true, force: true });
+  fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test('skills --global for one agent touches only that agent home', () => {
+  const home = mkdir();
+  execFileSync(process.execPath, [CLI, 'skills', 'claude', '--global'], { encoding: 'utf8', cwd: mkdir(), env: fakeHomeEnv(home) });
+  assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
+  assert.equal(fs.existsSync(path.join(home, '.codex')), false);
+  assert.equal(fs.existsSync(path.join(home, '.bob')), false);
+  fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('skills --global and --dir are mutually exclusive', () => {
+  const r = spawnSync('node', [CLI, 'skills', 'claude', '--global', '--dir', '.'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--global and --dir are mutually exclusive/);
+});
+
 test('skills rejects an unknown agent, and errors when none is detected', () => {
   const dir = mkdir();
   const bad = spawnSync('node', [CLI, 'skills', 'frobnicate', '--dir', dir], { encoding: 'utf8' });
