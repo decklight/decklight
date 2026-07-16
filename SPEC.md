@@ -105,7 +105,30 @@ The engine interleaves provider steps into the slide's sequence at the element's
   Hardcoded-color SVGs still work; they just don't adapt.
 - `data-build="draw"` on groups animates strokes (paths, lines, polylines) via dash-offset.
 - The runtime namespaces `id` attributes inside each inline `<svg>` at init (prefix `svg{n}-`, rewriting `url(#…)` and `href="#…"` refs) — the defs-collision bug class is eliminated at the engine level.
-- **Concept colors**: `data-concept="agent"` on a shape (or a group — its direct-child shapes recolor; text never does) pins that concept to ONE diagram-fill slot deck-wide, so a recurring concept never changes color between diagrams. Resolution: `init({ concepts: { agent: 3 } })` pins a slot (1–6) or any raw CSS color (`'var(--d-accent)'`); unconfigured names fall back to a stable hash of the name, identical across sessions and decks. The indirection targets a slot (`var(--d-fill-N)`), not a color, so concept identity survives all themes, generated ones included. Two concepts hashing to the same slot get a console warning telling the author to pin one explicitly. Applied on `sync()` (idempotent, covers dynamic slides).
+- **Concept colors**: `data-concept="agent"` on a shape (or a group — its direct-child shapes recolor; text never does) pins that concept to ONE diagram-fill slot deck-wide, so a recurring concept never changes color between diagrams. A shape recolors its fill; an unfilled outline (`fill="none"` — a line-chart stroke, a wire shape) recolors its stroke instead, since painting its fill would close it. Resolution: `init({ concepts: { agent: 3 } })` pins a slot (1–6) or any raw CSS color (`'var(--d-accent)'`); unconfigured names fall back to a stable hash of the name, identical across sessions and decks. The indirection targets a slot (`var(--d-fill-N)`), not a color, so concept identity survives all themes, generated ones included. Two concepts hashing to the same slot get a console warning telling the author to pin one explicitly. Applied on `sync()` (idempotent, covers dynamic slides).
+
+### 3.1 Charts (`data-chart`)
+
+Declarative charts from inline JSON — a chart IS a theme-aware SVG diagram, generated at init instead of drawn by hand. No chart library, no images, no new theme tokens.
+
+```html
+<div class="chart" data-chart="bar" data-title="Latency by release" data-build="draw">
+  <script type="application/json">
+  { "labels": ["v1", "v2", "v3"],
+    "series": [ { "name": "p50", "data": [120, 80, 45] },
+                { "name": "p99", "data": [340, 260, 190], "concept": "agent" } ] }
+  </script>
+</div>
+```
+
+- **Types**: `bar` (grouped), `line`, `area`, `pie` (`donut` is an alias; `"donut": true` also works). Category x-axis; ~5-tick linear y-axis with nice-number bounds, zero always on the grid; pie/donut renders slices with outside name labels and on-slice percentage labels. An inline legend appears automatically on multi-series axis charts (`"legend": false` opts out, `true` forces one). Out of scope in v1: CSV input, stacked bars, dual axes, tooltips/interactivity.
+- **Markdown form**: a fenced ` ```chart ` code block whose body is the same JSON, carrying `"type"` (and optionally `"title"`, `"aspect"`, `"build"`) as keys — a nested `</script>` cannot live inside `text/template`, so the fence replaces the wrapper attributes.
+- **Colors come exclusively from the §5 diagram tokens**: series *i* → `--d-fill-i` (cycling past 6), axes `--d-stroke`, labels `--d-text`, gridlines `--d-muted`. Value labels sit on the slice fills, which is exactly the `--d-text`-against-every-fill contrast gate `test/contrast.mjs` already enforces — every shipped and generated theme colors charts correctly with zero chart-specific work.
+- **Ink**: the `--d-fill` panels sit deliberately close to the canvas (gated for text ON them, never against `--bg`), so charts use the hand-drawn-diagram box idiom — bars, slices and legend swatches are outlined with `--d-stroke`, and every line/area stroke rides on a `--d-stroke` casing under its fill-colored core. Series identity lives in the fill slot; legibility lives in the ink, in every theme.
+- **Concepts**: `"concept": "agent"` on a series emits `data-concept` on that series' `<g>`, resolved by the ordinary §3 concept pinning — bar/slice/area fills and dot fills repaint, a line's core stroke recolors via the `fill="none"` rule above, and the casing sits one group deeper so the ink is never repainted.
+- **Builds**: the wrapper's authored `data-build` moves onto the generated `<svg>`, which emits one `<g>` per series — the §2.1 SVG-container semantics apply untouched, so series step in per ⟨CLICK⟩ with no build provider. `data-build="draw"` draws each series' ink (bar/slice outlines, line casings and cores) via the §2.3 dash-offset machinery, while fills, dots and labels materialize on the existing `draw-fade` channel — nothing of a series is visible before its step.
+- **Sizing**: `viewBox` 640×360 by default; `data-aspect="4:3"` (or an `"aspect"` JSON key, `"w:h"`) overrides the height. The chart scales to its container width and behaves as an ordinary content block in split layouts and `?print`.
+- **Errors are visible**: invalid input (bad JSON, unknown type, a pie with two series, …) renders a `.chart-broken` error box naming the problem — the terminal player's broken-box idiom — never a blank slide, never a console explosion.
 
 ## 4. Motion
 
@@ -364,7 +387,7 @@ instance.saveGeneratedTheme(name?)             // ⌃⇧T; a name argument skips
 ```
 decklight/
   SPEC.md  README.md  package.json
-  src/core/      engine: init, nav, builds, transitions, auto-animate, notes, print, svg-ns
+  src/core/      engine: init, nav, builds, transitions, auto-animate, notes, print, svg-ns, charts
   src/md/        markdown slide support (marked)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)

@@ -117,6 +117,11 @@ FROM orders            -- a comment
 GROUP BY customer_id;
 ```
 
+```chart
+{ "type": "donut", "title": "Share", "aspect": "4:1",
+  "labels": ["a", "b", "c"], "series": [ { "data": [5, 3, 2] } ] }
+```
+
 Note:
 Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
     </script>
@@ -176,6 +181,40 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
       <li>one</li><li>two</li><li>three</li>
       <li>four</li><li>five</li><li>six</li>
     </ul>
+  </section>
+
+  <!-- 12: charts — grouped bar with a concept series, and the error box a
+       broken declaration must render instead of a blank slide -->
+  <section>
+    <h2>Charts: bar + error box</h2>
+    <div class="chart" data-chart="bar" data-title="Deploys per week" style="max-width:46%">
+      <script type="application/json">
+      { "labels": ["W1", "W2", "W3", "W4"],
+        "series": [ { "name": "app",   "data": [4, 7, 6, 9] },
+                    { "name": "agent", "data": [2, 3, 5, 8], "concept": "agent" } ] }
+      </script>
+    </div>
+    <div class="chart" data-chart="bar" style="max-width:46%">
+      <script type="application/json">{ not json }</script>
+    </div>
+  </section>
+
+  <!-- 13: charts — line series build in via the draw machinery; area static -->
+  <section>
+    <h2>Charts: line draw builds + area</h2>
+    <div class="chart" data-chart="line" data-build="draw" style="max-width:46%">
+      <script type="application/json">
+      { "labels": ["v1", "v2", "v3", "v4", "v5"],
+        "series": [ { "name": "p50", "data": [120, 90, 80, 60, 45] },
+                    { "name": "p99", "data": [340, 300, 260, 220, 190] } ] }
+      </script>
+    </div>
+    <div class="chart" data-chart="area" data-aspect="4:1" style="max-width:46%">
+      <script type="application/json">
+      { "labels": ["a", "b", "c"], "series": [ { "data": [1, 3, 2] } ], "legend": false }
+      </script>
+    </div>
+    <aside class="notes">Charts. ⟨CLICK⟩ p50 draws. ⟨CLICK⟩ p99 draws.</aside>
   </section>
 
 </div>
@@ -238,6 +277,19 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
       })()),
       rec('ring1', deck.layoutRing(1).join(' ')),   // auto-pinned slide: 'pinned' skipped
       rec('ring11', deck.layoutRing(11).join(' ')), // lone-list slide: 'split-flip' skipped too
+      rec('chartsvg', !!document.querySelector('section[data-slide-index="12"] .chart > svg.chart-svg')),
+      rec('chartseries', document.querySelectorAll('section[data-slide-index="12"] .chart svg .chart-series').length),
+      rec('chartfill', document.querySelector('section[data-slide-index="12"] .chart svg').innerHTML.includes('var(--d-fill-1)')),
+      rec('chartconcept', (() => {
+        // applyConcepts recolored the concept series' bars to its pinned slot
+        const g = document.querySelector('section[data-slide-index="12"] g[data-concept="agent"]');
+        const bars = g ? [...g.querySelectorAll('rect')] : [];
+        return bars.length > 0 && bars.every((r) => /var\(--d-fill-\d\)/.test(r.style.fill));
+      })()),
+      rec('chartbroken', !!document.querySelector('section[data-slide-index="12"] .chart-broken')),
+      rec('chartsteps', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .build-step').length),
+      rec('chartdraw', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .chart-line.draw-stroke').length),
+      rec('chartmdfence', !!document.querySelector('section[data-slide-index="5"] .chart[data-chart="donut"] > svg.chart-svg')),
     ];
     // presenter clock (K) — pressed exactly as a presenter would. Skipped in
     // ?print (no key handler there; the render test asserts no clock either).

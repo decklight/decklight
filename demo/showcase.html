@@ -142,7 +142,52 @@
       </aside>
     </section>
 
-    <!-- 4+5 · auto-animate pair: three boxes → zoom into the middle one -->
+    <!-- 4 · charts: declared as JSON, painted by the theme (split layout) -->
+    <section data-layout="split">
+      <h2>Charts From Data</h2>
+      <p>Declare the numbers — the theme paints them. No chart library, no images</p>
+      <div class="chart" data-chart="bar" data-title="Build minutes per week">
+        <script type="application/json">
+        { "labels": ["W1", "W2", "W3", "W4", "W5"],
+          "series": [ { "name": "humans", "data": [38, 42, 35, 41, 33] },
+                      { "name": "agents", "data": [12, 19, 27, 36, 48] } ] }
+        </script>
+      </div>
+      <div class="chart" data-chart="donut" data-title="Where the tokens go" data-aspect="16:10">
+        <script type="application/json">
+        { "labels": ["code", "tests", "docs", "chat"], "series": [ { "data": [46, 27, 15, 12] } ] }
+        </script>
+      </div>
+      <aside class="notes">
+        <p>Charts. You don't draw them, and you don't screenshot them out of a spreadsheet — you declare the data in a little block of JSON, and Decklight generates the SVG right on the slide. Bar, line, area, pie. And here's the good part: every color in there is a theme token — the same ones the diagrams use. Cycle the theme with comma and period and both of these repaint instantly, labels staying readable, because the same contrast rules that guard the diagrams guard the charts. Grouped bars on the left, a donut on the right — living happily in a split layout like any other content block.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>JSON in, themed SVG out — , / . repaints</p>
+      </aside>
+    </section>
+
+    <!-- 5 · charts: line series draw themselves in like diagram strokes -->
+    <section>
+      <h2>Charts Build Like Diagrams</h2>
+      <p><code>data-build="draw"</code> — each series draws in on ⟨CLICK⟩, same machinery as the strokes</p>
+      <div class="chart" data-chart="line" data-title="Latency by release (ms)" data-build="draw" style="max-width:62%">
+        <script type="application/json">
+        { "labels": ["v1", "v2", "v3", "v4", "v5", "v6"],
+          "series": [ { "name": "p99", "data": [340, 310, 260, 240, 205, 190] },
+                      { "name": "p50", "data": [120, 100, 85, 70, 60, 45] } ] }
+        </script>
+      </div>
+      <aside class="notes">
+        <p>And because a chart is just an SVG diagram underneath, it builds like one. This chart carries data build draw — each series is a group, and the arrow key reveals them one at a time.</p><p>⟨CLICK⟩</p><p>There goes p99, drawing itself left to right like a plotter pen. That's the exact dash-offset machinery the hand-drawn diagrams use — the chart got it for free.</p><p>⟨CLICK⟩</p><p>And p50 follows. Two lines, two beats, and your audience reads the gap between them instead of squinting at a finished picture. Numbers with dramatic timing — that's the whole trick of presenting data.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>A chart is a diagram</p>
+        <p>⟨CLICK⟩</p><p>p99 draws in</p>
+        <p>⟨CLICK⟩</p><p>p50 follows — read the gap</p>
+      </aside>
+    </section>
+
+    <!-- 6+7 · auto-animate pair: three boxes → zoom into the middle one -->
     <section data-auto-animate>
       <h2>Auto-Animate</h2>
       <p>Magic Move between adjacent slides</p>
@@ -179,7 +224,7 @@
       <aside class="rehearse"><p>Middle box zooms — details fade in</p></aside>
     </section>
 
-    <!-- 6 · element animations -->
+    <!-- 8 · element animations -->
     <section>
       <h2>Element Animations</h2>
       <p>Looping attention effects — only while the slide is active</p>
@@ -203,7 +248,7 @@
       <aside class="rehearse"><p>Nine loops, one attribute, a11y-aware</p></aside>
     </section>
 
-    <!-- 7 · code stepping -->
+    <!-- 9 · code stepping -->
     <section>
       <h2>Code, Stepped Line by Line</h2>
       <p>This snippet is the source of the builds slide you just saw</p>
@@ -225,7 +270,7 @@
       </aside>
     </section>
 
-    <!-- 8 · markdown -->
+    <!-- 10 · markdown -->
     <section data-markdown>
       <script type="text/template">
 ## This Slide Is Markdown
@@ -270,7 +315,7 @@ Note: + Rehearse: inline
       </script>
     </section>
 
-    <!-- 8b · html vs markdown authoring -->
+    <!-- 11 · html vs markdown authoring -->
     <section style="font-size:0.9em">
       <h2>HTML or Markdown?</h2>
       <p>The same deck, two authoring surfaces — mix them per slide</p>
@@ -299,7 +344,7 @@ Note: + Rehearse: inline
       </aside>
     </section>
 
-    <!-- 9 · terminal -->
+    <!-- 12 · terminal -->
     <section>
       <h2>Terminal Recordings</h2>
       <p>Real PTY output, replayed step by step — never a video</p>
@@ -315,7 +360,7 @@ Note: + Rehearse: inline
       </aside>
     </section>
 
-    <!-- 9b · slides from a prompt (ai authoring: the ask) -->
+    <!-- 13 · slides from a prompt (ai authoring: the ask) -->
     <section>
       <h2>Slides From a Prompt</h2>
       <p>Describe the slide — an agent writes the Decklight</p>
@@ -329,7 +374,7 @@ Note: + Rehearse: inline
       </aside>
     </section>
 
-    <!-- 9c · the generated kafka slide (ai authoring: the result) -->
+    <!-- 14 · the generated kafka slide (ai authoring: the result) -->
     <section>
       <h2>Kafka: Producer to Consumers</h2>
       <p>The slide the agent generated — shipped untouched</p>
@@ -439,7 +484,7 @@ Note: + Rehearse: inline
       </aside>
     </section>
 
-    <!-- 10 · themes & packs -->
+    <!-- 15 · themes & packs -->
     <section data-transition="slide">
       <h2>61 Themes in 5 Packs</h2>
       <p>Try it now — this deck ships them all</p>
@@ -465,7 +510,7 @@ Note: + Rehearse: inline
       </aside>
     </section>
 
-    <!-- 11 · presenting -->
+    <!-- 16 · presenting -->
     <section data-transition="scale">
       <h2>Presenting</h2>
       <p>Everything a stage needs, no server required</p>
@@ -489,7 +534,7 @@ Note: + Rehearse: inline
       </aside>
     </section>
 
-    <!-- 12 · CLI & bundling -->
+    <!-- 17 · CLI & bundling -->
     <section data-transition="flip">
       <h2>One File to Ship</h2>
       <p>The CLI records, refreshes, exports — and flattens</p>
@@ -511,7 +556,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </aside>
     </section>
 
-    <!-- 13 · verification -->
+    <!-- 18 · verification -->
     <section>
       <h2>Verified by Construction</h2>
       <p>Built for authors who can prove their deck works</p>
@@ -533,7 +578,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </aside>
     </section>
 
-    <!-- 14 · closing -->
+    <!-- 19 · closing -->
     <section data-logo="96">
       <h2>One HTML File. No Build Step.</h2>
       <p>Two stylesheets, one script — view source on this deck to start yours</p>
@@ -544,7 +589,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       <aside class="rehearse"><p>View source — it's one file</p></aside>
     </section>
 
-    <!-- 14b · quizzes: the feature itself -->
+    <!-- 20 · quizzes: the feature itself -->
     <section>
       <h2>Quizzes</h2>
       <p>The last thing every presentation needs</p>
@@ -571,7 +616,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </aside>
     </section>
 
-    <!-- 15 · quiz intro -->
+    <!-- 21 · quiz intro -->
     <section data-transition="scale">
       <h2>Pop Quiz</h2>
       <p>Ten questions on what you just watched — 80% to pass</p>
@@ -582,7 +627,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       <aside class="rehearse"><p>10 questions, 80% to pass</p></aside>
     </section>
 
-    <!-- 16 · quiz q1 -->
+    <!-- 22 · quiz q1 -->
     <section class="quiz-q" data-narration="hold" data-q="1" data-answer="2">
       <h3>Question 1 of 10</h3>
       <p>What attribute turns a container's children into Keynote-style progressive reveals?</p>
@@ -594,7 +639,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 17 · quiz q2 -->
+    <!-- 23 · quiz q2 -->
     <section class="quiz-q" data-narration="hold" data-q="2" data-answer="3">
       <h3>Question 2 of 10</h3>
       <p>Where do the deck's inline SVG diagrams get their color from?</p>
@@ -606,7 +651,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 18 · quiz q3 -->
+    <!-- 24 · quiz q3 -->
     <section class="quiz-q" data-narration="hold" data-q="3" data-answer="1">
       <h3>Question 3 of 10</h3>
       <p>What makes two adjacent slides Magic-Move between each other?</p>
@@ -618,7 +663,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 19 · quiz q4 -->
+    <!-- 25 · quiz q4 -->
     <section class="quiz-q" data-narration="hold" data-q="4" data-answer="3">
       <h3>Question 4 of 10</h3>
       <p>How many looping <code>data-animate</code> effects did the element-animations slide show?</p>
@@ -630,7 +675,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 20 · quiz q5 -->
+    <!-- 26 · quiz q5 -->
     <section class="quiz-q" data-narration="hold" data-q="5" data-answer="1">
       <h3>Question 5 of 10</h3>
       <p>Inside a <code>data-markdown</code> slide, how do you make a list build progressively?</p>
@@ -642,7 +687,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 21 · quiz q6 -->
+    <!-- 27 · quiz q6 -->
     <section class="quiz-q" data-narration="hold" data-q="6" data-answer="2">
       <h3>Question 6 of 10</h3>
       <p>How are the deck's terminal recordings stored and replayed?</p>
@@ -654,7 +699,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 22 · quiz q7 -->
+    <!-- 28 · quiz q7 -->
     <section class="quiz-q" data-narration="hold" data-q="7" data-answer="2">
       <h3>Question 7 of 10</h3>
       <p>How many themes, across how many packs, ship with this deck?</p>
@@ -666,7 +711,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 23 · quiz q8 -->
+    <!-- 29 · quiz q8 -->
     <section class="quiz-q" data-narration="hold" data-q="8" data-answer="3">
       <h3>Question 8 of 10</h3>
       <p>Which key opens the theme picker while presenting?</p>
@@ -678,7 +723,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 24 · quiz q9 -->
+    <!-- 30 · quiz q9 -->
     <section class="quiz-q" data-narration="hold" data-q="9" data-answer="2">
       <h3>Question 9 of 10</h3>
       <p>Which CLI command flattens a whole deck — casts, themes and all — into one self-contained HTML file?</p>
@@ -690,7 +735,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 25 · quiz q10 -->
+    <!-- 31 · quiz q10 -->
     <section class="quiz-q" data-narration="hold" data-q="10" data-answer="2">
       <h3>Question 10 of 10</h3>
       <p>What marks a slide whose content doesn't fit, so both humans and headless tests can catch it?</p>
@@ -702,7 +747,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
       </div>
     </section>
 
-    <!-- 26 · quiz results -->
+    <!-- 32 · quiz results -->
     <section data-transition="flip" data-narration="hold" style="font-size:0.85em">
       <h2>Your Score</h2>
       <p>Reveal it whenever the room's ready</p>

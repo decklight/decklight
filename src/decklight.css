@@ -508,6 +508,27 @@
   animation: none !important;
 }
 
+/* ---------- charts (SPEC §3.1) --------------------------------------------
+   Generated theme-aware SVG charts. Structure only: every color in the SVG
+   itself is a diagram token (--d-*), so themes need nothing chart-specific. */
+.decklight .chart { width: 100%; max-width: 860px; margin: 0.2em auto; }
+.decklight .chart > svg { display: block; width: 100%; height: auto; }
+.decklight .chart-svg text { font-family: var(--font-body, system-ui, sans-serif); }
+/* invalid chart JSON: a visible error box (the terminal-broken idiom) —
+   never a blank slide */
+.decklight .chart-broken {
+  font: 15px/1.5 var(--font-mono, ui-monospace, monospace);
+  text-align: left;
+  color: var(--fg, #eee);
+  background: var(--block-bg, rgba(128, 128, 128, .12));
+  border: 1.5px solid rgba(224, 92, 92, .8);
+  border-radius: var(--block-radius, 8px);
+  padding: 14px 18px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.decklight .chart-broken::before { content: '⚠ '; }
+
 /* ---------- element animations (SPEC §4.3) -------------------------------- */
 .decklight section.active [data-animate="pulse"] { animation: dl-pulse 1.6s ease-in-out infinite; }
 .decklight section.active [data-animate="float"] { animation: dl-float 3s ease-in-out infinite; }
