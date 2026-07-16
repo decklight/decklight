@@ -141,6 +141,58 @@
 }
 .decklight-stage > section[data-layout|="split"] > .split-columns > li { break-inside: avoid; }
 
+/* ---------- background media (SPEC §1) -------------------------------------
+   The engine injects .slide-bg (setupMedia) as a section's first child when
+   the section carries data-background-image / data-background-video: an
+   absolutely positioned full-bleed layer UNDER the content (negative z-index
+   inside the section's stacking context — active/leaving slides carry a
+   z-index, and the print rule sets one). The image rides as an inline
+   background-image (size/position from the attributes); a video fills via
+   object-fit; .slide-bg-dim is a canvas-colored wash between media and text. */
+.decklight .slide-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  pointer-events: none;
+}
+.decklight .slide-bg > video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+}
+.decklight .slide-bg-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--bg, #000);
+}
+
+/* full-bleed content image: covers the slide, sits under the (in-flow) text
+   like a background — same stacking slot as .slide-bg, later in DOM order */
+.decklight img.full-bleed {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+  object-fit: cover;
+}
+
+/* images inside split layouts: cap the height so a tall photo can't blow the
+   ~half-width side out of the slide; contain keeps its aspect inside the cap */
+.decklight-stage > section[data-layout|="split"] img:not(.full-bleed) {
+  max-height: 480px;
+  object-fit: contain;
+}
+
 /* ---------- subtitle (SPEC §1) ---------------------------------------------
    The <p> directly after a slide's leading heading. One canonical look
    everywhere — markdown or HTML authored, pinned or centered. Absolute size
@@ -773,6 +825,7 @@
 .decklight-overview-grid .ov-clone {
   display: flex !important;
   position: relative !important;
+  z-index: 0; /* keep a cloned .slide-bg inside its own thumbnail */
   width: 100%;
   height: 100%;
   box-sizing: border-box;
@@ -1114,6 +1167,7 @@
 .decklight.decklight-print > .decklight-stage > section {
   display: flex;
   position: relative;
+  z-index: 0; /* a stacking context per page, so .slide-bg stays inside it */
   width: 1280px;
   height: 720px;
   page-break-after: always;

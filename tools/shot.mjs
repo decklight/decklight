@@ -54,7 +54,8 @@ const boot = `
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const press = (k, opts = {}) => document.body.dispatchEvent(
     new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
-  window.__deck = window.Decklight?.instances?.[0] ?? window.__decklight ?? null;
+  window.__deck = window.Decklight?.instances?.[0] ?? window.__decklight
+    ?? document.querySelector('.decklight')?.__decklight ?? null;
   ${keys.length ? `for (const k of ${JSON.stringify(keys)}) { press(k); await sleep(120); }` : ''}
   ${driver}
 </script>`;

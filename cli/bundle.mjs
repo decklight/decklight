@@ -18,7 +18,8 @@
  *                    inline-theme mode toggles them — picker/?theme= work).
  *   - terminals    : data-cast="url" casts are embedded and switched to
  *                    data-cast-inline (fetch is blocked on file://).
- *   - images       : <img src> → data: URIs.
+ *   - images       : <img src>, data-background-image and data-background-poster
+ *                    → data: URIs (background VIDEOS stay external, with a notice).
  *
  * MERGE mode (--all or several inputs): every module's <section>s are
  * concatenated into one deck, in order. Each module's first section gets
@@ -162,7 +163,8 @@ function mergeDecks(jobs, baseDir, notices) {
     // Rebase relative asset urls onto the first deck's directory.
     if (path.resolve(modDir) !== path.resolve(baseDir)) {
       const rebase = (rel) => path.relative(baseDir, path.resolve(modDir, rel)).split(path.sep).join('/');
-      inner = inner.replace(/\b(data-cast|src)=["'](?!#|data:|https?:|\/\/)([^"']+)["']/g,
+      inner = inner.replace(
+        /\b(data-cast|data-background-image|data-background-video|data-background-poster|src)=["'](?!#|data:|https?:|\/\/)([^"']+)["']/g,
         (t, attr, rel) => `${attr}="${rebase(rel)}"`);
     }
 
@@ -322,17 +324,42 @@ html = html.replace(
 
 // -------------------------------------------------------------------- images
 
+const imageDataUri = (rel) => {
+  const p = path.resolve(deckDir, rel);
+  if (!fs.existsSync(p)) return null;
+  const ext = path.extname(p).slice(1).toLowerCase();
+  const mime = { svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext] || 'application/octet-stream';
+  return `data:${mime};base64,${fs.readFileSync(p).toString('base64')}`;
+};
+
 html = html.replace(
   /<img\b([^>]*)\bsrc=["']([^"']+)["']/gi,
   (tag, pre, src) => {
     if (/^(data:|https?:|\/\/)/.test(src)) return tag;
-    const p = path.resolve(deckDir, src);
-    if (!fs.existsSync(p)) { notices.push(`image not found, left as-is: ${src}`); return tag; }
-    const ext = path.extname(p).slice(1).toLowerCase();
-    const mime = { svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' }[ext] || 'application/octet-stream';
-    const b64 = fs.readFileSync(p).toString('base64');
-    return `<img${pre}src="data:${mime};base64,${b64}"`;
+    const uri = imageDataUri(src);
+    if (!uri) { notices.push(`image not found, left as-is: ${src}`); return tag; }
+    return `<img${pre}src="${uri}"`;
   });
+
+// Background media (SPEC §1): the image and the poster inline like <img src>.
+// Background VIDEOS stay external — video cannot inline sanely, the same
+// posture as character MP4s — with a notice so the author ships the files.
+html = html.replace(
+  /\b(data-background-image|data-background-poster)=["']([^"']+)["']/gi,
+  (tag, attr, src) => {
+    if (/^(data:|https?:|\/\/)/.test(src)) return tag;
+    const uri = imageDataUri(src);
+    if (!uri) { notices.push(`background image not found, left as-is: ${src}`); return tag; }
+    return `${attr}="${uri}"`;
+  });
+{
+  const external = [...new Set([...html.matchAll(/\bdata-background-video=["']([^"']+)["']/gi)]
+    .map((m) => m[1]).filter((src) => !/^(data:|https?:|\/\/)/.test(src)))];
+  if (external.length) {
+    notices.push(`background video: ${external.length} file(s) stay external — ship next to the bundle:\n    `
+      + external.join('\n    '));
+  }
+}
 
 // ------------------------------------------------------------ runtime script
 

@@ -172,6 +172,7 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
       <rect x="40" y="60" width="320" height="180" rx="12" fill="var(--d-fill-1)" stroke="var(--d-stroke)" stroke-width="2"/>
       <text x="200" y="155" text-anchor="middle" fill="var(--d-text)">Diagram</text>
     </svg>
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='600'%3E%3Crect width='400' height='600' fill='%234a3057'/%3E%3C/svg%3E" alt="tall image, capped by the split layout">
   </section>
 
   <!-- 11: split — a lone long list splits itself across two columns -->
@@ -244,6 +245,27 @@ echo $$still literal$$
   <section>
     <h2>No data-math</h2>
     <p>Untouched: $$x + y$$ and \(z\) stay literal text.</p>
+  </section>
+
+  <!-- 17: background image + dim (SPEC §1 background media) -->
+  <section data-background-image="assets/sunrise.svg" data-background-dim="0.5">
+    <h2>Background image</h2>
+    <ul>
+      <li>full-bleed behind the content</li>
+      <li>dimmed so this text stays readable</li>
+    </ul>
+  </section>
+
+  <!-- 18: background video — muted/looping while active, poster in ?print -->
+  <section data-background-video="assets/clip.mp4" data-background-poster="assets/clip-poster.jpg">
+    <h2>Background video</h2>
+    <p>plays only while this slide is active</p>
+  </section>
+
+  <!-- 19: full-bleed content image -->
+  <section>
+    <h2>Full-bleed image</h2>
+    <img class="full-bleed" src="assets/sunrise.svg" alt="">
   </section>
 
 </div>
@@ -332,6 +354,35 @@ echo $$still literal$$
         const s = document.querySelector('section[data-slide-index="16"]');
         return !s.querySelector('math') && s.textContent.includes('$$x + y$$') && s.textContent.includes('\\(z\\)');
       })()),
+      rec('bgimage', (() => {
+        // slide 17: .slide-bg injected as the FIRST child, image full-bleed
+        // with the default cover/center, dim overlay at the authored opacity
+        const sec = document.querySelector('section[data-slide-index="17"]');
+        const bg = sec.querySelector(':scope > .slide-bg');
+        return !!bg && bg === sec.firstElementChild &&
+          bg.style.backgroundImage.includes('sunrise.svg') &&
+          bg.style.backgroundSize === 'cover' &&
+          bg.style.backgroundPosition === 'center center'; // CSSOM expands 'center'
+      })()),
+      rec('bgdim', document.querySelector('section[data-slide-index="17"] .slide-bg-dim')?.style.opacity ?? 'missing'),
+      rec('bgvideo', (() => {
+        const v = document.querySelector('section[data-slide-index="18"] .slide-bg > video');
+        return !!v && v.muted && v.loop && v.hasAttribute('playsinline') &&
+          v.getAttribute('poster') === 'assets/clip-poster.jpg';
+      })()),
+      rec('bgpinned', (() => {
+        // the background layer must not read as content: slide 17 still pins
+        // its title (heading detection skips .slide-bg)
+        return document.querySelector('section[data-slide-index="17"]').hasAttribute('data-pinned');
+      })()),
+      rec('fullbleed', (() => {
+        const cs = getComputedStyle(document.querySelector('section[data-slide-index="19"] img.full-bleed'));
+        return cs.position === 'absolute' && cs.objectFit === 'cover';
+      })()),
+      rec('splitimg', (() => {
+        const cs = getComputedStyle(document.querySelector('section[data-slide-index="10"] img'));
+        return cs.objectFit === 'contain' && cs.maxHeight === '480px';
+      })()),
     ];
     // presenter clock (K) — pressed exactly as a presenter would. Skipped in
     // ?print (no key handler there; the render test asserts no clock either).
@@ -391,6 +442,24 @@ echo $$still literal$$
       recs.push(rec('inkoff',
         !ink.classList.contains('tool-laser') && !ink.classList.contains('tool-pen')
         && getComputedStyle(ink).pointerEvents === 'none'));
+      // background video (slide 18): playing is gated on the ACTIVE slide by
+      // the engine's slide event — paused for real when the slide deactivates,
+      // not just hidden by CSS. (paused flips synchronously on play()/pause(),
+      // so this holds even before a frame decodes.)
+      const bgv = document.querySelector('section[data-slide-index="18"] .slide-bg > video');
+      recs.push(rec('bgvidle', !!bgv && bgv.paused));
+      const back = { ...deck.state };
+      deck.goto(18, 0);
+      recs.push(rec('bgvplays', !!bgv && !bgv.paused));
+      deck.goto(17, 0);
+      recs.push(rec('bgvrepaused', !!bgv && bgv.paused));
+      // background slides must not trip the overflow guardrail (runs on a rAF
+      // after each activation — slide 17 is active now, 18 was)
+      await new Promise((r) => setTimeout(r, 80));
+      recs.push(rec('bgoverflow',
+        !document.querySelector('section[data-slide-index="17"]').hasAttribute('data-overflow') &&
+        !document.querySelector('section[data-slide-index="18"]').hasAttribute('data-overflow')));
+      deck.goto(back.slide, back.step);
     }
     sink.textContent = recs.join('\n');
     document.body.appendChild(sink);
