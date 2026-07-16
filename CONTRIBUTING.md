@@ -35,9 +35,10 @@ A ticket labelled **`ready-to-dev`** is picked up automatically:
    under `shots/` so a reviewer can see how it was exercised.
 4. **A PR opens with those screenshots inline**, review requested from the Product
    Owner ([@gphilipp](https://github.com/gphilipp)).
-5. **He looks at it.** Branch protection will not merge a PR without his approval.
-   A green suite says the code does what its tests say; only a picture says the
-   feature is the one the ticket asked for.
+5. **It merges itself.** Auto-merge is armed when the PR opens, so it lands as
+   soon as CI goes green. A green suite says the code does what its tests say;
+   only a picture says the feature is the one the ticket asked for — which is why
+   the screenshots stay in the PR for him to look at, before or after it lands.
 
 Write the ticket so step 3 is possible: the issue template asks *"how would you demo
 it?"* precisely because that answer becomes the screenshot.

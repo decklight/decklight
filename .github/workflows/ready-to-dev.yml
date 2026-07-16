@@ -6,8 +6,9 @@
 #                                     screenshotted
 #                                  →  a PR opens with those screenshots inline,
 #                                     review requested from the Product Owner
-#                                  →  @gphilipp eyeballs it and merges. Nothing
-#                                     reaches main without a human looking at it.
+#                                  →  auto-merge is armed: the PR merges on its own
+#                                     once CI goes green. @gphilipp reviews the
+#                                     screenshots, not the merge button.
 #
 # The screenshots are the point. A green suite says "the code does what its tests
 # say"; only a picture says "the thing the ticket asked for is actually there".
@@ -219,10 +220,11 @@ jobs:
             echo
             echo "${SHOTS:-_No screenshot was produced — ask why before approving._}"
             echo
-            echo "## Before you approve"
+            echo "## This PR merges itself"
             echo
-            echo "CI proves the tests pass. It cannot prove the feature is the one the"
-            echo "ticket asked for — that is what your eyes are for."
+            echo "Auto-merge is armed: once CI goes green, this lands without waiting"
+            echo "for approval. CI proves the tests pass. It cannot prove the feature is"
+            echo "the one the ticket asked for — that is still what your eyes are for."
             echo
             echo "- [ ] the screenshots above show the ticket's outcome, not a near miss"
             echo "- [ ] the tests would fail without this change"
@@ -235,8 +237,12 @@ jobs:
             --base main --head "$BRANCH" \
             --title "$(gh issue view "$N" --json title --jq .title)" \
             --body-file /tmp/pr-body.md \
-            --reviewer gphilipp \
-            --label needs-po-review || \
-          gh pr edit "$BRANCH" --add-reviewer gphilipp --add-label needs-po-review
+            --reviewer gphilipp || \
+          gh pr edit "$BRANCH" --add-reviewer gphilipp
 
-          gh issue comment "$N" --body "Implemented on \`$BRANCH\` — PR open, waiting on @gphilipp to look at the screenshots."
+          # The repo allows auto-merge, but every PR still has to opt in — without
+          # this the PR would sit green and unmerged, waiting for a click.
+          gh pr merge "$BRANCH" --auto --merge || \
+            echo "::warning::could not arm auto-merge — the PR will need a manual merge"
+
+          gh issue comment "$N" --body "Implemented on \`$BRANCH\` — PR open with auto-merge armed; it lands when CI goes green."
