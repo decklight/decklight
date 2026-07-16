@@ -185,12 +185,24 @@ Generation also follows **codified palette rules** (R1–R8 in `themegen.js`), d
 
 The **shipped themes conform to the same rules**, graded by `test/palette-rules.mjs` (part of `npm run verify`; R7 is graded on the collection — gradient canvases ≤ 30% of the set). A theme may opt out of a rule where conformance would break its identity — official brand colors, an intentional duotone canvas — by declaring the exception *in the theme file* with a reason: `rule-exception: R2 official Polar→Glow brand gradient canvas is the identity`. Undeclared violations fail the grader; declared ones are printed with every run so they stay reviewable.
 
-## 6. Code
+## 6. Code & math
 
 - `<pre><code class="language-sql">…</code></pre>` — highlighting via bundled highlight.js
   (languages: sql, js, ts, python, bash/shell, yaml, json, java, go, rust, html/xml, css, plaintext), themed through the `--hl-*` tokens (no separate hljs theme files).
 - **Line stepping**: `data-lines="1|3-5|all"` on the `<pre>` → registers a build provider with one step per segment; non-highlighted lines get `--dim-opacity`. `data-lines-numbers` shows line numbers.
 - Escaping rule for authors: use `&lt;` inside code blocks in HTML slides; markdown fences handle escaping automatically.
+- **Math** (`data-math` on the section): LaTeX math renders at init to MathML Core via
+  bundled [Temml](https://temml.org) — no per-deck build step, no network fetch, no
+  webfonts (evergreen browsers render MathML natively; `?print` output included).
+  Delimiters: `$$…$$` display, `\(…\)` inline — in HTML and `data-markdown` slides
+  alike. Single-`$` is **deliberately not a delimiter** (currency false positives:
+  "between $5 and $10" is prose, not math); a literal dollar next to real math is
+  written `\$`. Math inside code — fenced blocks, inline spans, `<pre><code>` — is
+  left alone, as are speaker asides (notes are spoken) and SVG text. On markdown
+  slides math spans are extracted before the markdown parse and restored after, so
+  TeX underscores/asterisks never turn into emphasis. Sections without `data-math`
+  are never scanned — zero cost, zero behavior change. A TeX parse error renders as
+  a visible red error span, never a broken init. Math is core, not a plugin (§11).
 
 ## 7. Terminal recordings
 
@@ -393,6 +405,7 @@ decklight/
   SPEC.md  README.md  package.json
   src/core/      engine: init, nav, builds, transitions, auto-animate, notes, print, svg-ns, charts
   src/md/        markdown slide support (marked)
+  src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
   cli/           decklight.mjs (dispatcher: rec/refresh/export/bundle/publish/tts/lipsync/video/edit/dev) + rec.mjs, bundle.mjs, publish.mjs, edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
@@ -403,7 +416,7 @@ decklight/
   test/          node:test units (ansi, md, builds math, cast format) + render.mjs (headless Chrome assertions) + contrast.mjs (theme validation)
 ```
 
-- Build: `npm run build` = esbuild bundle (`src/index.js` → `dist/decklight.js`, minified + sourcemap) + CSS copy. Node ≥ 20. Runtime has **zero** runtime dependencies (marked + highlight.js are bundled at build time); `node-pty`, `js-yaml` are CLI-only deps.
+- Build: `npm run build` = esbuild bundle (`src/index.js` → `dist/decklight.js`, minified + sourcemap) + CSS copy. Node ≥ 20. Runtime has **zero** runtime dependencies (marked + highlight.js + temml are bundled at build time; Temml's stylesheet is appended to `decklight.css` with its optional woff2 `@font-face` stripped); `node-pty`, `js-yaml` are CLI-only deps.
 - Verification culture: `npm test` runs units; `npm run verify` builds, launches headless Chrome against `demo/kitchen-sink.html`, and asserts: slide count, build counts per slide, provider steps, ANSI render output, theme token presence, no console errors.
 
 ## 11. Non-goals (v1)

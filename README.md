@@ -88,7 +88,8 @@ The whole loop is agent-friendly and stays in one file end to end:
 | **SVG diagrams** | inline SVG authored with `var(--d-*)` tokens; recolors with every theme, strokes draw in | [SPEC §3](SPEC.md#3-svg-diagrams-first-class) |
 | **Motion** | slide transitions, Magic Move auto-animate, looping element effects — all respect reduced-motion | [SPEC §4](SPEC.md#4-motion) |
 | **Theming** | 62 themes in 5 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC §5](SPEC.md#5-theming--the-token-contract) |
-| **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC §6](SPEC.md#6-code) |
+| **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC §6](SPEC.md#6-code--math) |
+| **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC §6](SPEC.md#6-code--math) |
 | **Terminals** | `decklight rec` captures real PTY output; replayed by typing then streaming, never a video | [SPEC §7](SPEC.md#7-terminal-recordings) |
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC §8](SPEC.md#8-presenting--output) |
 | **Narration** | TTS reads your notes in sync with builds; the voice is the clock, captions + auto-advance | [SPEC §8](SPEC.md#8-presenting--output) |
@@ -105,7 +106,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
 | `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait so the narrator moves, not just its mouth |
 
-`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC §7](SPEC.md#7-terminal-recordings), `edit` and `lipsync` in [SPEC §8](SPEC.md#8-presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#9-public-js-api). The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
+`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC §7](SPEC.md#7-terminal-recordings), `edit` and `lipsync` in [SPEC §8](SPEC.md#8-presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#9-public-js-api). The runtime has **zero dependencies** (marked, highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
 ## Keys
 

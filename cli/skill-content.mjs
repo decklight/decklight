@@ -50,7 +50,7 @@ the runtime is one JS file + one CSS file + one theme CSS file.
 **Full authoring contract**: read [${referenceHref}](${referenceHref}) in this same
 skill directory before authoring or editing a slide — it covers builds,
 speaker notes segmentation (⟨CLICK⟩), SVG diagrams, theming, motion, code
-blocks, terminal recordings, narration, and the public JS API. It's sliced
+blocks, LaTeX math, terminal recordings, narration, and the public JS API. It's sliced
 straight from Decklight's SPEC.md (v${PKG.version}), so it won't drift from
 the installed runtime's actual behavior — trust it over prior training.
 

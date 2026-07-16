@@ -44,7 +44,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   const html = dump(deckUrl);
   const s = sink(html);
   check('no runtime errors', s.errors, 'none');
-  check('slide count', s.slides, '13');
+  check('slide count', s.slides, '16');
   check('slide 1 build steps (3 li + 1 leaf)', s.slide1steps, '4');
   check('slide 2 svg steps (3 g, caption stays)', s.svgsteps, '3');
   check('markdown build steps', s.mdsteps, '2');
@@ -64,6 +64,14 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('cycleLayout without the dev server changes nothing', s.layoutgate, 'true');
   check('layout ring skips pinned when auto already pins', s.ring1, 'auto centered top split split-flip');
   check('lone list: ring skips split-flip too', s.ring11, 'auto centered top split');
+  check('math: $$…$$ renders display MathML on an HTML data-math slide', s.mathdisplay, 'true');
+  check('math: \\(…\\) renders inline MathML', s.mathinline, 'true');
+  check('math: \\$ escapes to a literal dollar', s.mathescape, 'true');
+  check('math: code on a data-math slide keeps its dollars', s.mathcode, 'true');
+  check('math: markdown data-math slide renders MathML too', s.mathmd, 'true');
+  check('math: TeX underscores never become markdown emphasis', s.mathmdnoem, 'true');
+  check('math: markdown fenced code is immune', s.mathmdcode, 'true');
+  check('math: a section without data-math is untouched', s.mathcontrol, 'true');
   check('clock: off by default', s.clockdefault, 'true');
   check('clock: K shows it', s.clockshown, 'true');
   check('clock: wall time is HH:MM', s.clockwall, 'true');
@@ -114,18 +122,19 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: no presenter clock', /decklight-clock"/.test(html), false);
   check('print: no progress bar', /decklight-progress"/.test(html), false);
   check('print: no annotation canvas', /decklight-annotate"/.test(html), false);
+  check('print: math renders in ?print output', /<math[^>]*display="block"/.test(html), true);
   check('print: plain mode has no variant pages', /print-page/.test(html), false);
 }
 
 // --- print variant: ?print=handout (3-up pages with ruled note lines) ------
 {
   const html = dump(deckUrl + '?print=handout');
-  check('handout: ceil(13/3) = 5 pages',
-    (html.match(/class="print-page print-handout"/g) || []).length, 5);
+  check('handout: ceil(16/3) = 6 pages',
+    (html.match(/class="print-page print-handout"/g) || []).length, 6);
   check('handout: every slide gets a slot',
-    (html.match(/class="print-slot"/g) || []).length, 13);
+    (html.match(/class="print-slot"/g) || []).length, 16);
   check('handout: note lines beside every slide',
-    (html.match(/class="print-notelines"/g) || []).length, 13);
+    (html.match(/class="print-notelines"/g) || []).length, 16);
   check('handout: everything built',
     (html.match(/data-build-state="pending"/g) || []).length, 0);
 }
@@ -134,13 +143,13 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
 {
   const html = dump(deckUrl + '?print=notes');
   check('notes: one page per slide',
-    (html.match(/class="print-page print-notes-page"/g) || []).length, 13);
+    (html.match(/class="print-page print-notes-page"/g) || []).length, 16);
   check('notes: a notes block on every page',
-    (html.match(/class="print-notes"/g) || []).length, 13);
-  // 6 slides carry notes (markdown's Note: included); the other 7 keep their
+    (html.match(/class="print-notes"/g) || []).length, 16);
+  // 6 slides carry notes (markdown's Note: included); the other 10 keep their
   // page with an empty block
   check('notes: slides without notes get an empty block',
-    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 7);
+    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 10);
   check('notes: markdown Note: content lands in its block (aside + copy)',
     (html.match(/Markdown notes body/g) || []).length, 2);
   check('notes: HTML aside content lands in its block (aside + copy)',
