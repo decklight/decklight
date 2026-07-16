@@ -48,7 +48,12 @@ export function applyConcepts(root, concepts = {}) {
     // SVG text is its ink — concept identity lives in the box, not the label)
     const targets = el.matches(SHAPES) ? [el]
       : [...el.children].filter((c) => c.matches(SHAPES));
-    for (const t of targets) t.style.setProperty('fill', fill);
+    for (const t of targets) {
+      // an unfilled outline (fill="none" — a line-chart stroke, a wire shape)
+      // carries its concept in the stroke; painting the fill would close it
+      const unfilled = t.getAttribute('fill') === 'none' || t.style.fill === 'none';
+      t.style.setProperty(unfilled ? 'stroke' : 'fill', fill);
+    }
   });
 }
 

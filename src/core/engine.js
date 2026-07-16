@@ -6,6 +6,7 @@
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider, providerRegistry } from './builds.js';
 import { namespaceSvgIds, applyConcepts } from './svg.js';
+import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { initMarkdown } from '../md/markdown.js';
 import { initCode } from '../code/code.js';
@@ -1203,6 +1204,7 @@ export function init(userConfig = {}) {
 
   // ----- content pipeline --------------------------------------------------
   initMarkdown(stage);
+  initCharts(stage); // synchronous, so the SVGs get namespaced and build-scanned below
   namespaceSvgIds(stage);
   initCode(stage, registerBuildProvider);
 

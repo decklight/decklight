@@ -44,7 +44,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   const html = dump(deckUrl);
   const s = sink(html);
   check('no runtime errors', s.errors, 'none');
-  check('slide count', s.slides, '11');
+  check('slide count', s.slides, '13');
   check('slide 1 build steps (3 li + 1 leaf)', s.slide1steps, '4');
   check('slide 2 svg steps (3 g, caption stays)', s.svgsteps, '3');
   check('markdown build steps', s.mdsteps, '2');
@@ -74,6 +74,14 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('progress bar: H shows it', s.progressshown, 'true');
   check('progress bar: width tracks the position (slide 1 ≠ last, last = full)', s.progresstracks, 'true');
   check('progress bar: H again removes it', s.progressoff, 'true');
+  check('chart: svg generated from JSON', s.chartsvg, 'true');
+  check('chart: one <g> per series', s.chartseries, '2');
+  check('chart: series colored from --d-fill-1', s.chartfill, 'true');
+  check('chart: concept series recolored by the pinning', s.chartconcept, 'true');
+  check('chart: invalid JSON renders the error box (and no runtime error)', s.chartbroken, 'true');
+  check('chart: data-build moved onto the svg — 2 series steps', s.chartsteps, '2');
+  check('chart: line strokes prepared for draw', s.chartdraw, '2');
+  check('chart: markdown ```chart fence renders', s.chartmdfence, 'true');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',
