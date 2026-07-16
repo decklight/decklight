@@ -46,6 +46,13 @@ it?"* precisely because that answer becomes the screenshot.
 Kicking it off by hand: label an issue `ready-to-dev`, or run the workflow with an
 issue number (`gh workflow run ready-to-dev.yml -f issue=42`).
 
+The whole pipeline is visible on the [triage board](https://decklight.io/triage.html)
+(`site/triage.html`) — a kanban that reads the issue list live: unlabeled tickets to
+triage, the `ready-to-dev` queue, what's in dev, open PRs, recently closed. With a
+repo-scoped token pasted in, dragging a card between the first three columns moves
+the label — dropping onto *Ready to dev* is the same trust gate as applying the
+label by hand, so that drag starts the loop.
+
 Screenshots live on an orphan `shots` branch — evidence, never source — so a year of
 PNGs never lands in the history everyone clones.
 

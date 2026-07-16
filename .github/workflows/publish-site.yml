@@ -42,6 +42,8 @@ jobs:
         run: |
           mkdir -p out/dist out/themes
           cp site/index.html out/index.html
+          # the issue triage board — reads the GitHub API live, no build step
+          cp site/triage.html out/triage.html
           cp dist/decklight.js dist/decklight.css out/dist/
           # the paper-planes decks the landing page embeds: the bundled one is
           # vendored in site/ (its source lives nowhere else); the starter one
