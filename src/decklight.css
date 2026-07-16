@@ -1065,14 +1065,17 @@
 .decklight-transcript .tr-seg { margin: 0 0 8px; opacity: .85; font-size: 13px; line-height: 1.55; }
 
 /* ---------- print (SPEC §8) ------------------------------------------------ */
+/* The stage overrides are scoped to the OUTER stage (child combinator): the
+   handout/notes variants below wrap each slide in a mini-stage of its own,
+   which must keep the normal stage/section rendering, only scaled. */
 .decklight.decklight-print { position: static; overflow: visible; }
-.decklight.decklight-print .decklight-stage {
+.decklight.decklight-print > .decklight-stage {
   position: static;
   transform: none !important;
   width: auto !important;
   height: auto !important;
 }
-.decklight.decklight-print .decklight-stage > section {
+.decklight.decklight-print > .decklight-stage > section {
   display: flex;
   position: relative;
   width: 1280px;
@@ -1084,9 +1087,70 @@
 .decklight.decklight-print .build-step { visibility: visible !important; opacity: 1 !important; transform: none !important; }
 .decklight.decklight-print .draw-stroke { stroke-dashoffset: 0 !important; }
 .decklight.decklight-print .draw-fade { opacity: 1 !important; }
+
+/* ---------- print variants: ?print=handout | notes (SPEC §8) ---------------
+   Portrait pages, 816×1056 (US letter at 96dpi — the engine injects the
+   matching @page). Every slide keeps its 1280×720 design box inside a
+   mini-stage (`.decklight-stage.print-slide`, so all section rules still
+   match) and transform-scales into a fixed slot; --print-slide-scale sizes
+   slot and transform together. */
+.decklight.decklight-print .print-page {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 816px;
+  height: 1056px;
+  padding: 48px;
+  page-break-after: always;
+  break-after: page;
+  border-bottom: 1px dashed rgba(128,128,128,.4);
+}
+.decklight.decklight-print .print-slot {
+  position: relative;
+  overflow: hidden;
+  flex: none;
+  width: calc(1280px * var(--print-slide-scale));
+  height: calc(720px * var(--print-slide-scale));
+  border: 1px solid rgba(128,128,128,.45);
+}
+.decklight.decklight-print .decklight-stage.print-slide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1280px;
+  height: 720px;
+  transform: scale(var(--print-slide-scale));
+  transform-origin: 0 0;
+}
+
+/* handout: 3 slides a page, each beside a column of ruled note lines */
+.decklight.decklight-print .print-handout { --print-slide-scale: 0.34; gap: 56px; }
+.decklight.decklight-print .print-row { display: flex; align-items: stretch; gap: 24px; }
+.decklight.decklight-print .print-notelines {
+  flex: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0, transparent 33px,
+    rgba(128, 128, 128, .55) 33px, rgba(128, 128, 128, .55) 34px);
+}
+
+/* notes: one slide a page, its speaker notes underneath */
+.decklight.decklight-print .print-notes-page { --print-slide-scale: 0.5625; gap: 36px; }
+.decklight.decklight-print .print-notes {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 1.65;
+  text-align: left;
+}
+.decklight.decklight-print .print-notes p { margin: 0 0 10px; }
+
 @media print {
   @page { size: 1280px 720px; margin: 0; }
-  .decklight.decklight-print .decklight-stage > section { border-bottom: 0; }
+  .decklight.decklight-print > .decklight-stage > section { border-bottom: 0; }
+  .decklight.decklight-print .print-page { border-bottom: 0; }
+  .decklight.decklight-print .print-page:last-child { page-break-after: auto; break-after: auto; }
   .decklight-controls, .decklight-progress, .decklight-touch-controls { display: none !important; }
 }
 

@@ -12,6 +12,7 @@ import { initCode } from '../code/code.js';
 import { openSpeakerView, notesSegments } from './speaker.js';
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { createCharacter, concatTimelines } from './character.js';
+import { buildPrintPages } from './print.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -187,6 +188,7 @@ export function init(userConfig = {}) {
   const config = { ...DEFAULTS, ...userConfig };
   if (params.has('embedded')) config.controls = false;
   const printMode = params.has('print');
+  const printVariant = params.get('print') || ''; // '' (plain) | 'handout' | 'notes'
 
   // ----- debug log (D) -------------------------------------------------------
   // Ring buffer lives from init so events are captured even while the panel
@@ -3382,6 +3384,14 @@ export function init(userConfig = {}) {
       s.classList.add('active');
       applyBuildState(instance._records[i], instance._records[i].groups.length);
     });
+    // Handout/notes variants restructure the DOM — sections wrapped into
+    // .print-page slots — strictly AFTER sync() and applyBuildState above:
+    // sync() selects `:scope > section` and must never run again once the
+    // sections are wrapped. Print is static, so it never does.
+    if (printVariant === 'handout' || printVariant === 'notes') {
+      root.classList.add('decklight-print-' + printVariant);
+      buildPrintPages(stage, instance._sections, printVariant);
+    }
     // All slides are visible in print — audit the whole deck for clipping.
     requestAnimationFrame(() => instance._sections.forEach((s, i) => checkOverflow(s, i + 1)));
     root.__decklight = instance;
