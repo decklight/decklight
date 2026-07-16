@@ -9,6 +9,7 @@ import { namespaceSvgIds, applyConcepts } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { initMarkdown } from '../md/markdown.js';
+import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView, notesSegments } from './speaker.js';
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
@@ -1205,6 +1206,7 @@ export function init(userConfig = {}) {
   // ----- content pipeline --------------------------------------------------
   initMarkdown(stage);
   initCharts(stage); // synchronous, so the SVGs get namespaced and build-scanned below
+  initMath(stage); // after initMarkdown: md math renders inside the md pipeline
   namespaceSvgIds(stage);
   initCode(stage, registerBuildProvider);
 

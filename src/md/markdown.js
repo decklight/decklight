@@ -6,6 +6,7 @@
 // initMarkdown (browser only).
 
 import { marked } from 'marked';
+import { extractMath, restoreMath } from '../math/math.js';
 
 marked.setOptions({ gfm: true, breaks: false });
 
@@ -68,10 +69,21 @@ export function hoistBuildWrappers(rootEl) {
   });
 }
 
-/** Full transform: template text → { html, notesHtml, rehearseHtml }. */
-export function renderMarkdownSlide(template) {
+/**
+ * Full transform: template text → { html, notesHtml, rehearseHtml }.
+ * `opts.math` (a `data-math` section, SPEC §6): math spans are extracted
+ * before marked.parse — TeX underscores/asterisks would parse as emphasis —
+ * and restored, rendered to MathML, after. Notes stay plain: they are spoken.
+ */
+export function renderMarkdownSlide(template, opts = {}) {
   const { body, notes, rehearse } = splitNotes(dedent(template));
-  const html = marked.parse(applyBuildDirective(body));
+  let html;
+  if (opts.math) {
+    const { text, spans } = extractMath(body);
+    html = restoreMath(marked.parse(applyBuildDirective(text)), spans);
+  } else {
+    html = marked.parse(applyBuildDirective(body));
+  }
   const notesHtml = notes ? marked.parse(notes) : null;
   const rehearseHtml = rehearse ? marked.parse(rehearse) : null;
   return { html, notesHtml, rehearseHtml };
@@ -82,7 +94,8 @@ export function initMarkdown(root) {
   root.querySelectorAll('section[data-markdown]').forEach((section) => {
     const tpl = section.querySelector('script[type="text/template"]');
     const source = tpl ? tpl.textContent : section.textContent;
-    const { html, notesHtml, rehearseHtml } = renderMarkdownSlide(source);
+    const { html, notesHtml, rehearseHtml } =
+      renderMarkdownSlide(source, { math: section.hasAttribute('data-math') });
     section.innerHTML = html;
     hoistBuildWrappers(section);
     for (const [cls, content] of [['notes', notesHtml], ['rehearse', rehearseHtml]]) {

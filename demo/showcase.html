@@ -344,6 +344,26 @@ Note: + Rehearse: inline
       </aside>
     </section>
 
+    <!-- 8c · math (data-math: LaTeX → MathML Core via bundled Temml) -->
+    <section data-math>
+      <h2>Math, Rendered Native</h2>
+      <p><code>data-math</code> + LaTeX → MathML Core — no webfonts, no build step, no network</p>
+      <p style="font-size:1.1em; margin:0.5em 0 0.4em">$$\begin{aligned}
+        \nabla \cdot \vec{E} \;&amp;= \frac{\rho}{\varepsilon_0} &amp;
+        \nabla \times \vec{E} \;&amp;= -\frac{\partial \vec{B}}{\partial t} \\[0.5em]
+        \nabla \cdot \vec{B} \;&amp;= 0 &amp;
+        \nabla \times \vec{B} \;&amp;= \mu_0 \Bigl( \vec{J} + \varepsilon_0 \frac{\partial \vec{E}}{\partial t} \Bigr)
+      \end{aligned}$$</p>
+      <p style="font-size:0.78em">Inline math sits right in the sentence — light moves at \(c = 1/\sqrt{\mu_0 \varepsilon_0}\) —
+        while <code>\$</code> keeps \$5 five dollars, and a lone <code>$</code> never trips the parser.</p>
+      <aside class="notes">
+        <p>Academic decks, welcome home. Mark a slide data-math and write LaTeX between double dollars for display math, backslash-parens for inline. That's Maxwell, all four equations, rendering as native MathML — no webfonts shipped, no network fetched, no per-deck build step. And note what we did not support: the single dollar sign. Your prose about five-dollar budgets stays prose. The parser only listens where you actually meant math.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>data-math → LaTeX, native MathML · no single-$</p>
+      </aside>
+    </section>
+
     <!-- 12 · terminal -->
     <section>
       <h2>Terminal Recordings</h2>

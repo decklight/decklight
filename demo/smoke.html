@@ -217,6 +217,35 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
     <aside class="notes">Charts. ⟨CLICK⟩ p50 draws. ⟨CLICK⟩ p99 draws.</aside>
   </section>
 
+  <!-- 14: math on an HTML slide (data-math, SPEC §6) -->
+  <section data-math>
+    <h2>Math: HTML slide</h2>
+    <p>$$E = mc^2$$</p>
+    <p>An inline \(\alpha\) in a sentence, and an escaped \$5 price.</p>
+    <pre><code class="language-plaintext">code keeps its $$dollars$$ literal</code></pre>
+  </section>
+
+  <!-- 15: math on a markdown slide — extract before marked, restore after -->
+  <section data-markdown data-math>
+    <script type="text/template">
+## Math: markdown slide
+
+$$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
+
+Inline \(x_i\) and \(y_j\) — the underscores must not become emphasis.
+
+```sh
+echo $$still literal$$
+```
+    </script>
+  </section>
+
+  <!-- 16: control — NO data-math, delimiters must stay untouched -->
+  <section>
+    <h2>No data-math</h2>
+    <p>Untouched: $$x + y$$ and \(z\) stay literal text.</p>
+  </section>
+
 </div>
 
 <script>
@@ -290,6 +319,19 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
       rec('chartsteps', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .build-step').length),
       rec('chartdraw', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .chart-line.draw-stroke').length),
       rec('chartmdfence', !!document.querySelector('section[data-slide-index="5"] .chart[data-chart="donut"] > svg.chart-svg')),
+      // math (data-math, SPEC §6): MathML on HTML and markdown slides alike,
+      // code and no-data-math sections untouched, \$ unescaped to a dollar
+      rec('mathdisplay', !!document.querySelector('section[data-slide-index="14"] math[display="block"]')),
+      rec('mathinline', !!document.querySelector('section[data-slide-index="14"] p math:not([display])')),
+      rec('mathescape', document.querySelector('section[data-slide-index="14"]').textContent.includes('an escaped $5 price')),
+      rec('mathcode', document.querySelector('section[data-slide-index="14"] code').textContent.includes('$$dollars$$')),
+      rec('mathmd', document.querySelectorAll('section[data-slide-index="15"] math').length >= 3),
+      rec('mathmdnoem', !document.querySelector('section[data-slide-index="15"] em')),
+      rec('mathmdcode', document.querySelector('section[data-slide-index="15"] code').textContent.includes('$$still literal$$')),
+      rec('mathcontrol', (() => {
+        const s = document.querySelector('section[data-slide-index="16"]');
+        return !s.querySelector('math') && s.textContent.includes('$$x + y$$') && s.textContent.includes('\(z\)');
+      })()),
     ];
     // presenter clock (K) — pressed exactly as a presenter would. Skipped in
     // ?print (no key handler there; the render test asserts no clock either).

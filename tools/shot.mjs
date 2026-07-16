@@ -7,6 +7,7 @@
 //   node tools/shot.mjs <deck.html> -o shot.png
 //                       [--size 1280x720] [--wait 1500] [--theme eclipse]
 //                       [--slide N] [--drive <file.mjs>] [--keys "g,ArrowRight"]
+//                       [--query print]
 //
 // --drive runs a snippet INSIDE the page after Decklight.init, so a feature can
 // be exercised before the shutter: the deck is on `window.__deck`, and `press(k)`
@@ -41,6 +42,7 @@ const theme = opt('--theme');
 const slide = opt('--slide');
 const keys = (opt('--keys') ?? '').split(',').map((k) => k.trim()).filter(Boolean);
 const drive = opt('--drive');
+const query = opt('--query'); // e.g. `print` — deck modes that only exist as URL params
 
 // The driver runs in the page, so the shot can show a FEATURE and not just a
 // title card. Injected by writing a sibling copy of the deck — a sibling so that
@@ -76,7 +78,7 @@ try {
     `--window-size=${size.replace('x', ',')}`,
     `--virtual-time-budget=${wait}`,
     `--screenshot=${out}`,
-    `file://${tmp}${slide ? `#/${slide}/0` : ''}`,
+    `file://${tmp}${query ? `?${query}` : ''}${slide ? `#/${slide}/0` : ''}`,
   ), { stdio: ['ignore', 'ignore', 'ignore'] });
 } finally {
   rmSync(tmp, { force: true });

@@ -44,7 +44,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   const html = dump(deckUrl);
   const s = sink(html);
   check('no runtime errors', s.errors, 'none');
-  check('slide count', s.slides, '13');
+  check('slide count', s.slides, '16');
   check('slide 1 build steps (3 li + 1 leaf)', s.slide1steps, '4');
   check('slide 2 svg steps (3 g, caption stays)', s.svgsteps, '3');
   check('markdown build steps', s.mdsteps, '2');
@@ -82,6 +82,14 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('chart: data-build moved onto the svg — 2 series steps', s.chartsteps, '2');
   check('chart: line strokes prepared for draw', s.chartdraw, '2');
   check('chart: markdown ```chart fence renders', s.chartmdfence, 'true');
+  check('math: $$…$$ renders display MathML on an HTML data-math slide', s.mathdisplay, 'true');
+  check('math: \(…\) renders inline MathML', s.mathinline, 'true');
+  check('math: \$ escapes to a literal dollar', s.mathescape, 'true');
+  check('math: code on a data-math slide keeps its dollars', s.mathcode, 'true');
+  check('math: markdown data-math slide renders MathML too', s.mathmd, 'true');
+  check('math: TeX underscores never become markdown emphasis', s.mathmdnoem, 'true');
+  check('math: markdown fenced code is immune', s.mathmdcode, 'true');
+  check('math: a section without data-math is untouched', s.mathcontrol, 'true');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',
