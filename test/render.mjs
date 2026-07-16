@@ -82,6 +82,13 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('chart: data-build moved onto the svg — 2 series steps', s.chartsteps, '2');
   check('chart: line strokes prepared for draw', s.chartdraw, '2');
   check('chart: markdown ```chart fence renders', s.chartmdfence, 'true');
+  check('ink: no canvas until a tool is asked for', s.inkdefault, 'true');
+  check('ink: W mounts the pen overlay, capturing', s.inkpen, 'true');
+  check('ink: an API stroke paints the canvas', s.inkdrawn, 'true');
+  check('ink: changing slide clears it', s.inkcleared, 'true');
+  check('ink: Backspace clears while a tool is active', s.inkbackspace, 'true');
+  check('ink: ⇧W switches to the laser', s.inklaser, 'true');
+  check('ink: off again stops capturing', s.inkoff, 'true');
   check('no template text leaked',
     /text\/template/.test(html.replace(/<script[\s\S]*?<\/script>/g, '')), false);
   check('slide 1 initially unbuilt',
@@ -106,6 +113,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: print class set', /decklight-print/.test(html), true);
   check('print: no presenter clock', /decklight-clock"/.test(html), false);
   check('print: no progress bar', /decklight-progress"/.test(html), false);
+  check('print: no annotation canvas', /decklight-annotate"/.test(html), false);
   check('print: plain mode has no variant pages', /print-page/.test(html), false);
 }
 

@@ -294,8 +294,8 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
     // presenter clock (K) — pressed exactly as a presenter would. Skipped in
     // ?print (no key handler there; the render test asserts no clock either).
     if (!new URLSearchParams(location.search).has('print')) {
-      const press = (k) => document.body.dispatchEvent(
-        new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+      const press = (k, opts = {}) => document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
       recs.push(rec('clockdefault', !document.querySelector('.decklight-clock')));
       press('k');
       const clock = document.querySelector('.decklight-clock');
@@ -320,6 +320,35 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
       deck.goto(restore.slide, restore.step);          // …restore for the dump
       press('h');
       recs.push(rec('progressoff', !document.querySelector('.decklight-progress')));
+      // ink annotations (W / ⇧W) — no canvas until asked, pen captures and
+      // paints, navigation and ⌫ clear, ⇧W is the laser, off releases clicks.
+      const inkPainted = () => {
+        const c = document.querySelector('.decklight-annotate');
+        if (!c) return false;
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 0) return true;
+        return false;
+      };
+      recs.push(rec('inkdefault', !document.querySelector('.decklight-annotate')));
+      press('w');
+      const ink = document.querySelector('.decklight-annotate');
+      recs.push(rec('inkpen',
+        !!ink && ink.classList.contains('tool-pen') && getComputedStyle(ink).pointerEvents === 'auto'));
+      deck.annotate.stroke([{ x: 200, y: 200 }, { x: 640, y: 420 }, { x: 1000, y: 260 }]);
+      recs.push(rec('inkdrawn', inkPainted()));
+      const before = { ...deck.state };
+      deck.goto(before.slide === 2 ? 3 : 2, 0); // annotations belong to the slide they were drawn on…
+      recs.push(rec('inkcleared', !inkPainted()));
+      deck.goto(before.slide, before.step);     // …restore the step the other assertions dumped
+      deck.annotate.stroke([{ x: 300, y: 300 }, { x: 700, y: 300 }]);
+      press('Backspace'); // ⌫ clears while a tool is active
+      recs.push(rec('inkbackspace', !inkPainted()));
+      press('W', { shiftKey: true }); // pen → laser
+      recs.push(rec('inklaser', ink.classList.contains('tool-laser') && !ink.classList.contains('tool-pen')));
+      press('W', { shiftKey: true }); // laser → off: clicks reach the slide again
+      recs.push(rec('inkoff',
+        !ink.classList.contains('tool-laser') && !ink.classList.contains('tool-pen')
+        && getComputedStyle(ink).pointerEvents === 'none'));
     }
     sink.textContent = recs.join('\n');
     document.body.appendChild(sink);
