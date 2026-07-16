@@ -27,6 +27,9 @@ Usage:
 Commands:
   init     scaffold a starter deck, plus an agent skill (.claude/skills/decklight/, AGENTS.md)
            EXAMPLE: decklight init "My Deck"
+  skills   install the Decklight authoring skill for AI agents (Claude, Codex, OpenCode, IBM Bob)
+           EXAMPLE: decklight skills claude codex   (or --all, or omit to use detected agents)
+           EXAMPLE: decklight skills --global        (install into each agent's config home, every project)
   rec      record a truthful terminal cast by running a YAML command script in a real PTY
            EXAMPLE: decklight rec deck.term.yaml -o deck.cast.json
   refresh  re-execute the script embedded in each cast; rewrite the ones whose output drifted
@@ -80,6 +83,11 @@ switch (cmd) {
   case 'init': {
     const { initMain } = await import('./init.mjs');
     await initMain(rest);
+    break;
+  }
+  case 'skills': {
+    const { skillsMain } = await import('./skills.mjs');
+    await skillsMain(rest);
     break;
   }
   case 'rec': {
