@@ -28,6 +28,10 @@
 # prompt an attacker is allowed to write. The day this loop should also FIX
 # what it finds, that action belongs behind a trust gate — a maintainer label,
 # like ready-to-dev — not in here.
+#
+# That day came: the fixing lives in pr-fix.yml, gated by the `fix-it` label.
+# This loop still has no hands — it diagnoses, and now it tells you the label
+# exists. Applying it stays a human gesture, which is the whole point.
 name: pr-babysitter
 
 on:
@@ -184,6 +188,13 @@ jobs:
               - New human review activity: a one-paragraph digest of what was
                 asked and which files it touches, so the author's next session
                 starts oriented.
+
+            When a report describes something a coding agent could plausibly fix
+            — a real test failure, a lint error, a merge conflict, a reviewer's
+            concrete request — end it with one line: "A maintainer can label this
+            PR `fix-it` to have Claude attempt this." Do NOT suggest it for a
+            flake (nothing to fix) or for a judgment call the humans should make
+            themselves. You cannot apply the label; only say it is available.
 
             What does NOT earn a report: anything your previous comments already
             said, unchanged. If `previous-babysitter-comments.json` covers it and
