@@ -5,7 +5,8 @@
 #                                  →  the feature is EXERCISED in a browser and
 #                                     screenshotted
 #                                  →  a PR opens with those screenshots inline,
-#                                     review requested from the Product Owner
+#                                     opened as the PO (see below) or, failing
+#                                     that, as the bot with his review requested
 #                                  →  auto-merge is armed: the PR merges on its own
 #                                     once CI goes green. @gphilipp reviews the
 #                                     screenshots, not the merge button.
@@ -14,6 +15,14 @@
 # say"; only a picture says "the thing the ticket asked for is actually there".
 # They are pushed to an orphan `shots` branch (evidence, never source) so the PR
 # body can render them without an artifact download.
+#
+# WHY THE PR IS OPENED WITH A PAT. GitHub will not start a workflow from an
+# event its own GITHUB_TOKEN caused — so a PR this loop opened got no CI at all,
+# auto-merge sat waiting on a green that could never arrive, and a human had to
+# close and reopen the PR to wake it up. The documented way out is to open it as
+# a real user: `CI_NUDGE_PAT` (Contents + Pull requests: write, this repo only).
+# Without the secret the loop still works exactly as before, close/reopen and
+# all — the PR comment says so rather than leaving you to wonder.
 name: ready-to-dev
 
 on:
@@ -200,6 +209,14 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          # A PR opened with GITHUB_TOKEN gets no CI: GitHub will not start a
+          # workflow from its own token (anti-recursion), so the checks never
+          # run, auto-merge waits on a green that cannot arrive, and a human
+          # has to close/reopen the PR to wake it up. Opening it as a real user
+          # is the documented way out. Needs `Pull requests: write` on the PAT,
+          # on top of the `Contents: write` pr-fix uses — if it is missing (or
+          # the secret is unset) this falls back to GITHUB_TOKEN and says so.
+          NUDGE_PAT: ${{ secrets.CI_NUDGE_PAT }}
           N: ${{ steps.ticket.outputs.number }}
           BRANCH: ${{ steps.ticket.outputs.branch }}
           SHOTS: ${{ steps.shots.outputs.md }}
@@ -233,16 +250,38 @@ jobs:
             echo "🤖 opened by the ready-to-dev loop · implemented by Claude Code"
           } > /tmp/pr-body.md
 
-          gh pr create \
-            --base main --head "$BRANCH" \
-            --title "$(gh issue view "$N" --json title --jq .title)" \
-            --body-file /tmp/pr-body.md \
-            --reviewer gphilipp || \
-          gh pr edit "$BRANCH" --add-reviewer gphilipp
+          title=$(gh issue view "$N" --json title --jq .title)
+
+          # Open it as the PO when we can, so CI actually fires. That makes him
+          # the PR's author, and GitHub refuses to request a review from the
+          # author — which is fine, a PR you opened is already in your list.
+          # The GITHUB_TOKEN path keeps the review request, since there the
+          # author is the bot.
+          opened=""
+          if [ -n "${NUDGE_PAT:-}" ]; then
+            if GH_TOKEN="$NUDGE_PAT" gh pr create \
+                 --base main --head "$BRANCH" \
+                 --title "$title" --body-file /tmp/pr-body.md; then
+              opened=pat
+            else
+              echo "::warning::could not open the PR with CI_NUDGE_PAT — is \`Pull requests: write\` on the token? falling back to GITHUB_TOKEN; CI will need a nudge"
+            fi
+          fi
+          if [ -z "$opened" ]; then
+            gh pr create \
+              --base main --head "$BRANCH" \
+              --title "$title" --body-file /tmp/pr-body.md \
+              --reviewer gphilipp || \
+            gh pr edit "$BRANCH" --add-reviewer gphilipp
+          fi
 
           # The repo allows auto-merge, but every PR still has to opt in — without
           # this the PR would sit green and unmerged, waiting for a click.
           gh pr merge "$BRANCH" --auto --merge || \
             echo "::warning::could not arm auto-merge — the PR will need a manual merge"
 
-          gh issue comment "$N" --body "Implemented on \`$BRANCH\` — PR open with auto-merge armed; it lands when CI goes green."
+          if [ "$opened" = pat ]; then
+            gh issue comment "$N" --body "Implemented on \`$BRANCH\` — PR open with auto-merge armed; it lands when CI goes green."
+          else
+            gh issue comment "$N" --body "Implemented on \`$BRANCH\` — PR open with auto-merge armed. ⚠️ It was opened with \`GITHUB_TOKEN\`, so **CI will not start on its own**: nudge it with \`gh pr close\` then \`gh pr reopen\` on the PR, or auto-merge will wait forever."
+          fi
