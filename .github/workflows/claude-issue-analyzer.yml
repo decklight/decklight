@@ -8,19 +8,35 @@
 #                      what's the error, can anyone else reproduce it, and what is
 #                      still missing — with the files likely involved named, so the
 #                      first reply already points at the code.
-#                   →  a plain shell step posts that draft. Claude never holds the
-#                      token, and never holds a shell.
+#                   →  it also renders a VERDICT — bug, feature, or question — as
+#                      one word in a second file.
+#                   →  a plain shell step posts the draft, applies the routing
+#                      label (`bug` or `needs-spec`), and fires the next loop:
+#                      bugs go to bug-repro, features go to spec-refine. Claude
+#                      never holds the token, and never holds a shell.
+#
+# WHY THE CHAIN IS A DISPATCH, NOT A LABEL EVENT. The routing label is applied
+# with the workflow's own GITHUB_TOKEN, and GitHub never lets one GITHUB_TOKEN
+# event start another workflow (anti-recursion) — the label lands but the
+# `labeled` trigger downstream stays dark. `workflow_dispatch` is the documented
+# exception to that rule, so the shell step dispatches the next loop explicitly.
+# The labels still matter: they are the human entry points (apply `bug` or
+# `needs-spec` by hand to route or re-fire without waiting for triage) and the
+# board reads them.
 #
 # WHY THE AGENT HAS NO SHELL. An issue body is text written by a stranger, and
 # this repo is public: the trigger is reachable by anyone with a browser. The
 # ready-to-dev loop can afford `Bash` because a maintainer must apply a label to
 # start it, and applying a label needs write access — that is its trust gate.
 # Triage has no such gate by construction (the whole point is to answer strangers),
-# so it gets the opposite treatment: the agent may read the repo and WRITE ONE
-# FILE, nothing else. It cannot run a command, reach the network, or touch the
-# issue. The API key sits in a process that has no way to spend it on anything but
-# this prompt. "It only ever comments" is then a property of the workflow, not a
-# promise inside a prompt an attacker is allowed to write.
+# so it gets the opposite treatment: the agent may read the repo and WRITE TWO
+# FILES — the comment and a one-word verdict — nothing else. It cannot run a
+# command, reach the network, or touch the issue. The verdict is only ever
+# pattern-matched against three known words by the shell step, so the worst a
+# hijacked draft can do is pick the wrong queue, which a human can see and undo
+# by relabeling. The API key sits in a process that has no way to spend it on
+# anything but this prompt. "It only ever comments" is then a property of the
+# workflow, not a promise inside a prompt an attacker is allowed to write.
 name: issue-analyzer
 
 on:
@@ -39,7 +55,9 @@ permissions:
   # without this it dies before it ever reads the prompt:
   #   "Could not fetch an OIDC token. Did you remember to add id-token: write?"
   id-token: write
-  actions: read
+  # read for gh run list; WRITE to dispatch the downstream loop (bug-repro /
+  # spec-refine) — see WHY THE CHAIN IS A DISPATCH above
+  actions: write
 
 # one triage per issue at a time; a reopen supersedes an in-flight run
 concurrency:
@@ -71,7 +89,14 @@ jobs:
         run: |
           set -euo pipefail
           echo "number=$N" >> "$GITHUB_OUTPUT"
-          gh issue view "$N" --json title,body > "$RUNNER_TEMP/ticket.json"
+          gh issue view "$N" --json title,body,labels > "$RUNNER_TEMP/ticket.json"
+          # A reopen re-triages, but an issue already in the pipeline must not be
+          # re-routed — restarting a loop that already ran (or is running) is how
+          # an innocent reopen duplicates a PR.
+          in_pipeline=$(jq -r '[.labels[].name] as $l
+            | ["bug","needs-spec","needs-po-review","ready-to-dev","in-dev","repro-confirmed","cannot-repro"]
+            | map(. as $p | $l | index($p)) | any(. != null)' "$RUNNER_TEMP/ticket.json")
+          echo "route=$([ "$in_pipeline" = "true" ] && echo 0 || echo 1)" >> "$GITHUB_OUTPUT"
           # A RANDOM delimiter, because the issue body is untrusted: a fixed one
           # (TICKET_EOF) can be closed early by a body that simply contains that
           # line, and everything after it becomes step outputs of the author's
@@ -115,11 +140,26 @@ jobs:
 
             Write your comment to the file `triage-comment.md` in the repository
             root. Writing that file IS how the comment gets posted — a later step
-            posts it verbatim. Write nothing else, anywhere.
+            posts it verbatim.
 
-            First decide what this is. If it is a feature request or a question,
-            make `triage-comment.md` a single line saying so, and stop — the
-            rubric below is for bug reports only.
+            Also write `triage-verdict.txt` in the repository root: exactly one
+            word on one line, nothing else —
+
+              bug       it reports something broken in what exists today
+              feature   it asks for something new or changed
+              question  it asks a question, or is neither of the above
+
+            The verdict routes the issue: `bug` sends it to the bug-repro loop
+            (which will try to reproduce it), `feature` sends it to the
+            spec-refinement loop (which will draft a spec and mockups for the
+            Product Owner). When genuinely torn — "X should work but doesn't"
+            can be either — prefer `bug` if the ticket claims today's decklight
+            misbehaves, `feature` if it describes a tomorrow. Write those two
+            files and nothing else, anywhere.
+
+            If the verdict is `feature` or `question`, make `triage-comment.md`
+            a single line saying what it is and where it is headed, and stop —
+            the rubric below is for bug reports only.
 
             For a bug report, skim the code it implicates (README.md, SPEC.md,
             src/, cli/, tools/) and draft ONE concise, friendly comment that works
@@ -143,21 +183,48 @@ jobs:
             involved so the author's next reply lands on the right code. Keep it a
             scannable checklist, not an essay.
 
-      - name: post the triage
+      - name: post the triage and route the issue
         env:
           GH_TOKEN: ${{ github.token }}
           N: ${{ steps.ticket.outputs.number }}
+          ROUTE: ${{ steps.ticket.outputs.route }}
         run: |
           set -euo pipefail
           if [ ! -s triage-comment.md ]; then
             echo "::warning::the agent drafted no comment — nothing to post"
             exit 0
           fi
-          # The token lives here and only here. The agent's whole output is one
-          # markdown file, and the only thing this step can do with it is say it
-          # out loud on the issue it came from.
+          # The token lives here and only here. The agent's whole output is two
+          # small files, and the only things this step can do with them are: say
+          # the comment out loud on the issue it came from, and — if the verdict
+          # is one of three known words — apply that word's label and dispatch
+          # that word's workflow. Anything else in the verdict file is noise.
           {
             echo "🤖 **Automated triage** — read by Claude, posted unedited."
             echo
             cat triage-comment.md
           } | gh issue comment "$N" --body-file -
+
+          if [ "$ROUTE" != "1" ]; then
+            echo "issue #$N already carries a pipeline label — comment posted, no re-routing"
+            exit 0
+          fi
+          verdict=$(head -c 64 triage-verdict.txt 2>/dev/null | tr -d '[:space:]' || true)
+          case "$verdict" in
+            bug)
+              gh issue edit "$N" --add-label bug
+              gh workflow run bug-repro.yml -f issue="$N" \
+                || echo "::warning::could not dispatch bug-repro.yml — apply the bug label by hand or run it manually"
+              ;;
+            feature)
+              gh issue edit "$N" --add-label needs-spec
+              gh workflow run spec-refine.yml -f issue="$N" \
+                || echo "::warning::could not dispatch spec-refine.yml — apply the needs-spec label by hand or run it manually"
+              ;;
+            question)
+              echo "verdict: question — a human answers, no loop fires"
+              ;;
+            *)
+              echo "::warning::no usable verdict ('$verdict') — issue #$N stays unrouted"
+              ;;
+          esac
