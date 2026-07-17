@@ -1,0 +1,154 @@
+# The triage board, kept honest by the loop itself.
+#
+# The ready-to-dev pipeline already lives in labels and PRs:
+#
+#   (no label) → `ready-to-dev` → `in-dev` → ticket PR open → closed
+#
+# This workflow mirrors that onto the org's GitHub Project, so the board is a
+# view of reality — never a second source of truth someone has to drag cards
+# on. Columns, in loop order:
+#
+#   Triage → Ready to dev → In dev → In review → Done
+#
+# If the project's Status field is missing any of those columns, the workflow
+# rewrites the options to exactly that set — and then re-places every open
+# issue, because GitHub recreates option ids on rewrite and orphans whatever
+# column assignments existed.
+#
+# Org projects are outside the workflow token's reach, so this needs two
+# things set once in the repo settings:
+#
+#   variable  TRIAGE_PROJECT_NUMBER   the number in the project's URL
+#   secret    PROJECT_PAT             a classic PAT with the `project` scope
+#
+# Run it by hand (workflow_dispatch) to backfill the whole board.
+name: triage board
+
+on:
+  issues:
+    types: [opened, reopened, labeled, unlabeled, closed]
+  pull_request:
+    types: [opened, reopened, closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: triage-board
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # skip entirely (not fail) until the project variable is configured, and
+    # for fork PRs, which run without secrets and have no ticket branches
+    if: >-
+      vars.TRIAGE_PROJECT_NUMBER != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: sync the board
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
+          ORG: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          PROJECT: ${{ vars.TRIAGE_PROJECT_NUMBER }}
+        run: |
+          set -euo pipefail
+          # the job's if-gate guarantees PROJECT is set; the PAT it cannot see
+          [ -n "$GH_TOKEN" ] || { echo "::error::secret PROJECT_PAT is missing — a classic PAT with the project scope; the workflow's own token cannot touch org projects"; exit 1; }
+
+          COLUMNS='Triage|Ready to dev|In dev|In review|Done'
+
+          fetch_field() {
+            gh api graphql -f org="$ORG" -F num="$PROJECT" -f query='
+              query($org: String!, $num: Int!) {
+                organization(login: $org) {
+                  projectV2(number: $num) {
+                    id
+                    field(name: "Status") {
+                      ... on ProjectV2SingleSelectField { id options { id name } }
+                    }
+                  }
+                }
+              }' > /tmp/proj.json
+            PROJECT_ID=$(jq -re .data.organization.projectV2.id /tmp/proj.json) || { echo "::error::project $PROJECT not found in the $ORG org (or the PAT cannot see it)"; exit 1; }
+            FIELD_ID=$(jq -re .data.organization.projectV2.field.id /tmp/proj.json)
+          }
+          fetch_field
+
+          opt_id() {
+            jq -r --arg n "$1" '.data.organization.projectV2.field.options[]
+              | select((.name | ascii_downcase) == ($n | ascii_downcase)) | .id' /tmp/proj.json
+          }
+
+          BACKFILL=""
+          [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && BACKFILL=1
+
+          # Align the columns with the loop. A rewrite orphans every existing
+          # Status assignment (the option ids are recreated), so only rewrite
+          # when a column is actually missing — then re-place everything.
+          MISSING=""
+          IFS='|'; for c in $COLUMNS; do [ -n "$(opt_id "$c")" ] || MISSING=1; done; unset IFS
+          if [ -n "$MISSING" ]; then
+            echo "aligning the Status columns with the loop"
+            if gh api graphql -f fid="$FIELD_ID" -f query='
+              mutation($fid: ID!) {
+                updateProjectV2Field(input: {
+                  fieldId: $fid,
+                  singleSelectOptions: [
+                    { name: "Triage",       color: GRAY,   description: "no status label yet — needs a decision" },
+                    { name: "Ready to dev", color: BLUE,   description: "labeled ready-to-dev: queued for the loop" },
+                    { name: "In dev",       color: YELLOW, description: "labeled in-dev: the loop is implementing it" },
+                    { name: "In review",    color: PURPLE, description: "ticket PR open — merges itself when CI goes green" },
+                    { name: "Done",         color: GREEN,  description: "closed" }
+                  ]
+                }) { projectV2Field { ... on ProjectV2SingleSelectField { id } } }
+              }' > /dev/null; then
+              fetch_field
+              BACKFILL=1
+            else
+              echo "::warning::could not rewrite the Status options — rename the columns by hand to: Triage, Ready to dev, In dev, In review, Done"
+            fi
+          fi
+
+          place() {
+            local n=$1 info iid state col oid item
+            info=$(gh issue view "$n" -R "$REPO" --json id,state,labels 2>/dev/null) || return 0  # not an issue
+            iid=$(jq -r .id <<<"$info")
+            state=$(jq -r .state <<<"$info")
+            if [ "$state" = "CLOSED" ]; then col="Done"
+            elif gh pr list -R "$REPO" --head "ticket/$n" --state open --json number --jq '.[0].number' | grep -q .; then col="In review"
+            elif jq -e '.labels[] | select(.name == "in-dev")' <<<"$info" > /dev/null; then col="In dev"
+            elif jq -e '.labels[] | select(.name == "ready-to-dev")' <<<"$info" > /dev/null; then col="Ready to dev"
+            else col="Triage"; fi
+            oid=$(opt_id "$col")
+            [ -n "$oid" ] || { echo "::warning::no \"$col\" column on the board — #$n not placed"; return 0; }
+            # addProjectV2ItemById is idempotent: an item already on the board
+            # just comes back with its existing id
+            item=$(gh api graphql -f p="$PROJECT_ID" -f c="$iid" --jq .data.addProjectV2ItemById.item.id -f query='
+              mutation($p: ID!, $c: ID!) {
+                addProjectV2ItemById(input: { projectId: $p, contentId: $c }) { item { id } }
+              }')
+            gh api graphql -f p="$PROJECT_ID" -f i="$item" -f f="$FIELD_ID" -f o="$oid" -f query='
+              mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $p, itemId: $i, fieldId: $f,
+                  value: { singleSelectOptionId: $o }
+                }) { projectV2Item { id } }
+              }' > /dev/null
+            echo "#$n → $col"
+          }
+
+          if [ -n "$BACKFILL" ]; then
+            for n in $(gh issue list -R "$REPO" --state open --limit 200 --json number --jq '.[].number'); do
+              place "$n"
+            done
+          elif [ "$GITHUB_EVENT_NAME" = issues ]; then
+            place "$(jq -r .issue.number "$GITHUB_EVENT_PATH")"
+          else
+            # a PR only points back at an issue through the loop's ticket/<n> branch
+            branch=$(jq -r .pull_request.head.ref "$GITHUB_EVENT_PATH")
+            case "$branch" in ticket/*) place "${branch#ticket/}";; esac
+          fi
