@@ -56,7 +56,7 @@ const MIME = {
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.map': 'application/json',
 };
 
-const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+export const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /** ⟨CLICK⟩-separated plain text → the aside's inner HTML (one <p> per segment). */
 export function notesTextToAside(text) {
