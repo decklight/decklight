@@ -9,12 +9,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, chmodSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { setSlideLayout, createHistory, gitAutocommit, inGitRepo } from '../cli/edit.mjs';
+import { setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -247,12 +247,26 @@ test('--git auto-commits on a cadence; undo/redo never consume the commits', asy
   assert.equal(inGitRepo(dir), true, '--git created the repository');
   assert.equal(git(['rev-list', '--count', 'HEAD'], dir), '1', 'the opening commit');
 
+  // a repository decklight created starts with the starter .gitignore
+  assert.equal(readFileSync(path.join(dir, '.gitignore'), 'utf8'), STARTER_GITIGNORE);
+
   // edit + undo + redo through the server: the file churns, git holds still
   await post(base, '/edit/layout', { slide: 1, layout: 'top' });
   await post(base, '/edit/undo');
   await post(base, '/edit/redo');
   assert.equal(git(['rev-list', '--count', 'HEAD'], dir), '1', 'history moves the file, never git');
   assert.match(readFileSync(deck, 'utf8'), /data-layout="top"/);
+});
+
+test('a repository decklight did not create never gets ignore rules', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  git(['init', '-q'], dir);
+  const { base } = await startEdit(t, dir, { extraArgs: ['--git', '--commit-every', '5'] });
+
+  assert.equal((await (await fetch(base + '/edit/ping')).json()).git, true);
+  assert.equal(existsSync(path.join(dir, '.gitignore')), false,
+    'the repo-creation moment is the only time decklight touches ignore rules');
 });
 
 test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) => {

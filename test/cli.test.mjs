@@ -13,6 +13,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 import { resolveTitle } from '../cli/init.mjs';
+import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -247,6 +248,54 @@ test('init appends a marked section to an existing AGENTS.md, and refresh is ide
   execFileSync('node', [CLI, 'init', '--dir', dir, '--force'], { encoding: 'utf8' });
   const second = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.equal(first, second, 're-running must not duplicate or drift the marked section');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- the repo-creation seam (edit/dev --git today; init's git offer, #50) ----
+
+test('createRepo seeds a fresh repository with the starter .gitignore', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitignore-'));
+  assert.equal(createRepo(dir), true, 'reports that it wrote the starter file');
+  assert.equal(inGitRepo(dir), true, 'the repository exists');
+
+  const ignore = fs.readFileSync(path.join(dir, '.gitignore'), 'utf8');
+  assert.equal(ignore, STARTER_GITIGNORE);
+  assert.match(ignore, /^\.shots\/$/m, 'screenshot evidence dirs are ignored');
+  assert.match(ignore, /^\.DS_Store$/m, 'OS junk is ignored');
+  // voiceover/ carries its tradeoff comment DIRECTLY above the entry — the
+  // file itself must tell the player narration audio is bulky but cloud
+  // voices cost money to regenerate, and that deleting the line versions it
+  assert.match(ignore, /^# .*costs money to regenerate.*\nvoiceover\/$/m);
+  assert.match(ignore, /delete this line/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('the starter entries really ignore the artifacts — git add -A stays clean', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitignore-'));
+  createRepo(dir);
+  fs.writeFileSync(path.join(dir, 'deck.html'), '<!doctype html>');
+  fs.mkdirSync(path.join(dir, '.shots'));
+  fs.writeFileSync(path.join(dir, '.shots', 'evidence.png'), 'png');
+  fs.mkdirSync(path.join(dir, 'voiceover'));
+  fs.writeFileSync(path.join(dir, 'voiceover', 'slide-01.m4a'), 'audio');
+  fs.writeFileSync(path.join(dir, '.DS_Store'), 'junk');
+
+  execFileSync('git', ['add', '-A'], { cwd: dir });
+  const staged = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: dir, encoding: 'utf8' })
+    .trim().split('\n').sort();
+  assert.deepEqual(staged, ['.gitignore', 'deck.html'],
+    'a hasty git add -A picks up the deck and the ignore file, none of the artifacts');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('createRepo never touches an existing .gitignore', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitignore-'));
+  const theirs = '# the player wrote this\nnode_modules/\n';
+  fs.writeFileSync(path.join(dir, '.gitignore'), theirs);
+  assert.equal(createRepo(dir), false, 'reports that it left the file alone');
+  assert.equal(inGitRepo(dir), true, 'the repository is still created');
+  assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), theirs,
+    'byte-identical — no appending, no merging');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

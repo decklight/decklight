@@ -29,7 +29,8 @@
 // --no-git wasn't passed) the server auto-commits the deck on a regular
 // basis — every --commit-every seconds when it actually changed, plus a
 // final commit on Ctrl-C. --git also creates the repository when none
-// exists. `decklight dev` asks interactively before passing --git down.
+// exists — seeded with a starter .gitignore (createRepo, below).
+// `decklight dev` asks interactively before passing --git down.
 
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, watch, existsSync, statSync } from 'node:fs';
@@ -139,6 +140,35 @@ export function inGitRepo(dir) {
   try { return git(['rev-parse', '--is-inside-work-tree'], dir) === 'true'; } catch { return false; }
 }
 
+// The starter .gitignore a decklight-created repository begins with: generated
+// artifacts (screenshot evidence, OS junk, narration audio) stay out of the
+// autocommit loop and out of a hasty `git add -A`. Three entries, one comment —
+// a starter the player owns from the first commit, not an ignore database.
+export const STARTER_GITIGNORE = `.shots/
+.DS_Store
+
+# narration audio is bulky — but cloud-generated narration costs money to regenerate; delete this line to version yours
+voiceover/
+`;
+
+/**
+ * Create a git repository in `dir` — the one shared seam for every place
+ * decklight creates a repo (`edit`/`dev` with --git today, init's offer per
+ * #50). Runs `git init`, then writes the starter .gitignore — after init and
+ * before any initial commit the caller makes, so a `git add -A` opening
+ * commit picks it up. The repo-creation moment is the only time decklight
+ * touches ignore rules: an existing .gitignore is never appended to or
+ * merged, and a repository decklight didn't create never gets one. Returns
+ * true when the starter file was written. Throws when `git init` fails.
+ */
+export function createRepo(dir) {
+  git(['init'], dir);
+  const ignorePath = resolve(dir, '.gitignore');
+  if (existsSync(ignorePath)) return false;
+  writeFileSync(ignorePath, STARTER_GITIGNORE);
+  return true;
+}
+
 /** Commit the deck if it changed. Returns true when a commit was made. */
 export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${basename(deckPath)}`) {
   try {
@@ -199,8 +229,8 @@ export async function editMain(args) {
   if (!noGit && (wantGit || inGitRepo(root))) {
     if (!inGitRepo(root)) {
       try {
-        git(['init'], root);
-        console.log(`  git: initialized a repository in ${root}`);
+        const wroteIgnore = createRepo(root);
+        console.log(`  git: initialized a repository in ${root}${wroteIgnore ? ' (with a starter .gitignore)' : ''}`);
       } catch (e) {
         console.error(`  git init failed: ${String(e.stderr || e.message || e).slice(0, 160)}`);
       }
