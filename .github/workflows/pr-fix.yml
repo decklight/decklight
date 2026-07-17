@@ -120,10 +120,12 @@ jobs:
         with:
           ref: ${{ steps.pr.outputs.branch }}
           fetch-depth: 0 # a rebase onto main needs history; so does the DCO check
-          # This is the one loop that pushes, so the checkout keeps its
-          # credentials — the trust gate is the `fix-it` label, not the token.
-          # The push itself is done by a later shell step, not by the agent.
-          token: ${{ secrets.CI_NUDGE_PAT || github.token }}
+          # NO credentials in the tree. `token:` here would write it into
+          # .git/config — inside the very working tree the agent gets a shell
+          # in, which would hand a long-lived PAT to the one step that must
+          # never hold one. The agent commits locally; the push step below
+          # builds its own authenticated remote URL and never persists it.
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
@@ -226,9 +228,11 @@ jobs:
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
+          # The PAT enters here and nowhere else — a shell step, after the
+          # agent's turn is over. Contents: write on this repo is all it needs.
+          NUDGE_PAT: ${{ secrets.CI_NUDGE_PAT }}
           N: ${{ steps.pr.outputs.number }}
           BRANCH: ${{ steps.pr.outputs.branch }}
-          NUDGED: ${{ secrets.CI_NUDGE_PAT != '' }}
         run: |
           set -euo pipefail
           pushed=0
@@ -244,8 +248,17 @@ jobs:
               gh pr edit "$N" --remove-label fix-it || true
               exit 1
             fi
-            git push origin "HEAD:$BRANCH"
-            pushed=1
+            # Push as the PAT when there is one, so GitHub is willing to start
+            # CI from it; as GITHUB_TOKEN otherwise, which lands the commit but
+            # leaves the checks stale. The URL carries the credential for this
+            # one command and is never written to .git/config.
+            if [ -n "${NUDGE_PAT:-}" ]; then
+              git push "https://x-access-token:${NUDGE_PAT}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:$BRANCH"
+              pushed=2
+            else
+              git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:$BRANCH"
+              pushed=1
+            fi
           fi
 
           {
@@ -254,20 +267,19 @@ jobs:
             if [ -s fix-report.md ]; then cat fix-report.md; else echo "_The run produced no report — see the [run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})._"; fi
             echo
             echo "---"
-            if [ "$pushed" = "1" ]; then
-              echo "Pushed to \`$BRANCH\`."
-              if [ "$NUDGED" != "true" ]; then
+            case "$pushed" in
+              2) echo "Pushed to \`$BRANCH\` — CI is running on it now." ;;
+              1)
                 # GitHub refuses to trigger workflows from a GITHUB_TOKEN push
-                # (anti-recursion), so the fix lands but CI stays dark. The
-                # documented ways out are a PAT (set CI_NUDGE_PAT) or a human
-                # close/reopen. Say which one is needed rather than leaving a
-                # green-looking PR that never ran.
+                # (anti-recursion), so the fix lands but CI stays dark. Say
+                # which nudge is needed rather than leaving a PR whose checks
+                # describe code that is no longer there.
+                echo "Pushed to \`$BRANCH\`."
                 echo
-                echo "⚠️ **CI will not re-run on its own.** This push used \`GITHUB_TOKEN\`, and GitHub will not start a workflow from it. Nudge it with \`gh pr close $N && gh pr reopen $N\`, or set a \`CI_NUDGE_PAT\` secret so this loop's pushes trigger CI normally."
-              fi
-            else
-              echo "Nothing was pushed — the branch is exactly as you left it."
-            fi
+                echo "⚠️ **CI will not re-run on its own.** This push used \`GITHUB_TOKEN\`, and GitHub will not start a workflow from it — the checks you see describe the code from before this fix. Nudge it with \`gh pr close $N && gh pr reopen $N\`, or set a \`CI_NUDGE_PAT\` secret so this loop's pushes trigger CI normally."
+                ;;
+              *) echo "Nothing was pushed — the branch is exactly as you left it." ;;
+            esac
             echo
             echo "Label \`fix-it\` again to have another go."
           } | gh pr comment "$N" --body-file -
