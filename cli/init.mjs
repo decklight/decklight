@@ -7,7 +7,7 @@
  * Code (and any AGENTS.md-reading agent) knows the authoring contract
  * without a web search or a guess from Reveal.js memory.
  *
- *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
+ *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …] [--open] [--force] [--no-skill]
  *
  * The deck is fully self-contained (runtime + every theme inlined, like
  * `decklight bundle --themes all` produces) — double-click it, it presents,
@@ -17,9 +17,10 @@
  * file is only touched with --force.
  */
 
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
@@ -53,6 +54,47 @@ function resolveThemes(sel) {
     }
   }
   return names;
+}
+
+/**
+ * Platform → launcher invocation for a URL, as pure data so it can be tested
+ * without spawning anything. macOS ships `open`; Windows goes through cmd's
+ * `start` builtin (the empty '' fills the window-title slot, or the URL would
+ * become the title); everything else gets freedesktop's xdg-open. Zero new
+ * dependencies by design.
+ */
+export function openCommand(platform, url) {
+  if (platform === 'darwin') return { cmd: 'open', args: [url] };
+  if (platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', url] };
+  return { cmd: 'xdg-open', args: [url] };
+}
+
+/**
+ * Launch the default browser on the deck's file:// URL — the deck is
+ * self-contained, so the file IS the presentation. Spawned detached with
+ * stdio ignored (the dev.mjs idiom) so init exits promptly. A machine that
+ * cannot launch (headless, no xdg-open) gets one dim line and a normal exit:
+ * the deck was created, which is the product.
+ */
+export async function openDeck(deckPath, { platform = process.platform, spawnFn = spawn, out = process.stdout } = {}) {
+  const url = pathToFileURL(deckPath).href;
+  const { cmd, args } = openCommand(platform, url);
+  const rel = path.relative('.', deckPath) || deckPath;
+  const dim = (s) => (out.isTTY ? `\x1b[2m${s}\x1b[0m` : s);
+  const skipped = (err) =>
+    out.write(dim(`--open: could not launch a browser (${cmd}: ${err.code ?? err.message}) — open ${rel} yourself\n`));
+  await new Promise((resolve) => {
+    let child;
+    try {
+      child = spawnFn(cmd, args, { stdio: 'ignore', detached: true });
+    } catch (err) { skipped(err); resolve(); return; }
+    child.once('error', (err) => { skipped(err); resolve(); });
+    child.once('spawn', () => {
+      child.unref();
+      out.write(`opening ${rel} in your default browser\n`);
+      resolve();
+    });
+  });
 }
 
 function starterDeck(title, themeNames, activeTheme) {
@@ -114,7 +156,7 @@ export async function initMain(argv = process.argv.slice(2)) {
     process.stdout.write(`decklight init — scaffold a starter deck + agent skill
 
 Usage:
-  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
+  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …] [--open] [--force] [--no-skill]
 
 Options:
   -o <file>       deck output path (default: deck.html)
@@ -123,6 +165,8 @@ Options:
                     all           every shipped theme (default)
                     name,name,…   an explicit list (aurora stays active when
                                   included, else the first listed)
+  --open          open the scaffolded deck in your default browser
+                  (the deck is self-contained — the file is the presentation)
   --force         overwrite an existing deck file (default: refuses)
   --no-skill      skip .claude/skills/decklight/ and AGENTS.md
 
@@ -133,7 +177,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     process.exit(0);
   }
 
-  let title = null, outFile = 'deck.html', dir = '.', force = false, withSkill = true, themesSel = 'all';
+  let title = null, outFile = 'deck.html', dir = '.', force = false, withSkill = true, themesSel = 'all', openAfter = false;
   const args = [...argv];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -141,6 +185,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--dir') dir = args[++i];
     else if (a === '--themes') themesSel = args[++i];
     else if (a === '--force') force = true;
+    else if (a === '--open') openAfter = true;
     else if (a === '--no-skill') withSkill = false;
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
@@ -162,30 +207,35 @@ unless --no-skill is given. The deck file is only touched with --force.
     : `${themeNames.length} themes, ${activeTheme} active`;
   process.stdout.write(`created ${path.relative('.', deckPath) || outFile} (${themeNote})\n`);
 
-  if (!withSkill) return;
+  if (withSkill) {
+    const skillDir = path.join(root, '.claude', 'skills', 'decklight');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());
+    fs.writeFileSync(path.join(skillDir, 'reference.md'), referenceDoc());
+    process.stdout.write(`wrote .claude/skills/decklight/{SKILL.md,reference.md} (v${PKG.version})\n`);
 
-  const skillDir = path.join(root, '.claude', 'skills', 'decklight');
-  fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());
-  fs.writeFileSync(path.join(skillDir, 'reference.md'), referenceDoc());
-  process.stdout.write(`wrote .claude/skills/decklight/{SKILL.md,reference.md} (v${PKG.version})\n`);
-
-  const agentsPath = path.join(root, 'AGENTS.md');
-  const section = agentsSection();
-  if (!fs.existsSync(agentsPath)) {
-    fs.writeFileSync(agentsPath, `# Agent notes\n\n${section}`);
-    process.stdout.write('created AGENTS.md\n');
-  } else {
-    const existing = fs.readFileSync(agentsPath, 'utf8');
-    const markerRe = new RegExp(`${AGENTS_MARKER}[\\s\\S]*?${AGENTS_MARKER}\\n?`);
-    if (markerRe.test(existing)) {
-      fs.writeFileSync(agentsPath, existing.replace(markerRe, section));
-      process.stdout.write('refreshed the Decklight section in AGENTS.md\n');
+    const agentsPath = path.join(root, 'AGENTS.md');
+    const section = agentsSection();
+    if (!fs.existsSync(agentsPath)) {
+      fs.writeFileSync(agentsPath, `# Agent notes\n\n${section}`);
+      process.stdout.write('created AGENTS.md\n');
     } else {
-      fs.writeFileSync(agentsPath, existing.replace(/\n*$/, '\n\n') + section);
-      process.stdout.write('appended a Decklight section to AGENTS.md\n');
+      const existing = fs.readFileSync(agentsPath, 'utf8');
+      const markerRe = new RegExp(`${AGENTS_MARKER}[\\s\\S]*?${AGENTS_MARKER}\\n?`);
+      if (markerRe.test(existing)) {
+        fs.writeFileSync(agentsPath, existing.replace(markerRe, section));
+        process.stdout.write('refreshed the Decklight section in AGENTS.md\n');
+      } else {
+        fs.writeFileSync(agentsPath, existing.replace(/\n*$/, '\n\n') + section);
+        process.stdout.write('appended a Decklight section to AGENTS.md\n');
+      }
     }
   }
+
+  // Last, so every "created/wrote" line is on screen before the browser
+  // steals focus. Opens the deck FILE — self-contained by design, so the
+  // file:// URL is the presentation.
+  if (openAfter) await openDeck(deckPath);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) await initMain();

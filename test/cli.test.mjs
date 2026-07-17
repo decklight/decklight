@@ -6,11 +6,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { openCommand, openDeck } from '../cli/init.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -144,6 +148,91 @@ test('init appends a marked section to an existing AGENTS.md, and refresh is ide
   const second = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.equal(first, second, 're-running must not duplicate or drift the marked section');
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- decklight init --open ---------------------------------------------------
+
+test('openCommand maps each platform to its stock launcher', () => {
+  const url = 'file:///tmp/deck.html';
+  assert.deepEqual(openCommand('darwin', url), { cmd: 'open', args: [url] });
+  assert.deepEqual(openCommand('win32', url), { cmd: 'cmd', args: ['/c', 'start', '', url] });
+  assert.deepEqual(openCommand('linux', url), { cmd: 'xdg-open', args: [url] });
+  assert.deepEqual(openCommand('freebsd', url), { cmd: 'xdg-open', args: [url] });
+});
+
+// a spawn stand-in that never launches anything: records the call, hands back
+// an EventEmitter posing as the child, and reports the given fate
+const fakeSpawn = (calls, fate = 'spawn') => (cmd, args, opts) => {
+  const child = new EventEmitter();
+  child.unref = () => { child.unrefed = true; };
+  calls.push({ cmd, args, opts, child });
+  queueMicrotask(() => child.emit(fate, fate === 'error' ? Object.assign(new Error('nope'), { code: 'ENOENT' }) : undefined));
+  return child;
+};
+const sink = () => ({ text: '', isTTY: false, write(s) { this.text += s; } });
+
+test('openDeck spawns the launcher detached on the deck file URL and unrefs it', async () => {
+  const calls = [];
+  const out = sink();
+  await openDeck('/tmp/spaced dir/deck.html', { platform: 'linux', spawnFn: fakeSpawn(calls), out });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, 'xdg-open');
+  assert.deepEqual(calls[0].args, [pathToFileURL('/tmp/spaced dir/deck.html').href]);
+  assert.equal(calls[0].opts.detached, true);
+  assert.equal(calls[0].opts.stdio, 'ignore');
+  assert.equal(calls[0].child.unrefed, true, 'must unref so init exits promptly');
+  assert.match(out.text, /opening .*deck\.html in your default browser/);
+});
+
+test('openDeck survives a missing launcher: one line naming it, no throw', async () => {
+  const out = sink();
+  await openDeck('/tmp/deck.html', { platform: 'linux', spawnFn: fakeSpawn([], 'error'), out });
+  assert.match(out.text, /--open: could not launch a browser \(xdg-open: ENOENT\)/);
+});
+
+test('init --open launches the platform launcher on the deck actually written', { skip: process.platform !== 'linux' && 'exercises the xdg-open path' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-'));
+  // a PATH holding ONLY a logging xdg-open, so the test never opens a browser
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-bin-'));
+  const log = path.join(bin, 'log');
+  fs.writeFileSync(path.join(bin, 'xdg-open'), `#!/bin/sh\nprintf '%s' "$1" > "${log}"\n`, { mode: 0o755 });
+
+  // no --open, no launch — ever
+  execFileSync(process.execPath, [CLI, 'init', '--dir', dir, '--no-skill'], { encoding: 'utf8', env: { ...process.env, PATH: bin } });
+  await delay(150);
+  assert.equal(fs.existsSync(log), false, 'init without --open must not launch anything');
+
+  const out = execFileSync(process.execPath,
+    [CLI, 'init', '--open', '--dir', dir, '-o', 'talk.html', '--no-skill'],
+    { encoding: 'utf8', env: { ...process.env, PATH: bin } });
+  assert.match(out, /created .*talk\.html/);
+  assert.match(out, /opening .*talk\.html in your default browser/);
+  // the launch is detached — give the logging script a beat to land
+  const deadline = Date.now() + 5000;
+  while (!fs.existsSync(log) && Date.now() < deadline) await delay(25);
+  assert.equal(fs.readFileSync(log, 'utf8'), pathToFileURL(path.join(dir, 'talk.html')).href,
+    '--open must honor -o and --dir: it opens the deck that was written');
+
+  fs.rmSync(bin, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --open with no launcher on PATH: deck still created, exit 0, dim skip line', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-'));
+  const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-empty-'));
+  const r = spawnSync(process.execPath, [CLI, 'init', '--open', '--dir', dir, '--no-skill'],
+    { encoding: 'utf8', env: { ...process.env, PATH: emptyBin } });
+  assert.equal(r.status, 0, 'a failed launch is non-fatal — the deck was created');
+  assert.match(r.stdout, /created .*deck\.html/);
+  assert.match(r.stdout, /--open: could not launch a browser/);
+  assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
+  fs.rmSync(emptyBin, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --help documents --open', () => {
+  const out = execFileSync('node', [CLI, 'init', '--help'], { encoding: 'utf8' });
+  assert.match(out, /--open\s+open the scaffolded deck in your default browser/);
 });
 
 // --- decklight skills --------------------------------------------------------
