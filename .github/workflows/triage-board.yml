@@ -40,8 +40,11 @@ concurrency:
 
 jobs:
   sync:
-    # fork PRs run without secrets and could never sync anything anyway
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # skip entirely (not fail) until the project variable is configured, and
+    # for fork PRs, which run without secrets and have no ticket branches
+    if: >-
+      vars.TRIAGE_PROJECT_NUMBER != '' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -53,8 +56,8 @@ jobs:
           PROJECT: ${{ vars.TRIAGE_PROJECT_NUMBER }}
         run: |
           set -euo pipefail
+          # the job's if-gate guarantees PROJECT is set; the PAT it cannot see
           [ -n "$GH_TOKEN" ] || { echo "::error::secret PROJECT_PAT is missing — a classic PAT with the project scope; the workflow's own token cannot touch org projects"; exit 1; }
-          [ -n "$PROJECT" ] || { echo "::error::repo variable TRIAGE_PROJECT_NUMBER is missing — the number in the project's URL"; exit 1; }
 
           COLUMNS='Triage|Ready to dev|In dev|In review|Done'
 
