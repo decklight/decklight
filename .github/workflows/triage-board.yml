@@ -1,14 +1,22 @@
 # The triage board, kept honest by the loop itself.
 #
-# The ready-to-dev pipeline already lives in labels and PRs:
+# The pipeline already lives in labels and PRs:
 #
-#   (no label) → `ready-to-dev` → `in-dev` → ticket PR open → closed
+#   (no label) → `bug` → `repro-confirmed`/`cannot-repro`  ─┐
+#              → `needs-spec` → `needs-po-review` ──────────┤
+#                                    → `ready-to-dev` → `in-dev`
+#                                    → ticket PR open → closed
 #
 # This workflow mirrors that onto the org's GitHub Project, so the board is a
 # view of reality — never a second source of truth someone has to drag cards
 # on. Columns, in loop order:
 #
-#   Triage → Ready to dev → In dev → In review → Done
+#   Triage → Repro → Spec → PO review → Ready to dev → In dev → In review → Done
+#
+# The two middle columns are where the loops do their homework: Repro is the
+# bug loop trying it for real, Spec is the refinement loop drafting a proposal.
+# PO review is the human gate — everything left of it is a robot researching,
+# everything right of it was approved by a person.
 #
 # If the project's Status field is missing any of those columns, the workflow
 # rewrites the options to exactly that set — and then re-places every open
@@ -59,7 +67,7 @@ jobs:
           # the job's if-gate guarantees PROJECT is set; the PAT it cannot see
           [ -n "$GH_TOKEN" ] || { echo "::error::secret PROJECT_PAT is missing — a classic PAT with the project scope; the workflow's own token cannot touch org projects"; exit 1; }
 
-          COLUMNS='Triage|Ready to dev|In dev|In review|Done'
+          COLUMNS='Triage|Repro|Spec|PO review|Ready to dev|In dev|In review|Done'
 
           fetch_field() {
             gh api graphql -f org="$ORG" -F num="$PROJECT" -f query='
@@ -99,6 +107,9 @@ jobs:
                   fieldId: $fid,
                   singleSelectOptions: [
                     { name: "Triage",       color: GRAY,   description: "no status label yet — needs a decision" },
+                    { name: "Repro",        color: RED,    description: "labeled bug: the repro loop is trying it against main" },
+                    { name: "Spec",         color: ORANGE, description: "labeled needs-spec: the loop is drafting the proposal" },
+                    { name: "PO review",    color: PINK,   description: "spec drafted — waiting on the PO to approve or revise" },
                     { name: "Ready to dev", color: BLUE,   description: "labeled ready-to-dev: queued for the loop" },
                     { name: "In dev",       color: YELLOW, description: "labeled in-dev: the loop is implementing it" },
                     { name: "In review",    color: PURPLE, description: "ticket PR open — merges itself when CI goes green" },
@@ -118,10 +129,17 @@ jobs:
             info=$(gh issue view "$n" -R "$REPO" --json id,state,labels 2>/dev/null) || return 0  # not an issue
             iid=$(jq -r .id <<<"$info")
             state=$(jq -r .state <<<"$info")
+            # First match wins, so the order IS the pipeline: the further along
+            # a ticket is, the earlier it is checked. A bug that reached
+            # ready-to-dev is queued for the build, not still in Repro.
+            has() { jq -e --arg l "$1" '.labels[] | select(.name == $l)' <<<"$info" > /dev/null; }
             if [ "$state" = "CLOSED" ]; then col="Done"
             elif gh pr list -R "$REPO" --head "ticket/$n" --state open --json number --jq '.[0].number' | grep -q .; then col="In review"
-            elif jq -e '.labels[] | select(.name == "in-dev")' <<<"$info" > /dev/null; then col="In dev"
-            elif jq -e '.labels[] | select(.name == "ready-to-dev")' <<<"$info" > /dev/null; then col="Ready to dev"
+            elif has in-dev; then col="In dev"
+            elif has ready-to-dev; then col="Ready to dev"
+            elif has needs-po-review; then col="PO review"
+            elif has needs-spec; then col="Spec"
+            elif has bug; then col="Repro"
             else col="Triage"; fi
             oid=$(opt_id "$col")
             [ -n "$oid" ] || { echo "::warning::no \"$col\" column on the board — #$n not placed"; return 0; }
