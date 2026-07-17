@@ -14,6 +14,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const playerPath = resolve(here, 'src/terminal/player.mjs');
 const hasTerminal = existsSync(playerPath);
 
+// The runtime's own version (src/index.js) rides the banner: minification
+// renames the exported const, so the banner is the one place a tool can read
+// an inlined bundle's version (deckRuntimeVersion in cli/init.mjs, upgrade).
+const runtimeVersion = /^export const version = '([^']+)';$/m
+  .exec(readFileSync(resolve(here, 'src/index.js'), 'utf8'))?.[1];
+if (!runtimeVersion) throw new Error('src/index.js: exported version const not found');
+
 // Shipped theme names, baked into the bundle so the theme picker can list
 // them without any config (directories aren't listable at runtime on file://).
 const shippedThemes = readdirSync(resolve(here, 'themes'))
@@ -63,7 +70,7 @@ await build({
   format: 'iife',
   globalName: 'Decklight',
   outfile: resolve(here, 'dist/decklight.js'),
-  banner: { js: '/*! Decklight — Copyright 2026 Gilles Philippart — SPDX-License-Identifier: Apache-2.0 */' },
+  banner: { js: `/*! Decklight v${runtimeVersion} — Copyright 2026 Gilles Philippart — SPDX-License-Identifier: Apache-2.0 */` },
   plugins: [virtualTerminal],
   define: {
     __DECKLIGHT_THEMES__: JSON.stringify(shippedThemes),
