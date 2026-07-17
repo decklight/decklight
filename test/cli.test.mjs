@@ -146,6 +146,125 @@ test('init appends a marked section to an existing AGENTS.md, and refresh is ide
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// --- init: git offer + epilogue (issue #50) ----------------------------------
+
+import { planGit, initRepo, epilogue } from '../cli/init.mjs';
+
+// a git identity supplied via env, so `init --git` can commit in a bare tmp dir
+// (CI runners have no user.name/user.email configured)
+const gitIdEnv = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',
+  GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.com',
+  GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.com',
+};
+
+test('planGit: the --git/--no-git/TTY/repo decision table', () => {
+  // flags decide non-interactively, and --no-git wins over --git
+  assert.deepEqual(planGit({ args: ['--git'] }), { action: 'create', forward: '--git' });
+  assert.deepEqual(planGit({ args: ['--git'], tty: true }), { action: 'create', forward: '--git' });
+  assert.deepEqual(planGit({ args: ['--no-git'], tty: true }), { action: 'skip', forward: '--no-git' });
+  assert.deepEqual(planGit({ args: ['--git', '--no-git'] }), { action: 'skip', forward: '--no-git' });
+  // already inside a repo: nothing to create, nothing to ask
+  assert.deepEqual(planGit({ args: [], tty: true, inRepo: true }), { action: 'skip', forward: null });
+  assert.deepEqual(planGit({ args: ['--git'], inRepo: true }), { action: 'skip', forward: '--git' });
+  // no repo, no flag: a TTY is asked, headless gets the one-line hint
+  assert.deepEqual(planGit({ args: [], tty: true }), { action: 'ask', forward: null });
+  assert.deepEqual(planGit({ args: [] }), { action: 'hint', forward: null });
+});
+
+test('initRepo: reports each git failure in one line, never throws', () => {
+  const fake = (fails, stderr = '') => (cmd, a) => {
+    if (fails.includes(a[0])) { const e = new Error(`git ${a[0]} failed`); e.stderr = stderr; throw e; }
+    return '';
+  };
+  assert.match(initRepo('/x', fake([])), /repository created, everything committed/);
+  assert.match(initRepo('/x', fake(['init'])), /git: init failed/);
+  assert.match(initRepo('/x', fake(['commit'], 'Please tell me who you are.')), /no identity configured.*staged/);
+  assert.match(initRepo('/x', fake(['commit'], 'disk full')), /git: commit failed.*staged/);
+});
+
+test('epilogue: plain when piped, accent + OSC 8 on a TTY, NO_COLOR wins', () => {
+  const deckPath = path.join(os.tmpdir(), 'epi', 'deck.html');
+  const url = `file://${deckPath.split(path.sep).join('/')}`;
+
+  const plain = epilogue({ deckPath, tty: false, noColor: false });
+  assert.ok(plain.includes(url), 'raw file:// URL present');
+  assert.ok(plain.includes('decklight dev '), 'the way to start editing');
+  assert.doesNotMatch(plain, /\x1b/, 'piped output has zero escape codes');
+
+  const colored = epilogue({ deckPath, tty: true, noColor: false });
+  assert.match(colored, /\x1b\[36m/, 'accent color on a TTY');
+  assert.ok(colored.includes(`\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`),
+    'OSC 8 link wraps the raw URL (the URL stays the visible text)');
+
+  const noColor = epilogue({ deckPath, tty: true, noColor: true });
+  assert.doesNotMatch(noColor, /\x1b/, 'NO_COLOR disables every escape code');
+  assert.ok(noColor.includes(url));
+});
+
+test('init --git creates a repo and one signed-off-free commit of everything', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const out = execFileSync('node', [CLI, 'init', 'Repo Deck', '--dir', dir, '--git'],
+    { encoding: 'utf8', env: gitIdEnv });
+  assert.match(out, /git: repository created, everything committed/);
+  const show = execFileSync('git', ['-C', dir, 'show', '--format=%s%n%b', '--name-only', 'HEAD'],
+    { encoding: 'utf8', env: gitIdEnv });
+  assert.match(show, /^decklight init\n/);
+  assert.doesNotMatch(show, /Signed-off-by/, 'the DCO is this repo\'s, not the player\'s');
+  for (const f of ['deck.html', 'AGENTS.md', '.claude/skills/decklight/SKILL.md', '.claude/skills/decklight/reference.md']) {
+    assert.ok(show.includes(f), `commit includes ${f}`);
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init headless without a flag prints the dev hint and touches no git', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const out = execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
+  assert.match(out, /git: no repository here — pass --git to create one and auto-commit the deck/);
+  assert.equal(fs.existsSync(path.join(dir, '.git')), false);
+  // the epilogue is present, plain — piped output carries zero escape codes
+  assert.ok(out.includes(`file://${path.join(dir, 'deck.html').split(path.sep).join('/')}`));
+  assert.match(out, /decklight dev /);
+  assert.doesNotMatch(out, /\x1b/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --no-git skips silently; an existing repo is left alone', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const out = execFileSync('node', [CLI, 'init', '--dir', dir, '--no-git'], { encoding: 'utf8' });
+  assert.doesNotMatch(out, /git:/, 'no nagging after an explicit no');
+  assert.equal(fs.existsSync(path.join(dir, '.git')), false);
+
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  execFileSync('git', ['init', '-q', repo], { encoding: 'utf8' });
+  const out2 = execFileSync('node', [CLI, 'init', '--dir', repo], { encoding: 'utf8' });
+  assert.doesNotMatch(out2, /git:/, 'inside a work tree there is nothing to offer');
+  const status = execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' });
+  assert.match(status, /\?\? deck\.html/, 'init never commits into a pre-existing repo');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('init --git still succeeds when git is missing from PATH', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-emptypath-'));
+  const r = spawnSync(process.execPath, [CLI, 'init', '--dir', dir, '--git'],
+    { encoding: 'utf8', env: { ...process.env, PATH: empty } });
+  assert.equal(r.status, 0, 'the deck is the product — a git problem is not a failure');
+  assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
+  assert.match(r.stdout, /git: init failed/);
+  assert.match(r.stdout, /decklight dev /, 'the epilogue still prints');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(empty, { recursive: true, force: true });
+});
+
+test('init --help documents --git/--no-git', () => {
+  const out = execFileSync('node', [CLI, 'init', '--help'], { encoding: 'utf8' });
+  assert.match(out, /--git\b/);
+  assert.match(out, /--no-git\b/);
+});
+
 // --- decklight skills --------------------------------------------------------
 
 const mkdir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-skills-'));

@@ -7,7 +7,8 @@
  * Code (and any AGENTS.md-reading agent) knows the authoring contract
  * without a web search or a guess from Reveal.js memory.
  *
- *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
+ *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …]
+ *                  [--git | --no-git] [--force] [--no-skill]
  *
  * The deck is fully self-contained (runtime + every theme inlined, like
  * `decklight bundle --themes all` produces) — double-click it, it presents,
@@ -15,15 +16,25 @@
  * ship a narrower set. The skill is regenerated every run (it's derived, not
  * authored content) so re-running after an upgrade refreshes it; the deck
  * file is only touched with --force.
+ *
+ * init ends like the start of an authoring session: outside a repository it
+ * offers `git init` (the same question `decklight dev` asks, at the natural
+ * moment), prints an accent-colored epilogue — the deck's file:// URL and the
+ * `decklight dev` line — and on a TTY offers to hand off to dev right away.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawn, execFileSync } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 
 import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
+import { inGitRepo } from './edit.mjs';
+
+const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
 function fail(msg) {
   process.stderr.write(`decklight init: ${msg}\n`);
@@ -109,12 +120,74 @@ ${themeBlocks}
 `;
 }
 
+// ── git: offer the repository at the natural moment ─────────────────────────
+// The same policy `decklight dev` applies later, decided here as a pure
+// function so the table (--git / --no-git / TTY / repo-present) is testable
+// without a repository or a terminal. `forward` is what the dev handoff
+// passes down so the player is never asked the git question twice.
+export function planGit({ args = [], tty = false, inRepo = false } = {}) {
+  if (args.includes('--no-git')) return { action: 'skip', forward: '--no-git' };
+  if (args.includes('--git')) return { action: inRepo ? 'skip' : 'create', forward: '--git' };
+  if (inRepo) return { action: 'skip', forward: null };
+  return { action: tty ? 'ask' : 'hint', forward: null };
+}
+
+/**
+ * git init + one commit of everything init just wrote. The deck is the
+ * product: every failure is reported as a one-line note, never an exit. No
+ * Signed-off-by and no identity fallback — the commit is the player's, so a
+ * machine with no identity leaves the files staged and says so.
+ */
+export function initRepo(root, exec = execFileSync) {
+  const git = (a) => exec('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const oneline = (e) => String(e.stderr || e.message || e).replace(/\s+/g, ' ').trim().slice(0, 160);
+  try { git(['init']); } catch (e) { return `  git: init failed — ${oneline(e)}`; }
+  try { git(['add', '-A']); } catch (e) { return `  git: add failed — ${oneline(e)}`; }
+  try {
+    git(['commit', '-m', 'decklight init']);
+    return '  git: repository created, everything committed';
+  } catch (e) {
+    if (/user\.(name|email)|tell me who you are|auto-detect/i.test(String(e.stderr || e))) {
+      return '  git: repository created; no identity configured — files staged, commit once git config user.name/user.email is set';
+    }
+    return `  git: commit failed — ${oneline(e)} (the files are staged)`;
+  }
+}
+
+// ── epilogue: the player's next action, one click or one paste away ─────────
+const ACCENT = '\x1b[36m';
+const DIM = '\x1b[2m';
+const RESET = '\x1b[0m';
+
+/** OSC 8 hyperlink — progressive enhancement: the URL is always the text. */
+const osc8 = (url) => `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`;
+
+/**
+ * The colored "next steps" block init ends with. Pure: every environment
+ * input is a parameter. Escape codes (color AND the OSC 8 link) appear only
+ * on a TTY without NO_COLOR — piped output is plain text, and the raw URL is
+ * always present so copy-paste works everywhere.
+ */
+export function epilogue({ deckPath, tty = false, noColor = false }) {
+  const color = tty && !noColor;
+  const a = (s) => (color ? `${ACCENT}${s}${RESET}` : s);
+  const url = pathToFileURL(deckPath).href;
+  const deck = path.relative('.', deckPath) || deckPath;
+  return [
+    '',
+    `  ${a('open to present')}   ${color ? osc8(url) : url}`,
+    `  ${a('start editing')}     decklight dev ${deck}`,
+    '',
+  ].join('\n') + '\n';
+}
+
 export async function initMain(argv = process.argv.slice(2)) {
   if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(`decklight init — scaffold a starter deck + agent skill
 
 Usage:
-  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
+  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …]
+                 [--git | --no-git] [--force] [--no-skill]
 
 Options:
   -o <file>       deck output path (default: deck.html)
@@ -123,6 +196,9 @@ Options:
                     all           every shipped theme (default)
                     name,name,…   an explicit list (aurora stays active when
                                   included, else the first listed)
+  --git           create a git repository and commit everything init wrote
+                  (outside a repo + no flag: init ASKS on a TTY)
+  --no-git        never touch git
   --force         overwrite an existing deck file (default: refuses)
   --no-skill      skip .claude/skills/decklight/ and AGENTS.md
 
@@ -142,6 +218,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--themes') themesSel = args[++i];
     else if (a === '--force') force = true;
     else if (a === '--no-skill') withSkill = false;
+    else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
@@ -152,6 +229,10 @@ unless --no-skill is given. The deck file is only touched with --force.
   const root = path.resolve(dir);
   fs.mkdirSync(root, { recursive: true });
 
+  // status lines are dim so the epilogue's accent reads as THE next step
+  const color = !!process.stdout.isTTY && !process.env.NO_COLOR;
+  const note = (s) => process.stdout.write(color ? `${DIM}${s}${RESET}\n` : `${s}\n`);
+
   const deckPath = path.resolve(root, outFile);
   if (fs.existsSync(deckPath) && !force) {
     fail(`${path.relative('.', deckPath) || outFile} already exists — pass --force to overwrite`);
@@ -160,31 +241,62 @@ unless --no-skill is given. The deck file is only touched with --force.
   const themeNote = themeNames.length === 1
     ? `theme: ${themeNames[0]}`
     : `${themeNames.length} themes, ${activeTheme} active`;
-  process.stdout.write(`created ${path.relative('.', deckPath) || outFile} (${themeNote})\n`);
+  note(`created ${path.relative('.', deckPath) || outFile} (${themeNote})`);
 
-  if (!withSkill) return;
+  if (withSkill) {
+    const skillDir = path.join(root, '.claude', 'skills', 'decklight');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());
+    fs.writeFileSync(path.join(skillDir, 'reference.md'), referenceDoc());
+    note(`wrote .claude/skills/decklight/{SKILL.md,reference.md} (v${PKG.version})`);
 
-  const skillDir = path.join(root, '.claude', 'skills', 'decklight');
-  fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());
-  fs.writeFileSync(path.join(skillDir, 'reference.md'), referenceDoc());
-  process.stdout.write(`wrote .claude/skills/decklight/{SKILL.md,reference.md} (v${PKG.version})\n`);
-
-  const agentsPath = path.join(root, 'AGENTS.md');
-  const section = agentsSection();
-  if (!fs.existsSync(agentsPath)) {
-    fs.writeFileSync(agentsPath, `# Agent notes\n\n${section}`);
-    process.stdout.write('created AGENTS.md\n');
-  } else {
-    const existing = fs.readFileSync(agentsPath, 'utf8');
-    const markerRe = new RegExp(`${AGENTS_MARKER}[\\s\\S]*?${AGENTS_MARKER}\\n?`);
-    if (markerRe.test(existing)) {
-      fs.writeFileSync(agentsPath, existing.replace(markerRe, section));
-      process.stdout.write('refreshed the Decklight section in AGENTS.md\n');
+    const agentsPath = path.join(root, 'AGENTS.md');
+    const section = agentsSection();
+    if (!fs.existsSync(agentsPath)) {
+      fs.writeFileSync(agentsPath, `# Agent notes\n\n${section}`);
+      note('created AGENTS.md');
     } else {
-      fs.writeFileSync(agentsPath, existing.replace(/\n*$/, '\n\n') + section);
-      process.stdout.write('appended a Decklight section to AGENTS.md\n');
+      const existing = fs.readFileSync(agentsPath, 'utf8');
+      const markerRe = new RegExp(`${AGENTS_MARKER}[\\s\\S]*?${AGENTS_MARKER}\\n?`);
+      if (markerRe.test(existing)) {
+        fs.writeFileSync(agentsPath, existing.replace(markerRe, section));
+        note('refreshed the Decklight section in AGENTS.md');
+      } else {
+        fs.writeFileSync(agentsPath, existing.replace(/\n*$/, '\n\n') + section);
+        note('appended a Decklight section to AGENTS.md');
+      }
     }
+  }
+
+  // ── the git offer — dev's question, asked at the natural moment ──────────
+  // ONE readline interface for both questions (a second one would drop input
+  // typed ahead of its prompt); EOF/Ctrl-D at a prompt declines, never throws.
+  const tty = !!(process.stdin.isTTY && process.stdout.isTTY);
+  const rl = tty ? createInterface({ input: process.stdin, output: process.stdout }) : null;
+  const ask = async (q) => {
+    try { return !/^n/i.test((await rl.question(q)).trim()); } catch { return false; }
+  };
+
+  const plan = planGit({ args: argv, tty, inRepo: inGitRepo(root) });
+  let { action, forward } = plan;
+  if (action === 'ask') {
+    forward = (await ask('  create a git repository so your edits are auto-committed? [Y/n] '))
+      ? '--git' : '--no-git';
+    action = forward === '--git' ? 'create' : 'skip';
+  }
+  if (action === 'create') note(initRepo(root));
+  else if (action === 'hint') note('  git: no repository here — pass --git to create one and auto-commit the deck');
+
+  process.stdout.write(epilogue({ deckPath, tty: !!process.stdout.isTTY, noColor: !!process.env.NO_COLOR }));
+
+  // ── the handoff — the served URL is the genuine click-to-edit link ───────
+  const editNow = tty && await ask('start editing now? [Y/n] ');
+  rl?.close();
+  if (editNow) {
+    const child = spawn(process.execPath,
+      [CLI, 'dev', path.relative(root, deckPath), ...(forward ? [forward] : [])],
+      { cwd: root, stdio: 'inherit' });
+    process.exitCode = await new Promise((res) => child.on('exit', (code) => res(code ?? 0)));
   }
 }
 
