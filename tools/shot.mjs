@@ -60,7 +60,12 @@ const boot = `
 const tmp = src.replace(/\.html?$/i, `.__shot-${process.pid}.html`);
 let html = readFileSync(src, 'utf8');
 if (theme) html = html.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`);
-html = html.replace(/(<\/body>)/i, `${boot}$1`);
+// anchor at the document's LAST </body> — a self-contained deck (init/bundle)
+// carries the whole runtime inline, and the speaker-view popup template inside
+// it contains a literal '</body>', so a first-match replace would inject the
+// driver into the middle of the bundled JS and blank the deck
+const at = html.toLowerCase().lastIndexOf('</body>');
+html = at >= 0 ? html.slice(0, at) + boot + html.slice(at) : html + boot;
 writeFileSync(tmp, html);
 
 mkdirSync(dirname(out), { recursive: true });
