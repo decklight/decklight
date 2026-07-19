@@ -1,0 +1,249 @@
+# The rebase loop — the gap the event-driven loops cannot reach.
+#
+# The other loops wake on an event: a label, a comment, a red build. But a PR
+# that is GREEN and simply STALE — behind a main that moved and now conflicts —
+# raises no event at all. pr-fix only has hands when a human labels it; the
+# babysitter has no hands by design; auto fix-ci only wakes on a FAILING build,
+# and a conflicting PR is not failing, it just cannot merge. So a green branch
+# rots quietly behind main, its armed auto-merge waiting on a mergeability that
+# will never come back on its own. This loop is the coming-back.
+#
+#   every 2 hours →  find the open, non-draft claude/* · ticket/* PRs that main
+#                    made CONFLICTING (polling past the UNKNOWN GitHub returns
+#                    for a beat after main moves). Branches merely BEHIND rebase
+#                    themselves at squash time — left alone.
+#                 →  Claude rebases the oldest such branch onto main, resolving
+#                    conflicts by keeping BOTH sides' intent, never taking one
+#                    wholesale to make it apply.
+#                 →  a shell step force-pushes with-lease (which re-runs CI →
+#                    re-arms the merge). An UNRESOLVABLE conflict is aborted, the
+#                    PR is marked DRAFT with a note on what a human must settle —
+#                    and a draft is excluded from this loop and from auto-merge,
+#                    so it cannot spin.
+#
+# ONE PR PER RUN, on purpose: the every-2h cadence drains a backlog steadily,
+# and draft-marking the unresolvable ones guarantees the queue shrinks rather
+# than looping on the same stuck branch.
+#
+# WHY A SCHEDULE MAY HOLD HANDS HERE, when the babysitter may not. The
+# babysitter's danger is the TEXT it reads — PR comments and CI logs, writable
+# by any stranger. This loop reads none of that: it touches only the code on
+# `claude/*` · `ticket/*` branches, which exist solely because a gated loop
+# (ready-to-dev, collaborator-only) created them. `gh pr list --head` never
+# matches a fork's branch, so a stranger's code can never enter here. And still
+# the agent gets no token: it rebases inside a credential-less checkout and the
+# push lives in a later shell step — the same shape as bug-repro and spec-refine.
+name: claude-rebase
+
+on:
+  schedule:
+    - cron: "41 */2 * * *" # every 2h, off the top-of-hour stampede (GitHub throttles dense schedules)
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to rebase (skip the search, do this one)
+        required: false
+
+permissions:
+  contents: write # force-push the rebased branch
+  pull-requests: write # mark draft, comment
+  # the action exchanges an OIDC token even when it authenticates with an API key;
+  # without this it dies before it ever reads the prompt:
+  #   "Could not fetch an OIDC token. Did you remember to add id-token: write?"
+  id-token: write
+  actions: read
+
+# one rebase at a time; a fresh tick supersedes a stuck one
+concurrency:
+  group: claude-rebase
+  cancel-in-progress: true
+
+jobs:
+  rebase:
+    name: rebase the oldest stale-but-green PR onto main
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: find a conflicting PR
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_INPUT: ${{ inputs.pr }}
+        run: |
+          set -euo pipefail
+
+          # mergeable is UNKNOWN for a beat after main moves; poll it to a real answer
+          resolve_mergeable() {
+            local n=$1 m
+            for _ in 1 2 3 4 5; do
+              m=$(gh pr view "$n" -R "$REPO" --json mergeable --jq '.mergeable')
+              [ "$m" = "UNKNOWN" ] || { echo "$m"; return 0; }
+              sleep 4
+            done
+            echo UNKNOWN
+          }
+
+          pick() {
+            local n=$1 meta base
+            meta=$(gh pr view "$n" -R "$REPO" \
+                     --json number,headRefName,baseRefName,isDraft,headRepositoryOwner) || return 1
+            [ "$(jq -r '.isDraft' <<<"$meta")" = "true" ] && return 1
+            [ "$(jq -r '.headRepositoryOwner.login' <<<"$meta")" = "${REPO%%/*}" ] || return 1
+            {
+              echo "number=$n"
+              echo "branch=$(jq -r '.headRefName' <<<"$meta")"
+              echo "base=$(jq -r '.baseRefName' <<<"$meta")"
+            } >> "$GITHUB_OUTPUT"
+            echo "found=1" >> "$GITHUB_OUTPUT"
+          }
+
+          # A manual dispatch names its PR; trust the maintainer, skip the search.
+          if [ -n "${PR_INPUT:-}" ]; then
+            pick "$PR_INPUT" && exit 0
+            echo "::warning::#$PR_INPUT is a draft or a fork PR — not rebasing"
+            echo "found=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # Oldest-updated first, so the most-neglected branch is served first.
+          mapfile -t prs < <(gh pr list -R "$REPO" --state open --draft=false \
+            --json number,headRefName,updatedAt \
+            --jq 'sort_by(.updatedAt)[]
+                  | select(.headRefName | test("^(claude|ticket)/")) | .number')
+
+          for n in "${prs[@]}"; do
+            m=$(resolve_mergeable "$n")
+            echo "#$n mergeable=$m"
+            if [ "$m" = "CONFLICTING" ]; then
+              pick "$n" && exit 0
+            fi
+          done
+          echo "no conflicting claude/* · ticket/* PR — nothing to rebase"
+          echo "found=0" >> "$GITHUB_OUTPUT"
+
+      - name: check out the branch
+        if: steps.pick.outputs.found == '1'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pick.outputs.branch }}
+          fetch-depth: 0 # a rebase onto main needs the whole history; so does the DCO check
+          # NO credentials in the tree the agent gets a shell in — the push step
+          # below builds its own authenticated remote for one command and never
+          # persists it. (Same reasoning as pr-fix / bug-repro.)
+          persist-credentials: false
+
+      - name: rebase onto main
+        if: steps.pick.outputs.found == '1'
+        uses: anthropics/claude-code-action@v1
+        with:
+          # A subscription token (`claude setup-token`), not a metered API key —
+          # see ready-to-dev for the two ways a prepaid balance killed a loop. Only
+          # ONE credential may be set: ANTHROPIC_API_KEY in the environment takes
+          # precedence, so a dead key left alongside this would still be the one used.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Bash and a real checkout — rebasing is running git. No GH_TOKEN in
+          # this step: the agent resolves locally, a later step pushes.
+          claude_args: |
+            --model claude-fable-5
+            --max-turns 60
+            --allowedTools Bash,Read,Edit,Write,Glob,Grep
+          prompt: |
+            You are rebasing pull request #${{ steps.pick.outputs.number }} in the
+            decklight repository. Its branch, `${{ steps.pick.outputs.branch }}`,
+            is checked out for you at HEAD. `main` moved and the branch now
+            conflicts; your job is to replay it cleanly on top of the current base.
+
+            Set your identity first (the rebase preserves each commit's original
+            author and its `Signed-off-by`, which is what keeps the DCO gate
+            green — do not rewrite those):
+
+              git config user.name  "claude[bot]"
+              git config user.email "claude[bot]@users.noreply.github.com"
+
+            Then:
+
+              git fetch origin ${{ steps.pick.outputs.base }}
+              git rebase origin/${{ steps.pick.outputs.base }}
+
+            Resolve every conflict HONESTLY: understand what each side intended
+            and keep BOTH intents. Never resolve by taking one side wholesale
+            just to make it apply — a rebase that silently drops the branch's
+            change is worse than no rebase. `git add` the resolved files and
+            `git rebase --continue` through to the end. Read SPEC.md if a
+            conflict touches behavior it describes.
+
+            If a conflict is genuinely unresolvable without a human decision
+            (two incompatible changes to the same logic), do NOT guess:
+            `git rebase --abort`, leave the branch exactly as it was, and say so.
+
+            When you are done, run `npm ci --omit=optional && npm test` if you
+            can, to confirm the replayed branch still builds — but a rebase whose
+            tests you could not run is still a valid rebase; note it in the report.
+
+            YOUR OUTPUTS — these two files in the repo root and nothing else:
+
+            1. `rebase-verdict.txt` — exactly one word on one line:
+                 rebased     you replayed it cleanly onto ${{ steps.pick.outputs.base }} (HEAD moved)
+                 conflicted  you aborted; a human must resolve it
+                 clean       there was nothing to rebase (already up to date)
+
+            2. `rebase-report.md` — what conflicted, in which files, how you
+               resolved each (or, for `conflicted`, exactly which decision a
+               human must make), and what you verified.
+
+            Do NOT push, force-push, comment, label, or touch the PR — the next
+            step holds the token and does all of that with your result.
+
+      - name: push the rebase or hand it back
+        if: steps.pick.outputs.found == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # The PAT enters here and nowhere else, a shell step after the agent's
+          # turn. A force-push with GITHUB_TOKEN lands but leaves CI dark; the
+          # PAT makes GitHub willing to re-run it (and re-arm auto-merge).
+          NUDGE_PAT: ${{ secrets.CI_NUDGE_PAT }}
+          REPO: ${{ github.repository }}
+          N: ${{ steps.pick.outputs.number }}
+          BRANCH: ${{ steps.pick.outputs.branch }}
+        run: |
+          set -euo pipefail
+          verdict=$(head -c 64 rebase-verdict.txt 2>/dev/null | tr -d '[:space:]' || true)
+          report=$([ -s rebase-report.md ] && cat rebase-report.md || echo "_No report was produced — see the [run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})._")
+
+          case "$verdict" in
+            rebased)
+              # The DCO gate rejects the whole PR for one unsigned commit, so
+              # never push what it would reject — every commit past the base
+              # must still carry a Signed-off-by.
+              unsigned=$(git log "origin/${{ steps.pick.outputs.base }}..HEAD" --format='%H' | while read -r sha; do
+                git log -1 "$sha" --format='%(trailers:key=Signed-off-by,valueonly)' | grep -q . || echo "$sha"
+              done)
+              if [ -n "$unsigned" ]; then
+                echo "::error::the rebase produced unsigned commits — not pushing:"; echo "$unsigned"
+                gh pr comment "$N" -R "$REPO" --body "🤖 **rebase** — the rebase dropped a DCO sign-off, so nothing was pushed; the branch is untouched. See the [run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+                exit 1
+              fi
+              if [ -n "${NUDGE_PAT:-}" ]; then
+                git push --force-with-lease "https://x-access-token:${NUDGE_PAT}@github.com/${REPO}.git" "HEAD:$BRANCH"
+                note="Rebased onto \`${{ steps.pick.outputs.base }}\` and force-pushed — CI is running again, and auto-merge re-arms when it goes green."
+              else
+                git push --force-with-lease "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:$BRANCH"
+                note="Rebased onto \`${{ steps.pick.outputs.base }}\` and force-pushed. ⚠️ This push used \`GITHUB_TOKEN\`, so **CI will not re-run on its own** — nudge it with \`gh pr close $N && gh pr reopen $N\`, or set a \`CI_NUDGE_PAT\` secret."
+              fi
+              printf '🤖 **rebase** — main had moved; Claude replayed this branch on top of it, report posted unedited.\n\n%s\n\n---\n%s\n' "$report" "$note" \
+                | gh pr comment "$N" -R "$REPO" --body-file -
+              ;;
+            conflicted)
+              # A draft is excluded from this loop and from auto-merge, so it
+              # cannot spin — it waits for the human the conflict needs.
+              gh pr ready "$N" -R "$REPO" --undo || true
+              printf '🤖 **rebase** — this branch conflicts with \`%s\` in a way I will not guess at, so I have marked it **draft** and left it untouched. A human decision is needed; once resolved, mark it ready for review again.\n\n%s\n' "${{ steps.pick.outputs.base }}" "$report" \
+                | gh pr comment "$N" -R "$REPO" --body-file -
+              ;;
+            clean)
+              echo "#$N had nothing to rebase — leaving it alone"
+              ;;
+            *)
+              echo "::warning::unusable rebase verdict ('$verdict') for #$N"
+              ;;
+          esac
