@@ -36,6 +36,20 @@ npm run verify           # build + headless render assertions (needs Chrome)
 slides, contrast gates, the character overlay actually mounting. Run it for any
 change to `src/` or `themes/`.
 
+## Opening a PR
+
+Arm auto-merge the moment you open a PR, while its checks are still pending:
+
+```sh
+gh pr merge <n> --auto --merge
+```
+
+The repo allows auto-merge and gates on the CI + DCO checks (no required
+review), so an armed PR lands itself the instant it goes green — nobody has to
+watch it. Arm it *at open time*: once the checks have already passed the PR is
+`clean` and `--auto` is a no-op (it errors "already clean"), so just merge it
+directly then.
+
 ## Conventions
 
 - Commit subjects are lowercase, `area: what changed` (`tts:`, `lipsync:`,
