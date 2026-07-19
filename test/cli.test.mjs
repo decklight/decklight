@@ -12,6 +12,8 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
+import { resolveTitle } from '../cli/init.mjs';
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 
@@ -91,6 +93,54 @@ test('init scaffolds a self-contained deck and the agent skill', () => {
   assert.match(agents, /decklight:skill/);
   assert.match(agents, /\.claude\/skills\/decklight\/reference\.md/);
 
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init title: an argument skips the prompt, a TTY asks, headless never does', async () => {
+  const neverAsk = async () => { throw new Error('prompted when it must not'); };
+  // a title argument wins outright — even on a TTY
+  assert.equal(await resolveTitle('Q3 Review', { isTTY: true, ask: neverAsk }), 'Q3 Review');
+  // no argument, no TTY → the default, silently
+  assert.equal(await resolveTitle(null, { isTTY: false, ask: neverAsk }), 'My Deck');
+  // no argument, TTY → exactly one question; the answer wins
+  let question;
+  const answered = await resolveTitle(null, { isTTY: true, ask: async (q) => { question = q; return 'Ship & Tell'; } });
+  assert.equal(answered, 'Ship & Tell');
+  assert.equal(question, 'deck title [My Deck]: ');
+  // an empty (or blank) answer keeps the default
+  assert.equal(await resolveTitle(null, { isTTY: true, ask: async () => '  ' }), 'My Deck');
+});
+
+test('init HTML-escapes the title where it lands (<title> and the h1)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  execFileSync('node', [CLI, 'init', 'Q3 <Review> & "Friends"', '--dir', dir, '--no-skill'], { encoding: 'utf8' });
+  const deck = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
+  assert.match(deck, /<title>Q3 &lt;Review&gt; &amp; "Friends"<\/title>/);
+  assert.match(deck, /<h1>Q3 &lt;Review&gt; &amp; "Friends"<\/h1>/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init without a title never prompts when stdio is not a TTY', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  const r = spawnSync('node', [CLI, 'init', '--dir', dir, '--no-skill'], { encoding: 'utf8', input: '' });
+  assert.equal(r.status, 0);
+  assert.doesNotMatch(r.stdout + r.stderr, /deck title/);
+  assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>My Deck<\/title>/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// script(1) lends the run a real pty, so this covers the actual isTTY gate +
+// readline wiring — the pure-function test above covers the decision table.
+const ptySkip = process.platform === 'linux' && fs.existsSync('/usr/bin/script')
+  ? false : 'needs util-linux script(1)';
+test('init on a real TTY prompts and takes the typed title', { skip: ptySkip }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  const r = spawnSync('/usr/bin/script',
+    ['-qec', `node "${CLI}" init --dir "${dir}" --no-skill`, '/dev/null'],
+    { encoding: 'utf8', input: 'Ship & Tell\n' });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /deck title \[My Deck\]:/);
+  assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Ship &amp; Tell<\/title>/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

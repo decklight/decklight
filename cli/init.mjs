@@ -9,6 +9,9 @@
  *
  *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
  *
+ * Run bare in a terminal it asks one question — the deck's title — with
+ * "My Deck" as the default; a title argument (or a non-TTY run) never prompts.
+ *
  * The deck is fully self-contained (runtime + every theme inlined, like
  * `decklight bundle --themes all` produces) — double-click it, it presents,
  * no sibling files, and the in-deck picker is fully stocked. Pass --themes to
@@ -20,10 +23,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createInterface } from 'node:readline/promises';
 
 import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
+import { escapeHtml } from './edit.mjs';
 
 function fail(msg) {
   process.stderr.write(`decklight init: ${msg}\n`);
@@ -55,7 +60,17 @@ function resolveThemes(sel) {
   return names;
 }
 
+// No title argument: ask on a TTY (the one thing every run would have passed
+// had the author known), scaffold the default silently everywhere else.
+export async function resolveTitle(arg, { isTTY = false, ask } = {}) {
+  if (arg != null) return arg || 'My Deck';
+  if (!isTTY) return 'My Deck';
+  const answer = (await ask('deck title [My Deck]: ')).trim();
+  return answer || 'My Deck';
+}
+
 function starterDeck(title, themeNames, activeTheme) {
+  title = escapeHtml(title); // a prompt invites &, < and quotes
   const css = fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.css'), 'utf8');
   // one <style data-theme> per theme; only the active one applies (the rest
   // carry media="not all", which the runtime's inline-theme mode toggles).
@@ -126,6 +141,9 @@ Options:
   --force         overwrite an existing deck file (default: refuses)
   --no-skill      skip .claude/skills/decklight/ and AGENTS.md
 
+Without a title argument, a terminal run asks for one (empty keeps "My Deck");
+non-interactive runs scaffold "My Deck" without asking.
+
 Always writes/refreshes the skill files (they're generated from the
 installed version's SPEC.md, so re-running after an upgrade updates them)
 unless --no-skill is given. The deck file is only touched with --force.
@@ -145,7 +163,13 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
-  title = title || 'My Deck';
+  title = await resolveTitle(title, {
+    isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    ask: async (q) => {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try { return await rl.question(q); } finally { rl.close(); }
+    },
+  });
   const themeNames = resolveThemes(themesSel);
   const activeTheme = themeNames.includes(STARTER_THEME) ? STARTER_THEME : themeNames[0];
 
