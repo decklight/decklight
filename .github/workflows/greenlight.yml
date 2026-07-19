@@ -1,0 +1,121 @@
+# Greenlight — the one input the board is allowed to carry.
+#
+# triage-board.yml is emphatic that the Project is a VIEW of reality, never a
+# second source of truth: it mirrors labels → columns, one way, and nobody is
+# meant to drive the pipeline by dragging cards. This loop opens exactly one
+# controlled exception to that rule, and keeps it consistent with the mirror.
+#
+# The maintainer's "build this" gesture is: drag a card into the **Ready to dev**
+# column. That is the same column the mirror already parks a `ready-to-dev`
+# issue in — so a human drag and a label are two routes to the SAME resting
+# state, and this loop closes the gap between them:
+#
+#   every N minutes  →  read the Project, find OPEN issue cards sitting in
+#                       "Ready to dev" that do NOT yet carry the `ready-to-dev`
+#                       label  →  apply the label.
+#
+# Applying it fires ready-to-dev.yml, which implements the ticket. The label
+# must be applied with a REAL token (PROJECT_PAT), because GitHub never lets a
+# GITHUB_TOKEN's `labeled` event start another workflow — the same reason
+# triage-board needs the PAT to reach the org Project at all.
+#
+# ADD-ONLY, ONE-WAY. This loop never REMOVES the label: `ready-to-dev` is a
+# one-shot trigger, not a re-read state, so it cannot loop, and dragging a card
+# back out is not a cancel (close the PR to stop an in-flight build). It skips
+# cleanly — never fails — until TRIAGE_PROJECT_NUMBER and PROJECT_PAT are set.
+#
+# (GitHub throttles dense schedules, so */5 polls closer to every 10-15 min in
+# practice — expect a lag between the drag and the build.)
+name: greenlight
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# one sweep at a time; a fresh tick supersedes a stuck one
+concurrency:
+  group: greenlight
+  cancel-in-progress: true
+
+jobs:
+  greenlight:
+    # Skip entirely (do not fail) until the board is configured.
+    if: vars.TRIAGE_PROJECT_NUMBER != ''
+    name: drag to "Ready to dev" → apply the label → build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: apply ready-to-dev to greenlit cards
+        env:
+          # The org Project and the label edit both need a real PAT: the
+          # workflow's own token cannot touch org projects, and a label it
+          # applied would not fire ready-to-dev (anti-recursion).
+          GH_TOKEN: ${{ secrets.PROJECT_PAT }}
+          ORG: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          PROJECT: ${{ vars.TRIAGE_PROJECT_NUMBER }}
+          COLUMN: "Ready to dev"
+          LABEL: "ready-to-dev"
+        run: |
+          set -euo pipefail
+          [ -n "$GH_TOKEN" ] || { echo "::warning::secret PROJECT_PAT is missing — a classic PAT with the project + repo scopes; skipping until it is set"; exit 0; }
+
+          # Walk the board a page at a time; collect open issue cards resting in
+          # the greenlight column that still lack the label.
+          cursor=""
+          greenlit=()
+          pages=0
+          while :; do
+            pages=$((pages + 1))
+            resp=$(gh api graphql -f org="$ORG" -F num="$PROJECT" -f cursor="${cursor:-}" -f query='
+              query($org: String!, $num: Int!, $cursor: String) {
+                organization(login: $org) {
+                  projectV2(number: $num) {
+                    items(first: 100, after: $cursor) {
+                      pageInfo { hasNextPage endCursor }
+                      nodes {
+                        status: fieldValueByName(name: "Status") {
+                          ... on ProjectV2ItemFieldSingleSelectValue { name }
+                        }
+                        content {
+                          ... on Issue {
+                            number
+                            state
+                            labels(first: 50) { nodes { name } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }') || { echo "::warning::could not read Project $PROJECT (is PROJECT_PAT scoped for it?) — skipping"; exit 0; }
+
+            while read -r n; do
+              [ -n "$n" ] && greenlit+=("$n")
+            done < <(jq -r --arg col "$COLUMN" --arg label "$LABEL" '
+              .data.organization.projectV2.items.nodes[]
+              | select(.status.name == $col)
+              | select(.content.number != null and .content.state == "OPEN")
+              | select([.content.labels.nodes[].name] | index($label) | not)
+              | .content.number' <<<"$resp")
+
+            [ "$(jq -r '.data.organization.projectV2.items.pageInfo.hasNextPage' <<<"$resp")" = "true" ] || break
+            cursor=$(jq -r '.data.organization.projectV2.items.pageInfo.endCursor' <<<"$resp")
+          done
+
+          if [ "${#greenlit[@]}" -eq 0 ]; then
+            echo "nothing greenlit — no open card in \"$COLUMN\" is missing the \`$LABEL\` label"
+            exit 0
+          fi
+
+          for n in "${greenlit[@]}"; do
+            if gh issue edit "$n" -R "$REPO" --add-label "$LABEL"; then
+              echo "#$n → labeled \`$LABEL\` (ready-to-dev fires)"
+            else
+              echo "::warning::could not label #$n — is \`$LABEL\` present in the repo and the PAT scoped for issues?"
+            fi
+          done

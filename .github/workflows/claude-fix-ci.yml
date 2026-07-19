@@ -1,0 +1,139 @@
+# Auto fix-ci — the babysitter's hands, on a hair trigger.
+#
+# pr-fix already has the hands: label a PR `fix-it` and Claude reproduces the
+# failure, fixes it, and pushes one signed-off commit. That gate is a human's
+# write access, on purpose (see pr-fix.yml's header for why a public repo must
+# not wire a push token to attacker-writable triggers).
+#
+# This loop opens a SECOND door to the same room, and keeps the same locks. It
+# fires when CI goes red on a Claude-authored branch and — instead of doing the
+# fixing itself — DISPATCHES pr-fix for that PR. Every safety property pr-fix
+# spent its length earning (agent holds no token, the checkout carries no
+# credential, the untrusted logs are fenced, the push uses CI_NUDGE_PAT, the DCO
+# sign-off is verified before anything lands) is inherited unchanged, because
+# the fixing is still pr-fix. This file only decides WHEN to knock.
+#
+# WHY IT IS SAFE TO AUTO-FIRE ON A PUBLIC REPO. Three guards, together:
+#
+#   1. Only our own branches. A `workflow_run` job runs with full write
+#      permissions even for a fork's PR — the classic footgun. So the FIRST
+#      thing checked is that the triggering CI ran on THIS repository's own
+#      `claude/*` or `ticket/*` branch. A fork's head lives in the fork, never
+#      under those names here, so a stranger's PR can never reach this loop.
+#   2. Only the current head. If the branch moved since the failing run, a
+#      fresher CI is already on its way — acting on stale red would fix code
+#      that no longer exists. We compare SHAs and bow out.
+#   3. A hard attempt cap. Each pr-fix run leaves one comment; at three of them
+#      this loop stops knocking and says the branch needs a human. A red build
+#      can never become an argument between two robots.
+#
+# The dispatch itself needs no PAT: `workflow_dispatch` is the one event GitHub
+# lets a GITHUB_TOKEN start (the same exception issue-analyzer leans on to chain
+# bug-repro / spec-refine), so `gh workflow run pr-fix.yml` fires cleanly.
+name: claude-fix-ci
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to fix (manual override; the 3-attempt cap still applies)
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write # the cap comment; the fixing (and its writes) is pr-fix's
+  actions: write # gh workflow run pr-fix.yml — workflow_dispatch is the one event a GITHUB_TOKEN may start
+
+# one decision at a time per branch; a newer CI result supersedes an older one
+concurrency:
+  group: claude-fix-ci-${{ github.event.workflow_run.head_branch || inputs.pr }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: red CI on a Claude branch → hand it to pr-fix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Guard 1, at the door: a failing run, on OUR repo's branch, named
+    # claude/* or ticket/*. workflow_dispatch skips straight through for a
+    # maintainer forcing a specific PR.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'failure' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       (startsWith(github.event.workflow_run.head_branch, 'claude/') ||
+        startsWith(github.event.workflow_run.head_branch, 'ticket/')))
+    steps:
+      - name: decide whether to knock
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # empty on workflow_run, the PR number on a manual dispatch
+          PR_INPUT: ${{ inputs.pr }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          MARKER: "🤖 **pr-fix**"
+          CAP_MARKER: "<!-- fix-ci-capped -->"
+        run: |
+          set -euo pipefail
+
+          # Resolve the PR either way: from the input (dispatch) or from the
+          # branch CI just failed on (workflow_run).
+          if [ -n "${PR_INPUT:-}" ]; then
+            N="$PR_INPUT"
+          else
+            N=$(gh pr list -R "$REPO" --head "$BRANCH" --state open \
+                  --json number --jq '.[0].number // empty')
+          fi
+          if [ -z "${N:-}" ]; then
+            echo "no open PR for ${BRANCH:-#$PR_INPUT} — nothing to fix"
+            exit 0
+          fi
+
+          meta=$(gh pr view "$N" -R "$REPO" \
+                   --json number,isDraft,headRefOid,headRefName,headRepositoryOwner,mergeable)
+          # A fork PR's branch is not ours to push to — pr-fix would decline it
+          # anyway, but never even dispatch for one.
+          fork_owner=$(jq -r '.headRepositoryOwner.login' <<<"$meta")
+          if [ "$fork_owner" != "${REPO%%/*}" ]; then
+            echo "#$N is from a fork ($fork_owner) — auto fix-ci does not touch fork branches"
+            exit 0
+          fi
+          if [ "$(jq -r '.isDraft' <<<"$meta")" = "true" ]; then
+            echo "#$N is a draft — leaving it to its author"
+            exit 0
+          fi
+
+          # Guard 2: act only on the code CI actually failed on. If the branch
+          # advanced since, a fresher CI run is already coming.
+          if [ -n "${RUN_SHA:-}" ]; then
+            head=$(jq -r '.headRefOid' <<<"$meta")
+            if [ "$head" != "$RUN_SHA" ]; then
+              echo "#$N moved on ($head) since the failing run ($RUN_SHA) — a newer CI will decide"
+              exit 0
+            fi
+          fi
+
+          # Guard 3: the attempt cap. pr-fix leaves exactly one comment per run
+          # (label- or dispatch-triggered alike); three is the ceiling.
+          attempts=$(gh api "repos/$REPO/issues/$N/comments" --paginate \
+                       --jq "[.[] | select(.body | contains(\"$MARKER\"))] | length")
+          echo "pr-fix has run $attempts time(s) on #$N"
+          if [ "$attempts" -ge 3 ]; then
+            # say it once, not every hour
+            already=$(gh api "repos/$REPO/issues/$N/comments" --paginate \
+                        --jq "[.[] | select(.body | contains(\"$CAP_MARKER\"))] | length")
+            if [ "$already" -eq 0 ]; then
+              gh pr comment "$N" -R "$REPO" --body "$(printf '%s\n🤖 **auto fix-ci** — CI is still red after %s automatic fix attempts, so this loop is standing down. This branch needs a human. Label it `fix-it` to try once more by hand.' "$CAP_MARKER" "$attempts")"
+            fi
+            echo "cap reached — not dispatching pr-fix"
+            exit 0
+          fi
+
+          # Knock. pr-fix does the rest, with every lock it already carries.
+          gh workflow run pr-fix.yml -R "$REPO" -f pr="$N" \
+            && echo "dispatched pr-fix for #$N (attempt $((attempts + 1))/3)" \
+            || echo "::warning::could not dispatch pr-fix.yml for #$N — label it \`fix-it\` to fix by hand"
