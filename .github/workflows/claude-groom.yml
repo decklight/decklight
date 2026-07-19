@@ -197,15 +197,19 @@ jobs:
 
           if [ ! -s .groom/decisions.json ] || ! jq -e 'type == "array"' .groom/decisions.json >/dev/null 2>&1; then
             echo "no usable decisions file — nothing to apply"
-            [ -s .groom/summary.md ] && cat .groom/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+            [ -s .groom/summary.md ] && cat .groom/summary.md | tee -a "$GITHUB_STEP_SUMMARY" || true
             exit 0
           fi
 
+          # Everything below goes to BOTH the job log (retrievable via the API)
+          # and the run Summary (nice to read). A dry run whose verdicts land
+          # only in the Summary can't be read back programmatically — which
+          # defeats the point of a preview.
           {
             echo "## groom — $([ "$DRY" = "true" ] && echo 'DRY RUN (nothing changed)' || echo 'live')"
             echo
             [ -s .groom/summary.md ] && { cat .groom/summary.md; echo; } || true
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
           # Make sure the labels this loop applies exist (idempotent).
           if [ "$DRY" != "true" ]; then
@@ -236,12 +240,12 @@ jobs:
                 # cite-or-abstain: a close with no path:line citation is dropped
                 if ! grep -Eq '[^[:space:]]+:[0-9]+' <<<"$evidence"; then
                   echo "::warning::#$num close has no file:line citation ('$evidence') — abstaining"
-                  echo "- #$num — close ABSTAINED (no citation)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "- #$num — close ABSTAINED (no citation)" | tee -a "$GITHUB_STEP_SUMMARY"
                   continue
                 fi
                 full="$body\n\nEvidence: \`$evidence\`"
                 if [ "$DRY" = "true" ]; then
-                  echo "- #$num — would CLOSE (cite $evidence)" >> "$GITHUB_STEP_SUMMARY"
+                  echo "- #$num — would CLOSE (cite $evidence)" | tee -a "$GITHUB_STEP_SUMMARY"
                 else
                   printf '%b' "$full" | gh issue comment "$num" -R "$REPO" --body-file -
                   gh issue close "$num" -R "$REPO" --reason completed
@@ -250,7 +254,7 @@ jobs:
                 ;;
               needs-spec|needs-rewrite)
                 if [ "$DRY" = "true" ]; then
-                  echo "- #$num — would add \`$action\`" >> "$GITHUB_STEP_SUMMARY"
+                  echo "- #$num — would add \`$action\`" | tee -a "$GITHUB_STEP_SUMMARY"
                 else
                   printf '%b' "$body" | gh issue comment "$num" -R "$REPO" --body-file -
                   gh issue edit "$num" -R "$REPO" --add-label "$action"
@@ -265,3 +269,16 @@ jobs:
                 ;;
             esac
           done
+
+      - name: keep the verdicts as an artifact
+        if: always() && steps.gather.outputs.count != '0'
+        uses: actions/upload-artifact@v7
+        with:
+          # the structured verdicts (each with its file:line evidence and the
+          # exact comment) so a run can be read back in full after the fact
+          name: groom-verdicts
+          path: |
+            .groom/decisions.json
+            .groom/summary.md
+          if-no-files-found: ignore
+          retention-days: 14
