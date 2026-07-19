@@ -6,17 +6,27 @@
 
 **The presentation library that presents itself.**
 
-A deck is a single HTML file — no build, no server, no framework. Decklight is a presentation library in the Reveal.js tradition, designed to be **authored by AI agents and humans alike**: describe a slide in plain English and your agent writes it, then — because agents can't eyeball a slide — every feature is **verifiable by a headless render** (clipped content flags itself, every theme passes machine-checked contrast gates, terminal demos are recorded truth, not screenshots).
+A deck is a single HTML file — no build, no server, no framework. You describe a slide in plain English, your AI agent writes it, and because agents can't squint at a screen, every feature is **verifiable by a headless render**: clipped content flags itself, every theme passes machine-checked contrast gates, and terminal demos are recorded truth rather than screenshots.
+
+## Why I built this
+
+I have lost more hours than I'd like to admit fighting my slides instead of writing them.
+
+Keynote pins me to one laptop and a proprietary file I can't diff. PowerPoint turns a two-line edit into a fifteen-minute wrestle with alignment guides. Google Slides makes me watch a spinner to move a box three pixels. And all three share the same original sin: the deck is a **binary blob**. You can't grep it, you can't code-review it, you can't hand it to a program and say "fix the contrast on slide 12." When something's wrong, *you* are the one clicking around at 11pm.
+
+I wanted the opposite of that. A deck that is **plain text** end to end — one HTML file you can read, diff, and email — with a runtime that has **zero dependencies** and runs straight off `file://`. Everything is text, so decks live happily in git, and anything that can read text can read your slides.
+
+But the real reason this project exists is the second half: I wanted a codebase where **bugs and features ship at the speed of light**, because the AI agents do the heavy lifting. Open an issue in the morning, and by lunch an agent has reproduced it, another has drafted a spec with real rendered mockups, and — once I give the nod — a third has implemented it, proven it with a screenshot, and merged it green. That's not a someday aspiration; it's [how this repo runs today](#how-decklight-itself-ships-at-agent-speed). Decklight is built the way it's meant to be used: humans decide *what*, agents handle *how*, and a wall of automated verification keeps everyone honest.
 
 > `SPEC.md` is the full contract and `demo/showcase.html` is the exhaustive self-demo. **This README is the quick tour.** For the two-minute version, open **`demo/intro.html`** — a short deck that explains what Decklight is, each slide live-demoing the feature it describes. See it all live at **[decklight.io](https://decklight.io)**.
 
-## Why Decklight
+## What you get
 
-- **Agent-native** — describe a slide to your favorite agent; `init` hands it a skill with the real contract, and overflow flags + contrast gates + headless-render assertions let it verify its own work without eyes.
-- **One file, zero build** — author a single HTML file, double-click it, present.
+- **Agent-native** — describe a slide to your favorite agent; `init` hands it a skill with the real contract, and overflow flags + contrast gates + headless-render assertions let it check its own work without eyes.
+- **One file, zero build** — author a single HTML file, double-click it, present. No toolchain, no server, no framework.
 - **Diagrams & graphics** — native, theme-aware inline SVG, not just bullet lists.
 - **Animation** — progressive builds, Magic Move between slides, and diagrams that draw themselves in.
-- **61 built-in themes** — every one passes WCAG contrast gates and codified palette rules; generate your own with a keystroke.
+- **62 built-in themes** — every one passes WCAG contrast gates and codified palette rules; generate your own with a keystroke.
 - **Truthful terminals** — real PTY recordings replayed truthfully, never a video.
 - **Live narration** — text-to-speech presents the deck by itself, in sync, captions included.
 - **Everything is text** — no binary formats, so decks diff cleanly in git and agents can read, review, and edit every byte.
@@ -27,9 +37,9 @@ A deck is a single HTML file — no build, no server, no framework. Decklight is
 npx decklight init "My Deck"
 ```
 
-Scaffolds a self-contained `deck.html` (double-click it — no server) **and** a `.claude/skills/decklight/` skill + `AGENTS.md`, so Claude Code (or anything reading `AGENTS.md`) has the full authoring contract on hand instead of guessing from Reveal.js memory. The skill is sliced from `SPEC.md`, so it never drifts from the installed runtime.
+This scaffolds a self-contained `deck.html` (double-click it — no server) **and** a `.claude/skills/decklight/` skill + `AGENTS.md`, so Claude Code (or anything that reads `AGENTS.md`) has the full authoring contract on hand instead of guessing from Reveal.js memory. The skill is sliced straight from `SPEC.md`, so it never drifts from the runtime you actually installed.
 
-Or hand-author the anatomy directly:
+Prefer to write the HTML yourself? Here's the whole anatomy:
 
 ```html
 <!doctype html>
@@ -61,11 +71,11 @@ Open it in a browser — `file://` works for everything, no server needed.
 
 ## How authoring works
 
-The whole loop is agent-friendly, one file end to end:
+The whole loop is agent-friendly and stays in one file end to end:
 
 1. **`decklight init`** — scaffold a starter deck plus the agent skill above.
-2. **Author** one HTML file: `<section>` slides, `data-build` reveals, inline SVG with theme tokens, `<aside class="notes">` split on `⟨CLICK⟩` (notes drive builds, captions, transcript **and** narration at once).
-3. **`decklight dev deck.html`** — the whole live loop under one Ctrl-C: live-reload editing (from your editor or the browser), plus any narration/lip-sync bridges this machine can run (missing prerequisites are skipped with the fix, never a hard failure). In the browser: **`E`** edits notes back into the file, **`L`** cycles layouts, **`Z`/`⇧Z`** undo/redo, and **`A`** asks an installed coding agent — Claude Code, Codex, Gemini, Copilot, Aider and more, auto-detected from `$PATH` — to edit the deck headlessly; the page reloads when it saves. Edits auto-commit as you go.
+2. **Author** one HTML file: `<section>` slides, `data-build` reveals, inline SVG with theme tokens, `<aside class="notes">` split on `⟨CLICK⟩` (notes drive builds, captions, transcript **and** narration all at once).
+3. **`decklight dev deck.html`** — the whole live loop under one Ctrl-C: live-reload editing (from your editor or the browser), plus any narration/lip-sync bridges this machine can run (missing prerequisites are skipped with the fix printed, never a hard failure). In the browser: **`E`** edits notes back into the file, **`L`** cycles layouts, **`Z`/`⇧Z`** undo/redo, and **`A`** asks an installed coding agent — Claude Code, Codex, Gemini, Copilot, Aider and more, auto-detected from `$PATH` — to edit the deck headlessly; the page reloads when it saves. Edits auto-commit as you go.
 4. **`decklight rec script.term.yaml`** — record a truthful terminal cast in a real PTY.
 5. **`decklight bundle deck.html --themes all`** — flatten runtime, themes, casts and narration into one offline HTML file to hand off.
 
@@ -95,7 +105,7 @@ The whole loop is agent-friendly, one file end to end:
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
 | `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait so the narrator moves, not just its mouth |
 
-`decklight help` for every command and flag — `refresh` and `export` are in [SPEC §7](SPEC.md#7-terminal-recordings), `edit` and `lipsync` in [SPEC §8](SPEC.md#8-presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#9-public-js-api). The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
+`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC §7](SPEC.md#7-terminal-recordings), `edit` and `lipsync` in [SPEC §8](SPEC.md#8-presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#9-public-js-api). The runtime has **zero dependencies** (marked and highlight.js are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
 ## Keys
 
@@ -116,7 +126,17 @@ npm install        # dev deps for building/recording; decks only need dist/ + th
 npm run build
 ```
 
-Decks reference `dist/decklight.{js,css}` and one theme file — copy those three files (or a `bundle`) and nothing else.
+A deck references `dist/decklight.{js,css}` and one theme file — copy those three files (or a single `bundle`) and nothing else.
+
+## How Decklight itself ships at agent-speed
+
+The whole point was a project where fixes and features land fast because agents do the work and automated verification keeps it safe. So the repo runs itself as a pipeline of small, single-purpose GitHub Actions — each one a Claude agent with exactly the powers it needs and no more:
+
+- **You open an issue.** An agent reads it *and the code it blames*, then either asks the missing questions or routes it — a bug goes to a reproduction agent (which actually builds `main` and tries it, posting screenshots of what it saw), a feature goes to a spec agent (which drafts acceptance criteria and renders real UI mockups for review).
+- **You approve.** Applying `ready-to-dev` is the one human gate. An implementation agent writes the code on a branch, proves it with `npm run verify` and a screenshot of the feature actually working, and opens a PR with that picture inline. You review the *screenshots*, not the merge button — the PR merges itself once CI is green.
+- **The loop keeps itself unstuck.** If CI goes red, a fix agent reads the failing logs and repairs the branch (capped, so it never argues with a red build forever). If `main` moves and a branch goes stale, a rebase agent replays it cleanly. A grooming pass reads the backlog daily and closes what the code already fixed — citing the exact `file:line` as proof.
+
+Every one of those agents runs under the same rule: on a public repo, an automated trigger never hands a push token to an agent reading text a stranger can write. The agents that need a shell run credential-less; the tokens live only in plain shell steps; a verification band — WCAG contrast gates, palette rules, headless-render assertions, property tests — holds all of it to `SPEC.md`. The `.github/workflows/` files each open with a header explaining *why* they're shaped the way they are; they're worth a read if you like this sort of thing.
 
 ## Architecture
 
@@ -128,7 +148,7 @@ One HTML file and one theme stylesheet feed a **zero-dependency browser runtime*
 
 ## Development
 
-`npm test` (unit + property tests) · `node test/render.mjs` (headless-Chrome render assertions) · `node test/contrast.mjs` (WCAG theme gates) · `npm run verify` for the lot. The repo culture: every feature is verified end-to-end against a real render, not just unit-tested — see SPEC §10.
+`npm test` (unit + property tests) · `node test/render.mjs` (headless-Chrome render assertions) · `node test/contrast.mjs` (WCAG theme gates) · `npm run verify` for the lot. The house rule: every feature is verified end-to-end against a real render, not just unit-tested — see SPEC §10, and `CONTRIBUTING.md` for the DCO sign-off every commit needs.
 
 ## Links
 
