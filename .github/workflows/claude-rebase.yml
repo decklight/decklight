@@ -223,11 +223,19 @@ jobs:
                 gh pr comment "$N" -R "$REPO" --body "🤖 **rebase** — the rebase dropped a DCO sign-off, so nothing was pushed; the branch is untouched. See the [run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
                 exit 1
               fi
+              # --force-with-lease needs an EXPLICIT expected value here: the push
+              # goes to an inline authenticated URL, not `origin`, so git has no
+              # remote-tracking ref to lease against and a bare --force-with-lease
+              # dies with "! [rejected] (stale info)". Pin the lease to the branch's
+              # current remote tip, fetched fresh — a concurrent push still aborts
+              # safely (the lease won't match), which is the whole point.
+              git fetch --quiet origin "$BRANCH"
+              lease="$BRANCH:$(git rev-parse FETCH_HEAD)"
               if [ -n "${NUDGE_PAT:-}" ]; then
-                git push --force-with-lease "https://x-access-token:${NUDGE_PAT}@github.com/${REPO}.git" "HEAD:$BRANCH"
+                git push --force-with-lease="$lease" "https://x-access-token:${NUDGE_PAT}@github.com/${REPO}.git" "HEAD:$BRANCH"
                 note="Rebased onto \`${{ steps.pick.outputs.base }}\` and force-pushed — CI is running again, and auto-merge re-arms when it goes green."
               else
-                git push --force-with-lease "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:$BRANCH"
+                git push --force-with-lease="$lease" "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:$BRANCH"
                 note="Rebased onto \`${{ steps.pick.outputs.base }}\` and force-pushed. ⚠️ This push used \`GITHUB_TOKEN\`, so **CI will not re-run on its own** — nudge it with \`gh pr close $N && gh pr reopen $N\`, or set a \`CI_NUDGE_PAT\` secret."
               fi
               printf '🤖 **rebase** — main had moved; Claude replayed this branch on top of it, report posted unedited.\n\n%s\n\n---\n%s\n' "$report" "$note" \
