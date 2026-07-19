@@ -144,15 +144,69 @@ test('init on a real TTY prompts and takes the typed title', { skip: ptySkip }, 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('init refuses to overwrite an existing deck without --force', () => {
+// what the collision message compares: the version inlined in dist (the deck's
+// runtime) against the installed package version
+const runtimeVersion = /^export const version = '([^']+)';$/m
+  .exec(fs.readFileSync(path.resolve(here, '../src/index.js'), 'utf8'))[1];
+const pkgVersion = JSON.parse(fs.readFileSync(path.resolve(here, '../package.json'), 'utf8')).version;
+
+test('init refusal on a decklight deck leads with upgrade, names both versions', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
   execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
-  const r = spawnSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
+  const r = spawnSync('node', [CLI, 'init'], { encoding: 'utf8', cwd: dir });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /already exists.*--force/);
+  assert.match(r.stderr, /deck\.html is already a decklight deck/);
+  assert.match(r.stderr, new RegExp(`deck has runtime ${runtimeVersion.replace(/\./g, '\\.')}, installed is ${pkgVersion.replace(/\./g, '\\.')}`));
+  // upgrade (keeps slides) is the lead suggestion; --force (destroys them) comes second
+  const upgradeAt = r.stderr.indexOf('decklight upgrade deck.html');
+  const forceAt = r.stderr.indexOf('--force');
+  assert.ok(upgradeAt >= 0, 'suggests decklight upgrade <file>');
+  assert.ok(forceAt > upgradeAt, '--force is mentioned after upgrade');
+  assert.match(r.stderr, /--force to replace it with a fresh starter deck/);
   execFileSync('node', [CLI, 'init', 'Renamed', '--dir', dir, '--force'], { encoding: 'utf8' });
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Renamed<\/title>/);
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init refusal on a deck of unknown runtime version still suggests upgrade, versionless', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
+  const deck = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
+  fs.writeFileSync(path.join(dir, 'deck.html'), deck.replace(/\/\*! Decklight v[^*]*\*\//, ''));
+  const r = spawnSync('node', [CLI, 'init'], { encoding: 'utf8', cwd: dir });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /is already a decklight deck\n/, 'no version parenthetical');
+  assert.doesNotMatch(r.stderr, /deck has runtime/);
+  assert.match(r.stderr, /decklight upgrade deck\.html/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init refusal on a non-decklight file keeps the plain --force message', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  fs.writeFileSync(path.join(dir, 'deck.html'), '<!doctype html><html><body><h1>Not a deck</h1></body></html>\n');
+  const r = spawnSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /already exists — pass --force to overwrite/);
+  assert.doesNotMatch(r.stderr, /upgrade/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('deckRuntimeVersion: version for a scaffold, null when mangled, undefined for a non-deck', async () => {
+  const { deckRuntimeVersion } = await import('../cli/init.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--themes', 'aurora'], { encoding: 'utf8' });
+  const scaffold = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(deckRuntimeVersion(scaffold), runtimeVersion);
+
+  // hand-mangled: still a deck (stage div + init call intact), banner gone
+  const mangled = scaffold.replace(/\/\*! Decklight v[^*]*\*\//, '');
+  assert.equal(deckRuntimeVersion(mangled), null);
+
+  assert.equal(deckRuntimeVersion('<!doctype html><html><body><h1>Hello</h1></body></html>'), undefined);
+  // one marker without the other is not a deck
+  assert.equal(deckRuntimeVersion('<div class="decklight"></div>'), undefined);
+  assert.equal(deckRuntimeVersion('<script>Decklight.init({})</script>'), undefined);
 });
 
 test('init --themes ships only the named set; missing theme fails cleanly', () => {

@@ -37,6 +37,24 @@ function fail(msg) {
 
 const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\u0021--');
 
+/**
+ * Is this HTML a decklight deck, and which runtime does it carry?
+ * Keys on the markers init itself writes — the `class="decklight"` stage div
+ * plus the `Decklight.init(` call — and reads the version from the bundle's
+ * `/*! Decklight vX.Y.Z … ` banner (stamped by build.mjs; minification makes
+ * the exported const unfindable).
+ *
+ * @returns the runtime version string; `null` for a decklight deck whose
+ *          version can't be extracted; `undefined` for a non-deck.
+ */
+export function deckRuntimeVersion(html) {
+  const isDeck = /<[a-z][^>]*\bclass=["'](?:[^"']*\s)?decklight(?:\s[^"']*)?["']/i.test(html)
+    && /Decklight\.init\s*\(/.test(html);
+  if (!isDeck) return undefined;
+  const banner = /\/\*!\s*Decklight v(\d+\.\d+\.\d+[^\s*]*)/.exec(html);
+  return banner ? banner[1] : null;
+}
+
 // aurora is the deck's starting look; init ships every theme by default so the
 // in-deck picker (/ → themes) is fully stocked, unless --themes narrows it.
 const STARTER_THEME = 'aurora';
@@ -178,7 +196,17 @@ unless --no-skill is given. The deck file is only touched with --force.
 
   const deckPath = path.resolve(root, outFile);
   if (fs.existsSync(deckPath) && !force) {
-    fail(`${path.relative('.', deckPath) || outFile} already exists — pass --force to overwrite`);
+    const rel = path.relative('.', deckPath) || outFile;
+    // a collision with a decklight deck almost always means "refresh my deck's
+    // runtime", not "destroy my slides" — lead with upgrade, not --force
+    const deckVer = deckRuntimeVersion(fs.readFileSync(deckPath, 'utf8'));
+    if (deckVer !== undefined) {
+      const versions = deckVer ? ` (deck has runtime ${deckVer}, installed is ${PKG.version})` : '';
+      fail(`${rel} is already a decklight deck${versions}
+  run \`decklight upgrade ${rel}\` to refresh its runtime and keep your slides,
+  or pass --force to replace it with a fresh starter deck`);
+    }
+    fail(`${rel} already exists — pass --force to overwrite`);
   }
   fs.writeFileSync(deckPath, starterDeck(title, themeNames, activeTheme));
   const themeNote = themeNames.length === 1
