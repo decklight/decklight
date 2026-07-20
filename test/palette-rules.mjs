@@ -84,6 +84,14 @@ function parseTheme(css) {
   for (const m of noComments.matchAll(/--([a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
     tokens[m[1].toLowerCase()] = m[2].trim();
   }
+  // resolve var() references (depth-limited) — a token written as
+  // `--accent: var(--brand)` must be graded, not silently skipped as null
+  const resolve = (v, depth = 0) => {
+    if (depth > 5) return v;
+    return v.replace(/var\(--([a-z0-9-]+)\)/gi, (_, name) =>
+      tokens[name.toLowerCase()] !== undefined ? resolve(tokens[name.toLowerCase()], depth + 1) : _);
+  };
+  for (const k of Object.keys(tokens)) tokens[k] = resolve(tokens[k]);
   const exceptions = {};
   for (const m of css.matchAll(/rule-exception:\s*(R\d)\s+([^\n*]+)/g)) {
     exceptions[m[1]] = m[2].trim();

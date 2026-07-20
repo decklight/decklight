@@ -9,7 +9,7 @@ const CONTAINER_TAGS = new Set(['UL', 'OL', 'TABLE', 'TBODY', 'DL', 'SVG']);
 const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata']);
 
 // element → provider registration ({count, apply, label}), shared across instances.
-export const providerRegistry = new Map();
+const providerRegistry = new Map();
 
 export function registerProvider(el, provider) {
   providerRegistry.set(el, provider);

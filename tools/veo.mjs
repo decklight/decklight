@@ -121,17 +121,36 @@ export function createVeo({
       },
     };
 
-    const started = await (await fetchImpl(`${base}:predictLongRunning`, {
-      method: 'POST', headers, body: JSON.stringify(body),
-    })).json();
+    // Vertex can answer a transient 429/5xx (quota, a backend blip) on the
+    // start call or any of the ~120 polls; without a retry one blip throws
+    // away a billed long-running operation. Back off and retry the transient
+    // statuses, and refresh the token on a 401 — the poll loop can outlive it.
+    async function post(url, payload) {
+      for (let attempt = 0; ; attempt++) {
+        let res;
+        try {
+          res = await fetchImpl(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+        } catch (e) {
+          if (attempt >= 4) throw e;
+          await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt));
+          continue;
+        }
+        if (res.status === 401 && attempt < 4) { headers.Authorization = `Bearer ${token()}`; continue; }
+        if ((res.status === 429 || res.status >= 500) && attempt < 4) {
+          await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt));
+          continue;
+        }
+        return res.json();
+      }
+    }
+
+    const started = await post(`${base}:predictLongRunning`, body);
     if (started.error) throw new Error(`veo: ${started.error.message ?? JSON.stringify(started.error)}`);
 
     // Generation is a long-running operation: minutes, not milliseconds.
     for (let i = 0; i < 120; i++) {
       await new Promise((r) => setTimeout(r, pollMs));
-      const op = await (await fetchImpl(`${base}:fetchPredictOperation`, {
-        method: 'POST', headers, body: JSON.stringify({ operationName: started.name }),
-      })).json();
+      const op = await post(`${base}:fetchPredictOperation`, { operationName: started.name });
       if (op.error) throw new Error(`veo: ${op.error.message ?? JSON.stringify(op.error)}`);
       if (!op.done) continue;
       const vids = op.response?.videos ?? op.response?.generatedSamples ?? [];

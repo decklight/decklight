@@ -6,6 +6,12 @@
 
 const VISUAL_PROPS = ['opacity', 'color', 'backgroundColor', 'borderRadius', 'fontSize'];
 
+// The transition list is DERIVED from VISUAL_PROPS (plus transform) so a prop
+// added above can't silently fail to animate because someone forgot to edit a
+// hand-written string. camelCase → kebab-case for the CSS property names.
+const TRANSITION_PROPS = ['transform',
+  ...VISUAL_PROPS.map((p) => p.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()))];
+
 function snapshot(el) {
   const cs = getComputedStyle(el);
   const snap = { rect: el.getBoundingClientRect() };
@@ -75,9 +81,7 @@ export function runAutoAnimate(fromSection, toSection, stageScale) {
     for (const p of VISUAL_PROPS) el.style[p] = o[p];
 
     void el.offsetWidth; // commit "from" state
-    el.style.transition =
-      `transform ${duration}ms ease, opacity ${duration}ms ease, color ${duration}ms ease, ` +
-      `background-color ${duration}ms ease, border-radius ${duration}ms ease, font-size ${duration}ms ease`;
+    el.style.transition = TRANSITION_PROPS.map((p) => `${p} ${duration}ms ease`).join(', ');
     el.style.transform = '';
     for (const p of VISUAL_PROPS) el.style[p] = n[p];
 

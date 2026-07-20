@@ -18,7 +18,6 @@
   --auto-animate-duration: 500ms;
   --dim-opacity: 0.35;
 }
-.decklight[data-embed] { position: relative; width: 100%; aspect-ratio: 16 / 9; }
 
 /* Accent overlay: --bg is the canvas (color OR gradient — the shorthand takes
    either); --bg-accent overlays it ONLY when it is an image value. Using

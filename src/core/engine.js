@@ -4,14 +4,14 @@
 // Engine — init, navigation, transitions, overview/blackout/help, hash,
 // scaling, print. SPEC §2.2, §4.1, §8, §9.
 
-import { scanSlide, applyBuildState, stepLabels, registerProvider, providerRegistry } from './builds.js';
+import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
 import { namespaceSvgIds, applyConcepts } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { initMarkdown } from '../md/markdown.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
-import { openSpeakerView, notesSegments } from './speaker.js';
+import { openSpeakerView } from './speaker.js';
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { createCharacter, concatTimelines } from './character.js';
 import { buildPrintPages } from './print.js';
@@ -1675,10 +1675,6 @@ export function init(userConfig = {}) {
   // when you were looking at the slide, not the corner — so every one is kept
   // and can be read back. Reachable while presenting AND while editing notes:
   // the reason the voice died is the one thing you always need to see.
-  // The message LOG (I). Messages fade after a few seconds — which is exactly
-  // when you were looking at the slide, not the corner — so every one is kept
-  // and can be read back. Reachable while presenting AND while editing notes:
-  // the reason the voice died is the one thing you always need to see.
   function renderMsgList() {
     const log = msgListEl?.querySelector('.msg-log');
     if (!log) return;
@@ -2114,7 +2110,7 @@ export function init(userConfig = {}) {
     if (saved?.live?.voice) { liveCfg = saved.live; narrSet = LIVE_TRACK; }
     else { const hit = narrSets.find((t) => t.dir === saved?.dir); if (hit) narrSet = hit; }
   } catch { /* ignore */ }
-  let narrating = false, narrAudio = null, liveWarned = false;
+  let narrating = false, narrAudio = null;
   // voice speed — YouTube's ⇧< / ⇧> in 0.25× steps, clamped 0.25–2×,
   // persisted per deck; applies to live and recorded narration alike
   const narrRateKey = 'decklight-narr-rate:' + location.pathname;
@@ -2432,7 +2428,6 @@ export function init(userConfig = {}) {
     if (!narrSet) { openNarrPicker(narrSets.length ? 'tracks' : 'voices'); return; }
     if (narrating) return stopNarration();
     narrating = true;
-    liveWarned = false;
     const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
     toast(`🔊 ${what} — V stops · N picks`);
     debugLog('narr', `on — ${what}`);
@@ -2920,7 +2915,6 @@ export function init(userConfig = {}) {
   function applyLive(toneLabel, styleText) {
     liveCfg = { voice: liveDraft ?? liveCfg.voice, tone: toneLabel, style: styleText };
     narrSet = LIVE_TRACK;
-    liveWarned = false;
     persistNarr();
     closeNarrPicker();
     if (!narrating) narrating = true;

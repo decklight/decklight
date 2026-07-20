@@ -120,7 +120,7 @@ jobs:
               fetch_field
               BACKFILL=1
             else
-              echo "::warning::could not rewrite the Status options — rename the columns by hand to: Triage, Ready to dev, In dev, In review, Done"
+              echo "::warning::could not rewrite the Status options — rename the columns by hand to: Triage, Repro, Spec, PO review, Ready to dev, In dev, In review, Done"
             fi
           fi
 

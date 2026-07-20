@@ -61,6 +61,11 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          # no push happens here (the shell steps use gh with an explicit
+          # GH_TOKEN), and the agent step below reads stranger-writable PR
+          # text — so keep the token out of .git/config where that agent runs
+          persist-credentials: false
 
       - name: gather the evidence
         id: gather
