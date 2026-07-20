@@ -21,7 +21,7 @@
 // gives you live reload and notes editing, and the player degrades on its own
 // (each bridge is probed via /ping).
 
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
@@ -166,13 +166,10 @@ export function planServices({ args = [], env = process.env, hasBin = onPath } =
   return { deck, run, skip, agents: detectAgents({ env, hasBin }).map((a) => a.name) };
 }
 
-/** Is `dir` inside a git work tree? (execFile injectable for tests) */
-export function inGitRepo(dir, exec = execFileSync) {
-  try {
-    return exec('git', ['rev-parse', '--is-inside-work-tree'],
-      { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim() === 'true';
-  } catch { return false; }
-}
+// inGitRepo lives in git.mjs now; re-exported so importers (and the tests) keep
+// finding it where dev grew it.
+export { inGitRepo } from './git.mjs';
+import { inGitRepo } from './git.mjs';
 
 const COLORS = { deck: '\x1b[36m', voice: '\x1b[35m', lips: '\x1b[33m' };
 const DIM = '\x1b[2m';

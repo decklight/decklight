@@ -37,7 +37,8 @@ import { createInterface } from 'node:readline/promises';
 import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
-import { escapeHtml, inGitRepo, createRepo } from './edit.mjs';
+import { escapeHtml } from './edit.mjs';
+import { inGitRepo, createRepo, isIdentityError, oneline } from './git.mjs';
 import { makeFail, scriptSafe } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 
@@ -116,7 +117,6 @@ export function planGit({ args = [], tty = false, inRepo = false } = {}) {
  */
 export function initRepo(root, { exec = execFileSync, mkRepo = createRepo } = {}) {
   const git = (a) => exec('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  const oneline = (e) => String(e.stderr || e.message || e).replace(/\s+/g, ' ').trim().slice(0, 160);
   let seeded = false;
   try { seeded = mkRepo(root); } catch (e) { return `  git: init failed — ${oneline(e)}`; }
   const created = `repository created${seeded ? ' (with a starter .gitignore)' : ''}`;
@@ -125,7 +125,7 @@ export function initRepo(root, { exec = execFileSync, mkRepo = createRepo } = {}
     git(['commit', '-m', 'decklight init']);
     return `  git: ${created}, everything committed`;
   } catch (e) {
-    if (/user\.(name|email)|tell me who you are|auto-detect/i.test(String(e.stderr || e))) {
+    if (isIdentityError(e)) {
       return `  git: ${created}; no identity configured — files staged, commit once git config user.name/user.email is set`;
     }
     return `  git: commit failed — ${oneline(e)} (the files are staged)`;
