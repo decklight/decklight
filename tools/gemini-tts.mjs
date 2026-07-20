@@ -42,6 +42,19 @@ export function gcloudToken() {
     { encoding: 'utf8' }).trim();
 }
 
+/**
+ * Headers for a Vertex AI call made with ADC (a user credential): the Bearer
+ * token, JSON content-type, and x-goog-user-project so the call is billed and
+ * quota'd against the project, not whoever's gcloud is signed in. Every Vertex
+ * caller here already puts the project in the URL path; the header is what
+ * directs the *bill* there too.
+ */
+export const authHeaders = (token, project) => ({
+  authorization: `Bearer ${token}`,
+  'content-type': 'application/json',
+  'x-goog-user-project': project,
+});
+
 // Published Vertex AI list prices (USD per 1M tokens) — the API returns
 // token counts in usageMetadata, never dollars, so cost is an ESTIMATE.
 const PRICES = [
@@ -102,7 +115,7 @@ export function createSynth({ project, ttsModel, location } = {}) {
     const url = `https://${host}/v1/projects/${project}/locations/${loc}/publishers/google/models/${model}:generateContent`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: authHeaders(token, project),
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text }] }],
         generationConfig: {
