@@ -9,6 +9,7 @@ import { build } from 'esbuild';
 import { existsSync, readFileSync, writeFileSync, statSync, readdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const playerPath = resolve(here, 'src/terminal/player.mjs');
@@ -48,6 +49,22 @@ const packs = JSON.parse(readFileSync(resolve(here, 'themes/packs.json'), 'utf8'
   }
 }
 
+// Temml resolves to upstream's terser-minified build, not dist/temml.mjs:
+// esbuild's minifier leaves the .mjs ~27% larger (212 KB vs 167 KB) than the
+// build Temml ships, and the whole point of Temml over KaTeX is the footprint.
+// The min build is an IIFE (`var temml = …`), so a default export is appended.
+const temmlDist = dirname(createRequire(import.meta.url).resolve('temml'));
+const temmlPrebuilt = {
+  name: 'temml-prebuilt',
+  setup(b) {
+    b.onResolve({ filter: /^temml$/ }, () => ({ path: 'temml.min.js', namespace: 'temml-min' }));
+    b.onLoad({ filter: /.*/, namespace: 'temml-min' }, () => ({
+      contents: readFileSync(resolve(temmlDist, 'temml.min.js'), 'utf8') + '\nexport default temml;',
+      loader: 'js',
+    }));
+  },
+};
+
 const virtualTerminal = {
   name: 'virtual-terminal',
   setup(b) {
@@ -71,7 +88,7 @@ await build({
   globalName: 'Decklight',
   outfile: resolve(here, 'dist/decklight.js'),
   banner: { js: `/*! Decklight v${runtimeVersion} — Copyright 2026 Gilles Philippart — SPDX-License-Identifier: Apache-2.0 */` },
-  plugins: [virtualTerminal],
+  plugins: [virtualTerminal, temmlPrebuilt],
   define: {
     __DECKLIGHT_THEMES__: JSON.stringify(shippedThemes),
     __DECKLIGHT_PACKS__: JSON.stringify(packs),
@@ -81,12 +98,19 @@ await build({
 
 // dist CSS = core structure + the terminal player's stylesheet (chrome,
 // ANSI-16 classes, screen sizing) — the player is bundled into decklight.js,
-// so its CSS must ship in decklight.css too.
+// so its CSS must ship in decklight.css too — + Temml's stylesheet (math is
+// core per SPEC §6/§11). Temml's optional woff2 @font-face is stripped: the
+// deck budget is zero webfonts, and MathML Core renders on system math fonts;
+// its body-level equation counter is scoped to the deck root.
 {
   const core = readFileSync(resolve(here, 'src/decklight.css'), 'utf8');
   const termCss = hasTerminal
     ? '\n\n' + readFileSync(resolve(here, 'src/terminal/terminal.css'), 'utf8') : '';
-  writeFileSync(resolve(here, 'dist/decklight.css'), core + termCss);
+  const mathCss = '\n\n' + readFileSync(resolve(temmlDist, 'Temml-Local.css'), 'utf8')
+    .replace(/^\/\*[\s\S]*?\*\/\s*/, '')
+    .replace(/@font-face\s*\{[^}]*\}\s*/, '')
+    .replace(/^body \{/m, '.decklight {');
+  writeFileSync(resolve(here, 'dist/decklight.css'), core + termCss + mathCss);
 }
 
 const kb = (f) => (statSync(resolve(here, f)).size / 1024).toFixed(1) + ' KB';
