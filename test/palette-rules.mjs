@@ -25,51 +25,11 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { colorsIn, rgbToHsl, parseTheme } from './color.mjs';
 
 const DIR = process.argv[2] ?? new URL('../themes/', import.meta.url).pathname;
 
 // ── color math ───────────────────────────────────────────────────────────────
-function parseColor(str) {
-  str = str.trim();
-  if (/^white$/i.test(str)) return [255, 255, 255];
-  if (/^black$/i.test(str)) return [0, 0, 0];
-  let m = str.match(/^#([0-9a-f]{3,8})$/i);
-  if (m) {
-    let h = m[1];
-    if (h.length === 3 || h.length === 4) h = [...h].map((c) => c + c).join('');
-    return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-  }
-  m = str.match(/^rgba?\(([^)]*)\)$/i);
-  if (m) return m[1].split(/[\s,\/]+/).filter(Boolean).map(parseFloat).slice(0, 3);
-  return null;
-}
-
-function colorsIn(value) {
-  const out = [];
-  const re = /#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/gi;
-  for (const m of value.match(re) ?? []) {
-    const c = parseColor(m);
-    if (c) out.push(c);
-  }
-  return out;
-}
-
-function rgbToHsl([r, g, b]) {
-  r /= 255; g /= 255; b /= 255;
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  const c = max - min;
-  let h = 0;
-  if (c) {
-    if (max === r) h = ((g - b) / c) % 6;
-    else if (max === g) h = (b - r) / c + 2;
-    else h = (r - g) / c + 4;
-    h = (h * 60 + 360) % 360;
-  }
-  const s = c === 0 ? 0 : c / (1 - Math.abs(2 * l - 1));
-  return { h, s: s * 100, l: l * 100, chroma: c };
-}
-
 const hueDist = (a, b) => {
   const d = Math.abs(a - b) % 360;
   return d > 180 ? 360 - d : d;
@@ -77,27 +37,6 @@ const hueDist = (a, b) => {
 
 // hue must sit within a semantic band (circular)
 const inBand = (h, lo, hi) => (lo <= hi ? h >= lo && h <= hi : h >= lo || h <= hi);
-
-function parseTheme(css) {
-  const tokens = {};
-  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  for (const m of noComments.matchAll(/--([a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
-    tokens[m[1].toLowerCase()] = m[2].trim();
-  }
-  // resolve var() references (depth-limited) — a token written as
-  // `--accent: var(--brand)` must be graded, not silently skipped as null
-  const resolve = (v, depth = 0) => {
-    if (depth > 5) return v;
-    return v.replace(/var\(--([a-z0-9-]+)\)/gi, (_, name) =>
-      tokens[name.toLowerCase()] !== undefined ? resolve(tokens[name.toLowerCase()], depth + 1) : _);
-  };
-  for (const k of Object.keys(tokens)) tokens[k] = resolve(tokens[k]);
-  const exceptions = {};
-  for (const m of css.matchAll(/rule-exception:\s*(R\d)\s+([^\n*]+)/g)) {
-    exceptions[m[1]] = m[2].trim();
-  }
-  return { tokens, exceptions };
-}
 
 // ── per-theme rules ───────────────────────────────────────────────────────────
 function grade(name, tokens, exceptions) {

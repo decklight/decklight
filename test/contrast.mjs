@@ -23,6 +23,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { colorsIn, contrast, parseTheme } from './color.mjs';
 
 const DIR = process.argv[2] ?? new URL('../themes/', import.meta.url).pathname;
 
@@ -40,75 +41,6 @@ const REQUIRED = [
 ];
 
 // ── color math ───────────────────────────────────────────────────────────────
-const NAMED = { white: [255, 255, 255], black: [0, 0, 0] };
-
-function parseColor(str) {
-  str = str.trim();
-  if (NAMED[str.toLowerCase()]) return NAMED[str.toLowerCase()];
-  let m = str.match(/^#([0-9a-f]{3,8})$/i);
-  if (m) {
-    let h = m[1];
-    if (h.length === 3 || h.length === 4) h = [...h].map(c => c + c).join('');
-    return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
-  }
-  m = str.match(/^rgba?\(([^)]*)\)$/i);
-  if (m) {
-    const p = m[1].split(/[\s,\/]+/).filter(Boolean).map(parseFloat);
-    return p.slice(0, 3);
-  }
-  m = str.match(/^hsla?\(([^)]*)\)$/i);
-  if (m) {
-    const p = m[1].split(/[\s,\/]+/).filter(Boolean);
-    const h = parseFloat(p[0]), s = parseFloat(p[1]) / 100, l = parseFloat(p[2]) / 100;
-    const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), mm = l - c / 2;
-    const seg = Math.floor(h / 60) % 6;
-    const rgb = [[c, x, 0], [x, c, 0], [0, c, x], [0, x, c], [x, 0, c], [c, 0, x]][seg];
-    return rgb.map(v => Math.round((v + mm) * 255));
-  }
-  return null;
-}
-
-function luminance([r, g, b]) {
-  const lin = [r, g, b].map(v => {
-    v /= 255;
-    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-  });
-  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
-}
-
-function contrast(c1, c2) {
-  const [l1, l2] = [luminance(c1), luminance(c2)].sort((a, b) => b - a);
-  return (l1 + 0.05) / (l2 + 0.05);
-}
-
-// extract every color literal in a value (handles gradients → all stops)
-function colorsIn(value) {
-  const out = [];
-  const re = /#[0-9a-f]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/gi;
-  for (const m of value.match(re) ?? []) {
-    const c = parseColor(m);
-    if (c) out.push(c);
-  }
-  return out;
-}
-
-// ── theme parsing ────────────────────────────────────────────────────────────
-function parseTheme(css) {
-  const tokens = {};
-  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  for (const m of noComments.matchAll(/--([a-z0-9-]+)\s*:\s*([^;]+);/gi)) {
-    tokens[m[1].toLowerCase()] = m[2].trim();
-  }
-  // resolve var() references (depth-limited)
-  const resolve = (v, depth = 0) => {
-    if (depth > 5) return v;
-    return v.replace(/var\(--([a-z0-9-]+)\)/gi, (_, name) =>
-      tokens[name.toLowerCase()] !== undefined ? resolve(tokens[name.toLowerCase()], depth + 1) : _);
-  };
-  for (const k of Object.keys(tokens)) tokens[k] = resolve(tokens[k]);
-  return tokens;
-}
-
 // min contrast of a fg color against every stop of a (possibly gradient) bg value
 function minContrast(fgValue, bgValue) {
   const fg = colorsIn(fgValue)[0];
@@ -126,7 +58,7 @@ const summary = [];
 
 for (const file of files) {
   const name = file.replace(/\.css$/, '');
-  const t = parseTheme(readFileSync(join(DIR, file), 'utf8'));
+  const { tokens: t } = parseTheme(readFileSync(join(DIR, file), 'utf8'));
   const errs = [];
 
   for (const req of REQUIRED) if (!(req in t)) errs.push(`missing token --${req}`);
