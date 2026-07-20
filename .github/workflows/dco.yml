@@ -2,6 +2,10 @@ name: DCO
 
 on:
   pull_request:
+  # A merge queue tests each PR on a gh-readonly-queue/* ref before it lands.
+  # Every *required* check — this one included — has to run on that ref, or the
+  # queue stalls forever waiting on a check that never reports.
+  merge_group:
 
 permissions:
   contents: read
@@ -18,15 +22,42 @@ jobs:
       - name: Verify every commit has a matching Signed-off-by
         run: |
           set -euo pipefail
-          base="origin/${{ github.base_ref }}"
+          # pull_request gives us a base branch name; a merge_group gives the SHA
+          # the queue was built on. Diff against whichever this event carries.
+          #
+          # The two events check different things on purpose. On a pull_request
+          # we have the author's real commits, so we enforce the full DCO: each
+          # commit's Signed-off-by must match its author. On a merge_group the
+          # commit under test is a synthetic squash-preview GitHub builds for the
+          # queue — it re-attributes authorship to whoever queued the PR while
+          # carrying over the original (branch author's) sign-off trailer, so an
+          # author-match can never pass there. The authoritative author-matched
+          # check already ran at PR time; on the queue ref we only assert that a
+          # Signed-off-by trailer is still present, so an unsigned commit can't
+          # sneak through the queue.
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            base="${{ github.event.merge_group.base_sha }}"
+            match_author=0
+          else
+            base="origin/${{ github.base_ref }}"
+            match_author=1
+          fi
           failed=0
           while read -r sha; do
-            author_name=$(git log -1 --format='%an' "$sha")
-            author_email=$(git log -1 --format='%ae' "$sha")
-            expected="Signed-off-by: ${author_name} <${author_email}>"
-            if ! git log -1 --format='%B' "$sha" | grep -qiF "$expected"; then
-              echo "::error::Commit ${sha} is missing \"${expected}\""
-              failed=1
+            body=$(git log -1 --format='%B' "$sha")
+            if [ "$match_author" -eq 1 ]; then
+              author_name=$(git log -1 --format='%an' "$sha")
+              author_email=$(git log -1 --format='%ae' "$sha")
+              expected="Signed-off-by: ${author_name} <${author_email}>"
+              if ! printf '%s' "$body" | grep -qiF "$expected"; then
+                echo "::error::Commit ${sha} is missing \"${expected}\""
+                failed=1
+              fi
+            else
+              if ! printf '%s' "$body" | grep -qiE '^Signed-off-by: .+ <.+>'; then
+                echo "::error::Commit ${sha} has no Signed-off-by trailer"
+                failed=1
+              fi
             fi
           done < <(git rev-list --no-merges "${base}..HEAD")
           if [ "$failed" -ne 0 ]; then
