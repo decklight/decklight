@@ -32,6 +32,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
+import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
 
 const fail = makeFail('bundle');
 
@@ -408,13 +409,10 @@ html = html.replace(
 
 // -------------------------------------------------------------- assemble
 
-// Anchor to the LAST </body>: the inlined runtime contains the speaker-view
-// popup template, whose "</body></html>" string would match a first-occurrence
-// search and corrupt the JS mid-payload.
 if (embeds.length) {
-  const at = html.toLowerCase().lastIndexOf('</body>');
-  if (at === -1) fail('deck has no </body>');
-  html = html.slice(0, at) + embeds.join('\n') + '\n' + html.slice(at);
+  const injected = injectBeforeBodyEnd(html, embeds.join('\n') + '\n');
+  if (injected === null) fail('deck has no </body>');
+  html = injected;
 }
 
 if (!jobs) {
