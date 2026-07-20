@@ -35,7 +35,7 @@
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, watch, existsSync, statSync } from 'node:fs';
 import { resolve, extname, sep, basename } from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { agentCommand, detectAgents } from './agents.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 
@@ -134,62 +134,11 @@ export function createHistory(limit = 200) {
 }
 
 // ── git: the durable record (the history above is the fast loop) ──────────
-const git = (gitArgs, cwd) =>
-  execFileSync('git', gitArgs, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-
-export function inGitRepo(dir) {
-  try { return git(['rev-parse', '--is-inside-work-tree'], dir) === 'true'; } catch { return false; }
-}
-
-// The starter .gitignore a decklight-created repository begins with: generated
-// artifacts (screenshot evidence, OS junk, narration audio) stay out of the
-// autocommit loop and out of a hasty `git add -A`. Three entries, one comment —
-// a starter the player owns from the first commit, not an ignore database.
-export const STARTER_GITIGNORE = `.shots/
-.DS_Store
-
-# narration audio is bulky — but cloud-generated narration costs money to regenerate; delete this line to version yours
-voiceover/
-`;
-
-/**
- * Create a git repository in `dir` — the one shared seam for every place
- * decklight creates a repo (`edit`/`dev` with --git today, init's offer per
- * #50). Runs `git init`, then writes the starter .gitignore — after init and
- * before any initial commit the caller makes, so a `git add -A` opening
- * commit picks it up. The repo-creation moment is the only time decklight
- * touches ignore rules: an existing .gitignore is never appended to or
- * merged, and a repository decklight didn't create never gets one. Returns
- * true when the starter file was written. Throws when `git init` fails.
- */
-export function createRepo(dir) {
-  git(['init'], dir);
-  const ignorePath = resolve(dir, '.gitignore');
-  if (existsSync(ignorePath)) return false;
-  writeFileSync(ignorePath, STARTER_GITIGNORE);
-  return true;
-}
-
-/** Commit the deck if it changed. Returns true when a commit was made. */
-export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${basename(deckPath)}`) {
-  try {
-    if (!git(['status', '--porcelain', '--', deckPath], cwd)) return false;
-    git(['add', '--', deckPath], cwd);
-    try {
-      git(['commit', '-m', message, '--', deckPath], cwd);
-    } catch (e) {
-      // a fresh machine has no git identity — commit anyway rather than
-      // silently dropping the safety net, without touching global config
-      if (!/user\.(name|email)|tell me who you are/i.test(String(e.stderr || e))) throw e;
-      git(['-c', 'user.name=decklight', '-c', 'user.email=decklight@localhost',
-        'commit', '-m', message, '--', deckPath], cwd);
-    }
-    return true;
-  } catch (e) {
-    console.error(`  git autocommit failed: ${String(e.stderr || e.message || e).slice(0, 160)}`);
-    return false;
-  }
-}
+// The plumbing lives in git.mjs now; imported for editMain's use below and
+// re-exported so long-standing importers (init, the tests) keep finding it
+// where edit grew it.
+import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit } from './git.mjs';
+export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 export async function editMain(args) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
