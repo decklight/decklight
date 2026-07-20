@@ -41,14 +41,16 @@ change to `src/` or `themes/`.
 Arm auto-merge the moment you open a PR, while its checks are still pending:
 
 ```sh
-gh pr merge <n> --auto --merge
+gh pr merge <n> --auto --squash
 ```
 
-The repo allows auto-merge and gates on the CI + DCO checks (no required
-review), so an armed PR lands itself the instant it goes green — nobody has to
-watch it. Arm it *at open time*: once the checks have already passed the PR is
-`clean` and `--auto` is a no-op (it errors "already clean"), so just merge it
-directly then.
+The repo keeps a **linear history**, so merges are **squashes** — `--merge` (a
+merge commit) is rejected. It gates on the CI + DCO checks (no required review)
+and requires branches to be up to date, so an armed PR lands itself the instant
+it goes green and is current with `main`; if it falls behind, auto-merge updates
+and re-tests it first. Arm it *at open time*: once the checks have already
+passed the PR is `clean` and `--auto` is a no-op (it errors "already clean"), so
+just squash it directly then (`gh pr merge <n> --squash`).
 
 ## Conventions
 
