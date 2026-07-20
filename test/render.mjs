@@ -4,24 +4,19 @@
 // Headless-render verification of demo/smoke.html — the "prove the deck
 // works" harness (SPEC intro + §10). Exits non-zero on any failed assertion.
 
-import { execFileSync } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
+import { dumpDom } from './harness.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const CHROME = chromeBin('render');
 
-
-function dump(url) {
-  return execFileSync(CHROME, chromeArgs(
-    // autoplay flag: the background-video checks call play() on a muted
-    // <video> — allowed by policy anyway, but pinned here so the assertion
-    // can never flake on a policy default change
-    '--autoplay-policy=no-user-gesture-required',
-    '--virtual-time-budget=5000', '--dump-dom', url,
-  ), { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-}
+const dump = (url) => dumpDom(url, {
+  budget: 5000, maxBuffer: 64 * 1024 * 1024,
+  // autoplay flag: the background-video checks call play() on a muted <video>
+  // — allowed by policy anyway, but pinned here so the assertion can never
+  // flake on a policy default change
+  extraFlags: ['--autoplay-policy=no-user-gesture-required'],
+});
 
 function sink(html) {
   const m = html.match(/<div id="test-sink"[^>]*>([\s\S]*?)<\/div>/);

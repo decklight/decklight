@@ -9,31 +9,9 @@
  *
  * file:// + ES modules + fetch() need --allow-file-access-from-files.
  */
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
+import { runResultsPage } from './harness.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const page = path.join(here, 'player.html');
-const CHROME = chromeBin('player-render');
-
-
-const html = execFileSync(CHROME, chromeArgs(
-  '--allow-file-access-from-files',
-  '--virtual-time-budget=60000',
-  '--dump-dom', `file://${page}`,
-), { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-
-const m = html.match(/DECKLIGHT-PLAYER-RESULTS (\{[\s\S]*?\})\s*</);
-if (!m) {
-  console.error('player-render: no results marker found in rendered DOM');
-  process.exit(1);
-}
-const results = JSON.parse(m[1]);
-console.log('player-render results:', JSON.stringify(results, null, 2));
-if (results.PASS !== true) {
-  console.error('player-render: FAILED');
-  process.exit(1);
-}
-console.log('player-render: PASS');
+runResultsPage(path.join(here, 'player.html'), 'PLAYER');
