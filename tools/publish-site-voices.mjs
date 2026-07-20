@@ -17,9 +17,10 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { argReader } from './args.mjs';
 
 const args = process.argv.slice(2);
-const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
+const { opt } = argReader(args);
 const REPO = opt('--repo', 'decklight/decklight.github.io');
 const STAGING = 'demo/voiceover-site';
 

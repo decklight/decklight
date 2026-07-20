@@ -31,6 +31,7 @@ import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
 import { normalizeRhubarb } from './visemes.mjs';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
+import { argReader } from './args.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -41,7 +42,7 @@ if (!dirArg || args.includes('--help')) {
   process.exit(dirArg ? 0 : 1);
 }
 const dir = resolve(dirArg);
-const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
+const { opt } = argReader(args);
 const doVideo = args.includes('--video');
 const doVisemes = args.includes('--visemes') || !doVideo; // visemes by default
 const rhubarb = opt('--rhubarb', 'rhubarb');

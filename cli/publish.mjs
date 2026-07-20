@@ -24,11 +24,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { makeFail } from './util.mjs';
+import { isMain } from '../tools/args.mjs';
 
-function fail(msg) {
-  process.stderr.write(`decklight publish: ${msg}\n`);
-  process.exit(1);
-}
+const fail = makeFail('publish');
 
 /**
  * The GitHub Pages URL a remote publishes to, or null when the remote is
@@ -216,6 +215,4 @@ if (!parent) {
 return { commit, parent, tree, branch, remote, url };
 }
 
-import { fileURLToPath } from 'node:url';
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) publishMain().catch((e) => fail(e.message));
+if (isMain(import.meta.url)) publishMain().catch((e) => fail(e.message));
