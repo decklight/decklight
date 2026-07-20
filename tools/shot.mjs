@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, resolve } from 'node:path';
 import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader } from './args.mjs';
+import { injectBeforeBodyEnd } from './deck-html.mjs';
 
 const args = process.argv.slice(2);
 const { opt } = argReader(args);
@@ -64,11 +65,7 @@ const boot = `
 const tmp = src.replace(/\.html?$/i, `.__shot-${process.pid}.html`);
 let html = readFileSync(src, 'utf8');
 if (theme) html = html.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`);
-// inject before the LAST </body> — a bundled deck inlines decklight.js, whose
-// speaker-view template carries a literal </body> that a first-match replace
-// would split mid-string, corrupting the runtime
-const bodyEnd = html.toLowerCase().lastIndexOf('</body>');
-html = bodyEnd >= 0 ? html.slice(0, bodyEnd) + boot + html.slice(bodyEnd) : html + boot;
+html = injectBeforeBodyEnd(html, boot) ?? html + boot;
 writeFileSync(tmp, html);
 
 mkdirSync(dirname(out), { recursive: true });

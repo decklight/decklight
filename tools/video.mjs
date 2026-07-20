@@ -31,6 +31,7 @@ import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader } from './args.mjs';
+import { sectionBodies } from './deck-html.mjs';
 
 const run = promisify(execFile);
 
@@ -78,7 +79,7 @@ export function parseSlideRange(s, total) {
 
 /** Per-slide hold seconds: data-video-hold="8" on the section, else the default. */
 export function extractHolds(html, defaultHold) {
-  return html.split(/<section\b/).slice(1).map((sec) => {
+  return sectionBodies(html).map((sec) => {
     const tag = sec.slice(0, sec.indexOf('>'));
     const m = tag.match(/data-video-hold="([\d.]+)"/);
     return m ? Number(m[1]) : defaultHold;

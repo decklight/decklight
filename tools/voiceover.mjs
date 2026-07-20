@@ -41,6 +41,7 @@ import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createEngine } from './tts-engines.mjs';
 import { argReader } from './args.mjs';
+import { sectionBodies, NOTES_ASIDE } from './deck-html.mjs';
 
 const args = process.argv.slice(2);
 const deckPath = args.find((a) => !a.startsWith('-'));
@@ -88,7 +89,7 @@ const toAac = (wav, m4a) => execFileSync(encoder, encoder === 'ffmpeg'
 
 // ── extract per-slide narration text ─────────────────────────────────────────
 const html = readFileSync(deckPath, 'utf8');
-const sections = html.split(/<section\b/).slice(1);
+const sections = sectionBodies(html);
 const clean = (s) => s
   .replace(/⟨CLICK⟩/g, ' ')
   .replace(/<[^>]+>/g, ' ')
@@ -96,7 +97,7 @@ const clean = (s) => s
   .replace(/\s+/g, ' ')
   .trim();
 const slides = sections.map((sec, i) => {
-  const aside = sec.match(/<aside class="notes">([\s\S]*?)<\/aside>/);
+  const aside = sec.match(NOTES_ASIDE);
   if (aside) return clean(aside[1]);
   const md = sec.match(/^Note:\s*$([\s\S]*?)(?=^Rehearse:\s*$|<\/script>)/m);
   if (md) return clean(md[1]);

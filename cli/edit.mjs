@@ -38,6 +38,7 @@ import { resolve, extname, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
 import { agentCommand, detectAgents } from './agents.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
+import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
 
 // file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
 // exactly like the tts bridge — so the endpoints are CORS-open. The server
@@ -73,14 +74,11 @@ export function notesTextToAside(text) {
 
 /** Replace (or insert) slide N's <aside class="notes"> in the deck html. */
 export function setSlideNotes(html, slide, asideInner) {
-  // top-level sections can't nest, so splitting on the open tag is exact
-  const parts = html.split(/(<section\b)/);
-  const idx = 2 * slide; // parts[0] preamble, then [tag, content] pairs
-  if (!parts[idx]) throw new Error(`no slide ${slide} (deck has ${(parts.length - 1) / 2})`);
+  const { parts, idx } = locateSlide(html, slide);
   const aside = `<aside class="notes">\n        ${asideInner}\n      </aside>`;
   const seg = parts[idx];
-  parts[idx] = /<aside class="notes">[\s\S]*?<\/aside>/.test(seg)
-    ? seg.replace(/<aside class="notes">[\s\S]*?<\/aside>/, aside)
+  parts[idx] = NOTES_ASIDE.test(seg)
+    ? seg.replace(NOTES_ASIDE, aside)
     : seg.replace(/<\/section>/, `  ${aside}\n    </section>`);
   return parts.join('');
 }
@@ -91,9 +89,7 @@ export const LAYOUTS = ['auto', 'centered', 'pinned', 'top', 'split', 'split-fli
 /** Set (or, for 'auto', remove) slide N's data-layout attribute in the deck html. */
 export function setSlideLayout(html, slide, name) {
   if (!LAYOUTS.includes(name)) throw new Error(`unknown layout "${name}"`);
-  const parts = html.split(/(<section\b)/);
-  const idx = 2 * slide;
-  if (!parts[idx]) throw new Error(`no slide ${slide} (deck has ${(parts.length - 1) / 2})`);
+  const { parts, idx } = locateSlide(html, slide);
   const seg = parts[idx];
   const gt = seg.indexOf('>');
   if (gt < 0) throw new Error(`slide ${slide}: malformed <section> tag`);
