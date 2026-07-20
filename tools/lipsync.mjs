@@ -25,13 +25,13 @@
 // (audio bytes, tool, engine, portrait) per slide, persisted after every
 // slide, so a rerun only regenerates what actually changed.
 
-import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, renameSync, mkdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
-import { normalizeRhubarb } from './visemes.mjs';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader } from './args.mjs';
+import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -140,10 +140,9 @@ for (const nn of slides) {
       const t0 = Date.now();
       if (job === 'visemes') {
         const tmpOut = join(dir, `slide-${nn}.tmp.visemes.json`);
-        const dialog = [];
-        if (text) { writeFileSync(join(dir, `slide-${nn}.tmp.txt`), text); dialog.push('--dialogFile', join(dir, `slide-${nn}.tmp.txt`)); }
-        execFileSync(rhubarb, ['-f', 'json', '-o', tmpOut, '--machineReadable', ...dialog, wav.path], { stdio: ['ignore', 'ignore', 'ignore'] });
-        const tl = normalizeRhubarb(JSON.parse(readFileSync(tmpOut, 'utf8')));
+        let dialogFile;
+        if (text) { dialogFile = join(dir, `slide-${nn}.tmp.txt`); writeFileSync(dialogFile, text); }
+        const tl = await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut });
         writeFileSync(outFile, JSON.stringify(tl));
         rmSync(tmpOut, { force: true });
         rmSync(join(dir, `slide-${nn}.tmp.txt`), { force: true });
@@ -154,26 +153,17 @@ for (const nn of slides) {
           // a --veo clip is hundreds of frames to detect faces in, not one:
           // batch small or an 8GB card dies with "Image too big to run face
           // detection on GPU" (see lipsync-server.mjs)
-          const batches = face === portrait ? [] : ['--face_det_batch_size', '4', '--wav2lip_batch_size', '32'];
-          execFileSync(python, ['inference.py', '--checkpoint_path', resolve(wav2lipCkpt),
-            '--face', face, '--audio', wav.path, '--outfile', tmpMp4, ...batches],
-          { cwd: resolve(wav2lipDir), stdio: 'inherit' });
+          await runWav2lip(python, { dir: wav2lipDir, checkpoint: wav2lipCkpt, face,
+            wav: wav.path, out: tmpMp4, smallBatches: face !== portrait, inherit: true });
         } else {
           const resDir = join(dir, `slide-${nn}.tmp.d`);
-          mkdirSync(resDir, { recursive: true });
-          execFileSync(python, ['inference.py', '--driven_audio', wav.path,
-            '--source_image', portrait, '--result_dir', resDir],
-          { cwd: resolve(sadtalkerDir), stdio: 'inherit' });
-          const found = [];
-          const walk = (d) => { for (const f of readdirSync(d)) { const p = join(d, f); const s = statSync(p); if (s.isDirectory()) walk(p); else if (f.endsWith('.mp4')) found.push([s.mtimeMs, p]); } };
-          walk(resDir);
-          if (!found.length) throw new Error('sadtalker produced no mp4');
-          renameSync(found.sort((a, b) => b[0] - a[0])[0][1], tmpMp4);
+          await runSadtalker(python, { dir: sadtalkerDir, still: portrait,
+            wav: wav.path, out: tmpMp4, resultDir: resDir, inherit: true });
           rmSync(resDir, { recursive: true, force: true });
         }
         // mute + faststart: the player's audio always comes from narrAudio
         if (ffmpegOk) {
-          execFileSync('ffmpeg', ['-y', '-i', tmpMp4, '-an', '-movflags', '+faststart', '-c:v', 'copy', outFile], { stdio: 'ignore' });
+          await muteFaststart(tmpMp4, outFile);
           rmSync(tmpMp4, { force: true });
         } else renameSync(tmpMp4, outFile);
         console.log(`  slide ${nn}: ${engine} → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
