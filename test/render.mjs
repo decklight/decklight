@@ -106,6 +106,37 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: print class set', /decklight-print/.test(html), true);
   check('print: no presenter clock', /decklight-clock"/.test(html), false);
   check('print: no progress bar', /decklight-progress"/.test(html), false);
+  check('print: plain mode has no variant pages', /print-page/.test(html), false);
+}
+
+// --- print variant: ?print=handout (3-up pages with ruled note lines) ------
+{
+  const html = dump(deckUrl + '?print=handout');
+  check('handout: ceil(11/3) = 4 pages',
+    (html.match(/class="print-page print-handout"/g) || []).length, 4);
+  check('handout: every slide gets a slot',
+    (html.match(/class="print-slot"/g) || []).length, 11);
+  check('handout: note lines beside every slide',
+    (html.match(/class="print-notelines"/g) || []).length, 11);
+  check('handout: everything built',
+    (html.match(/data-build-state="pending"/g) || []).length, 0);
+}
+
+// --- print variant: ?print=notes (one page per slide, notes underneath) ----
+{
+  const html = dump(deckUrl + '?print=notes');
+  check('notes: one page per slide',
+    (html.match(/class="print-page print-notes-page"/g) || []).length, 11);
+  check('notes: a notes block on every page',
+    (html.match(/class="print-notes"/g) || []).length, 11);
+  // 5 slides carry notes (markdown's Note: included); the other 6 keep their
+  // page with an empty block
+  check('notes: slides without notes get an empty block',
+    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 6);
+  check('notes: markdown Note: content lands in its block (aside + copy)',
+    (html.match(/Markdown notes body/g) || []).length, 2);
+  check('notes: HTML aside content lands in its block (aside + copy)',
+    (html.match(/Second point beat/g) || []).length, 2);
 }
 
 // --- demo/intro.html: the short "what is Decklight" deck a newcomer opens
