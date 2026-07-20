@@ -37,6 +37,7 @@ import { readFileSync, writeFileSync, watch, existsSync, statSync } from 'node:f
 import { resolve, extname, sep, basename } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { agentCommand, detectAgents } from './agents.mjs';
+import { argReader, isMain } from '../tools/args.mjs';
 
 // file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
 // exactly like the tts bridge — so the endpoints are CORS-open. The server
@@ -202,7 +203,7 @@ export async function editMain(args) {
   --agent <name>   preferred AI agent for A (default: first one detected)`);
     return;
   }
-  const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
+  const { opt } = argReader(args);
   const port = Number(opt('--port', 8788));
   const root = process.cwd();
   const deckPath = resolve(root, args.find((a) => !a.startsWith('-')));
@@ -382,4 +383,4 @@ export async function editMain(args) {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) editMain(process.argv.slice(2));
+if (isMain(import.meta.url)) editMain(process.argv.slice(2));

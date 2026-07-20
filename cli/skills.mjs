@@ -28,6 +28,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { onPath } from './agents.mjs';
+import { makeFail } from './util.mjs';
+import { isMain } from '../tools/args.mjs';
 import {
   PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
@@ -64,10 +66,7 @@ export const TARGETS = {
   },
 };
 
-function fail(msg) {
-  process.stderr.write(`decklight skills: ${msg}\n`);
-  process.exit(1);
-}
+const fail = makeFail('skills');
 
 const HELP = `decklight skills — install the Decklight authoring skill for AI agents
 
@@ -229,4 +228,4 @@ export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath
   for (const w of written) process.stdout.write(`  ${w}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await skillsMain();
+if (isMain(import.meta.url)) await skillsMain();

@@ -28,6 +28,7 @@ import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
+import { argReader, isMain } from '../tools/args.mjs';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
@@ -74,8 +75,7 @@ const VALUE_FLAGS = new Set([
  * agents: [names the machine can run] }.
  */
 export function planServices({ args = [], env = process.env, hasBin = onPath } = {}) {
-  const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
-  const opts = (flag) => args.flatMap((a, i) => (a === flag ? [args[i + 1]] : []));
+  const { opt, opts } = argReader(args);
   const has = (flag) => args.includes(flag);
   const pass = (flag) => (opt(flag) !== undefined ? [flag, opt(flag)] : []);
 
@@ -271,4 +271,4 @@ export async function devMain(args) {
   process.on('SIGTERM', () => shutdown(0));
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) devMain(process.argv.slice(2));
+if (isMain(import.meta.url)) devMain(process.argv.slice(2));

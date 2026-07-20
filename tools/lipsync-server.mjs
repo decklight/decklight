@@ -39,6 +39,7 @@ import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import { normalizeRhubarb } from './visemes.mjs';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
+import { argReader, isMain } from './args.mjs';
 
 const run = promisify(execFile);
 
@@ -83,8 +84,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
 --veo-face-y up (~0.22) for such a portrait, or feed it one with headroom.`);
     return;
   }
-  const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
-  const opts = (flag) => args.flatMap((a, i) => (a === flag ? [args[i + 1]] : []));
+  const { opt, opts } = argReader(args);
   const port = Number(opt('--port', 8789));
   const rhubarb = opt('--rhubarb', 'rhubarb');
   const python = opt('--python', 'python3');
@@ -304,4 +304,4 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   return server;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) lipsyncMain(process.argv.slice(2));
+if (isMain(import.meta.url)) lipsyncMain(process.argv.slice(2));

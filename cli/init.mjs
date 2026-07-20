@@ -38,15 +38,12 @@ import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
 import { escapeHtml, inGitRepo, createRepo } from './edit.mjs';
+import { makeFail, scriptSafe } from './util.mjs';
+import { isMain } from '../tools/args.mjs';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
-function fail(msg) {
-  process.stderr.write(`decklight init: ${msg}\n`);
-  process.exit(1);
-}
-
-const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\u0021--');
+const fail = makeFail('init');
 
 /**
  * Is this HTML a decklight deck, and which runtime does it carry?
@@ -420,4 +417,4 @@ unless --no-skill is given. The deck file is only touched with --force.
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) await initMain();
+if (isMain(import.meta.url)) await initMain();

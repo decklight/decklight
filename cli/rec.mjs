@@ -25,7 +25,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { makeFail } from './util.mjs';
+import { isMain } from '../tools/args.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -40,10 +41,7 @@ const READY_MARK = `${GS}DECKLIGHT-READY${GS}`;
 
 // ---------------------------------------------------------------- utilities
 
-function fail(msg) {
-  process.stderr.write(`decklight rec: ${msg}\n`);
-  process.exit(1);
-}
+const fail = makeFail('rec');
 
 function loadDeps() {
   let yaml, pty;
@@ -541,5 +539,4 @@ export async function recMain(argv = process.argv.slice(2)) {
 
 // Import-safe: only run the CLI when executed directly (recordScript and
 // exportAsciicast are importable for tests/tooling).
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) recMain().catch(e => fail(e.message));
+if (isMain(import.meta.url)) recMain().catch(e => fail(e.message));

@@ -28,6 +28,7 @@
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { createEngine, ENGINES } from './tts-engines.mjs';
+import { argReader, isMain } from './args.mjs';
 
 export async function ttsMain(args) {
   if (args.includes('--help')) {
@@ -43,7 +44,7 @@ export async function ttsMain(args) {
   project also read from $GOOGLE_CLOUD_PROJECT (gemini and chirp only)`);
     return;
   }
-  const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
+  const { opt } = argReader(args);
   const port = Number(opt('--port', 8787));
   const engineName = opt('--engine', 'gemini');
   if (!ENGINES.includes(engineName)) {
@@ -161,4 +162,4 @@ export async function ttsMain(args) {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) ttsMain(process.argv.slice(2));
+if (isMain(import.meta.url)) ttsMain(process.argv.slice(2));

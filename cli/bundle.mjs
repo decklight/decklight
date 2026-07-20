@@ -30,24 +30,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { makeFail, scriptSafe } from './util.mjs';
+import { isMain } from '../tools/args.mjs';
 
-function fail(msg) {
-  process.stderr.write(`decklight bundle: ${msg}\n`);
-  process.exit(1);
-}
-
-// Inline <script> content must never contain "</script" (terminates the tag)
-// NOR "<!--" (flips the HTML tokenizer into script-data-escaped mode, after
-// which closers mis-parse — marked's comment regexes contain it). "\/" is an
-// identity escape everywhere. "<!--" is broken by rewriting the bang as a
-// backslash-u0021 unicode escape, NOT as backslash-bang: the latter is fine
-// in strings and flagless regexes but an INVALID escape inside u-flagged
-// regexes — highlight.js composes its XML grammar's comment regex with /imu
-// the first time a deck highlights language-html, which turned the old
-// escape into a lazy SyntaxError. The unicode escape is valid in strings,
-// templates, JSON, and regexes with or without the u flag.
-const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\u0021--');
-const jsonSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\u0021--');
+const fail = makeFail('bundle');
 
 const escAttr = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
@@ -381,7 +367,7 @@ html = html.replace(
     const m = attrs.match(/\bdata-cast=["']([^"']+)["']/);
     if (!m) return tag; // data-cast-inline (or no cast) passes through
     const id = `bundled-cast-${++castN}`;
-    const json = jsonSafe(read(m[1]));
+    const json = scriptSafe(read(m[1]));
     embeds.push(`<script type="application/json" id="${id}">\n${json}\n</script>`);
     return tag.replace(m[0], `data-cast-inline="#${id}"`);
   });
@@ -410,7 +396,7 @@ html = html.replace(
         }
         seen.add(vm[1]);
         embeds.push(`<script type="application/json" data-decklight-visemes="slide-${vm[1]}">\n`
-          + `${jsonSafe(fs.readFileSync(path.join(abs, f), 'utf8'))}\n</script>`);
+          + `${scriptSafe(fs.readFileSync(path.join(abs, f), 'utf8'))}\n</script>`);
       } else if (/^slide-\d+\.mp4$/.test(f)) mp4s++;
     }
     if (mp4s) {
@@ -447,6 +433,4 @@ process.stdout.write(`bundled ${what} → ${outPath} (${kb} KB, themes: ${themeN
 for (const n of notices) process.stdout.write(`note: ${n}\n`);
 }
 
-import { fileURLToPath } from 'node:url';
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) bundleMain().catch((e) => fail(e.message));
+if (isMain(import.meta.url)) bundleMain().catch((e) => fail(e.message));

@@ -40,11 +40,12 @@ import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createEngine } from './tts-engines.mjs';
+import { argReader } from './args.mjs';
 
 const args = process.argv.slice(2);
 const deckPath = args.find((a) => !a.startsWith('-'));
 if (!deckPath) { console.error('usage: voiceover.mjs <deck.html> [-o dir] [--engine piper|gemini] [--voice name] [--no-llm] [--reuse-text]'); process.exit(1); }
-const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
+const { opt } = argReader(args);
 const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
 const engine = opt('--engine', 'piper');
 const voice = opt('--voice', engine === 'piper' ? 'en_US-ryan-high' : 'Alnilam');

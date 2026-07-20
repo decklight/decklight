@@ -30,6 +30,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { chromeBin, chromeArgs } from './chrome.mjs';
+import { argReader } from './args.mjs';
 
 const run = promisify(execFile);
 
@@ -177,7 +178,7 @@ const have = (bin) => {
 };
 
 export async function videoMain(argv, { exec = run, log = console.log } = {}) {
-  const opt = (flag, dflt) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : dflt; };
+  const { opt } = argReader(argv);
   const deckArg = argv.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
   if (argv.includes('--help') || !deckArg) {
     (deckArg ? process.stdout : process.stderr).write(HELP);

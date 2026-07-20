@@ -24,9 +24,10 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { chromeBin, chromeArgs } from './chrome.mjs';
+import { argReader } from './args.mjs';
 
 const args = process.argv.slice(2);
-const opt = (flag, dflt) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 1] : dflt; };
+const { opt } = argReader(args);
 const page = args.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
 if (!page || args.includes('--help')) {
   console.error('usage: shot.mjs <deck.html> -o shot.png [--size 1280x720] [--wait 1500]'
