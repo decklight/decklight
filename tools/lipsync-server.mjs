@@ -33,13 +33,13 @@
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, renameSync, readdirSync, statSync, copyFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, statSync, copyFileSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
-import { normalizeRhubarb } from './visemes.mjs';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader, isMain } from './args.mjs';
+import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 
 const run = promisify(execFile);
@@ -172,11 +172,10 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
       const tmpTxt = join(cacheDir, `${key}.tmp.txt`);
       const tmpOut = join(cacheDir, `${key}.tmp.json`);
       writeFileSync(tmpWav, wav);
-      const dialog = text.trim() ? (writeFileSync(tmpTxt, text), ['--dialogFile', tmpTxt]) : [];
+      if (text.trim()) writeFileSync(tmpTxt, text);
       try {
         const t0 = Date.now();
-        await run(rhubarb, ['-f', 'json', '-o', tmpOut, '--machineReadable', ...dialog, tmpWav], { timeout: 120000 });
-        const tl = normalizeRhubarb(JSON.parse(readFileSync(tmpOut, 'utf8')));
+        const tl = await runRhubarb(rhubarb, { wav: tmpWav, dialogFile: text.trim() ? tmpTxt : undefined, out: tmpOut, timeout: 120000 });
         writeFileSync(out, JSON.stringify(tl));
         console.log(`  viseme: ${(wav.length / 1024).toFixed(0)} KB wav → ${tl.cues.length} cues · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       } finally {
@@ -217,25 +216,17 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
           // big to run face detection on GPU" — which it will do on an 8 GB card
           // that a desktop is already using half of. Batch small instead: the
           // clip is short, and the GPU queue is serial anyway.
-          const batches = face === still ? [] : ['--face_det_batch_size', '4', '--wav2lip_batch_size', '32'];
-          await run(python, ['inference.py', '--checkpoint_path', resolve(wav2lipCkpt),
-            '--face', face, '--audio', tmpWav, '--outfile', tmpMp4, ...batches],
-          { cwd: resolve(wav2lipDir), timeout: 600000, maxBuffer: 64 * 1024 * 1024 });
+          await runWav2lip(python, { dir: wav2lipDir, checkpoint: wav2lipCkpt, face,
+            wav: tmpWav, out: tmpMp4, smallBatches: face !== still, timeout: 600000 });
         } else {
-          mkdirSync(tmpDir, { recursive: true });
-          await run(python, ['inference.py', '--driven_audio', tmpWav,
-            '--source_image', face, '--result_dir', tmpDir],
-          { cwd: resolve(sadtalkerDir), timeout: 1800000, maxBuffer: 64 * 1024 * 1024 });
-          // SadTalker writes <timestamp>/….mp4 into result_dir — take the newest
-          const found = [];
-          const walk = (d) => { for (const f of readdirSync(d)) { const p = join(d, f); const s = statSync(p); if (s.isDirectory()) walk(p); else if (f.endsWith('.mp4')) found.push([s.mtimeMs, p]); } };
-          walk(tmpDir);
-          if (!found.length) throw new Error('sadtalker produced no mp4');
-          renameSync(found.sort((a, b) => b[0] - a[0])[0][1], tmpMp4);
+          // SadTalker writes <timestamp>/….mp4 into result_dir — runSadtalker
+          // takes the newest and moves it to tmpMp4.
+          await runSadtalker(python, { dir: sadtalkerDir, still: face,
+            wav: tmpWav, out: tmpMp4, resultDir: tmpDir, timeout: 1800000 });
         }
         // strip the audio track (playback is muted — narrAudio is the voice)
         // and front-load the moov atom so the player can start instantly
-        if (ffmpegOk) await run('ffmpeg', ['-y', '-i', tmpMp4, '-an', '-movflags', '+faststart', '-c:v', 'copy', out], { timeout: 120000 });
+        if (ffmpegOk) await muteFaststart(tmpMp4, out, { timeout: 120000 });
         else copyFileSync(tmpMp4, out);
         console.log(`${((Date.now() - t0) / 1000).toFixed(1)}s → ${(statSync(out).size / 1024).toFixed(0)} KB`);
       } finally {
