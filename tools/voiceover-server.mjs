@@ -29,6 +29,7 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { createEngine, ENGINES } from './tts-engines.mjs';
 import { argReader, isMain } from './args.mjs';
+import { corsHeaders, readBody } from './bridge.mjs';
 
 export async function ttsMain(args) {
   if (args.includes('--help')) {
@@ -72,13 +73,8 @@ export async function ttsMain(args) {
 
   const cache = new Map();
 
-  const CORS = {
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'content-type',
-    // the player reads the cost estimate for its debug window
-    'access-control-expose-headers': 'x-tts-cost, x-tts-tokens, x-tts-cached',
-  };
+  // the player reads the cost estimate for its debug window
+  const CORS = corsHeaders('x-tts-cost, x-tts-tokens, x-tts-cached');
   let totalCost = 0;
   let totalChars = 0;
 
@@ -100,11 +96,7 @@ export async function ttsMain(args) {
     }
     if (req.method === 'POST' && req.url === '/tts') {
       try {
-        // body read INSIDE the try: a client abort mid-request rejects the
-        // stream, and outside the try it would crash the whole bridge
-        let body = '';
-        for await (const chunk of req) body += chunk;
-        const { text, voice, style } = JSON.parse(body);
+        const { text, voice, style } = JSON.parse((await readBody(req)).toString());
         if (!text?.trim()) { res.writeHead(400, CORS); return res.end('no text'); }
         // NUL joins the fields so they cannot run together (a style ending in a
         // space and a text starting with one must not hash like their neighbours)
