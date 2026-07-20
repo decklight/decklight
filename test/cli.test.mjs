@@ -10,22 +10,17 @@ import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { resolveTitle, planGit, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
+// `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
+// recording test when they're absent (e.g. CI installs with --omit=optional).
+import { optionalDepSkip as recSkip } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
-
-// `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
-// recording test when they're absent (e.g. CI installs with --omit=optional).
-const require = createRequire(import.meta.url);
-let recSkip = false;
-try { require.resolve('node-pty'); require.resolve('js-yaml'); }
-catch { recSkip = 'node-pty/js-yaml not installed (optional deps)'; }
 
 test('global help lists all subcommands with runnable examples', () => {
   const out = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });

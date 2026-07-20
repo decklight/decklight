@@ -7,19 +7,15 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+// The whole recording suite drives rec, which needs node-pty (native) +
+// js-yaml — both optional deps. Skip it when they're absent (e.g. CI installs
+// with --omit=optional) rather than fail on a missing native toolchain.
+import { optionalDepSkip as recSkip } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(here, '..', 'cli', 'rec.mjs');
 
-// The whole recording suite drives rec, which needs node-pty (native) +
-// js-yaml — both optional deps. Skip it when they're absent (e.g. CI installs
-// with --omit=optional) rather than fail on a missing native toolchain.
-const require = createRequire(import.meta.url);
-let recSkip = false;
-try { require.resolve('node-pty'); require.resolve('js-yaml'); }
-catch { recSkip = 'node-pty/js-yaml not installed (optional deps)'; }
 const test = (name, fn) => baseTest(name, { skip: recSkip }, fn);
 
 // Record under zsh when it's present (macOS default — exercises the

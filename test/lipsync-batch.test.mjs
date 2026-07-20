@@ -8,21 +8,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { winShellSkip as winSkip, writeRhubarbStub } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TOOL = path.resolve(here, '../tools/lipsync.mjs');
-const winSkip = process.platform === 'win32' ? 'stub rhubarb is a shell script' : false;
-
 test('batch visemes: generates sidecars, second run keeps them, edits invalidate', { skip: winSkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-lipsync-batch-'));
-  const fixture = path.join(here, 'fixtures', 'rhubarb-out.json');
-  const stub = path.join(dir, 'rhubarb');
-  fs.writeFileSync(stub, `#!/bin/sh
-[ "$1" = "--version" ] && { echo "Rhubarb stub"; exit 0; }
-out=""; prev=""
-for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
-cp "${fixture}" "$out"
-`, { mode: 0o755 });
+  const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));
 
   // a fake ⇧V-style voiceover set: two wav slides, one with a transcript
   const vo = path.join(dir, 'voiceover');
