@@ -134,8 +134,12 @@ export function createSynth({ project, ttsModel, location } = {}) {
   return async function synth(text, { voice = 'Alnilam', style = '' } = {}) {
     token ??= gcloudToken();
     const prompt = styledPrompt(style, text);
+    // An explicit --tts-model is a price ceiling: try only that model (both
+    // locations), never fall through to a different, costlier one. The
+    // pro/pro-preview pair is a fallback only when NO model was requested.
+    const models = ttsModel ? [ttsModel] : ['gemini-2.5-pro-tts', 'gemini-2.5-pro-preview-tts'];
     const routes = route ? [route]
-      : [ttsModel ?? 'gemini-2.5-pro-tts', 'gemini-2.5-pro-preview-tts']
+      : models
         .flatMap((m) => [location ?? 'global', 'us-central1'].map((l) => ({ model: m, location: l })))
         .filter((r, i, a) => a.findIndex((x) => x.model === r.model && x.location === r.location) === i);
     let lastErr;

@@ -257,6 +257,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
         await exec(chrome, chromeArgs(
           '--hide-scrollbars',
           '--allow-file-access-from-files',
+          '--autoplay-policy=no-user-gesture-required',
           `--window-size=${w},${h}`,
           '--virtual-time-budget=1500',
           `--screenshot=${frame}`,
