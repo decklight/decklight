@@ -39,15 +39,12 @@ import { spawn } from 'node:child_process';
 import { agentCommand, detectAgents } from './agents.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
+import { corsHeaders } from '../tools/bridge.mjs';
 
 // file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
 // exactly like the tts bridge — so the endpoints are CORS-open. The server
 // still binds 127.0.0.1 only.
-const CORS = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, POST, OPTIONS',
-  'access-control-allow-headers': 'content-type',
-};
+const CORS = corsHeaders();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

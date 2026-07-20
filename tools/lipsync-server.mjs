@@ -40,6 +40,7 @@ import { promisify } from 'node:util';
 import { normalizeRhubarb } from './visemes.mjs';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader, isMain } from './args.mjs';
+import { corsHeaders, readBody } from './bridge.mjs';
 
 const run = promisify(execFile);
 
@@ -245,12 +246,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     return { body: readFileSync(out), cached: false };
   }
 
-  const CORS = {
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
-    'access-control-allow-headers': 'content-type',
-    'access-control-expose-headers': 'x-lipsync-cached',
-  };
+  const CORS = corsHeaders('x-lipsync-cached');
 
   const server = createServer(async (req, res) => {
     if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
@@ -267,11 +263,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     }
     if (req.method === 'POST' && (url.pathname === '/viseme' || url.pathname === '/video')) {
       try {
-        // body read INSIDE the try: a client abort mid-request rejects the
-        // stream, and outside the try it would crash the whole bridge
-        const chunks = [];
-        for await (const c of req) chunks.push(c);
-        const wav = Buffer.concat(chunks);
+        const wav = await readBody(req);
         if (wav.length < 44) { res.writeHead(400, CORS); return res.end('no audio'); }
         const out = url.pathname === '/viseme'
           ? await visemes(wav, url.searchParams.get('text') ?? '')
