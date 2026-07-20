@@ -43,7 +43,7 @@ export function luminance([r, g, b]) {
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
-export function contrast(c1, c2) {
+function contrast(c1, c2) {
   const [l1, l2] = [luminance(c1), luminance(c2)].sort((a, b) => b - a);
   return (l1 + 0.05) / (l2 + 0.05);
 }

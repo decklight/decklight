@@ -32,7 +32,7 @@
  * cycles it from there.
  */
 
-import { AnsiScreen, spansToHtml, escapeHtml } from './ansi.mjs';
+import { AnsiScreen, escapeHtml } from './ansi.mjs';
 
 const DEFAULT_VISIBLE_ROWS = 24;
 
@@ -576,7 +576,6 @@ class TerminalController {
     // Poster steps arrive pre-rendered and are excluded from the build
     // sequence: provider count = playable - poster, apply(i) shows poster+i.
     const poster = Math.min(Math.max(parseInt(this.el.dataset.poster || '0', 10) || 0, 0), steps.length);
-    this.poster = poster;
     this.applied = poster;
     this._renderComplete(poster);
     if (!Decklight || typeof Decklight.registerBuildProvider !== 'function') {

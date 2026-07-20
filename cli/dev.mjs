@@ -29,8 +29,6 @@ import { onPath, detectAgents } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
 
-export { onPath }; // historical home — dev grew it, agents.mjs owns it now
-
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
 const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
