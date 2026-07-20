@@ -12,6 +12,7 @@
  *   decklight publish  bundle a deck and push it to a gh-pages branch
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
+ *   decklight video    render a deck to a narrated mp4 (stills + voiceover audio)
  *
  * The subcommand implementations live in rec.mjs and
  * bundle.mjs (importable modules; direct execution still works but
@@ -46,6 +47,8 @@ Commands:
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
   lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)
            EXAMPLE: decklight lipsync    (then pick "Character…" in the deck's / palette)
+  video    render the deck to ONE narrated mp4 — a still per slide, held for its narration audio
+           EXAMPLE: decklight video deck.html -o deck.mp4   (add --voiceover to synthesize first)
   edit     serve the deck with live reload; E in the player edits speaker notes back into the file
            EXAMPLE: decklight edit demo/showcase.html   (then open the printed URL)
   dev      one command for the whole loop: edit + every bridge this machine can run, one Ctrl-C
@@ -126,6 +129,11 @@ switch (cmd) {
   case 'lipsync': {
     const { lipsyncMain } = await import('../tools/lipsync-server.mjs');
     await lipsyncMain(rest);
+    break;
+  }
+  case 'video': {
+    const { videoMain } = await import('../tools/video.mjs');
+    await videoMain(rest);
     break;
   }
   case 'edit': {
