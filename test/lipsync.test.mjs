@@ -10,23 +10,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lipsyncMain } from '../tools/lipsync-server.mjs';
+import { winShellSkip as winSkip, writeRhubarbStub } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const winSkip = process.platform === 'win32' ? 'stub rhubarb is a shell script' : false;
 
 let dir, server, base;
 if (!winSkip) {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-lipsync-'));
-  // a stub rhubarb: answers --version, and copies the checked-in fixture to
-  // whatever -o names — the bridge should normalize + cache it
-  const fixture = path.join(here, 'fixtures', 'rhubarb-out.json');
-  const stub = path.join(dir, 'rhubarb');
-  fs.writeFileSync(stub, `#!/bin/sh
-[ "$1" = "--version" ] && { echo "Rhubarb stub"; exit 0; }
-out=""; prev=""
-for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
-cp "${fixture}" "$out"
-`, { mode: 0o755 });
+  // a stub rhubarb copies the checked-in fixture to whatever -o names — the
+  // bridge should normalize + cache it
+  const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));
   server = await lipsyncMain(['--port', '0', '--rhubarb', stub, '--cache-dir', path.join(dir, 'cache')]);
   await new Promise((r) => server.on('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
