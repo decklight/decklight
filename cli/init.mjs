@@ -7,7 +7,8 @@
  * Code (and any AGENTS.md-reading agent) knows the authoring contract
  * without a web search or a guess from Reveal.js memory.
  *
- *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
+ *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …]
+ *                  [--git | --no-git] [--open] [--force] [--no-skill]
  *
  * Run bare in a terminal it asks one question — the deck's title — with
  * "My Deck" as the default; a title argument (or a non-TTY run) never prompts.
@@ -18,17 +19,27 @@
  * ship a narrower set. The skill is regenerated every run (it's derived, not
  * authored content) so re-running after an upgrade refreshes it; the deck
  * file is only touched with --force.
+ *
+ * init ends like the start of an authoring session: outside a repository it
+ * offers `git init` (the same question `decklight dev` asks, at the natural
+ * moment — the repo starts with the shared starter .gitignore), prints an
+ * accent-colored epilogue — the deck's file:// URL and the `decklight dev`
+ * line — and on a TTY offers to hand off to dev right away. `--open` launches
+ * the deck in the default browser (the file IS the presentation).
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 
 import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
-import { escapeHtml } from './edit.mjs';
+import { escapeHtml, inGitRepo, createRepo } from './edit.mjs';
+
+const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
 function fail(msg) {
   process.stderr.write(`decklight init: ${msg}\n`);
@@ -85,6 +96,113 @@ export async function resolveTitle(arg, { isTTY = false, ask } = {}) {
   if (!isTTY) return 'My Deck';
   const answer = (await ask('deck title [My Deck]: ')).trim();
   return answer || 'My Deck';
+}
+
+// ── git: offer the repository at the natural moment ─────────────────────────
+// The same policy `decklight dev` applies later, decided here as a pure
+// function so the table (--git / --no-git / TTY / repo-present) is testable
+// without a repository or a terminal. `forward` is what the dev handoff
+// passes down so the player is never asked the git question twice.
+export function planGit({ args = [], tty = false, inRepo = false } = {}) {
+  if (args.includes('--no-git')) return { action: 'skip', forward: '--no-git' };
+  if (args.includes('--git')) return { action: inRepo ? 'skip' : 'create', forward: '--git' };
+  if (inRepo) return { action: 'skip', forward: null };
+  return { action: tty ? 'ask' : 'hint', forward: null };
+}
+
+/**
+ * Create the repository (via the shared createRepo seam, so it starts with
+ * the starter .gitignore) and commit everything init just wrote. The deck is
+ * the product: every failure is reported as a one-line note, never an exit.
+ * No Signed-off-by and no identity fallback — the commit is the player's, so
+ * a machine with no identity leaves the files staged and says so.
+ */
+export function initRepo(root, { exec = execFileSync, mkRepo = createRepo } = {}) {
+  const git = (a) => exec('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const oneline = (e) => String(e.stderr || e.message || e).replace(/\s+/g, ' ').trim().slice(0, 160);
+  let seeded = false;
+  try { seeded = mkRepo(root); } catch (e) { return `  git: init failed — ${oneline(e)}`; }
+  const created = `repository created${seeded ? ' (with a starter .gitignore)' : ''}`;
+  try { git(['add', '-A']); } catch (e) { return `  git: add failed — ${oneline(e)}`; }
+  try {
+    git(['commit', '-m', 'decklight init']);
+    return `  git: ${created}, everything committed`;
+  } catch (e) {
+    if (/user\.(name|email)|tell me who you are|auto-detect/i.test(String(e.stderr || e))) {
+      return `  git: ${created}; no identity configured — files staged, commit once git config user.name/user.email is set`;
+    }
+    return `  git: commit failed — ${oneline(e)} (the files are staged)`;
+  }
+}
+
+// ── epilogue: the player's next action, one click or one paste away ─────────
+const ACCENT = '\x1b[36m';
+const DIM = '\x1b[2m';
+const RESET = '\x1b[0m';
+
+/** OSC 8 hyperlink — progressive enhancement: the URL is always the text. */
+const osc8 = (url) => `\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`;
+
+/**
+ * The colored "next steps" block init ends with. Pure: every environment
+ * input is a parameter. Escape codes (color AND the OSC 8 link) appear only
+ * on a TTY without NO_COLOR — piped output is plain text, and the raw URL is
+ * always present so copy-paste works everywhere.
+ */
+export function epilogue({ deckPath, tty = false, noColor = false }) {
+  const color = tty && !noColor;
+  const a = (s) => (color ? `${ACCENT}${s}${RESET}` : s);
+  const url = pathToFileURL(deckPath).href;
+  const deck = path.relative('.', deckPath) || deckPath;
+  return [
+    '',
+    `  ${a('open to present')}   ${color ? osc8(url) : url}`,
+    `  ${a('start editing')}     decklight dev ${deck}`,
+    '',
+  ].join('\n') + '\n';
+}
+
+// ── --open: hand the deck's file:// URL to the platform launcher ────────────
+
+/**
+ * Platform → launcher invocation for a URL, as pure data so it can be tested
+ * without spawning anything. macOS ships `open`; Windows goes through cmd's
+ * `start` builtin (the empty '' fills the window-title slot, or the URL would
+ * become the title); everything else gets freedesktop's xdg-open. Zero new
+ * dependencies by design.
+ */
+export function openCommand(platform, url) {
+  if (platform === 'darwin') return { cmd: 'open', args: [url] };
+  if (platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', url] };
+  return { cmd: 'xdg-open', args: [url] };
+}
+
+/**
+ * Launch the default browser on the deck's file:// URL — the deck is
+ * self-contained, so the file IS the presentation. Spawned detached with
+ * stdio ignored (the dev.mjs idiom) so init exits promptly. A machine that
+ * cannot launch (headless, no xdg-open) gets one dim line and a normal exit:
+ * the deck was created, which is the product.
+ */
+export async function openDeck(deckPath, { platform = process.platform, spawnFn = spawn, out = process.stdout } = {}) {
+  const url = pathToFileURL(deckPath).href;
+  const { cmd, args } = openCommand(platform, url);
+  const rel = path.relative('.', deckPath) || deckPath;
+  const dim = (s) => (out.isTTY && !process.env.NO_COLOR ? `${DIM}${s}${RESET}` : s);
+  const skipped = (err) =>
+    out.write(dim(`--open: could not launch a browser (${cmd}: ${err.code ?? err.message}) — open ${rel} yourself\n`));
+  await new Promise((resolve) => {
+    let child;
+    try {
+      child = spawnFn(cmd, args, { stdio: 'ignore', detached: true });
+    } catch (err) { skipped(err); resolve(); return; }
+    child.once('error', (err) => { skipped(err); resolve(); });
+    child.once('spawn', () => {
+      child.unref();
+      out.write(`opening ${rel} in your default browser\n`);
+      resolve();
+    });
+  });
 }
 
 function starterDeck(title, themeNames, activeTheme) {
@@ -147,7 +265,8 @@ export async function initMain(argv = process.argv.slice(2)) {
     process.stdout.write(`decklight init — scaffold a starter deck + agent skill
 
 Usage:
-  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …] [--force] [--no-skill]
+  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …]
+                 [--git | --no-git] [--open] [--force] [--no-skill]
 
 Options:
   -o <file>       deck output path (default: deck.html)
@@ -156,6 +275,12 @@ Options:
                     all           every shipped theme (default)
                     name,name,…   an explicit list (aurora stays active when
                                   included, else the first listed)
+  --git           create a git repository (with a starter .gitignore) and
+                  commit everything init wrote
+                  (outside a repo + no flag: init ASKS on a TTY)
+  --no-git        never touch git
+  --open          open the scaffolded deck in your default browser
+                  (the deck is self-contained — the file is the presentation)
   --force         overwrite an existing deck file (default: refuses)
   --no-skill      skip .claude/skills/decklight/ and AGENTS.md
 
@@ -169,7 +294,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     process.exit(0);
   }
 
-  let title = null, outFile = 'deck.html', dir = '.', force = false, withSkill = true, themesSel = 'all';
+  let title = null, outFile = 'deck.html', dir = '.', force = false, withSkill = true, themesSel = 'all', openAfter = false;
   const args = [...argv];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -177,22 +302,49 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--dir') dir = args[++i];
     else if (a === '--themes') themesSel = args[++i];
     else if (a === '--force') force = true;
+    else if (a === '--open') openAfter = true;
     else if (a === '--no-skill') withSkill = false;
+    else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
-  title = await resolveTitle(title, {
-    isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-    ask: async (q) => {
-      const rl = createInterface({ input: process.stdin, output: process.stdout });
-      try { return await rl.question(q); } finally { rl.close(); }
-    },
-  });
+
+  // ONE readline interface for every question this run asks (title, git,
+  // handoff). Lines arriving BETWEEN questions (answers typed ahead) are
+  // buffered — readline drops them otherwise — and EOF/Ctrl-D at any prompt
+  // keeps the default / declines, never throws.
+  const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const rl = tty ? createInterface({ input: process.stdin, output: process.stdout }) : null;
+  const typedAhead = [];
+  rl?.on('line', (l) => typedAhead.push(l)); // only fires with no question pending
+  let stdinGone = false;
+  rl?.once('close', () => { stdinGone = true; });
+  const question = (q) => {
+    if (typedAhead.length) {
+      const answer = typedAhead.shift();
+      process.stdout.write(q + answer + '\n'); // the transcript still records the decision
+      return Promise.resolve(answer);
+    }
+    if (!rl || stdinGone) return Promise.resolve('');
+    // rl.question's promise never settles when the input ends mid-question
+    // (observed on Node 20), so the close event doubles as the empty answer
+    return new Promise((res) => {
+      rl.once('close', () => res(''));
+      rl.question(q).then(res, () => res(''));
+    });
+  };
+  const askYes = async (q) => !/^n/i.test((await question(q)).trim());
+
+  title = await resolveTitle(title, { isTTY: tty, ask: question });
   const themeNames = resolveThemes(themesSel);
   const activeTheme = themeNames.includes(STARTER_THEME) ? STARTER_THEME : themeNames[0];
 
   const root = path.resolve(dir);
   fs.mkdirSync(root, { recursive: true });
+
+  // status lines are dim so the epilogue's accent reads as THE next step
+  const color = !!process.stdout.isTTY && !process.env.NO_COLOR;
+  const note = (s) => process.stdout.write(color ? `${DIM}${s}${RESET}\n` : `${s}\n`);
 
   const deckPath = path.resolve(root, outFile);
   if (fs.existsSync(deckPath) && !force) {
@@ -212,31 +364,59 @@ unless --no-skill is given. The deck file is only touched with --force.
   const themeNote = themeNames.length === 1
     ? `theme: ${themeNames[0]}`
     : `${themeNames.length} themes, ${activeTheme} active`;
-  process.stdout.write(`created ${path.relative('.', deckPath) || outFile} (${themeNote})\n`);
+  note(`created ${path.relative('.', deckPath) || outFile} (${themeNote})`);
 
-  if (!withSkill) return;
+  if (withSkill) {
+    const skillDir = path.join(root, '.claude', 'skills', 'decklight');
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());
+    fs.writeFileSync(path.join(skillDir, 'reference.md'), referenceDoc());
+    note(`wrote .claude/skills/decklight/{SKILL.md,reference.md} (v${PKG.version})`);
 
-  const skillDir = path.join(root, '.claude', 'skills', 'decklight');
-  fs.mkdirSync(skillDir, { recursive: true });
-  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());
-  fs.writeFileSync(path.join(skillDir, 'reference.md'), referenceDoc());
-  process.stdout.write(`wrote .claude/skills/decklight/{SKILL.md,reference.md} (v${PKG.version})\n`);
-
-  const agentsPath = path.join(root, 'AGENTS.md');
-  const section = agentsSection();
-  if (!fs.existsSync(agentsPath)) {
-    fs.writeFileSync(agentsPath, `# Agent notes\n\n${section}`);
-    process.stdout.write('created AGENTS.md\n');
-  } else {
-    const existing = fs.readFileSync(agentsPath, 'utf8');
-    const markerRe = new RegExp(`${AGENTS_MARKER}[\\s\\S]*?${AGENTS_MARKER}\\n?`);
-    if (markerRe.test(existing)) {
-      fs.writeFileSync(agentsPath, existing.replace(markerRe, section));
-      process.stdout.write('refreshed the Decklight section in AGENTS.md\n');
+    const agentsPath = path.join(root, 'AGENTS.md');
+    const section = agentsSection();
+    if (!fs.existsSync(agentsPath)) {
+      fs.writeFileSync(agentsPath, `# Agent notes\n\n${section}`);
+      note('created AGENTS.md');
     } else {
-      fs.writeFileSync(agentsPath, existing.replace(/\n*$/, '\n\n') + section);
-      process.stdout.write('appended a Decklight section to AGENTS.md\n');
+      const existing = fs.readFileSync(agentsPath, 'utf8');
+      const markerRe = new RegExp(`${AGENTS_MARKER}[\\s\\S]*?${AGENTS_MARKER}\\n?`);
+      if (markerRe.test(existing)) {
+        fs.writeFileSync(agentsPath, existing.replace(markerRe, section));
+        note('refreshed the Decklight section in AGENTS.md');
+      } else {
+        fs.writeFileSync(agentsPath, existing.replace(/\n*$/, '\n\n') + section);
+        note('appended a Decklight section to AGENTS.md');
+      }
     }
+  }
+
+  // ── the git offer — dev's question, asked at the natural moment ──────────
+  const plan = planGit({ args: argv, tty, inRepo: inGitRepo(root) });
+  let { action, forward } = plan;
+  if (action === 'ask') {
+    forward = (await askYes('  create a git repository so your edits are auto-committed? [Y/n] '))
+      ? '--git' : '--no-git';
+    action = forward === '--git' ? 'create' : 'skip';
+  }
+  if (action === 'create') note(initRepo(root));
+  else if (action === 'hint') note('  git: no repository here — pass --git to create one and auto-commit the deck');
+
+  process.stdout.write(epilogue({ deckPath, tty: !!process.stdout.isTTY, noColor: !!process.env.NO_COLOR }));
+
+  // last of the writes, so every "created/wrote" line is on screen before the
+  // browser steals focus; opens the deck FILE, not a served URL — the deck is
+  // self-contained by design
+  if (openAfter) await openDeck(deckPath);
+
+  // ── the handoff — the served URL is the genuine click-to-edit link ───────
+  const editNow = tty && await askYes('start editing now? [Y/n] ');
+  rl?.close();
+  if (editNow) {
+    const child = spawn(process.execPath,
+      [CLI, 'dev', path.relative(root, deckPath), ...(forward ? [forward] : [])],
+      { cwd: root, stdio: 'inherit' });
+    process.exitCode = await new Promise((res) => child.on('exit', (code) => res(code ?? 0)));
   }
 }
 
