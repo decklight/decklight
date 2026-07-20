@@ -37,7 +37,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { gcloudToken } from './gemini-tts.mjs';
+import { gcloudToken, authHeaders } from './gemini-tts.mjs';
 
 const run = promisify(execFile);
 
@@ -98,11 +98,7 @@ export function createVeo({
                                 // lookahead prefetches cannot buy two clips
 
   async function generate(portrait) {
-    const headers = {
-      Authorization: `Bearer ${token()}`,
-      'x-goog-user-project': project,   // ADC is a user credential: bill the project
-      'Content-Type': 'application/json',
-    };
+    const headers = authHeaders(token(), project);
     const body = {
       instances: [{
         prompt,
@@ -135,7 +131,7 @@ export function createVeo({
           await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt));
           continue;
         }
-        if (res.status === 401 && attempt < 4) { headers.Authorization = `Bearer ${token()}`; continue; }
+        if (res.status === 401 && attempt < 4) { headers.authorization = `Bearer ${token()}`; continue; }
         if ((res.status === 429 || res.status >= 500) && attempt < 4) {
           await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt));
           continue;

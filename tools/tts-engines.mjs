@@ -28,7 +28,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId } from './gemini-tts.mjs';
+import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
 
 export const ENGINES = ['gemini', 'chirp', 'piper'];
 
@@ -45,11 +45,7 @@ function createChirp({ project, lang = 'en-US' }) {
   async function call(text, voice) {
     const res = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
       method: 'POST',
-      headers: {
-        authorization: `Bearer ${token}`,
-        'content-type': 'application/json',
-        'x-goog-user-project': project, // ADC is a user credential — bill/quota the project, not the user
-      },
+      headers: authHeaders(token, project),
       body: JSON.stringify({
         input: { text },
         voice: { languageCode: lang, name: chirpVoice(voice, lang) },
