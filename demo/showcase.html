@@ -554,6 +554,48 @@ Note: + Rehearse: inline
       </aside>
     </section>
 
+    <!-- 16b · background image -->
+    <section data-background-image="assets/sunrise.svg" data-background-dim="0.55">
+      <h2>Full-Bleed Backgrounds</h2>
+      <p>One attribute on the section — the deck does the rest</p>
+      <ul data-build>
+        <li><code>data-background-image</code> — cover by default; <code>contain</code> and position on demand</li>
+        <li><code>data-background-dim</code> — a canvas-colored wash keeps the text readable</li>
+        <li><code>class="full-bleed"</code> on any <code>&lt;img&gt;</code> — the same treatment for content images</li>
+        <li><code>decklight bundle</code> inlines backgrounds like every other image</li>
+      </ul>
+      <aside class="notes">
+        <p>Sometimes a slide wants a photograph behind it — edge to edge, like every keynote you've ever admired. That's one attribute now: data-background-image, right on the section. What's glowing behind these words is exactly that.</p><p>⟨CLICK⟩</p><p>Cover by default, so the image fills the frame. Ask for contain, or a position, when the crop matters.</p><p>⟨CLICK⟩</p><p>And because white text over a bright sky is a crime against the back row, data-background-dim lays a canvas-colored wash between the photo and the words. This slide is wearing one right now.</p><p>⟨CLICK⟩</p><p>Content images get the same trick: class full-bleed on an img covers the slide, and split layouts cap a tall photo before it blows the frame.</p><p>⟨CLICK⟩</p><p>Bundling? Backgrounds inline as data URIs like every other image. One file, photo included.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>One attribute = full-bleed</p>
+        <p>⟨CLICK⟩</p><p>cover / contain / position</p>
+        <p>⟨CLICK⟩</p><p>dim = readable text</p>
+        <p>⟨CLICK⟩</p><p>full-bleed imgs, split caps</p>
+        <p>⟨CLICK⟩</p><p>bundle inlines it</p>
+      </aside>
+    </section>
+
+    <!-- 16c · background video -->
+    <section data-background-video="assets/clip.mp4" data-background-poster="assets/clip-poster.jpg" data-background-dim="0.35">
+      <h2>Background Video</h2>
+      <p>Muted, looping — and honest about print</p>
+      <ul data-build>
+        <li>Plays while the slide is active — <em>paused for real</em> when you move on</li>
+        <li><code>data-background-poster</code> — the still that stands in under <code>?print</code></li>
+        <li>Bundles keep the clip external — same policy as character video</li>
+      </ul>
+      <aside class="notes">
+        <p>And yes, video. The drift behind this slide is a real mp4: muted, looping, playing inline — all the attributes you'd forget to type. The deck types them for you.</p><p>⟨CLICK⟩</p><p>It plays while the slide is on stage, and it gets paused — actually paused, not just hidden — the moment you move on. Your fans stay quiet.</p><p>⟨CLICK⟩</p><p>Print is a still world, so print gets a still: the poster renders as the background and no video element is ever created. Your PDF does not buffer.</p><p>⟨CLICK⟩</p><p>And bundling keeps the clip external, with a note telling you so — inlining fifty megabytes of video into an HTML file helps nobody. Same policy as the character's clips.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Real mp4 — muted, looping</p>
+        <p>⟨CLICK⟩</p><p>paused for real off-stage</p>
+        <p>⟨CLICK⟩</p><p>?print = poster still</p>
+        <p>⟨CLICK⟩</p><p>bundle keeps it external</p>
+      </aside>
+    </section>
+
     <!-- 17 · CLI & bundling -->
     <section data-transition="flip">
       <h2>One File to Ship</h2>

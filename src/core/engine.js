@@ -16,6 +16,7 @@ import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { createCharacter, concatTimelines } from './character.js';
 import { buildPrintPages } from './print.js';
 import { createAnnotator } from './annotate.js';
+import { setupMedia } from './media.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -61,7 +62,7 @@ export function registerBuildProvider(el, provider) {
  */
 function leadingHeading(section) {
   for (const el of section.children) {
-    if (el.matches('aside, script, style, .decklight-hero-logo')) continue;
+    if (el.matches('aside, script, style, .decklight-hero-logo, .slide-bg')) continue;
     return el.matches('h1, h2') ? el : null;
   }
   return null;
@@ -157,7 +158,7 @@ function setupPinnedTitles(sections, config) {
  */
 function splitContent(sec) {
   return [...sec.children].filter((el) =>
-    !el.matches('h1, h2, .subtitle, aside, script, style, .decklight-hero-logo'));
+    !el.matches('h1, h2, .subtitle, aside, script, style, .decklight-hero-logo, .slide-bg'));
 }
 
 function setupSplit(sections) {
@@ -1303,6 +1304,7 @@ export function init(userConfig = {}) {
       this._sections.forEach((s, i) => s.setAttribute('data-slide-index', String(i + 1)));
       applyConcepts(stage, config.concepts); // idempotent; covers dynamic slides
       setupHeroLogos(this._sections);        // idempotent; before pin measurement
+      setupMedia(this._sections, { printMode }); // backgrounds first — .slide-bg must not read as content
       setupPinnedTitles(this._sections, config);
       setupSplit(this._sections);            // after pins — .subtitle is marked there
       this._records = this._sections.map((s) => scanSlide(s));
@@ -1988,6 +1990,22 @@ export function init(userConfig = {}) {
       const t = parseHash();
       if (t) instance.goto(t.slide, t.step, { force: true });
     });
+  }
+
+  // Background videos (SPEC §1): driven from the slide event, because CSS
+  // `section.active` gating alone only hides the element — a display:none
+  // <video> keeps decoding. Play the active slide's clip, pause the rest for
+  // real. Print mode never creates a <video>, so there is nothing to drive.
+  if (!printMode) {
+    const syncBgVideos = () => {
+      instance._sections.forEach((s, i) => {
+        const v = s.querySelector(':scope > .slide-bg > video');
+        if (!v) return;
+        if (i === instance.state.slide - 1) v.play()?.catch?.(() => {});
+        else if (!v.paused) v.pause();
+      });
+    };
+    instance.on('slide', syncBgVideos);
   }
 
   // ----- go ----------------------------------------------------------------
