@@ -81,10 +81,14 @@ jobs:
           echo "number=$N" >> "$GITHUB_OUTPUT"
           echo "branch=ticket/$N" >> "$GITHUB_OUTPUT"
           gh issue view "$N" --json title,body,labels > /tmp/ticket.json
+          # A RANDOM delimiter, because the report is untrusted: a fixed one
+          # can be closed early by a body that simply contains that line, and
+          # everything after it becomes step outputs of the author's choosing.
+          delim="TICKET_EOF_$(openssl rand -hex 16)"
           {
-            echo 'body<<TICKET_EOF'
+            echo "body<<$delim"
             jq -r '"# " + .title + "\n\n" + (.body // "(no description)")' /tmp/ticket.json
-            echo TICKET_EOF
+            echo "$delim"
           } >> "$GITHUB_OUTPUT"
           gh issue edit "$N" --add-label in-dev --remove-label ready-to-dev || true
 
