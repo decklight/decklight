@@ -6,13 +6,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { resolveTitle } from '../cli/init.mjs';
+import { resolveTitle, planGit, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -136,12 +138,15 @@ const ptySkip = process.platform === 'linux' && fs.existsSync('/usr/bin/script')
   ? false : 'needs util-linux script(1)';
 test('init on a real TTY prompts and takes the typed title', { skip: ptySkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  // three answers typed ahead: the title, "n" to the git offer, "n" to the
+  // dev handoff — one readline serves all three, so none of them is dropped
   const r = spawnSync('/usr/bin/script',
     ['-qec', `node "${CLI}" init --dir "${dir}" --no-skill`, '/dev/null'],
-    { encoding: 'utf8', input: 'Ship & Tell\n' });
+    { encoding: 'utf8', input: 'Ship & Tell\nn\nn\n' });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /deck title \[My Deck\]:/);
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Ship &amp; Tell<\/title>/);
+  assert.equal(fs.existsSync(path.join(dir, '.git')), false, '"n" declines the repo');
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -248,6 +253,239 @@ test('init appends a marked section to an existing AGENTS.md, and refresh is ide
   execFileSync('node', [CLI, 'init', '--dir', dir, '--force'], { encoding: 'utf8' });
   const second = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.equal(first, second, 're-running must not duplicate or drift the marked section');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- init: git offer + epilogue (issue #50), starter .gitignore (#53) --------
+
+// a git identity supplied via env, so `init --git` can commit in a bare tmp dir
+// (CI runners have no user.name/user.email configured)
+const gitIdEnv = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null',
+  GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.com',
+  GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.com',
+};
+
+test('planGit: the --git/--no-git/TTY/repo decision table', () => {
+  // flags decide non-interactively, and --no-git wins over --git
+  assert.deepEqual(planGit({ args: ['--git'] }), { action: 'create', forward: '--git' });
+  assert.deepEqual(planGit({ args: ['--git'], tty: true }), { action: 'create', forward: '--git' });
+  assert.deepEqual(planGit({ args: ['--no-git'], tty: true }), { action: 'skip', forward: '--no-git' });
+  assert.deepEqual(planGit({ args: ['--git', '--no-git'] }), { action: 'skip', forward: '--no-git' });
+  // already inside a repo: nothing to create, nothing to ask
+  assert.deepEqual(planGit({ args: [], tty: true, inRepo: true }), { action: 'skip', forward: null });
+  assert.deepEqual(planGit({ args: ['--git'], inRepo: true }), { action: 'skip', forward: '--git' });
+  // no repo, no flag: a TTY is asked, headless gets the one-line hint
+  assert.deepEqual(planGit({ args: [], tty: true }), { action: 'ask', forward: null });
+  assert.deepEqual(planGit({ args: [] }), { action: 'hint', forward: null });
+});
+
+test('initRepo: goes through the createRepo seam, reports each failure in one line, never throws', () => {
+  const fake = (fails, stderr = '') => (cmd, a) => {
+    if (fails.includes(a[0])) { const e = new Error(`git ${a[0]} failed`); e.stderr = stderr; throw e; }
+    return '';
+  };
+  const seam = { exec: fake([]), mkRepo: () => true };
+  // the .gitignore fact is surfaced: seeded vs left alone
+  assert.match(initRepo('/x', seam), /repository created \(with a starter \.gitignore\), everything committed/);
+  assert.match(initRepo('/x', { ...seam, mkRepo: () => false }), /repository created, everything committed/);
+  assert.match(initRepo('/x', { ...seam, mkRepo: () => { throw new Error('git init failed'); } }), /git: init failed/);
+  assert.match(initRepo('/x', { exec: fake(['commit'], 'Please tell me who you are.'), mkRepo: () => true }), /no identity configured.*staged/);
+  assert.match(initRepo('/x', { exec: fake(['commit'], 'disk full'), mkRepo: () => true }), /git: commit failed.*staged/);
+  assert.match(initRepo('/x', { exec: fake(['add']), mkRepo: () => true }), /git: add failed/);
+});
+
+test('epilogue: plain when piped, accent + OSC 8 on a TTY, NO_COLOR wins', () => {
+  const deckPath = path.join(os.tmpdir(), 'epi', 'deck.html');
+  const url = pathToFileURL(deckPath).href;
+
+  const plain = epilogue({ deckPath, tty: false, noColor: false });
+  assert.ok(plain.includes(url), 'raw file:// URL present');
+  assert.ok(plain.includes('decklight dev '), 'the way to start editing');
+  assert.doesNotMatch(plain, /\x1b/, 'piped output has zero escape codes');
+
+  const colored = epilogue({ deckPath, tty: true, noColor: false });
+  assert.match(colored, /\x1b\[36m/, 'accent color on a TTY');
+  assert.ok(colored.includes(`\x1b]8;;${url}\x1b\\${url}\x1b]8;;\x1b\\`),
+    'OSC 8 link wraps the raw URL (the URL stays the visible text)');
+
+  const noColor = epilogue({ deckPath, tty: true, noColor: true });
+  assert.doesNotMatch(noColor, /\x1b/, 'NO_COLOR disables every escape code');
+  assert.ok(noColor.includes(url));
+});
+
+test('init --git creates a repo whose first commit carries everything + the starter .gitignore', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const out = execFileSync('node', [CLI, 'init', 'Repo Deck', '--dir', dir, '--git'],
+    { encoding: 'utf8', env: gitIdEnv });
+  assert.match(out, /git: repository created \(with a starter \.gitignore\), everything committed/);
+  const show = execFileSync('git', ['-C', dir, 'show', '--format=%s%n%b', '--name-only', 'HEAD'],
+    { encoding: 'utf8', env: gitIdEnv });
+  assert.match(show, /^decklight init\n/);
+  assert.doesNotMatch(show, /Signed-off-by/, 'the DCO is this repo\'s, not the player\'s');
+  for (const f of ['deck.html', 'AGENTS.md', '.gitignore', '.claude/skills/decklight/SKILL.md', '.claude/skills/decklight/reference.md']) {
+    assert.ok(show.includes(f), `commit includes ${f}`);
+  }
+  // the seeded file is the shared starter — #53's contract, wired into init
+  assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), STARTER_GITIGNORE);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --git never clobbers an existing .gitignore', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const theirs = '# the player wrote this\nnode_modules/\n';
+  fs.writeFileSync(path.join(dir, '.gitignore'), theirs);
+  const out = execFileSync('node', [CLI, 'init', '--dir', dir, '--git', '--no-skill'],
+    { encoding: 'utf8', env: gitIdEnv });
+  assert.match(out, /git: repository created, everything committed/, 'no starter parenthetical');
+  assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), theirs,
+    'byte-identical — no appending, no merging');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init headless without a flag prints the dev hint and touches no git', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const out = execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
+  assert.match(out, /git: no repository here — pass --git to create one and auto-commit the deck/);
+  assert.equal(fs.existsSync(path.join(dir, '.git')), false);
+  // the epilogue is present, plain — piped output carries zero escape codes
+  assert.ok(out.includes(pathToFileURL(path.join(dir, 'deck.html')).href));
+  assert.match(out, /decklight dev /);
+  assert.doesNotMatch(out, /\x1b/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --no-git skips silently; an existing repo is left alone', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const out = execFileSync('node', [CLI, 'init', '--dir', dir, '--no-git'], { encoding: 'utf8' });
+  assert.doesNotMatch(out, /git:/, 'no nagging after an explicit no');
+  assert.equal(fs.existsSync(path.join(dir, '.git')), false);
+
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  execFileSync('git', ['init', '-q', repo], { encoding: 'utf8' });
+  const out2 = execFileSync('node', [CLI, 'init', '--dir', repo], { encoding: 'utf8' });
+  assert.doesNotMatch(out2, /git:/, 'inside a work tree there is nothing to offer');
+  const status = execFileSync('git', ['-C', repo, 'status', '--porcelain'], { encoding: 'utf8' });
+  assert.match(status, /\?\? deck\.html/, 'init never commits into a pre-existing repo');
+  assert.equal(fs.existsSync(path.join(repo, '.gitignore')), false,
+    'a repository decklight didn\'t create never gets a .gitignore');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(repo, { recursive: true, force: true });
+});
+
+test('init --git still succeeds when git is missing from PATH', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-emptypath-'));
+  const r = spawnSync(process.execPath, [CLI, 'init', '--dir', dir, '--git'],
+    { encoding: 'utf8', env: { ...process.env, PATH: empty } });
+  assert.equal(r.status, 0, 'the deck is the product — a git problem is not a failure');
+  assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
+  assert.match(r.stdout, /git: init failed/);
+  assert.match(r.stdout, /decklight dev /, 'the epilogue still prints');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(empty, { recursive: true, force: true });
+});
+
+test('init on a real TTY asks the git question; Y creates the repo and commits', { skip: ptySkip }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
+  const r = spawnSync('/usr/bin/script',
+    ['-qec', `node "${CLI}" init "Repo Talk" --dir "${dir}" --no-skill`, '/dev/null'],
+    { encoding: 'utf8', input: 'y\nn\n', env: gitIdEnv });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /create a git repository so your edits are auto-committed\? \[Y\/n\]/);
+  assert.match(r.stdout, /start editing now\? \[Y\/n\]/);
+  assert.match(r.stdout, /\x1b\[36m/, 'the epilogue is accent-colored on a TTY');
+  const log = execFileSync('git', ['-C', dir, 'log', '--format=%s'], { encoding: 'utf8', env: gitIdEnv });
+  assert.equal(log.trim(), 'decklight init');
+  assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), STARTER_GITIGNORE);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --help documents --git/--no-git/--open', () => {
+  const out = execFileSync('node', [CLI, 'init', '--help'], { encoding: 'utf8' });
+  assert.match(out, /--git\b/);
+  assert.match(out, /--no-git\b/);
+  assert.match(out, /--open\s+open the scaffolded deck in your default browser/);
+});
+
+// --- decklight init --open (issue #52) ----------------------------------------
+
+test('openCommand maps each platform to its stock launcher', () => {
+  const url = 'file:///tmp/deck.html';
+  assert.deepEqual(openCommand('darwin', url), { cmd: 'open', args: [url] });
+  assert.deepEqual(openCommand('win32', url), { cmd: 'cmd', args: ['/c', 'start', '', url] });
+  assert.deepEqual(openCommand('linux', url), { cmd: 'xdg-open', args: [url] });
+  assert.deepEqual(openCommand('freebsd', url), { cmd: 'xdg-open', args: [url] });
+});
+
+// a spawn stand-in that never launches anything: records the call, hands back
+// an EventEmitter posing as the child, and reports the given fate
+const fakeSpawn = (calls, fate = 'spawn') => (cmd, args, opts) => {
+  const child = new EventEmitter();
+  child.unref = () => { child.unrefed = true; };
+  calls.push({ cmd, args, opts, child });
+  queueMicrotask(() => child.emit(fate, fate === 'error' ? Object.assign(new Error('nope'), { code: 'ENOENT' }) : undefined));
+  return child;
+};
+const sink = () => ({ text: '', isTTY: false, write(s) { this.text += s; } });
+
+test('openDeck spawns the launcher detached on the deck file URL and unrefs it', async () => {
+  const calls = [];
+  const out = sink();
+  await openDeck('/tmp/spaced dir/deck.html', { platform: 'linux', spawnFn: fakeSpawn(calls), out });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, 'xdg-open');
+  assert.deepEqual(calls[0].args, [pathToFileURL('/tmp/spaced dir/deck.html').href]);
+  assert.equal(calls[0].opts.detached, true);
+  assert.equal(calls[0].opts.stdio, 'ignore');
+  assert.equal(calls[0].child.unrefed, true, 'must unref so init exits promptly');
+  assert.match(out.text, /opening .*deck\.html in your default browser/);
+});
+
+test('openDeck survives a missing launcher: one line naming it, no throw', async () => {
+  const out = sink();
+  await openDeck('/tmp/deck.html', { platform: 'linux', spawnFn: fakeSpawn([], 'error'), out });
+  assert.match(out.text, /--open: could not launch a browser \(xdg-open: ENOENT\)/);
+});
+
+test('init --open launches the platform launcher on the deck actually written', { skip: process.platform !== 'linux' && 'exercises the xdg-open path' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-'));
+  // a PATH holding ONLY a logging xdg-open, so the test never opens a browser
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-bin-'));
+  const log = path.join(bin, 'log');
+  fs.writeFileSync(path.join(bin, 'xdg-open'), `#!/bin/sh\nprintf '%s' "$1" > "${log}"\n`, { mode: 0o755 });
+
+  // no --open, no launch — ever
+  execFileSync(process.execPath, [CLI, 'init', '--dir', dir, '--no-skill'], { encoding: 'utf8', env: { ...process.env, PATH: bin } });
+  await delay(150);
+  assert.equal(fs.existsSync(log), false, 'init without --open must not launch anything');
+
+  const out = execFileSync(process.execPath,
+    [CLI, 'init', '--open', '--dir', dir, '-o', 'talk.html', '--no-skill'],
+    { encoding: 'utf8', env: { ...process.env, PATH: bin } });
+  assert.match(out, /created .*talk\.html/);
+  assert.match(out, /opening .*talk\.html in your default browser/);
+  // the launch is detached — give the logging script a beat to land
+  const deadline = Date.now() + 5000;
+  while (!fs.existsSync(log) && Date.now() < deadline) await delay(25);
+  assert.equal(fs.readFileSync(log, 'utf8'), pathToFileURL(path.join(dir, 'talk.html')).href,
+    '--open must honor -o and --dir: it opens the deck that was written');
+
+  fs.rmSync(bin, { recursive: true, force: true });
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --open with no launcher on PATH: deck still created, exit 0, skip line', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-'));
+  const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-empty-'));
+  const r = spawnSync(process.execPath, [CLI, 'init', '--open', '--dir', dir, '--no-skill'],
+    { encoding: 'utf8', env: { ...process.env, PATH: emptyBin } });
+  assert.equal(r.status, 0, 'a failed launch is non-fatal — the deck was created');
+  assert.match(r.stdout, /created .*deck\.html/);
+  assert.match(r.stdout, /--open: could not launch a browser/);
+  assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
+  fs.rmSync(emptyBin, { recursive: true, force: true });
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

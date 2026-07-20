@@ -112,12 +112,12 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
 // --- print variant: ?print=handout (3-up pages with ruled note lines) ------
 {
   const html = dump(deckUrl + '?print=handout');
-  check('handout: ceil(11/3) = 4 pages',
-    (html.match(/class="print-page print-handout"/g) || []).length, 4);
+  check('handout: ceil(13/3) = 5 pages',
+    (html.match(/class="print-page print-handout"/g) || []).length, 5);
   check('handout: every slide gets a slot',
-    (html.match(/class="print-slot"/g) || []).length, 11);
+    (html.match(/class="print-slot"/g) || []).length, 13);
   check('handout: note lines beside every slide',
-    (html.match(/class="print-notelines"/g) || []).length, 11);
+    (html.match(/class="print-notelines"/g) || []).length, 13);
   check('handout: everything built',
     (html.match(/data-build-state="pending"/g) || []).length, 0);
 }
@@ -126,13 +126,13 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
 {
   const html = dump(deckUrl + '?print=notes');
   check('notes: one page per slide',
-    (html.match(/class="print-page print-notes-page"/g) || []).length, 11);
+    (html.match(/class="print-page print-notes-page"/g) || []).length, 13);
   check('notes: a notes block on every page',
-    (html.match(/class="print-notes"/g) || []).length, 11);
-  // 5 slides carry notes (markdown's Note: included); the other 6 keep their
+    (html.match(/class="print-notes"/g) || []).length, 13);
+  // 6 slides carry notes (markdown's Note: included); the other 7 keep their
   // page with an empty block
   check('notes: slides without notes get an empty block',
-    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 6);
+    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 7);
   check('notes: markdown Note: content lands in its block (aside + copy)',
     (html.match(/Markdown notes body/g) || []).length, 2);
   check('notes: HTML aside content lands in its block (aside + copy)',

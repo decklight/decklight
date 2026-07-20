@@ -97,7 +97,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 
 | Command | Purpose |
 |---|---|
-| `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title) |
+| `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title and offers a git repo; `--open` launches the deck, and it can hand straight off to `dev`) |
 | `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project) |
 | `decklight dev deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
