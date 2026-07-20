@@ -275,9 +275,11 @@ jobs:
             gh pr edit "$BRANCH" --add-reviewer gphilipp
           fi
 
-          # The repo allows auto-merge, but every PR still has to opt in — without
-          # this the PR would sit green and unmerged, waiting for a click.
-          gh pr merge "$BRANCH" --auto --merge || \
+          # The repo keeps a linear history (no merge commits), so auto-merge
+          # must squash. Every PR still has to opt in — without this the PR would
+          # sit green and unmerged, waiting for a click. If the branch falls
+          # behind main, auto-merge updates and re-tests it before landing.
+          gh pr merge "$BRANCH" --auto --squash || \
             echo "::warning::could not arm auto-merge — the PR will need a manual merge"
 
           if [ "$opened" = pat ]; then
