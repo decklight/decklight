@@ -6,6 +6,10 @@ name: CI
 
 on:
   pull_request:
+  # a merge queue tests each PR against `main + everything ahead of it in the
+  # queue` on a gh-readonly-queue/* ref, then merges in order. Without this
+  # trigger the queue's required checks never run and nothing ever lands.
+  merge_group:
   push:
     branches: [main]
 
