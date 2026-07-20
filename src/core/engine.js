@@ -14,6 +14,7 @@ import { openSpeakerView, notesSegments } from './speaker.js';
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { createCharacter, concatTimelines } from './character.js';
 import { buildPrintPages } from './print.js';
+import { createAnnotator } from './annotate.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -927,6 +928,8 @@ export function init(userConfig = {}) {
       } },
       { label: 'Overview', hint: 'O', run: toggleOverview },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
+      { label: `Pen ${annotator?.tool === 'pen' ? 'off' : 'on'} — draw on the slide`, hint: 'W', alias: 'ink annotate draw scribble marker highlight', run: () => toggleInk('pen') },
+      { label: `Laser pointer ${annotator?.tool === 'laser' ? 'off' : 'on'}`, hint: '⇧W', alias: 'ink dot glow point at', run: () => toggleInk('laser') },
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: `Captions ${captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
       { label: `Clock ${clockOn ? 'off' : 'on'}`, hint: 'K', alias: 'time elapsed timer talk wall watch', run: toggleClock },
@@ -1732,6 +1735,8 @@ export function init(userConfig = {}) {
       <tr><td>D</td><td>debug log</td></tr>
       <tr><td>&#96;</td><td>messages — the key left of 1 (⌃&#96; / ⌥&#96; also works while editing notes)</td></tr>
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
+      <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
+      <tr><td>⇧W</td><td>laser pointer</td></tr>
       <tr><td>K</td><td>clock — wall time + elapsed talk</td></tr>
       <tr><td>H</td><td>progress bar — position in the deck, bottom edge</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
@@ -1936,6 +1941,11 @@ export function init(userConfig = {}) {
       case 'l': case 'L': cycleLayout(e.shiftKey ? -1 : 1); break;
       case 'z': case 'Z': deckHistory(e.shiftKey ? 'redo' : 'undo'); break;
       case 'a': case 'A': toggleAgentAsk(); break;
+      case 'w': case 'W': toggleInk(e.shiftKey ? 'laser' : 'pen'); break;
+      case 'Backspace':
+        if (!annotator?.active) return; // no ink tool on — leave the key alone
+        annotator.clear();
+        break;
       case '?': toggleHelp(); break;
       case 'Escape':
         if (cancelCyclePending()) break;
@@ -2533,6 +2543,24 @@ export function init(userConfig = {}) {
   }
   instance.toggleProgress = toggleProgress; // H programmatically
   if (progressOn && !printMode) showProgress();
+
+  // ── ink annotations (W pen / ⇧W laser) — SPEC §8 ──────────────────────────
+  // Ephemeral presenter ink on a canvas over the slides: strokes live in
+  // design coordinates and redraw at the current scale; every slide change
+  // clears them. Never in ?print — like the clock, exclusion is by
+  // construction: the annotator is simply never created there.
+  let annotator = null;
+  if (!printMode) {
+    annotator = createAnnotator(instance, root);
+    instance.annotate = annotator; // W/⇧W programmatically (headless harness)
+  }
+  function toggleInk(kind) {
+    if (!annotator) return;
+    const t = kind === 'laser' ? annotator.laser() : annotator.toggle();
+    toast(t === 'pen' ? 'pen on — drag to draw · ⌫ clears · W off'
+      : t === 'laser' ? 'laser on — ⇧W off' : 'ink off');
+    debugLog('nav', `ink ${t ?? 'off'}`);
+  }
 
   // ── transcript (palette command) — SPEC §8 ───────────────────────────────
   // The deck's full spoken script: every slide's notes segments, in order,
