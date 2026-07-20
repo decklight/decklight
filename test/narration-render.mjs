@@ -16,27 +16,19 @@
  *             explaining it, and keeps that message in the log (I)
  *   dead    — every sentence 429s: same, and it never races ahead
  */
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
+import { dumpDom, resultsFrom } from './harness.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'narration.html');
-const CHROME = chromeBin('narration-render');
-
 
 function run(mode) {
-  // stderr is ignored: a headless Chrome on a machine with no D-Bus/UPower prints
+  // quietStderr: a headless Chrome on a machine with no D-Bus/UPower prints
   // pages of unrelated noise that would bury the actual result
-  const html = execFileSync(CHROME, chromeArgs(
-    '--allow-file-access-from-files',
-    '--virtual-time-budget=30000',
-    '--dump-dom', `file://${page}?mode=${mode}`,
-  ), { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
-  const m = html.match(/DECKLIGHT-NARRATION-RESULTS (\{[\s\S]*?\})\s*</);
-  if (!m) throw new Error(`no results marker for mode=${mode}`);
-  return JSON.parse(m[1]);
+  const html = dumpDom(`file://${page}?mode=${mode}`,
+    { fileAccess: true, budget: 30000, quietStderr: true, who: 'narration-render' });
+  return resultsFrom(html, 'NARRATION', `mode=${mode}`);
 }
 
 let bad = 0;
