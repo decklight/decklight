@@ -103,6 +103,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight dev deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML |
+| `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
 | `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait so the narrator moves, not just its mouth |
 

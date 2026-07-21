@@ -16,7 +16,9 @@
  * The deck is fully self-contained (runtime + every theme inlined, like
  * `decklight bundle --themes all` produces) — double-click it, it presents,
  * no sibling files, and the in-deck picker is fully stocked. Pass --themes to
- * ship a narrower set. The skill is regenerated every run (it's derived, not
+ * ship a narrower set. The runtime blocks are marked data-decklight-runtime
+ * so `decklight upgrade` can swap them for a newer installed version later.
+ * The skill is regenerated every run (it's derived, not
  * authored content) so re-running after an upgrade refreshes it; the deck
  * file is only touched with --force.
  *
@@ -217,7 +219,7 @@ function starterDeck(title, themeNames, activeTheme) {
 <head>
   <meta charset="utf-8">
   <title>${title}</title>
-  <style>
+  <style data-decklight-runtime="css">
 ${css}
   </style>
 ${themeBlocks}
@@ -250,7 +252,7 @@ ${themeBlocks}
     </section>
 
   </div>
-  <script>${scriptSafe(fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.js'), 'utf8').replace(/\/\/# sourceMappingURL=.*$/m, ''))}</script>
+  <script data-decklight-runtime="js">${scriptSafe(fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.js'), 'utf8').replace(/\/\/# sourceMappingURL=.*$/m, ''))}</script>
   <script>Decklight.init({});</script>
 </body>
 </html>

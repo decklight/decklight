@@ -9,6 +9,7 @@
  *   decklight refresh  re-run embedded scripts, rewrite drifted casts
  *   decklight export   convert a cast to asciicast v2
  *   decklight bundle   flatten a deck into one self-contained HTML file
+ *   decklight upgrade  bring a self-contained deck's inlined runtime up to the installed version
  *   decklight publish  bundle a deck and push it to a gh-pages branch
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
@@ -41,6 +42,8 @@ Commands:
   bundle   flatten a deck into ONE self-contained HTML file (runtime, themes, casts, images inlined)
            EXAMPLE: decklight bundle demo/showcase.html --themes midnight,graphite
            EXAMPLE: decklight bundle deck.html --all --title "My Course"   (merge the whole playlist into one file)
+  upgrade  bring a self-contained deck's inlined runtime + themes up to the installed version, in place
+           EXAMPLE: decklight upgrade deck.html --dry-run   (see what would change; drop the flag to apply)
   publish  bundle a deck and push it to GitHub Pages — deck to shareable URL in one command
            EXAMPLE: decklight publish deck.html   (prints https://owner.github.io/repo/)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
@@ -114,6 +117,11 @@ switch (cmd) {
   case 'bundle': {
     const { bundleMain } = await import('./bundle.mjs');
     await bundleMain(rest);
+    break;
+  }
+  case 'upgrade': {
+    const { upgradeMain } = await import('./upgrade.mjs');
+    await upgradeMain(rest);
     break;
   }
   case 'publish': {

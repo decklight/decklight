@@ -24,7 +24,7 @@ const CLI = path.resolve(here, '../cli/decklight.mjs');
 
 test('global help lists all subcommands with runnable examples', () => {
   const out = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  for (const sub of ['init', 'skills', 'rec', 'refresh', 'export', 'bundle', 'publish', 'video']) {
+  for (const sub of ['init', 'skills', 'rec', 'refresh', 'export', 'bundle', 'upgrade', 'publish', 'video']) {
     assert.match(out, new RegExp(`^  ${sub} `, 'm'), `missing subcommand: ${sub}`);
   }
   assert.equal((out.match(/EXAMPLE:/g) || []).length >= 5, true, 'one example per subcommand');
