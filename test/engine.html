@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Decklight engine — overlay & keyboard-nav harness</title>
+  <link rel="stylesheet" href="../dist/decklight.css">
+</head>
+<body>
+  <!--
+    The interaction the render harness can't see: the overlays (theme picker,
+    command palette) and the keyboard that drives them — opening, wrap-around
+    list navigation, Enter/Escape, backdrop-click-to-close, and the rule that
+    only one overlay is up at a time. This is the safety net for splitting the
+    overlay / theme / palette machinery out of engine.js: it exercises the
+    behaviour, not just that the DOM mounts.
+
+    Everything runs against the REAL bundled engine; only fetch is mocked, so a
+    stray localhost probe (the edit server's /ping) can't leave a pending
+    request that freezes Chrome's virtual clock and hangs the page.
+  -->
+  <div class="decklight">
+    <section><h1>One</h1></section>
+    <section><h2>Two</h2></section>
+    <section><h2>Three</h2></section>
+    <section><h2>Four</h2></section>
+  </div>
+
+  <pre id="test-sink">running…</pre>
+
+  <script>
+    // No network in a harness: answer everything fast so nothing stays pending.
+    window.fetch = async () => new Response('', { status: 404 });
+  </script>
+
+  <script src="../dist/decklight.js"></script>
+  <script>
+    const sink = document.getElementById('test-sink');
+    const params = new URLSearchParams(location.search);
+    const mode = params.get('mode') ?? 'themepicker';
+
+    Decklight.init({});
+
+    const press = (k, opts = {}) => document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+
+    // index of the selected row within an overlay, by its selected-row class
+    const selectedIndex = (rootSel, rowSel, selCls) => {
+      const rows = [...document.querySelectorAll(`${rootSel} ${rowSel}`)];
+      return { count: rows.length, i: rows.findIndex((r) => r.classList.contains(selCls)) };
+    };
+
+    // Escape backs out one level at a time (a filter, a drill-in view), so
+    // "does Escape ultimately close it?" means pressing it until gone.
+    const escapeUntilClosed = (sel) => {
+      for (let n = 0; n < 5 && document.querySelector(sel); n++) press('Escape');
+      return !document.querySelector(sel);
+    };
+
+    const r = {};
+    try {
+      if (mode === 'themepicker') {
+        const P = '.decklight-theme-picker', ROW = '.tp-row', SEL = 'tp-selected';
+        press('t');
+        r.opens = !!document.querySelector(P);
+        const a = selectedIndex(P, ROW, SEL);
+        r.hasRows = a.count > 2;
+        r.hasSelection = a.i >= 0;
+
+        // ArrowDown advances the selection by one (mod count)
+        press('ArrowDown');
+        const b = selectedIndex(P, ROW, SEL);
+        r.downMoves = b.i === (a.i + 1) % a.count;
+
+        // ArrowUp far enough to cross the top proves wrap-around: from index
+        // (a.i+1), stepping up (a.i+2) times lands on the LAST row.
+        for (let n = 0; n < a.i + 2; n++) press('ArrowUp');
+        const c = selectedIndex(P, ROW, SEL);
+        r.wrapsAround = c.i === a.count - 1;
+
+        // Escape backs out and ultimately closes
+        r.escapeCloses = escapeUntilClosed(P);
+
+        // reopen → a click on the backdrop (the overlay element itself) closes
+        press('t');
+        r.reopens = !!document.querySelector(P);
+        document.querySelector(P)?.click();
+        r.backdropCloses = !document.querySelector(P);
+
+        // reopen → typing filters to matching themes; Enter on one commits and
+        // closes (the filter path skips the pack drill-in)
+        press('t');
+        for (const ch of 'aurora') press(ch);
+        r.filtersToThemes = document.querySelectorAll(`${P} ${ROW}`).length > 0;
+        press('Enter');
+        r.enterCommitsAndCloses = !document.querySelector(P);
+
+        r.PASS = r.opens && r.hasRows && r.hasSelection && r.downMoves && r.wrapsAround
+          && r.escapeCloses && r.reopens && r.backdropCloses
+          && r.filtersToThemes && r.enterCommitsAndCloses;
+      }
+
+      if (mode === 'palette') {
+        const Q = '.decklight-palette', ROW = '.pal-row', SEL = 'narr-sel';
+        press('/');
+        r.opens = !!document.querySelector(Q);
+        const a = selectedIndex(Q, ROW, SEL);
+        r.hasRows = a.count > 2;
+        r.hasSelection = a.i >= 0;
+
+        press('ArrowDown');
+        const b = selectedIndex(Q, ROW, SEL);
+        r.downMoves = b.i === (a.i + 1) % a.count;
+
+        // typing filters the command list down
+        const before = document.querySelectorAll(`${Q} ${ROW}`).length;
+        for (const ch of 'theme') press(ch);
+        const after = document.querySelectorAll(`${Q} ${ROW}`).length;
+        r.typingFilters = after > 0 && after < before;
+
+        // Escape clears the query first, then closes
+        r.escapeCloses = escapeUntilClosed(Q);
+
+        r.PASS = r.opens && r.hasRows && r.hasSelection && r.downMoves
+          && r.typingFilters && r.escapeCloses;
+      }
+
+      if (mode === 'exclusive') {
+        // only one overlay at a time: opening the palette over the picker
+        // dismisses the picker (and the finder over either, etc.)
+        press('t');
+        r.pickerUp = !!document.querySelector('.decklight-theme-picker');
+        press('Escape');
+        press('/');
+        r.paletteUp = !!document.querySelector('.decklight-palette');
+        r.pickerGone = !document.querySelector('.decklight-theme-picker');
+        press('Escape');
+
+        // finder (G) opens its own overlay
+        press('g');
+        r.finderUp = !!document.querySelector('.decklight-finder');
+        press('Escape');
+        r.finderGone = !document.querySelector('.decklight-finder');
+
+        r.PASS = r.pickerUp && r.paletteUp && r.pickerGone && r.finderUp && r.finderGone;
+      }
+    } catch (e) {
+      r.exception = String((e && e.stack) || e);
+      r.PASS = false;
+    }
+    r.mode = mode;
+    sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+  </script>
+</body>
+</html>
