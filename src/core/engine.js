@@ -12,6 +12,7 @@ import { initMarkdown } from '../md/markdown.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
+import { closeOnBackdrop, selectInList } from './overlay.js';
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { createCharacter, concatTimelines } from './character.js';
 import { buildPrintPages } from './print.js';
@@ -668,7 +669,7 @@ export function init(userConfig = {}) {
         '<div class="tp-preview"><iframe title="Theme preview"></iframe>' +
         '<div class="tp-caption"></div></div></div>';
     renderPickerList();
-    pickerEl.addEventListener('click', (e) => { if (e.target === pickerEl) closeThemePicker(); });
+    closeOnBackdrop(pickerEl, closeThemePicker);
     root.appendChild(pickerEl);
     // boot the preview on the CURRENT theme — pack rows never swap it, so the
     // pane must not open empty in the packs view
@@ -686,9 +687,7 @@ export function init(userConfig = {}) {
       pickerCandidate = generateTheme();
       genRowLabel(pickerEl.querySelectorAll('.tp-row')[pickerSel]);
     }
-    const rows = pickerEl.querySelectorAll('.tp-row');
-    rows.forEach((r, j) => r.classList.toggle('tp-selected', j === pickerSel));
-    rows[pickerSel]?.scrollIntoView({ block: 'nearest' });
+    selectInList(pickerEl.querySelectorAll('.tp-row'), pickerSel, 'tp-selected');
     const list = themeList();
     const caption = name === GEN_ROW ? (pickerCandidate ? `✨ ${pickerCandidate.name}` : 'generate new')
       : name === BACK_ROW ? 'back to packs'
@@ -844,10 +843,7 @@ export function init(userConfig = {}) {
   }
   function selectFinderRow(i, immediate) {
     if (!finderMatches.length) return;
-    finderSel = (i + finderMatches.length) % finderMatches.length;
-    const rows = finderEl.querySelectorAll('.tp-row');
-    rows.forEach((r, j) => r.classList.toggle('tp-selected', j === finderSel));
-    rows[finderSel]?.scrollIntoView({ block: 'nearest' });
+    finderSel = selectInList(finderEl.querySelectorAll('.tp-row'), i, 'tp-selected');
     const m = finderMatches[finderSel];
     finderEl.querySelector('.tp-caption').textContent = m.href
       ? `module — ${m.title} (${m.href})`
@@ -884,7 +880,7 @@ export function init(userConfig = {}) {
         '<div class="tp-caption"></div></div></div>';
     finderEl.__index = finderIndex();
     renderFinderList();
-    finderEl.addEventListener('click', (e) => { if (e.target === finderEl) closeSlideFinder(); });
+    closeOnBackdrop(finderEl, closeSlideFinder);
     root.appendChild(finderEl);
     selectFinderRow(Math.max(0, finderMatches.findIndex((m) => m.slide === instance.state.slide)), true);
   }
@@ -992,9 +988,7 @@ export function init(userConfig = {}) {
   }
   function selectPalRow(i) {
     if (!palRows.length) return;
-    palSel = (i + palRows.length) % palRows.length;
-    palEl.querySelectorAll('.pal-row').forEach((r, j) => r.classList.toggle('narr-sel', j === palSel));
-    palEl.querySelectorAll('.pal-row')[palSel]?.scrollIntoView({ block: 'nearest' });
+    palSel = selectInList(palEl.querySelectorAll('.pal-row'), i, 'narr-sel');
   }
   function commitPalRow() {
     const cmd = palRows[palSel];
@@ -1009,7 +1003,7 @@ export function init(userConfig = {}) {
     palEl = document.createElement('div');
     palEl.className = 'decklight-narr decklight-palette';
     palEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Commands"></div>';
-    palEl.addEventListener('click', (e) => { if (e.target === palEl) closePalette(); });
+    closeOnBackdrop(palEl, closePalette);
     root.appendChild(palEl);
     renderPalette();
   }
@@ -1035,14 +1029,12 @@ export function init(userConfig = {}) {
       el.addEventListener('click', () => { applyFont(i); closeFontPicker(); });
       card.appendChild(el);
     });
-    fontPickEl.addEventListener('click', (e) => { if (e.target === fontPickEl) closeFontPicker(); });
+    closeOnBackdrop(fontPickEl, closeFontPicker);
     root.appendChild(fontPickEl);
     selectFontRow(fontIdx);
   }
   function selectFontRow(i) {
-    fontPickSel = (i + FONTS.length) % FONTS.length;
-    fontPickEl.querySelectorAll('.narr-row').forEach((r, j) => r.classList.toggle('narr-sel', j === fontPickSel));
-    fontPickEl.querySelectorAll('.narr-row')[fontPickSel]?.scrollIntoView({ block: 'nearest' });
+    fontPickSel = selectInList(fontPickEl.querySelectorAll('.narr-row'), i, 'narr-sel');
   }
   function closeFontPicker() {
     fontPickEl?.remove();
@@ -2646,7 +2638,7 @@ export function init(userConfig = {}) {
       card.appendChild(sec);
     }
     transcriptEl.appendChild(card);
-    transcriptEl.addEventListener('click', (e) => { if (e.target === transcriptEl) toggleTranscript(); });
+    closeOnBackdrop(transcriptEl, toggleTranscript);
     root.appendChild(transcriptEl);
   }
   instance.transcript = { open: toggleTranscript, text: () => transcriptString(false), markdown: () => transcriptString(true) };
@@ -2805,7 +2797,7 @@ export function init(userConfig = {}) {
     actions.appendChild(btn);
     card.append(head, ta, actions);
     agentEl.appendChild(card);
-    agentEl.addEventListener('click', (e) => { if (e.target === agentEl) toggleAgentAsk(); });
+    closeOnBackdrop(agentEl, toggleAgentAsk);
     root.appendChild(agentEl);
     setTimeout(() => ta.focus(), 0);
   }
@@ -2862,7 +2854,7 @@ export function init(userConfig = {}) {
     actions.appendChild(btn);
     card.append(head, ta, actions);
     editEl.appendChild(card);
-    editEl.addEventListener('click', (e) => { if (e.target === editEl) toggleEditor(); });
+    closeOnBackdrop(editEl, toggleEditor);
     root.appendChild(editEl);
     setTimeout(() => ta.focus(), 0);
   }
@@ -2924,8 +2916,7 @@ export function init(userConfig = {}) {
   }
   function selectNarrRow(i) {
     if (!narrRows.length) return;
-    narrSel = (i + narrRows.length) % narrRows.length;
-    narrEl.querySelectorAll('.narr-row').forEach((r, j) => r.classList.toggle('narr-sel', j === narrSel));
+    narrSel = selectInList(narrEl.querySelectorAll('.narr-row'), i, 'narr-sel', { scroll: false });
   }
   function commitNarrRow() { narrRows[narrSel]?.commit(); }
   function narrBack() {
@@ -3239,7 +3230,7 @@ export function init(userConfig = {}) {
       narrEl = document.createElement('div');
       narrEl.className = 'decklight-narr';
       narrEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Narration"></div>';
-      narrEl.addEventListener('click', (e) => { if (e.target === narrEl) closeNarrPicker(); });
+      closeOnBackdrop(narrEl, closeNarrPicker);
       root.appendChild(narrEl);
     }
     renderNarr(view ?? (narrSets.length ? 'tracks' : 'voices'));
@@ -3411,7 +3402,7 @@ export function init(userConfig = {}) {
     recEl = document.createElement('div');
     recEl.className = 'decklight-narr decklight-record';
     recEl.innerHTML = '<div class="narr-card" role="dialog" aria-label="Record offline narration"></div>';
-    recEl.addEventListener('click', (e) => { if (e.target === recEl) closeRecordDialog(); });
+    closeOnBackdrop(recEl, closeRecordDialog);
     root.appendChild(recEl);
     renderRecordCard('confirm', { total: slidesWithNotes().length });
   }
