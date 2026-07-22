@@ -10,13 +10,15 @@
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
 //
-//   GET  /edit/ping    → { ok, deck, undo, redo, git, agents, agentBusy }
-//   GET  /edit/events  → SSE; `reload` on deck change, `agent` job status
-//   POST /edit/notes   → { slide, text }           rewrite that slide's notes
-//   POST /edit/layout  → { slide, layout }         write data-layout to the file
-//   POST /edit/undo    → step the deck file back through the edit history
-//   POST /edit/redo    → step it forward again
-//   POST /edit/agent   → { prompt, agent? }        one-shot AI agent edit
+//   GET  /edit/ping     → { ok, deck, undo, redo, git, agents, agentBusy }
+//   GET  /edit/events   → SSE; `reload` on deck change, `agent` job status
+//   POST /edit/notes    → { slide, text }           rewrite that slide's notes
+//   POST /edit/layout   → { slide, layout }         write data-layout to the file
+//   POST /edit/undo     → step the deck file back through the edit history
+//   POST /edit/redo     → step it forward again
+//   POST /edit/agent    → { prompt, agent? }        one-shot AI agent edit
+//   POST /edit/shutdown → final autocommit, then exit — same as Ctrl-C, so a
+//                         port conflict can take over an old session cleanly
 //
 // Every mutation goes through ONE undo history — snapshots of the whole
 // file, held in memory, capped. Undo/redo is deliberately independent of
@@ -36,10 +38,12 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, watch, existsSync, statSync } from 'node:fs';
 import { resolve, extname, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
 import { agentCommand, detectAgents } from './agents.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
 import { corsHeaders } from '../tools/bridge.mjs';
+import { resolvePortConflict } from './port-conflict.mjs';
 
 // file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
 // exactly like the tts bridge — so the endpoints are CORS-open. The server
@@ -139,6 +143,8 @@ export async function editMain(args) {
                       [--commit-every <seconds>] [--agent <name>]
   serves the cwd, live-reloads the deck on change, and accepts edits from the
   player: notes (E), per-slide layout (L/⇧L), undo/redo (Z/⇧Z), agent asks (A)
+  a taken --port offers to take over that session (on a TTY) or moves on to
+  the next free one
   --git            auto-commit the deck on a regular basis (creates the repo if needed)
   --no-git         never touch git (default outside a repository)
   --commit-every N autocommit cadence in seconds                          [300]
@@ -266,6 +272,14 @@ export async function editMain(args) {
         req.on('close', () => clients.delete(res));
         return;
       }
+      if (req.method === 'POST' && url.pathname === '/edit/shutdown') {
+        res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+        // same shutdown a Ctrl-C takes — final autocommit, then actually exit —
+        // once the response has cleared the socket, so the asker sees it land
+        res.once('finish', () => { finalCommit(); process.exit(0); });
+        return;
+      }
       if (req.method === 'POST' && /^\/edit\/(undo|redo)$/.test(url.pathname)) {
         const dir = url.pathname.endsWith('undo') ? 'undo' : 'redo';
         const cur = readDeck();
@@ -319,10 +333,39 @@ export async function editMain(args) {
     }
   });
 
-  server.listen(port, '127.0.0.1', () => {
-    const actual = server.address().port;
-    console.log(`decklight edit on http://127.0.0.1:${actual}${deckUrl} — E notes, L layouts, Z undo, A agent. Ctrl-C stops`);
-  });
+  const actual = await listenTakingOverIfNeeded(server, port);
+  console.log(`decklight edit on http://127.0.0.1:${actual}${deckUrl} — E notes, L layouts, Z undo, A agent. Ctrl-C stops`);
+}
+
+/**
+ * Bind `server` to `port`. On EADDRINUSE, work out who's there
+ * (resolvePortConflict) — on a TTY that's an interactive choice, otherwise
+ * the port silently bumps — and retry until something binds. Returns the
+ * port actually bound (server.address().port, so :0 still reports its
+ * OS-assigned port).
+ */
+async function listenTakingOverIfNeeded(server, port) {
+  const tty = process.stdin.isTTY && process.stdout.isTTY;
+  let rl;
+  const ask = tty ? (q) => (rl ??= createInterface({ input: process.stdin, output: process.stdout })).question(q) : undefined;
+  try {
+    for (;;) {
+      try {
+        return await new Promise((res, rej) => {
+          const onError = (e) => { server.off('listening', onListening); rej(e); };
+          const onListening = () => { server.off('error', onError); res(server.address().port); };
+          server.once('error', onError);
+          server.once('listening', onListening);
+          server.listen(port, '127.0.0.1');
+        });
+      } catch (e) {
+        if (e.code !== 'EADDRINUSE') throw e;
+        port = await resolvePortConflict(port, { ask, log: console.log });
+      }
+    }
+  } finally {
+    rl?.close();
+  }
 }
 
 if (isMain(import.meta.url)) editMain(process.argv.slice(2));

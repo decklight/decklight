@@ -29,6 +29,7 @@ import { onPath, detectAgents } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
+import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
@@ -38,6 +39,8 @@ const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] 
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
 
   --port N          edit server (live reload + edit write-back)       [8788]
+                    (taken already? dev offers to take over that session on
+                    a TTY, or moves to the next free port otherwise)
   --tts-port N      live voice bridge                                 [8787]
   --lipsync-port N  lip-sync bridge (visemes + talking head)          [8789]
   --no-tts          don't start the voice bridge
@@ -204,6 +207,24 @@ export async function devMain(args) {
       else plan = planServices({ args: [...args, '--no-git'] });
     } else {
       console.log('  git: no repository here — pass --git to create one and auto-commit the deck');
+    }
+  }
+  // The edit port might already be held — often an earlier decklight session
+  // left running. Resolved here, with dev's OWN stdin, because the edit
+  // child below is spawned with its stdin piped (not a terminal) and could
+  // never ask on its own.
+  const editSvc = plan.run.find((s) => s.name === 'edit');
+  if (editSvc) {
+    const portIdx = editSvc.args.indexOf('--port');
+    const editPort = Number(editSvc.args[portIdx + 1]);
+    if (await isPortOpen(editPort)) {
+      const askTty = process.stdin.isTTY && process.stdout.isTTY;
+      let rl;
+      const ask = askTty ? (q) => (rl ??= createInterface({ input: process.stdin, output: process.stdout })).question(q) : undefined;
+      const freshPort = await resolvePortConflict(editPort, { ask, log: console.log });
+      rl?.close();
+      editSvc.args[portIdx + 1] = String(freshPort);
+      editSvc.url = `http://127.0.0.1:${freshPort}/${deck}`;
     }
   }
   const { run, skip, agents } = plan;
