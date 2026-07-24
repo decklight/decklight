@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The Decklight authoring skill's *content*, in one place: the reference
- * doc (sliced from SPEC.md), the Claude SKILL.md body, and the AGENTS.md
- * section. `init` and `skills` both render these — the deck scaffolder and
- * the standalone skill installer must hand every agent the same contract,
- * so they share the source rather than each carrying a copy that can drift.
+ * The Decklight agent skills' *content*, in one place: the reference doc
+ * (sliced from SPEC.md), the Claude SKILL.md bodies (authoring +
+ * report-bug), and the AGENTS.md section. `init` and `skills` both render
+ * these — the deck scaffolder and the standalone skill installer must hand
+ * every agent the same contract, so they share the source rather than each
+ * carrying a copy that can drift.
  *
  * The reference is derived from the installed version's SPEC.md, so it
  * always matches the runtime that produced it — an agent should trust it
@@ -80,6 +81,63 @@ stay in sync (§8 in the reference).
 `;
 }
 
+/**
+ * The Claude Code SKILL.md for `decklight-report-bug` — the interactive
+ * half of the bug-report flow. The CLI command gathers the mechanical
+ * facts; this skill walks the user through the rest and gates the two
+ * consequential steps (screenshot, filing) on explicit consent.
+ */
+export function reportBugSkillMd() {
+  return `---
+name: decklight-report-bug
+description: File a triage-ready Decklight bug report. Use whenever the user hits a Decklight bug, error, or rendering problem and wants to report it, file a GitHub issue about Decklight, or send the problem to the Decklight maintainers.
+---
+
+Walk the user from "something broke" to a filed, triage-ready GitHub issue.
+Follow the steps IN ORDER. Nothing is sent anywhere before step 5's explicit
+approval — say so plainly whenever the user seems unsure.
+
+1. **Collect the mechanical facts**: run \`npx decklight report-bug\`. It
+   prints a ready-to-paste \`## Environment\` block (decklight version, Node,
+   OS, headless-Chrome availability, node-pty) and the new-issue URL. It makes
+   no network requests and files nothing.
+
+2. **Ask the questions the block can't answer**:
+   - what happened — the exact error or output, pasted verbatim if there was any;
+   - what was expected instead;
+   - the smallest repro — the smallest deck file (or the keys pressed) that
+     shows the problem.
+
+3. **Offer a screenshot — and ask before taking one.** State plainly that it
+   would be a **headless render of the deck file the user names, at the
+   failing slide** (via the bundled \`tools/shot.mjs\`) — never a capture of
+   their screen — and that the issue is public, so attaching it publishes that
+   slide's content. No consent → no screenshot; the flow continues without
+   one. No Chrome on the machine → skip this step with a note, not an error.
+   With consent:
+
+       node node_modules/decklight/tools/shot.mjs <deck.html> \\
+         -o decklight-bug.png --slide <N>
+
+   The PNG is saved locally only. SHOW it to the user before anything else
+   happens.
+
+4. **Draft the complete issue** — a one-line title; what happened / what was
+   expected; the smallest repro; the \`## Environment\` block — and show the
+   FULL body to the user.
+
+5. **File only after an explicit yes.** Until that yes, nothing has been
+   sent. On approval:
+   - \`gh\` installed and authenticated → \`gh issue create --repo
+     decklight/decklight --title "…" --body-file <draft>\`;
+   - otherwise → hand over the new-issue URL \`report-bug\` printed and the
+     body to paste.
+
+   A screenshot cannot ride either path automatically: finish by pointing at
+   the saved PNG and telling the user to drag it into the issue on GitHub.
+`;
+}
+
 export const AGENTS_MARKER = '<!-- decklight:skill -->';
 
 /**
@@ -97,6 +155,12 @@ This project contains a Decklight presentation (a single-file HTML deck —
 see \`${referenceHref}\` for the full authoring
 contract: builds, notes, SVG diagrams, themes, terminals, narration).
 Read that file before adding or editing slides.
+
+Hit a Decklight bug? Run \`npx decklight report-bug\` for a ready-to-paste
+environment block plus the issue URL, ask the user what happened / what was
+expected / the smallest repro, show them the complete draft, and file it
+only after they approve (screenshots only with explicit consent — a
+headless render of their deck, never their screen, on a public issue).
 ${AGENTS_MARKER}
 `;
 }

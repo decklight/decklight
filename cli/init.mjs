@@ -37,7 +37,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 
 import {
-  PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
+  PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc, reportBugSkillMd,
 } from './skill-content.mjs';
 import { escapeHtml } from './edit.mjs';
 import { inGitRepo, createRepo, isIdentityError, oneline } from './git.mjs';
@@ -281,7 +281,7 @@ Options:
   --open          open the scaffolded deck in your default browser
                   (the deck is self-contained — the file is the presentation)
   --force         overwrite an existing deck file (default: refuses)
-  --no-skill      skip .claude/skills/decklight/ and AGENTS.md
+  --no-skill      skip .claude/skills/ (authoring + report-bug) and AGENTS.md
 
 Without a title argument, a terminal run asks for one (empty keeps "My Deck");
 non-interactive runs scaffold "My Deck" without asking.
@@ -371,6 +371,11 @@ unless --no-skill is given. The deck file is only touched with --force.
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());
     fs.writeFileSync(path.join(skillDir, 'reference.md'), referenceDoc());
     note(`wrote .claude/skills/decklight/{SKILL.md,reference.md} (v${PKG.version})`);
+
+    const reportDir = path.join(root, '.claude', 'skills', 'decklight-report-bug');
+    fs.mkdirSync(reportDir, { recursive: true });
+    fs.writeFileSync(path.join(reportDir, 'SKILL.md'), reportBugSkillMd());
+    note('wrote .claude/skills/decklight-report-bug/SKILL.md (bug-report flow)');
 
     const agentsPath = path.join(root, 'AGENTS.md');
     const section = agentsSection();

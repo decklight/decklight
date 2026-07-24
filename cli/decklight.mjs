@@ -14,6 +14,7 @@
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
  *   decklight video    render a deck to a narrated mp4 (stills + voiceover audio)
+ *   decklight report-bug  print a triage-ready bug-report scaffold (env block + issue URL)
  *
  * The subcommand implementations live in rec.mjs and
  * bundle.mjs (importable modules; direct execution still works but
@@ -56,6 +57,8 @@ Commands:
            EXAMPLE: decklight edit demo/showcase.html   (then open the printed URL)
   dev      one command for the whole loop: edit + every bridge this machine can run, one Ctrl-C
            EXAMPLE: decklight dev demo/showcase.html   (bridges without prerequisites are skipped)
+  report-bug  print a triage-ready bug-report scaffold — environment block + issue URL,
+           nothing collected or sent.  EXAMPLE: decklight report-bug
   help     show this help, or a command's help: decklight help bundle
   version  print the installed version (also --version / -v)
 `;
@@ -152,6 +155,11 @@ switch (cmd) {
   case 'dev': {
     const { devMain } = await import('./dev.mjs');
     await devMain(rest);
+    break;
+  }
+  case 'report-bug': {
+    const { reportBugMain } = await import('./report-bug.mjs');
+    await reportBugMain(rest);
     break;
   }
   default:

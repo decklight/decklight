@@ -3,15 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * decklight skills — install the Decklight authoring skill for one or more
- * AI coding agents, each in the convention it reads.
+ * decklight skills — install the Decklight agent skills (authoring +
+ * bug reporting) for one or more AI coding agents, each in the convention
+ * it reads.
  *
  *   decklight skills [agent…] [--dir path | --global] [--all] [--force]
  *
- * `init` scaffolds a deck *and* hands Claude a skill; this command is the
- * skill on its own. Claude Code loads a real skill (`.claude/skills/`);
- * Codex, OpenCode and IBM Bob read the `AGENTS.md` convention. Both point at
- * a reference sliced from the installed version's SPEC.md so it can't drift.
+ * `init` scaffolds a deck *and* hands Claude the skills; this command is
+ * the skills on their own. Claude Code loads real skills (`.claude/skills/`);
+ * Codex, OpenCode and IBM Bob read the `AGENTS.md` convention. The authoring
+ * skill points at a reference sliced from the installed version's SPEC.md so
+ * it can't drift.
  *
  * Two scopes. **Project** (default) installs into the current repo, next to
  * the deck. **--global** installs into each agent's user-level config home
@@ -31,7 +33,7 @@ import { onPath } from './agents.mjs';
 import { makeFail } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 import {
-  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
+  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc, reportBugSkillMd,
 } from './skill-content.mjs';
 
 // The reference doc, relative to whatever dir carries it. Skills keep their
@@ -90,10 +92,12 @@ Options:
                 clobber a SKILL.md/reference.md; the AGENTS.md section is
                 always refreshed in place, never duplicated)
 
-Claude Code gets a real skill (.claude/skills/decklight/); Codex, OpenCode
-and IBM Bob get a marked section in AGENTS.md. Both point at a reference
-sliced from this version's SPEC.md, so the contract never drifts from the
-installed runtime.
+Claude Code gets two real skills — authoring (.claude/skills/decklight/)
+and bug reporting (.claude/skills/decklight-report-bug/, riding on
+\`decklight report-bug\`); Codex, OpenCode and IBM Bob get a marked section
+in AGENTS.md covering both flows. The authoring contract is a reference
+sliced from this version's SPEC.md, so it never drifts from the installed
+runtime.
 `;
 
 /** The agents to target: an explicit list, everything (--all), or detected. */
@@ -143,10 +147,16 @@ function mergeAgentsMd(dir, refHref) {
   return `appended a Decklight section to ${display(agentsPath)}`;
 }
 
-/** Write Claude's self-contained skill (SKILL.md + reference) into skillDir. */
-function installClaudeSkill(skillDir, force, written) {
-  written.push(display(writeIfAbsent(path.join(skillDir, 'SKILL.md'), claudeSkillMd(SKILL_REF), force)));
-  written.push(display(writeIfAbsent(path.join(skillDir, SKILL_REF), referenceDoc(), force)));
+/**
+ * Write Claude's self-contained skills under skillsRoot: the authoring
+ * skill (SKILL.md + reference) and the report-bug skill (SKILL.md only —
+ * its workflow rides on the `decklight report-bug` command's output).
+ */
+function installClaudeSkills(skillsRoot, force, written) {
+  const authoring = path.join(skillsRoot, 'decklight');
+  written.push(display(writeIfAbsent(path.join(authoring, 'SKILL.md'), claudeSkillMd(SKILL_REF), force)));
+  written.push(display(writeIfAbsent(path.join(authoring, SKILL_REF), referenceDoc(), force)));
+  written.push(display(writeIfAbsent(path.join(skillsRoot, 'decklight-report-bug', 'SKILL.md'), reportBugSkillMd(), force)));
 }
 
 // --- project scope: one repo, one shared AGENTS.md for every agent ----------
@@ -159,7 +169,7 @@ function installProject(targets, dir, force) {
   const mdAgents = targets.filter((k) => TARGETS[k].kind === 'agents');
   const written = [];
 
-  if (wantsClaude) installClaudeSkill(path.join(root, '.claude', 'skills', 'decklight'), force, written);
+  if (wantsClaude) installClaudeSkills(path.join(root, '.claude', 'skills'), force, written);
   if (mdAgents.length) {
     // one reference copy: Claude's skill dir when Claude is also a target,
     // else a standalone .decklight/ copy the AGENTS.md agents point at.
@@ -178,7 +188,7 @@ function installGlobal(targets, env, force) {
     const t = TARGETS[key];
     const home = t.home(env);
     if (t.kind === 'skill') {
-      installClaudeSkill(path.join(home, 'skills', 'decklight'), force, written);
+      installClaudeSkills(path.join(home, 'skills'), force, written);
     } else {
       written.push(display(writeIfAbsent(path.join(home, SHARED_REF), referenceDoc(), force)));
       written.push(mergeAgentsMd(home, SHARED_REF));
@@ -223,7 +233,7 @@ export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath
 
   const where = global ? 'globally' : `in ${display(path.resolve(dir ?? '.'))}`;
   process.stdout.write(
-    `installed the Decklight skill (v${PKG.version}) ${where} for ${targets.map((k) => TARGETS[k].label).join(', ')}\n`,
+    `installed the Decklight skills (v${PKG.version}) ${where} for ${targets.map((k) => TARGETS[k].label).join(', ')}\n`,
   );
   for (const w of written) process.stdout.write(`  ${w}\n`);
 }

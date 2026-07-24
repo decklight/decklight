@@ -24,7 +24,7 @@ const CLI = path.resolve(here, '../cli/decklight.mjs');
 
 test('global help lists all subcommands with runnable examples', () => {
   const out = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  for (const sub of ['init', 'skills', 'rec', 'refresh', 'export', 'bundle', 'upgrade', 'publish', 'video']) {
+  for (const sub of ['init', 'skills', 'rec', 'refresh', 'export', 'bundle', 'upgrade', 'publish', 'video', 'report-bug']) {
     assert.match(out, new RegExp(`^  ${sub} `, 'm'), `missing subcommand: ${sub}`);
   }
   assert.equal((out.match(/EXAMPLE:/g) || []).length >= 5, true, 'one example per subcommand');
@@ -627,8 +627,9 @@ test('skills --global installs into each agent config home, not the project', ()
   const cwd = mkdir();
   const out = execFileSync(process.execPath, [CLI, 'skills', '--all', '--global'], { encoding: 'utf8', cwd, env: fakeHomeEnv(home) });
   assert.match(out, /globally for/);
-  // Claude → a real skill under ~/.claude; the AGENTS.md agents → their own homes
+  // Claude → real skills under ~/.claude; the AGENTS.md agents → their own homes
   assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
+  assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight-report-bug', 'SKILL.md')), true);
   assert.equal(fs.existsSync(path.join(home, '.codex', 'AGENTS.md')), true);
   assert.equal(fs.existsSync(path.join(home, '.config', 'opencode', 'AGENTS.md')), true);
   assert.equal(fs.existsSync(path.join(home, '.bob', 'AGENTS.md')), true);
@@ -654,6 +655,95 @@ test('skills --global and --dir are mutually exclusive', () => {
   const r = spawnSync('node', [CLI, 'skills', 'claude', '--global', '--dir', '.'], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /--global and --dir are mutually exclusive/);
+});
+
+// --- decklight report-bug (issue #73) -----------------------------------------
+
+const pkgBugs = JSON.parse(fs.readFileSync(path.resolve(here, '../package.json'), 'utf8')).bugs;
+
+test('report-bug prints the environment block and the new-issue URL from package.json; exit 0', () => {
+  const r = spawnSync('node', [CLI, 'report-bug'], { encoding: 'utf8' });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /^## Environment$/m);
+  assert.match(r.stdout, new RegExp(`^- decklight: ${pkgVersion.replace(/\./g, '\\.')}$`, 'm'));
+  assert.match(r.stdout, /^- node: v\d+\.\d+\.\d+/m);
+  assert.match(r.stdout, new RegExp(`^- os: ${os.platform()} .+ \\(${os.arch()}\\)$`, 'm'));
+  assert.match(r.stdout, /^- headless chrome: (found \(.+\)|not found)$/m);
+  assert.match(r.stdout, /^- node-pty: (installed|not installed)$/m);
+  // the reminder of the three things only the reporter knows
+  assert.match(r.stdout, /What happened/);
+  assert.match(r.stdout, /What you expected/);
+  assert.match(r.stdout, /smallest repro/i);
+  // the URL is read from package.json's bugs field, never hardcoded drift
+  const bugs = typeof pkgBugs === 'string' ? pkgBugs : pkgBugs.url;
+  assert.ok(r.stdout.includes(`${bugs}/new`), 'new-issue URL derived from package.json bugs');
+  assert.match(r.stdout, /Nothing was collected or sent/);
+  // stdout stays a clean paste target — the version banner rides stderr
+  assert.doesNotMatch(r.stdout, /^decklight \d/m);
+  assert.match(r.stderr, /^decklight \d/);
+});
+
+test('report-bug --help documents it; help report-bug routes there; strays fail', () => {
+  const out = execFileSync('node', [CLI, 'report-bug', '--help'], { encoding: 'utf8' });
+  assert.match(out, /decklight report-bug — print a triage-ready bug-report scaffold/);
+  assert.match(out, /no network requests/);
+  const routed = execFileSync('node', [CLI, 'help', 'report-bug'], { encoding: 'utf8' });
+  assert.match(routed, /Usage:\n  decklight report-bug/);
+  const r = spawnSync('node', [CLI, 'report-bug', 'deck.html'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /unknown argument: deck\.html/);
+});
+
+test('report-bug chrome probe reports what exists, not what an env var claims', () => {
+  const dir = mkdir();
+  const fakeChrome = path.join(dir, 'chrome');
+  fs.writeFileSync(fakeChrome, '#!/bin/sh\n', { mode: 0o755 });
+  const found = spawnSync('node', [CLI, 'report-bug'],
+    { encoding: 'utf8', env: { ...process.env, CHROME: fakeChrome } });
+  assert.match(found.stdout, new RegExp(`^- headless chrome: found \\(${fakeChrome.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)$`, 'm'));
+  // a $CHROME pointing nowhere is never reported as the found browser
+  const bogus = spawnSync('node', [CLI, 'report-bug'],
+    { encoding: 'utf8', env: { ...process.env, CHROME: path.join(dir, 'no-such-chrome') } });
+  assert.equal(bogus.status, 0, 'probing never fails the report');
+  assert.doesNotMatch(bogus.stdout, /no-such-chrome/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('skills claude installs the report-bug skill with the consent and approval gates', () => {
+  const dir = mkdir();
+  execFileSync('node', [CLI, 'skills', 'claude', '--dir', dir], { encoding: 'utf8' });
+  const skill = fs.readFileSync(path.join(dir, '.claude', 'skills', 'decklight-report-bug', 'SKILL.md'), 'utf8');
+  assert.match(skill, /^---\nname: decklight-report-bug\n/);
+  // collection rides the CLI command, in order
+  assert.match(skill, /npx decklight report-bug/);
+  assert.match(skill, /what happened/i);
+  assert.match(skill, /what was expected/i);
+  assert.match(skill, /smallest repro/i);
+  // consent before any screenshot, named as a headless render on a public issue
+  assert.match(skill, /ask before taking one/i);
+  assert.match(skill, /headless render/);
+  assert.match(skill, /never a capture of\s+their screen/);
+  assert.match(skill, /issue is public/);
+  assert.match(skill, /SHOW it to the user/);
+  assert.match(skill, /skip this step with a note, not an error/);
+  // filing gated on explicit approval, with both the gh and the URL path
+  assert.match(skill, /only after an explicit yes/i);
+  assert.match(skill, /gh issue create --repo\s+decklight\/decklight/);
+  assert.match(skill, /nothing has been\s+sent/i);
+  assert.match(skill, /drag it into the issue/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init installs the report-bug skill and the AGENTS.md block points at the flow', () => {
+  const dir = mkdir();
+  const out = execFileSync('node', [CLI, 'init', 'Bug Deck', '--dir', dir], { encoding: 'utf8' });
+  assert.match(out, /decklight-report-bug\/SKILL\.md/);
+  const skill = fs.readFileSync(path.join(dir, '.claude', 'skills', 'decklight-report-bug', 'SKILL.md'), 'utf8');
+  assert.match(skill, /^---\nname: decklight-report-bug\n/);
+  const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /npx decklight report-bug/);
+  assert.match(agents, /only after they approve/);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('skills rejects an unknown agent, and errors when none is detected', () => {

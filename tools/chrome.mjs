@@ -16,6 +16,17 @@ const CANDIDATES = [
   `${process.env.HOME}/.nix-profile/bin/chromium`,
 ];
 
+/**
+ * Probe without exiting: the browser a headless run would find, or null.
+ * $CHROME/$DECKLIGHT_CHROME count only when they point at a real file —
+ * this feeds `decklight report-bug`, which states what IS on the machine,
+ * not what an env var claims.
+ */
+export function findChrome(env = process.env) {
+  for (const p of [env.CHROME, env.DECKLIGHT_CHROME]) if (p && existsSync(p)) return p;
+  return CANDIDATES.find((p) => existsSync(p)) ?? null;
+}
+
 /** The browser to drive: $CHROME wins, else the first one installed. */
 export function chromeBin(who = 'chrome') {
   const bin = process.env.CHROME || process.env.DECKLIGHT_CHROME

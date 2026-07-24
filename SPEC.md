@@ -410,7 +410,7 @@ decklight/
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
-  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, publish.mjs, edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
+  cli/           decklight.mjs (dispatcher: init/skills/rec/refresh/export/bundle/upgrade/publish/tts/lipsync/video/edit/dev/report-bug) + init.mjs, skills.mjs + skill-content.mjs (agent skills: authoring + report-bug), rec.mjs, bundle.mjs, upgrade.mjs, publish.mjs, edit.mjs, dev.mjs, report-bug.mjs, agents.mjs (AI-agent roster)
   tools/         voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, §8)
   themes/        30 × <name>.css + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
