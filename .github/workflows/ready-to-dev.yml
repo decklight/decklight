@@ -234,8 +234,12 @@ jobs:
 
           # written to a file, NOT an indented heredoc: leading spaces would make
           # GitHub render the whole body as a code block
+          #
+          # "Closes #N", not "Implements #N": only a closing keyword makes the
+          # merge retire the ticket. Merging the PR then closes the issue, which
+          # the board mirror moves to Done and drops `in-dev` — the loop's exit.
           {
-            echo "Implements #${N}."
+            echo "Closes #${N}."
             echo
             echo "## Does it actually work?"
             echo
