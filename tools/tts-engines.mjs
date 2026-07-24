@@ -32,6 +32,12 @@ import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId
 
 export const ENGINES = ['gemini', 'chirp', 'piper'];
 
+// Piper's defaults, shared with the setup wizard (tools/tts-setup.mjs) so the
+// model it checks for is the model createPiper will load.
+export const PIPER_DEFAULT_VOICE = 'en_US-ryan-high';
+export const piperModelDir = (env = process.env) =>
+  join(env.HOME || homedir(), '.local', 'share', 'piper');
+
 // Chirp 3: HD ships the same roster as Gemini TTS (verified against
 // texttospeech.googleapis.com/v1/voices) — one name, two engines.
 const CHIRP_PRICE_PER_1M = 30.0; // USD, list, after the 1M chars/month free tier
@@ -101,13 +107,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * ours — which also means the text must be flattened to a single line, or one
  * request would silently become several utterances.
  */
-function createPiper({ voice = 'en_US-ryan-high', dataDir }) {
+function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
   try { execFileSync('piper', ['--help'], { stdio: 'ignore' }); }
   catch { throw new Error('piper not found — install with: uv tool install piper-tts'); }
   // A bare model NAME only resolves against a data dir — without one, piper
   // searches its own default and calls the voice missing even when it is
   // sitting right there. A model PATH needs no dir at all.
-  const models = dataDir ?? join(homedir(), '.local', 'share', 'piper');
+  const models = dataDir ?? piperModelDir();
   const byPath = voice.includes('/') || voice.endsWith('.onnx');
 
   let proc = null, spool = null;
@@ -242,10 +248,13 @@ function createPiper({ voice = 'en_US-ryan-high', dataDir }) {
 export function createEngine({ engine = 'gemini', project, model, location, voice, dataDir, lang } = {}) {
   if (!ENGINES.includes(engine)) throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')}`);
 
+  // `cost` is the human-facing price note — the bridge's startup line and the
+  // setup wizard's test-synthesis report both quote it.
   if (engine === 'piper') {
-    const m = voice ?? 'en_US-ryan-high';
+    const m = voice ?? PIPER_DEFAULT_VOICE;
     return {
       name: 'piper', model: m, needsProject: false, stylable: false,
+      cost: 'free · offline',
       voices: [[m, 'local']],
       synth: createPiper({ voice: m, dataDir }),
     };
@@ -253,6 +262,7 @@ export function createEngine({ engine = 'gemini', project, model, location, voic
   if (engine === 'chirp') {
     return {
       name: 'chirp', model: 'chirp3-hd', needsProject: true, stylable: false,
+      cost: 'first 1M chars/month free',
       voices: GEMINI_VOICES,
       synth: createChirp({ project, lang: lang ?? 'en-US' }),
     };
@@ -260,6 +270,7 @@ export function createEngine({ engine = 'gemini', project, model, location, voic
   const m = model ?? 'gemini-2.5-pro-tts';
   return {
     name: 'gemini', model: m, needsProject: true, stylable: true,
+    cost: 'billed per call — no free tier',
     voices: GEMINI_VOICES,
     synth: createGemini({ project, ttsModel: m, location }),
   };

@@ -10,14 +10,14 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { planServices, inGitRepo } from '../cli/dev.mjs';
+import { planServices, inGitRepo, voiceSetupOffer } from '../cli/dev.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 
 const NO_BINS = () => false;
 const ALL_BINS = () => true;
-const plan = (args, { env = {}, hasBin = NO_BINS } = {}) => planServices({ args, env, hasBin });
+const plan = (args, { env = {}, hasBin = NO_BINS, saved = null } = {}) => planServices({ args, env, hasBin, saved });
 
 const names = (p) => p.run.map((s) => s.name);
 const svc = (p, name) => p.run.find((s) => s.name === name);
@@ -96,6 +96,37 @@ test('a malformed project id is caught here, not by Vertex', () => {
     assert.ok(!names(plan(['deck.html', '--project', bad])).includes('tts'), `rejected: ${bad}`);
   for (const ok of ['decklight-tts', 'proj-1', 'a1b2c3'])
     assert.ok(names(plan(['deck.html', '--project', ok])).includes('tts'), `accepted: ${ok}`);
+});
+
+test('the saved tts config counts — but flags and the environment still win', () => {
+  // the wizard saved piper: the voice comes up with no flags at all
+  const piperSaved = { engine: 'piper', voice: 'en_US-ryan-high' };
+  const offline = plan(['deck.html'], { hasBin: ALL_BINS, saved: piperSaved });
+  assert.deepEqual(svc(offline, 'tts').args, ['tts', '--port', '8787', '--engine', 'piper']);
+
+  // …but a saved piper with no binary anymore is still a skip, with the reason
+  assert.match(why(plan(['deck.html'], { saved: piperSaved }), 'voice'), /piper not on PATH/);
+
+  // a saved cloud engine carries its project
+  const chirpSaved = { engine: 'chirp', project: 'proj-saved' };
+  assert.deepEqual(svc(plan(['deck.html'], { saved: chirpSaved }), 'tts').args,
+    ['tts', '--port', '8787', '--engine', 'chirp', '--project', 'proj-saved']);
+
+  // precedence: flags > environment > saved config
+  const viaFlag = plan(['deck.html', '--tts-engine', 'gemini', '--project', 'proj-flag'], { saved: chirpSaved });
+  assert.deepEqual(svc(viaFlag, 'tts').args, ['tts', '--port', '8787', '--engine', 'gemini', '--project', 'proj-flag']);
+  const viaEnv = plan(['deck.html'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-env' }, saved: chirpSaved });
+  assert.deepEqual(svc(viaEnv, 'tts').args, ['tts', '--port', '8787', '--engine', 'chirp', '--project', 'proj-env']);
+});
+
+test('the setup offer fires only on the fixable skip — a flag-chosen outcome never asks', () => {
+  assert.ok(voiceSetupOffer(plan(['deck.html'])), 'nothing configured: offer');
+  assert.ok(voiceSetupOffer(plan(['deck.html', '--tts-engine', 'chirp'])), 'engine picked, project missing: still fixable');
+  assert.equal(voiceSetupOffer(plan(['deck.html', '--no-tts'])), null, '--no-tts never asks');
+  assert.equal(voiceSetupOffer(plan(['deck.html', '--tts-engine', 'espeak'])), null, 'an unknown engine is a typo, not a setup');
+  assert.equal(voiceSetupOffer(plan(['deck.html', '--project', 'decklight-tts,'])), null, 'a malformed id keeps its own message');
+  assert.equal(voiceSetupOffer(plan(['deck.html', '--tts-engine', 'piper'])), null, 'a missing binary is an install, not a config');
+  assert.equal(voiceSetupOffer(plan(['deck.html'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-1' } })), null, 'nothing to fix: the voice runs');
 });
 
 test('lip-sync comes up when rhubarb is on PATH, or when explicitly configured', () => {

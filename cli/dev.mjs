@@ -28,6 +28,7 @@ import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
+import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
 
@@ -58,6 +59,8 @@ const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
                     chirp   Cloud TTS Chirp 3: HD — same voices, ~1s, 1M chars/month free
                     piper   local, offline, unlimited, no project needed
+                    (nothing configured? on a terminal dev offers a one-time
+                    guided setup; decklight tts --setup re-runs it)
 
   tts flags     --project <id> (or $GOOGLE_CLOUD_PROJECT; gemini/chirp only),
                 --tts-model, --location, --voice, --data-dir, --lang
@@ -79,10 +82,13 @@ const VALUE_FLAGS = new Set([
 /**
  * Decide what to bring up, WITHOUT starting anything — the whole capability
  * policy in one pure function, so it can be tested without binding a port.
+ * `saved` is the machine-level tts config (~/.config/decklight/tts.json,
+ * written by the setup wizard) — injected, not read here, so the plan stays
+ * pure; precedence is flags > environment > saved config > built-in default.
  * Returns { deck, run: [{name, tag, args, url}], skip: [{name, why}],
  * agents: [names the machine can run] }.
  */
-export function planServices({ args = [], env = process.env, hasBin = onPath } = {}) {
+export function planServices({ args = [], env = process.env, hasBin = onPath, saved = null } = {}) {
   const { opt, opts } = argReader(args);
   const has = (flag) => args.includes(flag);
   const pass = (flag) => (opt(flag) !== undefined ? [flag, opt(flag)] : []);
@@ -114,12 +120,12 @@ export function planServices({ args = [], env = process.env, hasBin = onPath } =
   // live voice — the cloud engines exit without a GCP project, so don't even
   // start them; piper needs no credentials at all, only the binary
   const ttsPort = opt('--tts-port', '8787');
-  const ttsEngine = opt('--tts-engine', 'gemini');
-  const project = opt('--project', env.GOOGLE_CLOUD_PROJECT);
+  const ttsEngine = opt('--tts-engine', saved?.engine ?? 'gemini');
+  const project = opt('--project', env.GOOGLE_CLOUD_PROJECT ?? saved?.project);
   const cloudVoice = ttsEngine === 'gemini' || ttsEngine === 'chirp';
   const ttsArgs = () => [
     'tts', '--port', ttsPort,
-    ...(has('--tts-engine') ? ['--engine', ttsEngine] : []),
+    ...(has('--tts-engine') || saved?.engine ? ['--engine', ttsEngine] : []),
     ...(cloudVoice ? ['--project', project] : []),
     ...pass('--tts-model'), ...pass('--location'),
     ...pass('--voice'), ...pass('--data-dir'), ...pass('--lang'),
@@ -175,6 +181,18 @@ export function planServices({ args = [], env = process.env, hasBin = onPath } =
   return { deck, run, skip, agents: detectAgents({ env, hasBin }).map((a) => a.name) };
 }
 
+/**
+ * Should dev OFFER the tts setup wizard instead of just printing the skip
+ * line? Only when the skip is the fixable kind — no engine configured, no
+ * project to run the default cloud engine with — never when a flag chose the
+ * outcome (--no-tts, an unknown engine, a malformed --project: the user's
+ * hand is on the wheel, and the skip line already names the fix).
+ */
+export const voiceSetupOffer = (plan) => {
+  const s = plan.skip.find((x) => x.name === 'voice');
+  return s && /needs a GCP project/.test(s.why) ? s : null;
+};
+
 // inGitRepo lives in git.mjs now; re-exported so importers (and the tests) keep
 // finding it where dev grew it.
 export { inGitRepo } from './git.mjs';
@@ -187,7 +205,7 @@ const RESET = '\x1b[0m';
 export async function devMain(args) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
 
-  let plan = planServices({ args });
+  let plan = planServices({ args, saved: loadTtsConfig() });
   const deck = plan.deck;
   if (!deck) {
     console.error('decklight dev needs a deck: decklight dev <deck.html>\n');
@@ -209,11 +227,30 @@ export async function devMain(args) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       const answer = await rl.question('  no git repository here — create one and auto-commit the deck as you edit? [Y/n] ');
       rl.close();
-      if (!/^n/i.test(answer.trim())) plan = planServices({ args: [...args, '--git'] });
-      else plan = planServices({ args: [...args, '--no-git'] });
+      args = [...args, /^n/i.test(answer.trim()) ? '--no-git' : '--git'];
+      plan = planServices({ args, saved: loadTtsConfig() });
     } else {
       console.log('  git: no repository here — pass --git to create one and auto-commit the deck');
     }
+  }
+  // The voice would be skipped for the one reason setup can fix: nothing is
+  // configured. Offer the guided setup (TTY only — headless runs keep the
+  // skip line exactly as it was); a completed setup re-plans, so the bridge
+  // joins `run` and comes up in this same session.
+  if (voiceSetupOffer(plan) && process.stdin.isTTY && process.stdout.isTTY) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const answer = await rl.question('  no voice engine configured — set up live narration now? (V / N in the deck use it) [Y/n] ');
+      if (!/^n/i.test(answer.trim())) {
+        const result = await runSetupWizard({ ask: (q) => rl.question(q) });
+        if (result) {
+          // the wizard's test synthesis may hold a resident engine (piper);
+          // dev runs the bridge as its own child process, so let it go
+          result.engine.synth.close?.();
+          plan = planServices({ args, saved: result.config });
+        }
+      }
+    } finally { rl.close(); }
   }
   // The edit port might already be held — often an earlier decklight session
   // left running. Resolved here, with dev's OWN stdin, because the edit

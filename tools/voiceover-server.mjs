@@ -14,6 +14,13 @@
 //                 [--project <id>]              (or set GOOGLE_CLOUD_PROJECT)
 //                 [--tts-model gemini-2.5-flash-tts] [--location global]
 //                 [--voice en_US-ryan-high] [--data-dir <dir>] [--lang en-US]
+//                 [--setup]                     (re-run the guided setup)
+//
+// First run: with nothing configured on a terminal, tts walks through the
+// guided setup (tts-setup.mjs) instead of exiting with the engine's error —
+// engine choice, that engine's prerequisites, one test synthesis — and saves
+// the answers to ~/.config/decklight/tts.json ($XDG_CONFIG_HOME honored).
+// Precedence: flags > environment > saved config > built-in default.
 //
 // Engines differ in what they cost and what they can be told (tts-engines.mjs):
 // gemini takes a style instruction and has no free tier; chirp is ~1s a
@@ -27,7 +34,9 @@
 
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
+import { createInterface } from 'node:readline/promises';
 import { createEngine, ENGINES } from './tts-engines.mjs';
+import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
 import { argReader, isMain } from './args.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 
@@ -35,6 +44,7 @@ export async function ttsMain(args) {
   if (args.includes('--help')) {
     console.log(`usage: decklight tts [--port 8787] [--engine ${ENGINES.join('|')}] [--project <id>]
                      [--tts-model id] [--location global] [--voice name] [--data-dir dir] [--lang en-US]
+                     [--setup]
 
   gemini  gemini-2.5-pro-tts (default) or --tts-model gemini-2.5-flash-tts — Vertex AI, best
           delivery, the only engine that honors a style instruction. No free tier.
@@ -42,33 +52,62 @@ export async function ttsMain(args) {
           1M characters a month free. Needs texttospeech.googleapis.com enabled.
   piper   local neural TTS — offline, unlimited, no credentials, no cost.
 
-  project also read from $GOOGLE_CLOUD_PROJECT (gemini and chirp only)`);
+  project also read from $GOOGLE_CLOUD_PROJECT (gemini and chirp only)
+
+  first run: with nothing configured on a terminal, tts asks a few guided
+  questions (engine, prerequisites, one test synthesis) and saves the answers
+  to ${ttsConfigPath()} — --setup re-runs them.
+  precedence: flags > environment > saved config > built-in default`);
     return;
   }
   const { opt } = argReader(args);
   const port = Number(opt('--port', 8787));
-  const engineName = opt('--engine', 'gemini');
-  if (!ENGINES.includes(engineName)) {
-    console.error(`decklight tts: unknown engine '${engineName}' — use ${ENGINES.join(', ')}`);
-    process.exitCode = 1;
-    return;
-  }
+  const saved = loadTtsConfig();
+  const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const engineName = opt('--engine') ?? saved?.engine ?? 'gemini';
+  // saved voice/data-dir belong to the engine they were saved for — a piper
+  // model name is meaningless to gemini
+  const savedFor = saved?.engine === engineName ? saved : null;
+
+  const wizard = async () => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    try { return await runSetupWizard({ ask: (q) => rl.question(q), prefill: saved ?? {} }); }
+    finally { rl.close(); }
+  };
 
   let engine;
-  try {
-    engine = createEngine({
-      engine: engineName,
-      project: opt('--project', process.env.GOOGLE_CLOUD_PROJECT),
-      model: opt('--tts-model'),
-      location: opt('--location'),
-      voice: opt('--voice'),
-      dataDir: opt('--data-dir'),
-      lang: opt('--lang'),
-    });
-  } catch (e) {
-    console.error(`decklight tts: ${e.message}`);
-    process.exitCode = 1;
-    return;
+  if (args.includes('--setup')) {
+    if (!tty) {
+      console.error('decklight tts: --setup needs a terminal to ask its questions on');
+      process.exitCode = 1;
+      return;
+    }
+    engine = (await wizard())?.engine;
+    if (!engine) { process.exitCode = 1; return; }
+  } else {
+    try {
+      engine = createEngine({
+        engine: engineName,
+        project: opt('--project') ?? process.env.GOOGLE_CLOUD_PROJECT ?? saved?.project,
+        model: opt('--tts-model'),
+        location: opt('--location'),
+        voice: opt('--voice') ?? savedFor?.voice,
+        dataDir: opt('--data-dir') ?? savedFor?.dataDir,
+        lang: opt('--lang'),
+      });
+    } catch (e) {
+      // an explicit --engine/--project is a hand on the wheel — fail exactly
+      // as before; otherwise, on a terminal, the error becomes the first
+      // question of the guided setup instead of the end of the road
+      if (!tty || args.includes('--engine') || args.includes('--project')) {
+        console.error(`decklight tts: ${e.message}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.log(`no voice engine configured yet (${e.message})`);
+      engine = (await wizard())?.engine;
+      if (!engine) { process.exitCode = 1; return; }
+    }
   }
 
   const cache = new Map();
@@ -141,10 +180,7 @@ export async function ttsMain(args) {
   });
 
   server.listen(port, '127.0.0.1', () => {
-    const cost = engine.name === 'piper' ? 'free · offline'
-      : engine.name === 'chirp' ? 'first 1M chars/month free'
-        : 'billed per call — no free tier';
-    console.log(`decklight tts bridge on http://127.0.0.1:${port} — ${engine.name} · ${engine.model} (${cost}) — Ctrl-C stops`);
+    console.log(`decklight tts bridge on http://127.0.0.1:${port} — ${engine.name} · ${engine.model} (${engine.cost}) — Ctrl-C stops`);
     // piper loads a ~120 MB model on start; do it now, while the deck is still
     // being opened, so the first sentence isn't a 13-second silence
     if (engine.synth.warm) {
