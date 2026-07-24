@@ -137,6 +137,21 @@ test('git and agent flags ride along to the edit child', () => {
   assert.equal(plan(['--commit-every', '60', 'deck.html']).deck, 'deck.html');
 });
 
+test('--remote and --host ride along to the edit child; no flag, no change', () => {
+  const p = plan(['deck.html', '--remote']);
+  assert.deepEqual(svc(p, 'edit').args, ['edit', 'deck.html', '--port', '8788', '--remote']);
+
+  const h = plan(['deck.html', '--remote', '--host', '192.168.1.5']);
+  assert.deepEqual(svc(h, 'edit').args,
+    ['edit', 'deck.html', '--port', '8788', '--remote', '--host', '192.168.1.5']);
+
+  // without the flag the edit child's args are byte-for-byte what they were
+  assert.deepEqual(svc(plan(['deck.html']), 'edit').args, ['edit', 'deck.html', '--port', '8788']);
+
+  // the deck is still found past the new value flag
+  assert.equal(plan(['--host', '0.0.0.0', 'deck.html']).deck, 'deck.html');
+});
+
 test('the agent roster is part of the plan — the big three included', () => {
   const all = plan(['deck.html'], { hasBin: ALL_BINS });
   for (const name of ['claude', 'codex', 'bob']) {
@@ -157,6 +172,8 @@ test('dev is routed and documented by the dispatcher', () => {
 
   const devHelp = execFileSync('node', [CLI, 'dev', '--help'], { encoding: 'utf8' });
   assert.match(devHelp, /usage: decklight dev/);
+  assert.match(devHelp, /--remote/, 'the LAN opt-in is documented');
+  assert.match(devHelp, /--host/, 'and so is the bind address');
 });
 
 test('dev without a deck, or with a missing one, fails with usage — not a stack trace', () => {

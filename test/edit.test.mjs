@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
+import { setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, allowRemote, lanAddress } from '../cli/edit.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -92,6 +92,48 @@ test('history is capped — the oldest snapshots fall off, not the newest', () =
   assert.equal(h.undo('d'), 'c');
   assert.equal(h.undo('c'), 'b'); // 'a' fell off
   assert.equal(h.undo('b'), null);
+});
+
+// ── allowRemote: the security seam for the phone remote (#115) ─────────────
+// One pure classifier decides every request: loopback always answers,
+// off-loopback only /remote/* with the per-run token — and /edit/* refuses
+// non-loopback callers no matter what the request carries.
+
+const reqOf = (addr, url, headers = {}) => ({ socket: { remoteAddress: addr }, url, headers });
+
+test('allowRemote: loopback always answers — token or no token, any path', () => {
+  for (const addr of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '127.8.9.10']) {
+    assert.equal(allowRemote(reqOf(addr, '/edit/notes'), null), true, addr);
+    assert.equal(allowRemote(reqOf(addr, '/edit/undo'), 'tok'), true, addr);
+    assert.equal(allowRemote(reqOf(addr, '/deck.html'), 'tok'), true, addr);
+  }
+});
+
+test('allowRemote: off-loopback, only /remote/* — and only with the right token', () => {
+  const LAN = '192.168.1.23';
+  // the /remote?t= URL the phone will carry, and its sub-paths
+  assert.equal(allowRemote(reqOf(LAN, '/remote?t=tok'), 'tok'), true);
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t=tok'), 'tok'), true);
+  // the token can ride a header too (fetches from the controller page)
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state', { 'x-decklight-token': 'tok' }), 'tok'), true);
+  // wrong token, missing token: refused
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t=nope'), 'tok'), false);
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state'), 'tok'), false);
+  // no --remote (token null): nothing off-loopback answers at all
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t='), null), false);
+  assert.equal(allowRemote(reqOf(LAN, '/remote?t=null'), null), false);
+});
+
+test('allowRemote: /edit/* refuses off-loopback UNCONDITIONALLY — token included', () => {
+  const LAN = '10.0.0.7';
+  for (const p of ['/edit/notes', '/edit/layout', '/edit/undo', '/edit/redo', '/edit/agent', '/edit/shutdown']) {
+    assert.equal(allowRemote(reqOf(LAN, `${p}?t=tok`), 'tok'), false, p);
+  }
+  // static files are not reachable off-loopback either
+  assert.equal(allowRemote(reqOf(LAN, '/deck.html?t=tok'), 'tok'), false);
+  // path tricks normalize before the check, and a prefix is not a directory
+  assert.equal(allowRemote(reqOf(LAN, '/remote/../edit/notes?t=tok'), 'tok'), false);
+  assert.equal(allowRemote(reqOf(LAN, '/remotely?t=tok'), 'tok'), false);
 });
 
 // ── the agent roster ───────────────────────────────────────────────────────
@@ -302,4 +344,53 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   // asking for an agent that isn't there is a clean 400
   const missing = await post(base, '/edit/agent', { prompt: 'x', agent: 'codex' });
   assert.equal(missing.status, 400);
+});
+
+// ── --remote: LAN binding, the token, and the gate — end to end ───────────
+
+test('--remote: a LAN-addressed /edit/notes is refused; loopback keeps working', async (t) => {
+  const lan = lanAddress();
+  if (!lan) return t.skip('no non-loopback IPv4 interface on this machine');
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base, log } = await startEdit(t, dir, { extraArgs: ['--remote'], env: { PATH: dir } });
+  const port = new URL(base).port;
+
+  // the per-run token is printed as the LAN /remote?t= URL, IP and all
+  const m = log().match(/remote: listening on 0\.0\.0\.0 — http:\/\/([\d.]+):\d+\/remote\?t=([A-Za-z0-9_-]+)/);
+  assert.ok(m, 'the remote URL is printed:\n' + log());
+  assert.equal(m[1], lan, 'the printed IP comes from os.networkInterfaces()');
+  const token = m[2];
+
+  // off-loopback, the editing surface is closed — mutation, ping, and files
+  const refused = await post(`http://${lan}:${port}`, '/edit/notes', { slide: 1, text: 'pwned' });
+  assert.equal(refused.status, 403);
+  assert.doesNotMatch(readFileSync(deck, 'utf8'), /pwned/, 'the refused write never lands');
+  assert.equal((await fetch(`http://${lan}:${port}/edit/ping`)).status, 403);
+  assert.equal((await fetch(`http://${lan}:${port}/deck.html`)).status, 403);
+
+  // off-loopback /remote/* clears the gate with the token (404 until #39c
+  // adds the endpoints — the point is it is not 403), and only with it
+  assert.notEqual((await fetch(`http://${lan}:${port}/remote?t=${token}`)).status, 403);
+  assert.equal((await fetch(`http://${lan}:${port}/remote?t=wrong`)).status, 403);
+
+  // loopback edits work exactly as before, flag or no flag
+  const ok = await post(base, '/edit/notes', { slide: 1, text: 'hello' });
+  assert.equal(ok.status, 200);
+  assert.match(readFileSync(deck, 'utf8'), /hello/);
+});
+
+test('without --remote the server binds 127.0.0.1 only — the LAN cannot even connect', async (t) => {
+  const lan = lanAddress();
+  if (!lan) return t.skip('no non-loopback IPv4 interface on this machine');
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base, log } = await startEdit(t, dir, { env: { PATH: dir } });
+  const port = new URL(base).port;
+
+  assert.doesNotMatch(log(), /remote:/, 'no token, no remote URL without the flag');
+  await assert.rejects(
+    fetch(`http://${lan}:${port}/edit/ping`, { signal: AbortSignal.timeout(2000) }),
+    'the LAN address must not be listening');
 });
