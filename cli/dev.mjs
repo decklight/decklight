@@ -36,11 +36,16 @@ const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper] [--project <id>] [--no-tts] [--no-lipsync]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
+                    [--remote] [--host <addr>]
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
 
   --port N          edit server (live reload + edit write-back)       [8788]
                     (taken already? dev offers to take over that session on
                     a TTY, or moves to the next free port otherwise)
+  --remote          also listen on the LAN for the phone remote — off this
+                    machine only /remote/* answers, and only with the printed
+                    per-run token; /edit/* stays loopback-only regardless
+  --host <addr>     the address --remote binds                        [0.0.0.0]
   --tts-port N      live voice bridge                                 [8787]
   --lipsync-port N  lip-sync bridge (visemes + talking head)          [8789]
   --no-tts          don't start the voice bridge
@@ -67,7 +72,7 @@ const VALUE_FLAGS = new Set([
   '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--project', '--tts-model',
   '--location', '--voice', '--data-dir', '--lang',
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
-  '--python', '--cache-dir', '--commit-every', '--agent',
+  '--python', '--cache-dir', '--commit-every', '--agent', '--host',
   '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
 ]);
 
@@ -101,7 +106,8 @@ export function planServices({ args = [], env = process.env, hasBin = onPath } =
     tag: 'deck',
     args: ['edit', deck, '--port', editPort,
       ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
-      ...pass('--commit-every'), ...pass('--agent')],
+      ...pass('--commit-every'), ...pass('--agent'),
+      ...(has('--remote') ? ['--remote'] : []), ...pass('--host')],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
 

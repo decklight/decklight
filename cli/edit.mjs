@@ -6,6 +6,7 @@
 //
 //   decklight edit <deck.html> [--port 8788] [--git | --no-git]
 //                  [--commit-every <seconds>] [--agent <name>]
+//                  [--remote] [--host <addr>]
 //
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
@@ -39,6 +40,8 @@ import { readFileSync, writeFileSync, watch, existsSync, statSync } from 'node:f
 import { resolve, extname, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { networkInterfaces } from 'node:os';
 import { agentCommand, detectAgents } from './agents.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
@@ -47,8 +50,51 @@ import { resolvePortConflict } from './port-conflict.mjs';
 
 // file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
 // exactly like the tts bridge — so the endpoints are CORS-open. The server
-// still binds 127.0.0.1 only.
+// binds 127.0.0.1 only, unless --remote/--host opts it onto the LAN — and
+// even then allowRemote (below) keeps the editing surface loopback-only.
 const CORS = corsHeaders();
+
+// ── remote access: the security seam for the phone remote (#39) ────────────
+// --remote widens the LISTENER, never the editing surface: off-loopback,
+// only /remote/* answers, and only with the per-run token; every /edit/*
+// mutation (and the static files) refuses non-loopback callers
+// unconditionally, flag or no flag.
+
+/** Loopback caller? IPv4-mapped IPv6 (::ffff:127.0.0.1) counts too. */
+export function isLoopback(addr) {
+  const a = String(addr ?? '').replace(/^::ffff:/i, '');
+  return a === '::1' || /^127\./.test(a);
+}
+
+/**
+ * Pure request classifier: may this request be answered at all?
+ * Loopback: always. Off-loopback: only /remote/* paths carrying the per-run
+ * token (?t= query or x-decklight-token header) — everything else, all
+ * /edit/* mutations included, is refused regardless of any token. `token`
+ * is null when --remote is off, which refuses every off-loopback request
+ * (defense in depth behind the 127.0.0.1 binding).
+ */
+export function allowRemote(req, token) {
+  if (isLoopback(req.socket?.remoteAddress)) return true;
+  if (!token) return false;
+  let url;
+  try { url = new URL(req.url, 'http://x'); } catch { return false; }
+  // new URL() normalizes dot segments, so /remote/../edit/notes is /edit/notes
+  if (url.pathname !== '/remote' && !url.pathname.startsWith('/remote/')) return false;
+  const sent = Buffer.from(String(url.searchParams.get('t') ?? req.headers?.['x-decklight-token'] ?? ''));
+  const want = Buffer.from(token);
+  return sent.length === want.length && timingSafeEqual(sent, want);
+}
+
+/** The machine's LAN address — what the printed /remote?t= URL should carry. */
+export function lanAddress(interfaces = networkInterfaces()) {
+  for (const addrs of Object.values(interfaces)) {
+    for (const a of addrs ?? []) {
+      if (!a.internal && a.family === 'IPv4') return a.address;
+    }
+  }
+  return null;
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -141,6 +187,7 @@ export async function editMain(args) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     console.log(`usage: decklight edit <deck.html> [--port 8788] [--git | --no-git]
                       [--commit-every <seconds>] [--agent <name>]
+                      [--remote] [--host <addr>]
   serves the cwd, live-reloads the deck on change, and accepts edits from the
   player: notes (E), per-slide layout (L/⇧L), undo/redo (Z/⇧Z), agent asks (A)
   a taken --port offers to take over that session (on a TTY) or moves on to
@@ -148,11 +195,20 @@ export async function editMain(args) {
   --git            auto-commit the deck on a regular basis (creates the repo if needed)
   --no-git         never touch git (default outside a repository)
   --commit-every N autocommit cadence in seconds                          [300]
-  --agent <name>   preferred AI agent for A (default: first one detected)`);
+  --agent <name>   preferred AI agent for A (default: first one detected)
+  --remote         also listen on the LAN for the phone remote — off this
+                   machine only /remote/* answers, and only with the printed
+                   per-run token; /edit/* stays loopback-only regardless
+  --host <addr>    the address --remote binds                       [0.0.0.0]`);
     return;
   }
   const { opt } = argReader(args);
   const port = Number(opt('--port', 8788));
+  // --remote (or a chosen --host) opts the listener onto the LAN; the token
+  // is per-run and random — the value the /remote?t= URL carries (#39c)
+  const remote = args.includes('--remote') || opt('--host') !== undefined;
+  const host = remote ? opt('--host', '0.0.0.0') : '127.0.0.1';
+  const token = remote ? randomBytes(16).toString('base64url') : null;
   const root = process.cwd();
   const deckPath = resolve(root, args.find((a) => !a.startsWith('-')));
   if (!existsSync(deckPath)) { console.error(`deck not found: ${deckPath}`); process.exitCode = 1; return; }
@@ -251,6 +307,13 @@ export async function editMain(args) {
 
   const server = createServer(async (req, res) => {
     try {
+      // the security seam: off-loopback callers only ever reach /remote/*
+      // (with the token) — /edit/* and the static files answer loopback only
+      if (!allowRemote(req, token)) {
+        console.log(`  refused off-loopback: ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
+        res.writeHead(403, { ...CORS, 'content-type': 'text/plain' });
+        return res.end('forbidden: /edit/* answers loopback only; off this machine use /remote/* with the session token');
+      }
       const url = new URL(req.url, 'http://x');
       const json = (code, obj) => {
         res.writeHead(code, { ...CORS, 'content-type': 'application/json' });
@@ -333,18 +396,22 @@ export async function editMain(args) {
     }
   });
 
-  const actual = await listenTakingOverIfNeeded(server, port);
+  const actual = await listenTakingOverIfNeeded(server, port, host);
   console.log(`decklight edit on http://127.0.0.1:${actual}${deckUrl} — E notes, L layouts, Z undo, A agent. Ctrl-C stops`);
+  if (token) {
+    console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/remote?t=${token}`);
+    console.log('  off this machine only /remote/* answers (with that token); /edit/* stays loopback-only');
+  }
 }
 
 /**
- * Bind `server` to `port`. On EADDRINUSE, work out who's there
+ * Bind `server` to `port` on `host`. On EADDRINUSE, work out who's there
  * (resolvePortConflict) — on a TTY that's an interactive choice, otherwise
  * the port silently bumps — and retry until something binds. Returns the
  * port actually bound (server.address().port, so :0 still reports its
  * OS-assigned port).
  */
-async function listenTakingOverIfNeeded(server, port) {
+async function listenTakingOverIfNeeded(server, port, host = '127.0.0.1') {
   const tty = process.stdin.isTTY && process.stdout.isTTY;
   let rl;
   const ask = tty ? (q) => (rl ??= createInterface({ input: process.stdin, output: process.stdout })).question(q) : undefined;
@@ -356,7 +423,7 @@ async function listenTakingOverIfNeeded(server, port) {
           const onListening = () => { server.off('error', onError); res(server.address().port); };
           server.once('error', onError);
           server.once('listening', onListening);
-          server.listen(port, '127.0.0.1');
+          server.listen(port, host);
         });
       } catch (e) {
         if (e.code !== 'EADDRINUSE') throw e;
