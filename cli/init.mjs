@@ -8,10 +8,16 @@
  * without a web search or a guess from Reveal.js memory.
  *
  *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …]
- *                  [--git | --no-git] [--open] [--force] [--no-skill]
+ *                  [--git | --no-git] [--open] [--force]
+ *                  [--no-skill | --global-skill]
  *
  * Run bare in a terminal it asks one question — the deck's title — with
  * "My Deck" as the default; a title argument (or a non-TTY run) never prompts.
+ * A terminal run is also asked where the skill should live: the project
+ * (today's install, the default) or globally in each PATH-detected agent's
+ * config home — the same files `decklight skills --global` installs.
+ * --global-skill preselects global, --no-skill skips skill and question,
+ * and a non-TTY run keeps the project install without asking.
  *
  * The deck is fully self-contained (runtime + every theme inlined, like
  * `decklight bundle --themes all` produces) — double-click it, it presents,
@@ -39,6 +45,8 @@ import { createInterface } from 'node:readline/promises';
 import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
+import { TARGETS, detectedTargets, installGlobalSkill, display } from './skills.mjs';
+import { onPath } from './agents.mjs';
 import { escapeHtml } from './edit.mjs';
 import { inGitRepo, createRepo, isIdentityError, oneline } from './git.mjs';
 import { makeFail, scriptSafe } from './util.mjs';
@@ -108,6 +116,17 @@ export function planGit({ args = [], tty = false, inRepo = false } = {}) {
   if (args.includes('--git')) return { action: inRepo ? 'skip' : 'create', forward: '--git' };
   if (inRepo) return { action: 'skip', forward: null };
   return { action: tty ? 'ask' : 'hint', forward: null };
+}
+
+// ── the skill scope: project by default, global as a proposition ────────────
+// The same shape as planGit: a pure decision table over flags and the TTY
+// gate. --no-skill skips skill AND question, --global-skill preselects the
+// global install (skills.mjs's machinery), a bare terminal run is asked, and
+// a headless run keeps today's project install byte-for-byte.
+export function planSkill({ args = [], tty = false } = {}) {
+  if (args.includes('--no-skill')) return { action: 'skip' };
+  if (args.includes('--global-skill')) return { action: 'global' };
+  return { action: tty ? 'ask' : 'project' };
 }
 
 /**
@@ -259,13 +278,14 @@ ${themeBlocks}
 `;
 }
 
-export async function initMain(argv = process.argv.slice(2)) {
+export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, env = process.env } = {}) {
   if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(`decklight init — scaffold a starter deck + agent skill
 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …]
-                 [--git | --no-git] [--open] [--force] [--no-skill]
+                 [--git | --no-git] [--open] [--force]
+                 [--no-skill | --global-skill]
 
 Options:
   -o <file>       deck output path (default: deck.html)
@@ -281,10 +301,20 @@ Options:
   --open          open the scaffolded deck in your default browser
                   (the deck is self-contained — the file is the presentation)
   --force         overwrite an existing deck file (default: refuses)
-  --no-skill      skip .claude/skills/decklight/ and AGENTS.md
+  --no-skill      skip the agent skill entirely (project and global), and the
+                  where-should-it-go question with it
+  --global-skill  install the agent skill globally — into each PATH-detected
+                  agent's config home (~/.claude, ~/.codex, …), exactly what
+                  \`decklight skills --global\` installs — instead of into the
+                  project; suppresses the question
 
 Without a title argument, a terminal run asks for one (empty keeps "My Deck");
 non-interactive runs scaffold "My Deck" without asking.
+
+A terminal run is also asked where the skill should go ("where should the
+skill go? [P/g]"): project — .claude/skills/decklight/ + AGENTS.md next to
+the deck (Enter keeps it) — or global, each detected agent's config home.
+Non-interactive runs keep the project install without asking.
 
 Always writes/refreshes the skill files (they're generated from the
 installed version's SPEC.md, so re-running after an upgrade updates them)
@@ -293,7 +323,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     process.exit(0);
   }
 
-  let title = null, outFile = 'deck.html', dir = '.', force = false, withSkill = true, themesSel = 'all', openAfter = false;
+  let title = null, outFile = 'deck.html', dir = '.', force = false, themesSel = 'all', openAfter = false;
   const args = [...argv];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -302,10 +332,13 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--themes') themesSel = args[++i];
     else if (a === '--force') force = true;
     else if (a === '--open') openAfter = true;
-    else if (a === '--no-skill') withSkill = false;
+    else if (a === '--no-skill' || a === '--global-skill') ; // consumed by planSkill below
     else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
+  }
+  if (argv.includes('--no-skill') && argv.includes('--global-skill')) {
+    fail('--no-skill and --global-skill are mutually exclusive');
   }
 
   // ONE readline interface for every question this run asks (title, git,
@@ -365,7 +398,28 @@ unless --no-skill is given. The deck file is only touched with --force.
     : `${themeNames.length} themes, ${activeTheme} active`;
   note(`created ${path.relative('.', deckPath) || outFile} (${themeNote})`);
 
-  if (withSkill) {
+  // ── the skill — project scope by default, global as a proposition ────────
+  let skill = planSkill({ args: argv, tty }).action;
+  if (skill === 'ask' || skill === 'global') {
+    // global targets the PATH-detected set, exactly like bare `decklight
+    // skills`; nothing detected falls back to Claude — init's existing bias
+    const detected = detectedTargets(hasBin);
+    const targets = detected.length ? detected : ['claude'];
+    if (skill === 'ask') {
+      const projDir = path.relative('.', path.join(root, '.claude', 'skills', 'decklight')) || '.';
+      const homes = targets.map((k) => display(TARGETS[k].home(env))).join(', ');
+      note('  the agent skill teaches AI coding agents how to author this deck. two scopes:');
+      note(`    project (p)  ${projDir}/ + AGENTS.md — this directory only`);
+      note(`    global  (g)  ${homes} — every project (${targets.map((k) => TARGETS[k].label).join(', ')})`);
+      skill = /^g/i.test((await question('  where should the skill go? [P/g] ')).trim())
+        ? 'global' : 'project';
+    }
+    // the skill is derived content (same rationale as the project refresh
+    // below), so init forces past skills' clobber guard on a re-run
+    if (skill === 'global') installGlobalSkill(targets, { env, force: true, detected: detected.length > 0 });
+  }
+
+  if (skill === 'project') {
     const skillDir = path.join(root, '.claude', 'skills', 'decklight');
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), claudeSkillMd());

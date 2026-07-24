@@ -13,7 +13,7 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { resolveTitle, planGit, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
+import { resolveTitle, planGit, planSkill, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
@@ -654,6 +654,123 @@ test('skills --global and --dir are mutually exclusive', () => {
   const r = spawnSync('node', [CLI, 'skills', 'claude', '--global', '--dir', '.'], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /--global and --dir are mutually exclusive/);
+});
+
+// --- init: the skill-scope question (issue #75) -------------------------------
+
+// a PATH with nothing on it: detection finds no agent, and node itself is
+// always launched by its absolute path so only the probe is starved
+const emptyPath = () => fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-emptypath-'));
+
+test('planSkill: the --no-skill/--global-skill/TTY decision table', () => {
+  // headless keeps today's project install; a terminal is asked
+  assert.deepEqual(planSkill({ args: [] }), { action: 'project' });
+  assert.deepEqual(planSkill({ args: [], tty: true }), { action: 'ask' });
+  // either flag answers for the user — no question on a TTY
+  assert.deepEqual(planSkill({ args: ['--global-skill'] }), { action: 'global' });
+  assert.deepEqual(planSkill({ args: ['--global-skill'], tty: true }), { action: 'global' });
+  assert.deepEqual(planSkill({ args: ['--no-skill'], tty: true }), { action: 'skip' });
+});
+
+test('init --help documents the skill-scope question and --global-skill', () => {
+  const out = execFileSync('node', [CLI, 'init', '--help'], { encoding: 'utf8' });
+  assert.match(out, /--global-skill/);
+  assert.match(out, /where should the\s+skill go\? \[P\/g\]/);
+  assert.match(out, /skills --global/);
+});
+
+test('init --no-skill with --global-skill is an error', () => {
+  const r = spawnSync('node', [CLI, 'init', '--no-skill', '--global-skill'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--no-skill and --global-skill are mutually exclusive/);
+});
+
+test('init without a TTY never asks the skill question — the project install is untouched', () => {
+  const dir = mkdir();
+  const r = spawnSync('node', [CLI, 'init', 'Quiet Deck', '--dir', dir], { encoding: 'utf8', input: '' });
+  assert.equal(r.status, 0);
+  assert.doesNotMatch(r.stdout + r.stderr, /where should the skill go/);
+  assert.doesNotMatch(r.stdout + r.stderr, /agent skill teaches/, 'no scope explanation either — output is byte-identical to before');
+  assert.match(r.stdout, /wrote \.claude\/skills\/decklight\/\{SKILL\.md,reference\.md\}/);
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
+  assert.match(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /decklight:skill/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('init --global-skill with no agent on PATH falls back to Claude Code; the project stays skill-free', () => {
+  const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
+  const r = spawnSync(process.execPath, [CLI, 'init', 'Global Deck', '--dir', dir, '--global-skill'],
+    { encoding: 'utf8', input: '', env: { ...fakeHomeEnv(home), PATH: empty } });
+  assert.equal(r.status, 0);
+  assert.doesNotMatch(r.stdout, /where should the skill go/, 'the flag suppresses the question');
+  assert.doesNotMatch(r.stdout, /detected on PATH/, 'nothing was detected — no lie about it');
+  assert.match(r.stdout, /installed the Decklight skill \(v[\d.]+\) globally for Claude Code/);
+  assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
+  assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight', 'reference.md')), true);
+  // the deck is scaffolded as always; NOTHING skill-shaped lands in the project
+  assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
+  assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
+  assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
+  for (const d of [home, dir, empty]) fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('init --global-skill targets the PATH-detected agents, like bare `decklight skills`', () => {
+  const home = mkdir(); const dir = mkdir();
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-skillbin-'));
+  fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\n', { mode: 0o755 });
+  const r = spawnSync(process.execPath, [CLI, 'init', '--dir', dir, '--global-skill'],
+    { encoding: 'utf8', input: '', env: { ...fakeHomeEnv(home), PATH: bin } });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /detected on PATH: OpenAI Codex/);
+  assert.match(r.stdout, /globally for OpenAI Codex/);
+  assert.equal(fs.existsSync(path.join(home, '.codex', 'AGENTS.md')), true);
+  assert.equal(fs.existsSync(path.join(home, '.codex', '.decklight', 'reference.md')), true);
+  assert.equal(fs.existsSync(path.join(home, '.claude')), false, 'undetected agents are not targeted');
+  for (const d of [home, dir, bin]) fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('init --global-skill refreshes an existing global skill without demanding --force', () => {
+  const home = mkdir(); const empty = emptyPath();
+  const env = { ...fakeHomeEnv(home), PATH: empty };
+  const dirs = [mkdir(), mkdir()];
+  execFileSync(process.execPath, [CLI, 'init', '--dir', dirs[0], '--global-skill'], { encoding: 'utf8', env });
+  const skillFile = path.join(home, '.claude', 'skills', 'decklight', 'SKILL.md');
+  fs.writeFileSync(skillFile, 'stale');
+  // a fresh project, the same global answer: init's refresh semantics, not skills' clobber guard
+  const out = execFileSync(process.execPath, [CLI, 'init', '--dir', dirs[1], '--global-skill'], { encoding: 'utf8', env });
+  assert.match(out, /globally for Claude Code/);
+  assert.match(fs.readFileSync(skillFile, 'utf8'), /^---\nname: decklight\n/, 'the stale copy was refreshed');
+  for (const d of [home, empty, ...dirs]) fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('init on a real TTY asks the skill scope, naming both paths; g installs globally', { skip: ptySkip }, () => {
+  const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
+  const r = spawnSync('/usr/bin/script',
+    ['-qec', `"${process.execPath}" "${CLI}" init "Global Talk" --dir "${dir}"`, '/dev/null'],
+    { encoding: 'utf8', input: 'g\nn\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /where should the skill go\? \[P\/g\]/);
+  assert.match(r.stdout, /\.claude\/skills\/decklight/, 'the project path is named');
+  assert.match(r.stdout, /~\/\.claude — every project/, 'the global path is named');
+  assert.match(r.stdout, /globally for Claude Code/);
+  assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
+  assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
+  assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
+  for (const d of [home, dir, empty]) fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('init on a real TTY: Enter keeps the project install, byte-for-byte', { skip: ptySkip }, () => {
+  const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
+  const r = spawnSync('/usr/bin/script',
+    ['-qec', `"${process.execPath}" "${CLI}" init "Local Talk" --dir "${dir}"`, '/dev/null'],
+    { encoding: 'utf8', input: '\nn\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /where should the skill go\? \[P\/g\]/);
+  assert.match(r.stdout, /wrote \.claude\/skills\/decklight\/\{SKILL\.md,reference\.md\}/);
+  assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
+  assert.match(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /decklight:skill/);
+  assert.equal(fs.existsSync(path.join(home, '.claude')), false, 'Enter never installs globally');
+  for (const d of [home, dir, empty]) fs.rmSync(d, { recursive: true, force: true });
 });
 
 test('skills rejects an unknown agent, and errors when none is detected', () => {
