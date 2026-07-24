@@ -96,17 +96,22 @@ sliced from this version's SPEC.md, so the contract never drifts from the
 installed runtime.
 `;
 
+/** The agents found on PATH, in roster order (empty when none is). */
+export function detectedTargets(hasBin = onPath) {
+  return Object.keys(TARGETS).filter((k) => hasBin(TARGETS[k].bin));
+}
+
 /** The agents to target: an explicit list, everything (--all), or detected. */
 function resolveTargets({ names, all, hasBin }) {
   if (all) return Object.keys(TARGETS);
   if (names.length) return names;
-  const detected = Object.keys(TARGETS).filter((k) => hasBin(TARGETS[k].bin));
+  const detected = detectedTargets(hasBin);
   if (detected.length) return { detected };
   return null;
 }
 
 /** A path for humans: relative to cwd when inside it, else `~/…`, else absolute. */
-function display(file) {
+export function display(file) {
   const rel = path.relative(process.cwd(), file);
   if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return rel;
   const home = os.homedir();
@@ -185,6 +190,20 @@ function installGlobal(targets, env, force) {
     }
   }
   return written;
+}
+
+/**
+ * The global install as one delegable step — what init's skill-scope question
+ * runs on a `g`: the same "detected on PATH" notice and summary lines
+ * `decklight skills --global` prints, over the same installGlobal machinery.
+ * `force: true` is init's refresh semantics — the skill files are derived
+ * content, so a re-run refreshes them instead of demanding --force.
+ */
+export function installGlobalSkill(targets, { env = process.env, force = false, detected = false, out = process.stdout } = {}) {
+  if (detected) out.write(`detected on PATH: ${targets.map((k) => TARGETS[k].label).join(', ')}\n`);
+  const written = installGlobal(targets, env, force);
+  out.write(`installed the Decklight skill (v${PKG.version}) globally for ${targets.map((k) => TARGETS[k].label).join(', ')}\n`);
+  for (const w of written) out.write(`  ${w}\n`);
 }
 
 export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath, env = process.env } = {}) {
