@@ -99,7 +99,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | Command | Purpose |
 |---|---|
 | `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title and offers a git repo; `--open` launches the deck, and it can hand straight off to `dev`) |
-| `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project) |
+| `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project; `claude --pack` zips it for upload to claude.ai) |
 | `decklight dev deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML |
@@ -108,6 +108,10 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait so the narrator moves, not just its mouth |
 
 `decklight help` lists every command and flag — `refresh` and `export` are in [SPEC §7](SPEC.md#7-terminal-recordings), `edit` and `lipsync` in [SPEC §8](SPEC.md#8-presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#9-public-js-api). The runtime has **zero dependencies** (marked, highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
+
+### Claude Code on the web
+
+Two routes, one per scope. **This repo**: commit the `.claude/skills/decklight/` directory that `decklight skills claude` (or `init`) writes — cloud sessions load repo-committed skills with the clone, so the skill is already there when you ask for a slide. **Every project**: run `decklight skills claude --pack` and upload the resulting `decklight-skill.zip` once in your claude.ai skill settings; the skill then follows your account into web sessions on any repo (the same zip also unpacks into `~/.claude/skills/` for local sessions). Note that `--global` installs into `~/.claude` on *this* machine and never reaches cloud machines — that's what `--pack` is for.
 
 ## Keys
 

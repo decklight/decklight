@@ -656,6 +656,105 @@ test('skills --global and --dir are mutually exclusive', () => {
   assert.match(r.stderr, /--global and --dir are mutually exclusive/);
 });
 
+// --- decklight skills --pack (issue #80) --------------------------------------
+
+// an independent reader for the archives --pack writes: walk the local file
+// headers (stored entries only), so the assertions don't trust cli/zip.mjs
+// to check its own work
+function zipEntries(buf) {
+  const entries = [];
+  let off = 0;
+  while (off + 30 <= buf.length && buf.readUInt32LE(off) === 0x04034b50) {
+    const method = buf.readUInt16LE(off + 8);
+    const size = buf.readUInt32LE(off + 18);
+    const nameLen = buf.readUInt16LE(off + 26);
+    const extraLen = buf.readUInt16LE(off + 28);
+    const start = off + 30 + nameLen + extraLen;
+    entries.push({
+      name: buf.toString('utf8', off + 30, off + 30 + nameLen),
+      method,
+      data: buf.subarray(start, start + size),
+    });
+    off = start + size;
+  }
+  return entries;
+}
+
+const unzipSkip = spawnSync('unzip', ['-v'], { encoding: 'utf8' }).error
+  ? 'needs unzip(1)' : false;
+
+test('skills claude --pack writes a zip whose entries match the project install byte for byte', () => {
+  const cwd = mkdir();
+  const out = execFileSync('node', [CLI, 'skills', 'claude', '--pack'], { encoding: 'utf8', cwd });
+  const zipPath = path.join(cwd, 'decklight-skill.zip');
+  assert.match(out, /packed the Decklight skill \(v\d+\.\d+\.\d+\) for Claude Code/);
+  // the command teaches its own story: both distribution routes are printed
+  assert.match(out, /commit \.claude\/skills\/decklight\//);
+  assert.match(out, /upload decklight-skill\.zip in your claude\.ai skill settings/);
+  assert.match(out, /~\/\.claude\/skills\//);
+
+  const entries = zipEntries(fs.readFileSync(zipPath));
+  assert.deepEqual(entries.map((e) => e.name), ['decklight/SKILL.md', 'decklight/reference.md']);
+  assert.deepEqual(entries.map((e) => e.method), [0, 0], 'stored entries');
+  // byte-identical to what `skills claude` installs — one source, no drift
+  const ref = mkdir();
+  execFileSync('node', [CLI, 'skills', 'claude', '--dir', ref], { encoding: 'utf8' });
+  const skillDir = path.join(ref, '.claude', 'skills', 'decklight');
+  assert.deepEqual(entries[0].data, fs.readFileSync(path.join(skillDir, 'SKILL.md')));
+  assert.deepEqual(entries[1].data, fs.readFileSync(path.join(skillDir, 'reference.md')));
+  fs.rmSync(ref, { recursive: true, force: true });
+  fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test('the packed zip is a standard archive — unzip lists and CRC-checks it', { skip: unzipSkip }, () => {
+  const cwd = mkdir();
+  execFileSync('node', [CLI, 'skills', 'claude', '--pack'], { encoding: 'utf8', cwd });
+  const list = execFileSync('unzip', ['-l', 'decklight-skill.zip'], { encoding: 'utf8', cwd });
+  assert.match(list, /decklight\/SKILL\.md/);
+  assert.match(list, /decklight\/reference\.md/);
+  execFileSync('unzip', ['-t', 'decklight-skill.zip'], { encoding: 'utf8', cwd });
+  fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test('skills --pack -o honors the path; refuses to clobber without --force', () => {
+  const cwd = mkdir();
+  const out = execFileSync('node', [CLI, 'skills', 'claude', '--pack', '-o', 'my-skill.zip'], { encoding: 'utf8', cwd });
+  assert.match(out, /into my-skill\.zip/);
+  const custom = path.join(cwd, 'my-skill.zip');
+  assert.equal(zipEntries(fs.readFileSync(custom)).length, 2);
+  assert.equal(fs.existsSync(path.join(cwd, 'decklight-skill.zip')), false);
+
+  const r = spawnSync('node', [CLI, 'skills', 'claude', '--pack', '-o', 'my-skill.zip'], { encoding: 'utf8', cwd });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /already exists.*--force/);
+  fs.writeFileSync(custom, 'stale');
+  execFileSync('node', [CLI, 'skills', 'claude', '--pack', '-o', 'my-skill.zip', '--force'], { encoding: 'utf8', cwd });
+  assert.equal(zipEntries(fs.readFileSync(custom)).length, 2, '--force overwrites');
+  fs.rmSync(cwd, { recursive: true, force: true });
+});
+
+test('skills --pack rejects the flags and agents that have no meaning for a zip', () => {
+  const bad = (args, re) => {
+    const r = spawnSync('node', [CLI, 'skills', ...args], { encoding: 'utf8' });
+    assert.equal(r.status, 1, args.join(' '));
+    assert.match(r.stderr, re);
+  };
+  bad(['claude', '--pack', '--global'], /--pack and --global are mutually exclusive/);
+  bad(['claude', '--pack', '--dir', '.'], /--pack and --dir are mutually exclusive/);
+  bad(['--pack', '--all'], /--pack targets Claude Code only/);
+  bad(['codex', '--pack'], /--pack targets Claude Code's skill format only — codex/);
+  bad(['claude', '-o', 'x.zip'], /-o only applies to --pack/);
+});
+
+test('skills --help and the global help document --pack', () => {
+  const sub = execFileSync('node', [CLI, 'skills', '--help'], { encoding: 'utf8' });
+  assert.match(sub, /--pack\s/);
+  assert.match(sub, /claude\.ai skill settings/);
+  assert.match(sub, /-o <path>/);
+  const top = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
+  assert.match(top, /decklight skills claude --pack/);
+});
+
 test('skills rejects an unknown agent, and errors when none is detected', () => {
   const dir = mkdir();
   const bad = spawnSync('node', [CLI, 'skills', 'frobnicate', '--dir', dir], { encoding: 'utf8' });

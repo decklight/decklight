@@ -7,6 +7,7 @@
  * AI coding agents, each in the convention it reads.
  *
  *   decklight skills [agent…] [--dir path | --global] [--all] [--force]
+ *   decklight skills claude --pack [-o out.zip] [--force]
  *
  * `init` scaffolds a deck *and* hands Claude a skill; this command is the
  * skill on its own. Claude Code loads a real skill (`.claude/skills/`);
@@ -18,6 +19,13 @@
  * (~/.claude, ~/.codex, …) so the skill is on hand in *every* project — a
  * Decklight deck is one self-contained HTML file that plays on any machine
  * for any purpose, so authoring it isn't tied to one codebase.
+ *
+ * A third route for Claude Code on the WEB, where --global can't reach:
+ * **--pack** writes `decklight-skill.zip` (a `decklight/` folder holding the
+ * same SKILL.md + reference.md the project install writes) for the account
+ * holder to upload once in their claude.ai skill settings — the skill then
+ * follows them into cloud sessions on every repo. Repo-committed
+ * `.claude/skills/decklight/` already loads there with the clone.
  *
  * The roster is data (see TARGETS): teaching a new agent its convention —
  * and where its config lives globally — is one entry, mirroring agents.mjs.
@@ -33,6 +41,7 @@ import { isMain } from '../tools/args.mjs';
 import {
   PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
+import { zip } from './zip.mjs';
 
 // The reference doc, relative to whatever dir carries it. Skills keep their
 // own copy next to SKILL.md; AGENTS.md agents keep one under .decklight/.
@@ -72,6 +81,7 @@ const HELP = `decklight skills — install the Decklight authoring skill for AI 
 
 Usage:
   decklight skills [agent…] [--dir path | --global] [--all] [--force]
+  decklight skills claude --pack [-o out.zip] [--force]
 
 Agents:
 ${Object.entries(TARGETS).map(([k, t]) => `  ${k.padEnd(9)} ${t.label}`).join('\n')}
@@ -89,11 +99,24 @@ Options:
   --force       overwrite files that already exist (default: refuses to
                 clobber a SKILL.md/reference.md; the AGENTS.md section is
                 always refreshed in place, never duplicated)
+  --pack        write decklight-skill.zip instead of installing — a
+                decklight/ folder with the same SKILL.md + reference.md.
+                Upload it once in your claude.ai skill settings and the
+                skill follows you into Claude Code web sessions on every
+                repo (or unzip it into ~/.claude/skills/ for local ones).
+                Claude's skill format only: no --global, --dir or --all,
+                no AGENTS.md agents
+  -o <path>     where --pack writes the archive (default: decklight-skill.zip)
 
 Claude Code gets a real skill (.claude/skills/decklight/); Codex, OpenCode
 and IBM Bob get a marked section in AGENTS.md. Both point at a reference
 sliced from this version's SPEC.md, so the contract never drifts from the
 installed runtime.
+
+Claude Code on the web loads a repo-committed .claude/skills/decklight/
+with the clone — commit the project install and cloud sessions on this
+repo have it. --global homes never reach cloud machines; --pack covers
+the account-level route.
 `;
 
 /** The agents to target: an explicit list, everything (--all), or detected. */
@@ -187,13 +210,41 @@ function installGlobal(targets, env, force) {
   return written;
 }
 
+// --- pack: the account-level artifact for Claude Code on the web ------------
+
+/**
+ * Write `outPath` as a zip holding decklight/SKILL.md + decklight/reference.md
+ * — the standard skill interchange shape, rendered from the same
+ * skill-content.mjs source as every install so it cannot drift — and print
+ * both routes to Claude Code on the web.
+ */
+function packSkill(outPath, force) {
+  const file = path.resolve(outPath);
+  const entries = [
+    { name: 'decklight/SKILL.md', data: claudeSkillMd(SKILL_REF) },
+    { name: `decklight/${SKILL_REF}`, data: referenceDoc() },
+  ];
+  writeIfAbsent(file, zip(entries), force);
+  process.stdout.write(
+    `packed the Decklight skill (v${PKG.version}) for Claude Code into ${display(file)}\n`,
+  );
+  for (const e of entries) process.stdout.write(`  ${e.name}\n`);
+  process.stdout.write(`
+two routes to Claude Code on the web:
+  this repo       commit .claude/skills/decklight/ (decklight skills claude)
+                  — cloud sessions load it with the clone
+  every project   upload ${display(file)} in your claude.ai skill settings
+                  (or unzip it into ~/.claude/skills/ for local sessions)
+`);
+}
+
 export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath, env = process.env } = {}) {
   if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(HELP);
     process.exit(0);
   }
 
-  let dir = null, all = false, force = false, global = false;
+  let dir = null, all = false, force = false, global = false, pack = false, out = null;
   const names = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -201,11 +252,27 @@ export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath
     else if (a === '--global' || a === '-g') global = true;
     else if (a === '--all') all = true;
     else if (a === '--force') force = true;
+    else if (a === '--pack') pack = true;
+    else if (a === '-o' || a === '--out') out = argv[++i];
     else if (a.startsWith('-')) fail(`unknown argument: ${a}`);
     else if (TARGETS[a]) names.push(a);
     else fail(`unknown agent: ${a} (supported: ${Object.keys(TARGETS).join(', ')})`);
   }
   if (global && dir !== null) fail('--global and --dir are mutually exclusive');
+
+  if (pack) {
+    // the zip IS Claude's skill format — the flags that pick other targets
+    // or scopes have no meaning here, so refusing beats silently ignoring
+    if (global) fail('--pack and --global are mutually exclusive — the zip is the portable artifact (unzip it into ~/.claude/skills/)');
+    if (dir !== null) fail('--pack and --dir are mutually exclusive — use -o <path> to place the zip');
+    if (all) fail('--pack targets Claude Code only — drop --all');
+    const others = names.filter((n) => n !== 'claude');
+    if (others.length) {
+      fail(`--pack targets Claude Code's skill format only — ${others.join(', ')} has no upload surface (use decklight skills ${others.join(' ')} instead)`);
+    }
+    return packSkill(out ?? 'decklight-skill.zip', force);
+  }
+  if (out !== null) fail('-o only applies to --pack');
 
   const resolved = resolveTargets({ names, all, hasBin });
   if (!resolved) {
