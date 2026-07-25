@@ -92,7 +92,22 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           gh issue edit "$N" --add-label in-dev --remove-label ready-to-dev || true
 
+      - name: note the branch tip and start the clock
+        id: before
+        env:
+          BRANCH: ${{ steps.ticket.outputs.branch }}
+        run: |
+          set -euo pipefail
+          # What `ticket/N` pointed at BEFORE this run — the yardstick for "did
+          # this run push anything?". An earlier attempt may have left a branch
+          # behind, and a run that does no work must not be able to pass that
+          # leftover off as its own.
+          sha=$(git ls-remote --heads origin "$BRANCH" | cut -f1 || true)
+          echo "sha=${sha:-none}" >> "$GITHUB_OUTPUT"
+          echo "t0=$(date +%s)" >> "$GITHUB_OUTPUT"
+
       - name: implement it
+        id: implement
         uses: anthropics/claude-code-action@v1
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
@@ -108,7 +123,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: |
             --model claude-fable-5
-            --max-turns 80
+            --max-turns 60
             --allowedTools Bash,Read,Edit,Write,Glob,Grep
           prompt: |
             You are implementing issue #${{ steps.ticket.outputs.number }} in the decklight repository.
@@ -162,6 +177,25 @@ jobs:
             Then push the branch. Do NOT open the pull request yourself and do NOT
             merge anything — the next step opens the PR with your screenshots
             attached, and a human decides whether it ships.
+
+      - name: tell a refused credential apart from a failed ticket
+        id: verdict
+        if: always()
+        env:
+          OUTCOME: ${{ steps.implement.outcome }}
+          T0: ${{ steps.before.outputs.t0 }}
+        run: |
+          set -euo pipefail
+          elapsed=$(( $(date +%s) - T0 ))
+          echo "elapsed=${elapsed}" >> "$GITHUB_OUTPUT"
+          # An exhausted or refused credential looks exactly like this: the action
+          # reports is_error with no message, seconds in, having spent nothing and
+          # done nothing. That is not the ticket's fault and must not be reported
+          # as though the work was attempted and found wanting.
+          if [ "$OUTCOME" != "success" ] && [ "$elapsed" -lt 60 ]; then
+            echo "quota=1" >> "$GITHUB_OUTPUT"
+            echo "::error::the implement step failed after ${elapsed}s without doing any work — that is the signature of a refused or exhausted CLAUDE_CODE_OAUTH_TOKEN, not a problem with this ticket"
+          fi
 
       - name: publish the screenshots
         id: shots
@@ -224,10 +258,23 @@ jobs:
           N: ${{ steps.ticket.outputs.number }}
           BRANCH: ${{ steps.ticket.outputs.branch }}
           SHOTS: ${{ steps.shots.outputs.md }}
+          BEFORE: ${{ steps.before.outputs.sha }}
+          QUOTA: ${{ steps.verdict.outputs.quota }}
         run: |
           set -euo pipefail
-          if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            gh issue comment "$N" --body "The ready-to-dev run finished without pushing a branch — nothing to review. See the [run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+          # Did THIS run push anything? Comparing the branch tip against what it
+          # was before the implement step covers both "no branch at all" and the
+          # subtler case: a `ticket/N` branch left behind by an earlier attempt,
+          # which is how a run that was refused in 16 seconds still opened a PR
+          # claiming to close a ticket it had never touched. Existence is not
+          # evidence of work; a moved tip is.
+          now=$(git ls-remote --heads origin "$BRANCH" | cut -f1 || true)
+          if [ "${now:-none}" = "$BEFORE" ]; then
+            if [ "${QUOTA:-}" = 1 ]; then
+              gh issue comment "$N" --body "The ready-to-dev run was refused before it could start — the Claude credential is exhausted or rejected, which is an infrastructure problem and not a fault in this ticket. Nothing was attempted; re-greenlight it once the usage window resets. See the [run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+            else
+              gh issue comment "$N" --body "The ready-to-dev run finished without pushing a branch — nothing to review. See the [run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."
+            fi
             gh issue edit "$N" --remove-label in-dev --add-label ready-to-dev || true
             exit 1
           fi
