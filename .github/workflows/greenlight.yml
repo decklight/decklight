@@ -60,6 +60,10 @@ jobs:
           PROJECT: ${{ vars.TRIAGE_PROJECT_NUMBER }}
           COLUMN: "Ready to dev"
           LABEL: "ready-to-dev"
+          # How many tickets may be in dev at once. Every greenlit card becomes
+          # its own long-running agent, so this is the throttle on both the number
+          # of concurrent workers and the rate the usage window is spent.
+          MAX_WIP: ${{ vars.MAX_WIP || 2 }}
         run: |
           set -euo pipefail
           [ -n "$GH_TOKEN" ] || { echo "::warning::secret PROJECT_PAT is missing — a classic PAT with the project + repo scopes; skipping until it is set"; exit 0; }
@@ -112,10 +116,48 @@ jobs:
             exit 0
           fi
 
+          # WIP limit. ready-to-dev.yml scopes its concurrency PER ISSUE, so N
+          # greenlit cards are N simultaneous agents — which is how a single sweep
+          # of four tickets can drink a whole usage window in an afternoon. Label
+          # at most (MAX_WIP - in flight) per sweep. This loop is add-only and runs
+          # on a schedule, so a card held back here is greenlit by a later tick,
+          # never dropped: the queue drains at a pace the credential can afford.
+          #
+          # `in-dev` is the honest in-flight signal — ready-to-dev.yml applies it
+          # when a run actually starts and takes it off again if the run dies, and
+          # a merged ticket closes, leaving the count. (A run that dies without
+          # cleanup leaves its label behind and holds a slot; the log below names
+          # what is holding them so that is visible rather than mysterious.)
+          inflight=$(gh issue list -R "$REPO" --state open --label in-dev --json number --jq '[.[].number] | @csv' || echo "")
+          n_inflight=$(gh issue list -R "$REPO" --state open --label in-dev --json number --jq 'length' || echo 0)
+          n_inflight=${n_inflight:-0}
+          slots=$(( MAX_WIP - n_inflight ))
+
+          if [ "$slots" -le 0 ]; then
+            echo "::notice::at the WIP limit — ${n_inflight} ticket(s) in dev (${inflight}), MAX_WIP=${MAX_WIP}; holding ${#greenlit[@]} greenlit card(s) for a later sweep: ${greenlit[*]}"
+            exit 0
+          fi
+
+          if [ "${#greenlit[@]}" -gt "$slots" ]; then
+            echo "::notice::WIP limit ${MAX_WIP} (${n_inflight} in dev): greenlighting ${slots} of ${#greenlit[@]} — holding ${greenlit[*]:$slots} for the next sweep"
+            greenlit=("${greenlit[@]:0:$slots}")
+          fi
+
+          failed=0
           for n in "${greenlit[@]}"; do
             if gh issue edit "$n" -R "$REPO" --add-label "$LABEL"; then
               echo "#$n → labeled \`$LABEL\` (ready-to-dev fires)"
             else
-              echo "::warning::could not label #$n — is \`$LABEL\` present in the repo and the PAT scoped for issues?"
+              echo "::error::could not label #$n — is \`$LABEL\` present in the repo and is PROJECT_PAT scoped for issues (Issues: write)?"
+              failed=$((failed + 1))
             fi
           done
+
+          # A sweep that found greenlit cards and could not label a single one is
+          # not a quiet no-op — it is the pipeline stalled. Warning about it and
+          # exiting green is how a PAT that had lost its issue scope hid behind a
+          # passing check while nothing was implemented for a day.
+          if [ "$failed" -eq "${#greenlit[@]}" ]; then
+            echo "::error::greenlight could not apply \`$LABEL\` to ANY of the ${#greenlit[@]} card(s) it greenlit — nothing will be implemented until this is fixed"
+            exit 1
+          fi
