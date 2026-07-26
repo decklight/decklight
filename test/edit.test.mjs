@@ -675,3 +675,46 @@ test('the history endpoints refuse when git is off, rather than pretending', asy
   assert.equal((await fetch(base + '/edit/at?ref=HEAD')).status, 409);
   assert.equal((await post(base, '/edit/restore', { ref: 'HEAD' })).status, 409);
 });
+
+test('an agent commit contains the agent\'s work only, not what you left uncommitted', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  git(['init', '-q', '.'], dir);
+  git(['config', 'user.email', 't@example.com'], dir);
+  git(['config', 'user.name', 'Test'], dir);
+  git(['add', '-A'], dir);
+  git(['commit', '-qm', 'first'], dir);
+
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  writeFileSync(path.join(bin, 'claude'),
+    '#!/bin/sh\nprintf \'<!-- agent-was-here -->\' >> deck.html\n');
+  chmodSync(path.join(bin, 'claude'), 0o755);
+  // the real PATH too, so git is reachable from the server
+  const { base } = await startEdit(t, dir, {
+    env: { PATH: `${bin}:${process.env.PATH}` },
+    extraArgs: ['--git', '--git-mode', 'agent'],
+  });
+
+  // a hand edit the player never committed, made BEFORE asking the agent
+  writeFileSync(deck, DECK.replace('Alpha', 'MY OWN EDIT'));
+  await post(base, '/edit/agent', { prompt: 'sign the deck', message: 'sign the deck' });
+
+  for (let i = 0; i < 200; i++) {
+    const p = await (await fetch(base + '/edit/ping')).json();
+    if (!p.agentBusy && /agent-was-here/.test(readFileSync(deck, 'utf8'))) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+
+  const log = git(['log', '--format=%s'], dir).split('\n');
+  assert.match(log[0], /sign the deck/, "the agent's commit carries its own message");
+  assert.match(log[1], /save before claude edits/, 'the hand edit was committed first, separately');
+
+  // the agent's commit must not contain the player's line
+  const agentDiff = git(['show', '--format=', 'HEAD'], dir);
+  assert.match(agentDiff, /agent-was-here/);
+  assert.doesNotMatch(agentDiff, /MY OWN EDIT/, 'the hand edit is not attributed to the agent');
+  // …and the player's own commit is where it actually went
+  assert.match(git(['show', '--format=', 'HEAD~1'], dir), /MY OWN EDIT/);
+});
