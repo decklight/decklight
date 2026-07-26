@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { resolveTitle, planGit, planSkill, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
+import { deckHistory, restoreDeck } from '../cli/restore.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
 import { optionalDepSkip as recSkip } from './helpers.mjs';
@@ -787,4 +788,130 @@ test('skills rejects an unknown agent, and errors when none is detected', () => 
   assert.match(none.stderr, /no supported agent detected/);
   fs.rmSync(empty, { recursive: true, force: true });
   fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// ── decklight restore (#127): a deck's durable history ─────────────────────
+
+const restoreRepo = () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-restore-'));
+  const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  g(['init', '-q', '.']);
+  g(['config', 'user.email', 't@example.com']);
+  g(['config', 'user.name', 'Test']);
+  const deck = path.join(dir, 'deck.html');
+  for (const v of ['one', 'two', 'three']) {
+    fs.writeFileSync(deck, `<p>${v}</p>\n`);
+    g(['add', '-A']);
+    g(['commit', '-qm', v]);
+  }
+  return { dir, deck, g };
+};
+
+test('deckHistory parses git log rows, newest first', () => {
+  // the git invoker is injected, so no repo is needed to test the parsing
+  const fake = () => ['a1b2c3d\x012 hours ago\x01third', 'ffff000\x013 days ago\x01first'].join('\n');
+  const rows = deckHistory('/x/deck.html', '/x', fake);
+  assert.deepEqual(rows, [
+    { hash: 'a1b2c3d', when: '2 hours ago', subject: 'third' },
+    { hash: 'ffff000', when: '3 days ago', subject: 'first' },
+  ]);
+});
+
+test('deckHistory: a subject containing the separator cannot corrupt the row', () => {
+  // \x01 is unreachable from a real commit message, which is the point of it
+  const fake = () => 'a1b2c3d\x01now\x01fix: a · b — c';
+  assert.deepEqual(deckHistory('/x/d.html', '/x', fake), [
+    { hash: 'a1b2c3d', when: 'now', subject: 'fix: a · b — c' },
+  ]);
+});
+
+test('deckHistory: a file git has never seen has no history', () => {
+  assert.deepEqual(deckHistory('/x/deck.html', '/x', () => ''), []);
+});
+
+test('restore rides ON TOP — the version you left is still reachable', (t) => {
+  const { dir, deck, g } = restoreRepo();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const before = g(['log', '--oneline']).trim().split('\n').length;
+  const first = g(['log', '--format=%h', '--reverse']).trim().split('\n')[0];
+
+  const res = restoreDeck(deck, first, dir);
+  assert.equal(res.changed, true);
+  assert.equal(fs.readFileSync(deck, 'utf8'), '<p>one</p>\n');
+
+  const after = g(['log', '--oneline']).trim().split('\n');
+  assert.equal(after.length, before + 1, 'a new commit, not a rewrite');
+  assert.match(after[0], /decklight: restore/);
+  // and the version we navigated away from is still in the history
+  assert.equal(g(['show', 'HEAD~1:./deck.html']), '<p>three</p>\n');
+});
+
+test('restore never silently discards uncommitted work', (t) => {
+  const { dir, deck, g } = restoreRepo();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  fs.writeFileSync(deck, '<p>UNSAVED</p>\n');
+  const first = g(['log', '--format=%h', '--reverse']).trim().split('\n')[0];
+
+  const res = restoreDeck(deck, first, dir);
+  assert.equal(res.savedFirst, true);
+  assert.equal(fs.readFileSync(deck, 'utf8'), '<p>one</p>\n');
+  // the unsaved edit was committed on the way past, so it is recoverable
+  assert.equal(g(['show', 'HEAD~1:./deck.html']), '<p>UNSAVED</p>\n');
+});
+
+test('restore preserves the file byte for byte, trailing newline included', (t) => {
+  const { dir, deck, g } = restoreRepo();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const exact = '<p>trailing</p>\n\n\n';
+  fs.writeFileSync(deck, exact);
+  g(['commit', '-qam', 'exact']);
+  fs.writeFileSync(deck, '<p>later</p>\n');
+  g(['commit', '-qam', 'later']);
+
+  restoreDeck(deck, g(['rev-parse', '--short', 'HEAD~1']).trim(), dir);
+  assert.equal(fs.readFileSync(deck, 'utf8'), exact, 'whitespace is content');
+});
+
+test('an unknown ref fails before anything is written', (t) => {
+  const { dir, deck } = restoreRepo();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const before = fs.readFileSync(deck, 'utf8');
+  assert.throws(() => restoreDeck(deck, 'nosuchref', dir));
+  assert.equal(fs.readFileSync(deck, 'utf8'), before, 'no partial write');
+});
+
+test('restoring where the deck already is changes nothing', (t) => {
+  const { dir, deck, g } = restoreRepo();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const n = g(['log', '--oneline']).trim().split('\n').length;
+  const res = restoreDeck(deck, 'HEAD', dir);
+  assert.equal(res.changed, false);
+  assert.equal(g(['log', '--oneline']).trim().split('\n').length, n, 'no empty commit');
+});
+
+test('the CLI lists history and refuses a deck with none', (t) => {
+  const { dir, deck } = restoreRepo();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const list = spawnSync(process.execPath, [CLI, 'restore', deck], { encoding: 'utf8' });
+  assert.equal(list.status, 0);
+  assert.match(list.stdout, /3 commits, newest first/);
+  assert.match(list.stdout, /three/);
+
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-norepo-'));
+  t.after(() => fs.rmSync(plain, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(plain, 'deck.html'), 'x');
+  const no = spawnSync(process.execPath, [CLI, 'restore', path.join(plain, 'deck.html')], { encoding: 'utf8' });
+  assert.equal(no.status, 1);
+  assert.match(no.stderr, /not in a git repository/);
+});
+
+test('decklight help lists restore', () => {
+  const help = spawnSync(process.execPath, [CLI, '--help'], { encoding: 'utf8' });
+  assert.match(help.stdout, /^\s+restore\s+list the commits/m);
 });
