@@ -268,6 +268,16 @@ echo $$still literal$$
     <img class="full-bleed" src="assets/sunrise.svg" alt="">
   </section>
 
+  <!-- A decorative corner badge BEFORE the heading. It is out of flow, so it
+       sits nowhere above the title and must not cost the slide its pinned
+       layout — authors add per-slide badges and watermarks routinely. -->
+  <section>
+    <span class="corner-badge" style="position:absolute; top:1rem; right:1rem;">v2</span>
+    <h2>Badge before the title</h2>
+    <p>The title still pins.</p>
+    <ul><li>content centers below the pinned title</li></ul>
+  </section>
+
 </div>
 
 <script>
@@ -374,6 +384,12 @@ echo $$still literal$$
         // the background layer must not read as content: slide 17 still pins
         // its title (heading detection skips .slide-bg)
         return document.querySelector('section[data-slide-index="17"]').hasAttribute('data-pinned');
+      })()),
+      rec('badgepinned', (() => {
+        // an out-of-flow badge before the heading must not disable pinning:
+        // the title is still what leads the FLOW (#72)
+        const sec = document.querySelector('section[data-slide-index="20"]');
+        return !!sec && sec.hasAttribute('data-pinned');
       })()),
       rec('fullbleed', (() => {
         const cs = getComputedStyle(document.querySelector('section[data-slide-index="19"] img.full-bleed'));
