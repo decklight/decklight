@@ -97,6 +97,65 @@ This project contains a Decklight presentation (a single-file HTML deck —
 see \`${referenceHref}\` for the full authoring
 contract: builds, notes, SVG diagrams, themes, terminals, narration).
 Read that file before adding or editing slides.
+
+Hit a Decklight bug? Run \`npx decklight report-bug\` for the environment
+facts, then ask the user what happened, what they expected, and the smallest
+repro — and show them the whole issue before filing anything.
 ${AGENTS_MARKER}
+`;
+}
+
+/**
+ * The `decklight-report-bug` skill (#73): the conversational half of filing a
+ * bug, which the print-and-exit CLI deliberately does not do.
+ *
+ * Two consent gates are the point of this text, not decoration. A screenshot
+ * here is a HEADLESS RENDER of a deck file the user names — never a capture of
+ * their screen — and a public issue publishes whatever slide it shows, so the
+ * user has to say yes knowing both. And nothing is filed until they have seen
+ * the whole body. An agent that quietly attaches a slide or opens an issue on
+ * someone's behalf has done something they cannot take back.
+ */
+export function reportBugSkillMd() {
+  return `---
+name: decklight-report-bug
+description: File a Decklight bug report — gather version and environment facts, ask what broke and how to reproduce it, optionally attach a headless screenshot, and open the issue only after the user approves the full text. Use when the user hits a Decklight bug or asks to report one.
+---
+
+Help the user file a bug report against Decklight that a triager can act on
+without a round trip. Work in this order.
+
+**1. Collect the machine facts.** Run \`npx decklight report-bug\`. It prints a
+markdown environment block and the issues URL and does nothing else — no
+network, nothing sent. Use its output verbatim; do not retype it from memory.
+
+**2. Ask what the command cannot know.** Three questions:
+- what happened (ask for any error output **verbatim** — paraphrased errors
+  cost a round trip)
+- what they expected instead
+- the smallest deck and keypresses that reproduce it
+
+**3. Offer a screenshot — and be exact about what one is.** Before capturing
+anything, say plainly that it would be a **headless render of the deck file
+they name**, produced with \`node tools/shot.mjs <deck> -o .shots/bug.png\`, and
+**never a capture of their screen**; and that a public issue **publishes that
+slide's content**, so a deck with anything confidential on it should not be
+attached. No explicit yes means no screenshot — continue without one, it is
+optional. If Chrome is not available (the environment block says so), skip
+this step with a note rather than treating it as an error. When a shot is
+taken, show the user the saved PNG **before** anything else happens.
+
+**4. Show the whole issue, then ask.** Assemble the title, what happened, what
+was expected, the repro, and the environment block, and show the user the
+**complete** text. File it only on an explicit yes:
+- \`gh issue create --repo decklight/decklight\` when \`gh\` is authenticated
+- otherwise hand them the new-issue URL and the body to paste
+
+GitHub has no supported CLI path for attaching an image to an issue, so a
+screenshot cannot ride either route: finish by pointing at the saved PNG and
+telling them to drag it into the issue.
+
+**Say what has and has not been sent.** If the user declines at any gate, tell
+them plainly that nothing was uploaded and nothing was filed.
 `;
 }
