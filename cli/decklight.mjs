@@ -42,6 +42,9 @@ Commands:
   bundle   flatten a deck into ONE self-contained HTML file (runtime, themes, casts, images inlined)
            EXAMPLE: decklight bundle demo/showcase.html --themes midnight,graphite
            EXAMPLE: decklight bundle deck.html --all --title "My Course"   (merge the whole playlist into one file)
+  restore  list the commits that touched a deck, and put it back to any of them
+           EXAMPLE: decklight restore deck.html          (list)
+           EXAMPLE: decklight restore deck.html a1b2c3d  (restore, as a new commit on top)
   upgrade  bring a self-contained deck's inlined runtime + themes up to the installed version, in place
            EXAMPLE: decklight upgrade deck.html --dry-run   (see what would change; drop the flag to apply)
   publish  bundle a deck and push it to GitHub Pages — deck to shareable URL in one command
@@ -142,6 +145,11 @@ switch (cmd) {
   case 'video': {
     const { videoMain } = await import('../tools/video.mjs');
     await videoMain(rest);
+    break;
+  }
+  case 'restore': {
+    const { restoreMain } = await import('./restore.mjs');
+    process.exitCode = await restoreMain(rest);
     break;
   }
   case 'edit': {
