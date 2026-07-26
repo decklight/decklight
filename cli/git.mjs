@@ -60,6 +60,57 @@ export function createRepo(dir) {
 }
 
 /** Commit the deck if it changed. Returns true when a commit was made. */
+// ── when to commit (#71) ───────────────────────────────────────────────────
+// A timer is the wrong boundary for agent-authored edits: the commits land on
+// a five-minute clock that lines up with nothing the agent did, and every one
+// of them says `autosave`. After a long session you get a wall of identical
+// messages and no way to see what changed when. `agent` mode commits per
+// completed agent edit instead, with the agent's own summary as the subject.
+
+export const GIT_MODES = ['timer', 'agent', 'off'];
+
+/**
+ * Which commit policy is in force. `--no-git` still means off, and the default
+ * is still `timer`, so a player who passes neither sees exactly what they saw
+ * before. Anything unrecognised falls back to the default rather than failing:
+ * a typo should not cost you the safety net.
+ */
+export function resolveGitMode(args = [], fallback = 'timer') {
+  if (args.includes('--no-git')) return 'off';
+  const i = args.indexOf('--git-mode');
+  const v = i >= 0 ? args[i + 1] : null;
+  return GIT_MODES.includes(v) ? v : fallback;
+}
+
+/**
+ * Should this moment produce a commit? Pure, so the whole decision table is
+ * testable without a repository or an agent (the planServices idiom).
+ *
+ * `ev.kind` is 'timer' (the cadence fired), 'agent' (a job finished — with
+ * `ok` and `changed`), or 'bookend' (start/stop of a session).
+ */
+export function shouldCommit(mode, ev = {}) {
+  if (mode === 'off') return false;
+  if (ev.kind === 'timer') return mode === 'timer';
+  // a failed or cancelled job leaves the tree alone; an edit that changed
+  // nothing is not worth a commit that says it did
+  if (ev.kind === 'agent') return mode === 'agent' && ev.ok === true && ev.changed === true;
+  return true; // bookends: a session's first and last commit, in any live mode
+}
+
+/**
+ * A commit subject from text an AGENT wrote — untrusted, and heading for a
+ * command line. Collapse it to one line (a subject is one line by definition),
+ * cap it, and refuse to let it start with `-` so it can never be read as an
+ * option by anything downstream. Empty or unusable falls back.
+ */
+export function commitSubject(raw, fallback) {
+  const one = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!one) return fallback;
+  const capped = one.length > 72 ? one.slice(0, 71) + '…' : one;
+  return /^-/.test(capped) ? `agent: ${capped}` : capped;
+}
+
 export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${basename(deckPath)}`) {
   try {
     if (!git(['status', '--porcelain', '--', deckPath], cwd)) return false;

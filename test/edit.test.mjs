@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, allowRemote, lanAddress } from '../cli/edit.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
+import { resolveGitMode, shouldCommit, commitSubject } from '../cli/git.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -520,4 +521,83 @@ test('the QR is served only when the remote is actually on', async (t) => {
   const svg = await res.text();
   assert.match(svg, /^<svg/);
   assert.match(svg, /viewBox=/);
+});
+
+// ── when to commit (#128): the policy, and the untrusted message ───────────
+
+test('resolveGitMode: the default is unchanged, and a typo does not cost the safety net', () => {
+  assert.equal(resolveGitMode([]), 'timer');
+  assert.equal(resolveGitMode(['--git']), 'timer');
+  assert.equal(resolveGitMode(['--no-git']), 'off');
+  assert.equal(resolveGitMode(['--git-mode', 'agent']), 'agent');
+  assert.equal(resolveGitMode(['--git-mode', 'off']), 'off');
+  // unrecognised falls back rather than throwing — losing autocommit to a
+  // typo would be a worse outcome than ignoring it
+  assert.equal(resolveGitMode(['--git-mode', 'nonsense']), 'timer');
+  assert.equal(resolveGitMode(['--git-mode']), 'timer');
+  // --no-git wins: it is the explicit "touch nothing"
+  assert.equal(resolveGitMode(['--git-mode', 'agent', '--no-git']), 'off');
+});
+
+test('shouldCommit: the whole decision table', () => {
+  // the cadence fires only in timer mode — in agent mode it would double-commit
+  assert.equal(shouldCommit('timer', { kind: 'timer' }), true);
+  assert.equal(shouldCommit('agent', { kind: 'timer' }), false);
+  assert.equal(shouldCommit('off', { kind: 'timer' }), false);
+
+  // an agent edit commits only in agent mode, and only when it worked AND changed something
+  assert.equal(shouldCommit('agent', { kind: 'agent', ok: true, changed: true }), true);
+  assert.equal(shouldCommit('agent', { kind: 'agent', ok: true, changed: false }), false);
+  assert.equal(shouldCommit('agent', { kind: 'agent', ok: false, changed: true }), false);
+  assert.equal(shouldCommit('timer', { kind: 'agent', ok: true, changed: true }), false);
+  assert.equal(shouldCommit('off', { kind: 'agent', ok: true, changed: true }), false);
+
+  // session bookends still commit in any live mode, and never when off
+  assert.equal(shouldCommit('timer', { kind: 'bookend' }), true);
+  assert.equal(shouldCommit('agent', { kind: 'bookend' }), true);
+  assert.equal(shouldCommit('off', { kind: 'bookend' }), false);
+});
+
+test('commitSubject treats an agent message as the untrusted text it is', () => {
+  assert.equal(commitSubject('split the video slides', 'fb'), 'split the video slides');
+  // a subject is one line by definition
+  assert.equal(commitSubject('first line\nsecond line', 'fb'), 'first line second line');
+  assert.equal(commitSubject('  padded \t out  ', 'fb'), 'padded out');
+  // nothing usable → the caller's fallback
+  for (const empty of ['', '   ', '\n', null, undefined]) {
+    assert.equal(commitSubject(empty, 'decklight: autosave'), 'decklight: autosave');
+  }
+  // never let it read as an option
+  assert.match(commitSubject('--amend everything', 'fb'), /^agent: --amend/);
+  assert.match(commitSubject('-f', 'fb'), /^agent: -f/);
+  // capped, and the cap is visible rather than a silent truncation
+  const long = commitSubject('x'.repeat(200), 'fb');
+  assert.ok(long.length <= 72, `got ${long.length}`);
+  assert.match(long, /…$/);
+});
+
+test('an agent can mark its own commit boundary, and cannot when git is off', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+
+  // no repo and --no-git: the endpoint refuses rather than pretending
+  const off = await startEdit(t, dir, { env: { PATH: dir }, extraArgs: ['--no-git'] });
+  const refused = await post(off.base, '/edit/commit', { message: 'nope' });
+  assert.equal(refused.status, 409);
+
+  // a real repo: the agent's message becomes the subject
+  const repo = tmp(t);
+  writeFileSync(path.join(repo, 'deck.html'), DECK);
+  git(['init', '-q', '.'], repo);
+  git(['config', 'user.email', 't@example.com'], repo);
+  git(['config', 'user.name', 'Test'], repo);
+  const on = await startEdit(t, repo, { extraArgs: ['--git'] });
+
+  writeFileSync(path.join(repo, 'deck.html'), DECK.replace('Alpha', 'Beta'));
+  const res = await post(on.base, '/edit/commit', { message: 'split the crowded slides' });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.committed, true);
+  assert.equal(body.subject, 'split the crowded slides');
+  assert.match(git(['log', '-1', '--format=%s'], repo), /split the crowded slides/);
 });

@@ -245,7 +245,7 @@ export function createHistory(limit = 200) {
 // The plumbing lives in git.mjs now; imported for editMain's use below and
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
-import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit } from './git.mjs';
+import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, resolveGitMode, shouldCommit, commitSubject } from './git.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 export async function editMain(args) {
@@ -259,7 +259,9 @@ export async function editMain(args) {
   the next free one
   --git            auto-commit the deck on a regular basis (creates the repo if needed)
   --no-git         never touch git (default outside a repository)
-  --commit-every N autocommit cadence in seconds                          [300]
+  --commit-every N autocommit cadence in seconds (timer mode)             [300]
+  --git-mode M     when to commit: timer (a cadence), agent (one commit per
+                   agent edit, with the agent's own message), off      [timer]
   --agent <name>   preferred AI agent for A (default: first one detected)
   --remote         also listen on the LAN for the phone remote — off this
                    machine only /remote/* answers, and only with the printed
@@ -295,6 +297,8 @@ export async function editMain(args) {
   const noGit = args.includes('--no-git');
   const wantGit = args.includes('--git');
   const commitEvery = Math.max(5, Number(opt('--commit-every', 300)) || 300);
+  // timer (default, unchanged) · agent (one commit per agent edit) · off
+  const gitMode = resolveGitMode(args);
   let gitOn = false;
   if (!noGit && (wantGit || inGitRepo(root))) {
     if (!inGitRepo(root)) {
@@ -308,8 +312,14 @@ export async function editMain(args) {
     if (inGitRepo(root)) {
       gitOn = true;
       gitAutocommit(deckPath, root, `decklight: start editing ${basename(deckPath)}`);
-      setInterval(() => gitAutocommit(deckPath, root), commitEvery * 1000).unref();
-      console.log(`  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`);
+      // In agent mode the cadence must NOT also fire, or every agent edit gets
+      // committed twice — once with its own summary, once as `autosave`.
+      if (shouldCommit(gitMode, { kind: 'timer' })) {
+        setInterval(() => gitAutocommit(deckPath, root), commitEvery * 1000).unref();
+        console.log(`  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`);
+      } else {
+        console.log(`  git: committing ${deckRel} once per agent edit, with the agent's own message (and on Ctrl-C)`);
+      }
     }
   }
   const finalCommit = () => { if (gitOn) gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`); };
@@ -350,7 +360,7 @@ export async function editMain(args) {
     }, 150);
   });
 
-  function runAgent(prompt, name) {
+  function runAgent(prompt, name, message) {
     const cmd = agentCommand(name || agentPref, prompt, deckRel);
     if (!cmd) return null;
     const before = readDeck();
@@ -373,6 +383,13 @@ export async function editMain(args) {
       const after = readDeck();
       const changed = after !== before;
       if (changed) history.record(before); // Z takes the agent's edit back
+      // One commit per completed agent edit, carrying the agent's own summary
+      // — the boundary and the message both come from the work, not a clock.
+      // A failed run or one that changed nothing commits nothing.
+      if (gitOn && shouldCommit(gitMode, { kind: 'agent', ok: code === 0, changed })) {
+        const subject = commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
+        if (gitAutocommit(deckPath, root, subject)) console.log(`  git: committed "${subject}"`);
+      }
       agentJob = null;
       broadcast('agent', {
         state: 'done', agent: cmd.name, ok: code === 0, changed, code,
@@ -461,6 +478,17 @@ export async function editMain(args) {
       if (req.method === 'POST') {
         for await (const chunk of req) { body += chunk; if (body.length > 1e6) throw new Error('too large'); }
       }
+      // An intermediate commit point: a multi-step agent calls this when IT
+      // decides one logical change is finished, so the boundaries follow the
+      // work instead of a clock. The message is the agent's, and untrusted.
+      if (req.method === 'POST' && url.pathname === '/edit/commit') {
+        if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
+        const { message } = JSON.parse(body || '{}');
+        const subject = commitSubject(message, `decklight: autosave ${basename(deckPath)}`);
+        const committed = gitAutocommit(deckPath, root, subject);
+        if (committed) console.log(`  git: committed "${subject}"`);
+        return json(200, { ok: true, committed, subject });
+      }
       if (req.method === 'POST' && url.pathname === '/remote/key') {
         const { key } = JSON.parse(body);
         if (key !== 'next' && key !== 'prev') throw new Error('bad payload');
@@ -491,10 +519,10 @@ export async function editMain(args) {
         return json(200, { ok: true, changed, ...history.counts() });
       }
       if (req.method === 'POST' && url.pathname === '/edit/agent') {
-        const { prompt, agent } = JSON.parse(body);
+        const { prompt, agent, message } = JSON.parse(body);
         if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
         if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
-        const cmd = runAgent(prompt.trim(), agent);
+        const cmd = runAgent(prompt.trim(), agent, message);
         if (!cmd) return json(400, { ok: false, error: agent ? `agent "${agent}" not detected` : 'no agent CLI detected (claude, codex, bob, …)' });
         return json(200, { ok: true, agent: cmd.name, label: cmd.label });
       }
