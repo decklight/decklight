@@ -70,12 +70,14 @@ export function createRepo(dir) {
 export const GIT_MODES = ['timer', 'agent', 'off'];
 
 /**
- * Which commit policy is in force. `--no-git` still means off, and the default
- * is still `timer`, so a player who passes neither sees exactly what they saw
- * before. Anything unrecognised falls back to the default rather than failing:
- * a typo should not cost you the safety net.
+ * Which commit policy is in force. `--no-git` still means off; the default is
+ * `agent`, which is a SUPERSET of `timer` — the cadence still runs underneath
+ * (see shouldCommit), so defaulting to it adds real commit messages for agent
+ * edits without taking the periodic safety net away from anyone. Anything
+ * unrecognised falls back to the default rather than failing: a typo should
+ * not cost you the safety net.
  */
-export function resolveGitMode(args = [], fallback = 'timer') {
+export function resolveGitMode(args = [], fallback = 'agent') {
   if (args.includes('--no-git')) return 'off';
   const i = args.indexOf('--git-mode');
   const v = i >= 0 ? args[i + 1] : null;
@@ -91,7 +93,14 @@ export function resolveGitMode(args = [], fallback = 'timer') {
  */
 export function shouldCommit(mode, ev = {}) {
   if (mode === 'off') return false;
-  if (ev.kind === 'timer') return mode === 'timer';
+  // The cadence runs in agent mode too — it is the backstop for everything an
+  // agent job cannot see: your own edits, and any agent driven from outside the
+  // A flow. Suppressing it there would mean a crashed session loses hand edits
+  // entirely, which is the one thing autocommit exists to prevent. It is only
+  // held back WHILE a job is in flight, so no commit ever captures a
+  // half-finished agent run. (Two commits cannot race: gitAutocommit no-ops on
+  // a clean tree.)
+  if (ev.kind === 'timer') return !ev.agentBusy;
   // a failed or cancelled job leaves the tree alone; an edit that changed
   // nothing is not worth a commit that says it did
   if (ev.kind === 'agent') return mode === 'agent' && ev.ok === true && ev.changed === true;

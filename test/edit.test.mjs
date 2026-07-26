@@ -525,25 +525,33 @@ test('the QR is served only when the remote is actually on', async (t) => {
 
 // ── when to commit (#128): the policy, and the untrusted message ───────────
 
-test('resolveGitMode: the default is unchanged, and a typo does not cost the safety net', () => {
-  assert.equal(resolveGitMode([]), 'timer');
-  assert.equal(resolveGitMode(['--git']), 'timer');
+test('resolveGitMode: agent by default, and a typo does not cost the safety net', () => {
+  // agent is a superset of timer (the cadence still runs), so defaulting to it
+  // adds real messages for agent edits without removing anyone's safety net
+  assert.equal(resolveGitMode([]), 'agent');
+  assert.equal(resolveGitMode(['--git']), 'agent');
+  assert.equal(resolveGitMode(['--git-mode', 'timer']), 'timer');
   assert.equal(resolveGitMode(['--no-git']), 'off');
   assert.equal(resolveGitMode(['--git-mode', 'agent']), 'agent');
   assert.equal(resolveGitMode(['--git-mode', 'off']), 'off');
   // unrecognised falls back rather than throwing — losing autocommit to a
   // typo would be a worse outcome than ignoring it
-  assert.equal(resolveGitMode(['--git-mode', 'nonsense']), 'timer');
-  assert.equal(resolveGitMode(['--git-mode']), 'timer');
+  assert.equal(resolveGitMode(['--git-mode', 'nonsense']), 'agent');
+  assert.equal(resolveGitMode(['--git-mode']), 'agent');
   // --no-git wins: it is the explicit "touch nothing"
   assert.equal(resolveGitMode(['--git-mode', 'agent', '--no-git']), 'off');
 });
 
 test('shouldCommit: the whole decision table', () => {
-  // the cadence fires only in timer mode — in agent mode it would double-commit
+  // the cadence is the BACKSTOP and runs in agent mode too: an agent job only
+  // sees edits it made, so hand edits (and agents driven from outside the A
+  // flow) would otherwise reach git only via the Ctrl-C bookend
   assert.equal(shouldCommit('timer', { kind: 'timer' }), true);
-  assert.equal(shouldCommit('agent', { kind: 'timer' }), false);
+  assert.equal(shouldCommit('agent', { kind: 'timer' }), true);
   assert.equal(shouldCommit('off', { kind: 'timer' }), false);
+  // …but never WHILE a job is in flight, or it commits half an agent edit
+  assert.equal(shouldCommit('agent', { kind: 'timer', agentBusy: true }), false);
+  assert.equal(shouldCommit('timer', { kind: 'timer', agentBusy: true }), false);
 
   // an agent edit commits only in agent mode, and only when it worked AND changed something
   assert.equal(shouldCommit('agent', { kind: 'agent', ok: true, changed: true }), true);

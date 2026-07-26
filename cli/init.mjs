@@ -452,7 +452,13 @@ unless --no-skill is given. The deck file is only touched with --force.
       ? '--git' : '--no-git';
     action = forward === '--git' ? 'create' : 'skip';
   }
-  if (action === 'create') note(initRepo(root));
+  if (action === 'create') {
+    note(initRepo(root));
+    // Stated, not asked: the mode is already the default, so a fifth prompt
+    // would only offer what is on. The line names the flag that turns it off.
+    note("  commits land one per agent edit, with the agent's own message"
+      + ' (--git-mode timer for a plain cadence)');
+  }
   else if (action === 'hint') note('  git: no repository here — pass --git to create one and auto-commit the deck');
 
   process.stdout.write(epilogue({ deckPath, tty: !!process.stdout.isTTY, noColor: !!process.env.NO_COLOR }));
