@@ -43,7 +43,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   const html = dump(deckUrl);
   const s = sink(html);
   check('no runtime errors', s.errors, 'none');
-  check('slide count', s.slides, '19');
+  check('slide count', s.slides, '20');
   check('slide 1 build steps (3 li + 1 leaf)', s.slide1steps, '4');
   check('slide 2 svg steps (3 g, caption stays)', s.svgsteps, '3');
   check('markdown build steps', s.mdsteps, '2');
@@ -100,6 +100,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('background dim overlay at authored opacity', s.bgdim, '0.5');
   check('background video: muted/loop/playsinline + poster', s.bgvideo, 'true');
   check('background layer does not read as content (title still pins)', s.bgpinned, 'true');
+  check('an out-of-flow badge before the heading still pins the title', s.badgepinned, 'true');
   check('background video idle until its slide', s.bgvidle, 'true');
   check('background video plays while its slide is active', s.bgvplays, 'true');
   check('background video paused on deactivation (not just hidden)', s.bgvrepaused, 'true');
@@ -145,12 +146,12 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
 // --- print variant: ?print=handout (3-up pages with ruled note lines) ------
 {
   const html = dump(deckUrl + '?print=handout');
-  check('handout: ceil(19/3) = 7 pages',
+  check('handout: ceil(20/3) = 7 pages',
     (html.match(/class="print-page print-handout"/g) || []).length, 7);
   check('handout: every slide gets a slot',
-    (html.match(/class="print-slot"/g) || []).length, 19);
+    (html.match(/class="print-slot"/g) || []).length, 20);
   check('handout: note lines beside every slide',
-    (html.match(/class="print-notelines"/g) || []).length, 19);
+    (html.match(/class="print-notelines"/g) || []).length, 20);
   check('handout: everything built',
     (html.match(/data-build-state="pending"/g) || []).length, 0);
 }
@@ -159,13 +160,13 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
 {
   const html = dump(deckUrl + '?print=notes');
   check('notes: one page per slide',
-    (html.match(/class="print-page print-notes-page"/g) || []).length, 19);
+    (html.match(/class="print-page print-notes-page"/g) || []).length, 20);
   check('notes: a notes block on every page',
-    (html.match(/class="print-notes"/g) || []).length, 19);
-  // 6 slides carry notes (markdown's Note: included); the other 13 keep their
+    (html.match(/class="print-notes"/g) || []).length, 20);
+  // 6 slides carry notes (markdown's Note: included); the other 14 keep their
   // page with an empty block
   check('notes: slides without notes get an empty block',
-    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 13);
+    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 14);
   check('notes: markdown Note: content lands in its block (aside + copy)',
     (html.match(/Markdown notes body/g) || []).length, 2);
   check('notes: HTML aside content lands in its block (aside + copy)',

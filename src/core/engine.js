@@ -62,10 +62,40 @@ export function registerBuildProvider(el, provider) {
  * the Y), "centered" and "top" lay out in flow; the split layouts keep the
  * deck's auto pin resolution for their header.
  */
+/**
+ * Out of the flow, so it sits nowhere above the title and cannot be the reason
+ * the title is not at the top.
+ *
+ * Position ONLY, deliberately. Testing `display === 'none'` here looks like the
+ * same idea and is a trap: every inactive slide is display:none, and Blink
+ * reports that for its descendants too — so the heading itself read as
+ * out-of-flow and got skipped, disabling pinning on every slide but the one on
+ * screen. `position` resolves to its computed value in an unrendered subtree,
+ * which is what makes it safe to ask here.
+ *
+ * `visibility:hidden` deliberately does not count either: it still takes up its
+ * space, and a title below that space really is not leading.
+ */
+function outOfFlow(el) {
+  const pos = getComputedStyle(el).position;
+  return pos === 'absolute' || pos === 'fixed';
+}
+
 function leadingHeading(section) {
   for (const el of section.children) {
     if (el.matches('aside, script, style, .decklight-hero-logo, .slide-bg')) continue;
-    return el.matches('h1, h2') ? el : null;
+    // Heading first, BEFORE any position test: pinning is what makes a title
+    // absolute, so asking "is this out of flow?" about the heading unpins it on
+    // the next sync() and the whole thing oscillates.
+    if (el.matches('h1, h2')) return el;
+    // A decorative corner badge or watermark used to end the scan here,
+    // silently dropping the slide out of pinned layout — so a deck's titles
+    // jumped between the slides that had one and the slides that did not.
+    // `.slide-bg` above is skipped for precisely this reason; this generalizes
+    // it. What makes a heading "leading" is that it leads the FLOW, not that it
+    // happens to be child zero.
+    if (outOfFlow(el)) continue;
+    return null; // real in-flow content before the title: not a leading heading
   }
   return null;
 }
