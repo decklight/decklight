@@ -19,7 +19,8 @@ import { deckHistory, restoreDeck } from '../cli/restore.mjs';
 import * as restoreMod from '../cli/restore.mjs';
 import { packSkill } from '../cli/skills.mjs';
 import { zipSync, crc32 } from '../cli/zip.mjs';
-import { claudeSkillMd, referenceDoc } from '../cli/skill-content.mjs';
+import { claudeSkillMd, referenceDoc, reportBugSkillMd } from '../cli/skill-content.mjs';
+import { probe, environmentBlock, issuesUrl } from '../cli/report-bug.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
 import { optionalDepSkip as recSkip } from './helpers.mjs';
@@ -1020,4 +1021,100 @@ test('zipSync round-trips through a real unzip, and stores what deflate would gr
   spawnSync('unzip', ['-q', zipPath, '-d', out]);
   assert.equal(fs.readFileSync(path.join(out, 'a/big.txt'), 'utf8'), long);
   assert.equal(fs.readFileSync(path.join(out, 'a/tiny.txt'), 'utf8'), 'x');
+});
+
+// ── decklight report-bug (#73) ─────────────────────────────────────────────
+
+test('the environment block carries every fact a triager asks for first', () => {
+  const facts = probe({
+    platform: 'darwin', release: '24.1.0', arch: 'arm64',
+    node: 'v20.11.0', chrome: '/Applications/Chrome.app/chrome', pty: true,
+    version: '9.9.9',
+  });
+  const block = environmentBlock(facts);
+  assert.match(block, /^## Environment$/m);
+  assert.match(block, /- decklight: 9\.9\.9/);
+  assert.match(block, /- node: v20\.11\.0/);
+  assert.match(block, /- os: darwin 24\.1\.0 \(arm64\)/);
+  assert.match(block, /- headless Chrome: yes \(\/Applications\/Chrome\.app\/chrome\)/);
+  assert.match(block, /- node-pty: installed/);
+});
+
+test('a machine missing the optional pieces says so, rather than omitting them', () => {
+  const block = environmentBlock(probe({ chrome: null, pty: false }));
+  assert.match(block, /- headless Chrome: not found/);
+  assert.match(block, /- node-pty: not installed/);
+});
+
+test('the issues URL comes from package.json, not a second copy of it', () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8'));
+  assert.equal(issuesUrl(), typeof pkg.bugs === 'string' ? pkg.bugs : pkg.bugs.url);
+  // both shapes of the npm field are legal
+  assert.equal(issuesUrl({ bugs: { url: 'https://example.test/i' } }), 'https://example.test/i');
+});
+
+test('report-bug prints and exits — it files nothing and says so', () => {
+  const res = spawnSync(process.execPath, [CLI, 'report-bug'], { encoding: 'utf8' });
+  assert.equal(res.status ?? 0, 0);
+  assert.match(res.stdout, /## Environment/);
+  assert.match(res.stdout, /- decklight: /);
+  assert.match(res.stdout, /issues\/new/);
+  assert.match(res.stdout, /nothing has been sent/);
+  // the three things the command cannot know are asked for explicitly
+  assert.match(res.stdout, /what happened/);
+  assert.match(res.stdout, /what you expected/);
+  assert.match(res.stdout, /reproduce it/);
+});
+
+test('decklight help lists report-bug, and the command documents itself', () => {
+  assert.match(spawnSync(process.execPath, [CLI, '--help'], { encoding: 'utf8' }).stdout,
+    /^\s+report-bug\s+gather the version/m);
+  assert.match(spawnSync(process.execPath, [CLI, 'report-bug', '--help'], { encoding: 'utf8' }).stdout,
+    /makes no\s*\n?network requests/);
+});
+
+test('skills installs the bug-reporting skill beside the authoring one', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-rb-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const res = spawnSync(process.execPath, [CLI, 'skills', 'claude'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(res.status ?? 0, 0, res.stderr);
+
+  const skill = path.join(dir, '.claude/skills/decklight-report-bug/SKILL.md');
+  assert.ok(fs.existsSync(skill), 'wrote the report-bug skill');
+  assert.equal(fs.readFileSync(skill, 'utf8'), reportBugSkillMd(), 'one source, no drift');
+  // the authoring skill is untouched by its new sibling
+  assert.ok(fs.existsSync(path.join(dir, '.claude/skills/decklight/SKILL.md')));
+  assert.ok(fs.existsSync(path.join(dir, '.claude/skills/decklight/reference.md')));
+});
+
+test('the report-bug skill gates both consent moments in order', () => {
+  const md = reportBugSkillMd();
+  // it drives the CLI rather than retyping facts
+  assert.match(md, /npx decklight report-bug/);
+  // a screenshot is a headless render of a named deck, never the user's screen
+  assert.match(md, /never a capture of their screen/i);
+  assert.match(md, /publishes that\s*\n?slide's content/i);
+  // and nothing is filed until the whole body has been seen and approved
+  assert.match(md, /\*\*complete\*\* text/);
+  assert.match(md, /only on an explicit yes/i);
+  assert.match(md, /nothing was uploaded and nothing was filed/);
+  // the frontmatter Claude indexes on
+  assert.match(md, /^name: decklight-report-bug$/m);
+});
+
+test('the AGENTS.md section points its readers at the bug flow too, idempotently', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-rb-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  spawnSync(process.execPath, [CLI, 'skills', 'codex'], { cwd: dir, encoding: 'utf8' });
+  const agents = path.join(dir, 'AGENTS.md');
+  const first = fs.readFileSync(agents, 'utf8');
+  assert.match(first, /npx decklight report-bug/);
+
+  // a refresh rewrites the marked block in place — never a second copy
+  spawnSync(process.execPath, [CLI, 'skills', 'codex', '--force'], { cwd: dir, encoding: 'utf8' });
+  const second = fs.readFileSync(agents, 'utf8');
+  assert.equal(second, first);
+  assert.equal(second.split('## Decklight decks').length - 1, 1, 'exactly one section');
 });

@@ -17,9 +17,18 @@ const CANDIDATES = [
 ];
 
 /** The browser to drive: $CHROME wins, else the first one installed. */
+/**
+ * Where Chrome is, or null — the non-fatal half. `decklight report-bug` needs
+ * to REPORT that a machine has no Chrome, which it cannot do if merely asking
+ * exits the process.
+ */
+export function findChrome() {
+  return process.env.CHROME || process.env.DECKLIGHT_CHROME
+    || CANDIDATES.find((p) => existsSync(p)) || null;
+}
+
 export function chromeBin(who = 'chrome') {
-  const bin = process.env.CHROME || process.env.DECKLIGHT_CHROME
-    || CANDIDATES.find((p) => existsSync(p));
+  const bin = findChrome();
   if (!bin) {
     console.error(`${who}: no Chrome found — install one, or point $CHROME at it`);
     process.exit(1);

@@ -33,7 +33,7 @@ import { makeFail } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 import { zipSync } from './zip.mjs';
 import {
-  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
+  PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc, reportBugSkillMd,
 } from './skill-content.mjs';
 
 // The reference doc, relative to whatever dir carries it. Skills keep their
@@ -160,6 +160,16 @@ function installClaudeSkill(skillDir, force, written) {
   written.push(display(writeIfAbsent(path.join(skillDir, SKILL_REF), referenceDoc(), force)));
 }
 
+/**
+ * The bug-reporting skill, a sibling of the authoring one (#73). Its own
+ * directory because Claude indexes one skill per SKILL.md, and it carries no
+ * reference doc — the authoring contract is not what filing a bug needs.
+ */
+function installReportBugSkill(skillsRoot, force, written) {
+  const dir = path.join(skillsRoot, 'decklight-report-bug');
+  written.push(display(writeIfAbsent(path.join(dir, 'SKILL.md'), reportBugSkillMd(), force)));
+}
+
 // --- project scope: one repo, one shared AGENTS.md for every agent ----------
 
 function installProject(targets, dir, force) {
@@ -170,7 +180,11 @@ function installProject(targets, dir, force) {
   const mdAgents = targets.filter((k) => TARGETS[k].kind === 'agents');
   const written = [];
 
-  if (wantsClaude) installClaudeSkill(path.join(root, '.claude', 'skills', 'decklight'), force, written);
+  if (wantsClaude) {
+    const skillsRoot = path.join(root, '.claude', 'skills');
+    installClaudeSkill(path.join(skillsRoot, 'decklight'), force, written);
+    installReportBugSkill(skillsRoot, force, written);
+  }
   if (mdAgents.length) {
     // one reference copy: Claude's skill dir when Claude is also a target,
     // else a standalone .decklight/ copy the AGENTS.md agents point at.
@@ -190,6 +204,7 @@ function installGlobal(targets, env, force) {
     const home = t.home(env);
     if (t.kind === 'skill') {
       installClaudeSkill(path.join(home, 'skills', 'decklight'), force, written);
+      installReportBugSkill(path.join(home, 'skills'), force, written);
     } else {
       written.push(display(writeIfAbsent(path.join(home, SHARED_REF), referenceDoc(), force)));
       written.push(mergeAgentsMd(home, SHARED_REF));
