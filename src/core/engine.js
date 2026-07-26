@@ -2679,6 +2679,16 @@ export function init(userConfig = {}) {
           if (agentBusy) toast(`${agentBusy.agent} is editing the deck…`, 2000);
           const es = new EventSource(base + '/edit/events');
           es.onmessage = () => location.reload();
+          // the phone remote (#39): a tap on the controller arrives here as a
+          // named event on the stream we are already subscribed to, and moves
+          // the deck exactly as the arrow keys would
+          es.addEventListener('remote', (ev) => {
+            try {
+              const { key } = JSON.parse(ev.data);
+              if (key === 'next') instance.next();
+              else if (key === 'prev') instance.prev();
+            } catch { /* malformed event */ }
+          });
           es.addEventListener('agent', (ev) => {
             try {
               const d = JSON.parse(ev.data);
@@ -2695,6 +2705,20 @@ export function init(userConfig = {}) {
               }
             } catch { /* malformed event */ }
           });
+          // …and report back where the deck is, so the phone's readout tracks
+          // the deck however it moved — the remote, the keyboard, or a click.
+          // Fire-and-forget: a readout that misses a beat must never be able to
+          // stall the deck.
+          const postPos = () => {
+            fetch(editBase + '/remote/pos', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ i: instance.state.slide, n: instance.state.totalSlides }),
+            }).catch(() => {});
+          };
+          instance.on('slide', postPos);
+          instance.on('build', postPos);
+          postPos();
           debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`
             + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
           return;
