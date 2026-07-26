@@ -674,16 +674,18 @@ class TerminalController {
       speedBtn.textContent = `${this.speed}×`;
     });
     playBtn.addEventListener('click', () => {
-      if (this.playing) { this.playing = false; this.epoch += 1; playBtn.textContent = '▶'; }
+      // stop() rather than a hand-rolled epoch bump: bumping only stops the NEXT
+      // keystroke being scheduled, and the clicks already booked on the audio
+      // clock keep ringing after "pause" unless something silences them.
+      if (this.playing) this.stop();
       else { playBtn.textContent = '⏸'; this._playAll(playBtn); }
     });
     this._renderComplete(0);
   }
 
   _restart(playBtn) {
-    this.epoch += 1;
-    this.playing = false;
-    playBtn.textContent = '▶';
+    this.stop(); // same reason as pause: the scheduled clicks need silencing
+    playBtn.textContent = '▶'; // stop() only relabels when it was playing
     this._playedUpTo = 0;
     this._renderComplete(0);
   }
