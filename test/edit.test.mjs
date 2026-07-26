@@ -394,3 +394,130 @@ test('without --remote the server binds 127.0.0.1 only — the LAN cannot even c
     fetch(`http://${lan}:${port}/edit/ping`, { signal: AbortSignal.timeout(2000) }),
     'the LAN address must not be listening');
 });
+
+// ── the phone remote (#39): controller, relay, readout ─────────────────────
+// The security seam (which paths answer off-loopback, and on what token) is
+// covered above with allowRemote. These cover what the endpoints actually do.
+
+/**
+ * Subscribe to an SSE endpoint and wait for text to appear on it. The fetch
+ * resolves once the response headers land, which is after the server has
+ * registered the client — so a POST issued after this returns cannot be missed.
+ */
+async function openSse(t, base, ep) {
+  const ctl = new AbortController();
+  t.after(() => ctl.abort());
+  const res = await fetch(base + ep, { signal: ctl.signal });
+  assert.equal(res.status, 200);
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  return {
+    // Race every read against the deadline: a server that simply never sends
+    // the event would otherwise park in reader.read() forever, and a suite
+    // that hangs is worse than one that fails — it says nothing, slowly.
+    async until(want, ms = 5000) {
+      const deadline = Date.now() + ms;
+      while (!buf.includes(want)) {
+        const left = deadline - Date.now();
+        if (left <= 0) throw new Error(`SSE never carried "${want}"; saw:\n${buf}`);
+        let timer;
+        const next = await Promise.race([
+          reader.read(),
+          new Promise((r) => { timer = setTimeout(() => r('timeout'), left); }),
+        ]);
+        clearTimeout(timer);
+        if (next === 'timeout') throw new Error(`SSE never carried "${want}"; saw:\n${buf}`);
+        if (next.done) throw new Error(`SSE closed before "${want}"; saw:\n${buf}`);
+        buf += dec.decode(next.value, { stream: true });
+      }
+      return buf;
+    },
+  };
+}
+
+test('the phone controller is a self-contained page — no asset it could not reach', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  const res = await fetch(base + '/remote');
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /text\/html/);
+  const html = await res.text();
+  assert.match(html, /id="next"/);
+  assert.match(html, /id="prev"/);
+  assert.match(html, /id="pos"/);
+  // a phone is off-loopback: anything it fetches from elsewhere is a hole
+  assert.doesNotMatch(html, /<link\b/i, 'no external stylesheet');
+  assert.doesNotMatch(html, /src\s*=\s*["']https?:/i, 'no external script or image');
+  // SPEC §11 — a clicker, not a second screen
+  assert.doesNotMatch(html, /class="decklight"/, 'the phone renders no slides');
+});
+
+test('a tap on the phone reaches the deck as a remote event on its own stream', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  const deck = await openSse(t, base, '/edit/events'); // the deck's stream
+  const res = await post(base, '/remote/key', { key: 'next' });
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).decks, 1, 'the server saw one deck listening');
+
+  const seen = await deck.until('event: remote');
+  assert.match(seen, /event: remote\ndata: \{"key":"next"\}/);
+});
+
+test("the deck's position reaches the phone's readout", async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  const phone = await openSse(t, base, '/remote/events');
+  assert.equal((await post(base, '/remote/pos', { i: 3, n: 9 })).status, 200);
+  const seen = await phone.until('event: pos');
+  assert.match(seen, /event: pos\ndata: \{"i":3,"n":9\}/);
+});
+
+test('a phone joining mid-talk is told the position at once', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  await post(base, '/remote/pos', { i: 5, n: 12 }); // deck moved before the phone joined
+  const phone = await openSse(t, base, '/remote/events');
+  assert.match(await phone.until('event: pos'), /\{"i":5,"n":12\}/);
+});
+
+test('the remote refuses anything that is not a move', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  for (const bad of [{ key: 'delete' }, { key: 1 }, {}]) {
+    assert.equal((await post(base, '/remote/key', bad)).status, 400, JSON.stringify(bad));
+  }
+  for (const bad of [{ i: 'x', n: 2 }, { i: 1 }, {}]) {
+    assert.equal((await post(base, '/remote/pos', bad)).status, 400, JSON.stringify(bad));
+  }
+});
+
+test('the QR is served only when the remote is actually on', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+
+  const plain = await startEdit(t, dir, { env: { PATH: dir } });
+  assert.equal((await fetch(plain.base + '/remote/qr.svg')).status, 404,
+    'without --remote there is no LAN URL worth encoding');
+
+  const dir2 = tmp(t);
+  writeFileSync(path.join(dir2, 'deck.html'), DECK);
+  const withRemote = await startEdit(t, dir2, { env: { PATH: dir2 }, extraArgs: ['--remote'] });
+  const res = await fetch(withRemote.base + '/remote/qr.svg');
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /image\/svg\+xml/);
+  const svg = await res.text();
+  assert.match(svg, /^<svg/);
+  assert.match(svg, /viewBox=/);
+});
