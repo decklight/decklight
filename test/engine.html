@@ -29,7 +29,28 @@
 
   <script>
     // No network in a harness: answer everything fast so nothing stays pending.
-    window.fetch = async () => new Response('', { status: 404 });
+    // The restore overlay (R) is the exception — it only exists when an edit
+    // server does, so that mode stands one up in miniature: enough of /edit/ping
+    // and /edit/history for the overlay to mount and list something real.
+    const HARNESS_MODE = new URLSearchParams(location.search).get('mode') ?? 'themepicker';
+    const FAKE_HISTORY = [
+      { hash: 'aaaaaaa', when: '2 minutes ago', subject: 'tighten the closing slide' },
+      { hash: 'bbbbbbb', when: '1 hour ago', subject: 'add the pros/cons split' },
+      { hash: 'ccccccc', when: '3 days ago', subject: 'first draft' },
+    ];
+    const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+    window.fetch = async (url) => {
+      const u = String(url);
+      if (HARNESS_MODE === 'restore') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
+        if (u.includes('/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
+      }
+      return new Response('', { status: 404 });
+    };
+    // the deck opens an EventSource once the ping succeeds; there is no server
+    // behind it here, and a pending connection would hold the virtual clock
+    window.EventSource = class { constructor() { this.readyState = 0; } addEventListener() {} close() {} };
   </script>
 
   <script src="../dist/decklight.js"></script>
@@ -38,7 +59,7 @@
     const params = new URLSearchParams(location.search);
     const mode = params.get('mode') ?? 'themepicker';
 
-    Decklight.init({});
+    const deck = Decklight.init({});
 
     const press = (k, opts = {}) => document.body.dispatchEvent(
       new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
@@ -56,7 +77,13 @@
       return !document.querySelector(sel);
     };
 
+    // The restore overlay is reached through two awaits (the ping, then the
+    // history fetch), so the whole body runs async and writes the sink at the
+    // end. The synchronous modes are unaffected by being awaited.
+    const settle = () => new Promise((res) => setTimeout(res, 50));
+
     const r = {};
+    (async () => {
     try {
       if (mode === 'themepicker') {
         const P = '.decklight-theme-picker', ROW = '.tp-row', SEL = 'tp-selected';
@@ -143,12 +170,66 @@
 
         r.PASS = r.pickerUp && r.paletteUp && r.pickerGone && r.finderUp && r.finderGone;
       }
+      if (mode === 'restore') {
+        const O = '.decklight-restore', ROW = '.tp-row', SEL = 'tp-selected';
+        await settle();                       // let /edit/ping resolve
+        press('r');
+        await settle();                       // let /edit/history resolve
+        r.opens = !!document.querySelector(O);
+        const a = selectedIndex(O, ROW, SEL);
+        r.listsEveryCommit = a.count === 3;
+        r.hasSelection = a.i === 0;           // newest first, newest selected
+
+        // the subject is rendered as TEXT, never parsed as markup
+        r.rowShowsSubject = /tighten the closing slide/.test(document.querySelector(`${O} ${ROW}`).textContent);
+
+        press('ArrowDown');
+        const b = selectedIndex(O, ROW, SEL);
+        r.downMoves = b.i === 1;
+        // wrap-around: from row 1, two ups crosses the top (1 → 0 → last)
+        for (let n = 0; n < 2; n++) press('ArrowUp');
+        r.wrapsAround = selectedIndex(O, ROW, SEL).i === a.count - 1;
+
+        r.escapeCloses = escapeUntilClosed(O);
+
+        // reopen → backdrop click closes
+        press('r');
+        await settle();
+        r.reopens = !!document.querySelector(O);
+        document.querySelector(O)?.click();
+        r.backdropCloses = !document.querySelector(O);
+
+        // Only one overlay at a time. An OPEN overlay swallows stray keys here
+        // (the picker and finder behave the same way), so the contract worth
+        // proving is the one the openers implement: opening restore over the
+        // palette dismisses the palette. Driven through the public API, which
+        // is also how a headless driver would reach it.
+        press('/');
+        r.paletteUp = !!document.querySelector('.decklight-palette');
+        await deck.restore.open();
+        await settle();
+        r.restoreUp = !!document.querySelector(O);
+        r.paletteGone = !document.querySelector('.decklight-palette');
+        r.apiLists = deck.restore.list().length === 3;
+        deck.restore.close();
+        r.apiCloses = !document.querySelector(O);
+
+        // and it is exposed for drivers that cannot press keys
+        r.hasApi = typeof deck?.restore?.open === 'function'
+          && typeof deck?.restore?.list === 'function';
+
+        r.PASS = r.opens && r.listsEveryCommit && r.hasSelection && r.rowShowsSubject
+          && r.downMoves && r.wrapsAround && r.escapeCloses && r.reopens
+          && r.backdropCloses && r.paletteUp && r.restoreUp && r.paletteGone
+          && r.hasApi && r.apiLists && r.apiCloses;
+      }
     } catch (e) {
       r.exception = String((e && e.stack) || e);
       r.PASS = false;
     }
     r.mode = mode;
     sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+    })();
   </script>
 </body>
 </html>

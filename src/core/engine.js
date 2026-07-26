@@ -657,6 +657,7 @@ export function init(userConfig = {}) {
   }
   function openThemePicker() {
     if (pickerEl) return closeThemePicker();
+    if (restoreEl) closeRestore();
     const list = themeList();
     if (!hasThemes && !list.length) return;
     pickerFilter = '';
@@ -870,6 +871,7 @@ export function init(userConfig = {}) {
   function openSlideFinder() {
     if (finderEl) return closeSlideFinder();
     if (pickerEl) closeThemePicker();
+    if (restoreEl) closeRestore();
     finderQuery = '';
     finderEl = document.createElement('div');
     finderEl.className = 'decklight-theme-picker decklight-finder';
@@ -891,6 +893,96 @@ export function init(userConfig = {}) {
     finderEl = null;
   }
 
+  // ----- restore overlay (R) — SPEC §8 ---------------------------------------
+  // The git-level sibling of Z/⇧Z: Z takes back a keystroke, R takes back a
+  // session. Rows are the deck's commits (from `decklight restore`'s own
+  // helper, over the edit server); the preview is that commit's deck rendered
+  // for real, because a hash and a subject are not enough to recognise the
+  // version you actually want.
+  let restoreEl = null, restoreRows = [], restoreSel = 0, restoreDebounce = null;
+
+  function restorePreview(frame, entry) {
+    if (entry) frame.src = `${editBase}/edit/at?ref=${encodeURIComponent(entry.hash)}&embedded`;
+  }
+  function selectRestoreRow(i, immediate) {
+    const rows = [...restoreEl.querySelectorAll('.tp-row')];
+    if (!rows.length) return;
+    restoreSel = selectInList(rows, i, 'tp-selected');
+    const entry = restoreRows[restoreSel];
+    restoreEl.querySelector('.tp-caption').textContent =
+      entry ? `${entry.hash} · ${entry.when} · ${entry.subject}` : '';
+    const frame = restoreEl.querySelector('iframe');
+    clearTimeout(restoreDebounce);
+    // debounced like the finder: holding ↓ must not fire a page load per row
+    if (immediate) restorePreview(frame, entry);
+    else restoreDebounce = setTimeout(() => restorePreview(frame, entry), 60);
+  }
+  async function openRestore() {
+    if (restoreEl) return closeRestore();
+    if (!editAvailable) return toast(needsDevMode('restoring a version', location), 3200);
+    let entries = [];
+    try {
+      const r = await fetch(editBase + '/edit/history');
+      const j = await r.json();
+      if (!j.ok) return toast(`restore: ${j.error}`, 3000);
+      entries = j.entries || [];
+    } catch { return toast('restore: could not read the deck history', 3000); }
+    if (!entries.length) return toast('restore: git has no record of this deck yet', 3000);
+    if (pickerEl) closeThemePicker();
+    if (finderEl) closeSlideFinder();
+    if (palEl) closePalette();
+    restoreRows = entries;
+    restoreEl = document.createElement('div');
+    restoreEl.className = 'decklight-theme-picker decklight-finder decklight-restore';
+    restoreEl.innerHTML =
+      '<div class="tp-panel">' +
+        '<div class="tp-side"><div class="tp-filter">Restore a version — ↑↓ to browse, ⏎ to restore</div>' +
+        '<div class="tp-list" role="listbox" aria-label="Deck history"></div></div>' +
+        '<div class="tp-preview"><iframe title="Version preview"></iframe>' +
+        '<div class="tp-caption"></div></div></div>';
+    // Built as nodes, not innerHTML: a commit subject is somebody else's text
+    // and may contain anything — textContent escapes it by construction.
+    const list = restoreEl.querySelector('.tp-list');
+    restoreRows.forEach((e, i) => {
+      const row = document.createElement('div');
+      row.className = 'tp-row';
+      row.setAttribute('role', 'option');
+      const hash = document.createElement('span');
+      hash.className = 'rs-hash';
+      hash.textContent = e.hash;
+      const when = document.createElement('span');
+      when.className = 'rs-when';
+      when.textContent = e.when;
+      row.append(hash, ` ${e.subject} `, when);
+      row.addEventListener('click', () => { selectRestoreRow(i, true); commitRestore(); });
+      list.appendChild(row);
+    });
+    closeOnBackdrop(restoreEl, closeRestore);
+    root.appendChild(restoreEl);
+    selectRestoreRow(0, true);
+  }
+  function closeRestore() {
+    clearTimeout(restoreDebounce);
+    restoreEl?.remove();
+    restoreEl = null;
+  }
+  async function commitRestore() {
+    const entry = restoreRows[restoreSel];
+    if (!entry) return;
+    closeRestore();
+    try {
+      const r = await fetch(editBase + '/edit/restore', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ref: entry.hash }),
+      });
+      const j = await r.json();
+      if (!j.ok) return toast(`restore failed: ${j.error}`, 3000);
+      if (!j.changed) return toast(`already at ${entry.hash}`, 2000);
+      // the write lands on disk; the watcher's reload brings the deck back up
+      toast(`restored ${entry.hash} — Z takes it back`, 2600);
+    } catch { toast('restore failed: the edit server did not answer', 3000); }
+  }
+
   // ----- command palette (/) — SPEC §8 ---------------------------------------
   // A Claude-style palette: / lists every command with its shortcut, typing
   // filters, Enter runs. Commands with arguments drill into their own pickers
@@ -901,6 +993,7 @@ export function init(userConfig = {}) {
     const has = (fn) => typeof fn === 'function';
     const all = [
       { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
+      { label: 'Restore a version…', hint: 'R', alias: 'history git rollback undo revert commit', run: () => openRestore() },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: openThemePicker },
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
@@ -1000,6 +1093,7 @@ export function init(userConfig = {}) {
   function openPalette() {
     if (palEl) return closePalette();
     if (finderEl) closeSlideFinder();
+    if (restoreEl) closeRestore();
     palQuery = '';
     palEl = document.createElement('div');
     palEl.className = 'decklight-narr decklight-palette';
@@ -1737,6 +1831,7 @@ export function init(userConfig = {}) {
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
+      <tr><td>R</td><td>restore a version (dev mode — git history, live preview)</td></tr>
       <tr><td>E</td><td>edit speaker notes (dev mode)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
@@ -1882,6 +1977,17 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
+    if (restoreEl) {
+      switch (e.key) {
+        case 'ArrowDown': selectRestoreRow(restoreSel + 1, false); break;
+        case 'ArrowUp': selectRestoreRow(restoreSel - 1, false); break;
+        case 'Enter': commitRestore(); break;
+        case 'Escape': closeRestore(); break;
+        default: return;
+      }
+      e.preventDefault();
+      return;
+    }
     if (overviewEl) {
       switch (e.key) {
         case 'ArrowRight': ovSelect(ovSel + 1); break;
@@ -1912,6 +2018,7 @@ export function init(userConfig = {}) {
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
+      case 'r': case 'R': openRestore(); break;
       case 'e': case 'E': toggleEditor(); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
@@ -2521,6 +2628,13 @@ export function init(userConfig = {}) {
   instance.on('slide', startTalk);
   instance.on('build', startTalk);
   instance.toggleClock = toggleClock; // K programmatically
+  // R programmatically — and what the headless overlay harness drives, since
+  // it cannot reach a git server to populate the real list.
+  instance.restore = {
+    open: openRestore,
+    close: closeRestore,
+    list: () => restoreRows.slice(),
+  };
   if (clockOn && !printMode) showClock();
 
   // ── progress bar (H) — SPEC §8 ────────────────────────────────────────────

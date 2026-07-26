@@ -18,7 +18,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'engine.html');
 
 let bad = 0;
-for (const mode of ['themepicker', 'palette', 'exclusive']) {
+for (const mode of ['themepicker', 'palette', 'exclusive', 'restore']) {
   const r = resultsFrom(
     dumpDom(`file://${page}?mode=${mode}`, { fileAccess: true, budget: 30000, quietStderr: true, who: 'engine-render' }),
     'ENGINE', `mode=${mode}`);

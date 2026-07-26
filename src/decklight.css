@@ -422,6 +422,20 @@
   text-overflow: ellipsis;
 }
 
+/* ---------- restore overlay (R) — SPEC §8 ---------------------------------
+   The history list: a monospace hash to anchor the eye, the subject doing the
+   work, and the age pushed right so the column reads as a timeline. */
+.decklight-restore .rs-hash {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  opacity: 0.75;
+}
+.decklight-restore .rs-when {
+  float: right;
+  opacity: 0.55;
+  font-size: 0.85em;
+  padding-left: 0.75em;
+}
+
 /* ---------- brand logo (SPEC §8) -------------------------------------------
    Chrome-level mark on every slide. The engine sets data-canvas="dark|light"
    on the root from the applied theme's real background luminance; the

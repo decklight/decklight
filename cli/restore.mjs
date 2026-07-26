@@ -62,6 +62,32 @@ function showAt(ref, rel, cwd, exec = execFileSync) {
   return exec('git', ['show', `${ref}:./${rel}`], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
+/**
+ * The deck exactly as it was at `ref` — what the restore overlay previews
+ * before you commit to going back (#129). Throws on an unknown ref.
+ */
+export function deckAt(deckPath, ref, cwd, exec = execFileSync) {
+  const rel = relative(cwd, deckPath) || basename(deckPath);
+  return showAt(ref, rel, cwd, exec);
+}
+
+/**
+ * Give a previewed deck a root `<base>`, because it is served from `/edit/`
+ * rather than the root and every relative `../dist` and `./casts` path in it
+ * would otherwise resolve one directory too deep — a preview with no runtime.
+ *
+ * `<head>` is optional in HTML, so a deck can perfectly well not have one:
+ * fall through to `<html>`, then to the front of the document, rather than
+ * silently doing nothing. An author's own `<base>` is left alone.
+ */
+export function withBaseHref(html, href = '/') {
+  const tag = `<base href="${href}">`;
+  if (/<base\b/i.test(html)) return html;
+  if (/<head(\s[^>]*)?>/i.test(html)) return html.replace(/<head(\s[^>]*)?>/i, (m) => m + tag);
+  if (/<html(\s[^>]*)?>/i.test(html)) return html.replace(/<html(\s[^>]*)?>/i, (m) => `${m}<head>${tag}</head>`);
+  return tag + html;
+}
+
 /** Commit just the deck, falling back to a decklight identity like autocommit. */
 function commitDeck(rel, cwd, message, run = git) {
   run(['add', '--', rel], cwd);

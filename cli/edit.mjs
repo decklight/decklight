@@ -48,6 +48,7 @@ import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
 import { corsHeaders } from '../tools/bridge.mjs';
 import { resolvePortConflict } from './port-conflict.mjs';
 import { qrSvg } from './qr.mjs';
+import { deckHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 
 // file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
 // exactly like the tts bridge — so the endpoints are CORS-open. The server
@@ -245,7 +246,7 @@ export function createHistory(limit = 200) {
 // The plumbing lives in git.mjs now; imported for editMain's use below and
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
-import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, resolveGitMode, shouldCommit, commitSubject } from './git.mjs';
+import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, resolveGitMode, shouldCommit, commitSubject, oneline } from './git.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 export async function editMain(args) {
@@ -432,6 +433,29 @@ export async function editMain(args) {
         req.on('close', () => clients.delete(res));
         return;
       }
+      // ── the deck's durable history (#129): what the R overlay reads ────
+      // Loopback-only like every other /edit/* path: this serves arbitrary
+      // historical revisions of the deck, which is nobody else's business.
+      if (req.method === 'GET' && url.pathname === '/edit/history') {
+        if (!gitOn) return json(409, { ok: false, error: 'git is off for this session — there is no history' });
+        try { return json(200, { ok: true, entries: deckHistory(deckPath, root) }); }
+        catch (e) { return json(500, { ok: false, error: oneline(e) }); }
+      }
+      if (req.method === 'GET' && url.pathname === '/edit/at') {
+        if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
+        try {
+          // <base href="/"> because this is served from /edit/, not the root:
+          // without it every relative ../dist and ./casts path in the deck
+          // would resolve one directory too deep and the preview would be bare.
+          const html = withBaseHref(deckAt(deckPath, url.searchParams.get('ref') || '', root));
+          res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
+          return res.end(html);
+        } catch {
+          res.writeHead(404, { ...CORS, 'content-type': 'text/plain' });
+          return res.end('no such revision of this deck');
+        }
+      }
+
       // ── the phone remote: controller, its QR, and the readout channel ──
       // These are the ONLY paths allowRemote lets through off-loopback, and
       // none of them writes to the deck file: the phone asks the deck to move,
@@ -477,6 +501,20 @@ export async function editMain(args) {
       let body = '';
       if (req.method === 'POST') {
         for await (const chunk of req) { body += chunk; if (body.length > 1e6) throw new Error('too large'); }
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/restore') {
+        if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
+        const { ref } = JSON.parse(body || '{}');
+        if (typeof ref !== 'string' || !ref.trim()) throw new Error('bad payload');
+        const before = readDeck();
+        let result;
+        try { result = restoreDeck(deckPath, ref.trim(), root); }
+        catch (e) { return json(400, { ok: false, error: oneline(e) }); }
+        // Z takes a restore back like any other edit — the git-level move and
+        // the keystroke-level stack stay in step rather than disagreeing.
+        if (result.changed) history.record(before);
+        console.log(`  restored ${basename(deckPath)} to ${result.short}`);
+        return json(200, { ok: true, ...result, ...history.counts() });
       }
       // An intermediate commit point: a multi-step agent calls this when IT
       // decides one logical change is finished, so the boundaries follow the

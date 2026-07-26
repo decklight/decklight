@@ -16,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveTitle, planGit, planSkill, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
 import { deckHistory, restoreDeck } from '../cli/restore.mjs';
+import * as restoreMod from '../cli/restore.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
 import { optionalDepSkip as recSkip } from './helpers.mjs';
@@ -914,4 +915,18 @@ test('the CLI lists history and refuses a deck with none', (t) => {
 test('decklight help lists restore', () => {
   const help = spawnSync(process.execPath, [CLI, '--help'], { encoding: 'utf8' });
   assert.match(help.stdout, /^\s+restore\s+list the commits/m);
+});
+
+test('withBaseHref survives decks that have no head — head is optional in HTML', () => {
+  const { withBaseHref } = restoreMod;
+  // the normal case
+  assert.match(withBaseHref('<html><head><title>x</title></head><body>b</body></html>'),
+    /<head><base href="\/">/);
+  // no head at all — still needs a base, or the preview loads no runtime
+  assert.match(withBaseHref('<html><body>b</body></html>'), /<html><head><base href="\/"><\/head>/);
+  // no html element either
+  assert.match(withBaseHref('<div class="decklight"></div>'), /^<base href="\/">/);
+  // an author's own base is theirs, not ours to override
+  const own = '<html><head><base href="https://cdn.example/"></head></html>';
+  assert.equal(withBaseHref(own), own);
 });
