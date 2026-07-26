@@ -401,6 +401,8 @@ export async function editMain(args) {
       if (req.method === 'GET' && url.pathname === '/edit/ping') {
         return json(200, {
           ok: true, deck: deckUrl, name: basename(deckPath),
+          // the speaker view only offers the QR when there is a LAN URL to scan
+          remote: !!token,
           ...history.counts(), git: gitOn,
           agents: agents.map((a) => ({ name: a.name, label: a.label })),
           agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt },
