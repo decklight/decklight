@@ -39,6 +39,8 @@ npx decklight init "My Deck"
 
 This scaffolds a self-contained `deck.html` (double-click it — no server) **and** a `.claude/skills/decklight/` skill + `AGENTS.md`, so Claude Code (or anything that reads `AGENTS.md`) has the full authoring contract on hand instead of guessing from Reveal.js memory. The skill is sliced straight from `SPEC.md`, so it never drifts from the runtime you actually installed.
 
+**Claude Code on the web** reaches the skill two ways. A committed `.claude/skills/decklight/` loads with the clone, so cloud sessions on that repo have it already — that is the per-project route and it needs nothing but a `git commit`. For every project at once, `decklight skills claude --pack` writes `decklight-skill.zip` to upload in your claude.ai skill settings. (`--global` installs into `~/.claude/skills/`, which local sessions read but cloud machines never see.)
+
 Prefer to write the HTML yourself? Here's the whole anatomy:
 
 ```html
@@ -99,7 +101,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | Command | Purpose |
 |---|---|
 | `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title and offers a git repo; `--open` launches the deck, and it can hand straight off to `dev`) |
-| `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project) |
+| `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project; `--pack` zips it for upload) |
 | `decklight dev deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML |

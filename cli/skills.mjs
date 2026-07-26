@@ -7,6 +7,7 @@
  * AI coding agents, each in the convention it reads.
  *
  *   decklight skills [agent…] [--dir path | --global] [--all] [--force]
+  decklight skills claude --pack [-o <file>]
  *
  * `init` scaffolds a deck *and* hands Claude a skill; this command is the
  * skill on its own. Claude Code loads a real skill (`.claude/skills/`);
@@ -30,6 +31,7 @@ import path from 'node:path';
 import { onPath } from './agents.mjs';
 import { makeFail } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
+import { zipSync } from './zip.mjs';
 import {
   PKG, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
@@ -86,6 +88,10 @@ Options:
                 (~/.claude, ~/.codex, ~/.config/opencode, ~/.bob) so the
                 skill is available in every project, not just this one
   --all         install for every supported agent
+  --pack        write decklight-skill.zip to upload in your claude.ai skill
+                settings — the account-level route, for every project at once
+                (Claude's skill format only; -o names the file)
+  -o <file>     where --pack writes                 [decklight-skill.zip]
   --force       overwrite files that already exist (default: refuses to
                 clobber a SKILL.md/reference.md; the AGENTS.md section is
                 always refreshed in place, never duplicated)
@@ -206,13 +212,30 @@ export function installGlobalSkill(targets, { env = process.env, force = false, 
   for (const w of written) out.write(`  ${w}\n`);
 }
 
+/**
+ * The account-level distribution artifact (#80): the same two files a project
+ * install writes, in a standard archive you upload once instead of committing
+ * per repo. Rendered from skill-content.mjs like every other install, so the
+ * packed copy cannot drift from the installed one.
+ *
+ * The folder-with-SKILL.md-at-its-root shape is the ecosystem's interchange
+ * form, and is also directly usable as `unzip -d ~/.claude/skills/` — so the
+ * artifact stays useful even if an upload surface moves.
+ */
+export function packSkill() {
+  return zipSync([
+    { name: 'decklight/SKILL.md', data: claudeSkillMd(SKILL_REF) },
+    { name: `decklight/${SKILL_REF}`, data: referenceDoc() },
+  ]);
+}
+
 export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath, env = process.env } = {}) {
   if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(HELP);
     process.exit(0);
   }
 
-  let dir = null, all = false, force = false, global = false;
+  let dir = null, all = false, force = false, global = false, pack = false, outFile = null;
   const names = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -220,11 +243,37 @@ export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath
     else if (a === '--global' || a === '-g') global = true;
     else if (a === '--all') all = true;
     else if (a === '--force') force = true;
+    else if (a === '--pack') pack = true;
+    else if (a === '-o' || a === '--out') outFile = argv[++i];
     else if (a.startsWith('-')) fail(`unknown argument: ${a}`);
     else if (TARGETS[a]) names.push(a);
     else fail(`unknown agent: ${a} (supported: ${Object.keys(TARGETS).join(', ')})`);
   }
   if (global && dir !== null) fail('--global and --dir are mutually exclusive');
+
+  if (pack) {
+    // --pack writes an artifact; the other flags describe installs. Rejecting
+    // the combinations outright beats silently honouring one and ignoring the
+    // rest, which is how you end up with a zip you think went somewhere.
+    if (global) fail('--pack and --global are different routes: --pack writes an archive to upload, --global installs into this machine');
+    if (dir !== null) fail('--pack and --dir are different things: --pack writes an archive, not a directory install — use -o to choose the file');
+    if (all) fail("--pack targets Claude's skill format only — drop --all");
+    const other = names.find((n) => n !== 'claude');
+    if (other) fail(`--pack targets Claude's skill format only — ${TARGETS[other].label} has no upload surface (use --global for it)`);
+
+    const file = path.resolve(outFile ?? 'decklight-skill.zip');
+    if (fs.existsSync(file) && !force) fail(`${display(file)} already exists — pass --force to overwrite`);
+    fs.writeFileSync(file, packSkill());
+    process.stdout.write(
+      `packed the Decklight skill (v${PKG.version}) → ${display(file)}\n`
+      + `  decklight/SKILL.md\n  decklight/${SKILL_REF}\n\n`
+      + 'Two ways to reach Claude Code on the web:\n'
+      + '  this repo    commit .claude/skills/decklight/ — cloud sessions load it with the clone\n'
+      + `  every project  upload ${path.basename(file)} in your claude.ai skill settings\n`
+      + `                 (or: unzip ${path.basename(file)} -d ~/.claude/skills/ for local sessions)\n`,
+    );
+    return;
+  }
 
   const resolved = resolveTargets({ names, all, hasBin });
   if (!resolved) {

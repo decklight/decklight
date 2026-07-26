@@ -33,6 +33,7 @@ Commands:
   skills   install the Decklight authoring skill for AI agents (Claude, Codex, OpenCode, IBM Bob)
            EXAMPLE: decklight skills claude codex   (or --all, or omit to use detected agents)
            EXAMPLE: decklight skills --global        (install into each agent's config home, every project)
+           EXAMPLE: decklight skills claude --pack   (zip it to upload in your claude.ai skill settings)
   rec      record a truthful terminal cast by running a YAML command script in a real PTY
            EXAMPLE: decklight rec deck.term.yaml -o deck.cast.json
   refresh  re-execute the script embedded in each cast; rewrite the ones whose output drifted

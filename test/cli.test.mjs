@@ -17,6 +17,9 @@ import { resolveTitle, planGit, planSkill, initRepo, epilogue, openCommand, open
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
 import { deckHistory, restoreDeck } from '../cli/restore.mjs';
 import * as restoreMod from '../cli/restore.mjs';
+import { packSkill } from '../cli/skills.mjs';
+import { zipSync, crc32 } from '../cli/zip.mjs';
+import { claudeSkillMd, referenceDoc } from '../cli/skill-content.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
 import { optionalDepSkip as recSkip } from './helpers.mjs';
@@ -929,4 +932,92 @@ test('withBaseHref survives decks that have no head — head is optional in HTML
   // an author's own base is theirs, not ours to override
   const own = '<html><head><base href="https://cdn.example/"></head></html>';
   assert.equal(withBaseHref(own), own);
+});
+
+// ── decklight skills --pack (#80): the account-level artifact ──────────────
+
+test('--pack writes a real archive holding exactly the two skill files', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-pack-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const res = spawnSync(process.execPath, [CLI, 'skills', 'claude', '--pack'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(res.status ?? 0, 0, res.stderr);
+  const zipPath = path.join(dir, 'decklight-skill.zip');
+  assert.ok(fs.existsSync(zipPath), 'wrote decklight-skill.zip');
+
+  // the output teaches both routes, so the command explains its own story
+  assert.match(res.stdout, /commit \.claude\/skills\/decklight\//);
+  assert.match(res.stdout, /claude\.ai skill settings/);
+
+  // a standard archive: real unzip reads it, and the bytes round-trip
+  const list = spawnSync('unzip', ['-l', zipPath], { encoding: 'utf8' });
+  if (list.error) return; // no unzip on this machine — the byte checks below still run
+  assert.match(list.stdout, /decklight\/SKILL\.md/);
+  assert.match(list.stdout, /decklight\/reference\.md/);
+
+  const out = path.join(dir, 'x');
+  assert.equal(spawnSync('unzip', ['-q', zipPath, '-d', out]).status, 0);
+  // byte-identical to what a project install writes — one source, no drift
+  assert.equal(fs.readFileSync(path.join(out, 'decklight/SKILL.md'), 'utf8'), claudeSkillMd('reference.md'));
+  assert.equal(fs.readFileSync(path.join(out, 'decklight/reference.md'), 'utf8'), referenceDoc());
+});
+
+test('--pack honors -o, and refuses to clobber without --force', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-pack-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const named = spawnSync(process.execPath, [CLI, 'skills', 'claude', '--pack', '-o', 'mine.zip'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(named.status ?? 0, 0, named.stderr);
+  assert.ok(fs.existsSync(path.join(dir, 'mine.zip')));
+
+  const again = spawnSync(process.execPath, [CLI, 'skills', 'claude', '--pack', '-o', 'mine.zip'], { cwd: dir, encoding: 'utf8' });
+  assert.notEqual(again.status, 0);
+  assert.match(again.stderr + again.stdout, /already exists — pass --force/);
+
+  const forced = spawnSync(process.execPath, [CLI, 'skills', 'claude', '--pack', '-o', 'mine.zip', '--force'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(forced.status ?? 0, 0, forced.stderr);
+});
+
+test('--pack rejects the flag combinations that would quietly do nothing', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-pack-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const bad = [
+    [['skills', 'claude', '--pack', '--global'], /--global/],
+    [['skills', 'claude', '--pack', '--dir', '.'], /--dir/],
+    [['skills', '--pack', '--all'], /--all/],
+    [['skills', 'codex', '--pack'], /Claude's skill format only/],
+  ];
+  for (const [argv, re] of bad) {
+    const res = spawnSync(process.execPath, [CLI, ...argv], { cwd: dir, encoding: 'utf8' });
+    assert.notEqual(res.status, 0, argv.join(' '));
+    assert.match(res.stderr + res.stdout, re, argv.join(' '));
+    assert.equal(fs.existsSync(path.join(dir, 'decklight-skill.zip')), false, 'nothing written on a rejected combination');
+  }
+});
+
+test('the packed archive is byte-stable — the same content packs the same', () => {
+  assert.equal(Buffer.compare(packSkill(), packSkill()), 0);
+});
+
+test('zipSync round-trips through a real unzip, and stores what deflate would grow', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-zip-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  // the canonical CRC-32 check value — the one number the whole format hangs on
+  assert.equal(crc32(Buffer.from('123456789')), 0xcbf43926);
+
+  const zipPath = path.join(dir, 'z.zip');
+  const long = 'repeat me '.repeat(200);
+  fs.writeFileSync(zipPath, zipSync([{ name: 'a/big.txt', data: long }, { name: 'a/tiny.txt', data: 'x' }]));
+
+  const test = spawnSync('unzip', ['-t', zipPath], { encoding: 'utf8' });
+  if (test.error) return; // no unzip here
+  assert.equal(test.status, 0, test.stdout);
+  assert.match(test.stdout, /No errors detected/);
+
+  const out = path.join(dir, 'x');
+  spawnSync('unzip', ['-q', zipPath, '-d', out]);
+  assert.equal(fs.readFileSync(path.join(out, 'a/big.txt'), 'utf8'), long);
+  assert.equal(fs.readFileSync(path.join(out, 'a/tiny.txt'), 'utf8'), 'x');
 });
