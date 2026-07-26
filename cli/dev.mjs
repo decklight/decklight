@@ -52,6 +52,8 @@ const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] 
   --no-tts          don't start the voice bridge
   --no-lipsync      don't start the lip-sync bridge
   --git / --no-git  auto-commit the deck on a cadence / never touch git
+  --git-mode M      when to commit: timer (a cadence), agent (one commit per
+                    agent edit, with the agent's own message), off     [timer]
                     (no repo + no flag: dev ASKS whether to create one)
   --commit-every N  autocommit cadence in seconds                     [300]
   --agent <name>    preferred AI agent for A (default: first detected)
@@ -75,7 +77,7 @@ const VALUE_FLAGS = new Set([
   '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--project', '--tts-model',
   '--location', '--voice', '--data-dir', '--lang',
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
-  '--python', '--cache-dir', '--commit-every', '--agent', '--host',
+  '--python', '--cache-dir', '--commit-every', '--agent', '--host', '--git-mode',
   '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
 ]);
 
@@ -112,7 +114,7 @@ export function planServices({ args = [], env = process.env, hasBin = onPath, sa
     tag: 'deck',
     args: ['edit', deck, '--port', editPort,
       ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
-      ...pass('--commit-every'), ...pass('--agent'),
+      ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode'),
       ...(has('--remote') ? ['--remote'] : []), ...pass('--host')],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
@@ -226,8 +228,18 @@ export async function devMain(args) {
     if (process.stdin.isTTY && process.stdout.isTTY) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       const answer = await rl.question('  no git repository here — create one and auto-commit the deck as you edit? [Y/n] ');
+      const yes = !/^n/i.test(answer.trim());
+      args = [...args, yes ? '--git' : '--no-git'];
+      // Only while we are ALREADY setting git up, and only when an agent could
+      // actually drive edits, offer the boundary that suits agent work. A
+      // session in an existing repository gains no new question — that is the
+      // one thing this must not cost, so `--git-mode agent` is how you reach it
+      // there.
+      if (yes && !args.includes('--git-mode') && detectAgents().length) {
+        const mode = await rl.question("  commit once per agent edit, with the agent's own message, instead of on a timer? [y/N] ");
+        if (/^y/i.test(mode.trim())) args = [...args, '--git-mode', 'agent'];
+      }
       rl.close();
-      args = [...args, /^n/i.test(answer.trim()) ? '--no-git' : '--git'];
       plan = planServices({ args, saved: loadTtsConfig() });
     } else {
       console.log('  git: no repository here — pass --git to create one and auto-commit the deck');
