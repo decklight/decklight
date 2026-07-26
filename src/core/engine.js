@@ -2675,6 +2675,10 @@ export function init(userConfig = {}) {
           editBase = base;
           editAvailable = true;
           editAgents = Array.isArray(j.agents) ? j.agents : [];
+          // With --remote on there is a LAN URL worth scanning, so the speaker
+          // view can offer its QR (#39). editBase is '' when the deck is served
+          // by the edit server itself, hence the origin fallback.
+          instance.__remoteQr = j.remote ? `${editBase || location.origin}/remote/qr.svg` : null;
           agentBusy = j.agentBusy || null; // an agent may already be mid-run across a reload
           if (agentBusy) toast(`${agentBusy.agent} is editing the deck…`, 2000);
           const es = new EventSource(base + '/edit/events');

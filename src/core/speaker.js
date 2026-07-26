@@ -61,6 +61,15 @@ export function openSpeakerView(instance) {
   body { margin:0; background:#111; color:#eee; font:14px/1.5 -apple-system, system-ui, sans-serif;
          display:grid; grid-template-columns: 1.4fr 1fr; grid-template-rows:auto auto 1fr auto; gap:10px; padding:10px; height:100vh; box-sizing:border-box; }
   header { grid-column:1/3; display:flex; gap:16px; align-items:center; }
+  /* the phone-remote QR (#39): parked at the end of the header, out of the
+     way, and click-to-enlarge because a 72px code is hard to scan across a
+     lectern. Enlarging dims the room with a giant box-shadow rather than
+     adding a backdrop element. */
+  #qr { margin-left:auto; width:72px; height:72px; background:#fff; padding:3px;
+        border-radius:6px; cursor:zoom-in; image-rendering:pixelated; }
+  #qr.big { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+            width:min(70vw,70vh); height:min(70vw,70vh); z-index:10; cursor:zoom-out;
+            box-shadow:0 0 0 100vmax rgba(0,0,0,.8); }
   #timer { font-size:22px; font-variant-numeric:tabular-nums; }
   #pos { color:#999; }
   button { background:#333; color:#eee; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
@@ -90,6 +99,7 @@ export function openSpeakerView(instance) {
   <button id="prev">◀ prev</button>
   <button id="next">next ▶</button>
   <button id="mode" title="S toggles rehearse mode (cue cards instead of prose)">speak</button>
+  <img id="qr" alt="scan to use your phone as a remote" title="scan to use your phone as a remote — click to enlarge" hidden>
 </header>
 <div class="thumbs">
   <div class="thumb"><span class="tag">current</span><iframe id="cur"></iframe></div>
@@ -124,6 +134,7 @@ export function openSpeakerView(instance) {
     if (lastSt) render(lastSt);
   };
   $('#mode').onclick = window.__decklightSpeakerToggle;
+  $('#qr').onclick = () => $('#qr').classList.toggle('big');
   document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === ' ') api && api.next();
     if (e.key === 'ArrowLeft') api && api.prev();
@@ -150,6 +161,16 @@ export function openSpeakerView(instance) {
     // be out of view.
     const now = $('#notes .seg.now');
     if (now) now.scrollIntoView({ block: mode === 'rehearse' ? 'center' : 'nearest', behavior: 'smooth' });
+    // Only set src once: reassigning it every render would refetch the QR on
+    // every build step, and a flickering code is one nobody can scan.
+    const qr = $('#qr');
+    if (st.qr) {
+      if (qr.getAttribute('src') !== st.qr) qr.setAttribute('src', st.qr);
+      qr.hidden = false;
+    } else {
+      qr.hidden = true;
+      qr.classList.remove('big');
+    }
     $('#steps').innerHTML = st.labels.map((l, i) =>
       '<span class="step ' + (i === st.step - 1 ? 'now' : '') + '">' + (i + 1) + '. ' + l + '</span>').join('');
   }
@@ -184,5 +205,8 @@ export function speakerState(instance, url) {
     notesSegments: notesSegments(notesEl ? notesEl.innerHTML : ''),
     rehearseSegments: rehearseEl ? notesSegments(rehearseEl.innerHTML) : null,
     labels: instance._stepLabels(slide - 1),
+    // The phone-remote QR, or null when the remote is off (#39) — the engine
+    // sets it from /edit/ping, so a deck with no dev server never offers one.
+    qr: instance.__remoteQr ?? null,
   };
 }
