@@ -77,6 +77,24 @@ Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
 multi-beat notes with a bare \`⟨CLICK⟩\` line so narration and build steps
 stay in sync (§8 in the reference).
+
+**Commit your own changes when a dev server is running.** \`decklight dev\` /
+\`edit\` auto-commits the deck, but on a timer and under a generic \`autosave\`
+message — it cannot tell your edits from anyone else's, because it did not
+start you. When you finish one logical change, say so:
+
+\`\`\`sh
+curl -sf -X POST localhost:8788/edit/commit \\
+  -H 'content-type: application/json' \\
+  -d '{"message":"split the crowded video slides"}'
+\`\`\`
+
+One call per logical change, with a subject describing THAT change — not
+\"updated the deck\". It commits only the deck file, and does nothing when
+nothing changed, so an extra call is harmless. If the port is not listening
+there is no dev server: skip it silently and carry on, never start one
+yourself. This is what makes a history someone can read afterwards, instead
+of a wall of identical timer commits.
 `;
 }
 
@@ -97,6 +115,12 @@ This project contains a Decklight presentation (a single-file HTML deck —
 see \`${referenceHref}\` for the full authoring
 contract: builds, notes, SVG diagrams, themes, terminals, narration).
 Read that file before adding or editing slides.
+
+When a dev server is running (\`decklight dev\`), commit each logical change
+you finish rather than leaving it to the timer's generic \`autosave\`:
+\`curl -sf -X POST localhost:8788/edit/commit -H 'content-type: application/json'
+-d '{"message":"what this change did"}'\`. No server listening means no dev
+session — skip it and carry on.
 
 Hit a Decklight bug? Run \`npx decklight report-bug\` for the environment
 facts, then ask the user what happened, what they expected, and the smallest

@@ -294,6 +294,10 @@ export async function editMain(args) {
     return true;
   };
 
+  // Declared before the git block below, which reads it to hold the cadence
+  // back while a job is in flight.
+  let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
+
   // ── git autocommit — the durable record, independent of undo/redo ──────
   const noGit = args.includes('--no-git');
   const wantGit = args.includes('--git');
@@ -313,14 +317,17 @@ export async function editMain(args) {
     if (inGitRepo(root)) {
       gitOn = true;
       gitAutocommit(deckPath, root, `decklight: start editing ${basename(deckPath)}`);
-      // In agent mode the cadence must NOT also fire, or every agent edit gets
-      // committed twice — once with its own summary, once as `autosave`.
-      if (shouldCommit(gitMode, { kind: 'timer' })) {
-        setInterval(() => gitAutocommit(deckPath, root), commitEvery * 1000).unref();
-        console.log(`  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`);
-      } else {
-        console.log(`  git: committing ${deckRel} once per agent edit, with the agent's own message (and on Ctrl-C)`);
-      }
+      // The cadence is the backstop, and it runs in agent mode too: an agent
+      // job only ever sees edits IT made, so hand edits — and any agent driven
+      // from outside the A flow — would otherwise reach git only via the
+      // Ctrl-C bookend, which a crash skips. It is held back while a job is in
+      // flight so nothing commits a half-finished agent run.
+      setInterval(() => {
+        if (shouldCommit(gitMode, { kind: 'timer', agentBusy: !!agentJob })) gitAutocommit(deckPath, root);
+      }, commitEvery * 1000).unref();
+      console.log(gitMode === 'agent'
+        ? `  git: committing ${deckRel} once per agent edit with the agent's own message, every ${commitEvery}s otherwise (and on Ctrl-C)`
+        : `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`);
     }
   }
   const finalCommit = () => { if (gitOn) gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`); };
@@ -330,7 +337,6 @@ export async function editMain(args) {
   // ── AI agents — one-shot editing tasks from the player (A) ─────────────
   const agentPref = opt('--agent');
   const agents = detectAgents();
-  let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
   if (agents.length) console.log(`  agents: ${agents.map((a) => a.name).join(', ')} — “Ask agent” (A) is live`);
 
   // ── live reload: watch the deck, broadcast SSE (debounced — editors fire

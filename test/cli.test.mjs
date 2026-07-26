@@ -19,7 +19,7 @@ import { deckHistory, restoreDeck } from '../cli/restore.mjs';
 import * as restoreMod from '../cli/restore.mjs';
 import { packSkill } from '../cli/skills.mjs';
 import { zipSync, crc32 } from '../cli/zip.mjs';
-import { claudeSkillMd, referenceDoc, reportBugSkillMd } from '../cli/skill-content.mjs';
+import { claudeSkillMd, referenceDoc, reportBugSkillMd, agentsSection } from '../cli/skill-content.mjs';
 import { probe, environmentBlock, issuesUrl } from '../cli/report-bug.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
@@ -1117,4 +1117,38 @@ test('the AGENTS.md section points its readers at the bug flow too, idempotently
   const second = fs.readFileSync(agents, 'utf8');
   assert.equal(second, first);
   assert.equal(second.split('## Decklight decks').length - 1, 1, 'exactly one section');
+});
+
+test('the skill tells agents to commit their own logical changes', () => {
+  const md = claudeSkillMd();
+  assert.match(md, /POST localhost:8788\/edit\/commit/);
+  assert.match(md, /One call per logical change/);
+  // it must be honest about WHY the server cannot do this for them
+  assert.match(md, /it did not\s*\n?start you/);
+  // and must not have agents starting servers or failing when none is up
+  assert.match(md, /skip it silently/);
+  assert.match(md, /never start one\s*\n?yourself/);
+});
+
+test('the AGENTS.md section carries the same instruction for agents that read it', () => {
+  assert.match(agentsSection(), /\/edit\/commit/);
+  assert.match(agentsSection(), /No server listening means no dev/);
+});
+
+test('init states the commit policy when it creates a repository', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitmode-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const res = spawnSync(process.execPath, [CLI, 'init', 'My Deck', '--git', '--no-skill'],
+    { cwd: dir, encoding: 'utf8' });
+  assert.equal(res.status ?? 0, 0, res.stderr);
+  assert.match(res.stdout, /commits land one per agent edit/);
+  assert.match(res.stdout, /--git-mode timer/, 'names the way out');
+
+  // and says nothing about it when it did not create a repo
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitmode-'));
+  t.after(() => fs.rmSync(plain, { recursive: true, force: true }));
+  const noGit = spawnSync(process.execPath, [CLI, 'init', 'My Deck', '--no-git', '--no-skill'],
+    { cwd: plain, encoding: 'utf8' });
+  assert.doesNotMatch(noGit.stdout, /commits land one per agent edit/);
 });
