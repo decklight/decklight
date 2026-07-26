@@ -18,6 +18,7 @@ import { createCharacter, concatTimelines } from './character.js';
 import { buildPrintPages } from './print.js';
 import { createAnnotator } from './annotate.js';
 import { setupMedia } from './media.js';
+import { needsDevMode } from './devmode.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -1249,7 +1250,7 @@ export function init(userConfig = {}) {
   }
   function cycleLayout(dir) {
     if (!editAvailable) {
-      toast('layout is a deck edit — it needs dev mode: decklight dev <deck.html>', 2600);
+      toast(needsDevMode('layout', location), 3200);
       return;
     }
     const idx = instance.state.slide;
@@ -2708,7 +2709,7 @@ export function init(userConfig = {}) {
   // then reloads every browser (the hash keeps the position).
   async function deckHistory(dir) {
     if (!editAvailable) {
-      toast(`${dir} needs dev mode — run: decklight dev <deck.html>`, 2600);
+      toast(needsDevMode(dir, location), 3200);
       return;
     }
     try {
@@ -2729,7 +2730,7 @@ export function init(userConfig = {}) {
   function toggleAgentAsk() {
     if (agentEl) { agentEl.remove(); agentEl = null; return; }
     if (!editAvailable) {
-      toast('asking an agent needs dev mode — run: decklight dev <deck.html>', 2600);
+      toast(needsDevMode('asking an agent', location), 3200);
       return;
     }
     if (!editAgents.length) {
@@ -2806,7 +2807,7 @@ export function init(userConfig = {}) {
     if (editEl) { editEl.remove(); editEl = null; return; }
     const sl = instance.state.slide;
     if (!editAvailable) {
-      toast('edit mode needs the server — run: decklight edit <deck.html>', 2200);
+      toast(needsDevMode('editing notes', location), 3200);
       return;
     }
     if (instance._sections[sl - 1]?.hasAttribute('data-was-markdown')) {
