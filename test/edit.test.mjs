@@ -601,3 +601,77 @@ test('an agent can mark its own commit boundary, and cannot when git is off', as
   assert.equal(body.subject, 'split the crowded slides');
   assert.match(git(['log', '-1', '--format=%s'], repo), /split the crowded slides/);
 });
+
+// ── the restore overlay's server side (#129) ───────────────────────────────
+
+const gitRepoWithDeck = (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  git(['init', '-q', '.'], dir);
+  git(['config', 'user.email', 't@example.com'], dir);
+  git(['config', 'user.name', 'Test'], dir);
+  git(['add', '-A'], dir);
+  git(['commit', '-qm', 'first version'], dir);
+  writeFileSync(path.join(dir, 'deck.html'), DECK.replace('Alpha', 'Second'));
+  git(['commit', '-qam', 'second version'], dir);
+  return dir;
+};
+
+test('/edit/history lists the deck history, newest first', async (t) => {
+  const dir = gitRepoWithDeck(t);
+  const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
+
+  const j = await (await fetch(base + '/edit/history')).json();
+  assert.equal(j.ok, true);
+  assert.ok(j.entries.length >= 2);
+  assert.equal(j.entries[0].subject, 'second version');
+  assert.match(j.entries[0].hash, /^[0-9a-f]{7,}$/);
+  assert.ok(j.entries[0].when, 'a human-readable age');
+});
+
+test('/edit/at previews a version — with a base href so its assets resolve', async (t) => {
+  const dir = gitRepoWithDeck(t);
+  const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
+
+  const { entries } = await (await fetch(base + '/edit/history')).json();
+  const oldest = entries[entries.length - 1].hash;
+
+  const res = await fetch(`${base}/edit/at?ref=${oldest}`);
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /Alpha/, 'the OLD content, not the current file');
+  assert.doesNotMatch(html, /Second/);
+  // served from /edit/, so relative ../dist paths need a root base to resolve
+  assert.match(html, /<base href="\/">/);
+
+  assert.equal((await fetch(base + '/edit/at?ref=nosuchref')).status, 404);
+});
+
+test('/edit/restore rides on top and lands on the undo stack', async (t) => {
+  const dir = gitRepoWithDeck(t);
+  const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
+
+  const { entries } = await (await fetch(base + '/edit/history')).json();
+  const oldest = entries[entries.length - 1].hash;
+  const before = git(['log', '--oneline'], dir).split('\n').length;
+
+  const j = await (await post(base, '/edit/restore', { ref: oldest })).json();
+  assert.equal(j.ok, true);
+  assert.equal(j.changed, true);
+  assert.match(readFileSync(path.join(dir, 'deck.html'), 'utf8'), /Alpha/);
+  assert.equal(git(['log', '--oneline'], dir).split('\n').length, before + 1, 'a new commit, not a rewrite');
+  assert.ok(j.undo >= 1, 'Z can take the restore back');
+
+  assert.equal((await post(base, '/edit/restore', { ref: 'nosuchref' })).status, 400);
+  assert.equal((await post(base, '/edit/restore', {})).status, 400);
+});
+
+test('the history endpoints refuse when git is off, rather than pretending', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir }, extraArgs: ['--no-git'] });
+
+  assert.equal((await fetch(base + '/edit/history')).status, 409);
+  assert.equal((await fetch(base + '/edit/at?ref=HEAD')).status, 409);
+  assert.equal((await post(base, '/edit/restore', { ref: 'HEAD' })).status, 409);
+});
