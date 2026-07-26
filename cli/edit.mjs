@@ -364,6 +364,15 @@ export async function editMain(args) {
   function runAgent(prompt, name, message) {
     const cmd = agentCommand(name || agentPref, prompt, deckRel);
     if (!cmd) return null;
+    // Anything uncommitted at this moment is the PLAYER's work, not the
+    // agent's. Sweeping it into its own commit first is what keeps the agent's
+    // commit honest: otherwise a hand edit made just before pressing A lands
+    // under the agent's message, and a history that misattributes authorship is
+    // worse than one that only says "autosave".
+    if (gitOn && shouldCommit(gitMode, { kind: 'bookend' })
+        && gitAutocommit(deckPath, root, `decklight: save before ${cmd.name} edits ${basename(deckPath)}`)) {
+      console.log('  git: committed your outstanding changes first');
+    }
     const before = readDeck();
     agentJob = { agent: cmd.name, label: cmd.label, prompt, startedAt: Date.now() };
     broadcast('agent', { state: 'start', ...agentJob });
