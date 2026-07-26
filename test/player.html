@@ -190,6 +190,29 @@
       const slideText = document.querySelector('#t-slide .terminal-lines').innerText;
       results.leaveStopsTyping = !slideText.includes('hello decklight');
 
+      // --- pause and restart silence what is booked, exactly like leaving ----
+      // Both used to bump the epoch by hand: that stops the NEXT keystroke being
+      // scheduled, but the clicks already on the audio clock ring on over a
+      // terminal nobody is watching (#110). Both go through stop() now.
+      //
+      // `some` rather than `every`: sounds booked at the very start of the
+      // window have reached their natural end before the pause lands, and a
+      // cancel later than a sound that already finished is not a failure. What
+      // the old code could never produce is even ONE early cancel.
+      for (const [what, act] of [['pause', 'terminal-play'], ['restart', 'terminal-restart']]) {
+        const el = document.querySelector('#t-play');
+        const play = el.querySelector('.terminal-play');
+        const mark2 = scheduled.length;
+        play.click();                       // start playing
+        await sleep(120);                   // let a few keystrokes book sounds
+        const booked = scheduled.slice(mark2);
+        el.querySelector(`.${act}`).click(); // pause / restart, while they pend
+        await sleep(30);
+        results[`${what}SchedulesSound`] = booked.length > 0;
+        results[`${what}SilencesSound`] = booked.some((n) =>
+          n.stops && n.stops.length >= 2 && n.stops[n.stops.length - 1] < n.stops[0]);
+      }
+
       results.PASS = Object.entries(results).every(([k, v]) => k === 'PASS' || v === true ||
         (k === 'providerCount' && v === 3) || (k === 'featProviderCount' && v === 2) ||
         (k === 'importProviderCount' && v === 2) ||

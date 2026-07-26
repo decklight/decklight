@@ -401,15 +401,22 @@
     document.querySelector('.egg-trigger').addEventListener('click', () => egg.classList.toggle('open'));
     if (location.hash === '#creamy') egg.classList.add('open');
 
-    // activate the standalone terminal, then auto-play it on first scroll-into-view
+    // Activate the standalone terminals and keep each one's playback tied to
+    // whether it is actually on screen. The observer stays connected — it used
+    // to disconnect after the first auto-play, so a terminal scrolled past
+    // mid-sentence kept typing (and clicking) at nobody.
+    //
+    // Visibility drives the play BUTTON rather than the controller directly, so
+    // pausing here goes through exactly the path a human click takes and picks
+    // up its audio handling for free.
     Decklight.initTerminals().then(() => {
       document.querySelectorAll('.terminal').forEach((term) => {
         const btn = term.querySelector('.terminal-play');
         if (!btn) return;
-        new IntersectionObserver((entries, obs) => {
-          if (!entries[0].isIntersecting) return;
-          obs.disconnect();
-          btn.click();
+        const isPlaying = () => btn.textContent.trim() === '⏸';
+        new IntersectionObserver((entries) => {
+          const visible = entries[0].isIntersecting;
+          if (visible !== isPlaying()) btn.click();
         }, { threshold: 0.5 }).observe(term);
       });
     });
