@@ -12,7 +12,7 @@ import { initMarkdown } from '../md/markdown.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
-import { closeOnBackdrop, selectInList } from './overlay.js';
+import { closeOnBackdrop, selectInList, createOverlays } from './overlay.js';
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { createCharacter, concatTimelines } from './character.js';
 import { buildPrintPages } from './print.js';
@@ -247,6 +247,10 @@ export function init(userConfig = {}) {
 
   const root = document.querySelector('.decklight');
   if (!root) throw new Error('Decklight: no .decklight element found');
+
+  // Which dialog owns the keyboard right now. Filled in below the features, in
+  // priority order; consulted by onKey before the deck's own shortcuts.
+  const overlays = createOverlays();
 
   // ----- playlist (multi-deck navigation) ------------------------------------
   // config.playlist = { modules: [{title, href}…], index: n }. Advancing past
@@ -1876,6 +1880,166 @@ export function init(userConfig = {}) {
   }
 
   // ----- input -------------------------------------------------------------
+  // Every overlay's keyboard, in one readable priority list. Each entry says
+  // when it is up, how to dismiss it, and what it does with a key — `true` for
+  // "consumed" (the deck calls preventDefault), `false` for "dropped". Either
+  // way the key never reaches the deck's own shortcuts below: an overlay that
+  // is up owns the keyboard.
+  //
+  // ORDER IS PRIORITY. It is the order the one long if-chain used to have, and
+  // it only matters if two overlays are somehow up at once.
+  overlays.register({
+    isOpen: () => !!pickerEl,
+    close: closeThemePicker,
+    keydown(e) {
+      switch (e.key) {
+        case 'ArrowDown': selectPickerRow(pickerSel + 1, false); break;
+        case 'ArrowUp': selectPickerRow(pickerSel - 1, false); break;
+        case 'Enter': commitPicker(); break;
+        case 'Backspace': setPickerFilter(pickerFilter.slice(0, -1)); break;
+        case 'Escape':
+          if (pickerFilter) setPickerFilter('');
+          else if (PACKS && pickerView !== 'packs') setPickerView('packs');
+          else closeThemePicker();
+          break;
+        default:
+          // quick filter: printable keys type into it — which is why there
+          // are no letter shortcuts in here (⌃T re-rolls, Esc closes)
+          if (e.key.length === 1 && /[a-z0-9-]/i.test(e.key)) { setPickerFilter(pickerFilter + e.key); break; }
+          return false;
+      }
+      return true;
+    },
+  });
+  overlays.register({
+    isOpen: () => !!palEl,
+    close: closePalette,
+    keydown(e) {
+      switch (e.key) {
+        case 'ArrowDown': selectPalRow(palSel + 1); break;
+        case 'ArrowUp': selectPalRow(palSel - 1); break;
+        case 'Enter': commitPalRow(); break;
+        case 'Backspace': palQuery = palQuery.slice(0, -1); renderPalette(); break;
+        case 'Escape': if (palQuery) { palQuery = ''; renderPalette(); } else closePalette(); break;
+        default:
+          if (e.key.length === 1) { palQuery += e.key; renderPalette(); break; }
+          return false;
+      }
+      return true;
+    },
+  });
+  overlays.register({
+    isOpen: () => !!fontPickEl,
+    close: closeFontPicker,
+    keydown(e) {
+      switch (e.key) {
+        case 'ArrowDown': selectFontRow(fontPickSel + 1); break;
+        case 'ArrowUp': selectFontRow(fontPickSel - 1); break;
+        case 'Enter': applyFont(fontPickSel); closeFontPicker(); break;
+        case 'Escape': closeFontPicker(); break;
+        default: return false;
+      }
+      return true;
+    },
+  });
+  // a reading surface — it traps navigation while it is up
+  overlays.register({
+    isOpen: () => !!transcriptEl,
+    close: toggleTranscript,
+    keydown: (e) => e.key === 'Escape' && (toggleTranscript(), true),
+  });
+  // typing surfaces — the textarea handles its own keys
+  overlays.register({
+    isOpen: () => !!editEl,
+    close: toggleEditor,
+    keydown: (e) => e.key === 'Escape' && (toggleEditor(), true),
+  });
+  overlays.register({
+    isOpen: () => !!agentEl,
+    close: toggleAgentAsk,
+    keydown: (e) => e.key === 'Escape' && (toggleAgentAsk(), true),
+  });
+  overlays.register({
+    isOpen: () => !!recEl,
+    close: closeRecordDialog,
+    keydown(e) {
+      if (e.key === 'Escape') closeRecordDialog();
+      else if (e.key === 'Enter') {
+        if (recView === 'confirm') startRecording();
+        else if (recView !== 'progress') closeRecordDialog();
+      } else return false;
+      return true;
+    },
+  });
+  overlays.register({
+    isOpen: () => !!narrEl,
+    close: closeNarrPicker,
+    keydown(e) {
+      if (narrView === 'custom') {
+        // everything else types into the input
+        if (e.key === 'Enter') { commitCustomTone(); return true; }
+        if (e.key === 'Escape') { narrBack(); return true; }
+        return false;
+      }
+      switch (e.key) {
+        case 'ArrowDown': selectNarrRow(narrSel + 1); break;
+        case 'ArrowUp': selectNarrRow(narrSel - 1); break;
+        case 'Enter': commitNarrRow(); break;
+        case 'Escape': narrBack(); break;
+        case 'n': case 'N': closeNarrPicker(); break;
+        default: return false;
+      }
+      return true;
+    },
+  });
+  overlays.register({
+    isOpen: () => !!finderEl,
+    close: closeSlideFinder,
+    keydown(e) {
+      switch (e.key) {
+        case 'ArrowDown': selectFinderRow(finderSel + 1, false); break;
+        case 'ArrowUp': selectFinderRow(finderSel - 1, false); break;
+        case 'Enter': commitFinder(); break;
+        case 'Backspace': setFinderQuery(finderQuery.slice(0, -1)); break;
+        case 'Escape': if (finderQuery) setFinderQuery(''); else closeSlideFinder(); break;
+        default:
+          if (e.key.length === 1) { setFinderQuery(finderQuery + e.key); break; }
+          return false;
+      }
+      return true;
+    },
+  });
+  overlays.register({
+    isOpen: () => !!restoreEl,
+    close: closeRestore,
+    keydown(e) {
+      switch (e.key) {
+        case 'ArrowDown': selectRestoreRow(restoreSel + 1, false); break;
+        case 'ArrowUp': selectRestoreRow(restoreSel - 1, false); break;
+        case 'Enter': commitRestore(); break;
+        case 'Escape': closeRestore(); break;
+        default: return false;
+      }
+      return true;
+    },
+  });
+  overlays.register({
+    isOpen: () => !!overviewEl,
+    close: toggleOverview,
+    keydown(e) {
+      switch (e.key) {
+        case 'ArrowRight': ovSelect(ovSel + 1); break;
+        case 'ArrowLeft': ovSelect(ovSel - 1); break;
+        case 'ArrowDown': ovSelect(ovSel + ovColumns()); break;
+        case 'ArrowUp': ovSelect(ovSel - ovColumns()); break;
+        case 'Enter': case ' ': ovCommit(); break;
+        case 'o': case 'O': case 'Escape': toggleOverview(); break;
+        default: return false;
+      }
+      return true;
+    },
+  });
+
   // The messages key: physically the one left of "1". `code` is the layout-
   // independent name for that position; the `key` fallbacks cover browsers or
   // remappings that report no code (` and ~ on US/UK, ² on AZERTY).
@@ -1910,125 +2074,12 @@ export function init(userConfig = {}) {
       return;
     }
     if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (pickerEl) {
-      switch (e.key) {
-        case 'ArrowDown': selectPickerRow(pickerSel + 1, false); break;
-        case 'ArrowUp': selectPickerRow(pickerSel - 1, false); break;
-        case 'Enter': commitPicker(); break;
-        case 'Backspace': setPickerFilter(pickerFilter.slice(0, -1)); break;
-        case 'Escape':
-          if (pickerFilter) setPickerFilter('');
-          else if (PACKS && pickerView !== 'packs') setPickerView('packs');
-          else closeThemePicker();
-          break;
-        default:
-          // quick filter: printable keys type into it — which is why there
-          // are no letter shortcuts in here (⌃T re-rolls, Esc closes)
-          if (e.key.length === 1 && /[a-z0-9-]/i.test(e.key)) { setPickerFilter(pickerFilter + e.key); break; }
-          return;
-      }
-      e.preventDefault();
-      return;
-    }
-    if (palEl) {
-      switch (e.key) {
-        case 'ArrowDown': selectPalRow(palSel + 1); break;
-        case 'ArrowUp': selectPalRow(palSel - 1); break;
-        case 'Enter': commitPalRow(); break;
-        case 'Backspace': palQuery = palQuery.slice(0, -1); renderPalette(); break;
-        case 'Escape': if (palQuery) { palQuery = ''; renderPalette(); } else closePalette(); break;
-        default:
-          if (e.key.length === 1) { palQuery += e.key; renderPalette(); break; }
-          return;
-      }
-      e.preventDefault();
-      return;
-    }
-    if (fontPickEl) {
-      switch (e.key) {
-        case 'ArrowDown': selectFontRow(fontPickSel + 1); break;
-        case 'ArrowUp': selectFontRow(fontPickSel - 1); break;
-        case 'Enter': applyFont(fontPickSel); closeFontPicker(); break;
-        case 'Escape': closeFontPicker(); break;
-        default: return;
-      }
-      e.preventDefault();
-      return;
-    }
-    if (transcriptEl) {
-      if (e.key === 'Escape') { toggleTranscript(); e.preventDefault(); }
-      return; // a reading surface — trap navigation while it's up
-    }
-    if (editEl) {
-      if (e.key === 'Escape') { toggleEditor(); e.preventDefault(); }
-      return; // typing surface — the textarea handles its own keys
-    }
-    if (agentEl) {
-      if (e.key === 'Escape') { toggleAgentAsk(); e.preventDefault(); }
-      return; // typing surface — the textarea handles its own keys
-    }
-    if (recEl) {
-      if (e.key === 'Escape') closeRecordDialog();
-      else if (e.key === 'Enter') {
-        if (recView === 'confirm') startRecording();
-        else if (recView !== 'progress') closeRecordDialog();
-      } else return;
-      e.preventDefault();
-      return;
-    }
-    if (narrEl) {
-      if (narrView === 'custom') {
-        if (e.key === 'Enter') { commitCustomTone(); e.preventDefault(); }
-        else if (e.key === 'Escape') { narrBack(); e.preventDefault(); }
-        return; // everything else types into the input
-      }
-      switch (e.key) {
-        case 'ArrowDown': selectNarrRow(narrSel + 1); break;
-        case 'ArrowUp': selectNarrRow(narrSel - 1); break;
-        case 'Enter': commitNarrRow(); break;
-        case 'Escape': narrBack(); break;
-        case 'n': case 'N': closeNarrPicker(); break;
-        default: return;
-      }
-      e.preventDefault();
-      return;
-    }
-    if (finderEl) {
-      switch (e.key) {
-        case 'ArrowDown': selectFinderRow(finderSel + 1, false); break;
-        case 'ArrowUp': selectFinderRow(finderSel - 1, false); break;
-        case 'Enter': commitFinder(); break;
-        case 'Backspace': setFinderQuery(finderQuery.slice(0, -1)); break;
-        case 'Escape': if (finderQuery) setFinderQuery(''); else closeSlideFinder(); break;
-        default:
-          if (e.key.length === 1) { setFinderQuery(finderQuery + e.key); break; }
-          return;
-      }
-      e.preventDefault();
-      return;
-    }
-    if (restoreEl) {
-      switch (e.key) {
-        case 'ArrowDown': selectRestoreRow(restoreSel + 1, false); break;
-        case 'ArrowUp': selectRestoreRow(restoreSel - 1, false); break;
-        case 'Enter': commitRestore(); break;
-        case 'Escape': closeRestore(); break;
-        default: return;
-      }
-      e.preventDefault();
-      return;
-    }
-    if (overviewEl) {
-      switch (e.key) {
-        case 'ArrowRight': ovSelect(ovSel + 1); break;
-        case 'ArrowLeft': ovSelect(ovSel - 1); break;
-        case 'ArrowDown': ovSelect(ovSel + ovColumns()); break;
-        case 'ArrowUp': ovSelect(ovSel - ovColumns()); break;
-        case 'Enter': case ' ': ovCommit(); break;
-        case 'o': case 'O': case 'Escape': toggleOverview(); break;
-        default: return;
-      }
-      e.preventDefault();
+    // An overlay that is up owns the keyboard — whether or not it wants this
+    // particular key. Registration order (see `overlays.register` calls) is the
+    // priority order the long if-chain here used to encode.
+    const top = overlays.active();
+    if (top) {
+      if (top.keydown(e)) e.preventDefault();
       return;
     }
     // positional, so it cannot be a `case` in a switch over e.key
