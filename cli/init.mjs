@@ -8,7 +8,7 @@
  * without a web search or a guess from Reveal.js memory.
  *
  *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …]
- *                  [--git | --no-git] [--open] [--force]
+ *                  [--git | --no-git] [--open] [--force] [--no-edit]
  *                  [--no-skill | --global-skill]
  *
  * Run bare in a terminal it asks one question — the deck's title — with
@@ -32,7 +32,7 @@
  * offers `git init` (the same question `decklight dev` asks, at the natural
  * moment — the repo starts with the shared starter .gitignore), prints an
  * accent-colored epilogue — the deck's file:// URL and the `decklight dev`
- * line — and on a TTY offers to hand off to dev right away. `--open` launches
+ * line — and on a TTY hands off to dev right away unless --no-edit. `--open` launches
  * the deck in the default browser (the file IS the presentation).
  */
 
@@ -284,7 +284,7 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …]
-                 [--git | --no-git] [--open] [--force]
+                 [--git | --no-git] [--open] [--force] [--no-edit]
                  [--no-skill | --global-skill]
 
 Options:
@@ -301,6 +301,9 @@ Options:
   --open          open the scaffolded deck in your default browser
                   (the deck is self-contained — the file is the presentation)
   --force         overwrite an existing deck file (default: refuses)
+  --no-edit       do not hand off to decklight dev when init finishes
+                  (a terminal run starts editing by default; a non-TTY run
+                  never does)
   --no-skill      skip the agent skill entirely (project and global), and the
                   where-should-it-go question with it
   --global-skill  install the agent skill globally — into each PATH-detected
@@ -334,6 +337,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--open') openAfter = true;
     else if (a === '--no-skill' || a === '--global-skill') ; // consumed by planSkill below
     else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
+    else if (a === '--no-edit') ; // consumed by the handoff at the end
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
@@ -469,7 +473,12 @@ unless --no-skill is given. The deck file is only touched with --force.
   if (openAfter) await openDeck(deckPath);
 
   // ── the handoff — the served URL is the genuine click-to-edit link ───────
-  const editNow = tty && await askYes('start editing now? [Y/n] ');
+  // Not a question. Every other prompt configures something init cannot infer;
+  // this one asked permission to do the obvious next thing, and the answer was
+  // yes. --no-edit opts out, and the epilogue above has already printed the
+  // command for anyone who wants to run it themselves later. A non-TTY still
+  // never hands off: spawning a server nobody is watching is not a default.
+  const editNow = tty && !argv.includes('--no-edit');
   rl?.close();
   if (editNow) {
     const child = spawn(process.execPath,

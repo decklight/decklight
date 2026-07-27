@@ -7,7 +7,7 @@
 // Nothing changes in the browser, so the shot is the CLI transcript surface
 // itself (the #38 approach): run a REAL `decklight init` twice — once under a
 // pty (util-linux script(1)), answering Y to the git question and Y to
-// "start editing now?", Ctrl-C once the handed-off edit server is up; once
+// the git question, Ctrl-C once the automatic handoff's edit server is up; once
 // piped, proving the same run is plain text — then render both captured
 // transcripts as terminal windows and screenshot them with tools/shot.mjs.
 //
@@ -50,7 +50,6 @@ const ttyRun = await new Promise((resolve, reject) => {
   child.stdout.on('data', (chunk) => {
     out += chunk;
     answer('git', /create a git repository .*\[Y\/n\]/, 'y\n');
-    answer('edit', /start editing now\? \[Y\/n\]/, 'y\n');
     // the handoff is up — that's the evidence; Ctrl-C stops it
     answer('int', /decklight edit on http:\/\//, '\x03');
   });

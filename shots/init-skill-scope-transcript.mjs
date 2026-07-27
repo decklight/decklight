@@ -45,7 +45,9 @@ function run(title, dir, skillAnswer) {
   fs.mkdirSync(dir, { recursive: true });
   return new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/script',
-      ['-qec', `"${process.execPath}" "${CLI}" init "${title}"`, '/dev/null'],
+      // --no-edit: this transcript is about the skill-scope question, and init
+      // now hands off to the dev server unless told not to
+      ['-qec', `"${process.execPath}" "${CLI}" init "${title}" --no-edit`, '/dev/null'],
       { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
     const done = {};
@@ -60,7 +62,6 @@ function run(title, dir, skillAnswer) {
       out += chunk;
       answer('skill', /where should the skill go\? \[P\/g\]/, skillAnswer);
       answer('git', /create a git repository .*\[Y\/n\]/, 'n\n');
-      answer('edit', /start editing now\? \[Y\/n\]/, 'n\n');
     });
     child.stderr.on('data', (c) => { out += c; });
     const kill = setTimeout(() => child.kill('SIGKILL'), 30_000);
