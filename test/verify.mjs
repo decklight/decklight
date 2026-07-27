@@ -29,6 +29,7 @@ const HARNESSES = [
   'character-render',
   'engine-render',
   'pin-render',
+  'split-render',
   'pdf-render',
   'import-render',
   'contrast',

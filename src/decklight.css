@@ -48,14 +48,6 @@
 }
 
 /* ---------- slides -------------------------------------------------------- */
-/* `safe center`, not `center`, wherever a slide centers its own content.
-   Plain centering overflows SYMMETRICALLY: content taller than the box sends
-   half the excess out the TOP, straight through the padding that [data-pinned]
-   reserves for the pinned title, and lands on top of it — measured at 85px of
-   overlap for a two-line subtitle, with the title and the first heading on one
-   baseline (#68). `safe` falls back to start alignment exactly when the box
-   overflows, so the excess goes out the bottom, where `overflow: hidden` clips
-   it visibly and where scrollHeight can count all of it rather than half. */
 /* Pre-init FOUC guard: before init() creates .decklight-stage and moves the
    sections into it, they sit as direct children of .decklight and would paint
    stacked in document flow (a raw-content flash on every load — worst in the
@@ -65,6 +57,14 @@
    too). The root keeps painting the themed --bg, so boot is a clean canvas. */
 .decklight > section { display: none; }
 
+/* `safe center`, not `center`, wherever a slide centers its own content.
+   Plain centering overflows SYMMETRICALLY: content taller than the box sends
+   half the excess out the TOP, straight through the padding that [data-pinned]
+   reserves for the pinned title, and lands on top of it — measured at 85px of
+   overlap for a two-line subtitle, with the title and the first heading on one
+   baseline (#68). `safe` falls back to start alignment exactly when the box
+   overflows, so the excess goes out the bottom, where `overflow: hidden` clips
+   it visibly and where scrollHeight can count all of it rather than half. */
 .decklight-stage > section {
   position: absolute;
   inset: 0;
@@ -115,15 +115,22 @@
    'pinned' and 'centered' resolve in the engine (pin vs in-flow); 'top' also
    anchors the flow to the top of the slide instead of centering it. The
    split pair turns the section into a wrapping flex row: the header (title +
-   subtitle, or the pinned block) spans the full width, content blocks become
-   ~half-width sides — first left, rest right; 'split-flip' mirrors. A lone
-   list gets .split-columns from the engine and splits across two columns. */
+   subtitle, or the pinned block) spans the full width, the first two content
+   blocks become ~half-width sides sharing a top edge — first left, second
+   right; 'split-flip' mirrors. A third block is a full-width footer under
+   both. A lone list gets .split-columns and splits across two columns. */
 .decklight-stage > section[data-layout="top"] { justify-content: flex-start; }
 
 .decklight-stage > section[data-layout|="split"] {
   flex-direction: row;
   flex-wrap: wrap;
-  align-items: safe center;       /* see the section rule (#68) */
+  /* stretch, not centre: two comparison columns must share a top edge, or the
+     shorter one's heading floats down the slide and the pair stops reading as
+     a pair. Stretching makes them equal height and their own content flows
+     from the top, which is what authors were hand-rolling flex shells to get.
+     align-content stays `safe` for the #68 reason — a line taller than the box
+     would otherwise ride up over the pinned title. */
+  align-items: stretch;
   align-content: safe center;
   column-gap: 4%;
 }
@@ -147,6 +154,19 @@
   column-gap: 2em;
 }
 .decklight-stage > section[data-layout|="split"] > .split-columns > li { break-inside: avoid; }
+
+/* A third content block is a FOOTER, not a third column (SPEC §8): the note
+   under a comparison applies to both sides, so it spans them and centres
+   rather than hanging under whichever column it happened to follow. The engine
+   marks it; blocks past the second all land here. */
+.decklight-stage > section[data-layout|="split"] > .split-footer,
+.decklight-overview-grid .ov-clone[data-layout|="split"] > .split-footer {
+  flex: 0 0 100%;
+  max-width: none;
+  text-align: center;
+  align-self: center;
+  margin-top: 0.5em;
+}
 
 /* ---------- background media (SPEC §1) -------------------------------------
    The engine injects .slide-bg (setupMedia) as a section's first child when
@@ -198,6 +218,9 @@
 .decklight-stage > section[data-layout|="split"] img:not(.full-bleed) {
   max-height: 480px;
   object-fit: contain;
+  /* the columns stretch; a replaced element should not — it would letterbox
+     inside a box taller than the picture */
+  align-self: center;
 }
 
 /* ---------- subtitle (SPEC §1) ---------------------------------------------
@@ -878,7 +901,13 @@
 .decklight-overview-grid .ov-clone[data-layout|="split"] {
   flex-direction: row;
   flex-wrap: wrap;
-  align-items: safe center;       /* see the section rule (#68) */
+  /* stretch, not centre: two comparison columns must share a top edge, or the
+     shorter one's heading floats down the slide and the pair stops reading as
+     a pair. Stretching makes them equal height and their own content flows
+     from the top, which is what authors were hand-rolling flex shells to get.
+     align-content stays `safe` for the #68 reason — a line taller than the box
+     would otherwise ride up over the pinned title. */
+  align-items: stretch;
   align-content: safe center;
   column-gap: 4%;
 }
