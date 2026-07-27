@@ -39,8 +39,11 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
 import { createSynth as createElevenLabs, apiKey as elevenLabsKey, DEFAULT_MODEL as ELEVENLABS_MODEL } from './elevenlabs-tts.mjs';
+import { detectLocalVoice, sayArgs, sapiArgs } from './local-voice.mjs';
 
-export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs'];
+export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs', 'say', 'sapi'];
+/** The two engines that are already on the machine — nothing to install. */
+export const NATIVE_ENGINES = ['say', 'sapi'];
 
 // Piper's defaults, shared with the setup wizard (tools/tts-setup.mjs) so the
 // model it checks for is the model createPiper will load.
@@ -255,6 +258,41 @@ function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
  * roster for the cloud engines, and for piper the single installed model —
  * offering 30 Gemini names it cannot speak would just be a lie.
  */
+
+/**
+ * The voice the operating system already has.
+ *
+ * macOS `say` and Windows SAPI are one implementation with two spellings: both
+ * are "hand a line of text and a file path to a program, get a WAV back". No
+ * credentials, no download, no resident process — a fresh child per sentence,
+ * which is affordable because neither loads a 120 MB model to start.
+ *
+ * Neither takes a delivery instruction, so both are `stylable: false` and the
+ * picker skips the tone step, exactly as it does for piper and ElevenLabs.
+ */
+function createNative({ kind, voice, shell = 'powershell.exe' }) {
+  const bin = kind === 'say' ? 'say' : shell;
+  const build = kind === 'say' ? sayArgs : sapiArgs;
+  return async (text) => {
+    // one line: `say` treats newlines as pauses and PowerShell quoting gets
+    // harder the moment a string spans lines
+    const line = String(text).replace(/\s+/g, ' ').trim();
+    if (!line) throw new Error('nothing to say');
+    const dir = mkdtempSync(join(tmpdir(), 'decklight-native-'));
+    const file = join(dir, 'out.wav');
+    try {
+      execFileSync(bin, build(line, voice, file), { stdio: ['ignore', 'ignore', 'pipe'] });
+      const wav = readFileSync(file);
+      if (!wav.length) throw new Error(`${kind} produced no audio`);
+      return wav;
+    } catch (e) {
+      throw new Error(`${kind}: ${String(e.stderr ?? e.message).trim().split('\n')[0] || 'synthesis failed'}`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+}
+
 export function createEngine({ engine = 'gemini', project, model, location, voice, dataDir, lang, format, env = process.env } = {}) {
   if (!ENGINES.includes(engine)) throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')}`);
 
@@ -267,6 +305,17 @@ export function createEngine({ engine = 'gemini', project, model, location, voic
       cost: 'free · offline',
       voices: [[m, 'local']],
       synth: createPiper({ voice: m, dataDir }),
+    };
+  }
+  if (engine === 'say' || engine === 'sapi') {
+    const detected = detectLocalVoice({ lang });
+    const pick = voice ?? detected.voices?.[0]?.name;
+    if (!pick) throw new Error(detected.why ?? `no ${engine} voices on this machine`);
+    return {
+      name: engine, model: pick, needsProject: false, stylable: false,
+      cost: 'free · offline · already on this machine',
+      voices: (detected.voices ?? []).map((v) => [v.name, v.locale || 'system']),
+      synth: createNative({ kind: engine, voice: pick, shell: detected.shell }),
     };
   }
   if (engine === 'elevenlabs') {
