@@ -70,8 +70,25 @@ with a build and notes already wired):
 - \`decklight edit deck.html\` — serve with live reload; **E** in the browser edits speaker notes back into the file
 - \`decklight rec script.term.yaml\` — record a truthful terminal cast in a real PTY, for \`<div class="terminal">\`
 - \`decklight bundle deck.html --themes all\` — flatten into one self-contained file to hand off or publish
+- \`decklight pdf deck.html\` — render every slide to a PDF, and report the ones that overflow
 - \`decklight tts\` — live voice bridge so the deck can narrate itself on the fly
 - \`decklight skills\` — regenerate this skill after upgrading Decklight
+
+**Render the deck before you call a slide done.** Content that exceeds a slide
+is clipped, and the runtime marks that section \`data-overflow\` — but only in a
+browser. An agent authoring twenty slides in one pass never sees it, and ships
+decks whose bottom lines are simply missing. One command checks all of them:
+
+\`\`\`sh
+npx decklight pdf deck.html -o /tmp/check.pdf
+\`\`\`
+
+Every \`⚠ slide N overflows\` line is a slide losing content: split it, cut it,
+or move the detail into the notes. Run it after each batch of slides rather
+than once at the end — and note that overflow is the *late* failure. A slide
+that fits can still be too crowded to present from; prefer ~3–4 bullets or ~2
+short paragraphs per column, and one idea per slide, over anything that merely
+fits.
 
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
@@ -115,6 +132,12 @@ This project contains a Decklight presentation (a single-file HTML deck —
 see \`${referenceHref}\` for the full authoring
 contract: builds, notes, SVG diagrams, themes, terminals, narration).
 Read that file before adding or editing slides.
+
+After editing slides, render the deck and check nothing is clipped:
+\`npx decklight pdf deck.html -o /tmp/check.pdf\` — every \`⚠ slide N overflows\`
+line is a slide losing content. Overflow is the late failure, though: a slide
+that fits can still be too crowded, so keep to one idea and ~3–4 bullets per
+column rather than to whatever renders.
 
 When a dev server is running (\`decklight dev\`), commit each logical change
 you finish rather than leaving it to the timer's generic \`autosave\`:
