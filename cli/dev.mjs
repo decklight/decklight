@@ -31,6 +31,7 @@ import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
 import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
+import { leashEnv } from './supervise.mjs';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
@@ -305,8 +306,13 @@ export async function devMain(args) {
   };
 
   for (const svc of run) {
+    // stdin is a pipe dev never writes to — it is the leash (see supervise.mjs).
+    // Holding it open is what tells the child we are still here; losing it is
+    // how the child finds out we are not, even when we were SIGKILLed and
+    // never reached shutdown() below.
     const child = spawn(process.execPath, [CLI, ...svc.args], {
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: leashEnv(),
     });
     children.set(svc.name, child);
     pipe(child.stdout, svc.tag, process.stdout);

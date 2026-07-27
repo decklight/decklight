@@ -6,11 +6,16 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { execFileSync, spawnSync, spawn } from 'node:child_process';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { planServices, inGitRepo, voiceSetupOffer } from '../cli/dev.mjs';
+import { LEASH, onLeash, leashEnv, exitWhenOrphaned } from '../cli/supervise.mjs';
+import { isPortOpen } from '../cli/port-conflict.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -205,6 +210,76 @@ test('dev is routed and documented by the dispatcher', () => {
   assert.match(devHelp, /usage: decklight dev/);
   assert.match(devHelp, /--remote/, 'the LAN opt-in is documented');
   assert.match(devHelp, /--host/, 'and so is the bind address');
+});
+
+// ── the leash: a child outlives its parent for exactly as long as the pipe ──
+
+test('the leash is opt-in — an unsupervised command never reads stdin', () => {
+  assert.equal(onLeash({}), false);
+  assert.equal(onLeash({ [LEASH]: '0' }), false);
+  assert.equal(onLeash({ [LEASH]: '1' }), true);
+
+  const stdin = new EventEmitter();
+  stdin.resume = () => assert.fail('an unsupervised command must leave stdin alone');
+  assert.equal(exitWhenOrphaned({ env: {}, stdin, exit: () => {} }), false);
+  assert.equal(stdin.listenerCount('end'), 0);
+});
+
+test('a supervised child exits 0 the moment the pipe closes, however it closes', () => {
+  for (const how of ['end', 'close', 'error']) {
+    const stdin = new EventEmitter();
+    let resumed = false, unreffed = false;
+    stdin.resume = () => { resumed = true; };
+    stdin.unref = () => { unreffed = true; };
+    const codes = [];
+
+    assert.equal(exitWhenOrphaned({ env: leashEnv({}), stdin, exit: (c) => codes.push(c) }), true);
+    assert.ok(resumed, 'nothing else reads stdin, so the end never arrives unflowing');
+    assert.ok(unreffed, 'the leash must not be what keeps a process alive');
+
+    stdin.emit(how, new Error('EPIPE'));
+    assert.deepEqual(codes, [0], `losing the parent via "${how}" is not a failure`);
+  }
+});
+
+test('leashEnv adds the flag and keeps the rest of the environment', () => {
+  assert.deepEqual(leashEnv({ PATH: '/bin' }), { PATH: '/bin', [LEASH]: '1' });
+});
+
+test('SIGKILL to dev takes the deck server with it — no orphan holding the port', async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-leash-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(path.join(dir, 'deck.html'),
+    '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div></body></html>\n');
+
+  const dev = spawn(process.execPath, [
+    CLI, 'dev', 'deck.html', '--port', '0', '--no-tts', '--no-lipsync', '--no-git',
+  ], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { try { dev.kill('SIGKILL'); } catch { /* already gone */ } });
+
+  let out = '';
+  dev.stdout.on('data', (c) => { out += c; });
+  dev.stderr.on('data', (c) => { out += c; });
+
+  const until = async (label, want, timeoutMs = 10000) => {
+    const start = Date.now();
+    for (;;) {
+      const got = await want();
+      if (got) return got;
+      if (Date.now() - start > timeoutMs) assert.fail(`timed out waiting for ${label}\n${out}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  };
+
+  const [, spawned] = await until('the deck server to announce its port',
+    async () => out.match(/decklight edit on http:\/\/127\.0\.0\.1:(\d+)/));
+  const port = Number(spawned);
+  assert.equal(await isPortOpen(port), true, 'the deck server is up');
+
+  // dev never gets to run shutdown() — this is the crash it cannot handle
+  dev.kill('SIGKILL');
+  await until('the orphan to notice and let go of its port',
+    async () => (await isPortOpen(port)) === false);
 });
 
 test('dev without a deck, or with a missing one, fails with usage — not a stack trace', () => {

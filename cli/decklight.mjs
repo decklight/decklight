@@ -94,6 +94,11 @@ if (cmd === 'help') {
 // output (export, bundle) stays clean
 process.stderr.write(`decklight ${version}\n`);
 
+// When a parent supervises us (dev runs edit and the bridges), go when it
+// goes — a SIGKILLed parent never gets to reap its children. No-op otherwise.
+const { exitWhenOrphaned } = await import('./supervise.mjs');
+exitWhenOrphaned();
+
 switch (cmd) {
   case 'init': {
     const { initMain } = await import('./init.mjs');
