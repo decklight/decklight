@@ -20,7 +20,10 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import { createEngine, ENGINES, PIPER_DEFAULT_VOICE, piperModelDir } from './tts-engines.mjs';
+import {
+  createEngine, ENGINES, PIPER_DEFAULT_VOICE, piperModelDir,
+  piperDownloadCmd, piperDownloadLine,
+} from './tts-engines.mjs';
 import { gcloudToken, validProjectId } from './gemini-tts.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV, apiKey as elevenLabsKey } from './elevenlabs-tts.mjs';
 
@@ -116,6 +119,7 @@ export async function runSetupWizard({
   mintToken = gcloudToken,
   makeEngine = createEngine,
   runCmd, // (bin, args) => ok — install commands, run only on an explicit yes
+  canImport, // (python) => can it import piper? injected so tests never spawn one
   play = playWav,
   prefill = {}, // --setup re-runs: the saved answers become the defaults
 } = {}) {
@@ -145,6 +149,11 @@ export async function runSetupWizard({
 
   // 2. only what that engine actually needs
   if (engineName === 'piper') {
+    // Whether the downloader can be reached through uvx is knowledge this code
+    // HAS and generic detection does not: if the wizard installs piper below it
+    // does so with uv, and uvx ships with uv. Detecting it instead would make
+    // the wizard's behaviour depend on the machine running the test.
+    let uvx = hasBin('uvx', env);
     if (!hasBin('piper', env)) {
       log('  piper is not installed. the install is one command:');
       log('    uv tool install piper-tts');
@@ -156,18 +165,29 @@ export async function runSetupWizard({
         log('  install failed — nothing saved');
         return null;
       }
+      uvx = true;   // uv just ran, so uvx is there too
     }
     const voice = prefill.voice ?? PIPER_DEFAULT_VOICE;
     const models = piperModelDir(env);
     if (!existsSync(join(models, `${voice}.onnx`))) {
+      // the command is CHOSEN, not assumed: `uv tool install piper-tts` above
+      // puts piper in an isolated venv the ambient python cannot import from,
+      // so the plain `python -m piper.download_voices` we used to print here
+      // failed with ModuleNotFoundError on a machine that had just installed
+      // piper successfully — following our own instructions
+      const dl = piperDownloadCmd(voice, models, {
+        hasBin: (b) => (b === 'uvx' ? uvx : hasBin(b, env)),
+        ...(canImport ? { canImport } : {}),
+      });
       log(`  the ${voice} voice model is missing (~120 MB, one-time). the download is one command:`);
-      log(`    python -m piper.download_voices ${voice} --data-dir ${models}`);
+      log(`    ${piperDownloadLine(dl)}`);
+      if (!dl) return null;
       if (!yes(await ask('  run it now? [y/N] '), false)) {
         log('  fetch the model, then run: decklight tts');
         return null;
       }
       mkdirSync(models, { recursive: true });
-      if (!runCmd('python', ['-m', 'piper.download_voices', voice, '--data-dir', models])) {
+      if (!runCmd(dl.bin, dl.args)) {
         log('  download failed — nothing saved');
         return null;
       }

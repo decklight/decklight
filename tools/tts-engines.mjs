@@ -51,6 +51,48 @@ export const PIPER_DEFAULT_VOICE = 'en_US-ryan-high';
 export const piperModelDir = (env = process.env) =>
   join(env.HOME || homedir(), '.local', 'share', 'piper');
 
+const onPath = (bin) => {
+  try {
+    execFileSync(process.platform === 'win32' ? 'where' : 'which', [bin], { stdio: 'ignore' });
+    return true;
+  } catch { return false; }
+};
+const canImportPiper = (py) => {
+  try { execFileSync(py, ['-c', 'import piper.download_voices'], { stdio: 'ignore' }); return true; }
+  catch { return false; }
+};
+
+/**
+ * How to fetch a piper voice model ON THIS MACHINE.
+ *
+ * This used to be a constant — `python -m piper.download_voices …` — and it did
+ * not work for the install decklight itself recommends. `uv tool install
+ * piper-tts` puts piper in an ISOLATED virtualenv, on purpose; the ambient
+ * python cannot import from it, so the printed command fails with
+ * ModuleNotFoundError on a machine where piper is installed and working fine.
+ *
+ * So the command is chosen rather than assumed: a python that can already
+ * import piper (a pip install into the active environment) gets the plain form,
+ * and otherwise `uvx --from piper-tts` runs it inside the venv `uv` made.
+ * Returns null when neither is possible, which is a different message.
+ */
+export function piperDownloadCmd(voice = PIPER_DEFAULT_VOICE, models = piperModelDir(), {
+  hasBin = onPath, canImport = canImportPiper,
+} = {}) {
+  const tail = ['-m', 'piper.download_voices', voice, '--data-dir', models];
+  for (const py of ['python3', 'python']) if (canImport(py)) return { bin: py, args: tail };
+  if (hasBin('uvx')) return { bin: 'uvx', args: ['--from', 'piper-tts', 'python', ...tail] };
+  return null;
+}
+
+/** A chosen command as the line a human would type, or the way to get one. */
+export const piperDownloadLine = (cmd) => (cmd
+  ? [cmd.bin, ...cmd.args].join(' ')
+  // piper may well be installed — what is missing is a way to REACH its
+  // downloader, which is a different problem and a different fix
+  : 'no python here can import piper, and uvx is not on PATH — '
+    + 'install uv (https://docs.astral.sh/uv) or: pip install piper-tts');
+
 // Chirp 3: HD ships the same roster as Gemini TTS (verified against
 // texttospeech.googleapis.com/v1/voices) — one name, two engines.
 const CHIRP_PRICE_PER_1M = 30.0; // USD, list, after the 1M chars/month free tier
@@ -162,7 +204,7 @@ function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
       rmSync(spool, { recursive: true, force: true });
       if (/Unable to find voice/.test(err)) {
         fatal = `piper voice '${voice}' not in ${models} — fetch it with: `
-          + `python -m piper.download_voices ${voice} --data-dir ${models}`;
+          + piperDownloadLine(piperDownloadCmd(voice, models));
       } else if (code) {
         // a crash is not necessarily terminal: the next call respawns
         lastExit = `piper exited (${code}) ${err.trim().split('\n').pop() ?? ''}`.trim();
