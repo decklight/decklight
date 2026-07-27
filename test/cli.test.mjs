@@ -1137,6 +1137,25 @@ test('the AGENTS.md section carries the same instruction for agents that read it
   assert.match(agentsSection(), /No server listening means no dev/);
 });
 
+test('the always-loaded skill tells agents to render and check for clipped slides', () => {
+  // This lived on line ~336 of the 360-line reference, which is read "before
+  // authoring" — so an agent writing thirty slides in one pass could author
+  // every one of them without ever meeting the rule, and did. The whole value
+  // of the rule is being in the file that is always loaded, so that is what is
+  // pinned here: if it drifts back into the reference, this fails.
+  const md = claudeSkillMd();
+  assert.match(md, /decklight pdf/, 'the command that audits every slide');
+  assert.match(md, /overflows/, 'and what its output means');
+  assert.match(md, /data-overflow/, 'named, so an agent can also assert it directly');
+  // overflow is the LATE failure — a slide can fit and still be unpresentable
+  assert.match(md, /3–4 bullets/);
+
+  // and the same for agents that never read SKILL.md
+  const agents = agentsSection();
+  assert.match(agents, /decklight pdf/);
+  assert.match(agents, /overflows/);
+});
+
 test('init states the commit policy when it creates a repository', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitmode-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
