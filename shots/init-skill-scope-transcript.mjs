@@ -45,9 +45,7 @@ function run(title, dir, skillAnswer) {
   fs.mkdirSync(dir, { recursive: true });
   return new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/script',
-      // --no-edit: this transcript is about the skill-scope question, and init
-      // now hands off to the dev server unless told not to
-      ['-qec', `"${process.execPath}" "${CLI}" init "${title}" --no-edit`, '/dev/null'],
+      ['-qec', `"${process.execPath}" "${CLI}" init "${title}"`, '/dev/null'],
       { cwd: dir, env, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = '';
     const done = {};

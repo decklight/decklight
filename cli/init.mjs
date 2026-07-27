@@ -8,7 +8,7 @@
  * without a web search or a guess from Reveal.js memory.
  *
  *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …]
- *                  [--git | --no-git] [--open] [--force] [--no-edit]
+ *                  [--git | --no-git] [--open] [--force]
  *                  [--no-skill | --global-skill]
  *
  * Run bare in a terminal it asks one question — the deck's title — with
@@ -32,13 +32,13 @@
  * offers `git init` (the same question `decklight dev` asks, at the natural
  * moment — the repo starts with the shared starter .gitignore), prints an
  * accent-colored epilogue — the deck's file:// URL and the `decklight dev`
- * line — and on a TTY hands off to dev right away unless --no-edit. `--open` launches
- * the deck in the default browser (the file IS the presentation).
+ * line, which is the command that starts editing. `--open` launches the deck
+ * in the default browser (the file IS the presentation).
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 
@@ -51,8 +51,6 @@ import { escapeHtml } from './edit.mjs';
 import { inGitRepo, createRepo, isIdentityError, oneline } from './git.mjs';
 import { makeFail, scriptSafe } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
-
-const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
 const fail = makeFail('init');
 
@@ -109,13 +107,12 @@ export async function resolveTitle(arg, { isTTY = false, ask } = {}) {
 // ── git: offer the repository at the natural moment ─────────────────────────
 // The same policy `decklight dev` applies later, decided here as a pure
 // function so the table (--git / --no-git / TTY / repo-present) is testable
-// without a repository or a terminal. `forward` is what the dev handoff
-// passes down so the player is never asked the git question twice.
+// without a repository or a terminal.
 export function planGit({ args = [], tty = false, inRepo = false } = {}) {
-  if (args.includes('--no-git')) return { action: 'skip', forward: '--no-git' };
-  if (args.includes('--git')) return { action: inRepo ? 'skip' : 'create', forward: '--git' };
-  if (inRepo) return { action: 'skip', forward: null };
-  return { action: tty ? 'ask' : 'hint', forward: null };
+  if (args.includes('--no-git')) return { action: 'skip' };
+  if (args.includes('--git')) return { action: inRepo ? 'skip' : 'create' };
+  if (inRepo) return { action: 'skip' };
+  return { action: tty ? 'ask' : 'hint' };
 }
 
 // ── the skill scope: project by default, global as a proposition ────────────
@@ -284,7 +281,7 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …]
-                 [--git | --no-git] [--open] [--force] [--no-edit]
+                 [--git | --no-git] [--open] [--force]
                  [--no-skill | --global-skill]
 
 Options:
@@ -301,9 +298,6 @@ Options:
   --open          open the scaffolded deck in your default browser
                   (the deck is self-contained — the file is the presentation)
   --force         overwrite an existing deck file (default: refuses)
-  --no-edit       do not hand off to decklight dev when init finishes
-                  (a terminal run starts editing by default; a non-TTY run
-                  never does)
   --no-skill      skip the agent skill entirely (project and global), and the
                   where-should-it-go question with it
   --global-skill  install the agent skill globally — into each PATH-detected
@@ -337,7 +331,6 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--open') openAfter = true;
     else if (a === '--no-skill' || a === '--global-skill') ; // consumed by planSkill below
     else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
-    else if (a === '--no-edit') ; // consumed by the handoff at the end
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
@@ -450,11 +443,10 @@ unless --no-skill is given. The deck file is only touched with --force.
 
   // ── the git offer — dev's question, asked at the natural moment ──────────
   const plan = planGit({ args: argv, tty, inRepo: inGitRepo(root) });
-  let { action, forward } = plan;
+  let { action } = plan;
   if (action === 'ask') {
-    forward = (await askYes('  create a git repository so your edits are auto-committed? [Y/n] '))
-      ? '--git' : '--no-git';
-    action = forward === '--git' ? 'create' : 'skip';
+    action = (await askYes('  create a git repository so your edits are auto-committed? [Y/n] '))
+      ? 'create' : 'skip';
   }
   if (action === 'create') {
     note(initRepo(root));
@@ -472,20 +464,12 @@ unless --no-skill is given. The deck file is only touched with --force.
   // self-contained by design
   if (openAfter) await openDeck(deckPath);
 
-  // ── the handoff — the served URL is the genuine click-to-edit link ───────
-  // Not a question. Every other prompt configures something init cannot infer;
-  // this one asked permission to do the obvious next thing, and the answer was
-  // yes. --no-edit opts out, and the epilogue above has already printed the
-  // command for anyone who wants to run it themselves later. A non-TTY still
-  // never hands off: spawning a server nobody is watching is not a default.
-  const editNow = tty && !argv.includes('--no-edit');
+  // No handoff. init scaffolds and gets out of the way: the epilogue above
+  // prints `decklight dev <deck>` under "start editing", and that command IS
+  // the handoff. Starting a server for you means init does not return until
+  // you stop it — you cannot look at what it made, or read the lines it just
+  // printed, without first killing something.
   rl?.close();
-  if (editNow) {
-    const child = spawn(process.execPath,
-      [CLI, 'dev', path.relative(root, deckPath), ...(forward ? [forward] : [])],
-      { cwd: root, stdio: 'inherit' });
-    process.exitCode = await new Promise((res) => child.on('exit', (code) => res(code ?? 0)));
-  }
 }
 
 if (isMain(import.meta.url)) await initMain();
