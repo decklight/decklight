@@ -185,9 +185,19 @@ function setupPinnedTitles(sections, config) {
 /**
  * Split layouts (SPEC §8): a slide's content blocks — everything after the
  * title + subtitle header — lay out in two sides, first block left and the
- * rest right ("split-flip" mirrors). A slide whose ONLY content block is a
+ * second right ("split-flip" mirrors). A slide whose ONLY content block is a
  * list can't take sides; the engine marks it .split-columns instead and the
  * list itself splits across two CSS columns.
+ *
+ * A THIRD block is a footer, not a third column. The shape that asks for this
+ * is the comparison slide — two columns and a note that applies to both — and
+ * "first block left, everything else right" put that note inside the right
+ * column, hanging under one side of a comparison it was about equally. Blocks
+ * past the second span the full width and centre, below the columns.
+ *
+ * Three columns are deliberately NOT a shape here: grouping three items onto
+ * one slide multiplies content-per-slide, which is the density problem the
+ * authoring contract exists to discourage. Two and a footer, or another slide.
  */
 function splitContent(sec) {
   return [...sec.children].filter((el) =>
@@ -196,10 +206,15 @@ function splitContent(sec) {
 
 function setupSplit(sections) {
   sections.forEach((sec) => {
-    sec.querySelectorAll(':scope > .split-columns').forEach((el) => el.classList.remove('split-columns'));
+    sec.querySelectorAll(':scope > .split-columns, :scope > .split-footer')
+      .forEach((el) => el.classList.remove('split-columns', 'split-footer'));
     if (!/^split/.test(sec.getAttribute('data-layout') || '')) return;
     const content = splitContent(sec);
-    if (content.length === 1 && content[0].matches('ul, ol')) content[0].classList.add('split-columns');
+    if (content.length === 1 && content[0].matches('ul, ol')) {
+      content[0].classList.add('split-columns');
+      return;
+    }
+    for (const el of content.slice(2)) el.classList.add('split-footer');
   });
 }
 
