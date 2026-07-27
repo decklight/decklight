@@ -225,7 +225,26 @@ async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
     child.on('exit', () => { clearInterval(scan); reject(new Error('edit exited early:\n' + out)); });
     setTimeout(() => { clearInterval(scan); reject(new Error('timeout waiting for edit server:\n' + out)); }, 10000);
   });
-  return { child, base, log: () => out };
+  /**
+   * Wait for a line the server prints AFTER the URL.
+   *
+   * `base` resolves on the loopback URL, which is the first thing printed —
+   * so a test that immediately reads the log for anything printed after it is
+   * racing the server's own stdout. That race took a PR out of the merge queue
+   * despite passing locally and on the PR head.
+   */
+  const waitFor = (re, ms = 5000) => new Promise((resolve, reject) => {
+    const scan = setInterval(() => {
+      const m = out.match(re);
+      if (m) { clearInterval(scan); clearTimeout(bell); resolve(m); }
+    }, 25);
+    const bell = setTimeout(() => {
+      clearInterval(scan);
+      reject(new Error(`timed out waiting for ${re}\n${out}`));
+    }, ms);
+  });
+
+  return { child, base, log: () => out, waitFor };
 }
 
 const post = (base, ep, body) => fetch(base + ep, {
@@ -355,11 +374,13 @@ test('--remote: a LAN-addressed /edit/notes is refused; loopback keeps working',
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
-  const { base, log } = await startEdit(t, dir, { extraArgs: ['--remote'], env: { PATH: dir } });
+  const { base, log, waitFor } = await startEdit(t, dir, { extraArgs: ['--remote'], env: { PATH: dir } });
   const port = new URL(base).port;
 
-  // the per-run token is printed as the LAN /remote?t= URL, IP and all
-  const m = log().match(/remote: listening on 0\.0\.0\.0 — http:\/\/([\d.]+):\d+\/remote\?t=([A-Za-z0-9_-]+)/);
+  // the per-run token is printed as the LAN /remote?t= URL, IP and all — on a
+  // line AFTER the loopback URL that startEdit resolved on, so it is waited
+  // for rather than assumed to have arrived
+  const m = await waitFor(/remote: listening on 0\.0\.0\.0 — http:\/\/([\d.]+):\d+\/remote\?t=([A-Za-z0-9_-]+)/);
   assert.ok(m, 'the remote URL is printed:\n' + log());
   assert.equal(m[1], lan, 'the printed IP comes from os.networkInterfaces()');
   const token = m[2];
