@@ -409,7 +409,10 @@ instance.saveGeneratedTheme(name?)             // ⌃⇧T; a name argument skips
 ```
 decklight/
   SPEC.md  README.md  package.json
-  src/core/      engine: init, nav, builds, transitions, auto-animate, notes, print, svg-ns, charts
+  src/core/      engine.js (init, nav, builds, transitions, stage, chrome, input) + the features that own their own
+                 state and keyboard: themes.js (switching, packs, generator, picker), narration.js (voice, captions,
+                 character, ⇧V recorder), editmode.js (live reload, notes editor, agents, undo/redo, restore),
+                 hud.js (clock, progress, ink, transcript), plus auto-animate, notes, print, svg-ns, charts
   src/md/        markdown slide support (marked)
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
