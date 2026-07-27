@@ -186,6 +186,15 @@ Generation also follows **codified palette rules** (R1–R8 in `themegen.js`), d
 
 The **shipped themes conform to the same rules**, graded by `test/palette-rules.mjs` (part of `npm run verify`; R7 is graded on the collection — gradient canvases ≤ 30% of the set). A theme may opt out of a rule where conformance would break its identity — official brand colors, an intentional duotone canvas — by declaring the exception *in the theme file* with a reason: `rule-exception: R2 official Polar→Glow brand gradient canvas is the identity`. Undeclared violations fail the grader; declared ones are printed with every run so they stay reviewable.
 
+### Distributing a theme
+
+A theme travels as what it already is: **one CSS file**. There is no registry and no version number — the distribution unit is the file (a repo, a gist, the `.css` that `⌃⇧T` downloads), and compatibility with a runtime *is* passing that runtime's check. When the contract grows a token, the check names exactly what an older theme is missing.
+
+- **`decklight theme check <file|url>`** runs the token contract and the WCAG gates (`tools/theme-check.mjs` — the same function `test/contrast.mjs` runs over the shipped themes, so the two can never drift) on any file, so a theme author outside this repo can prove their file is contract-complete before sharing it.
+- **`decklight theme add <file|url> <deck.html>`** validates and then installs, refusing anything the shipped set would not be allowed to contain — a deck is never left carrying a broken theme, and a file that fails leaves the deck byte-for-byte unchanged. It reads from disk or over https, takes `--name` to install under another name, and `--dry-run` to report without writing.
+
+An installed theme becomes a `<style data-theme="<name>" data-theme-added media="not all">` block appended last in `<head>`, so an active one wins the cascade over the deck's own link or inline theme. `data-theme-added` is what distinguishes it from the deck's own inline theme blocks: without that distinction a link-mode deck that gained one added theme would flip to inline mode and its whole theme list would collapse to that single file. Added themes therefore behave like saved customs — extra entries in the list, applied by media toggle — and work identically in both modes. They appear in the picker under a dynamic **Added** pack (tagged `added`), cycle with `,`/`.`, resolve from `?theme=`, and travel with `decklight bundle` because they are already inline in the deck. Re-running `add` for the same name replaces the block in place: re-adding **is** the update path.
+
 ## 6. Code & math
 
 - `<pre><code class="language-sql">…</code></pre>` — highlighting via bundled highlight.js
@@ -417,12 +426,12 @@ decklight/
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
-  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, publish.mjs, edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
-  tools/         voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, §8), tts-engines.mjs (gemini/chirp/piper/elevenlabs) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, §8)
+  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/theme/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, theme.mjs (validate + install a theme, §5), publish.mjs, edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
+  tools/         theme-check.mjs (the §5 token contract + WCAG gates, as a function) + color.mjs (contrast math), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, §8), tts-engines.mjs (gemini/chirp/piper/elevenlabs) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, §8)
   themes/        30 × <name>.css + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
   demo/          kitchen-sink.html + casts/
-  test/          node:test units (ansi, md, builds math, cast format) + render.mjs (headless Chrome assertions) + contrast.mjs (theme validation)
+  test/          node:test units (ansi, md, builds math, cast format) + render.mjs (headless Chrome assertions) + contrast.mjs (every shipped theme through tools/theme-check.mjs)
 ```
 
 - Build: `npm run build` = esbuild bundle (`src/index.js` → `dist/decklight.js`, minified + sourcemap) + CSS copy. Node ≥ 20. Runtime has **zero** runtime dependencies (marked + highlight.js + temml are bundled at build time; Temml's stylesheet is appended to `decklight.css` with its optional woff2 `@font-face` stripped); `node-pty`, `js-yaml` are CLI-only deps.

@@ -38,6 +38,16 @@
       { hash: 'bbbbbbb', when: '1 hour ago', subject: 'add the pros/cons split' },
       { hash: 'ccccccc', when: '3 days ago', subject: 'first draft' },
     ];
+    // `decklight theme add` writes exactly this into a deck: the theme's own
+    // CSS, marked, inert. The deck is put in LINK mode alongside it because
+    // that is the combination that could go wrong — a deck whose themes come
+    // from a <link> must not lose them the moment it gains an added block.
+    if (HARNESS_MODE === 'added') {
+      document.head.insertAdjacentHTML('beforeend',
+        '<link rel="stylesheet" href="../themes/aurora.css">'
+        + '<style data-theme="nord-deep" data-theme-added media="not all">'
+        + '.decklight { --bg: #101018; --fg: #eeeeee; }</style>');
+    }
     const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url) => {
       const u = String(url);
@@ -85,6 +95,40 @@
     const r = {};
     (async () => {
     try {
+      if (mode === 'added') {
+        // `decklight theme add` put a third-party theme into a LINK-mode deck.
+        // The deck must keep every theme it had, gain the new one in a pack of
+        // its own, and actually apply it when picked.
+        const P = '.decklight-theme-picker', ROW = '.tp-row';
+        const rows = () => [...document.querySelectorAll(`${P} ${ROW}`)];
+        const el = document.querySelector('style[data-theme="nord-deep"]');
+
+        r.inertOnLoad = el.media === 'not all';   // adding a theme changes nothing until picked
+
+        press('t');
+        const packs = rows().map((x) => x.textContent);
+        r.pickerOpens = packs.length > 0;
+        // the deck did NOT collapse to inline mode: its own packs are still here
+        r.keptItsOwnPacks = packs.filter((t) => /^▸ /.test(t)).length > 1;
+        const addedRow = rows().find((x) => /▸ Added/.test(x.textContent));
+        r.addedPackListed = !!addedRow;
+        r.addedPackCount = addedRow?.querySelector('.tp-tag')?.textContent;
+
+        addedRow?.click();                        // drill into the pack
+        const inPack = rows().map((x) => x.textContent);
+        r.listedInPack = inPack.some((t) => /nord-deep/.test(t));
+
+        rows().find((x) => /nord-deep/.test(x.textContent))?.click();   // commit
+        r.applied = el.media === 'all';
+        r.picked = getComputedStyle(document.querySelector('.decklight'))
+          .backgroundColor === 'rgb(16, 16, 24)';   // --bg: #101018, the added theme's
+
+        r.PASS = r.inertOnLoad && r.pickerOpens && r.keptItsOwnPacks && r.addedPackListed
+          && r.addedPackCount === '1' && r.listedInPack && r.applied && r.picked;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'themepicker') {
         const P = '.decklight-theme-picker', ROW = '.tp-row', SEL = 'tp-selected';
         press('t');

@@ -25,7 +25,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { colorsIn, rgbToHsl, parseTheme } from './color.mjs';
+import { colorsIn, rgbToHsl, parseTheme } from '../tools/color.mjs';
 
 const DIR = process.argv[2] ?? new URL('../themes/', import.meta.url).pathname;
 
