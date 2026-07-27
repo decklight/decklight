@@ -26,19 +26,31 @@ import { dumpDom, resultsFrom } from './harness.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'narration.html');
 
-function run(mode) {
+function run(mode, extra = '') {
   // quietStderr: a headless Chrome on a machine with no D-Bus/UPower prints
   // pages of unrelated noise that would bury the actual result
-  const html = dumpDom(`file://${page}?mode=${mode}`,
+  const html = dumpDom(`file://${page}?mode=${mode}${extra}`,
     { fileAccess: true, budget: 30000, quietStderr: true, who: 'narration-render' });
-  return resultsFrom(html, 'NARRATION', `mode=${mode}`);
+  return resultsFrom(html, 'NARRATION', `mode=${mode}${extra}`);
 }
 
 let bad = 0;
-for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster']) {
-  const r = run(mode);
+for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster',
+  'hint', 'hint&print']) {
+  const [m, extra] = mode.split('&');
+  const r = run(m, extra ? `&${extra}` : '');
   const ok = r.PASS === true;
   if (!ok) bad++;
+  if (m === 'hint') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} `
+      + (r.printing
+        ? `no pill on paper=${r.hidden}`
+        : `shown=${r.shown} names V=${r.namesTheKey} button=${r.isAButton}`
+          + ` · click plays=${r.clickStartsVoice} gone=${r.goneAfterClick} remembered=${r.remembered}`
+          + ` · logged once=${r.inLog && r.noDoubleToast}`)
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
   if (mode === 'keys') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} play: \` opens=${r.playOpens} closes=${r.playCloses} azerty(²)=${r.azertyOpens}`
       + ` · edit: bare ignored=${r.editIgnoresBareKey} ⌃\` opens=${r.editCtrlOpens} ⌥\` opens=${r.editAltOpens}`

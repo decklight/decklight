@@ -101,12 +101,16 @@
     // pick the voice exactly as the N picker persists it — a recorded TRACK for
     // the recorded case, the live bridge otherwise (a persisted live voice wins
     // over config.narration.files, which is what made this test lie the first time)
-    localStorage.setItem(key, JSON.stringify(mode === 'recorded'
+    const recordedDeck = mode === 'recorded' || mode === 'hint';
+    localStorage.setItem(key, JSON.stringify(recordedDeck
       ? { dir: 'voices' }
       : { live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
+    // the hint is once-per-deck FOREVER, so a previous run of this harness
+    // would otherwise suppress it and the mode would pass by doing nothing
+    if (mode === 'hint') localStorage.removeItem('decklight-narr-used:' + location.pathname);
 
     const cfg = { narration: { liveUrl: 'http://127.0.0.1:8899/tts' } };
-    if (mode === 'recorded') {
+    if (recordedDeck) {
       // slide 2 has NO notes (nothing to say → no file, and that is fine);
       // slide 3 has notes but its file is missing (that IS worth saying)
       cfg.narration = { files: [{ label: 'Test', dir: 'voices' }] };
@@ -184,6 +188,53 @@
           r.warnsOnMissingFile = msgs.some((m) => /no narration for slide 3/.test(m));
           r.lastMessage = msgs[msgs.length - 1] ?? '';
           r.PASS = r.quietOnSlideWithNoNotes && r.warnsOnMissingFile;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'hint') {
+          // A deck with a recorded track has to SAY so — a viewer on a laptop
+          // has no sound button and no reason to guess at V. Two runs: this
+          // one, and the same URL with ?print, where the pill must not exist.
+          const pill = () => document.querySelector('.decklight-narr-hint');
+          const printing = params.has('print');
+
+          r.printing = printing;
+          r.beforeDelay = !pill();          // it waits for the slide to land first
+          await new Promise((ok) => setTimeout(ok, 1400));
+
+          const el = pill();
+          if (printing) {
+            // nothing to click on paper, and nothing to hear
+            r.PASS = !el;
+            r.hidden = !el;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
+
+          r.shown = !!el;
+          r.readsRight = /voice-over/.test(el?.textContent ?? '');
+          r.namesTheKey = el?.querySelector('kbd')?.textContent === 'V';
+          r.isAButton = el?.tagName === 'BUTTON' && !!el?.getAttribute('aria-label');
+          r.faded = el?.classList.contains('show') === true;
+          // the log remembers it; the toast stack does NOT also show it, or the
+          // deck would say the same thing twice in two corners at once
+          r.inLog = deck.messages().some((m) => /voice-over/.test(m.text));
+          r.noDoubleToast = ![...document.querySelectorAll('.decklight-toast')]
+            .some((t) => /voice-over/.test(t.textContent));
+
+          el?.click();                       // a real gesture — audio may start
+          await new Promise((ok) => setTimeout(ok, 300));
+          r.clickStartsVoice = deck.messages().some((m) => /🔊 Test/.test(m.text));
+          r.goneAfterClick = !pill();
+          // and it never returns to this deck. The persisted flag is what a
+          // later load reads; that the flag suppresses the pill is pinned in
+          // test/narration.test.mjs, which can ask the question directly.
+          r.remembered = localStorage.getItem('decklight-narr-used:' + location.pathname) === '1';
+
+          r.PASS = r.beforeDelay && r.shown && r.readsRight && r.namesTheKey && r.isAButton
+            && r.faded && r.inLog && r.noDoubleToast && r.clickStartsVoice
+            && r.goneAfterClick && r.remembered;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

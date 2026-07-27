@@ -300,10 +300,16 @@ export function init(userConfig = {}) {
   let msgEl = null;
   let msgListEl = null;
   function messages() { return msgLog; }
-  function toast(msg, ms = 3200) {
+  // A message the log remembers but never shows. For chrome that IS its own
+  // visible surface — the narration hint pill — where a toast on top of it
+  // would say the same thing twice, in two places, at once.
+  function logOnly(msg) {
     msgLog.push({ at: new Date(), text: String(msg) });
     if (msgLog.length > MSG_KEEP) msgLog.shift();
     if (msgListEl) renderMsgList();   // the log is open — keep it live
+  }
+  function toast(msg, ms = 3200) {
+    logOnly(msg);
     if (printMode) return;
     if (!msgEl) {
       msgEl = document.createElement('div');
@@ -1567,7 +1573,7 @@ export function init(userConfig = {}) {
   // panel's status line — and the engine reads its playback state back
   // through status().
   const narration = createNarration({
-    root, stage, config, printMode, toast, debugLog, overlays, instance,
+    root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
     syncSoundBtn, updateDebugState, downloadFromUrl,
   });
   const {

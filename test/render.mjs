@@ -71,6 +71,10 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('math: TeX underscores never become markdown emphasis', s.mathmdnoem, 'true');
   check('math: markdown fenced code is immune', s.mathmdcode, 'true');
   check('math: a section without data-math is untouched', s.mathcontrol, 'true');
+  // smoke.html configures no narration at all — a deck with nothing to play
+  // must never offer to play it (the pill's other five exclusions are pinned in
+  // test/narration.test.mjs, and the live pill itself in narration-render.mjs)
+  check('no voice-over hint on a deck with no track', /decklight-narr-hint/.test(html), false);
   check('clock: off by default', s.clockdefault, 'true');
   check('clock: K shows it', s.clockshown, 'true');
   check('clock: wall time is HH:MM', s.clockwall, 'true');

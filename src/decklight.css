@@ -1073,6 +1073,46 @@
 }
 .decklight-captions.show { display: block; }
 
+/* the voice-over hint — "this deck has a voice-over, V plays it".
+   Shares the captions' corner, which is why the two never show at once, and
+   the toast's visual language (dark pill, mono, accent) because it is the
+   same kind of thing: the deck telling you something, briefly. A real
+   <button>, so it is clickable, focusable and announced. */
+.decklight-narr-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 7%;
+  transform: translateX(-50%) translateY(6px);
+  max-width: 72%;
+  padding: 9px 16px;
+  border: 0;
+  border-left: 4px solid var(--accent, #7ee787);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .78);
+  color: #fff;
+  font: 500 18px/1.35 var(--font-mono, monospace);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .25s, transform .25s;
+  z-index: 44;   /* under the captions bar (45) — it yields that corner */
+}
+.decklight-narr-hint.show { opacity: 1; transform: translateX(-50%); }
+.decklight-narr-hint kbd {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: var(--accent, #7ee787);
+  color: var(--accent-contrast, #0b0d10);
+  font: inherit;
+  font-weight: 700;
+}
+.decklight-narr-hint:hover, .decklight-narr-hint:focus-visible { background: rgba(0, 0, 0, .9); }
+@media (prefers-reduced-motion: reduce) {
+  /* fade only — the pill arrives unannounced, so it must not also move */
+  .decklight-narr-hint { transform: translateX(-50%); transition: opacity .25s; }
+}
+
 /* animated character (N → Character…) — lip-synced narration companion.
    The controller sets data-viseme on the overlay each frame; one
    [data-mouth] group shows at a time. [data-eyelid]/[data-idle] are the
