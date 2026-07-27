@@ -48,6 +48,14 @@
 }
 
 /* ---------- slides -------------------------------------------------------- */
+/* `safe center`, not `center`, wherever a slide centers its own content.
+   Plain centering overflows SYMMETRICALLY: content taller than the box sends
+   half the excess out the TOP, straight through the padding that [data-pinned]
+   reserves for the pinned title, and lands on top of it — measured at 85px of
+   overlap for a two-line subtitle, with the title and the first heading on one
+   baseline (#68). `safe` falls back to start alignment exactly when the box
+   overflows, so the excess goes out the bottom, where `overflow: hidden` clips
+   it visibly and where scrollHeight can count all of it rather than half. */
 /* Pre-init FOUC guard: before init() creates .decklight-stage and moves the
    sections into it, they sit as direct children of .decklight and would paint
    stacked in document flow (a raw-content flash on every load — worst in the
@@ -62,7 +70,7 @@
   inset: 0;
   display: none;
   flex-direction: column;
-  justify-content: center;
+  justify-content: safe center;
   padding: 3.5% 5%;
   box-sizing: border-box;
   font-size: 30px;
@@ -115,8 +123,8 @@
 .decklight-stage > section[data-layout|="split"] {
   flex-direction: row;
   flex-wrap: wrap;
-  align-items: center;
-  align-content: center;
+  align-items: safe center;       /* see the section rule (#68) */
+  align-content: safe center;
   column-gap: 4%;
 }
 .decklight-stage > section[data-layout="split-flip"] { flex-direction: row-reverse; }
@@ -843,7 +851,7 @@
   height: 100%;
   box-sizing: border-box;
   flex-direction: column;
-  justify-content: center;
+  justify-content: safe center;   /* see the section rule (#68) */
   padding: 3.5% 5%;
   font-size: 30px;
   line-height: 1.5;
@@ -870,8 +878,8 @@
 .decklight-overview-grid .ov-clone[data-layout|="split"] {
   flex-direction: row;
   flex-wrap: wrap;
-  align-items: center;
-  align-content: center;
+  align-items: safe center;       /* see the section rule (#68) */
+  align-content: safe center;
   column-gap: 4%;
 }
 .decklight-overview-grid .ov-clone[data-layout="split-flip"] { flex-direction: row-reverse; }
