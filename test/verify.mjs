@@ -30,6 +30,7 @@ const HARNESSES = [
   'engine-render',
   'pin-render',
   'pdf-render',
+  'import-render',
   'contrast',
   'palette-rules',
 ];
