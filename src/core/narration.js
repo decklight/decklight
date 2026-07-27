@@ -16,6 +16,9 @@
 
 import { createCharacter, concatTimelines } from './character.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import {
+  manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
+} from './voicetrack.js';
 
 /**
  * Should the "this deck has a voice-over" pill show on this load?
@@ -140,7 +143,13 @@ export function createNarration({
   try {
     const saved = JSON.parse(localStorage.getItem(narrKey));
     if (saved?.live?.voice) { liveCfg = saved.live; narrSet = LIVE_TRACK; }
-    else { const hit = narrSets.find((t) => t.dir === saved?.dir); if (hit) narrSet = hit; }
+    else {
+      // `track` is the key a manifest track can also be named by; `dir` is what
+      // every deck saved before manifests existed and still reads back
+      const want = saved?.track ?? saved?.dir;
+      const hit = narrSets.find((t) => trackKey(t) === want);
+      if (hit) narrSet = hit;
+    }
   } catch { /* ignore */ }
   let narrating = false, narrAudio = null;
   // voice speed — YouTube's ⇧< / ⇧> in 0.25× steps, clamped 0.25–2×,
@@ -416,6 +425,90 @@ export function createNarration({
     }
     return '🔇 voice bridge unreachable — auto-advance stopped · start it with: decklight tts';
   }
+  // ── manifest tracks — SPEC §8 ────────────────────────────────────────────
+  // A track can NAME its files instead of living in a directory. That is the
+  // whole of what presigned hosting needs: the signature rides in each file's
+  // query string, which a `dir` prefix has nowhere to put. See voicetrack.js.
+  const manifests = new Map();           // url -> promise of the parsed manifest
+  const resolvedManifests = new Map();   // url -> data, for callers that cannot await
+  const badManifests = new Set();        // asked once, failed; not re-asked on every re-render
+  let loaded = null;                     // { track, data } for the selected manifest track
+
+  /** A manifest `decklight bundle` inlined, because fetch is dead on file://. */
+  function bundledManifest(url) {
+    for (const el of document.querySelectorAll('script[type="application/json"][data-decklight-voices]')) {
+      if (el.getAttribute('data-decklight-voices') !== url) continue;
+      try { return JSON.parse(el.textContent); } catch { return null; }
+    }
+    return null;
+  }
+  function loadManifest(url) {
+    if (!manifests.has(url)) {
+      const inline = bundledManifest(url);
+      manifests.set(url, inline ? Promise.resolve(inline)
+        : fetch(url)
+          .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+          // a bucket hiccup must not be cached forever — evict, so V retries
+          .catch((e) => { manifests.delete(url); throw e; }));
+      manifests.get(url).then((d) => resolvedManifests.set(url, d)).catch(() => { /* reported at use */ });
+    }
+    return manifests.get(url);
+  }
+  /**
+   * The ☁ row's small print: where the audio lives, and for how long.
+   *
+   * The picker is the natural place to learn a track has days left rather than
+   * hours — so opening it fetches what it needs and re-renders when the answer
+   * lands, the same shape as the character view probing its bridge.
+   */
+  function manifestFlavor(t) {
+    const data = resolvedManifests.get(t.manifest);
+    if (!data) {
+      if (badManifests.has(t.manifest)) return 'hosted — the voice list did not load';
+      loadManifest(t.manifest)
+        .catch(() => badManifests.add(t.manifest))
+        .then(() => { if (narrEl && narrView === 'tracks') renderNarr('tracks'); });
+      return 'hosted — checking…';
+    }
+    const exp = expiryState(data);
+    if (!exp.at) return 'hosted · no expiry';
+    return exp.expired
+      ? `EXPIRED ${stampOf(exp.at)} — re-sign to play`
+      : `signed · ${timeLeft(exp.msLeft)}`;
+  }
+  /**
+   * Fetch the selected track's manifest and check its signatures BEFORE the
+   * first clip, the same posture as probing the live bridge: finding out from
+   * a failed slide is finding out too late. Returns false having already said
+   * why, so the caller just stops.
+   */
+  async function ensureTrack() {
+    if (!narrSet || narrSet.live || !narrSet.manifest) { loaded = null; return true; }
+    if (loaded?.track !== narrSet) {
+      try {
+        loaded = { track: narrSet, data: await loadManifest(narrSet.manifest) };
+      } catch (e) {
+        loaded = null;
+        stopNarration(`🔇 could not load the voice list for “${narrSet.label}”`
+          + ` (${narrSet.manifest} — ${e.message}) — auto-advance stopped`);
+        return false;
+      }
+    }
+    const exp = expiryState(loaded.data);
+    if (exp.expired) {
+      stopNarration(`🔇 the signed voices for “${narrSet.label}” expired ${stampOf(exp.at)}`
+        + ` — auto-advance stopped · re-sign: ${resignCommand(loaded.data)}`);
+      return false;
+    }
+    return true;
+  }
+  /** Where slide n plays from, for either kind of track — null for silence. */
+  function slideFileUrl(n) {
+    if (narrSet.manifest) return manifestSlideUrl(loaded?.data, narrSet.manifest, n);
+    // state.slide and the files are BOTH 1-based (slide-01 = first section).
+    // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
+    return `${narrSet.dir}/slide-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
+  }
   function playSlideFile() {
     if (!narrSet) return;
     if (narrSet.live) return playLive();
@@ -424,10 +517,10 @@ export function createNarration({
     // is 30 slides and 20 clips). Warning here would fire ten times on a deck
     // that is behaving perfectly — so only a slide that SHOULD speak can complain.
     if (!notesText(instance.state.slide)) { narrAudio?.pause(); return; }
+    const file = slideFileUrl(instance.state.slide);
+    // a manifest is the authority on what exists: no entry, nothing to play
+    if (!file) { narrAudio?.pause(); return; }
     narrAudio ??= new Audio();
-    // state.slide and the files are BOTH 1-based (slide-01 = first section).
-    // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
-    const file = `${narrSet.dir}/slide-${String(instance.state.slide).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
     narrAudio.src = file;
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
@@ -438,6 +531,19 @@ export function createNarration({
     // nothing on screen, an unnarrated slide is indistinguishable from a broken one
     narrAudio.onerror = () => {
       debugLog('narr', `no audio: ${file}`);
+      const exp = narrSet.manifest ? expiryState(loaded?.data) : null;
+      if (exp?.at) {
+        // A SIGNED file that will not load is the clock running out — a 403 for
+        // a lapsed or revoked signature. A media element never reports the
+        // status, so the deck cannot prove it; what it CAN do is stop (the
+        // voice is the clock) and name the one command that fixes the only
+        // cause worth naming.
+        debugLog('narr', 'signed url failed — a media element cannot report the status');
+        stopNarration(`🔇 slide ${instance.state.slide} of “${narrSet.label}” would not load`
+          + ` (signed until ${stampOf(exp.at)}) — auto-advance stopped`
+          + ` · re-sign: ${resignCommand(loaded?.data)}`);
+        return;
+      }
       toast(`🔇 no narration for slide ${instance.state.slide} (${file}) · press the key left of 1 for messages`);
     };
     narrAudio.play().catch(() => {
@@ -469,6 +575,9 @@ export function createNarration({
     // probeLive caches the promise — and a bridge that does not answer just
     // leaves the built-in roster in place, exactly as before.
     if (narrSet.live) await probeLive();
+    // and the recorded equivalent: a manifest track's file list and its
+    // signatures are settled before the first clip, not discovered by it
+    if (!await ensureTrack()) return;
     narrating = true;
     const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
     toast(`🔊 ${what} — V stops · N picks`);
@@ -593,7 +702,11 @@ export function createNarration({
   let narrEl = null, narrSel = 0, narrView = 'tracks', narrRows = [], liveDraft = null;
   function persistNarr() {
     try {
-      localStorage.setItem(narrKey, JSON.stringify(narrSet?.live ? { live: liveCfg } : { dir: narrSet?.dir }));
+      localStorage.setItem(narrKey, JSON.stringify(narrSet?.live
+        ? { live: liveCfg }
+        // dir stays in the payload so a deck rolled back to an older runtime
+        // still finds its track; `track` is the one that also names a manifest
+        : { track: trackKey(narrSet), dir: narrSet?.dir }));
     } catch { /* ignore */ }
   }
   function applyLive(toneLabel, styleText) {
@@ -743,9 +856,20 @@ export function createNarration({
     if (view === 'tracks') {
       head.textContent = 'narration';
       narrSets.forEach((t) => narrRows.push({
-        text: `🔊 ${t.label} (${t.dir}/)`,
+        text: t.manifest
+          // ☁ says the audio is not in this deck's folder; the countdown says
+          // how long that will keep being true. Both come from the manifest
+          // only once it has been loaded — before that, the row is honest
+          // about knowing only where to look.
+          ? `☁ ${t.label} <span class="narr-flavor">${manifestFlavor(t)}</span>`
+          : `🔊 ${t.label} (${t.dir}/)`,
+        html: !!t.manifest,
         cur: t === narrSet,
-        commit: () => { narrSet = t; persistNarr(); closeNarrPicker(); toast(`🔊 track: ${t.label}`); if (narrating) playSlideFile(); },
+        commit: () => {
+          narrSet = t; persistNarr(); closeNarrPicker(); toast(`🔊 track: ${t.label}`);
+          // switching tracks mid-narration: the new one may need its manifest
+          if (narrating) ensureTrack().then((ok) => { if (ok) playSlideFile(); });
+        },
       }));
       narrRows.push({
         text: '⚡ Live voice — synthesize on the fly…',

@@ -407,6 +407,31 @@ html = html.replace(
   if (seen.size) notices.push(`character visemes: inlined ${seen.size} slide timeline(s)`);
 }
 
+// --------------------------------------------- narration manifest tracks
+
+// A `manifest:` track is a fetch, and fetch is dead on file:// — so a bundle
+// that kept only the path would play nothing when opened from disk, which is
+// the one way bundles are most often opened. The manifest is a few KB of JSON
+// naming URLs, so it inlines under its own path, exactly like the viseme
+// sidecars above. The AUDIO stays in the bucket: that is the entire point of
+// the manifest, and inlining it would undo the feature.
+{
+  let n = 0;
+  const manifests = [...new Set(
+    [...html.matchAll(/\bmanifest\s*:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))];
+  for (const rel of manifests) {
+    const abs = path.resolve(deckDir, rel);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+      notices.push(`narration manifest: ${rel} not found — the bundle will fetch it at runtime`);
+      continue;
+    }
+    embeds.push(`<script type="application/json" data-decklight-voices="${rel.replace(/"/g, '&quot;')}">\n`
+      + `${scriptSafe(fs.readFileSync(abs, 'utf8'))}\n</script>`);
+    n++;
+  }
+  if (n) notices.push(`narration: inlined ${n} voice manifest(s) — the audio stays in its bucket`);
+}
+
 // -------------------------------------------------------------- assemble
 
 if (embeds.length) {
