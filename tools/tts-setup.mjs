@@ -20,7 +20,10 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
-import { createEngine, ENGINES, PIPER_DEFAULT_VOICE, piperModelDir } from './tts-engines.mjs';
+import {
+  createEngine, ENGINES, PIPER_DEFAULT_VOICE, piperModelDir,
+  piperDownloadCmd, piperDownloadLine,
+} from './tts-engines.mjs';
 import { gcloudToken, validProjectId } from './gemini-tts.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV, apiKey as elevenLabsKey } from './elevenlabs-tts.mjs';
 
@@ -160,14 +163,21 @@ export async function runSetupWizard({
     const voice = prefill.voice ?? PIPER_DEFAULT_VOICE;
     const models = piperModelDir(env);
     if (!existsSync(join(models, `${voice}.onnx`))) {
+      // the command is CHOSEN, not assumed: `uv tool install piper-tts` above
+      // puts piper in an isolated venv the ambient python cannot import from,
+      // so the plain `python -m piper.download_voices` we used to print here
+      // failed with ModuleNotFoundError on a machine that had just installed
+      // piper successfully — following our own instructions
+      const dl = piperDownloadCmd(voice, models);
       log(`  the ${voice} voice model is missing (~120 MB, one-time). the download is one command:`);
-      log(`    python -m piper.download_voices ${voice} --data-dir ${models}`);
+      log(`    ${piperDownloadLine(dl)}`);
+      if (!dl) return null;
       if (!yes(await ask('  run it now? [y/N] '), false)) {
         log('  fetch the model, then run: decklight tts');
         return null;
       }
       mkdirSync(models, { recursive: true });
-      if (!runCmd('python', ['-m', 'piper.download_voices', voice, '--data-dir', models])) {
+      if (!runCmd(dl.bin, dl.args)) {
         log('  download failed — nothing saved');
         return null;
       }

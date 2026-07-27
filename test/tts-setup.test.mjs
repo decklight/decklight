@@ -19,6 +19,7 @@ import {
   TEST_SENTENCE, ttsConfigPath, loadTtsConfig, saveTtsConfig,
   suggestEngine, runSetupWizard,
 } from '../tools/tts-setup.mjs';
+import { piperDownloadCmd, piperDownloadLine } from '../tools/tts-engines.mjs';
 import { writeFakePiper } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -172,10 +173,16 @@ test('an explicit yes runs the exact install and download commands', async () =>
     makeEngine: () => fakeEngine({ name: 'piper', model: 'en_US-ryan-high' }),
     play: () => {},
   });
-  assert.deepEqual(cmds, [
-    ['uv', 'tool', 'install', 'piper-tts'],
-    ['python', '-m', 'piper.download_voices', 'en_US-ryan-high', '--data-dir', models],
-  ]);
+  // The wizard installs piper into an ISOLATED venv (`uv tool install`), so the
+  // download has to run inside it. This assertion used to pin
+  // `python -m piper.download_voices …` — the command that cannot work after
+  // the line directly above it — which is how the bug survived: the test
+  // enshrined it instead of catching it.
+  assert.deepEqual(cmds[0], ['uv', 'tool', 'install', 'piper-tts']);
+  assert.equal(cmds.length, 2);
+  const [bin, ...args] = cmds[1];
+  assert.notEqual(bin, 'python', 'the ambient python cannot import a uv-installed piper');
+  assert.deepEqual(args.slice(-4), ['piper.download_voices', 'en_US-ryan-high', '--data-dir', models]);
   assert.deepEqual(result.config, { engine: 'piper', voice: 'en_US-ryan-high' });
 });
 
@@ -384,4 +391,33 @@ test('`decklight dev` on a TTY offers the same setup where it would skip the voi
   assert.match(out, /decklight tts bridge on http/, 'the bridge joined the same dev session');
   assert.doesNotMatch(out, /voice\s+skipped/, 'no skip line once setup completed');
   assert.deepEqual(loadTtsConfig({ HOME: home }), { engine: 'piper', voice: 'en_US-ryan-high' });
+});
+
+test('the piper download command is chosen for the machine, not assumed', () => {
+  // This was a real, shipped bug: decklight recommends `uv tool install
+  // piper-tts`, which installs into an ISOLATED venv, and then printed
+  // `python -m piper.download_voices …`, which the ambient python cannot
+  // resolve. Following decklight's own instructions produced
+  // ModuleNotFoundError on a machine where piper was installed and working.
+  const args = ['-m', 'piper.download_voices', 'en_US-ryan-high', '--data-dir', '/models'];
+
+  // pip-installed into the active environment: the plain form is correct
+  assert.deepEqual(
+    piperDownloadCmd('en_US-ryan-high', '/models', { canImport: (py) => py === 'python3', hasBin: () => true }),
+    { bin: 'python3', args });
+
+  // installed the way decklight recommends: uvx runs it inside that venv
+  assert.deepEqual(
+    piperDownloadCmd('en_US-ryan-high', '/models', { canImport: () => false, hasBin: (b) => b === 'uvx' }),
+    { bin: 'uvx', args: ['--from', 'piper-tts', 'python', ...args] });
+
+  // a python that CAN import piper wins over uvx — no need to spawn a resolver
+  assert.equal(
+    piperDownloadCmd('v', '/m', { canImport: () => true, hasBin: () => true }).bin, 'python3');
+
+  // neither: not a command, and the line says how to get one
+  assert.equal(piperDownloadCmd('v', '/m', { canImport: () => false, hasBin: () => false }), null);
+  assert.match(piperDownloadLine(null), /uv tool install piper-tts/);
+  assert.equal(
+    piperDownloadLine({ bin: 'uvx', args: ['--from', 'piper-tts'] }), 'uvx --from piper-tts');
 });

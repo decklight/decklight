@@ -17,7 +17,9 @@
 //   piper  — neural local TTS, fully offline, unlimited, free. --voice takes a
 //            piper model name (default en_US-ryan-high, a natural US male):
 //              uv tool install piper-tts
-//              python -m piper.download_voices en_US-ryan-high  (in --data-dir)
+//              uvx --from piper-tts python -m piper.download_voices en_US-ryan-high
+//              (into --data-dir; a plain `python -m …` only works when piper was
+//              pip-installed into the active environment, not `uv tool install`ed)
 //   chirp  — Chirp 3: HD on the Cloud Text-to-Speech API. Same 30 star-named
 //            voices as gemini, ~1s a sentence, and 1M characters a month free.
 //            No --style: Chirp has no delivery-instruction channel.
