@@ -22,6 +22,7 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import { createEngine, ENGINES, PIPER_DEFAULT_VOICE, piperModelDir } from './tts-engines.mjs';
 import { gcloudToken, validProjectId } from './gemini-tts.mjs';
+import { KEY_ENV as ELEVENLABS_KEY_ENV, apiKey as elevenLabsKey } from './elevenlabs-tts.mjs';
 
 // The picker's preview default (SPEC §8) — the wizard's proof is the same
 // audio the deck's N picker previews.
@@ -64,12 +65,15 @@ export function gcloudConfigProject() {
 }
 
 /**
- * The suggested default follows what the machine already has: piper on PATH
- * speaks for free today; a visible GCP project puts chirp one Enter away. A
- * bare machine suggests piper — the wizard can install it, and it is the only
- * engine with no bill attached.
+ * The suggested default follows what the machine already has. An ElevenLabs key
+ * in the environment is the strongest signal of the four: nobody exports one by
+ * accident, and it is the only engine that can speak in a voice that is yours.
+ * After that, piper on PATH speaks for free today and a visible GCP project puts
+ * chirp one Enter away. A bare machine suggests piper — the wizard can install
+ * it, and it is the only engine with no bill attached.
  */
 export function suggestEngine({ hasBin = binOnPath, env = process.env, project = null } = {}) {
+  if (elevenLabsKey(env)) return 'elevenlabs';
   if (hasBin('piper', env)) return 'piper';
   if (project) return 'chirp';
   return 'piper';
@@ -92,7 +96,7 @@ const yes = (answer, dflt) => (answer.trim() === '' ? dflt : /^y/i.test(answer.t
 
 // Menu order is a recommendation — free first — so it is NOT tts-engines'
 // ENGINES order (which keeps gemini first as the historical default).
-const MENU = ['piper', 'chirp', 'gemini'];
+const MENU = ['piper', 'chirp', 'gemini', 'elevenlabs'];
 
 /**
  * The guided setup. `ask` is `(prompt) => Promise<string>` and is required —
@@ -129,12 +133,13 @@ export async function runSetupWizard({
   log('    1) piper   free · offline · unlimited — one-time ~120 MB voice model download');
   log('    2) chirp   Google Cloud TTS — 30 voices, 1M chars/month free');
   log('    3) gemini  best delivery, honors a tone — billed, no free tier');
+  log(`    4) elevenlabs  your own account's voices, cloned ones included — needs $${ELEVENLABS_KEY_ENV}`);
   let engineName;
   for (;;) {
     const a = (await ask(`  engine [${MENU.indexOf(suggested) + 1}] `)).trim().toLowerCase();
     engineName = a === '' ? suggested : (MENU[Number(a) - 1] ?? (MENU.includes(a) ? a : undefined));
     if (engineName) break;
-    log(`    1, 2, 3 — or a name: ${MENU.join(', ')}`);
+    log(`    1, 2, 3, 4 — or a name: ${MENU.join(', ')}`);
   }
   const config = { engine: engineName };
 
@@ -168,6 +173,22 @@ export async function runSetupWizard({
       }
     }
     config.voice = voice;
+  } else if (engineName === 'elevenlabs') {
+    // The key is the whole prerequisite, and it is the one answer this wizard
+    // will not write down: config files get committed, and a key is not a
+    // preference. Name where to get it and where to put it, then move on.
+    if (!elevenLabsKey(env)) {
+      log(`  no ${ELEVENLABS_KEY_ENV} in the environment. create a key at`);
+      log('    https://elevenlabs.io/app/settings/api-keys');
+      log('  then export it (your shell profile is the right home for it — decklight');
+      log('  deliberately never writes it to its config file):');
+      log(`    export ${ELEVENLABS_KEY_ENV}=...`);
+      log('  then run: decklight tts');
+      return null;
+    }
+    // Which voice is a question the account answers, not the user: the roster
+    // arrives with the test synthesis below and the picker offers it, yours
+    // first. Nothing to ask, so nothing is asked.
   } else {
     // chirp and gemini are the same two checks: which project, and can a
     // token be minted. The id is validated here with the same rule the
@@ -193,11 +214,14 @@ export async function runSetupWizard({
   // 3. prove it: one real synthesis of the picker's preview sentence
   let engine;
   try {
-    engine = makeEngine({ engine: config.engine, project: config.project, voice: config.voice });
+    engine = makeEngine({ engine: config.engine, project: config.project, voice: config.voice, env });
     log(`  testing ${engine.name} · ${engine.model} — "${TEST_SENTENCE}" …`);
     const t0 = Date.now();
     const { wav, usage } = await engine.synth(TEST_SENTENCE, {});
     log(`  ✓ spoke in ${((Date.now() - t0) / 1000).toFixed(1)}s · ${usage.note} · ${engine.cost}`);
+    // an account roster is worth reporting: it is the reason to pick this engine
+    const roster = await engine.listVoices?.().catch(() => null);
+    if (roster) log(`  ${roster.length} voice(s) on this key — ${roster.slice(0, 3).map((v) => `${v.name} (${v.flavor})`).join(', ')}${roster.length > 3 ? ', …' : ''}`);
     play(wav, env);
   } catch (e) {
     engine?.synth.close?.();

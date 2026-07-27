@@ -81,6 +81,20 @@ export function createNarration({
         liveStylable = p.stylable !== false;
         debugLog('tts', `bridge: ${p.engine} · ${p.model} · ${liveVoices.length} voice(s)`
           + (liveStylable ? '' : ' · no style'));
+        // A saved voice the LIVE bridge cannot speak is stale, not a choice: it
+        // was picked for a different engine (the Gemini roster is the default,
+        // and an ElevenLabs key knows none of those names). Sending it anyway
+        // makes the first V a failure for a setting nobody remembers making, so
+        // the roster wins and the first voice — for ElevenLabs, one of YOURS —
+        // takes over. Said out loud, because a voice changing on its own is
+        // exactly the kind of thing that should never be silent.
+        if (liveVoices.length && !liveVoices.some(([n]) => n === liveCfg.voice)) {
+          const was = liveCfg.voice;
+          liveCfg = { ...liveCfg, voice: liveVoices[0][0] };
+          persistNarr();
+          debugLog('tts', `voice ${was} is not on this bridge — using ${liveCfg.voice}`);
+          if (narrSet?.live) toast(`voice ${was} → ${liveCfg.voice} (this bridge speaks its own roster)`, 2600);
+        }
         return p;
       })
       .catch(() => null); // no bridge — the picker still works, V just warns
@@ -423,9 +437,15 @@ export function createNarration({
     debugLog('narr', msg);
     syncSoundBtn();
   }
-  function toggleNarration() {
+  async function toggleNarration() {
     if (!narrSet) { openNarrPicker(narrSets.length ? 'tracks' : 'voices'); return; }
     if (narrating) return stopNarration();
+    // Ask the bridge who it is BEFORE speaking, not just when the picker opens:
+    // the saved voice may belong to another engine entirely, and finding that
+    // out from a failed sentence is finding out too late. One request, ever —
+    // probeLive caches the promise — and a bridge that does not answer just
+    // leaves the built-in roster in place, exactly as before.
+    if (narrSet.live) await probeLive();
     narrating = true;
     const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
     toast(`🔊 ${what} — V stops · N picks`);

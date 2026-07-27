@@ -2,10 +2,15 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The voices decklight can speak with. One factory, three engines, one shape:
+// The voices decklight can speak with. One factory, four engines, one shape:
 //
 //   createEngine({ engine, … }) → { name, model, voices, needsProject,
 //                                   synth(text, { voice, style }) → { wav, usage } }
+//
+// `voices` is the roster the player's picker offers. Three engines know theirs
+// up front; ElevenLabs cannot, because the interesting ones are the voices YOU
+// made — so it also returns `listVoices()`, an async, cached lookup the bridge
+// awaits before answering /ping. An engine without it just has `voices`.
 //
 //   gemini — gemini-2.5-{pro,flash}-tts on Vertex AI. Best delivery, and the
 //            only engine that takes a STYLE instruction. No free tier, and a
@@ -18,6 +23,10 @@
 //            ignored: Chirp has no delivery-instruction channel.
 //   piper  — local neural TTS. Free, offline, unlimited, no credentials. One
 //            voice per installed model, so the picker's roster doesn't apply.
+//   elevenlabs — the one whose roster is YOUR account's, cloned voices included.
+//            Needs $ELEVENLABS_API_KEY (never saved to disk). Metered in
+//            characters against a plan allowance we cannot see, so it reports
+//            characters and no dollar estimate.
 //
 // Cost is always an ESTIMATE from published list prices. Chirp's estimate is
 // the list price *ignoring* the free tier — we cannot see your monthly usage,
@@ -29,8 +38,9 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
+import { createSynth as createElevenLabs, apiKey as elevenLabsKey, DEFAULT_MODEL as ELEVENLABS_MODEL } from './elevenlabs-tts.mjs';
 
-export const ENGINES = ['gemini', 'chirp', 'piper'];
+export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs'];
 
 // Piper's defaults, shared with the setup wizard (tools/tts-setup.mjs) so the
 // model it checks for is the model createPiper will load.
@@ -245,7 +255,7 @@ function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
  * roster for the cloud engines, and for piper the single installed model —
  * offering 30 Gemini names it cannot speak would just be a lie.
  */
-export function createEngine({ engine = 'gemini', project, model, location, voice, dataDir, lang } = {}) {
+export function createEngine({ engine = 'gemini', project, model, location, voice, dataDir, lang, format, env = process.env } = {}) {
   if (!ENGINES.includes(engine)) throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')}`);
 
   // `cost` is the human-facing price note — the bridge's startup line and the
@@ -257,6 +267,18 @@ export function createEngine({ engine = 'gemini', project, model, location, voic
       cost: 'free · offline',
       voices: [[m, 'local']],
       synth: createPiper({ voice: m, dataDir }),
+    };
+  }
+  if (engine === 'elevenlabs') {
+    const m = model ?? ELEVENLABS_MODEL;
+    const { listVoices, synth } = createElevenLabs({ key: elevenLabsKey(env), model: m, format: format ?? 'pcm' });
+    return {
+      name: 'elevenlabs', model: m, needsProject: false, stylable: false,
+      cost: 'metered in characters against your plan',
+      // the real roster arrives from the account; until it does the picker has
+      // nothing truthful to show, which is better than thirty names it cannot say
+      voices: [], listVoices,
+      synth,
     };
   }
   if (engine === 'chirp') {

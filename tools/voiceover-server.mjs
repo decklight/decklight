@@ -10,10 +10,11 @@
 //   GET  /voices  → [[name, flavor], …]
 //   POST /tts     → audio/wav                                 { text, voice, style }
 //
-//   decklight tts [--port 8787] [--engine gemini|chirp|piper]
+//   decklight tts [--port 8787] [--engine gemini|chirp|piper|elevenlabs]
 //                 [--project <id>]              (or set GOOGLE_CLOUD_PROJECT)
 //                 [--tts-model gemini-2.5-flash-tts] [--location global]
 //                 [--voice en_US-ryan-high] [--data-dir <dir>] [--lang en-US]
+//                 [--tts-format pcm|mp3]        (elevenlabs)
 //                 [--setup]                     (re-run the guided setup)
 //
 // First run: with nothing configured on a terminal, tts walks through the
@@ -24,9 +25,11 @@
 //
 // Engines differ in what they cost and what they can be told (tts-engines.mjs):
 // gemini takes a style instruction and has no free tier; chirp is ~1s a
-// sentence with 1M free chars a month; piper is offline and unlimited. /ping
+// sentence with 1M free chars a month; piper is offline and unlimited;
+// elevenlabs speaks your account's own voices, cloned ones included. /ping
 // reports which one is live, so the player's picker offers only voices this
-// bridge can actually speak.
+// bridge can actually speak — which for ElevenLabs means asking the account
+// first, so /ping and /voices await that lookup rather than guessing.
 //
 // CORS is wide open (decks run on file://, origin "null") — the server binds
 // 127.0.0.1 only. Responses are cached in memory by (text, voice, style), so
@@ -44,13 +47,17 @@ export async function ttsMain(args) {
   if (args.includes('--help')) {
     console.log(`usage: decklight tts [--port 8787] [--engine ${ENGINES.join('|')}] [--project <id>]
                      [--tts-model id] [--location global] [--voice name] [--data-dir dir] [--lang en-US]
-                     [--setup]
+                     [--tts-format pcm|mp3] [--setup]
 
   gemini  gemini-2.5-pro-tts (default) or --tts-model gemini-2.5-flash-tts — Vertex AI, best
           delivery, the only engine that honors a style instruction. No free tier.
   chirp   Chirp 3: HD on the Cloud Text-to-Speech API — same 30 voices, ~1s a sentence,
           1M characters a month free. Needs texttospeech.googleapis.com enabled.
   piper   local neural TTS — offline, unlimited, no credentials, no cost.
+  elevenlabs  your ElevenLabs account's own voices — the ones you cloned included, listed
+          first in the picker. Needs $ELEVENLABS_API_KEY (never written to disk).
+          --tts-model eleven_multilingual_v2 (default) / eleven_turbo_v2_5 for latency.
+          --tts-format mp3 if your plan has no PCM output (costs you ⇧V and lip-sync).
 
   project also read from $GOOGLE_CLOUD_PROJECT (gemini and chirp only)
 
@@ -94,6 +101,7 @@ export async function ttsMain(args) {
         voice: opt('--voice') ?? savedFor?.voice,
         dataDir: opt('--data-dir') ?? savedFor?.dataDir,
         lang: opt('--lang'),
+        format: opt('--tts-format') ?? savedFor?.format,
       });
     } catch (e) {
       // an explicit --engine/--project is a hand on the wheel — fail exactly
@@ -110,6 +118,13 @@ export async function ttsMain(args) {
     }
   }
 
+  // ElevenLabs' roster belongs to the account, so it is a network call, not a
+  // constant. Cached inside the engine; this just picks whichever kind of
+  // answer the live engine has.
+  const voiceRoster = async () => (engine.listVoices
+    ? (await engine.listVoices()).map((v) => [v.name, v.flavor])
+    : engine.voices);
+
   const cache = new Map();
 
   // the player reads the cost estimate for its debug window
@@ -120,18 +135,24 @@ export async function ttsMain(args) {
   const server = createServer(async (req, res) => {
     if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
     if (req.method === 'GET' && req.url === '/ping') {
+      // A roster the bridge cannot fetch is not a reason to report itself dead:
+      // the player falls back to its built-in list, and a synth would say why.
+      const voices = await voiceRoster().catch((e) => {
+        console.error(`  voices: ${String(e.message ?? e).slice(0, 160)}`);
+        return [];
+      });
       res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
       return res.end(JSON.stringify({
         ok: true,
         engine: engine.name,
         model: engine.model,
         stylable: engine.stylable, // gemini alone can be told HOW to say it
-        voices: engine.voices,     // piper speaks one voice, not the star roster
+        voices,                    // piper speaks one voice, not the star roster
       }));
     }
     if (req.method === 'GET' && req.url === '/voices') {
       res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
-      return res.end(JSON.stringify(engine.voices));
+      return res.end(JSON.stringify(await voiceRoster()));
     }
     if (req.method === 'POST' && req.url === '/tts') {
       try {
@@ -154,15 +175,21 @@ export async function ttsMain(args) {
           totalChars += u.chars ?? text.length;
           // chirp's free tier is denominated in CHARACTERS, so show those too —
           // a dollar estimate alone would read as a bill for something free
+          // A dollar figure is only honest where a list price exists. Chirp has
+          // one behind a free tier; ElevenLabs meters characters against a plan
+          // rate we cannot see, so it gets characters and no invented number.
           const spend = engine.name === 'chirp'
             ? `${(totalChars / 1000).toFixed(1)}k/1000k free chars this month · ~$${totalCost.toFixed(4)} list`
-            : `~$${u.cost.toFixed(4)} (session ~$${totalCost.toFixed(4)})`;
+            : engine.name === 'elevenlabs'
+              ? `${totalChars} chars this session · billed against your plan`
+              : `~$${u.cost.toFixed(4)} (session ~$${totalCost.toFixed(4)})`;
           console.log(`${((Date.now() - t0) / 1000).toFixed(1)}s · ${u.note} · ${spend}`);
         }
         const { wav, usage } = cache.get(key);
         res.writeHead(200, {
           ...CORS,
-          'content-type': 'audio/wav',
+          // mp3 is an ElevenLabs opt-in; every other path is a real WAV
+          'content-type': engine.synth.mimeType ?? 'audio/wav',
           // cost is charged once, at synthesis — cache replays are free
           'x-tts-cost': fresh ? usage.cost.toFixed(6) : '0',
           'x-tts-tokens': usage.note ?? '',
