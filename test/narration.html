@@ -27,13 +27,14 @@
 
   <script>
     // ── mock <audio>: every clip "plays" and ends on the next tick ───────────
+    window.__audioSrcs = [];   // every URL the deck actually asked for
     window.Audio = class {
       constructor() {
         this.onended = null; this.onerror = null; this.paused = true; this.ended = false;
         this.currentTime = 0; this.playbackRate = 1; this._src = '';
       }
       get src() { return this._src; }
-      set src(v) { this._src = v; this.ended = false; }
+      set src(v) { this._src = v; this.ended = false; window.__audioSrcs.push(v); }
       play() {
         this.paused = false;
         // only slide-01 and slide-04 have files. slide-02 was never generated (no
@@ -68,12 +69,38 @@
     // which leaves the deck believing a live-reload server is up — and a fetch
     // left pending freezes Chrome's virtual clock, so the page hangs forever
     // instead of failing. Match this bridge, and only this bridge.
+    // ── mock manifest: a signed track, either still good or lapsed ───────────
+    // The URLs are absolute and carry a query string, which is the whole point
+    // of a manifest — a signature cannot be a directory prefix — so this also
+    // proves the runtime hands them to <audio> untouched.
+    const SIGNED = (n) => `https://signed.example/showcase/algenib/slide-${n}.m4a`
+      + '?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=deadbeef%2Fcafe';
+    const MANIFEST_PATH = 'test-manifest.json';
+    const manifestBody = () => JSON.stringify({
+      engine: 'gemini',
+      voice: 'Algenib',
+      source: 'voices/algenib',
+      bucket: 'gs://dl-voices/showcase',
+      signDuration: '7d',
+      expires: new Date(Date.now() + (mode === 'expired' ? -3600e3 : 3 * 86400e3)).toISOString(),
+      slides: [
+        { file: 'slide-01.m4a', hash: 'a', url: SIGNED('01') },
+        null,                                   // slide 2 has no notes and no file
+        { file: 'slide-03.m4a', hash: 'c', url: SIGNED('03') },
+        { file: 'slide-04.m4a', hash: 'd', url: SIGNED('04') },
+      ],
+    });
+
     const BRIDGE = 'http://127.0.0.1:8899';
     // .bind: an unbound window.fetch called as a bare function throws "Illegal
     // invocation", so every non-bridge request would die in the fallthrough
     const realFetch = window.fetch.bind(window);
     window.fetch = async (url, opts) => {
       const u = String(url);
+      // the manifest is a real relative fetch, which file:// would refuse
+      if (u.endsWith(MANIFEST_PATH)) {
+        return new Response(manifestBody(), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       if (!u.startsWith(BRIDGE)) return realFetch(url, opts);
       if (u.endsWith('/ping')) {
         const roster = mode === 'roster'
@@ -101,10 +128,12 @@
     // pick the voice exactly as the N picker persists it — a recorded TRACK for
     // the recorded case, the live bridge otherwise (a persisted live voice wins
     // over config.narration.files, which is what made this test lie the first time)
+    const manifestDeck = mode === 'manifest' || mode === 'expired';
     const recordedDeck = mode === 'recorded' || mode === 'hint';
-    localStorage.setItem(key, JSON.stringify(recordedDeck
-      ? { dir: 'voices' }
-      : { live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
+    localStorage.setItem(key, JSON.stringify(
+      manifestDeck ? { track: MANIFEST_PATH }
+        : recordedDeck ? { dir: 'voices' }
+          : { live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
     // the hint is once-per-deck FOREVER, so a previous run of this harness
     // would otherwise suppress it and the mode would pass by doing nothing
     if (mode === 'hint') localStorage.removeItem('decklight-narr-used:' + location.pathname);
@@ -115,6 +144,7 @@
       // slide 3 has notes but its file is missing (that IS worth saying)
       cfg.narration = { files: [{ label: 'Test', dir: 'voices' }] };
     }
+    if (manifestDeck) cfg.narration = { files: [{ label: 'Algenib · cloud', manifest: MANIFEST_PATH }] };
     if (mode === 'modules') {
       cfg.playlist = {
         index: 0,
@@ -235,6 +265,52 @@
           r.PASS = r.beforeDelay && r.shown && r.readsRight && r.namesTheKey && r.isAButton
             && r.faded && r.inLog && r.noDoubleToast && r.clickStartsVoice
             && r.goneAfterClick && r.remembered;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (manifestDeck) {
+          // A manifest track's whole reason to exist is that the URL it plays
+          // cannot be derived from a directory — so the thing to prove is that
+          // the deck asks for the URL it was GIVEN, character for character.
+          const expired = mode === 'expired';
+          deck.toggleNarration();                        // V — fetches, then checks
+          await new Promise((ok) => setTimeout(ok, 600));
+
+          const msgs = () => deck.messages().map((m) => m.text);
+          r.expiredCase = expired;
+          r.asked = window.__audioSrcs.slice();
+
+          if (expired) {
+            // the voice is the clock: a lapsed signature stops the deck like a
+            // 429 or a dead bridge, and names the command that fixes it
+            r.playedNothing = r.asked.length === 0;
+            r.didNotAdvance = deck.state.slide === 1;   // the same proof the 429 case uses
+            r.saidExpired = msgs().some((m) => /expired/.test(m));
+            r.namedResign = msgs().some((m) => /publish-voices\.mjs voices\/algenib --bucket gs:\/\/dl-voices\/showcase --sign 7d/.test(m));
+            r.lastMessage = msgs()[msgs().length - 1] ?? '';
+            r.PASS = r.playedNothing && r.didNotAdvance && r.saidExpired && r.namedResign;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
+
+          r.playedSigned = r.asked[0] === SIGNED('01');
+          r.keptTheQuery = /X-Goog-Signature=deadbeef%2Fcafe$/.test(r.asked[0] ?? '');
+          r.noComplaint = !msgs().some((m) => /🔇/.test(m));
+
+          // slide 2 is a null entry AND has no notes — silence, not a warning
+          deck.goto(2, 0);
+          await new Promise((ok) => setTimeout(ok, 300));
+          r.quietOnNullSlide = window.__audioSrcs.length === 1
+            && !msgs().some((m) => /no narration/.test(m));
+
+          // slide 3 is a different entry entirely — its own signed URL
+          deck.goto(3, 0);
+          await new Promise((ok) => setTimeout(ok, 300));
+          r.perSlideUrls = window.__audioSrcs[1] === SIGNED('03');
+
+          r.PASS = r.playedSigned && r.keptTheQuery && r.noComplaint
+            && r.quietOnNullSlide && r.perSlideUrls;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

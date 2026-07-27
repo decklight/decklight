@@ -36,11 +36,21 @@ function run(mode, extra = '') {
 
 let bad = 0;
 for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster',
-  'hint', 'hint&print']) {
+  'hint', 'hint&print', 'manifest', 'expired']) {
   const [m, extra] = mode.split('&');
   const r = run(m, extra ? `&${extra}` : '');
   const ok = r.PASS === true;
   if (!ok) bad++;
+  if (m === 'manifest' || m === 'expired') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} `
+      + (r.expiredCase
+        ? `played nothing=${r.playedNothing} held=${r.didNotAdvance}`
+          + ` said expired=${r.saidExpired} named re-sign=${r.namedResign}`
+        : `signed url verbatim=${r.playedSigned && r.keptTheQuery}`
+          + ` · per-slide=${r.perSlideUrls} null slide quiet=${r.quietOnNullSlide}`)
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
   if (m === 'hint') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} `
       + (r.printing
