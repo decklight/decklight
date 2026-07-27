@@ -8,6 +8,7 @@
  *   decklight rec      record a terminal cast from a YAML script
  *   decklight refresh  re-run embedded scripts, rewrite drifted casts
  *   decklight export   convert a cast to asciicast v2
+ *   decklight pdf      render a deck to a PDF — one slide per page, no print dialog
  *   decklight bundle   flatten a deck into one self-contained HTML file
  *   decklight upgrade  bring a self-contained deck's inlined runtime up to the installed version
  *   decklight publish  bundle a deck and push it to a gh-pages branch
@@ -48,6 +49,8 @@ Commands:
            EXAMPLE: decklight restore deck.html a1b2c3d  (restore, as a new commit on top)
   upgrade  bring a self-contained deck's inlined runtime + themes up to the installed version, in place
            EXAMPLE: decklight upgrade deck.html --dry-run   (see what would change; drop the flag to apply)
+  pdf      render the deck to a PDF — one slide per page, at its own size, in its theme
+           EXAMPLE: decklight pdf deck.html   (writes deck.pdf; --theme exports in another)
   publish  bundle a deck and push it to GitHub Pages — deck to shareable URL in one command
            EXAMPLE: decklight publish deck.html   (prints https://owner.github.io/repo/)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
@@ -133,6 +136,11 @@ switch (cmd) {
   case 'upgrade': {
     const { upgradeMain } = await import('./upgrade.mjs');
     await upgradeMain(rest);
+    break;
+  }
+  case 'pdf': {
+    const { pdfMain } = await import('./pdf.mjs');
+    process.exitCode = await pdfMain(rest);
     break;
   }
   case 'publish': {
