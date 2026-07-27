@@ -31,7 +31,15 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // the HTML `disabled` attribute on <style> is non-functional per spec (only
   // the IDL property works), so media is the declarative mechanism; both
   // forms are normalized here for tolerant authoring.
-  const themeStyles = [...document.querySelectorAll('style[data-theme]')];
+  // `decklight theme add` installs a third-party theme as a <style data-theme
+  // data-theme-added> block. Those are held apart from the deck's OWN theme
+  // blocks deliberately: a link-mode deck that gained one would otherwise flip
+  // to inline mode and its entire theme list would collapse to that one added
+  // file. They behave like saved customs instead — extra entries that apply by
+  // winning the cascade, in either mode.
+  const themeStyles = [...document.querySelectorAll('style[data-theme]:not([data-theme-added])')];
+  const addedStyles = [...document.querySelectorAll('style[data-theme][data-theme-added]')];
+  const addedThemes = new Set(addedStyles.map((s) => s.dataset.theme).filter(Boolean));
   const inlineThemes = themeStyles.length > 0;
   const themeLink = inlineThemes ? null
     : document.querySelector('link[rel="stylesheet"][href*="themes/"]');
@@ -73,13 +81,17 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     if (kind === 'generated') genStyle = el; else customStyles[name] = el;
     return el;
   }
+  // added themes join this set: like a custom, an added theme applies by
+  // sitting later in <head> than the deck's own theme, so turning one off is
+  // the same act as turning off a custom
+  const overrideStyles = () => [genStyle, ...Object.values(customStyles), ...addedStyles];
   function deactivateTokenStyles(exceptEl) {
-    for (const el of [genStyle, ...Object.values(customStyles)]) {
+    for (const el of overrideStyles()) {
       if (el && el !== exceptEl) el.media = 'not all';
     }
   }
   const activeTokenStyle = () =>
-    [genStyle, ...Object.values(customStyles)].find((el) => el && el.media !== 'not all') || null;
+    overrideStyles().find((el) => el && el.media !== 'not all') || null;
 
   const currentTheme = () => {
     const tokenStyle = activeTokenStyle();
@@ -115,6 +127,10 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       const el = ensureTokenStyle(name, customThemes[name], 'custom');
       el.media = 'all';
       deactivateTokenStyles(el);
+    } else if (addedThemes.has(name)) {
+      const el = addedStyles.find((s) => s.dataset.theme === name);
+      el.media = 'all';
+      deactivateTokenStyles(el);
     } else {
       if (!hasThemes) return;
       deactivateTokenStyles(null); // stock theme takes over
@@ -137,10 +153,14 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   }
   // ── theme packs (SPEC §8) — baked from themes/packs.json at build time ────
   const PACKS = typeof __DECKLIGHT_PACKS__ !== 'undefined' ? __DECKLIGHT_PACKS__ : null;
-  const packLabel = (p) => PACKS?.labels?.[p] ?? p;
+  // the dynamic packs are not in packs.json — they exist only when a deck has
+  // something in them, so they carry their labels here
+  const DYNAMIC_LABELS = { added: 'Added', custom: 'Custom', generated: 'Generated' };
+  const packLabel = (p) => PACKS?.labels?.[p] ?? DYNAMIC_LABELS[p] ?? p;
   function packOf(name) {
     if (customThemes[name]) return 'custom';
     if (genTheme && name === genTheme.name) return 'generated';
+    if (addedThemes.has(name)) return 'added';
     if (PACKS) {
       for (const [p, names] of Object.entries(PACKS.packs)) {
         if (names.includes(name)) return p;
@@ -159,7 +179,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       list = config.themes?.length ? config.themes
         : (typeof __DECKLIGHT_THEMES__ !== 'undefined' ? __DECKLIGHT_THEMES__ : []);
     }
-    const extras = Object.keys(customThemes);
+    const extras = [...addedThemes, ...Object.keys(customThemes)];
     if (genTheme && !customThemes[genTheme.name]) extras.push(genTheme.name);
     list = [...list, ...extras.filter((n) => !list.includes(n))];
     if (PACKS) {
@@ -179,7 +199,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       const names = (PACKS.packs[p] ?? []).filter((n) => list.includes(n));
       if (names.length) out.push([p, names]);
     }
-    for (const extra of ['custom', 'generated']) {
+    for (const extra of ['added', 'custom', 'generated']) {
       const names = list.filter((n) => packOf(n) === extra);
       if (names.length) out.push([extra, names]);
     }
@@ -400,6 +420,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         row.textContent = name;
         const extra = customThemes[name] ? 'custom'
           : (genTheme && name === genTheme.name) ? 'generated'
+          : addedThemes.has(name) ? 'added'
           : pickerFilter && PACKS ? packLabel(packOf(name)) : null;
         if (extra) tag(row, extra);
       }
