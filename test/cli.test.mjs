@@ -1156,6 +1156,21 @@ test('the always-loaded skill tells agents to render and check for clipped slide
   assert.match(agents, /overflows/);
 });
 
+test('the skill names the comparison recipe and its one trap', () => {
+  // The recipe's ABSENCE is what produced the deck that shipped broken: with no
+  // canonical markup for the most common structured slide, the author hand-rolled
+  // a flex shell AND left data-layout="split" on the same section, and the two
+  // layout systems fought until the title sat on the column headings.
+  const md = claudeSkillMd();
+  assert.match(md, /data-layout="split"/);
+  // the wording may rewrap; match on words that survive a reflow
+  assert.match(md, /do not also write/i);
+  assert.match(md, /your own column flexbox/i);
+  assert.match(md, /full-width footer/);
+  assert.match(md, /§1\.2/, 'and points at the worked markup');
+  assert.match(md, /§1\.1/, 'and at the density guidance');
+});
+
 test('init states the commit policy when it creates a repository', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitmode-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

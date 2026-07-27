@@ -53,6 +53,69 @@ Speaker notes in markdown slides.
 - **Subtitle**: the `<p>` immediately following a slide's leading `h1`/`h2` is auto-marked `.subtitle` and gets one canonical look (muted, 0.72em) whether the slide is markdown- or HTML-authored. Opt out per slide with `data-subtitle="none"` on the section; an author-placed `class="subtitle"` is respected as-is. Don't bake subtitle text into diagram SVGs — author it as this `<p>` so it themes and scales with the deck.
 - **Background media**: `data-background-image="hero.jpg"` on a section renders the image full-bleed behind the slide's content — `data-background-size="cover|contain"` (default cover), `data-background-position` (default center). `data-background-dim="0.5"` lays a canvas-colored (`--bg`) overlay between the media and the content so text stays readable over arbitrary photos. `data-background-video="clip.mp4"` plays a muted looping `playsinline` clip while the slide is active — play/pause is driven from the engine's slide event, so a deactivated slide's video is *paused*, not merely hidden; `data-background-poster="poster.jpg"` is its stand-in still (required for print, §8). The engine injects the layer as an idempotent `.slide-bg` first child on `sync()` — absolutely positioned below the content, so backgrounds never count against the overflow guardrail (§8) and transitions/auto-animate carry them for free. `class="full-bleed"` on an `<img>` gives a *content* image the same cover-the-slide treatment (absolute inset-0, object-fit cover, under the in-flow text); images inside split layouts (§8) are capped (object-fit contain, max-height) so a tall photo can't blow the slide. `decklight bundle` inlines `data-background-image`/`data-background-poster` as data: URIs like `<img src>`; background videos stay external with a CLI notice (§8).
 
+### 1.1 How much goes on a slide
+
+The overflow guardrail (§8) is the **late** failure. It fires once content is
+already clipped, which is a different and worse problem than "fits, but nobody
+can read it from the back of the room". Nothing catches the second one for you,
+so it is a rule rather than a check:
+
+- **One idea per slide.** If the title needs an "and", it is two slides.
+- **~3–4 bullets, or ~2 short paragraphs, per column.** Past that, split the
+  slide rather than shrinking the type.
+- **Prefer one slide per item being compared** over grouping two or three items
+  onto a single slide with sub-columns each. Grouping multiplies
+  content-per-slide fast, and it is how a deck ends up technically renderable
+  and practically unreadable.
+- A slide that has been adapted with `style="font-size:0.85em"` to make things
+  fit is telling you something. Take the note.
+
+This matters most for an agent authoring twenty slides in one pass with no
+human looking until the end — the failure is invisible to every check that
+exists, because every slide renders.
+
+### 1.2 Comparison slides (pros / cons, this-vs-that)
+
+The most common structured slide, and the one with a trap in it. Use `split`
+(§8) with **two sibling blocks and an optional third as a footer**:
+
+```html
+<section data-layout="split">
+  <h2>git</h2>
+  <p>Distributed version control — the substrate everything else sits on.</p>
+
+  <div>
+    <h3>Pros</h3>
+    <ul><li>Fast, offline, ubiquitous</li><li>Scriptable end to end</li></ul>
+  </div>
+
+  <div>
+    <h3>Cons</h3>
+    <ul><li>Sharp edges around rebase</li><li>Submodules</li></ul>
+  </div>
+
+  <p><strong>Alternatives:</strong> Mercurial; Jujutsu</p>
+
+  <aside class="notes">Pros first, then the two that bite. ⟨CLICK⟩ Alternatives briefly.</aside>
+</section>
+```
+
+The two `<div>`s become the columns and **share a top edge**; the trailing `<p>`
+becomes a full-width centred footer under both. Nothing else is needed — in
+particular:
+
+> **Do not combine `data-layout="split"` with your own column flexbox.** A
+> hand-rolled `display:flex` shell inside a section that also carries
+> `data-layout="split"` gives the slide two layout systems arguing: the split
+> row's own alignment overrides the space `[data-pinned]` reserves for the
+> pinned title, the columns shrink, every bullet wraps, and the footer is
+> pushed off the bottom. Pick one — `split`, or your own shell with **no**
+> `data-layout`. This is a real deck that shipped that way; the overflow
+> guardrail caught it, which is why §8 asks you to check.
+
+Three columns is deliberately not a shape here (§8). Two and a footer, or
+another slide — see §1.1 for why.
+
 ## 2. Builds (Keynote-style; Reveal calls these fragments)
 
 Design goal: **the container opts in, the engine does the rest** — one attribute on the
