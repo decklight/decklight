@@ -30,6 +30,7 @@ import { validProjectId } from '../tools/gemini-tts.mjs';
 import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
 import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
+import { detectLocalVoice, OLLAMA_NOTE } from '../tools/local-voice.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
@@ -95,7 +96,10 @@ const VALUE_FLAGS = new Set([
  * Returns { deck, run: [{name, tag, args, url}], skip: [{name, why}],
  * agents: [names the machine can run] }.
  */
-export function planServices({ args = [], env = process.env, hasBin = onPath, saved = null } = {}) {
+export function planServices({
+  args = [], env = process.env, hasBin = onPath, saved = null,
+  detect = detectLocalVoice, ollama = false,
+} = {}) {
   const { opt, opts } = argReader(args);
   const has = (flag) => args.includes(flag);
   const pass = (flag) => (opt(flag) !== undefined ? [flag, opt(flag)] : []);
@@ -128,12 +132,30 @@ export function planServices({ args = [], env = process.env, hasBin = onPath, sa
   // be started at all: the Google ones need a project, ElevenLabs needs a key,
   // and piper needs neither, only the binary
   const ttsPort = opt('--tts-port', '8787');
-  const ttsEngine = opt('--tts-engine', saved?.engine ?? 'gemini');
   const project = opt('--project', env.GOOGLE_CLOUD_PROJECT ?? saved?.project);
+
+  // Nothing chosen, nothing saved, no cloud credential: rather than default to
+  // an engine that will be skipped for want of a project, ask the machine what
+  // it can already say. Every desktop OS ships a synthesizer, and on current
+  // ones it is neural — free, offline, and nothing to download. An explicit
+  // --tts-engine, a saved engine, or a project all win over this: flags decide,
+  // detection only fills a vacuum.
+  const chosen = opt('--tts-engine', saved?.engine);
+  const native = chosen || project ? null : detect({ lang: opt('--lang') });
+  // Only a NATIVE voice is claimed automatically. It is the one engine that
+  // needs no setup at all — no install, no download, no credential — so using
+  // it silently costs the presenter nothing. piper is deliberately NOT picked
+  // here even when it is on PATH: it needs a toolchain and a ~120 MB model, and
+  // choosing it behind the user's back would skip the first-run wizard that
+  // exists to make (and save) exactly that choice.
+  const ttsEngine = chosen ?? native?.engine ?? 'gemini';
   const cloudVoice = ttsEngine === 'gemini' || ttsEngine === 'chirp';
   const ttsArgs = () => [
     'tts', '--port', ttsPort,
-    ...(has('--tts-engine') || saved?.engine ? ['--engine', ttsEngine] : []),
+    // also when DETECTION chose the engine: without this the bridge would be
+    // started with no --engine and fall back to its own default, so a machine
+    // picked for its system voice would try to reach Vertex AI instead
+    ...(has('--tts-engine') || saved?.engine || ttsEngine !== 'gemini' ? ['--engine', ttsEngine] : []),
     ...(cloudVoice ? ['--project', project] : []),
     ...pass('--tts-model'), ...pass('--location'),
     ...pass('--voice'), ...pass('--data-dir'), ...pass('--lang'), ...pass('--tts-format'),
@@ -149,7 +171,15 @@ export function planServices({ args = [], env = process.env, hasBin = onPath, sa
     // place it can come from — say that, and where to make one.
     skip.push({ name: 'voice', why: `elevenlabs needs $${ELEVENLABS_KEY_ENV} — create a key at https://elevenlabs.io/app/settings/api-keys and export it` });
   } else if (cloudVoice && !project) {
-    skip.push({ name: 'voice', why: `${ttsEngine} needs a GCP project — pass --project <id>, set GOOGLE_CLOUD_PROJECT, or use --tts-engine piper` });
+    skip.push({
+      name: 'voice',
+      why: `${ttsEngine} needs a GCP project — pass --project <id> or set GOOGLE_CLOUD_PROJECT`
+        + (native?.why ? `\n    this machine has no system voice either: ${native.why}` : '')
+        + (native?.suggest ? `\n    ${native.suggest}` : ' — or use --tts-engine piper')
+        // Ollama is the thing a local-AI user assumes covers this. It does not,
+        // and being told why beats concluding decklight ignores their stack.
+        + (ollama ? `\n    ${OLLAMA_NOTE}` : ''),
+    });
   } else if (cloudVoice && !validProjectId(project)) {
     // caught here rather than at the first narration: the bridge would start,
     // look healthy, and only fail on a keypress — with a 403 naming a project
