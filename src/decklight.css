@@ -1183,9 +1183,17 @@
   z-index: 0; /* a stacking context per page, so .slide-bg stays inside it */
   width: 1280px;
   height: 720px;
-  page-break-after: always;
-  break-after: page;
   border-bottom: 1px dashed rgba(128,128,128,.4);
+}
+/* Break BEFORE every page but the first, never after. Suppressing the trailing
+   break on the last slide is not reliable — the stage's last child is often a
+   script element, not a section, so `:last-child` never matches it. The
+   adjacent-sibling form is immune to whatever trails the slides.
+   (No tag literals in these comments: this file is inlined into decks, and
+   `decklight upgrade` scans the result for tags.) */
+.decklight.decklight-print > .decklight-stage > section + section {
+  page-break-before: always;
+  break-before: page;
 }
 .decklight.decklight-print .build-step { visibility: visible !important; opacity: 1 !important; transform: none !important; }
 .decklight.decklight-print .draw-stroke { stroke-dashoffset: 0 !important; }
@@ -1204,9 +1212,11 @@
   width: 816px;
   height: 1056px;
   padding: 48px;
-  page-break-after: always;
-  break-after: page;
   border-bottom: 1px dashed rgba(128,128,128,.4);
+}
+.decklight.decklight-print .print-page + .print-page {
+  page-break-before: always;
+  break-before: page;
 }
 .decklight.decklight-print .print-slot {
   position: relative;
@@ -1251,9 +1261,14 @@
 
 @media print {
   @page { size: 1280px 720px; margin: 0; }
+  /* The page box has no margin, so the document must not either: the UA's
+     default 8px body margin pushes the last slide's final pixels past the last
+     page box and emits a blank sheet — 3 slides printed as 4 pages, 35 as 36.
+     Measured: body 2160px tall, html 2181px. Nothing to do with page breaks,
+     which is why suppressing the trailing break never fixed it. */
+  html, body { margin: 0; padding: 0; }
   .decklight.decklight-print > .decklight-stage > section { border-bottom: 0; }
   .decklight.decklight-print .print-page { border-bottom: 0; }
-  .decklight.decklight-print .print-page:last-child { page-break-after: auto; break-after: auto; }
   .decklight-controls, .decklight-progress, .decklight-touch-controls { display: none !important; }
 }
 

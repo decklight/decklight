@@ -28,6 +28,7 @@ const HARNESSES = [
   'narration-render',
   'character-render',
   'engine-render',
+  'pdf-render',
   'contrast',
   'palette-rules',
 ];
