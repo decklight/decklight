@@ -67,6 +67,11 @@ setTimeout(() => {
     const headerBottom = Math.max((title && title.bottom) || 0, (sub && sub.bottom) || 0);
     document.getElementById('test-sink').textContent = 'DECKLIGHT-PIN-RESULTS ' + JSON.stringify({
       pinned: sec.hasAttribute('data-pinned'),
+      // this deck's slide 2 genuinely overflows — far more content than fits —
+      // so the guardrail must say so. Worth pinning because the whole authoring
+      // contract (SPEC §8) tells agents to assert [data-overflow] is absent,
+      // which is only meaningful if it is reliably PRESENT when it should be.
+      flaggedOverflow: sec.hasAttribute('data-overflow'),
       pinSpace: sec.style.getPropertyValue('--pin-space'),
       overlapPx: Math.round(headerBottom - ((first && first.top) || headerBottom)),
       measured: !!title,
@@ -101,6 +106,8 @@ for (const [layout, label] of [['', 'auto'], ['split', 'split']]) {
       `pinned=${r.pinned} --pin-space=${r.pinSpace || '(unset)'}`);
     // the whole bug, in one number: content must start below the header
     check(`${label}, ${how}: no title overlap`, r.overlapPx <= 0, `${r.overlapPx}px into the header`);
+    // and the guardrail actually fires on a slide that overflows
+    check(`${label}, ${how}: overflow flagged`, r.flaggedOverflow === true, `data-overflow=${r.flaggedOverflow}`);
   }
 }
 
