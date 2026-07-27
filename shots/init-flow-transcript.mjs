@@ -39,7 +39,7 @@ const ttyRun = await new Promise((resolve, reject) => {
     ['-qec', `node "${CLI}" init "My Talk"`, '/dev/null'],
     { cwd: work, env, stdio: ['pipe', 'pipe', 'pipe'] });
   let out = '';
-  const done = { git: false, edit: false, int: false };
+  const done = { git: false };
   const answer = (key, re, reply) => {
     if (done[key] || !re.test(out)) return;
     done[key] = true;
@@ -50,16 +50,16 @@ const ttyRun = await new Promise((resolve, reject) => {
   child.stdout.on('data', (chunk) => {
     out += chunk;
     answer('git', /create a git repository .*\[Y\/n\]/, 'y\n');
-    // the handoff is up — that's the evidence; Ctrl-C stops it
-    answer('int', /decklight edit on http:\/\//, '\x03');
   });
   child.stderr.on('data', (c) => { out += c; });
   const kill = setTimeout(() => child.kill('SIGKILL'), 30_000);
   child.on('close', () => { clearTimeout(kill); resolve(out); });
   child.on('error', reject);
 });
-if (!/decklight edit on http:\/\//.test(ttyRun)) {
-  throw new Error(`pty run never reached the edit server:\n${ttyRun}`);
+// the epilogue is the evidence: the deck's file:// link and the command that
+// starts editing, in the accent color a pty run gets
+if (!/decklight dev /.test(ttyRun)) {
+  throw new Error(`pty run never printed the start-editing command:\n${ttyRun}`);
 }
 
 // --- run 2: the same command piped — must be plain text ------------------------
