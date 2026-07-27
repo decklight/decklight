@@ -413,6 +413,47 @@ instance.annotate                              // ink: .toggle() / .laser() / .c
 instance.saveGeneratedTheme(name?)             // ⌃⇧T; a name argument skips the prompt
 ```
 
+## 9.1 Importing an existing deck
+
+`decklight import <deck.pptx | deck.key | google-slides-url>` converts a
+presentation you already have into a self-contained decklight deck (runtime and
+theme inlined, images as `data:` URIs — the `init` output shape). It is a
+**content importer, not a pixel renderer**: the original template's look is
+deliberately replaced by decklight theming, which is what buys the deck
+everything downstream — themes, builds, narration, the notes editor, `dev`.
+
+**Three front doors, one parser.** `.pptx` is the only one of the three that is
+a readable format. `.key` is an undocumented binary archive, and a Google Slides
+deck is not a local file at all — so both are turned into a `.pptx` first, by
+the only software entitled to do it: Keynote exports one via `osascript` on
+macOS (elsewhere the command prints the manual export path), and Google serves
+one from `/export/pptx` for any deck that is link-shared. `.ppt`, the pre-2007
+binary format, is refused with instructions rather than guessed at.
+
+| PowerPoint | decklight |
+|---|---|
+| slide | `<section>`, in `<p:sldIdLst>` order (not archive order); hidden slides skipped and reported |
+| title placeholder | `<h2>`; `<h1>` when it is the title layout's centred title (`ctrTitle`) |
+| subtitle placeholder | the following `<p>`, which feeds the §1 subtitle rule |
+| body bullets | `<ul>`/`<ol>`, indent levels as real nesting **inside** the parent `<li>`; bold/italic/links preserved |
+| `<p:bldP>` (PowerPoint's own per-paragraph build list) | `data-build="fade-up"` on that list — `--build all\|none` overrides |
+| speaker notes | `<aside class="notes">`, one `<p>` per paragraph |
+| pictures | `<img>` with the bytes inlined as a `data:` URI |
+| tables | `<table>`, first row as `<thead>` |
+| SmartArt, charts, embedded media, transitions | **dropped, and named** with the slide number and what to rebuild them as |
+
+Drops never fail the command — only an unreadable file, a non-presentation, or
+a deck whose every slide is hidden do. A silent drop is the failure that
+matters here: a chart that quietly vanishes from slide 14 is discovered on
+stage, so every drop is reported with its slide number and, where decklight has
+a native answer, what to rebuild it with (`chart dropped — rebuild as
+data-chart`). PPTX **export** remains a v1 non-goal (§11); this is import only.
+
+The runtime is not involved: `import` is CLI-only, adds nothing to
+`dist/`, and reads the archive with `tools/zip.mjs` + `tools/ooxml.mjs` — about
+200 lines over `node:zlib` — rather than taking a dependency.
+
+
 ## 10. Repository layout & tooling
 
 ```
@@ -426,8 +467,8 @@ decklight/
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
-  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/theme/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, theme.mjs (validate + install a theme, §5), publish.mjs, edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
-  tools/         theme-check.mjs (the §5 token contract + WCAG gates, as a function) + color.mjs (contrast math), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, §8), tts-engines.mjs (gemini/chirp/piper/elevenlabs) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, §8)
+  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/theme/import/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, theme.mjs (validate + install a theme, §5), import.mjs (PowerPoint/Keynote/Google Slides → deck, §9), publish.mjs, edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
+  tools/         theme-check.mjs (the §5 token contract + WCAG gates, as a function) + color.mjs (contrast math), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, §9), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, §8), tts-engines.mjs (gemini/chirp/piper/elevenlabs) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, §8)
   themes/        30 × <name>.css + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
   demo/          kitchen-sink.html + casts/
