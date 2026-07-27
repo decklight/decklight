@@ -17,7 +17,7 @@
  *     left, everything else right" put it inside the right one, hanging under
  *     one side of a comparison it was about equally.
  */
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -80,6 +80,23 @@ setTimeout(() => {
   return file;
 }
 
+/**
+ * The recipe SPEC §1.2 tells authors to copy, rendered.
+ *
+ * A documented recipe that no longer matches the layout is worse than none:
+ * it is wrong with authority, and every agent reading the skill copies it. So
+ * the markup is lifted out of SPEC.md itself rather than restated here — if
+ * the two ever disagree, this fails.
+ */
+function recipeFromSpec() {
+  const spec = readFileSync(path.join(root, 'SPEC.md'), 'utf8');
+  const at = spec.indexOf('### 1.2 Comparison slides');
+  if (at < 0) throw new Error('SPEC has no §1.2 comparison recipe to check');
+  const fence = /```html\n([\s\S]*?)```/.exec(spec.slice(at));
+  if (!fence) throw new Error('SPEC §1.2 has no html example');
+  return fence[1];
+}
+
 let bad = 0;
 const check = (label, ok, detail) => {
   if (!ok) bad++;
@@ -108,6 +125,46 @@ check('a third block is marked a footer', f.footerMarked === true, `split-footer
 check('the footer spans both columns', f.footerSpans === true, `spans=${f.footerSpans}`);
 check('the footer sits below them', f.footerBelow === true, `below=${f.footerBelow}`);
 check('and the columns still share a top edge', f.topGap <= 1, `${f.topGap}px apart`);
+
+// ── the documented recipe, exactly as an author would copy it ─────────────
+{
+  const file = path.join(dir, 'recipe.html');
+  writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="${path.join(root, 'dist/decklight.css')}">
+<link rel="stylesheet" href="${path.join(root, 'themes/aurora.css')}"></head>
+<body><div class="decklight">
+${recipeFromSpec()}
+</div>
+<pre id="test-sink">running…</pre>
+<script src="${path.join(root, 'dist/decklight.js')}"></script>
+<script>
+Decklight.init();
+setTimeout(() => {
+  const sec = document.querySelector('.decklight-stage > section');
+  const cols = [...sec.querySelectorAll(':scope > div')];
+  const box = (el) => el.getBoundingClientRect();
+  const foot = sec.querySelector('.split-footer');
+  const a = box(cols[0]), b = box(cols[1]);
+  document.getElementById('test-sink').textContent = 'DECKLIGHT-SPLIT-RESULTS ' + JSON.stringify({
+    columns: cols.length,
+    topGap: Math.round(Math.abs(a.top - b.top)),
+    footerIsTheThirdBlock: foot?.textContent.includes('Alternatives') ?? false,
+    footerSpans: foot ? Math.round(box(foot).width) >= Math.round(b.right - a.left) - 4 : false,
+    overflow: sec.hasAttribute('data-overflow'),
+    notes: !!sec.querySelector('aside.notes'),
+  });
+}, 400);
+</script></body></html>`);
+  const r = resultsFrom(
+    dumpDom(`file://${file}`, { fileAccess: true, budget: 5000, quietStderr: true, who: 'split-render' }),
+    'SPLIT', 'the SPEC §1.2 recipe');
+  check('recipe: two columns', r.columns === 2, `${r.columns} columns`);
+  check('recipe: sharing a top edge', r.topGap <= 1, `${r.topGap}px apart`);
+  check('recipe: the trailing <p> is the footer', r.footerIsTheThirdBlock === true, `${r.footerIsTheThirdBlock}`);
+  check('recipe: and it spans both columns', r.footerSpans === true, `${r.footerSpans}`);
+  check('recipe: nothing clipped', r.overflow === false, `data-overflow=${r.overflow}`);
+  check('recipe: notes included', r.notes === true, `${r.notes}`);
+}
 
 if (bad) { console.error('split-render: FAILED'); process.exit(1); }
 console.log('split-render: PASS');

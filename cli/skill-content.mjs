@@ -48,7 +48,8 @@ author. A deck is \`<div class="decklight">\` containing \`<section>\` slides;
 the runtime is one JS file + one CSS file + one theme CSS file.
 
 **Full authoring contract**: read [${referenceHref}](${referenceHref}) in this same
-skill directory before authoring or editing a slide — it covers builds,
+skill directory before authoring or editing a slide — §1.1 is how much goes on
+one, §1.2 is the worked comparison (pros/cons) slide, and past those it covers builds,
 speaker notes segmentation (⟨CLICK⟩), SVG diagrams, theming, motion, code
 blocks, LaTeX math, terminal recordings, narration, and the public JS API. It's sliced
 straight from Decklight's SPEC.md (v${PKG.version}), so it won't drift from
@@ -88,7 +89,14 @@ or move the detail into the notes. Run it after each batch of slides rather
 than once at the end — and note that overflow is the *late* failure. A slide
 that fits can still be too crowded to present from; prefer ~3–4 bullets or ~2
 short paragraphs per column, and one idea per slide, over anything that merely
-fits.
+fits (§1.1).
+
+**For a comparison slide, use \`data-layout="split"\` — and do not also write
+your own column flexbox.** Two sibling blocks become the columns, a third
+becomes a full-width footer. A hand-rolled flex shell inside a section that
+also carries \`data-layout="split"\` leaves two layout systems fighting, and the
+visible result is the pinned title landing on top of the column headings.
+§1.2 has the markup.
 
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
