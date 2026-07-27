@@ -168,6 +168,7 @@ test('an explicit yes runs the exact install and download commands', async () =>
     log,
     env,
     hasBin: () => false,
+    canImport: () => false,   // hermetic: never spawn a real python to find out
     detectProject: () => null,
     runCmd: (bin, args) => { cmds.push([bin, ...args]); return true; },
     makeEngine: () => fakeEngine({ name: 'piper', model: 'en_US-ryan-high' }),
@@ -184,6 +185,30 @@ test('an explicit yes runs the exact install and download commands', async () =>
   assert.notEqual(bin, 'python', 'the ambient python cannot import a uv-installed piper');
   assert.deepEqual(args.slice(-4), ['piper.download_voices', 'en_US-ryan-high', '--data-dir', models]);
   assert.deepEqual(result.config, { engine: 'piper', voice: 'en_US-ryan-high' });
+});
+
+test('having installed piper with uv, the wizard downloads through uvx', async () => {
+  // Detection cannot know this and must not be asked to: the wizard just ran
+  // `uv tool install`, so uv — and therefore uvx — is present. Leaving it to a
+  // PATH probe made the wizard behave differently on a machine with uv than on
+  // one without, which is exactly how this broke in CI: no uvx on the runner,
+  // so no download command ran at all.
+  const home = tmp();
+  const cmds = [];
+  await runSetupWizard({
+    ask: scripted(['1', 'y', 'y']),
+    log: collect(),
+    env: { HOME: home, PATH: '' },
+    hasBin: () => false,              // nothing on PATH, uvx included
+    canImport: () => false,           // and no python can import piper
+    detectProject: () => null,
+    runCmd: (bin, args) => { cmds.push([bin, ...args]); return true; },
+    makeEngine: () => fakeEngine({ name: 'piper', model: 'en_US-ryan-high' }),
+    play: () => {},
+  });
+  assert.equal(cmds.length, 2, 'the download runs — it is not skipped for want of a uvx probe');
+  assert.equal(cmds[1][0], 'uvx');
+  assert.deepEqual(cmds[1].slice(0, 4), ['uvx', '--from', 'piper-tts', 'python']);
 });
 
 test('cloud engines ask for the project — validated, prefilled, re-asked on garbage', async () => {
@@ -417,7 +442,10 @@ test('the piper download command is chosen for the machine, not assumed', () => 
 
   // neither: not a command, and the line says how to get one
   assert.equal(piperDownloadCmd('v', '/m', { canImport: () => false, hasBin: () => false }), null);
-  assert.match(piperDownloadLine(null), /uv tool install piper-tts/);
+  // and it names what is actually missing: piper may well be installed —
+  // what is absent is a way to REACH its downloader
+  assert.match(piperDownloadLine(null), /no python here can import piper.*uvx is not on PATH/);
+  assert.match(piperDownloadLine(null), /install uv|pip install piper-tts/);
   assert.equal(
     piperDownloadLine({ bin: 'uvx', args: ['--from', 'piper-tts'] }), 'uvx --from piper-tts');
 });

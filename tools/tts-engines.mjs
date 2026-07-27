@@ -88,7 +88,10 @@ export function piperDownloadCmd(voice = PIPER_DEFAULT_VOICE, models = piperMode
 /** A chosen command as the line a human would type, or the way to get one. */
 export const piperDownloadLine = (cmd) => (cmd
   ? [cmd.bin, ...cmd.args].join(' ')
-  : 'install piper first: uv tool install piper-tts');
+  // piper may well be installed — what is missing is a way to REACH its
+  // downloader, which is a different problem and a different fix
+  : 'no python here can import piper, and uvx is not on PATH — '
+    + 'install uv (https://docs.astral.sh/uv) or: pip install piper-tts');
 
 // Chirp 3: HD ships the same roster as Gemini TTS (verified against
 // texttospeech.googleapis.com/v1/voices) — one name, two engines.

@@ -119,6 +119,7 @@ export async function runSetupWizard({
   mintToken = gcloudToken,
   makeEngine = createEngine,
   runCmd, // (bin, args) => ok — install commands, run only on an explicit yes
+  canImport, // (python) => can it import piper? injected so tests never spawn one
   play = playWav,
   prefill = {}, // --setup re-runs: the saved answers become the defaults
 } = {}) {
@@ -148,6 +149,11 @@ export async function runSetupWizard({
 
   // 2. only what that engine actually needs
   if (engineName === 'piper') {
+    // Whether the downloader can be reached through uvx is knowledge this code
+    // HAS and generic detection does not: if the wizard installs piper below it
+    // does so with uv, and uvx ships with uv. Detecting it instead would make
+    // the wizard's behaviour depend on the machine running the test.
+    let uvx = hasBin('uvx', env);
     if (!hasBin('piper', env)) {
       log('  piper is not installed. the install is one command:');
       log('    uv tool install piper-tts');
@@ -159,6 +165,7 @@ export async function runSetupWizard({
         log('  install failed — nothing saved');
         return null;
       }
+      uvx = true;   // uv just ran, so uvx is there too
     }
     const voice = prefill.voice ?? PIPER_DEFAULT_VOICE;
     const models = piperModelDir(env);
@@ -168,7 +175,10 @@ export async function runSetupWizard({
       // so the plain `python -m piper.download_voices` we used to print here
       // failed with ModuleNotFoundError on a machine that had just installed
       // piper successfully — following our own instructions
-      const dl = piperDownloadCmd(voice, models);
+      const dl = piperDownloadCmd(voice, models, {
+        hasBin: (b) => (b === 'uvx' ? uvx : hasBin(b, env)),
+        ...(canImport ? { canImport } : {}),
+      });
       log(`  the ${voice} voice model is missing (~120 MB, one-time). the download is one command:`);
       log(`    ${piperDownloadLine(dl)}`);
       if (!dl) return null;
