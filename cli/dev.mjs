@@ -28,6 +28,7 @@ import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
+import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
 import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
@@ -36,7 +37,7 @@ import { leashEnv } from './supervise.mjs';
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 
 const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
-                    [--tts-engine gemini|chirp|piper] [--project <id>] [--no-tts] [--no-lipsync]
+                    [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
                     [--remote] [--host <addr>]
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
@@ -62,11 +63,14 @@ const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
                     chirp   Cloud TTS Chirp 3: HD — same voices, ~1s, 1M chars/month free
                     piper   local, offline, unlimited, no project needed
+                    elevenlabs  your own account's voices, the ones you cloned first
+                            in the picker — needs $ELEVENLABS_API_KEY
                     (nothing configured? on a terminal dev offers a one-time
                     guided setup; decklight tts --setup re-runs it)
 
   tts flags     --project <id> (or $GOOGLE_CLOUD_PROJECT; gemini/chirp only),
-                --tts-model, --location, --voice, --data-dir, --lang
+                --tts-model, --location, --voice, --data-dir, --lang,
+                --tts-format pcm|mp3 (elevenlabs)
   lipsync flags --rhubarb <bin>, --portrait <name=img.png>…, --wav2lip-dir,
                 --wav2lip-ckpt, --sadtalker-dir, --python, --cache-dir,
                 --veo (animate the portrait once through Vertex — BILLED),
@@ -76,7 +80,7 @@ const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] 
 // flags that take a value (so the deck argument can be found past them)
 const VALUE_FLAGS = new Set([
   '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--project', '--tts-model',
-  '--location', '--voice', '--data-dir', '--lang',
+  '--location', '--voice', '--data-dir', '--lang', '--tts-format',
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
   '--python', '--cache-dir', '--commit-every', '--agent', '--host', '--git-mode',
   '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
@@ -120,8 +124,9 @@ export function planServices({ args = [], env = process.env, hasBin = onPath, sa
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
 
-  // live voice — the cloud engines exit without a GCP project, so don't even
-  // start them; piper needs no credentials at all, only the binary
+  // live voice — an engine that would exit for want of a credential should not
+  // be started at all: the Google ones need a project, ElevenLabs needs a key,
+  // and piper needs neither, only the binary
   const ttsPort = opt('--tts-port', '8787');
   const ttsEngine = opt('--tts-engine', saved?.engine ?? 'gemini');
   const project = opt('--project', env.GOOGLE_CLOUD_PROJECT ?? saved?.project);
@@ -131,7 +136,7 @@ export function planServices({ args = [], env = process.env, hasBin = onPath, sa
     ...(has('--tts-engine') || saved?.engine ? ['--engine', ttsEngine] : []),
     ...(cloudVoice ? ['--project', project] : []),
     ...pass('--tts-model'), ...pass('--location'),
-    ...pass('--voice'), ...pass('--data-dir'), ...pass('--lang'),
+    ...pass('--voice'), ...pass('--data-dir'), ...pass('--lang'), ...pass('--tts-format'),
   ];
   if (has('--no-tts')) {
     skip.push({ name: 'voice', why: 'disabled with --no-tts' });
@@ -139,6 +144,10 @@ export function planServices({ args = [], env = process.env, hasBin = onPath, sa
     skip.push({ name: 'voice', why: `unknown --tts-engine '${ttsEngine}' — use ${TTS_ENGINES.join(', ')}` });
   } else if (ttsEngine === 'piper' && !hasBin('piper', env)) {
     skip.push({ name: 'voice', why: 'piper not on PATH — install it (uv tool install piper-tts)' });
+  } else if (ttsEngine === 'elevenlabs' && !env[ELEVENLABS_KEY_ENV]?.trim()) {
+    // The key never lands in the saved config, so the environment is the only
+    // place it can come from — say that, and where to make one.
+    skip.push({ name: 'voice', why: `elevenlabs needs $${ELEVENLABS_KEY_ENV} — create a key at https://elevenlabs.io/app/settings/api-keys and export it` });
   } else if (cloudVoice && !project) {
     skip.push({ name: 'voice', why: `${ttsEngine} needs a GCP project — pass --project <id>, set GOOGLE_CLOUD_PROJECT, or use --tts-engine piper` });
   } else if (cloudVoice && !validProjectId(project)) {

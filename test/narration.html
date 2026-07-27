@@ -55,9 +55,13 @@
     // healthy   — always 200
     // flaky     — 429s the FIRST sentence only, then 200 (a transient quota hit)
     // dead      — 429s everything (the bridge is down)
+    // roster    — 200, but the bridge speaks a roster of its OWN (an ElevenLabs
+    //             key knows none of the Gemini star names), so the persisted
+    //             voice is stale and must give way to one it can actually say
     const params = new URLSearchParams(location.search);
     const mode = params.get('mode') ?? 'healthy';
     let calls = 0, failures = 0;
+    const bodies = [];   // what the deck actually asked the bridge to say, and as whom
 
     // The bridge lives on its own port and NOTHING else may be intercepted.
     // Matching a bare "/ping" also swallows the edit server's /edit/ping probe,
@@ -72,11 +76,15 @@
       const u = String(url);
       if (!u.startsWith(BRIDGE)) return realFetch(url, opts);
       if (u.endsWith('/ping')) {
-        return new Response(JSON.stringify({ ok: true, engine: 'mock', model: 'mock', stylable: true, voices: [['Alnilam', 'firm']] }),
+        const roster = mode === 'roster'
+          ? { engine: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false, voices: [['My Voice', 'cloned'], ['Rachel', 'calm']] }
+          : { engine: 'mock', model: 'mock', stylable: true, voices: [['Alnilam', 'firm']] };
+        return new Response(JSON.stringify({ ok: true, ...roster }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (u.endsWith('/tts')) {
         calls++;
+        try { bodies.push(JSON.parse(opts?.body ?? '{}')); } catch { /* not json */ }
         const fail = mode === 'dead' || (mode === 'flaky' && calls === 1);
         if (fail) { failures++; return new Response('Quota exceeded', { status: 429 }); }
         return new Response(new Blob([new Uint8Array(64)], { type: 'audio/wav' }), { status: 200 });
@@ -198,6 +206,26 @@
 
           r.PASS = r.noModuleMenu && r.finderOpens && r.listsSlides
             && r.listsModules && r.hidesCurrentModule && r.moduleRowMarked;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'roster') {
+          // The saved voice was chosen against a different engine. Opening the
+          // picker probes the bridge; from then on the deck must speak a name
+          // this bridge knows, must SAY that it swapped, and must remember it.
+          r.savedBefore = JSON.parse(localStorage.getItem(key)).live.voice;
+          deck.toggleNarration();                                // V — probes /ping
+          await new Promise((ok) => setTimeout(ok, 1500));
+
+          r.savedAfter = JSON.parse(localStorage.getItem(key)).live.voice;
+          r.swapped = r.savedBefore === 'Alnilam' && r.savedAfter === 'My Voice';
+          r.persisted = r.savedAfter === 'My Voice';
+          r.saidSo = deck.messages().some((m) => /Alnilam.*My Voice/.test(m.text));
+          // and the bridge was asked for the voice it can speak, not the stale one
+          r.spokeAs = bodies.every((b) => b.voice === 'My Voice');
+          r.asked = bodies.length > 0;
+          r.PASS = r.swapped && r.persisted && r.saidSo && r.asked && r.spokeAs;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

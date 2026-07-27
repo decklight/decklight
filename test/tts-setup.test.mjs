@@ -69,6 +69,48 @@ test('the suggested engine follows what the machine already has', () => {
   assert.equal(suggestEngine({ hasBin: piperInstalled }), 'piper');
   assert.equal(suggestEngine({ hasBin: () => false, project: 'proj-1' }), 'chirp');
   assert.equal(suggestEngine({ hasBin: () => false }), 'piper', 'a bare machine gets the free path');
+  // nobody exports an ElevenLabs key by accident, so it outranks the rest
+  assert.equal(suggestEngine({ hasBin: piperInstalled, env: { ELEVENLABS_API_KEY: 'k' }, project: 'p' }), 'elevenlabs');
+});
+
+test('elevenlabs without a key stops before saving, and says where to put one', async () => {
+  const env = { HOME: tmp(), PATH: '' };
+  const log = collect();
+  let made = 0;
+  const result = await runSetupWizard({
+    ask: scripted(['elevenlabs']),
+    log,
+    env,
+    hasBin: () => false,
+    detectProject: () => null,
+    makeEngine: () => { made++; return fakeEngine({ name: 'elevenlabs' }); },
+    play: () => {},
+  });
+  assert.equal(result, null, 'no key, no engine, nothing saved');
+  assert.equal(made, 0, 'and no synthesis was attempted');
+  assert.equal(loadTtsConfig(env), null);
+  assert.match(log.text(), /ELEVENLABS_API_KEY/);
+  assert.match(log.text(), /elevenlabs\.io\/app\/settings\/api-keys/, 'where to make one');
+  assert.match(log.text(), /never writes it to its config file/, 'and why it is not saved here');
+});
+
+test('elevenlabs with a key asks nothing else, and reports the account roster', async () => {
+  const env = { HOME: tmp(), PATH: '', ELEVENLABS_API_KEY: 'sk-x' };
+  const log = collect();
+  const engine = fakeEngine({ name: 'elevenlabs', model: 'eleven_multilingual_v2', cost: 'metered in characters against your plan' });
+  engine.listVoices = async () => [{ name: 'Gilles', flavor: 'cloned' }, { name: 'Rachel', flavor: 'calm' }];
+  const result = await runSetupWizard({
+    ask: scripted(['elevenlabs']),  // the ONLY question — the key is already answered
+    log,
+    env,
+    hasBin: () => false,
+    detectProject: () => null,
+    makeEngine: () => engine,
+    play: () => {},
+  });
+  assert.deepEqual(result.config, { engine: 'elevenlabs' }, 'no key in the saved config');
+  assert.deepEqual(loadTtsConfig(env), { engine: 'elevenlabs' });
+  assert.match(log.text(), /2 voice\(s\) on this key — Gilles \(cloned\)/, 'yours, listed first');
 });
 
 test('piper happy path: Enter takes the default, the test synthesis gates the save', async () => {
@@ -89,7 +131,9 @@ test('piper happy path: Enter takes the default, the test synthesis gates the sa
   });
   assert.deepEqual(result.config, { engine: 'piper', voice: 'en_US-ryan-high' });
   assert.deepEqual(loadTtsConfig(env), result.config, 'saved where both commands read it');
-  assert.deepEqual(made, [{ engine: 'piper', project: undefined, voice: 'en_US-ryan-high' }]);
+  // env rides along so an engine that reads a credential from it (elevenlabs)
+  // sees the injected one, not the machine's
+  assert.deepEqual(made, [{ engine: 'piper', project: undefined, voice: 'en_US-ryan-high', env }]);
   assert.match(log.text(), new RegExp(TEST_SENTENCE), 'the proof is the picker preview sentence');
   assert.match(log.text(), /✓ spoke in \d+\.\d+s · 9 tokens · free · offline/, 'duration and cost note');
 });

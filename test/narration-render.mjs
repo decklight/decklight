@@ -15,6 +15,9 @@
  *   flaky   — the first sentence 429s: the deck HOLDS on slide 1, shows a message
  *             explaining it, and keeps that message in the log (I)
  *   dead    — every sentence 429s: same, and it never races ahead
+ *   roster  — the bridge speaks its OWN voices (an ElevenLabs key knows none of
+ *             the Gemini star names): the persisted voice is stale, so the deck
+ *             takes the bridge's first, says it did, and remembers
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,13 +35,19 @@ function run(mode) {
 }
 
 let bad = 0;
-for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded']) {
+for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster']) {
   const r = run(mode);
   const ok = r.PASS === true;
   if (!ok) bad++;
   if (mode === 'keys') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} play: \` opens=${r.playOpens} closes=${r.playCloses} azerty(²)=${r.azertyOpens}`
       + ` · edit: bare ignored=${r.editIgnoresBareKey} ⌃\` opens=${r.editCtrlOpens} ⌥\` opens=${r.editAltOpens}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'roster') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} stale voice ${r.savedBefore} → ${r.savedAfter}`
+      + ` (swapped=${r.swapped} persisted=${r.persisted} said so=${r.saidSo} spoke as it=${r.spokeAs})`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

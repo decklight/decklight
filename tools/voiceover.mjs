@@ -4,7 +4,7 @@
 
 // Voice-over generator: per-slide narration audio from a deck's speaker notes.
 //
-//   node tools/voiceover.mjs <deck.html> [-o <dir>] [--engine piper|chirp|gemini]
+//   node tools/voiceover.mjs <deck.html> [-o <dir>] [--engine piper|chirp|gemini|elevenlabs]
 //                            [--voice <name>] [--data-dir <dir>]
 //                            [--project <id>] [--location global] [--lang en-US]
 //                            [--tts-model gemini-2.5-pro-tts]
@@ -24,6 +24,12 @@
 //   gemini — gemini-2.5-{pro,flash}-tts on Vertex AI. The only engine that
 //            honors --style (default: warm, welcoming battle-hardened senior
 //            engineer). No free tier, and pro is slow.
+//   elevenlabs — your ElevenLabs account's own voices, cloned ones included.
+//            --voice takes the voice's NAME (or its id); omit it and the first
+//            of YOUR voices is used, which is the point of the engine. Needs
+//            $ELEVENLABS_API_KEY. No --style. --tts-format mp3 if your plan has
+//            no PCM output — but this tool wants WAV (--keep-wav feeds
+//            tools/lipsync.mjs), so pcm is the sane choice here.
 //   Cloud engines: --project or $GOOGLE_CLOUD_PROJECT, auth via
 //   gcloud auth application-default login.
 //
@@ -45,11 +51,14 @@ import { sectionBodies, NOTES_ASIDE } from './deck-html.mjs';
 
 const args = process.argv.slice(2);
 const deckPath = args.find((a) => !a.startsWith('-'));
-if (!deckPath) { console.error('usage: voiceover.mjs <deck.html> [-o dir] [--engine piper|gemini] [--voice name] [--no-llm] [--reuse-text]'); process.exit(1); }
+if (!deckPath) { console.error('usage: voiceover.mjs <deck.html> [-o dir] [--engine piper|chirp|gemini|elevenlabs] [--voice name] [--no-llm] [--reuse-text]'); process.exit(1); }
 const { opt } = argReader(args);
 const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
 const engine = opt('--engine', 'piper');
-const voice = opt('--voice', engine === 'piper' ? 'en_US-ryan-high' : 'Alnilam');
+// elevenlabs has no default name worth guessing: the roster is the account's,
+// and undefined means "the first of yours", which is what you came for
+const voice = opt('--voice', engine === 'piper' ? 'en_US-ryan-high'
+  : engine === 'elevenlabs' ? undefined : 'Alnilam');
 const style = opt('--style',
   'Read in a warm, welcoming tone, like a friendly battle-hardened senior ' +
   'engineer who is still curious about new technology.');
@@ -66,6 +75,7 @@ try {
   tts = createEngine({
     engine, project, voice, dataDir,
     model: opt('--tts-model'), location: opt('--location'), lang: opt('--lang'),
+    format: opt('--tts-format'),
   });
 } catch (e) {
   console.error(e.message);
