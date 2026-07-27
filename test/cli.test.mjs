@@ -142,7 +142,7 @@ test('init on a real TTY prompts and takes the typed title', { skip: ptySkip }, 
   // three answers typed ahead: the title, "n" to the git offer, "n" to the
   // dev handoff — one readline serves all three, so none of them is dropped
   const r = spawnSync('/usr/bin/script',
-    ['-qec', `node "${CLI}" init --dir "${dir}" --no-skill`, '/dev/null'],
+    ['-qec', `node "${CLI}" init --dir "${dir}" --no-skill --no-edit`, '/dev/null'],
     { encoding: 'utf8', input: 'Ship & Tell\nn\nn\n' });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /deck title \[My Deck\]:/);
@@ -391,11 +391,12 @@ test('init --git still succeeds when git is missing from PATH', () => {
 test('init on a real TTY asks the git question; Y creates the repo and commits', { skip: ptySkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
   const r = spawnSync('/usr/bin/script',
-    ['-qec', `node "${CLI}" init "Repo Talk" --dir "${dir}" --no-skill`, '/dev/null'],
-    { encoding: 'utf8', input: 'y\nn\n', env: gitIdEnv });
+    ['-qec', `node "${CLI}" init "Repo Talk" --dir "${dir}" --no-skill --no-edit`, '/dev/null'],
+    { encoding: 'utf8', input: 'y\n', env: gitIdEnv });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /create a git repository so your edits are auto-committed\? \[Y\/n\]/);
-  assert.match(r.stdout, /start editing now\? \[Y\/n\]/);
+  // the handoff is no longer a question — --no-edit is how you decline it
+  assert.doesNotMatch(r.stdout, /start editing now\?/);
   assert.match(r.stdout, /\x1b\[36m/, 'the epilogue is accent-colored on a TTY');
   const log = execFileSync('git', ['-C', dir, 'log', '--format=%s'], { encoding: 'utf8', env: gitIdEnv });
   assert.equal(log.trim(), 'decklight init');
@@ -752,7 +753,7 @@ test('init --global-skill refreshes an existing global skill without demanding -
 test('init on a real TTY asks the skill scope, naming both paths; g installs globally', { skip: ptySkip }, () => {
   const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
   const r = spawnSync('/usr/bin/script',
-    ['-qec', `"${process.execPath}" "${CLI}" init "Global Talk" --dir "${dir}"`, '/dev/null'],
+    ['-qec', `"${process.execPath}" "${CLI}" init "Global Talk" --dir "${dir}" --no-edit`, '/dev/null'],
     { encoding: 'utf8', input: 'g\nn\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /where should the skill go\? \[P\/g\]/);
@@ -768,7 +769,7 @@ test('init on a real TTY asks the skill scope, naming both paths; g installs glo
 test('init on a real TTY: Enter keeps the project install, byte-for-byte', { skip: ptySkip }, () => {
   const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
   const r = spawnSync('/usr/bin/script',
-    ['-qec', `"${process.execPath}" "${CLI}" init "Local Talk" --dir "${dir}"`, '/dev/null'],
+    ['-qec', `"${process.execPath}" "${CLI}" init "Local Talk" --dir "${dir}" --no-edit`, '/dev/null'],
     { encoding: 'utf8', input: '\nn\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /where should the skill go\? \[P\/g\]/);
