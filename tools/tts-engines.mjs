@@ -76,6 +76,15 @@ const canImportPiper = (py) => {
  * and otherwise `uvx --from piper-tts` runs it inside the venv `uv` made.
  * Returns null when neither is possible, which is a different message.
  */
+/**
+ * Where a piper voice model lives. A voice given as a PATH is already the
+ * answer; a bare name only resolves against a data dir — the same rule
+ * createPiper applies when it decides whether to pass --data-dir.
+ */
+export function piperModelPath(voice = PIPER_DEFAULT_VOICE, dataDir = piperModelDir()) {
+  return (voice.includes('/') || voice.endsWith('.onnx')) ? voice : join(dataDir, `${voice}.onnx`);
+}
+
 export function piperDownloadCmd(voice = PIPER_DEFAULT_VOICE, models = piperModelDir(), {
   hasBin = onPath, canImport = canImportPiper,
 } = {}) {

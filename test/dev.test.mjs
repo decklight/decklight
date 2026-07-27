@@ -22,7 +22,11 @@ const CLI = path.resolve(here, '../cli/decklight.mjs');
 
 const NO_BINS = () => false;
 const ALL_BINS = () => true;
-const plan = (args, { env = {}, hasBin = NO_BINS, saved = null } = {}) => planServices({ args, env, hasBin, saved });
+// `exists` defaults to true so a plan never depends on whether THIS machine
+// happens to have a piper voice model on disk — the tests that care about the
+// model being absent say so explicitly (see test/local-voice.test.mjs)
+const plan = (args, { env = {}, hasBin = NO_BINS, saved = null, exists = () => true } = {}) =>
+  planServices({ args, env, hasBin, saved, exists });
 
 const names = (p) => p.run.map((s) => s.name);
 const svc = (p, name) => p.run.find((s) => s.name === name);

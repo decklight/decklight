@@ -14,7 +14,7 @@ import {
   parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs,
   detectLocalVoice, ollamaRunning, OLLAMA_NOTE,
 } from '../tools/local-voice.mjs';
-import { planServices } from '../cli/dev.mjs';
+import { planServices, voiceModelOffer } from '../cli/dev.mjs';
 import { ENGINES, NATIVE_ENGINES } from '../tools/tts-engines.mjs';
 
 // real `say -v '?'` output: names carry spaces and a parenthesised tier
@@ -163,7 +163,7 @@ test('a detected engine is actually PASSED to the bridge', () => {
 
 test('flags and a saved config both win over detection, which is never consulted', () => {
   const boom = () => { throw new Error('detection must not run when the choice is already made'); };
-  assert.equal(voiceEngine(planServices({ args: ['d.html', '--tts-engine', 'piper'], env: {}, hasBin: () => true, detect: boom })).engine, 'piper');
+  assert.equal(voiceEngine(planServices({ args: ['d.html', '--tts-engine', 'piper'], env: {}, hasBin: () => true, exists: () => true, detect: boom })).engine, 'piper');
   assert.equal(voiceEngine(planServices({ args: ['d.html', '--project', 'my-proj'], env: {}, detect: boom })).engine, 'gemini (default)');
   assert.equal(voiceEngine(planServices({ args: ['d.html'], env: { GOOGLE_CLOUD_PROJECT: 'my-project-123' }, detect: boom })).engine, 'gemini (default)');
   assert.equal(voiceEngine(planServices({ args: ['d.html'], env: {}, saved: { engine: 'chirp', project: 'my-project-123' }, detect: boom })).engine, 'chirp');
@@ -196,4 +196,43 @@ test('a running Ollama is told the truth about itself', () => {
 test('--no-tts still wins over everything', () => {
   const { skipped } = voiceEngine(planServices({ args: ['d.html', '--no-tts'], env: {}, detect: say }));
   assert.match(skipped, /disabled with --no-tts/);
+});
+
+test('piper with no voice model is caught before the bridge starts', () => {
+  // Otherwise the bridge comes up looking healthy and fails on the first
+  // sentence — a keypress into silence, for a file that was never there.
+  const plan = planServices({
+    args: ['d.html', '--tts-engine', 'piper'],
+    env: { HOME: '/home/x' },
+    hasBin: (b) => b === 'piper' || b === 'uvx',
+    exists: () => false,
+  });
+  const offer = voiceModelOffer(plan);
+  assert.ok(offer, 'the skip carries the command that fixes it');
+  assert.match(offer.why, /piper voice en_US-ryan-high is not in/);
+  assert.match(offer.why, /~120 MB, one time/, 'the size is stated before anything is downloaded');
+  assert.equal(offer.download.bin, 'uvx');
+  assert.deepEqual(offer.download.args.slice(-4),
+    ['piper.download_voices', 'en_US-ryan-high', '--data-dir', '/home/x/.local/share/piper']);
+});
+
+test('a present model just starts the bridge, and --voice/--data-dir are honored', () => {
+  const seen = [];
+  const plan = planServices({
+    args: ['d.html', '--tts-engine', 'piper', '--voice', 'en_GB-alba-medium', '--data-dir', '/models'],
+    env: {}, hasBin: () => true,
+    exists: (p) => { seen.push(p); return true; },
+  });
+  assert.ok(plan.run.find((r) => r.name === 'tts'), 'the bridge runs');
+  assert.equal(voiceModelOffer(plan), null, 'and there is nothing to offer');
+  assert.ok(seen.includes('/models/en_GB-alba-medium.onnx'), `looked in the right place: ${seen}`);
+});
+
+test('a voice given as a path needs no data dir', () => {
+  const seen = [];
+  planServices({
+    args: ['d.html', '--tts-engine', 'piper', '--voice', '/opt/voices/custom.onnx'],
+    env: {}, hasBin: () => true, exists: (p) => { seen.push(p); return true; },
+  });
+  assert.ok(seen.includes('/opt/voices/custom.onnx'), `the path is the model: ${seen}`);
 });
