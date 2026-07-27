@@ -18,17 +18,36 @@ import { createCharacter, concatTimelines } from './character.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 
 /**
+ * Should the "this deck has a voice-over" pill show on this load?
+ *
+ * Pure, and exported, because it is a six-way "never here" rule and every one
+ * of those cases is a place the pill would be wrong rather than merely
+ * unnecessary: it must not print, must not appear in the theme picker's and
+ * slide finder's embedded previews, must not tell you to press V under
+ * `?voiceover` (which starts on the first gesture anyway), must not land on
+ * top of the captions bar — same corner — and must never nag a viewer who has
+ * already used the voice on this deck. Testing that as a function beats
+ * booting six headless decks to watch nothing happen five times.
+ */
+export function hintApplies({
+  hasTracks, used, printMode, embedded, voiceover, captionsOn, narrating,
+} = {}) {
+  return !!hasTracks && !used && !printMode && !embedded && !voiceover
+    && !captionsOn && !narrating;
+}
+
+/**
  * Wire narration to a deck.
  *
- * `ctx` carries the engine's furniture (`root`, `stage`, `config`,
- * `printMode`, `toast`, `debugLog`, `overlays`, `instance`) plus two callbacks
- * into chrome the engine owns and narration invalidates: `syncSoundBtn` (the
- * mute button in the controls) and `updateDebugState` (the D panel's status
- * line). `downloadFromUrl` is the engine's download helper, shared with the
- * transcript.
+ * `ctx` carries the engine's furniture (`root`, `stage`, `config`, `params`,
+ * `printMode`, `toast`, `logOnly`, `debugLog`, `overlays`, `instance`) plus two
+ * callbacks into chrome the engine owns and narration invalidates:
+ * `syncSoundBtn` (the mute button in the controls) and `updateDebugState` (the
+ * D panel's status line). `downloadFromUrl` is the engine's download helper,
+ * shared with the transcript.
  */
 export function createNarration({
-  root, stage, config, printMode, toast, debugLog, overlays, instance,
+  root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
   syncSoundBtn, updateDebugState, downloadFromUrl,
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
@@ -440,6 +459,10 @@ export function createNarration({
   async function toggleNarration() {
     if (!narrSet) { openNarrPicker(narrSets.length ? 'tracks' : 'voices'); return; }
     if (narrating) return stopNarration();
+    // However the voice was started — V, the touch sound button, the pill, the
+    // ?voiceover gesture — this viewer now knows the deck talks. The hint has
+    // done its job here, for good.
+    narrationUsedHere();
     // Ask the bridge who it is BEFORE speaking, not just when the picker opens:
     // the saved voice may belong to another engine entirely, and finding that
     // out from a failed sentence is finding out too late. One request, ever —
@@ -488,7 +511,7 @@ export function createNarration({
   function toggleCaptions() {
     captionsOn = !captionsOn;
     try { localStorage.setItem(captionsKey, captionsOn ? '1' : '0'); } catch { /* ignore */ }
-    if (captionsOn) showCaptions();
+    if (captionsOn) { showCaptions(); dismissHint(); }  // same corner — one of them goes
     else { captionEl?.remove(); captionEl = null; }
     toast(`captions ${captionsOn ? 'on' : 'off'}`);
     debugLog('narr', `captions ${captionsOn ? 'on' : 'off'}`);
@@ -496,6 +519,75 @@ export function createNarration({
   instance.on('slide', updateCaption);
   instance.on('build', updateCaption);
   if (captionsOn && !printMode) showCaptions();
+
+  // ── the voice-over hint — SPEC §8 ────────────────────────────────────────
+  // A deck with a recorded track tells you so, once. Until now the only
+  // proactive surface was the touch sound button, which CSS shows on
+  // `pointer: coarse` alone — so a viewer on a laptop could only discover the
+  // voice by pressing a key nobody had mentioned, or by the author writing the
+  // hint into a slide by hand (demo/intro.html does exactly that). The pill
+  // fades in bottom-center, fades out on its own, and never comes back once
+  // the voice has been used here — per deck path, the same shape as every
+  // other narration preference.
+  const HINT_TEXT = '🔊 this deck has a voice-over — V plays it';
+  const HINT_AFTER = 900;    // let the slide land first; the pill is an aside
+  const HINT_FOR = 12000;    // read it twice over, then it leaves
+  const narrUsedKey = 'decklight-narr-used:' + location.pathname;
+  let narrUsed = false;
+  try { narrUsed = localStorage.getItem(narrUsedKey) === '1'; } catch { /* ignore */ }
+  let hintEl = null;
+  function dismissHint() {
+    if (!hintEl) return;
+    const el = hintEl;
+    hintEl = null;
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 260);   // after the fade
+  }
+  /** The voice has been heard on this deck: retire the hint, now and later. */
+  function narrationUsedHere() {
+    dismissHint();
+    if (narrUsed) return;
+    narrUsed = true;
+    try { localStorage.setItem(narrUsedKey, '1'); } catch { /* ignore */ }
+  }
+  function showHint() {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'decklight-narr-hint';
+    // the text carries a bare "V"; the accessible name spells out what it does
+    el.setAttribute('aria-label', 'Play this deck’s voice-over');
+    const kbd = document.createElement('kbd');
+    kbd.textContent = 'V';
+    el.append('🔊 this deck has a voice-over — ', kbd, ' plays it');
+    // clicking is itself the user gesture, so the audio that follows is not
+    // subject to the autoplay policy the ?voiceover arm exists to satisfy
+    el.addEventListener('click', () => { dismissHint(); toggleNarration(); });
+    hintEl = el;
+    root.appendChild(el);
+    // Reading a layout property flushes the pending style with opacity:0, which
+    // is what gives the transition something to start FROM. The toasts nearby
+    // do this with requestAnimationFrame, but a frame is not owed to us — in a
+    // background tab, or a headless render, rAF may never run and the pill
+    // would sit at opacity 0 forever: mounted, correct, and invisible.
+    void el.offsetWidth;
+    el.classList.add('show');
+    // no toast: the pill is already on screen saying this. The log keeps it so
+    // a viewer who looked away can still find out (I).
+    logOnly?.(HINT_TEXT);
+    debugLog('narr', 'voice-over hint shown');
+    setTimeout(dismissHint, HINT_FOR);
+  }
+  if (hintApplies({
+    hasTracks: narrSets.length > 0,
+    used: narrUsed,
+    printMode,
+    embedded: !!params?.has('embedded'),
+    voiceover: !!params?.has('voiceover'),
+    captionsOn,
+  })) {
+    // the deck may have started speaking on its own in the meantime
+    setTimeout(() => { if (!narrating) showHint(); }, HINT_AFTER);
+  }
 
   // N: narration picker — tracks → live voices → tones → custom tone
   let narrEl = null, narrSel = 0, narrView = 'tracks', narrRows = [], liveDraft = null;
