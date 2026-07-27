@@ -21,13 +21,16 @@
 // gives you live reload and notes editing, and the player degrades on its own
 // (each bridge is probed via /ping).
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
-import { ENGINES as TTS_ENGINES } from '../tools/tts-engines.mjs';
+import {
+  ENGINES as TTS_ENGINES, PIPER_DEFAULT_VOICE, piperModelDir, piperModelPath,
+  piperDownloadCmd, piperDownloadLine,
+} from '../tools/tts-engines.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
 import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
 import { detectLocalVoice, OLLAMA_NOTE } from '../tools/local-voice.mjs';
@@ -98,7 +101,7 @@ const VALUE_FLAGS = new Set([
  */
 export function planServices({
   args = [], env = process.env, hasBin = onPath, saved = null,
-  detect = detectLocalVoice, ollama = false,
+  detect = detectLocalVoice, ollama = false, exists = existsSync,
 } = {}) {
   const { opt, opts } = argReader(args);
   const has = (flag) => args.includes(flag);
@@ -166,6 +169,20 @@ export function planServices({
     skip.push({ name: 'voice', why: `unknown --tts-engine '${ttsEngine}' — use ${TTS_ENGINES.join(', ')}` });
   } else if (ttsEngine === 'piper' && !hasBin('piper', env)) {
     skip.push({ name: 'voice', why: 'piper not on PATH — install it (uv tool install piper-tts)' });
+  } else if (ttsEngine === 'piper' && !exists(piperModelPath(
+    opt('--voice', saved?.voice ?? PIPER_DEFAULT_VOICE), opt('--data-dir', piperModelDir(env))))) {
+    // piper is installed but has no voice to speak with. The bridge would come
+    // up looking healthy and fail on the first sentence — a keypress into
+    // silence — so it is caught here, where the fix can be offered instead.
+    const voice = opt('--voice', saved?.voice ?? PIPER_DEFAULT_VOICE);
+    const models = opt('--data-dir', piperModelDir(env));
+    const download = piperDownloadCmd(voice, models, { hasBin: (b) => hasBin(b, env) });
+    skip.push({
+      name: 'voice',
+      why: `the piper voice ${voice} is not in ${models} (~120 MB, one time)`
+        + ` — ${piperDownloadLine(download)}`,
+      download,   // dev offers to run this on a TTY; nothing is ever pulled silently
+    });
   } else if (ttsEngine === 'elevenlabs' && !env[ELEVENLABS_KEY_ENV]?.trim()) {
     // The key never lands in the saved config, so the environment is the only
     // place it can come from — say that, and where to make one.
@@ -230,6 +247,12 @@ export function planServices({
  * outcome (--no-tts, an unknown engine, a malformed --project: the user's
  * hand is on the wheel, and the skip line already names the fix).
  */
+/** The voice is skipped only for want of a model, and we know how to fetch it. */
+export const voiceModelOffer = (plan) => {
+  const s = plan.skip.find((x) => x.name === 'voice');
+  return s?.download ? s : null;
+};
+
 export const voiceSetupOffer = (plan) => {
   const s = plan.skip.find((x) => x.name === 'voice');
   return s && /needs a GCP project/.test(s.why) ? s : null;
@@ -283,6 +306,26 @@ export async function devMain(args) {
       plan = planServices({ args, saved: loadTtsConfig() });
     } else {
       console.log('  git: no repository here — pass --git to create one and auto-commit the deck');
+    }
+  }
+  // piper is installed and chosen, but its voice model is not on disk. The
+  // download is ~120 MB, so it is ASKED FOR, never silent — and only on a TTY,
+  // so CI and pipes keep the skip line exactly as it was. Accepting re-plans,
+  // so the bridge joins `run` and comes up in this same session.
+  {
+    const offer = voiceModelOffer(plan);
+    if (offer && process.stdin.isTTY && process.stdout.isTTY) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        console.log(`  ${offer.why}`);
+        const answer = await rl.question('  download it now? [Y/n] ');
+        if (!/^n/i.test(answer.trim())) {
+          const { bin, args: dlArgs } = offer.download;
+          const r = spawnSync(bin, dlArgs, { stdio: 'inherit' });
+          if (r.status === 0) plan = planServices({ args });
+          else console.log('  download failed — the voice stays skipped');
+        }
+      } finally { rl.close(); }
     }
   }
   // The voice would be skipped for the one reason setup can fix: nothing is
