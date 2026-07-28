@@ -8,7 +8,7 @@
    light · bare white, black Lato, one blue
    Inspired by Reveal.js 'simple' — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

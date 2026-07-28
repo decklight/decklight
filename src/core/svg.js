@@ -1,11 +1,11 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// SVG id-namespacing — SPEC §3. Eliminates the defs-collision bug class:
+// SVG id-namespacing — SPEC SVG_DIAGRAMS. Eliminates the defs-collision bug class:
 // every inline <svg> gets a unique prefix on all ids, with url(#…) and
 // href="#…" references rewritten within that svg only.
 //
-// Concept colors — SPEC §3. `data-concept="agent"` pins a shape (or a
+// Concept colors — SPEC SVG_DIAGRAMS. `data-concept="agent"` pins a shape (or a
 // group's shapes) to ONE diagram-fill slot deck-wide, so a recurring concept
 // never changes color between diagrams. Slot resolution: config.concepts
 // override → stable name hash. The indirection targets a slot

@@ -9,7 +9,7 @@
    rule-exception: R1 a four-shade monochrome LCD is the identity
    rule-exception: R2 the canonical DMG pea-green screen
    rule-exception: R8 everything is pea-soup green on this hardware
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

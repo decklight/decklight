@@ -6,7 +6,7 @@
   <title>Decklight — core smoke deck</title>
   <link rel="stylesheet" href="../dist/decklight.css">
   <style>
-    /* Stub theme: the full §5 token contract, inline (real themes are a
+    /* Stub theme: the full THEMING token contract, inline (real themes are a
        separate subsystem). */
     .decklight {
       --bg: #14161d; --bg-accent: none; --fg: #e8eaf2; --muted: #8b90a3;
@@ -202,7 +202,7 @@ Markdown notes body.
     <aside class="notes">Charts. ⟨CLICK⟩ p50 draws. ⟨CLICK⟩ p99 draws.</aside>
   </section>
 
-  <!-- 14: math on an HTML slide (data-math, SPEC §6) -->
+  <!-- 14: math on an HTML slide (data-math, SPEC CODE_AND_MATH) -->
   <section data-math>
     <h2>Math: HTML slide</h2>
     <p>$$E = mc^2$$</p>
@@ -231,7 +231,7 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
     <p>Untouched: $$x + y$$ and \(z\) stay literal text.</p>
   </section>
 
-  <!-- 17: background image + dim (SPEC §1 background media) -->
+  <!-- 17: background image + dim (SPEC DECK_ANATOMY background media) -->
   <section data-background-image="assets/sunrise.svg" data-background-dim="0.5">
     <h2>Background image</h2>
     <ul>
@@ -335,7 +335,7 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
       rec('chartsteps', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .build-step').length),
       rec('chartdraw', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .chart-line.draw-stroke').length),
       rec('chartnomdfence', !document.querySelector('section[data-slide-index="5"] .chart')),
-      // math (data-math, SPEC §6): MathML on HTML and markdown slides alike,
+      // math (data-math, SPEC CODE_AND_MATH): MathML on HTML and markdown slides alike,
       // code and no-data-math sections untouched, \$ unescaped to a dollar
       rec('mathdisplay', !!document.querySelector('section[data-slide-index="14"] math[display="block"]')),
       rec('mathinline', !!document.querySelector('section[data-slide-index="14"] p math:not([display])')),

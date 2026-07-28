@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Lip-sync bridge: a tiny local HTTP server the player calls to turn
-// narration audio into lip-sync data for the character overlay (SPEC §8).
+// narration audio into lip-sync data for the character overlay (SPEC PRESENTING).
 // Everything runs on THIS machine — Rhubarb Lip Sync for viseme timelines,
 // Wav2Lip / SadTalker (local python repos, your GPU) for talking-head video.
 // No cloud service is involved; the browser just can't spawn native

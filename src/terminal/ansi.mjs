@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Decklight ANSI subset renderer (SPEC §7.3).
+ * Decklight ANSI subset renderer (SPEC TERMINAL_PLAYER).
  *
  * A pure, DOM-free state machine: feed raw PTY chunks (split anywhere, even
  * mid-escape), read back a styled line model or serialized HTML.

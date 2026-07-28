@@ -164,7 +164,7 @@ test('the fixture converts to three visible slides and one skipped', () => {
   assert.equal(report[3].hidden, true);
 
   assert.match(sections[0], /<h1>Q3 &amp; Beyond<\/h1>/);
-  assert.match(sections[0], /<p>What shipped, what did not<\/p>/, 'the subtitle feeds the §1 subtitle rule');
+  assert.match(sections[0], /<p>What shipped, what did not<\/p>/, 'the subtitle feeds the DECK_ANATOMY subtitle rule');
   assert.match(sections[1], /<aside class="notes">/);
   assert.match(sections[2], /<table><thead><tr><th>Region<\/th>/);
   assert.match(sections[2], /<img src="data:image\/png;base64,[A-Za-z0-9+/=]+" alt="The logo">/);

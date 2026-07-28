@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Ink annotations (W pen / ⇧W laser) — SPEC §8. A <canvas> sibling of the
+// Ink annotations (W pen / ⇧W laser) — SPEC PRESENTING. A <canvas> sibling of the
 // stage, above the slides and below the corner chrome / captions / pickers.
 // Strokes are stored in DESIGN coordinates and redrawn at the engine's
 // current scale, so a window resize never drifts them off their slide

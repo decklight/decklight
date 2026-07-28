@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Decklight terminal player (SPEC §7.3).
+ * Decklight terminal player (SPEC TERMINAL_PLAYER).
  *
  * <div class="terminal" data-cast="casts/demo.cast.json"
  *      data-mode="step|play" data-type-speed="5" data-max-step="2.5"

@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The "needs dev mode" message every dev-gated action shares (SPEC §8). The
+// The "needs dev mode" message every dev-gated action shares (SPEC PRESENTING). The
 // point of the helper is that a deck opened by double-clicking it — the common
 // case — gets told the folder to run from, and that every action says the same
 // thing. The toasts themselves are DOM; this covers the text they carry.

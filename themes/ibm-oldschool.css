@@ -4,7 +4,7 @@
 /* ═══════════════════════════════════════════════════════════════
    Decklight theme · ibm-oldschool
    dark · 3270 green-phosphor mainframe: one green, many brightnesses
-   Token contract: SPEC.md §5 — all values validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — all values validated by test/contrast.mjs
    rule-exception: R1 green phosphor plus an amber caution lamp is the identity
    rule-exception: R5 phosphor CRT — one green at many brightnesses is the identity
    ═══════════════════════════════════════════════════════════════ */

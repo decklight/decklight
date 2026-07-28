@@ -1,7 +1,7 @@
 /* Copyright 2026 Gilles Philippart
    SPDX-License-Identifier: Apache-2.0 */
 
-/* Decklight — structural stylesheet. Themes supply the tokens (SPEC §5);
+/* Decklight — structural stylesheet. Themes supply the tokens (SPEC THEMING);
    this file supplies layout, builds, motion, chrome, code, terminal
    structure, and print. */
 
@@ -85,7 +85,7 @@
 
 .decklight aside.notes, .decklight aside.rehearse { display: none; }
 
-/* ---------- pinned titles (SPEC §8) ---------------------------------------
+/* ---------- pinned titles (SPEC PRESENTING) ---------------------------------------
    The engine marks pinnable sections with data-pinned + inline --pin-y /
    --pin-space (pin Y + measured title height + gap). The leading heading is
    lifted out of flow to sit at --pin-y; padding-top reserves its space so the
@@ -110,7 +110,7 @@
 /* momentary measurement state: laid out, never painted (same-task add/remove) */
 .decklight-stage > section.pin-measure { display: flex; visibility: hidden; }
 
-/* ---------- per-slide layout override (SPEC §8) ----------------------------
+/* ---------- per-slide layout override (SPEC PRESENTING) ----------------------------
    data-layout on a section — cycled live with L/⇧L or authored directly.
    'pinned' and 'centered' resolve in the engine (pin vs in-flow); 'top' also
    anchors the flow to the top of the slide instead of centering it. The
@@ -155,7 +155,7 @@
 }
 .decklight-stage > section[data-layout|="split"] > .split-columns > li { break-inside: avoid; }
 
-/* A third content block is a FOOTER, not a third column (SPEC §8): the note
+/* A third content block is a FOOTER, not a third column (SPEC PRESENTING): the note
    under a comparison applies to both sides, so it spans them and centres
    rather than hanging under whichever column it happened to follow. The engine
    marks it; blocks past the second all land here. */
@@ -168,7 +168,7 @@
   margin-top: 0.5em;
 }
 
-/* ---------- background media (SPEC §1) -------------------------------------
+/* ---------- background media (SPEC DECK_ANATOMY) -------------------------------------
    The engine injects .slide-bg (setupMedia) as a section's first child when
    the section carries data-background-image / data-background-video: an
    absolutely positioned full-bleed layer UNDER the content (negative z-index
@@ -223,7 +223,7 @@
   align-self: center;
 }
 
-/* ---------- subtitle (SPEC §1) ---------------------------------------------
+/* ---------- subtitle (SPEC DECK_ANATOMY) ---------------------------------------------
    The <p> directly after a slide's leading heading. One canonical look
    everywhere — markdown or HTML authored, pinned or centered. Absolute size
    (0.72 × the 30px slide base) so per-section font-size adaptations on dense
@@ -286,7 +286,7 @@
 .decklight img, .decklight svg { max-width: 100%; }
 .decklight section > svg, .decklight section > img { margin: 0.3em auto; display: block; }
 
-/* ---------- builds (SPEC §2) ---------------------------------------------- */
+/* ---------- builds (SPEC BUILDS) ---------------------------------------------- */
 .decklight .build-step {
   visibility: hidden;
   opacity: 0;
@@ -453,7 +453,7 @@
   text-overflow: ellipsis;
 }
 
-/* ---------- restore overlay (R) — SPEC §8 ---------------------------------
+/* ---------- restore overlay (R) — SPEC PRESENTING ---------------------------------
    The history list: a monospace hash to anchor the eye, the subject doing the
    work, and the age pushed right so the column reads as a timeline. */
 .decklight-restore .rs-hash {
@@ -467,7 +467,7 @@
   padding-left: 0.75em;
 }
 
-/* ---------- brand logo (SPEC §8) -------------------------------------------
+/* ---------- brand logo (SPEC PRESENTING) -------------------------------------------
    Chrome-level mark on every slide. The engine sets data-canvas="dark|light"
    on the root from the applied theme's real background luminance; the
    on-light/on-dark variants toggle accordingly (on-any always shows). */
@@ -604,7 +604,7 @@
   animation: none !important;
 }
 
-/* ---------- charts (SPEC §3.1) --------------------------------------------
+/* ---------- charts (SPEC CHARTS) --------------------------------------------
    Generated theme-aware SVG charts. Structure only: every color in the SVG
    itself is a diagram token (--d-*), so themes need nothing chart-specific. */
 .decklight .chart { width: 100%; max-width: 860px; margin: 0.2em auto; }
@@ -625,7 +625,7 @@
 }
 .decklight .chart-broken::before { content: '⚠ '; }
 
-/* ---------- element animations (SPEC §4.3) -------------------------------- */
+/* ---------- element animations (SPEC ELEMENT_ANIMATIONS) -------------------------------- */
 .decklight section.active [data-animate="pulse"] { animation: dl-pulse 1.6s ease-in-out infinite; }
 .decklight section.active [data-animate="float"] { animation: dl-float 3s ease-in-out infinite; }
 .decklight section.active [data-animate="shake"] { animation: dl-shake .8s ease-in-out infinite; }
@@ -648,7 +648,7 @@
 }
 @keyframes dl-breathe { 50% { transform: scale(1.04); opacity: .82; } }
 
-/* ---------- slide transitions (SPEC §4.1) --------------------------------- */
+/* ---------- slide transitions (SPEC SLIDE_TRANSITIONS) --------------------------------- */
 .decklight section.tr-fade.entering { animation: dl-fade-in var(--transition-duration) ease both; }
 .decklight section.tr-fade.leaving  { animation: dl-fade-out var(--transition-duration) ease both; }
 @keyframes dl-fade-in  { from { opacity: 0; } }
@@ -682,7 +682,7 @@
 .decklight .aa-fresh { opacity: 0; }
 .decklight .aa-fresh.aa-in { opacity: 1; transition: opacity var(--auto-animate-duration) ease; }
 
-/* ---------- code (SPEC §6) ------------------------------------------------- */
+/* ---------- code (SPEC CODE_AND_MATH) ------------------------------------------------- */
 .decklight pre {
   text-align: left;
   margin: 0.5em auto;
@@ -764,7 +764,7 @@
    scrim); the fill is the theme's accent. */
 .decklight-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 40; background: rgba(128,128,128,.2); }
 .decklight-progress .bar { height: 100%; width: 0; background: var(--accent, #6af); transition: width 200ms ease; }
-/* ink annotations (W pen / ⇧W laser) — SPEC §8. A canvas sibling of the
+/* ink annotations (W pen / ⇧W laser) — SPEC PRESENTING. A canvas sibling of the
    stage: above the slides (stage z1), below the corner chrome (z30+), the
    captions bar (z45) and every picker/palette. Inert until a tool is on —
    pointer-events: none keeps slide clicks working exactly as before. */
@@ -1243,7 +1243,7 @@
 .decklight-transcript .tr-title:hover { color: #9ecbff; }
 .decklight-transcript .tr-seg { margin: 0 0 8px; opacity: .85; font-size: 13px; line-height: 1.55; }
 
-/* ---------- print (SPEC §8) ------------------------------------------------ */
+/* ---------- print (SPEC PRESENTING) ------------------------------------------------ */
 /* The stage overrides are scoped to the OUTER stage (child combinator): the
    handout/notes variants below wrap each slide in a mini-stage of its own,
    which must keep the normal stage/section rendering, only scaled. */
@@ -1276,7 +1276,7 @@
 .decklight.decklight-print .draw-stroke { stroke-dashoffset: 0 !important; }
 .decklight.decklight-print .draw-fade { opacity: 1 !important; }
 
-/* ---------- print variants: ?print=handout | notes (SPEC §8) ---------------
+/* ---------- print variants: ?print=handout | notes (SPEC PRESENTING) ---------------
    Portrait pages, 816×1056 (US letter at 96dpi — the engine injects the
    matching @page). Every slide keeps its 1280×720 design box inside a
    mini-stage (`.decklight-stage.print-slide`, so all section rules still

@@ -7,7 +7,7 @@
    Inspired by Reveal.js 'black' (the default) — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
    rule-exception: R3 the canonical Reveal link blue (#42affa) is the identity
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

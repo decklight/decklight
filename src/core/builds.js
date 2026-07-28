@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Builds engine — SPEC §2.
+// Builds engine — SPEC BUILDS.
 // The container opts in; the engine claims children. A step is either a DOM
 // element or one unit of a registered provider's count.
 

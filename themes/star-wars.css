@@ -7,7 +7,7 @@
    Inspired by Star Wars — the opening crawl — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
    rule-exception: R3 the canonical crawl yellow (#ffe81f) is the identity
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

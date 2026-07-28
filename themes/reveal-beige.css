@@ -9,7 +9,7 @@
    Inspired by Reveal.js 'beige' — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
    rule-exception: R2 the canonical white→beige parchment wash
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

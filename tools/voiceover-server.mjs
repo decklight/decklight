@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Live voice bridge: a tiny local HTTP server the player calls to synthesize
-// narration ON THE FLY (SPEC §8 live voice). The browser can't mint Google
+// narration ON THE FLY (SPEC PRESENTING live voice). The browser can't mint Google
 // credentials (nor run piper), so this process holds them and exposes:
 //
 //   GET  /ping    → { ok, engine, model, voices, stylable }   (player probes)

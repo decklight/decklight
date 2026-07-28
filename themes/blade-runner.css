@@ -7,7 +7,7 @@
    Inspired by Blade Runner — neon noir over the rain — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
    rule-exception: R2 the neon-noir duotone canvas is the identity
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

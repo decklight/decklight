@@ -55,7 +55,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   const themeOf = (href) => (href.match(/themes\/([\w-]+)\.css/) || [])[1];
   const themeKey = 'decklight-theme:' + location.pathname;
 
-  // ── generated & saved-custom themes (SPEC §8) ──────────────────────────
+  // ── generated & saved-custom themes (SPEC PRESENTING) ──────────────────────────
   // Both live as <style data-theme> elements appended LAST in <head>, so an
   // active one wins the cascade over the link/inline base theme (equal
   // specificity, later order). Saved customs persist as token maps in
@@ -151,7 +151,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     debugLog('theme', name);
     updateCanvas(); // inline/generated swaps take effect synchronously
   }
-  // ── theme packs (SPEC §8) — baked from themes/packs.json at build time ────
+  // ── theme packs (SPEC PRESENTING) — baked from themes/packs.json at build time ────
   const PACKS = typeof __DECKLIGHT_PACKS__ !== 'undefined' ? __DECKLIGHT_PACKS__ : null;
   // the dynamic packs are not in packs.json — they exist only when a deck has
   // something in them, so they carry their labels here

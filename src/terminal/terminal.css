@@ -1,7 +1,7 @@
 /* Copyright 2026 Gilles Philippart
    SPDX-License-Identifier: Apache-2.0 */
 
-/* Decklight terminal player chrome (SPEC §7.3).
+/* Decklight terminal player chrome (SPEC TERMINAL_PLAYER).
  * Shipped from src/terminal/ so the terminal subsystem is self-contained;
  * the core build concatenates this into dist/decklight.css.
  * All colors come from theme tokens (--term-*, --ansi-*). */
@@ -147,7 +147,7 @@
 .ansi-inv-fg { color: var(--term-bg, #101418); }
 .ansi-inv-bg { background-color: var(--term-fg, #e6e6e6); }
 
-/* Print: casts fully expanded, no scroll clipping (SPEC §8). The 16:9 floor
+/* Print: casts fully expanded, no scroll clipping (SPEC PRESENTING). The 16:9 floor
    is released so the box grows with the full output. */
 @media print {
   .terminal-screen { max-height: none !important; overflow: visible; aspect-ratio: auto; min-height: auto; }

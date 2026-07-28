@@ -6,7 +6,7 @@
    light · warm cream, door purple, frame yellow, couch orange
    Inspired by Friends — the purple door, the yellow frame, the orange couch — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

@@ -3,7 +3,7 @@
 
 // The theme contract, as a function.
 //
-// A Decklight theme is one CSS file declaring the SPEC §5 tokens, and whether
+// A Decklight theme is one CSS file declaring the SPEC THEMING tokens, and whether
 // a given file IS one has always been decidable — test/contrast.mjs has
 // decided it for the 65 shipped themes since the beginning. What it could not
 // do is answer the question for anybody else's file: `test/` does not ship in
@@ -20,7 +20,7 @@
 import { colorsIn, contrast, parseTheme } from './color.mjs';
 
 /**
- * Every token a theme must declare (SPEC §5). Presence is checked separately
+ * Every token a theme must declare (SPEC THEMING). Presence is checked separately
  * from contrast, because a missing token and an unreadable one are different
  * problems with different fixes.
  */
@@ -99,7 +99,7 @@ export function validateTheme(css) {
     return {
       ok: false, tokens, exceptions, missing, failures,
       errors: ['no CSS custom properties found — is this a Decklight theme? '
-        + '(a theme declares its tokens on .decklight, see SPEC §5)'],
+        + '(a theme declares its tokens on .decklight, see SPEC THEMING)'],
       empty: true,
     };
   }

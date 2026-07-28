@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// First-run TTS setup (SPEC §8): the config file, the guided wizard, and the
+// First-run TTS setup (SPEC PRESENTING): the config file, the guided wizard, and the
 // two entry points. The wizard's side effects are all injected, so every
 // question path runs hermetically; the end-to-end runs use a real pty
 // (script(1)) and the stub piper from helpers.mjs, so `decklight tts` is

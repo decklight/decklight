@@ -6,7 +6,7 @@
    dark · gunmetal chrome, target-lock red, cold machine grays
    Inspired by The Terminator — chrome endoskeleton, HUD red — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

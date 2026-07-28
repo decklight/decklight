@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Code highlighting + line stepping — SPEC §6.
+// Code highlighting + line stepping — SPEC CODE_AND_MATH.
 // Slim highlight.js registration (13 languages), themed via --hl-* tokens.
 // `data-lines` registers a build provider (one step per segment).
 

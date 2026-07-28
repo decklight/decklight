@@ -2,7 +2,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Decklight theme palette-rule grader — the codified R-rules (SPEC §5,
+// Decklight theme palette-rule grader — the codified R-rules (SPEC THEMING,
 // src/core/themegen.js) applied to the SHIPPED themes. Zero dependencies.
 // Usage: node test/palette-rules.mjs [themes-dir]
 // Exit 0 = every theme passes or carries a declared exception; 1 = violations.

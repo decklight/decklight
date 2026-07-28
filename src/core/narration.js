@@ -56,7 +56,7 @@ export function createNarration({
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
   let ttsSpend = 0;
-  // ── narration (V) + picker (N) — SPEC §8 ────────────────────────────────
+  // ── narration (V) + picker (N) — SPEC PRESENTING ────────────────────────────────
   // Two sources, one V toggle. RECORDED: pre-rendered per-slide audio
   // (tools/voiceover.mjs, or ⇧V below; config.narration.files = '<dir>' or
   // [{ label, dir, ext }, …] — ext defaults to 'm4a', ⇧V recordings are
@@ -168,7 +168,7 @@ export function createNarration({
     debugLog('narr', `rate ${narrRate}×`);
     updateDebugState();
   }
-  // Animated lip-synced character (SPEC §8): an overlay whose mouth follows
+  // Animated lip-synced character (SPEC PRESENTING): an overlay whose mouth follows
   // the narration. Live mode rides the sentence pipeline below (prefetch in
   // the lookahead worker, beginSentence per clip); recorded mode loads
   // slide-NN sidecar files. Configured in the N picker ("Character…").
@@ -425,7 +425,7 @@ export function createNarration({
     }
     return '🔇 voice bridge unreachable — auto-advance stopped · start it with: decklight tts';
   }
-  // ── manifest tracks — SPEC §8 ────────────────────────────────────────────
+  // ── manifest tracks — SPEC PRESENTING ────────────────────────────────────────────
   // A track can NAME its files instead of living in a directory. That is the
   // whole of what presigned hosting needs: the signature rides in each file's
   // query string, which a `dir` prefix has nowhere to put. See voicetrack.js.
@@ -590,7 +590,7 @@ export function createNarration({
   // narration itself or from the presenter pressing → mid-sentence
   instance.on('build', () => { if (narrating && narrSet?.live) playLive(); });
 
-  // ── closed captions (C) — SPEC §8 ────────────────────────────────────────
+  // ── closed captions (C) — SPEC PRESENTING ────────────────────────────────────────
   // YouTube-style captions: the CURRENT notes segment (the same text the
   // live voice speaks) in a bar at the bottom, synced to slide/step. Works
   // with narration on or off — it's the deck's transcript. Persists per deck.
@@ -629,7 +629,7 @@ export function createNarration({
   instance.on('build', updateCaption);
   if (captionsOn && !printMode) showCaptions();
 
-  // ── the voice-over hint — SPEC §8 ────────────────────────────────────────
+  // ── the voice-over hint — SPEC PRESENTING ────────────────────────────────────────
   // A deck with a recorded track tells you so, once. Until now the only
   // proactive surface was the touch sound button, which CSS shows on
   // `pointer: coarse` alone — so a viewer on a laptop could only discover the
@@ -739,7 +739,7 @@ export function createNarration({
       : m === 'viseme' ? `🎭 character on — lips follow the narration${narrating ? '' : ' · V starts it'}`
         : `🎥 character video — ${character.engine} · ${character.portrait}${narrating ? '' : ' · V starts narration'}`);
   }
-  // solo: the narrator centre stage, the slide out of the way (SPEC §8)
+  // solo: the narrator centre stage, the slide out of the way (SPEC PRESENTING)
   function applySolo(v) {
     if (character.mode === 'off') {
       toast('turn the character on first — N · Character…');

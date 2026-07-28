@@ -26,7 +26,7 @@ export function createEditMode({
   root, config, params, printMode, toast, debugLog, overlays, instance,
   notesSegs, dismissOthers,
 }) {
-  // ── edit mode (E) + live reload — SPEC §8 ────────────────────────────────
+  // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
   // Served by `decklight edit`: the deck subscribes to /edit/events and
   // reloads whenever the file changes on disk (any editor works — the
   // #/slide/step hash restores the position). E opens a notes editor whose
@@ -266,7 +266,7 @@ export function createEditMode({
     setTimeout(() => ta.focus(), 0);
   }
 
-  // ----- restore overlay (R) — SPEC §8 ---------------------------------------
+  // ----- restore overlay (R) — SPEC PRESENTING ---------------------------------------
   // The git-level sibling of Z/⇧Z: Z takes back a keystroke, R takes back a
   // session. Rows are the deck's commits (from `decklight restore`'s own
   // helper, over the edit server); the preview is that commit's deck rendered

@@ -8,7 +8,7 @@
    every gated pair fitted to the WCAG contract.
    rule-exception: R2 the neon-night duotone canvas is the identity
    rule-exception: R3 vice pink does not do pastel-muted
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

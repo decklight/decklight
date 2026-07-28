@@ -9,7 +9,7 @@
    Inspired by the Beamer metropolis theme (Matthias Vogelgesang) — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
    rule-exception: R3 the canonical metropolis orange (#eb811b) is the identity
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

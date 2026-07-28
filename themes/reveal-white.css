@@ -6,7 +6,7 @@
    light · plain white, dark ink, Reveal blue links, monokai code
    Inspired by Reveal.js 'white' — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

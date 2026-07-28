@@ -8,7 +8,7 @@
  *   decklight restore <deck.html>          list the commits that touched it
  *   decklight restore <deck.html> <ref>    put the deck back to that commit
  *
- * This is the git-level sibling of the in-memory Z/⇧Z stack (SPEC §8): it
+ * This is the git-level sibling of the in-memory Z/⇧Z stack (SPEC PRESENTING): it
  * survives a restart and spans whole agent sessions, so it is what you reach
  * for to undo a run rather than a keystroke.
  *

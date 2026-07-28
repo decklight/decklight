@@ -99,7 +99,7 @@ await build({
 // dist CSS = core structure + the terminal player's stylesheet (chrome,
 // ANSI-16 classes, screen sizing) — the player is bundled into decklight.js,
 // so its CSS must ship in decklight.css too — + Temml's stylesheet (math is
-// core per SPEC §6/§11). Temml's optional woff2 @font-face is stripped: the
+// core per SPEC CODE_AND_MATH/NON_GOALS). Temml's optional woff2 @font-face is stripped: the
 // deck budget is zero webfonts, and MathML Core renders on system math fonts;
 // its body-level equation counter is scoped to the deck root.
 {

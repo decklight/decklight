@@ -473,7 +473,7 @@ test('the phone controller is a self-contained page — no asset it could not re
   // a phone is off-loopback: anything it fetches from elsewhere is a hole
   assert.doesNotMatch(html, /<link\b/i, 'no external stylesheet');
   assert.doesNotMatch(html, /src\s*=\s*["']https?:/i, 'no external script or image');
-  // SPEC §11 — a clicker, not a second screen
+  // SPEC NON_GOALS — a clicker, not a second screen
   assert.doesNotMatch(html, /class="decklight"/, 'the phone renders no slides');
 });
 

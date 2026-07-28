@@ -24,7 +24,7 @@ import { createAnnotator } from './annotate.js';
 export function createHud({
   root, printMode, toast, debugLog, overlays, instance, narration, downloadFromUrl, setProgressBar,
 }) {
-  // ── presenter clock (K) — SPEC §8 ─────────────────────────────────────────
+  // ── presenter clock (K) — SPEC PRESENTING ─────────────────────────────────────────
   // Wall time + elapsed talk time under the slide number — the two numbers a
   // presenter otherwise checks a phone for, and the room notices a phone.
   // Elapsed counts from the deck's FIRST advance, not page load: a deck
@@ -76,7 +76,7 @@ export function createHud({
   instance.toggleClock = toggleClock; // K programmatically
   if (clockOn && !printMode) showClock();
 
-  // ── progress bar (H) — SPEC §8 ────────────────────────────────────────────
+  // ── progress bar (H) — SPEC PRESENTING ────────────────────────────────────────────
   // A hairline along the bottom edge whose width IS the position in the deck —
   // the shape of the talk at a glance, without counting slides. A passive
   // readout of state.slide/step (the fraction _updateChrome computes); it
@@ -105,7 +105,7 @@ export function createHud({
   instance.toggleProgress = toggleProgress; // H programmatically
   if (progressOn && !printMode) showProgress();
 
-  // ── ink annotations (W pen / ⇧W laser) — SPEC §8 ──────────────────────────
+  // ── ink annotations (W pen / ⇧W laser) — SPEC PRESENTING ──────────────────────────
   // Ephemeral presenter ink on a canvas over the slides: strokes live in
   // design coordinates and redraw at the current scale; every slide change
   // clears them. Never in ?print — like the clock, exclusion is by
@@ -123,7 +123,7 @@ export function createHud({
     debugLog('nav', `ink ${t ?? 'off'}`);
   }
 
-  // ── transcript (palette command) — SPEC §8 ───────────────────────────────
+  // ── transcript (palette command) — SPEC PRESENTING ───────────────────────────────
   // The deck's full spoken script: every slide's notes segments, in order,
   // in a scrollable overlay (titles jump to their slide) with .txt and .md
   // export — the same segmentation narration and captions use.

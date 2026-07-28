@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Theme generator property tests — every generated theme must satisfy the
-// full SPEC §5 token contract and the same WCAG gates test/contrast.mjs
+// full SPEC THEMING token contract and the same WCAG gates test/contrast.mjs
 // enforces on shipped themes. The contrast math here is an independent copy
 // of the validator's (not imported from themegen) so the generator can't
 // grade its own homework.

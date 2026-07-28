@@ -7,7 +7,7 @@
    Inspired by Reveal.js 'solarized' / Ethan Schoonover's Solarized Light — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
    rule-exception: R2 the canonical Solarized base3 cream canvas
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

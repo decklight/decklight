@@ -26,7 +26,7 @@ import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools
 const USAGE = `usage: decklight theme <check|add> …
 
   decklight theme check <file|url>
-    run the SPEC §5 token contract and the WCAG contrast gates on a theme file
+    run the SPEC THEMING token contract and the WCAG contrast gates on a theme file
     EXAMPLE: decklight theme check nord-deep.css
 
   decklight theme add <file|url> <deck.html> [--name <name>] [--dry-run]
@@ -102,7 +102,7 @@ export function reportLines(name, result) {
   for (const e of result.errors) out.push(`    ${e}`);
   if (result.missing.length && !result.empty) {
     out.push(`  ${result.missing.length} of ${REQUIRED.length} tokens missing`
-      + ' — a theme written against an older contract needs the new ones added (SPEC §5)');
+      + ' — a theme written against an older contract needs the new ones added (SPEC THEMING)');
   }
   return out;
 }

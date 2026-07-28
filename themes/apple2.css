@@ -8,7 +8,7 @@
    every gated pair fitted to the WCAG contract.
    rule-exception: R1 a single-phosphor monochrome display is the identity
    rule-exception: R3 phosphor green burns bright by design
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

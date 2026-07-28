@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// LaTeX math on `data-math` slides — SPEC §6.
+// LaTeX math on `data-math` slides — SPEC CODE_AND_MATH.
 // Rendered to MathML Core via bundled Temml (no webfonts, no network, no
 // per-deck build step). Delimiters: `$$…$$` display, `\(…\)` inline. Single-`$`
 // is deliberately NOT a delimiter — currency false-positives ("$5 to $10")
@@ -76,7 +76,7 @@ export function findMathSpans(text) {
   return pieces;
 }
 
-// Elements whose text never holds deck math: code samples (SPEC §6 line
+// Elements whose text never holds deck math: code samples (SPEC CODE_AND_MATH line
 // stepping owns them), SVG (MathML can't live in <text>), speaker asides
 // (notes are spoken — narration must not read markup), already-rendered math.
 const SKIP = 'code, pre, script, style, svg, aside, math';
