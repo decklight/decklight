@@ -47,7 +47,7 @@
     .trait h3 { margin: 0 0 6px; font-size: 1rem; color: var(--accent); }
     .trait p { margin: 0; font-size: 0.92rem; color: var(--muted); }
 
-    /* the creamy easter egg: click the word, get the lab note */
+    /* the thocky easter egg: click the word, get the lab note */
     .egg-trigger { border-bottom: 1px dotted var(--accent); cursor: help; }
     .egg {
       display: none;
@@ -173,7 +173,7 @@
       </div>
       <div class="trait">
         <h3>Terminals</h3>
-        <p>Real PTY recordings replayed truthfully, never a video, with the sound of the best mechanical keyboards: thocky, <span class="egg-trigger" title="psst">creamy</span>, or clacky.</p>
+        <p>Real PTY recordings replayed truthfully, never a video, with the sound of the best mechanical keyboards: <span class="egg-trigger" title="psst">thocky</span>, creamy, or clacky.</p>
       </div>
       <div class="trait">
         <h3>Live narration</h3>
@@ -189,21 +189,23 @@
       </div>
     </section>
 
-    <aside class="egg" id="egg-creamy">
-      <strong>You found the lab note.</strong> The creamy sound is the agent's recreation of a
-      Rainy 75, made by dissecting a recording of the real board strike by strike: each keystroke
-      is a short bright contact click at 1.4 to 2.8kHz that dies within ~10ms, a quiet 60-110Hz
-      thump that blooms a few milliseconds later and rings ~40ms at roughly a quarter of the
-      strike's peak (I measured 23% in the recording and calibrated to exactly that), a second
-      lighter click 35 to 80ms later which is the key release, and a ~4x loudness spread between
-      grazed and bottomed-out keys. Synthesized live in WebAudio. No samples were harmed.
+    <aside class="egg" id="egg-thocky">
+      <strong>You found the lab note.</strong> The thocky sound — the default you are hearing —
+      was tuned strike by strike against its own reference board. Each keystroke is a dark contact
+      click bandpassed to 680-1250Hz and rolled off above 1.8kHz, gone within 12 to 17ms: gentle
+      and click-forward, a pop rather than a boom. Under it sits a woody case thump that rings only
+      5 to 9ms, and here is the detail that sells it as a real board — the thump has two pitches.
+      Most strikes land woody at 130 to 185Hz, and about one in five drops to a deep 58 to 85Hz
+      thock, the way a real board mixes bottom-outs with lighter keys. A second, lighter click
+      follows 35 to 80ms later, which is the key release, and loudness spreads ~4x between a grazed
+      key and a bottomed-out one. Synthesized live in WebAudio. No samples were harmed.
     </aside>
 
     <section class="start" aria-label="Create a deck">
       <h2>Create a deck</h2>
       <p>No install needed: <code>npx</code> runs the CLI straight from npm. <code>init</code> scaffolds a self-contained deck plus an agent skill, so Claude Code knows the authoring contract. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
       <div class="term-wrap">
-        <div class="terminal" data-cast-inline="#cast-init" data-mode="play" data-speed="2" data-type-sound="creamy" data-rows="8" data-title="create a deck"></div>
+        <div class="terminal" data-cast-inline="#cast-init" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="8" data-title="create a deck"></div>
       </div>
     </section>
 
@@ -219,7 +221,7 @@
       <h2>Describe the rest to your agent</h2>
       <p><code>init</code> dropped the authoring contract next to the deck, so any agent that can edit a file can author slides — builds, SVG diagrams, animation and all. Here, Claude Code gets one prompt and edits the same HTML file:</p>
       <div class="term-wrap">
-        <div class="terminal" data-cast-inline="#cast-claude" data-mode="play" data-speed="2" data-type-sound="creamy" data-rows="10" data-title="one prompt later"></div>
+        <div class="terminal" data-cast-inline="#cast-claude" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="10" data-title="one prompt later"></div>
       </div>
     </section>
 
@@ -243,7 +245,7 @@
       <h2>Getting the full experience</h2>
       <p>The same CLI does the rest: serve the deck live with in-browser note editing, record truthful terminal casts, bridge live narration, then flatten everything into one self-contained file.</p>
       <div class="term-wrap">
-        <div class="terminal" data-cast-inline="#cast-cli" data-mode="play" data-speed="2" data-type-sound="creamy" data-rows="12" data-title="the full cli"></div>
+        <div class="terminal" data-cast-inline="#cast-cli" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="12" data-title="the full cli"></div>
       </div>
     </section>
 
@@ -396,10 +398,10 @@
 
   <script src="dist/decklight.js"></script>
   <script>
-    // easter egg: clicking "creamy" (or arriving at #creamy) reveals the lab note
-    const egg = document.getElementById('egg-creamy');
+    // easter egg: clicking "thocky" (or arriving at #thocky) reveals the lab note
+    const egg = document.getElementById('egg-thocky');
     document.querySelector('.egg-trigger').addEventListener('click', () => egg.classList.toggle('open'));
-    if (location.hash === '#creamy') egg.classList.add('open');
+    if (location.hash === '#thocky') egg.classList.add('open');
 
     // Activate the standalone terminals and keep each one's playback tied to
     // whether it is actually on screen. The observer stays connected — it used

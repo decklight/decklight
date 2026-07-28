@@ -16,7 +16,13 @@
   <h1>Terminal player harness (mock Decklight)</h1>
 
   <div id="t-step" class="terminal" data-cast="fixtures/smoke.cast.json" data-mode="step" data-title="step mode"></div>
-  <div id="t-play" class="terminal" data-cast="fixtures/smoke.cast.json" data-mode="play" data-title="play mode"></div>
+  <!-- data-type-sound is PINNED, not left to the default: the pause/restart
+       assertions below ask "was a booked sound cancelled early", which is only
+       answerable while something is still pending on the audio clock. creamy has
+       the longest tail of the three voicings (~65-95ms ring against thocky's
+       5-9ms), so the window stays wide enough to observe whatever the shipped
+       default happens to be. -->
+  <div id="t-play" class="terminal" data-cast="fixtures/smoke.cast.json" data-mode="play" data-type-sound="creamy" data-title="play mode"></div>
   <div id="t-missing" class="terminal" data-cast="fixtures/does-not-exist.cast.json" data-title="broken"></div>
   <div id="t-feat" class="terminal" data-cast="fixtures/features.cast.json" data-mode="step" data-poster="1" data-title="features"></div>
   <div id="t-import" class="terminal" data-cast="fixtures/import.cast" data-mode="step" data-title="asciicast import"></div>
