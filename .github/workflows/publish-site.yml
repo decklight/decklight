@@ -43,10 +43,9 @@ jobs:
           mkdir -p out/dist out/themes
           cp site/index.html out/index.html
           cp dist/decklight.js dist/decklight.css out/dist/
-          # the paper-planes decks the landing page embeds: the bundled one is
-          # vendored in site/ (its source lives nowhere else); the starter one
-          # loads dist/ and themes/paper.css relative to the site root
-          cp site/paper-planes.html site/paper-planes-start.html out/
+          # paper.css and meadow.css are still shipped: the landing page's recorded
+          # terminal casts name them, and a visitor who follows those commands lands
+          # on a deck that expects them to resolve
           cp themes/paper.css themes/meadow.css out/themes/
           # demo voice tracks for the showcase (see site/voices.json)
           cp -r site/voices out/voices

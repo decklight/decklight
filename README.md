@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="docs/demo.svg" width="760" alt="An animated Decklight slide: the title, bullets and a diagram build in step by step, then the theme cycles from indigo light to dark to warm parchment while a generator toast appears.">
-</p>
-
 # Decklight
 
 **The presentation library that presents itself.**
