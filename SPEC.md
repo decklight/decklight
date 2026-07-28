@@ -26,17 +26,6 @@ This document is the contract. All subsystems (core, themes, terminal, demos) bu
       </ul>
       <aside class="notes">Speaker notes. ⟨CLICK⟩ markers align with builds.</aside>
     </section>
-
-    <section data-markdown>
-      <script type="text/template">
-## A markdown slide
-
-Content here. HTML is the default; markdown is opt-in per slide.
-
-Note:
-Speaker notes in markdown slides.
-      </script>
-    </section>
   </div>
   <script src="decklight/dist/decklight.js"></script>
   <script>Decklight.init({ transition: 'fade' });</script>
@@ -45,12 +34,10 @@ Speaker notes in markdown slides.
 ```
 
 - Slides are `<section>` children of `.decklight`. Flat list (no vertical nesting in v1).
-- Markdown slides: `data-markdown` on the section, content in `<script type="text/template">`
-  (never `<textarea>` — avoids the escaping and lazy-continuation bugs we hit in Reveal).
-  Markdown is CommonMark via bundled `marked`. `Note:` starts speaker notes.
-- Speaker notes: `<aside class="notes">` (HTML) or `Note:` (markdown).
-- **Rehearse notes** (optional, build-time authored): a condensed cue-card variant of the notes for the speaker view's rehearse mode (§8) — a few words per segment instead of full prose, with **exactly the same ⟨CLICK⟩ segmentation** as the notes so build-step highlighting aligns. HTML: `<aside class="rehearse">` as a sibling of the notes aside. Markdown: a line `Rehearse:` after the `Note:` prose starts the cue block. Slides without a rehearse aside fall back to the full notes in rehearse mode.
-- **Subtitle**: the `<p>` immediately following a slide's leading `h1`/`h2` is auto-marked `.subtitle` and gets one canonical look (muted, 0.72em) whether the slide is markdown- or HTML-authored. Opt out per slide with `data-subtitle="none"` on the section; an author-placed `class="subtitle"` is respected as-is. Don't bake subtitle text into diagram SVGs — author it as this `<p>` so it themes and scales with the deck.
+- **Markdown slides were removed in 0.4.0.** `data-markdown` + a `<script type="text/template">` body was a second authoring surface for the same DOM, and it earned its bundle: `marked`, a `::: build` directive, a parallel notes syntax, a `` ```chart `` fence that existed only because a nested `</script>` cannot live in a template, and a math path that had to extract every span *before* the parse so TeX underscores would not become emphasis. HTML is the one surface now. A deck still carrying `data-markdown` sections would render them EMPTY — the template is a `<script>` no browser paints — so the engine recognises the attribute for exactly long enough to refuse out loud: it marks the section `data-markdown-removed` (assertable headlessly) and warns per slide, naming the slide number. It parses nothing.
+- Speaker notes: `<aside class="notes">`.
+- **Rehearse notes** (optional, build-time authored): a condensed cue-card variant of the notes for the speaker view's rehearse mode (§8) — a few words per segment instead of full prose, with **exactly the same ⟨CLICK⟩ segmentation** as the notes so build-step highlighting aligns. `<aside class="rehearse">` as a sibling of the notes aside. Slides without a rehearse aside fall back to the full notes in rehearse mode.
+- **Subtitle**: the `<p>` immediately following a slide's leading `h1`/`h2` is auto-marked `.subtitle` and gets one canonical look (muted, 0.72em). Opt out per slide with `data-subtitle="none"` on the section; an author-placed `class="subtitle"` is respected as-is. Don't bake subtitle text into diagram SVGs — author it as this `<p>` so it themes and scales with the deck.
 - **Background media**: `data-background-image="hero.jpg"` on a section renders the image full-bleed behind the slide's content — `data-background-size="cover|contain"` (default cover), `data-background-position` (default center). `data-background-dim="0.5"` lays a canvas-colored (`--bg`) overlay between the media and the content so text stays readable over arbitrary photos. `data-background-video="clip.mp4"` plays a muted looping `playsinline` clip while the slide is active — play/pause is driven from the engine's slide event, so a deactivated slide's video is *paused*, not merely hidden; `data-background-poster="poster.jpg"` is its stand-in still (required for print, §8). The engine injects the layer as an idempotent `.slide-bg` first child on `sync()` — absolutely positioned below the content, so backgrounds never count against the overflow guardrail (§8) and transitions/auto-animate carry them for free. `class="full-bleed"` on an `<img>` gives a *content* image the same cover-the-slide treatment (absolute inset-0, object-fit cover, under the in-flow text); images inside split layouts (§8) are capped (object-fit contain, max-height) so a tall photo can't blow the slide. `decklight bundle` inlines `data-background-image`/`data-background-poster` as data: URIs like `<img src>`; background videos stay external with a CLI notice (§8).
 
 ### 1.1 How much goes on a slide
@@ -130,7 +117,6 @@ container, zero classes on the items.
 | `data-build="fade-up"` | entrance style (see 2.3) |
 | `data-build-order="3"` | explicit step index within the slide (default: document order) |
 | `data-build-stay` on a child of a `data-build` container | child is exempt (stays static) |
-| Markdown: `::: build` … `:::` container directive | wraps content in a `<div data-build>` |
 
 ### 2.2 Engine semantics
 
@@ -186,7 +172,6 @@ Declarative charts from inline JSON — a chart IS a theme-aware SVG diagram, ge
 ```
 
 - **Types**: `bar` (grouped), `line`, `area`, `pie` (`donut` is an alias; `"donut": true` also works). Category x-axis; ~5-tick linear y-axis with nice-number bounds, zero always on the grid; pie/donut renders slices with outside name labels and on-slice percentage labels. An inline legend appears automatically on multi-series axis charts (`"legend": false` opts out, `true` forces one). Out of scope in v1: CSV input, stacked bars, dual axes, tooltips/interactivity.
-- **Markdown form**: a fenced ` ```chart ` code block whose body is the same JSON, carrying `"type"` (and optionally `"title"`, `"aspect"`, `"build"`) as keys — a nested `</script>` cannot live inside `text/template`, so the fence replaces the wrapper attributes.
 - **Colors come exclusively from the §5 diagram tokens**: series *i* → `--d-fill-i` (cycling past 6), axes `--d-stroke`, labels `--d-text`, gridlines `--d-muted`. Value labels sit on the slice fills, which is exactly the `--d-text`-against-every-fill contrast gate `test/contrast.mjs` already enforces — every shipped and generated theme colors charts correctly with zero chart-specific work.
 - **Ink**: the `--d-fill` panels sit deliberately close to the canvas (gated for text ON them, never against `--bg`), so charts use the hand-drawn-diagram box idiom — bars, slices and legend swatches are outlined with `--d-stroke`, and every line/area stroke rides on a `--d-stroke` casing under its fill-colored core. Series identity lives in the fill slot; legibility lives in the ink, in every theme.
 - **Concepts**: `"concept": "agent"` on a series emits `data-concept` on that series' `<g>`, resolved by the ordinary §3 concept pinning — bar/slice/area fills and dot fills repaint, a line's core stroke recolors via the `fill="none"` rule above, and the casing sits one group deeper so the ink is never repainted.
@@ -263,17 +248,15 @@ An installed theme becomes a `<style data-theme="<name>" data-theme-added media=
 - `<pre><code class="language-sql">…</code></pre>` — highlighting via bundled highlight.js
   (languages: sql, js, ts, python, bash/shell, yaml, json, java, go, rust, html/xml, css, plaintext), themed through the `--hl-*` tokens (no separate hljs theme files).
 - **Line stepping**: `data-lines="1|3-5|all"` on the `<pre>` → registers a build provider with one step per segment; non-highlighted lines get `--dim-opacity`. `data-lines-numbers` shows line numbers.
-- Escaping rule for authors: use `&lt;` inside code blocks in HTML slides; markdown fences handle escaping automatically.
+- Escaping rule for authors: use `&lt;` inside code blocks.
 - **Math** (`data-math` on the section): LaTeX math renders at init to MathML Core via
   bundled [Temml](https://temml.org) — no per-deck build step, no network fetch, no
   webfonts (evergreen browsers render MathML natively; `?print` output included).
-  Delimiters: `$$…$$` display, `\(…\)` inline — in HTML and `data-markdown` slides
-  alike. Single-`$` is **deliberately not a delimiter** (currency false positives:
+  Delimiters: `$$…$$` display, `\(…\)` inline.
+  Single-`$` is **deliberately not a delimiter** (currency false positives:
   "between $5 and $10" is prose, not math); a literal dollar next to real math is
   written `\$`. Math inside code — fenced blocks, inline spans, `<pre><code>` — is
-  left alone, as are speaker asides (notes are spoken) and SVG text. On markdown
-  slides math spans are extracted before the markdown parse and restored after, so
-  TeX underscores/asterisks never turn into emphasis. Sections without `data-math`
+  left alone, as are speaker asides (notes are spoken) and SVG text. Sections without `data-math`
   are never scanned — zero cost, zero behavior change. A TeX parse error renders as
   a visible red error span, never a broken init. Math is core, not a plugin (§11).
 
@@ -426,7 +409,7 @@ absent — no compatibility break in either direction.
 
 Authorship is **structural, not detected**: the server spawns the agent itself and diffs the deck around that process. An agent driven from OUTSIDE that flow — a `claude` session in another terminal — is indistinguishable from a hand edit, and nothing in the filesystem could tell them apart. Such an agent declares itself instead, by `POST /edit/commit { message }` when it finishes a logical change; the installed authoring skill instructs agents to do exactly that. The same endpoint is how a multi-step agent marks intermediate boundaries. Uncommitted work is committed before an agent job starts, so the agent's commit holds only the agent's work. Agent-supplied messages are untrusted text: collapsed to a single line, length-capped, and never allowed to begin with `-`. `decklight init` states the policy when it creates a repository rather than asking about it.
 - **Ask an agent** (`A`): dev mode drives whichever AI coding agent CLIs the dev machine has installed — the roster (`cli/agents.mjs`) covers **Claude Code** (`claude -p … --permission-mode acceptEdits`), **Codex CLI** (`codex exec --full-auto …`), and **IBM Bob** (`bob -p … --accept-license`), plus Gemini CLI, GitHub Copilot CLI, OpenCode, Goose, Aider, Cursor CLI, and Qwen Code — each as a headless one-shot invocation, detected by probing `$PATH`. A opens a prompt overlay (agent picker when several are detected; `--agent` sets the default); the server snapshots the deck, spawns the agent in the serving directory with the instruction wrapped in deck context, and streams start/done status over SSE (toasts in the player; 10-minute timeout; strictly one job at a time — `agentBusy` survives reloads via ping). If the agent changed the file, the watcher reloads every browser and `Z` takes the edit back like any other.
-- **Notes editor** (`E`): E opens a notes editor — ⟨CLICK⟩-separated plain text — whose Save rewrites the slide's `<aside class="notes">` in the file (one `<p>` per segment, HTML-escaped; the aside is inserted if the slide had none). The server watches the deck file and broadcasts a reload to every connected browser on ANY change — the player's edits and external editors alike — and the `#/slide/step` hash restores the position. Markdown-authored slides decline the editor (their notes live in the template). `file://`-opened decks probe the server at its default localhost port (CORS-open endpoints, like the tts bridge) so the printed URL and a double-clicked file both work; `config.edit.url` overrides, and a basename guard refuses a server that's editing a different deck.
+- **Notes editor** (`E`): E opens a notes editor — ⟨CLICK⟩-separated plain text — whose Save rewrites the slide's `<aside class="notes">` in the file (one `<p>` per segment, HTML-escaped; the aside is inserted if the slide had none). The server watches the deck file and broadcasts a reload to every connected browser on ANY change — the player's edits and external editors alike — and the `#/slide/step` hash restores the position. `file://`-opened decks probe the server at its default localhost port (CORS-open endpoints, like the tts bridge) so the printed URL and a double-clicked file both work; `config.edit.url` overrides, and a basename guard refuses a server that's editing a different deck.
 - **Messages** (`` ` `` — the key left of `1`, matched on `code` so it is the same physical key on every layout; or the palette's "Messages"): the deck talks back in the **top-left corner** — 20px, high-contrast, stacked newest-last (at most 4 at a time), each fading after a few seconds. Every message is also KEPT: that key opens the log — the full history with arrival times — because a message that explains why the voice stopped is worthless if it faded while you were looking at the slide. The shortcut is handled BEFORE the typing guard, so `` ⌃` ``/`` ⌥` `` reach you even while the notes editor (`E`) has focus and owns every bare keystroke; the bare key works whenever you are not typing. `instance.messages()` returns `[{ at, text }]`, `instance.toggleMessages()` opens the log.
 - **Debug log** (`D`): a passive monospace panel over the deck (keys keep driving the presentation) showing a timestamped event stream — ready/slide/build with direction, theme and font applies, narration on/off and config changes, every TTS call with its duration and estimated cost (`slide 3 seg 1 · Alnilam · 214 chars → 2.4s · ~$0.0041`, previews included) and failures, and window `error` events — plus a live state line (slide/step/theme/narration incl. the active voice · tone or track, the voice rate, and the running TTS spend). Cost is an ESTIMATE: the Gemini API returns token counts (`usageMetadata`), never dollars; the bridge prices them at published Vertex list rates, sends `x-tts-cost` on each fresh synthesis (0 on cache replays), and prints a per-call line plus session total on its console. Events ring-buffer (last 200) from init, so the panel shows history from before it was opened.
 - **Font cycling**: `[`/`]` walk a curated list of offline-safe system stacks (sans, rounded, humanist, geometric, two serifs, slab, mono; entry 0 = the theme's own type) applied to `--font-body` + `--font-heading` as inline root properties — they win over any theme and survive theme switches. The choice persists per deck path in localStorage and is restored before the first layout pass; every change re-measures pinned titles and re-runs the overflow guardrail (type metrics differ). `instance.cycleFont(±1)` programmatically.
@@ -526,7 +509,6 @@ decklight/
                  state and keyboard: themes.js (switching, packs, generator, picker), narration.js (voice, captions,
                  character, ⇧V recorder), editmode.js (live reload, notes editor, agents, undo/redo, restore),
                  hud.js (clock, progress, ink, transcript), plus auto-animate, notes, print, svg-ns, charts
-  src/md/        markdown slide support (marked)
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
@@ -538,7 +520,7 @@ decklight/
   test/          node:test units (ansi, md, builds math, cast format) + render.mjs (headless Chrome assertions) + contrast.mjs (every shipped theme through tools/theme-check.mjs)
 ```
 
-- Build: `npm run build` = esbuild bundle (`src/index.js` → `dist/decklight.js`, minified + sourcemap) + CSS copy. Node ≥ 20. Runtime has **zero** runtime dependencies (marked + highlight.js + temml are bundled at build time; Temml's stylesheet is appended to `decklight.css` with its optional woff2 `@font-face` stripped); `node-pty`, `js-yaml` are CLI-only deps.
+- Build: `npm run build` = esbuild bundle (`src/index.js` → `dist/decklight.js`, minified + sourcemap) + CSS copy. Node ≥ 20. Runtime has **zero** runtime dependencies (highlight.js + temml are bundled at build time; Temml's stylesheet is appended to `decklight.css` with its optional woff2 `@font-face` stripped); `node-pty`, `js-yaml` are CLI-only deps.
 - Verification culture: `npm test` runs units; `npm run verify` builds, launches headless Chrome against `demo/kitchen-sink.html`, and asserts: slide count, build counts per slide, provider steps, ANSI render output, theme token presence, no console errors.
 
 ## 11. Non-goals (v1)

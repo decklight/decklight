@@ -8,7 +8,6 @@ import { scanSlide, applyBuildState, stepLabels, registerProvider } from './buil
 import { namespaceSvgIds, applyConcepts } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
-import { initMarkdown } from '../md/markdown.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
@@ -233,6 +232,27 @@ function checkOverflow(section, slideNo) {
                   !el.closest('.terminal') && !el.hasAttribute('data-scroll-ok'));
   section.toggleAttribute('data-overflow', clipped);
   if (clipped) console.warn(`Decklight: slide ${slideNo} content overflows and is clipped — reduce content or font size`);
+}
+
+/**
+ * Markdown slides were removed. Say so, per slide, instead of going blank.
+ *
+ * A `data-markdown` section kept its content in `<script type="text/template">`,
+ * which no browser renders — so with the parser gone such a slide comes up
+ * EMPTY, on stage, with nothing anywhere to explain it. That is the one failure
+ * this removal could not be allowed to have, so the attribute is still
+ * recognised for exactly long enough to name the slide and refuse quietly:
+ * `data-markdown-removed` for a headless probe to assert on, one console line
+ * for the author. Nothing here parses anything.
+ */
+function reportMarkdownSlides(root) {
+  root.querySelectorAll('section[data-markdown]').forEach((section, i) => {
+    section.setAttribute('data-markdown-removed', '');
+    const n = [...root.children].indexOf(section) + 1 || i + 1;
+    console.warn(`Decklight: slide ${n} uses data-markdown, which was removed in 0.4.0 — `
+      + 'its content is in a <script type="text/template"> the browser will not render. '
+      + 'Author the slide in HTML (SPEC §1).');
+  });
 }
 
 export function init(userConfig = {}) {
@@ -768,9 +788,9 @@ export function init(userConfig = {}) {
   }
 
   // ----- content pipeline --------------------------------------------------
-  initMarkdown(stage);
+  reportMarkdownSlides(stage);
   initCharts(stage); // synchronous, so the SVGs get namespaced and build-scanned below
-  initMath(stage); // after initMarkdown: md math renders inside the md pipeline
+  initMath(stage);
   namespaceSvgIds(stage);
   initCode(stage, registerBuildProvider);
 

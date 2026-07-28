@@ -95,35 +95,19 @@
     <p>Fresh content fades in.</p>
   </section>
 
-  <!-- 5: markdown slide -->
+  <!-- 5: a data-markdown slide AFTER the feature was removed. Kept as a slide
+       (rather than deleted) so every later data-slide-index stays put, and
+       because this is the case worth guarding: the content lives in a
+       <script type="text/template"> no browser renders, so without the
+       detector the slide would come up silently EMPTY on stage. -->
   <section data-markdown>
     <script type="text/template">
 ## Markdown slide
 
 Regular paragraph with **bold** and `code`.
 
-::: build
-- markdown build one
-- markdown build two
-:::
-
-| tool | verdict |
-|------|---------|
-| decklight | ✅ |
-
-```sql
-SELECT customer_id, COUNT(*) AS orders
-FROM orders            -- a comment
-GROUP BY customer_id;
-```
-
-```chart
-{ "type": "donut", "title": "Share", "aspect": "4:1",
-  "labels": ["a", "b", "c"], "series": [ { "data": [5, 3, 2] } ] }
-```
-
 Note:
-Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
+Markdown notes body.
     </script>
   </section>
 
@@ -223,21 +207,21 @@ Markdown notes body. ⟨CLICK⟩ First md build. ⟨CLICK⟩ Second md build.
     <h2>Math: HTML slide</h2>
     <p>$$E = mc^2$$</p>
     <p>An inline \(\alpha\) in a sentence, and an escaped \$5 price.</p>
+    <!-- unterminated \frac: temml renders a visible error span rather than throwing,
+         which would take the whole init pipeline down with it -->
+    <p>A broken \(\frac{\) is visible, not fatal.</p>
     <pre><code class="language-plaintext">code keeps its $$dollars$$ literal</code></pre>
   </section>
 
-  <!-- 15: math on a markdown slide — extract before marked, restore after -->
+  <!-- 15: data-markdown AND data-math. initMath no longer excludes markdown
+       sections (there are none), so this proves it walks this one without
+       injecting anything: its text lives inside a <script>, which the math
+       scanner skips like every other code element. -->
   <section data-markdown data-math>
     <script type="text/template">
 ## Math: markdown slide
 
 $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
-
-Inline \(x_i\) and \(y_j\) — the underscores must not become emphasis.
-
-```sh
-echo $$still literal$$
-```
     </script>
   </section>
 
@@ -307,14 +291,14 @@ echo $$still literal$$
       rec('slides', deck.state.totalSlides),
       rec('slide1steps', document.querySelectorAll('section[data-slide-index="1"] .build-step').length),
       rec('svgsteps', document.querySelectorAll('section[data-slide-index="2"] .build-step').length),
-      rec('mdsteps', document.querySelectorAll('section[data-slide-index="5"] .build-step').length),
+      rec('mdremoved', !!document.querySelector('section[data-slide-index="5"][data-markdown-removed]')),
       rec('codelines', document.querySelectorAll('section[data-slide-index="6"] .code-line').length),
       rec('hljs', document.querySelectorAll('section[data-slide-index="6"] .hljs-keyword').length > 0),
       rec('nsids', document.querySelectorAll('svg [id^="svg0-"]').length),
       rec('nsrefs', stage.innerHTML.includes('url(#svg0-arrow)')),
-      rec('mdrendered', !!document.querySelector('section[data-slide-index="5"] h2')),
-      rec('mdnotes', !!document.querySelector('section[data-slide-index="5"] aside.notes')),
-      rec('mdtable', !!document.querySelector('section[data-slide-index="5"] table')),
+      rec('mdnotrendered', !document.querySelector('section[data-slide-index="5"] h2')),
+      rec('mdtemplatekept', !!document.querySelector('section[data-slide-index="5"] script[type="text/template"]')),
+      rec('mdnonotes', !document.querySelector('section[data-slide-index="5"] aside.notes')),
       rec('drawlen', document.querySelectorAll('.draw-stroke').length),
       rec('autopinned', document.querySelector('section[data-slide-index="1"]').hasAttribute('data-pinned')),
       rec('layoutpinned', document.querySelector('section[data-slide-index="8"]').hasAttribute('data-pinned')),
@@ -350,16 +334,17 @@ echo $$still literal$$
       rec('chartbroken', !!document.querySelector('section[data-slide-index="12"] .chart-broken')),
       rec('chartsteps', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .build-step').length),
       rec('chartdraw', document.querySelectorAll('section[data-slide-index="13"] svg.chart-svg .chart-line.draw-stroke').length),
-      rec('chartmdfence', !!document.querySelector('section[data-slide-index="5"] .chart[data-chart="donut"] > svg.chart-svg')),
+      rec('chartnomdfence', !document.querySelector('section[data-slide-index="5"] .chart')),
       // math (data-math, SPEC §6): MathML on HTML and markdown slides alike,
       // code and no-data-math sections untouched, \$ unescaped to a dollar
       rec('mathdisplay', !!document.querySelector('section[data-slide-index="14"] math[display="block"]')),
       rec('mathinline', !!document.querySelector('section[data-slide-index="14"] p math:not([display])')),
       rec('mathescape', document.querySelector('section[data-slide-index="14"]').textContent.includes('an escaped $5 price')),
       rec('mathcode', document.querySelector('section[data-slide-index="14"] code').textContent.includes('$$dollars$$')),
-      rec('mathmd', document.querySelectorAll('section[data-slide-index="15"] math').length >= 3),
-      rec('mathmdnoem', !document.querySelector('section[data-slide-index="15"] em')),
-      rec('mathmdcode', document.querySelector('section[data-slide-index="15"] code').textContent.includes('$$still literal$$')),
+      rec('matherror', !!document.querySelector('section[data-slide-index="14"] .temml-error')),
+      rec('mathmdremoved', !!document.querySelector('section[data-slide-index="15"][data-markdown-removed]')),
+      rec('mathmdnone', !document.querySelector('section[data-slide-index="15"] math')),
+      rec('mathmdtemplateintact', document.querySelector('section[data-slide-index="15"] script[type="text/template"]').textContent.includes('\\sum')),
       rec('mathcontrol', (() => {
         const s = document.querySelector('section[data-slide-index="16"]');
         return !s.querySelector('math') && s.textContent.includes('$$x + y$$') && s.textContent.includes('\\(z\\)');

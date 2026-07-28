@@ -7,22 +7,11 @@
 // is deliberately NOT a delimiter — currency false-positives ("$5 to $10")
 // would silently eat prose; `\$` escapes a literal dollar.
 //
-// Two paths, one renderer:
-//  - HTML slides: initMath walks the section's text nodes (code/pre/svg/asides
-//    skipped) and replaces delimited spans in place.
-//  - Markdown slides: markdown.js extracts math to placeholders BEFORE
-//    marked.parse (underscores and asterisks in TeX would become emphasis) and
-//    restores it — already rendered — after. Fenced/inline code is immune.
-// Pure string transforms (extractMath/restoreMath/findMathSpans) are exported
-// for node:test; only initMath touches the DOM.
+// initMath walks each data-math section's text nodes (code/pre/svg/asides
+// skipped) and replaces delimited spans in place. The pure string transform
+// (findMathSpans) is exported for node:test; only initMath touches the DOM.
 
 import temml from 'temml';
-
-// Placeholder brackets: private-use codepoints no author's text contains, so
-// marked passes them through untouched wherever they land (paragraphs, list
-// items, table cells).
-const PH_OPEN = '\uE000';
-const PH_CLOSE = '\uE001';
 
 function renderTex(tex, display) {
   // throwOnError:false → a parse error renders as a visible red span carrying
@@ -87,87 +76,6 @@ export function findMathSpans(text) {
   return pieces;
 }
 
-// Scan one fence-free markdown chunk, swapping math spans for placeholders.
-// Inline code spans (`…`, any backtick run length) are copied verbatim; `\$`
-// is left for marked, which unescapes it (CommonMark backslash escape).
-function scanChunk(text, spans) {
-  let out = '';
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i];
-    if (c === '\\') {
-      const d = text[i + 1];
-      if (d === '(') {
-        const close = text.indexOf('\\)', i + 2);
-        if (close !== -1) {
-          out += PH_OPEN + (spans.push({ tex: text.slice(i + 2, close), display: false }) - 1) + PH_CLOSE;
-          i = close + 2;
-          continue;
-        }
-      }
-      out += d === undefined ? c : c + d;
-      i += d === undefined ? 1 : 2;
-      continue;
-    }
-    if (c === '`') {
-      const run = text.slice(i).match(/^`+/)[0];
-      const close = text.indexOf(run, i + run.length);
-      const end = close === -1 ? text.length : close + run.length;
-      out += text.slice(i, end);
-      i = end;
-      continue;
-    }
-    if (c === '$' && text[i + 1] === '$') {
-      const close = closingDollars(text, i + 2);
-      if (close !== -1) {
-        out += PH_OPEN + (spans.push({ tex: text.slice(i + 2, close), display: true }) - 1) + PH_CLOSE;
-        i = close + 2;
-        continue;
-      }
-    }
-    out += c;
-    i += 1;
-  }
-  return out;
-}
-
-/**
- * Pull math out of markdown source before marked.parse gets to mangle it.
- * Returns `{ text, spans }`: `text` has each `$$…$$` / `\(…\)` replaced by a
- * placeholder, `spans` the extracted TeX. Fenced code blocks are immune —
- * their lines pass through untouched, so `$$` in a shell example stays text.
- */
-export function extractMath(md) {
-  const spans = [];
-  const out = [];
-  let chunk = [];
-  let fence = null;
-  const flush = () => { if (chunk.length) { out.push(scanChunk(chunk.join('\n'), spans)); chunk = []; } };
-  for (const line of md.split('\n')) {
-    const m = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fence) {
-      out.push(line);
-      if (m && m[1][0] === fence[0] && m[1].length >= fence.length && line.trim() === m[1]) fence = null;
-    } else if (m) {
-      flush();
-      fence = m[1];
-      out.push(line);
-    } else {
-      chunk.push(line);
-    }
-  }
-  flush();
-  return { text: out.join('\n'), spans };
-}
-
-/** Swap extractMath's placeholders in rendered HTML for MathML. */
-export function restoreMath(html, spans) {
-  return html.replace(new RegExp(`${PH_OPEN}(\\d+)${PH_CLOSE}`, 'g'), (_, idx) => {
-    const span = spans[+idx];
-    return span ? renderTex(span.tex, span.display) : '';
-  });
-}
-
 // Elements whose text never holds deck math: code samples (SPEC §6 line
 // stepping owns them), SVG (MathML can't live in <text>), speaker asides
 // (notes are spoken — narration must not read markup), already-rendered math.
@@ -201,11 +109,8 @@ function renderMathIn(section) {
 
 /**
  * Browser: render math on every `section[data-math]`. Sections without the
- * attribute are never scanned; markdown-authored sections were already
- * rendered inside the md pipeline (extract → marked → restore), so touching
- * them again could re-read an author's escaped `\$\$` as a delimiter.
+ * attribute are never scanned.
  */
 export function initMath(root) {
-  root.querySelectorAll('section[data-math]:not([data-was-markdown])')
-    .forEach((section) => renderMathIn(section));
+  root.querySelectorAll('section[data-math]').forEach((section) => renderMathIn(section));
 }
