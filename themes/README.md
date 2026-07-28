@@ -11,7 +11,7 @@ one theme per deck:
 
 Browse them: serve this directory (`python3 -m http.server`) and open [`gallery.html`](gallery.html).
 
-## The token contract (SPEC §5)
+## The token contract (SPEC THEMING)
 
 Every theme must define **all** of these on `.decklight`:
 

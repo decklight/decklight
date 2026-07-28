@@ -328,7 +328,7 @@ html = html.replace(
     return `<img${pre}src="${uri}"`;
   });
 
-// Background media (SPEC §1): the image and the poster inline like <img src>.
+// Background media (SPEC DECK_ANATOMY): the image and the poster inline like <img src>.
 // Background VIDEOS stay external — video cannot inline sanely, the same
 // posture as character MP4s — with a notice so the author ships the files.
 html = html.replace(

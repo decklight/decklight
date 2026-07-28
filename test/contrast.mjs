@@ -12,7 +12,7 @@
 // that applies them to themes/; `decklight theme check` applies them to one
 // file. The two can never drift, because there is only one copy of the rules.
 //
-// Assertions (SPEC §5 + presentation-quality extras, marked ✦):
+// Assertions (SPEC THEMING + presentation-quality extras, marked ✦):
 //   --fg              on --bg        ≥ 4.5   (gradients: every stop must pass)
 //   --muted           on --bg        ≥ 3.0
 //   --heading-color   on --bg        ≥ 3.0

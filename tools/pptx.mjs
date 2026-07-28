@@ -168,8 +168,8 @@ export function tableHtml(tbl, { rels } = {}) {
 
 const GRAPHIC = {
   table: null,                                        // handled
-  chart: 'chart dropped — rebuild as data-chart (SPEC §3.1)',
-  diagram: 'SmartArt dropped — rebuild as an SVG diagram (SPEC §3)',
+  chart: 'chart dropped — rebuild as data-chart (SPEC CHARTS)',
+  diagram: 'SmartArt dropped — rebuild as an SVG diagram (SPEC SVG_DIAGRAMS)',
 };
 
 /**
@@ -203,7 +203,7 @@ export function parseSlide(xml, { rels, mediaOf, slideNo = 0 } = {}) {
 
       if (node.name === 'p:sp') {
         if (find(node, 'a:videoFile') || find(node, 'a:audioFile')) {
-          drop('embedded media dropped — use data-background-video or a <video> (SPEC §1)');
+          drop('embedded media dropped — use data-background-video or a <video> (SPEC DECK_ANATOMY)');
           continue;
         }
         const ph = find(node, 'p:ph');
@@ -232,7 +232,7 @@ export function parseSlide(xml, { rels, mediaOf, slideNo = 0 } = {}) {
 
       if (node.name === 'p:pic') {
         if (find(node, 'a:videoFile') || find(node, 'a:audioFile')) {
-          drop('embedded media dropped — use data-background-video or a <video> (SPEC §1)');
+          drop('embedded media dropped — use data-background-video or a <video> (SPEC DECK_ANATOMY)');
           continue;
         }
         const blip = find(node, 'a:blip');

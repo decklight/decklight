@@ -6,7 +6,7 @@
 //
 //   decklight pdf <deck.html> [-o out.pdf] [--theme name] [--wait ms]
 //
-// There is almost nothing here, and that is the point: `?print` (SPEC §8)
+// There is almost nothing here, and that is the point: `?print` (SPEC PRESENTING)
 // already renders every slide with every build complete, casts expanded and
 // strokes drawn, at 1280×720 with a matching @page. A human can already get
 // this PDF through File → Print → Save as PDF. This command only removes the

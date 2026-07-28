@@ -31,7 +31,7 @@ test('a shipped theme satisfies its own contract', () => {
   const r = validateTheme(good());
   assert.equal(r.ok, true, r.errors.join('\n'));
   assert.equal(r.missing.length, 0);
-  assert.equal(REQUIRED.length, 56, 'the contract is 56 tokens (SPEC §5)');
+  assert.equal(REQUIRED.length, 56, 'the contract is 56 tokens (SPEC THEMING)');
 });
 
 test('a missing token is named, and counted against the contract', () => {

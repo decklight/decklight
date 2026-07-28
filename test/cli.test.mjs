@@ -89,9 +89,9 @@ test('init scaffolds a self-contained deck and the agent skill', () => {
   assert.match(skill, /^---\nname: decklight\n/);
   assert.match(skill, /reference\.md/);
   const reference = fs.readFileSync(path.join(skillDir, 'reference.md'), 'utf8');
-  assert.match(reference, /## 1\. Deck anatomy/);
-  assert.match(reference, /## 9\. Public JS API/);
-  assert.doesNotMatch(reference, /## 10\. Repository layout/);
+  assert.match(reference, /## DECK_ANATOMY/);
+  assert.match(reference, /## JS_API/);
+  assert.doesNotMatch(reference, /## REPO_LAYOUT/);
 
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.match(agents, /decklight:skill/);
@@ -552,9 +552,9 @@ test('skills claude writes only the Claude skill, no AGENTS.md', () => {
   const skill = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8');
   assert.match(skill, /^---\nname: decklight\n/);
   const reference = fs.readFileSync(path.join(skillDir, 'reference.md'), 'utf8');
-  assert.match(reference, /## 1\. Deck anatomy/);
-  assert.match(reference, /## 9\. Public JS API/);
-  assert.doesNotMatch(reference, /## 10\. Repository layout/);
+  assert.match(reference, /## DECK_ANATOMY/);
+  assert.match(reference, /## JS_API/);
+  assert.doesNotMatch(reference, /## REPO_LAYOUT/);
   // claude-only: no AGENTS.md and no standalone reference copy
   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
   assert.equal(fs.existsSync(path.join(dir, '.decklight')), false);
@@ -567,7 +567,7 @@ test('skills for AGENTS.md agents writes the shared reference + a marked section
   assert.match(out, /OpenAI Codex, OpenCode/);
   // no Claude target → the reference stands alone under .decklight/
   const reference = fs.readFileSync(path.join(dir, '.decklight', 'reference.md'), 'utf8');
-  assert.match(reference, /## 1\. Deck anatomy/);
+  assert.match(reference, /## DECK_ANATOMY/);
   assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.match(agents, /decklight:skill/);
@@ -641,7 +641,7 @@ test('skills --global installs into each agent config home, not the project', ()
   assert.equal(fs.existsSync(path.join(home, '.config', 'opencode', 'AGENTS.md')), true);
   assert.equal(fs.existsSync(path.join(home, '.bob', 'AGENTS.md')), true);
   const codexRef = fs.readFileSync(path.join(home, '.codex', '.decklight', 'reference.md'), 'utf8');
-  assert.match(codexRef, /## 1\. Deck anatomy/);
+  assert.match(codexRef, /## DECK_ANATOMY/);
   // global must not scribble in the working directory
   assert.equal(fs.existsSync(path.join(cwd, '.claude')), false);
   assert.equal(fs.existsSync(path.join(cwd, 'AGENTS.md')), false);
@@ -1167,8 +1167,8 @@ test('the skill names the comparison recipe and its one trap', () => {
   assert.match(md, /do not also write/i);
   assert.match(md, /your own column flexbox/i);
   assert.match(md, /full-width footer/);
-  assert.match(md, /§1\.2/, 'and points at the worked markup');
-  assert.match(md, /§1\.1/, 'and at the density guidance');
+  assert.match(md, /COMPARISON_SLIDES/, 'and points at the worked markup');
+  assert.match(md, /SLIDE_DENSITY/, 'and at the density guidance');
 });
 
 test('init states the commit policy when it creates a repository', (t) => {

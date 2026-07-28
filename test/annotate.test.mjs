@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The pure parts of the ink annotator (SPEC §8): pointer→design coordinate
+// The pure parts of the ink annotator (SPEC PRESENTING): pointer→design coordinate
 // mapping (what keeps strokes glued to their slide through a resize) and the
 // laser-trail pruning that drives the ~300 ms afterglow.
 

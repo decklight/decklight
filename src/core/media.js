@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Background media (SPEC §1): a slide carries a full-bleed background image
+// Background media (SPEC DECK_ANATOMY): a slide carries a full-bleed background image
 // or a muted looping background video as data-background-* attributes on its
 // <section>. The engine injects an idempotent .slide-bg layer as the
 // section's first child — absolutely positioned below the content, so it
@@ -52,7 +52,7 @@ function sectionAttrs(sec) {
  * runs — a signature check skips untouched slides, so a re-sync never
  * rebuilds (and thereby restarts) a playing background video.
  *
- * In print mode no <video> is ever created (SPEC §8): the poster renders as
+ * In print mode no <video> is ever created (SPEC PRESENTING): the poster renders as
  * the background image instead, so PDF output shows a still.
  */
 export function setupMedia(sections, { printMode = false } = {}) {

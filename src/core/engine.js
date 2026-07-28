@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Engine — init, navigation, transitions, overview/blackout/help, hash,
-// scaling, print. SPEC §2.2, §4.1, §8, §9.
+// scaling, print. SPEC BUILD_SEMANTICS, SLIDE_TRANSITIONS, PRESENTING, JS_API.
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
 import { namespaceSvgIds, applyConcepts } from './svg.js';
@@ -32,7 +32,7 @@ const DEFAULTS = {
 
 // Pinned-title default Y (design px from the stage top). Measured from the
 // course's "The Single-Agent Limit" slide — the reference position chosen
-// for the feature (SPEC §8).
+// for the feature (SPEC PRESENTING).
 const PIN_DEFAULT_Y = 99;
 const PIN_GAP = 18; // breathing room between a pinned title and the content
 const PIN_SUB_GAP = 6; // breathing room between a pinned title and its subtitle
@@ -48,7 +48,7 @@ export function registerBuildProvider(el, provider) {
 }
 
 /**
- * Pinned titles (SPEC §8): keep slide titles at one vertical position instead
+ * Pinned titles (SPEC PRESENTING): keep slide titles at one vertical position instead
  * of drifting with content height. The leading h1/h2 of each pinnable section
  * is absolutely positioned at --pin-y; --pin-space (pin Y + measured title
  * height + gap) becomes the section's padding-top so the remaining content
@@ -57,7 +57,7 @@ export function registerBuildProvider(el, provider) {
  * Pinnable heuristic: a leading h1/h2 AND real content (list/svg/pre/table/
  * terminal/img/columns) outside the notes — title cards and quote/statement
  * slides stay centered. Per-slide overrides: data-pin (force), data-pin="none"
- * (opt out), data-pin="<number>" (custom Y). data-layout (§8 layout cycling)
+ * (opt out), data-pin="<number>" (custom Y). data-layout (PRESENTING layout cycling)
  * wins over data-pin: "pinned" forces the pin (a numeric data-pin still sets
  * the Y), "centered" and "top" lay out in flow; the split layouts keep the
  * deck's auto pin resolution for their header.
@@ -101,7 +101,7 @@ function leadingHeading(section) {
 }
 
 /**
- * Subtitle (SPEC §1/§8): the <p> immediately following a section's leading
+ * Subtitle (SPEC DECK_ANATOMY/PRESENTING): the <p> immediately following a section's leading
  * heading is the slide's subtitle — one canonical look whether the slide is
  * markdown- or HTML-authored, pinned or centered. Opt out per slide with
  * data-subtitle="none"; an author-placed class="subtitle" is respected as-is.
@@ -182,7 +182,7 @@ function setupPinnedTitles(sections, config) {
 }
 
 /**
- * Split layouts (SPEC §8): a slide's content blocks — everything after the
+ * Split layouts (SPEC PRESENTING): a slide's content blocks — everything after the
  * title + subtitle header — lay out in two sides, first block left and the
  * second right ("split-flip" mirrors). A slide whose ONLY content block is a
  * list can't take sides; the engine marks it .split-columns instead and the
@@ -224,7 +224,7 @@ function setupSplit(sections) {
  */
 function checkOverflow(section, slideNo) {
   if (!section) return;
-  // Terminals scroll internally by design (SPEC §7.3 scrollback viewport);
+  // Terminals scroll internally by design (SPEC TERMINAL_PLAYER scrollback viewport);
   // any other intentional scroller can opt out with data-scroll-ok.
   const clipped = [section, ...section.querySelectorAll('pre, table, svg, ul, ol, blockquote')]
     .some((el) => el.scrollHeight > el.clientHeight + 2 &&
@@ -251,7 +251,7 @@ function reportMarkdownSlides(root) {
     const n = [...root.children].indexOf(section) + 1 || i + 1;
     console.warn(`Decklight: slide ${n} uses data-markdown, which was removed in 0.4.0 — `
       + 'its content is in a <script type="text/template"> the browser will not render. '
-      + 'Author the slide in HTML (SPEC §1).');
+      + 'Author the slide in HTML (SPEC DECK_ANATOMY).');
   });
 }
 
@@ -307,7 +307,7 @@ export function init(userConfig = {}) {
     if (mod) location.href = mod.href + '#/1/0';
   }
 
-  // In-file module markers (merged single-file decks, SPEC §8): sections
+  // In-file module markers (merged single-file decks, SPEC PRESENTING): sections
   // carrying data-module mark chapter starts. When markers exist they take
   // precedence over config.playlist — module navigation becomes goto(), no
   // page loads.
@@ -325,7 +325,7 @@ export function init(userConfig = {}) {
     return idx;
   }
 
-  // Messages (SPEC §8): the deck talks back in the top-left corner — big enough
+  // Messages (SPEC PRESENTING): the deck talks back in the top-left corner — big enough
   // to read from the back of a room, gone a few seconds later. Every one is also
   // KEPT: a message that explains why the voice stopped is worthless if it faded
   // while you were looking at the slide. `I` shows the log (see toggleMessages).
@@ -504,7 +504,7 @@ export function init(userConfig = {}) {
   }
 
 
-  // ----- command palette (/) — SPEC §8 ---------------------------------------
+  // ----- command palette (/) — SPEC PRESENTING ---------------------------------------
   // A Claude-style palette: / lists every command with its shortcut, typing
   // filters, Enter runs. Commands with arguments drill into their own pickers
   // (theme, font, narration, module, slide finder). Text that matches no
@@ -658,8 +658,8 @@ export function init(userConfig = {}) {
   }
   themes.restoreSaved();
 
-  // ----- font cycling ([ / ]) — SPEC §8 -------------------------------------
-  // Curated system stacks (offline-safe, same rule as theme fonts §5), applied
+  // ----- font cycling ([ / ]) — SPEC PRESENTING -------------------------------------
+  // Curated system stacks (offline-safe, same rule as theme fonts THEMING), applied
   // as inline custom properties on the root so they override any theme — link,
   // inline, or generated — and survive theme switching. Entry 0 restores the
   // theme's own type. The choice persists per deck path.
@@ -709,7 +709,7 @@ export function init(userConfig = {}) {
     if (savedFont > 0 && savedFont < FONTS.length) applyFont(savedFont, { silent: true, remeasure: false });
   } catch { /* ignore */ }
 
-  // ----- brand logo (SPEC §8) ------------------------------------------------
+  // ----- brand logo (SPEC PRESENTING) ------------------------------------------------
   // config.logo = { onLight, onDark, src?, height?, position? }: a mark shown
   // as chrome on every slide. onLight/onDark are the variants for light/dark
   // canvases — the engine reads the applied theme's real background luminance
@@ -794,7 +794,7 @@ export function init(userConfig = {}) {
   namespaceSvgIds(stage);
   initCode(stage, registerBuildProvider);
 
-  // ----- slide layout cycling (L / ⇧L) — SPEC §8 -----------------------------
+  // ----- slide layout cycling (L / ⇧L) — SPEC PRESENTING -----------------------------
   // Walk the CURRENT slide through the layout ring. Dev-mode ONLY: the pick
   // is a persisted deck edit — it lands on the section as data-layout AND is
   // written back into the file through the edit server (the same attribute
@@ -1554,7 +1554,7 @@ export function init(userConfig = {}) {
     });
   }
 
-  // Background videos (SPEC §1): driven from the slide event, because CSS
+  // Background videos (SPEC DECK_ANATOMY): driven from the slide event, because CSS
   // `section.active` gating alone only hides the element — a display:none
   // <video> keeps decoding. Play the active slide's clip, pause the rest for
   // real. Print mode never creates a <video>, so there is nothing to drive.

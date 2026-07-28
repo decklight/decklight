@@ -1,4 +1,4 @@
-// Animated lip-synced character — SPEC §8. An overlay in a stage corner
+// Animated lip-synced character — SPEC PRESENTING. An overlay in a stage corner
 // whose mouth follows the narration. Two render modes behind one controller:
 //
 //   viseme — a layered 2D character ([data-mouth] groups, character-art.js by

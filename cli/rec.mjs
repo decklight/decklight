@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * decklight-rec — record truthful terminal casts for Decklight decks (SPEC §7.1/§7.2).
+ * decklight-rec — record truthful terminal casts for Decklight decks (SPEC RECORDER_CLI/CAST_FORMAT).
  *
  *   decklight rec <script.term.yaml> [-o out.cast.json] [--allow-fail] [--quiet]
  *   decklight refresh <dir | cast.json…> [--allow-fail]

@@ -52,4 +52,4 @@ body:
       label: Anything the agent should know
       description: Constraints, prior art in the codebase, things that must not break.
       placeholder: |
-        SPEC §8 lists the key bindings — S is taken by the speaker view.
+        SPEC PRESENTING lists the key bindings — S is taken by the speaker view.

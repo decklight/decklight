@@ -81,7 +81,7 @@ setTimeout(() => {
 }
 
 /**
- * The recipe SPEC §1.2 tells authors to copy, rendered.
+ * The recipe SPEC COMPARISON_SLIDES tells authors to copy, rendered.
  *
  * A documented recipe that no longer matches the layout is worse than none:
  * it is wrong with authority, and every agent reading the skill copies it. So
@@ -90,10 +90,10 @@ setTimeout(() => {
  */
 function recipeFromSpec() {
   const spec = readFileSync(path.join(root, 'SPEC.md'), 'utf8');
-  const at = spec.indexOf('### 1.2 Comparison slides');
-  if (at < 0) throw new Error('SPEC has no §1.2 comparison recipe to check');
+  const at = spec.indexOf('### COMPARISON_SLIDES');
+  if (at < 0) throw new Error('SPEC has no COMPARISON_SLIDES comparison recipe to check');
   const fence = /```html\n([\s\S]*?)```/.exec(spec.slice(at));
-  if (!fence) throw new Error('SPEC §1.2 has no html example');
+  if (!fence) throw new Error('SPEC COMPARISON_SLIDES has no html example');
   return fence[1];
 }
 
@@ -157,7 +157,7 @@ setTimeout(() => {
 </script></body></html>`);
   const r = resultsFrom(
     dumpDom(`file://${file}`, { fileAccess: true, budget: 5000, quietStderr: true, who: 'split-render' }),
-    'SPLIT', 'the SPEC §1.2 recipe');
+    'SPLIT', 'the SPEC COMPARISON_SLIDES recipe');
   check('recipe: two columns', r.columns === 2, `${r.columns} columns`);
   check('recipe: sharing a top edge', r.topGap <= 1, `${r.topGap}px apart`);
   check('recipe: the trailing <p> is the footer', r.footerIsTheThirdBlock === true, `${r.footerIsTheThirdBlock}`);

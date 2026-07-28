@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Charts — SPEC §3.1. Pure-function tests: parsing/validation, tick math,
+// Charts — SPEC CHARTS. Pure-function tests: parsing/validation, tick math,
 // bar/line/pie geometry, and the assembled SVG markup (chartSvg is a pure
 // string transform, so the full render is assertable without a browser).
 // DOM application (initCharts, build handoff) is covered by test/render.mjs.

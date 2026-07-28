@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The message every dev-gated action shows when there is no edit server
-// (SPEC §8). Layout cycling, undo/redo, ask-an-agent and the notes editor each
+// (SPEC PRESENTING). Layout cycling, undo/redo, ask-an-agent and the notes editor each
 // hand-wrote their own version of it, they disagreed on the command — one said
 // `decklight edit` — and none of them told you the thing you actually need:
 // what to type, and where to type it. That matters most for the commonest

@@ -2,7 +2,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// decklight edit — the live-editing dev server (SPEC §8 edit mode).
+// decklight edit — the live-editing dev server (SPEC PRESENTING edit mode).
 //
 //   decklight edit <deck.html> [--port 8788] [--git | --no-git]
 //                  [--commit-every <seconds>] [--agent <name>]
@@ -111,7 +111,7 @@ const MIME = {
 export const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /**
- * The phone controller page (#39): a clicker, NOT a second screen — SPEC §11
+ * The phone controller page (#39): a clicker, NOT a second screen — SPEC NON_GOALS
  * rules out multiplex/follow-along, so this renders no slides, only two big
  * targets and the position readout. Self-contained by necessity: the phone is
  * off-loopback, and every asset it could reference is one more thing the token

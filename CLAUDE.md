@@ -60,3 +60,10 @@ just squash it directly then (`gh pr merge <n> --squash`).
 - The runtime has **zero dependencies**. Anything new belongs in `tools/` or
   `cli/`, which are Node-only.
 - PRs are based on `main`. Keep a bug fix and a feature in separate PRs.
+- **Cite SPEC sections by mnemonic, never by chapter number.** `PRESENTING`, not
+  `§8`; `SLIDE_DENSITY`, not `§1.1`. Every SPEC heading carries its mnemonic and
+  the index at the top of SPEC.md lists them all. This holds everywhere — code
+  comments, commit messages, PR bodies, skill files, review notes. Numbers shift
+  the moment a section is inserted or split, and every reference that named one
+  goes quietly wrong; a mnemonic survives the move and says what it points at.
+  A new section gets a new `SCREAMING_SNAKE_CASE` mnemonic in its heading.

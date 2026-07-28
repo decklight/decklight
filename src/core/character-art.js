@@ -1,4 +1,4 @@
-// Default character art — SPEC §8. A stylized human bust with one mouth
+// Default character art — SPEC PRESENTING. A stylized human bust with one mouth
 // group per Rhubarb mouth shape (A–H, X = rest). The controller shows
 // exactly one group at a time by setting data-viseme on the overlay; the
 // runtime CSS maps [data-viseme="B"] → [data-mouth="B"] visibility.

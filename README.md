@@ -85,15 +85,15 @@ The whole loop is agent-friendly and stays in one file end to end:
 
 | Feature | In one line | More |
 |---|---|---|
-| **Builds** | `data-build` on a container — each child is a step; the layout never jumps | [SPEC §2](SPEC.md#2-builds-keynote-style-reveal-calls-these-fragments) |
-| **SVG diagrams** | inline SVG authored with `var(--d-*)` tokens; recolors with every theme, strokes draw in | [SPEC §3](SPEC.md#3-svg-diagrams-first-class) |
-| **Motion** | slide transitions, Magic Move auto-animate, looping element effects — all respect reduced-motion | [SPEC §4](SPEC.md#4-motion) |
-| **Theming** | 62 themes in 5 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC §5](SPEC.md#5-theming--the-token-contract) |
-| **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC §6](SPEC.md#6-code--math) |
-| **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC §6](SPEC.md#6-code--math) |
-| **Terminals** | `decklight rec` captures real PTY output; replayed by typing then streaming, never a video | [SPEC §7](SPEC.md#7-terminal-recordings) |
-| **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC §8](SPEC.md#8-presenting--output) |
-| **Narration** | TTS reads your notes in sync with builds; the voice is the clock, captions + auto-advance | [SPEC §8](SPEC.md#8-presenting--output) |
+| **Builds** | `data-build` on a container — each child is a step; the layout never jumps | [SPEC BUILDS](SPEC.md#builds--builds-keynote-style-reveal-calls-these-fragments) |
+| **SVG diagrams** | inline SVG authored with `var(--d-*)` tokens; recolors with every theme, strokes draw in | [SPEC SVG_DIAGRAMS](SPEC.md#svg_diagrams--svg-diagrams-first-class) |
+| **Motion** | slide transitions, Magic Move auto-animate, looping element effects — all respect reduced-motion | [SPEC MOTION](SPEC.md#motion--motion) |
+| **Theming** | 62 themes in 5 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC THEMING](SPEC.md#theming--the-token-contract) |
+| **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
+| **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
+| **Terminals** | `decklight rec` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
+| **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
+| **Narration** | TTS reads your notes in sync with builds; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 
 ## CLI
 
@@ -108,7 +108,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
 | `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait so the narrator moves, not just its mouth |
 
-`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC §7](SPEC.md#7-terminal-recordings), `edit` and `lipsync` in [SPEC §8](SPEC.md#8-presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#9-public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
+`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings), `edit` and `lipsync` in [SPEC PRESENTING](SPEC.md#presenting--presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#js_api--public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
 ## Keys
 
@@ -151,7 +151,7 @@ One HTML file and one theme stylesheet feed a **zero-dependency browser runtime*
 
 ## Development
 
-`npm test` (unit + property tests) · `node test/render.mjs` (headless-Chrome render assertions) · `node test/contrast.mjs` (WCAG theme gates) · `npm run verify` for the lot. The house rule: every feature is verified end-to-end against a real render, not just unit-tested — see SPEC §10, and `CONTRIBUTING.md` for the DCO sign-off every commit needs.
+`npm test` (unit + property tests) · `node test/render.mjs` (headless-Chrome render assertions) · `node test/contrast.mjs` (WCAG theme gates) · `npm run verify` for the lot. The house rule: every feature is verified end-to-end against a real render, not just unit-tested — see SPEC REPO_LAYOUT, and `CONTRIBUTING.md` for the DCO sign-off every commit needs.
 
 ## Links
 

@@ -1,14 +1,14 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Charts — SPEC §3.1. Theme-aware SVG charts generated from inline JSON:
-// a chart IS a theme-aware diagram (§3), so every color is a diagram token
+// Charts — SPEC CHARTS. Theme-aware SVG charts generated from inline JSON:
+// a chart IS a theme-aware diagram (SVG_DIAGRAMS), so every color is a diagram token
 // (series i → --d-fill-i, axes --d-stroke, labels --d-text, grid --d-muted)
 // and no chart library, image, or new theme token exists.
 //
 // Geometry is pure functions (node:test-able); only initCharts touches the
-// DOM. The generated <svg> emits one <g> per series, so the §2.1 SVG-container
-// build semantics and §2.3 draw machinery apply with zero chart-specific code:
+// DOM. The generated <svg> emits one <g> per series, so the BUILD_AUTHORING SVG-container
+// build semantics and BUILD_ENTRANCES draw machinery apply with zero chart-specific code:
 // initCharts moves the wrapper's authored data-build onto the <svg>, the
 // chrome group (axes, grid, labels, legend) is data-build-stay, and prepareDraw
 // finds the strokes on its own.
@@ -342,7 +342,7 @@ function pieChart(spec, out) {
     out.push(`<text class="chart-cat draw-fade" x="${f(a.outX)}" y="${f(a.outY + 4)}" text-anchor="${a.anchor}" font-size="12" ${TEXT}>${esc(spec.labels[i])}</text>`);
     if (a.frac >= 0.05) {
       // the value label sits ON the slice fill — --d-text clears every
-      // --d-fill by the §5 contrast gate, so this is readable in any theme
+      // --d-fill by the THEMING contrast gate, so this is readable in any theme
       out.push(`<text class="chart-value draw-fade" x="${f(a.labelX)}" y="${f(a.labelY + 4)}" text-anchor="middle" font-size="12" font-weight="600" ${TEXT}>${Math.round(a.frac * 100)}%</text>`);
     }
   });
@@ -409,7 +409,7 @@ export function initCharts(root) {
       const svg = tpl.content.firstElementChild;
       // builds without a build provider: the authored data-build moves onto
       // the generated <svg>, whose direct-child series groups are exactly the
-      // §2.1 SVG-container steps (the chrome group is data-build-stay)
+      // BUILD_AUTHORING SVG-container steps (the chrome group is data-build-stay)
       if (el.hasAttribute('data-build')) {
         svg.setAttribute('data-build', el.getAttribute('data-build'));
         el.removeAttribute('data-build');

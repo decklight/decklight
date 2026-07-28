@@ -22,13 +22,13 @@ export const PKG_ROOT = path.resolve(here, '..');
 export const PKG = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
 
 /**
- * The authoring contract, sliced from SPEC.md through §9 (everything an
+ * The authoring contract, sliced from SPEC.md through JS_API (everything an
  * agent needs to write slides), dropping the repo-layout/tooling section
  * that only matters to Decklight's own contributors.
  */
 export function referenceDoc() {
   const spec = fs.readFileSync(path.join(PKG_ROOT, 'SPEC.md'), 'utf8');
-  const cut = spec.indexOf('\n## 10. Repository layout & tooling');
+  const cut = spec.indexOf('\n## REPO_LAYOUT');
   return (cut > 0 ? spec.slice(0, cut) : spec).trimEnd() + '\n';
 }
 
@@ -48,8 +48,8 @@ author. A deck is \`<div class="decklight">\` containing \`<section>\` slides;
 the runtime is one JS file + one CSS file + one theme CSS file.
 
 **Full authoring contract**: read [${referenceHref}](${referenceHref}) in this same
-skill directory before authoring or editing a slide — §1.1 is how much goes on
-one, §1.2 is the worked comparison (pros/cons) slide, and past those it covers builds,
+skill directory before authoring or editing a slide — SLIDE_DENSITY is how much goes on
+one, COMPARISON_SLIDES is the worked comparison (pros/cons) slide, and past those it covers builds,
 speaker notes segmentation (⟨CLICK⟩), SVG diagrams, theming, motion, code
 blocks, LaTeX math, terminal recordings, narration, and the public JS API. It's sliced
 straight from Decklight's SPEC.md (v${PKG.version}), so it won't drift from
@@ -89,19 +89,19 @@ or move the detail into the notes. Run it after each batch of slides rather
 than once at the end — and note that overflow is the *late* failure. A slide
 that fits can still be too crowded to present from; prefer ~3–4 bullets or ~2
 short paragraphs per column, and one idea per slide, over anything that merely
-fits (§1.1).
+fits (SLIDE_DENSITY).
 
 **For a comparison slide, use \`data-layout="split"\` — and do not also write
 your own column flexbox.** Two sibling blocks become the columns, a third
 becomes a full-width footer. A hand-rolled flex shell inside a section that
 also carries \`data-layout="split"\` leaves two layout systems fighting, and the
 visible result is the pinned title landing on top of the column headings.
-§1.2 has the markup.
+COMPARISON_SLIDES has the markup.
 
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
 multi-beat notes with a bare \`⟨CLICK⟩\` line so narration and build steps
-stay in sync (§8 in the reference).
+stay in sync (PRESENTING in the reference).
 
 **Commit your own changes when a dev server is running.** \`decklight dev\` /
 \`edit\` auto-commits the deck, but on a timer and under a generic \`autosave\`

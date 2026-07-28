@@ -84,7 +84,7 @@
 
     import { registerTerminals } from '../src/terminal/player.mjs';
 
-    // Mock of the core engine: just collects providers (SPEC §2.4 surface).
+    // Mock of the core engine: just collects providers (SPEC BUILD_PROVIDER_API surface).
     const providers = [];
     const MockDecklight = {
       registerBuildProvider(el, provider) { providers.push({ el, provider }); },

@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The speaker view's state object (SPEC §8). The popup itself is a
+// The speaker view's state object (SPEC PRESENTING). The popup itself is a
 // document.write'n window — not something node can open — but the state it
 // renders from is a pure function of the instance, so that much is testable
 // here. Covers the ⟨CLICK⟩ segmentation and the phone-remote QR (#39), which

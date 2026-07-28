@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Background media (SPEC §1): parseBackground attribute semantics, and the
+// Background media (SPEC DECK_ANATOMY): parseBackground attribute semantics, and the
 // bundler's data-URI inlining of background images/posters (videos stay
 // external). The DOM side (.slide-bg injection, play/pause on slide change,
 // print poster) is covered by test/render.mjs against demo/smoke.html.

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Headless-render verification of demo/smoke.html — the "prove the deck
-// works" harness (SPEC intro + §10). Exits non-zero on any failed assertion.
+// works" harness (SPEC intro + REPO_LAYOUT). Exits non-zero on any failed assertion.
 
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -139,7 +139,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: no annotation canvas', /decklight-annotate"/.test(html), false);
   check('print: math renders in ?print output', /<math[^>]*display="block"/.test(html), true);
   check('print: plain mode has no variant pages', /print-page/.test(html), false);
-  // background media (SPEC §8): print shows a still, never a <video> — the
+  // background media (SPEC PRESENTING): print shows a still, never a <video> — the
   // poster renders as the background image instead
   check('print: no <video> element', /<video\b/i.test(html), false);
   check('print: poster renders as the background image',

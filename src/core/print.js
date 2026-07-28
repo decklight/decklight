@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Print variants (SPEC §8): ?print=handout groups slides into 3-up portrait
+// Print variants (SPEC PRESENTING): ?print=handout groups slides into 3-up portrait
 // pages with ruled note-taking lines; ?print=notes gives one page per slide
 // with its speaker notes rendered underneath. Plain ?print keeps the flat
 // slide-per-page flow and never reaches this module.

@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// First-run TTS setup (SPEC §8): the guided questions that turn "gemini needs
+// First-run TTS setup (SPEC PRESENTING): the guided questions that turn "gemini needs
 // a GCP project" from a dead end into a working voice. Both entry points share
 // it — `decklight tts` runs it where it used to exit with that error (and on
 // `--setup`), `decklight dev` offers it where it would otherwise skip the
@@ -27,7 +27,7 @@ import {
 import { gcloudToken, validProjectId } from './gemini-tts.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV, apiKey as elevenLabsKey } from './elevenlabs-tts.mjs';
 
-// The picker's preview default (SPEC §8) — the wizard's proof is the same
+// The picker's preview default (SPEC PRESENTING) — the wizard's proof is the same
 // audio the deck's N picker previews.
 export const TEST_SENTENCE = 'Hey, this is Decklight';
 

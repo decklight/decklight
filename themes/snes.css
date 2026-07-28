@@ -6,7 +6,7 @@
    light · console gray, purple accents, ABXY color pops
    Inspired by the Super Nintendo console + its four action buttons — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

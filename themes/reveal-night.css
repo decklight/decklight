@@ -8,7 +8,7 @@
    dark · true dark, Montserrat caps, amber links
    Inspired by Reveal.js 'night' — palette kept canonical where possible,
    every gated pair fitted to the WCAG contract.
-   Token contract: SPEC.md §5 — validated by test/contrast.mjs
+   Token contract: SPEC.md THEMING — validated by test/contrast.mjs
    ═══════════════════════════════════════════════════════════════ */
 
 .decklight {

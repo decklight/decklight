@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Decklight entry point. Bundled by esbuild as an IIFE with globalName
-// "Decklight" — the module namespace becomes the public API (SPEC §9).
+// "Decklight" — the module namespace becomes the public API (SPEC JS_API).
 //
 // Terminal subsystem contract: src/terminal/player.mjs, when present, exports
 // `registerTerminals(Decklight, root)` — async (casts are fetched); providers
@@ -26,7 +26,7 @@ export function init(config = {}) {
   return instance;
 }
 
-/** Docs-page use (SPEC §7.3): activate .terminal elements WITHOUT a deck —
+/** Docs-page use (SPEC TERMINAL_PLAYER): activate .terminal elements WITHOUT a deck —
  *  play mode is fully interactive standalone; step mode renders complete. */
 export function initTerminals(root = document) {
   const register = terminal.registerTerminals || terminal.default?.registerTerminals;

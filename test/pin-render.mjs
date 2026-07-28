@@ -69,7 +69,7 @@ setTimeout(() => {
       pinned: sec.hasAttribute('data-pinned'),
       // this deck's slide 2 genuinely overflows — far more content than fits —
       // so the guardrail must say so. Worth pinning because the whole authoring
-      // contract (SPEC §8) tells agents to assert [data-overflow] is absent,
+      // contract (SPEC PRESENTING) tells agents to assert [data-overflow] is absent,
       // which is only meaningful if it is reliably PRESENT when it should be.
       flaggedOverflow: sec.hasAttribute('data-overflow'),
       pinSpace: sec.style.getPropertyValue('--pin-space'),
