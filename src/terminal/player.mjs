@@ -20,8 +20,8 @@
  * presenter's choice wins over the authored attribute). A change applies to
  * the keystroke being typed — not at the next build.
  *
- * data-type-sound picks the key voicing (creamy, clacky, thocky, or off;
- * default creamy). The ♪ titlebar button cycles it live, persisted per deck.
+ * data-type-sound picks the key voicing (thocky, creamy, clacky, or off;
+ * default thocky). The ♪ titlebar button cycles it live, persisted per deck.
  *
  * The A titlebar button cycles the terminal's font size (75% … 160% of the
  * inherited size), persisted per page. All three controls are present in
@@ -55,7 +55,7 @@ const TYPE_WPM_KEY = 'decklight-term-wpm:' + location.pathname;
 const nearestWpm = (w) => WPM_STEPS.reduce((a, b) => Math.abs(b - w) < Math.abs(a - w) ? b : a);
 
 // The ♪ titlebar button is a key-sound picker cycling these; "off" mutes.
-const SOUND_STEPS = ['creamy', 'clacky', 'thocky', 'off'];
+const SOUND_STEPS = ['thocky', 'creamy', 'clacky', 'off'];
 const TYPE_SOUND_KEY = 'decklight-term-typesound:' + location.pathname;
 
 // font-size steps for the A titlebar button, in em so they scale whatever
@@ -138,7 +138,7 @@ export function stopKeySounds() {
   liveKeyNodes.clear();
 }
 
-function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
+function keyClick(ch = '', profile = 'thocky', gapSec = 0.12) {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return;
@@ -150,7 +150,7 @@ function keyClick(ch = '', profile = 'creamy', gapSec = 0.12) {
       const d = keyNoise.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     }
-    const P = KEY_PROFILES[profile] ?? KEY_PROFILES.creamy;
+    const P = KEY_PROFILES[profile] ?? KEY_PROFILES.thocky;
     const rnd = (lo, hi) => lo + Math.random() * (hi - lo);
     // Schedule a hair AHEAD of the clock, never at it. currentTime advances one
     // render quantum at a time (128 frames — 2.7ms at 48kHz) and reports the
@@ -381,8 +381,8 @@ class TerminalController {
     // pick (the ♪ button) overrides. this.soundName is the picker's selection
     // (a profile name or "off"); this.typeSound is the active profile, or null
     // when muted.
-    const authoredSnd = (el.dataset.typeSound || 'creamy').toLowerCase();
-    this.soundName = SOUND_STEPS.includes(authoredSnd) ? authoredSnd : 'creamy';
+    const authoredSnd = (el.dataset.typeSound || 'thocky').toLowerCase();
+    this.soundName = SOUND_STEPS.includes(authoredSnd) ? authoredSnd : 'thocky';
     try {
       const saved = localStorage.getItem(TYPE_SOUND_KEY);
       if (saved && SOUND_STEPS.includes(saved)) this.soundName = saved;
@@ -514,13 +514,13 @@ class TerminalController {
     this.controlsEl.appendChild(btn);
   }
 
-  // ♪ voice: key-sound picker. Click cycles creamy → clacky → thocky → off and
+  // ♪ voice: key-sound picker. Click cycles thocky → creamy → clacky → off and
   // wraps, playing one click as feedback (which also unlocks the AudioContext
   // on the gesture). Persisted per deck.
   _mountSoundButton() {
     const btn = document.createElement('button');
     btn.className = 'terminal-btn terminal-typesound';
-    btn.title = 'key sound: click cycles creamy, clacky, thocky, off';
+    btn.title = 'key sound: click cycles thocky, creamy, clacky, off';
     btn.setAttribute('aria-label', 'key sound');
     const label = () => { btn.textContent = `♪ ${this.soundName}`; };
     label();

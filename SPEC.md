@@ -367,15 +367,15 @@ absent — no compatibility break in either direction.
 ```
 
 - `data-mode="step"` (default): registers a build provider — each advance **types the command**
-  (synthesized keystrokes, 80–135ms jitter, each landing with a synthesized switch sound: data-type-sound="creamy" (default) | "thocky" | "clacky" | "off") then streams its real
+  (synthesized keystrokes, 80–135ms jitter, each landing with a synthesized switch sound: data-type-sound="thocky" (default) | "creamy" | "clacky" | "off") then streams its real
   output with recorded pacing compressed to ≤2.5s per step (`data-max-step` override).
   Provider is idempotent: `apply(i)` renders steps `< i` instantly-complete, animates step `i` if
   reached by a forward advance, clears the rest.
 - **Typing sound**: a subtle synthesized key click accompanies each typed character
   (WebAudio — a ~35ms bandpassed noise tick with jittered pitch/level, no asset;
-  spaces land deeper, with more bass). Three voicings, `data-type-sound="creamy"`
-  (default) | `"thocky"` | `"clacky"`, or `"off"` to mute. A `♪ voice` titlebar button
-  lets the presenter cycle creamy → clacky → thocky → off live; that choice persists per
+  spaces land deeper, with more bass). Three voicings, `data-type-sound="thocky"`
+  (default) | `"creamy"` | `"clacky"`, or `"off"` to mute. A `♪ voice` titlebar button
+  lets the presenter cycle thocky → creamy → clacky → off live; that choice persists per
   deck in localStorage and overrides the authored value. Degrades to silence where audio
   is unavailable.
 - **Typing speed**: `data-type-speed` is a `1` (slow) … `10` (fast) scale, default `5`
