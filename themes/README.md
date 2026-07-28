@@ -1,6 +1,6 @@
 # Decklight themes
 
-61 themes, one contract. A theme is **a single CSS file that defines tokens on `.decklight`** — the
+62 themes, one contract. A theme is **a single CSS file that defines tokens on `.decklight`** — the
 runtime (`dist/decklight.css`) owns all structure; themes own only color, type, and mood. Link exactly
 one theme per deck:
 
