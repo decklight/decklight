@@ -46,14 +46,14 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('slide count', s.slides, '20');
   check('slide 1 build steps (3 li + 1 leaf)', s.slide1steps, '4');
   check('slide 2 svg steps (3 g, caption stays)', s.svgsteps, '3');
-  check('markdown build steps', s.mdsteps, '2');
+  check('a data-markdown slide is flagged, not parsed', s.mdremoved, 'true');
   check('code lines wrapped', Number(s.codelines) >= 8, true);
   check('hljs tokens present', s.hljs, 'true');
   check('svg ids namespaced', Number(s.nsids) >= 1, true);
   check('url(#) refs rewritten', s.nsrefs, 'true');
-  check('markdown rendered to h2', s.mdrendered, 'true');
-  check('markdown notes extracted', s.mdnotes, 'true');
-  check('markdown gfm table', s.mdtable, 'true');
+  check('…and renders nothing: no heading was produced', s.mdnotrendered, 'true');
+  check('…its template is left intact for the author to convert', s.mdtemplatekept, 'true');
+  check('…and no notes were extracted from it', s.mdnonotes, 'true');
   check('draw strokes prepared', Number(s.drawlen) >= 3, true);
   check('auto layout pins by default', s.autopinned, 'true');
   check('data-layout=pinned pins the title', s.layoutpinned, 'true');
@@ -67,9 +67,10 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('math: \\(…\\) renders inline MathML', s.mathinline, 'true');
   check('math: \\$ escapes to a literal dollar', s.mathescape, 'true');
   check('math: code on a data-math slide keeps its dollars', s.mathcode, 'true');
-  check('math: markdown data-math slide renders MathML too', s.mathmd, 'true');
-  check('math: TeX underscores never become markdown emphasis', s.mathmdnoem, 'true');
-  check('math: markdown fenced code is immune', s.mathmdcode, 'true');
+  check('math: a TeX parse error renders visibly instead of killing init', s.matherror, 'true');
+  check('math: a data-markdown data-math slide is flagged too', s.mathmdremoved, 'true');
+  check('math: and nothing is rendered into it', s.mathmdnone, 'true');
+  check('math: its template text is untouched by the scanner', s.mathmdtemplateintact, 'true');
   check('math: a section without data-math is untouched', s.mathcontrol, 'true');
   // smoke.html configures no narration at all — a deck with nothing to play
   // must never offer to play it (the pill's other five exclusions are pinned in
@@ -92,7 +93,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('chart: invalid JSON renders the error box (and no runtime error)', s.chartbroken, 'true');
   check('chart: data-build moved onto the svg — 2 series steps', s.chartsteps, '2');
   check('chart: line strokes prepared for draw', s.chartdraw, '2');
-  check('chart: markdown ```chart fence renders', s.chartmdfence, 'true');
+  check('chart: the markdown ```chart fence form is gone', s.chartnomdfence, 'true');
   check('ink: no canvas until a tool is asked for', s.inkdefault, 'true');
   check('ink: W mounts the pen overlay, capturing', s.inkpen, 'true');
   check('ink: an API stroke paints the canvas', s.inkdrawn, 'true');
@@ -167,12 +168,16 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
     (html.match(/class="print-page print-notes-page"/g) || []).length, 20);
   check('notes: a notes block on every page',
     (html.match(/class="print-notes"/g) || []).length, 20);
-  // 6 slides carry notes (markdown's Note: included); the other 14 keep their
-  // page with an empty block
+  // 5 slides carry notes; the other 15 keep their page with an empty block.
+  // (Slide 5's Note: is inside its unparsed template, so it is NOT one of them
+  // — the count moved from 14 to 15 when markdown slides stopped contributing.)
   check('notes: slides without notes get an empty block',
-    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 14);
-  check('notes: markdown Note: content lands in its block (aside + copy)',
-    (html.match(/Markdown notes body/g) || []).length, 2);
+    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 15);
+  // ONE occurrence, not zero and not the old two: the words survive as the raw
+  // template text they always were, and are never lifted into a notes block or
+  // its copy. The empty-block count above is what proves slide 5 contributes none.
+  check('notes: an unparsed markdown template stays raw, and yields no notes block',
+    (html.match(/Markdown notes body/g) || []).length, 1);
   check('notes: HTML aside content lands in its block (aside + copy)',
     (html.match(/Second point beat/g) || []).length, 2);
 }

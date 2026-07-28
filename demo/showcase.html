@@ -299,80 +299,6 @@
       </aside>
     </section>
 
-    <!-- 10 · markdown -->
-    <section data-markdown>
-      <script type="text/template">
-## This Slide Is Markdown
-
-One `data-markdown` attribute — CommonMark inside
-
-::: build
-- Opt-in per slide, HTML stays the default
-- `::: build` fences make this list progressive
-- `Note:` starts speaker notes, `Rehearse:` the cue cards
-:::
-
-Note:
-This entire slide is Markdown — one data-markdown attribute with CommonMark inside. If you can write a README, you can write this slide.
-
-⟨CLICK⟩
-
-HTML stays the default surface, mind you. Markdown is opt-in, slide by slide — pick the right tool per slide, not per deck.
-
-⟨CLICK⟩
-
-That triple-colon build fence in the source quietly hoists the build attribute onto the list. Same stepping as HTML, zero ceremony.
-
-⟨CLICK⟩
-
-And the speaker notes — including the condensed rehearse cues — are authored right here in the template too. One file, the whole story.
-
-Rehearse:
-Markdown = one attribute
-
-⟨CLICK⟩
-
-HTML is default
-
-⟨CLICK⟩
-
-::: build fence
-
-⟨CLICK⟩
-
-Note: + Rehearse: inline
-      </script>
-    </section>
-
-    <!-- 11 · html vs markdown authoring -->
-    <section style="font-size:0.9em">
-      <h2>HTML or Markdown?</h2>
-      <p>The same deck, two authoring surfaces — mix them per slide</p>
-      <table data-build>
-        <thead><tr><th></th><th>HTML <span style="opacity:.6">· default</span></th><th>Markdown <span style="opacity:.6">· opt-in</span></th></tr></thead>
-        <tbody>
-          <tr><td><strong>Surface</strong></td><td><code>&lt;section&gt;</code> + tags</td><td><code>data-markdown</code> + template</td></tr>
-          <tr><td><strong>Builds</strong></td><td><code>data-build</code> on the element</td><td><code>::: build</code> fence</td></tr>
-          <tr><td><strong>Notes</strong></td><td><code>&lt;aside class="notes"&gt;</code></td><td><code>Note:</code> / <code>Rehearse:</code> blocks</td></tr>
-          <tr><td><strong>Rich slides</strong></td><td>SVG · auto-animate · layout, natively</td><td>drop to raw HTML inline</td></tr>
-          <tr><td><strong>Best for</strong></td><td>diagrams &amp; fine control</td><td>prose · fast, agent-friendly</td></tr>
-        </tbody>
-      </table>
-      <p data-build style="font-size:0.62em; opacity:.85">Both compile to the same DOM — this very tour ships as <code>showcase.html</code> and <code>showcase-md.html</code>.</p>
-      <aside class="notes">
-        <p>So which one should you use? Wrong question, friends — both compile to the same DOM, and you can mix them slide by slide in a single deck. But let's compare anyway.</p><p>⟨CLICK⟩</p><p>Surface: a plain section of HTML tags, versus a data-markdown section wrapping a CommonMark template. Same destination, different commute.</p><p>⟨CLICK⟩</p><p>Builds: one attribute in HTML, a triple-colon fence in Markdown.</p><p>⟨CLICK⟩</p><p>Notes: an aside element, or Note: and Rehearse: blocks. Either way, they land in the speaker view.</p><p>⟨CLICK⟩</p><p>Now the honest part: diagrams, auto-animate, fine layout — that's HTML's home turf. In Markdown you drop back to raw HTML exactly where the visuals get ambitious.</p><p>⟨CLICK⟩</p><p>So: HTML when you want control, Markdown when you're moving fast — or when the author is an agent. Which, around here, is often.</p><p>⟨CLICK⟩</p><p>And it's not a religion. This very tour ships both ways, from the same feature set.</p>
-      </aside>
-      <aside class="rehearse">
-        <p>Same DOM, two surfaces — mix per slide</p>
-        <p>⟨CLICK⟩</p><p>Surface: tags vs template</p>
-        <p>⟨CLICK⟩</p><p>Builds: attr vs ::: fence</p>
-        <p>⟨CLICK⟩</p><p>Notes: aside vs Note:</p>
-        <p>⟨CLICK⟩</p><p>Rich = HTML; md drops to raw HTML</p>
-        <p>⟨CLICK⟩</p><p>HTML = control · md = prose/agents</p>
-        <p>⟨CLICK⟩</p><p>Ships both ways</p>
-      </aside>
-    </section>
-
     <!-- 11b · math (data-math: LaTeX → MathML Core via bundled Temml) -->
     <section data-math>
       <h2>Math, Rendered Native</h2>
@@ -835,14 +761,14 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
     </section>
 
     <!-- 26 · quiz q5 -->
-    <section class="quiz-q" data-narration="hold" data-q="5" data-answer="1">
+    <section class="quiz-q" data-narration="hold" data-q="5" data-answer="3">
       <h3>Question 5 of 12</h3>
-      <p>Inside a <code>data-markdown</code> slide, how do you make a list build progressively?</p>
+      <p>A slide centres its content. What happens when that content is taller than the slide?</p>
       <div class="quiz-options" role="radiogroup" aria-label="Question 5">
-        <label><input type="radio" name="q5" value="1">Wrap it in a <code>::: build</code> fence</label>
-        <label><input type="radio" name="q5" value="2">Add a <code>data-build</code> attribute directly on the <code>&lt;ul&gt;</code>, same as HTML</label>
-        <label><input type="radio" name="q5" value="3">Declare it in YAML front matter above the slide</label>
-        <label><input type="radio" name="q5" value="4">Wrap it in an HTML <code>&lt;!-- build --&gt;</code> comment</label>
+        <label><input type="radio" name="q5" value="1">It overflows evenly, half above the slide and half below</label>
+        <label><input type="radio" name="q5" value="2">The engine shrinks the font until it fits</label>
+        <label><input type="radio" name="q5" value="3">It falls back to top alignment, so the overflow only ever goes down</label>
+        <label><input type="radio" name="q5" value="4">The slide grows and the deck scrolls</label>
       </div>
     </section>
 

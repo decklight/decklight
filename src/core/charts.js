@@ -394,20 +394,6 @@ export function chartSvg(spec) {
  * .chart-broken box — never a blank slide, never a thrown error.
  */
 export function initCharts(root) {
-  // markdown fence form: ```chart with the JSON as the body (a nested
-  // </script> can't live inside text/template) — rendered by marked as
-  // pre > code.language-chart, converted here to the canonical div form
-  root.querySelectorAll('pre > code.language-chart').forEach((code) => {
-    const holder = document.createElement('div');
-    holder.className = 'chart';
-    holder.setAttribute('data-chart', '');
-    const data = document.createElement('script');
-    data.type = 'application/json';
-    data.textContent = code.textContent;
-    holder.appendChild(data);
-    code.parentElement.replaceWith(holder);
-  });
-
   root.querySelectorAll('[data-chart]').forEach((el) => {
     if (el.querySelector(':scope > svg.chart-svg, :scope > .chart-broken')) return; // idempotent
     el.classList.add('chart');

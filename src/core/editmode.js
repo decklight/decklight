@@ -220,10 +220,6 @@ export function createEditMode({
       toast(needsDevMode('editing notes', location), 3200);
       return;
     }
-    if (instance._sections[sl - 1]?.hasAttribute('data-was-markdown')) {
-      toast('markdown-authored slide — its notes live in the template; edit the file', 2200);
-      return;
-    }
     editEl = document.createElement('div');
     editEl.className = 'decklight-narr decklight-editor';
     const card = document.createElement('div');
