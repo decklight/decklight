@@ -57,6 +57,10 @@ you get around to merging, plain `gh pr merge <n>` enqueues it directly.
 
 - Commit subjects are lowercase, `area: what changed` (`tts:`, `lipsync:`,
   `character:`, `dev:`), and say the *effect*, not the file list.
+- `CHANGELOG.md` is **compiled at release time** from the merged PR titles —
+  do not update it per PR. A release PR trues it up (entries, counts, the
+  version heading) in one pass; keeping it current per-commit is a merge-
+  conflict magnet that buys nothing.
 - `dist/` is generated (`npm run build`) and not versioned — never hand-edit it.
 - The runtime has **zero dependencies**. Anything new belongs in `tools/` or
   `cli/`, which are Node-only.
