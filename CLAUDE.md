@@ -41,16 +41,17 @@ change to `src/` or `themes/`.
 Arm auto-merge the moment you open a PR, while its checks are still pending:
 
 ```sh
-gh pr merge <n> --auto --squash
+gh pr merge <n> --auto
 ```
 
-The repo keeps a **linear history**, so merges are **squashes** — `--merge` (a
-merge commit) is rejected. It gates on the CI + DCO checks (no required review)
-and requires branches to be up to date, so an armed PR lands itself the instant
-it goes green and is current with `main`; if it falls behind, auto-merge updates
-and re-tests it first. Arm it *at open time*: once the checks have already
-passed the PR is `clean` and `--auto` is a no-op (it errors "already clean"), so
-just squash it directly then (`gh pr merge <n> --squash`).
+**`main` is behind a merge queue** — do not pass a strategy flag. `--squash`
+(and `--merge`) are rejected with "the merge strategy for main is set by the
+merge queue": the queue owns the strategy, and it squashes, which is what keeps
+the history linear. Armed, the PR enqueues itself the instant the CI + DCO
+checks go green (no required review); the queue then re-runs CI against
+queued-up `main` (`merge_group`) before landing it, so a PR that raced another
+one gets retested, not trusted. If the checks have already passed by the time
+you get around to merging, plain `gh pr merge <n>` enqueues it directly.
 
 ## Conventions
 
