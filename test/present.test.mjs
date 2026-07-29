@@ -171,7 +171,10 @@ test('no /edit/* route is registered — the source never mentions one', () => {
   // Only the prose may say "/edit/*"; no string literal may route one.
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(code, /['"`]\/edit/, 'no /edit path literal survives outside comments');
-  assert.doesNotMatch(code, /\/remote/, 'and no remote relay either — that is PRESENT#REMOTE');
+  // The relay DOES live here now (PRESENT#REMOTE) — that is the whole point of
+  // moving it: a clicker should not require an editing server. What must stay
+  // true is that it arrived without one, which the /edit/* assertion above and
+  // the route tests below cover.
 });
 
 test('a POST to /edit/notes is as unknown as a POST to anything else', async (t) => {
@@ -274,4 +277,72 @@ test('a deck that is not there is named, not stack-traced', async () => {
   } catch (e) { code = e.status; out = String(e.stderr); }
   assert.equal(code, 1);
   assert.match(out, /deck not found: .*nope\.html/);
+});
+
+// ── the phone remote lives here now (PRESENT#REMOTE) ───────────────────────
+
+test('--remote hosts the clicker, and still registers no /edit/* route', async (t) => {
+  const dir = deckDir();
+  const { base, log } = await startPresent(t, dir, { extraArgs: ['--remote'] });
+
+  // the presenting control channel exists…
+  const ping = await (await fetch(base + '/present/ping')).json();
+  assert.deepEqual(ping, { ok: true, name: 'talk.html', remote: true, present: true });
+  assert.equal(ping.agents, undefined, 'and reports no agent roster — there is nothing here that runs one');
+
+  // …the controller and its QR are served…
+  assert.equal((await fetch(base + '/remote')).status, 200);
+  assert.equal((await fetch(base + '/remote/qr.svg')).status, 200);
+
+  // …a tap relays to the deck…
+  const key = await (await fetch(base + '/remote/key', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"key":"next"}',
+  })).json();
+  assert.equal(key.ok, true);
+  assert.equal(key.key, 'next');
+
+  // …and the whole point: no editing surface came along with it.
+  for (const p of ['/edit/notes', '/edit/layout', '/edit/undo', '/edit/commit', '/edit/shutdown']) {
+    const res = await fetch(base + p, { method: 'POST', body: '{}' });
+    assert.equal(res.status, 405, `${p} is unknown, not refused`);
+  }
+  assert.equal((await fetch(base + '/edit/ping')).status, 404, 'not even a ping to identify an editor');
+
+  assert.match(log(), /ONLY \/remote\/\* answers/i);
+  assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK, 'and nothing was written');
+});
+
+test('the QR refuses to encode a URL a phone cannot use', async (t) => {
+  // Without --remote there is no LAN listener, so a QR would encode 127.0.0.1 —
+  // a code that scans cleanly and then goes nowhere is worse than no code.
+  const dir = deckDir();
+  const { base } = await startPresent(t, dir);
+  const res = await fetch(base + '/remote/qr.svg');
+  assert.equal(res.status, 404);
+  assert.match((await res.json()).error, /--remote/, 'and it names the flag that would make it real');
+});
+
+test('a locally-presented deck still gets its position readout', async (t) => {
+  // /present/ping and /present/events are the deck's channel and are loopback
+  // business, so they answer with or without --remote; only the LAN listener is
+  // what --remote adds.
+  const dir = deckDir();
+  const { base } = await startPresent(t, dir);
+  assert.equal((await (await fetch(base + '/present/ping')).json()).remote, false);
+  const pos = await fetch(base + '/remote/pos', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"i":2,"n":9}',
+  });
+  assert.equal(pos.status, 200);
+});
+
+test('the remote never writes, and a malformed payload is refused not crashed', async (t) => {
+  const dir = deckDir();
+  const before = snapshot(dir);
+  const { base } = await startPresent(t, dir, { extraArgs: ['--remote'] });
+
+  for (const body of ['{"key":"rm -rf"}', '{"i":"nope"}', 'not json at all', '']) {
+    const res = await fetch(base + '/remote/key', { method: 'POST', body });
+    assert.ok(res.status >= 400, `refused: ${body}`);
+  }
+  assert.deepEqual(snapshot(dir), before, 'no file created, changed, or touched');
 });

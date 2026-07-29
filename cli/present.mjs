@@ -29,9 +29,17 @@
 
 import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { resolve, sep, basename } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { argReader, isMain } from '../tools/args.mjs';
-import { isLoopback, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
+import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded } from './serve.mjs';
+import { createRemoteRelay } from './remote.mjs';
+import { corsHeaders } from '../tools/bridge.mjs';
+
+// The phone is a different origin from the deck (a LAN address, not localhost),
+// so the remote's own endpoints need CORS. Nothing else here does — the deck is
+// same-origin with the server that serves it.
+const CORS = corsHeaders();
 import { auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
 import { verifyFile, verifyBytes, formatSignature, isVerified, UNSIGNED, TAMPERED, VERIFIED } from './sign.mjs';
 import { isContainer, readContainer, formatManifest } from './deckfile.mjs';
@@ -88,7 +96,8 @@ export const CSP = [
   "object-src 'none'",
 ].join('; ');
 
-const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790] [--strict] [--check]
+const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790] [--strict]
+                        [--remote] [--host <addr>] [--check]
 
   plays a deck read-only over localhost — the safe way to open one you did not
   author. Serves ONLY GET, only under the current directory (which the deck must
@@ -104,6 +113,11 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
   --strict   serve with every script block that is not the runtime removed.
              The removal happens on the way out — the file on disk is never
              touched. Turns itself on when the label finds something.
+  --remote   also listen on the LAN for the phone remote. Off this machine ONLY
+             /remote/* answers, and only with the per-run token the printed URL
+             and its QR carry — the deck itself, and every file beside it, stay
+             unreachable from the LAN whether or not this flag is passed.
+  --host A   the address --remote binds                            [0.0.0.0]
   --check    print the ingredients label and exit — no server. Exits non-zero
              if the deck runs any script that is not the runtime, so CI can
              gate on a deck before it is forwarded or published.
@@ -138,8 +152,11 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
   charts and background media are markup, CSS and attributes — never at risk. A
   clean deck under --strict is byte-identical to the same deck without it.
 
-  There is no --remote and no editing surface: the /edit/* routes are not
-  registered at all, so a POST to one is as unknown as a POST to anything else.
+  There is no editing surface: the /edit/* routes are not registered at all, so
+  a POST to one is as unknown as a POST to anything else. That is also why the
+  phone remote lives here rather than on the author server — getting a clicker
+  should not mean running write endpoints against your deck while you are on
+  stage and not looking at it.
 
   Every response carries this Content-Security-Policy as an HTTP header, which
   the deck cannot override the way it could a <meta> tag:
@@ -163,6 +180,17 @@ export async function presentMain(args) {
   }
   const { opt } = argReader(args);
   const port = Number(opt('--port', 8790));
+
+  // --remote widens the LISTENER and nothing else (PRESENT#REMOTE). The point
+  // of moving the phone remote here is that getting a clicker should not mean
+  // running an editing server against your deck while you are on stage and not
+  // looking at it — so this server still registers no /edit/* route, and the
+  // only paths a caller off this machine can reach are /remote/*, with the
+  // per-run token. allowRemote is the same classifier the author server uses;
+  // one implementation, tested once.
+  const remote = args.includes('--remote') || opt('--host') !== undefined;
+  const host = remote ? opt('--host', '0.0.0.0') : '127.0.0.1';
+  const token = remote ? randomBytes(16).toString('base64url') : null;
 
   const root = process.cwd();
   const deckPath = resolve(root, positional[0]);
@@ -276,10 +304,33 @@ export async function presentMain(args) {
     return true;
   };
 
+  // Two one-way channels, kept apart on purpose. `decks` is what a deck served
+  // by this server subscribes to, and the ONLY event it ever carries is
+  // `remote` — no `reload`, no `agent`, because neither exists here and a
+  // presenting server that could tell a deck to reload would be an editing
+  // server with the writes left out. The phone's own stream lives in the relay.
+  const decks = sseChannel();
+  let actualPort = null;
+  const relay = createRemoteRelay({
+    deckName: basename(deckPath),
+    token,
+    remoteUrl: () => `http://${lanAddress() ?? host}:${actualPort}/remote?t=${token}`,
+    relayToDeck: (event, data) => decks.broadcast(event, data),
+    deckCount: () => decks.size,
+    CORS,
+  });
+
   const server = createServer((req, res) => {
-    // Loopback only, by construction as well as by binding: nothing here has a
-    // token to widen with, so this is a flat refusal rather than a classifier.
-    if (!isLoopback(req.socket?.remoteAddress)) { res.writeHead(403); res.end('forbidden'); return; }
+    // Loopback always; off-loopback only /remote/* carrying the per-run token,
+    // and only when --remote asked for a listener at all. Every other path is
+    // refused off this machine unconditionally — flag or no flag, token or no
+    // token — which is why the static files and the deck itself cannot be
+    // reached from the LAN even while the remote can.
+    if (!allowRemote(req, token)) {
+      res.writeHead(403);
+      res.end('forbidden: this deck is served to this machine only; off it, only /remote/* answers, with the session token');
+      return;
+    }
     let url;
     try { url = new URL(req.url, 'http://127.0.0.1'); } catch { res.writeHead(400); res.end('bad request'); return; }
     // The container's own path answers with the deck inside it, so the URL a
@@ -292,14 +343,49 @@ export async function presentMain(args) {
     // staticFiles answers GET (200/403/404) and declines everything else. A
     // POST to /edit/notes lands here exactly like a POST to /anything — there
     // is no route to have refused it, which is the point of the ticket.
+    // The presenting control channel. `/present/ping` is how a deck discovers
+    // it is being presented rather than authored, and the answer deliberately
+    // carries no agent roster and no edit capability — there is nothing here to
+    // report about editing, because there is nothing here that edits.
+    if (req.method === 'GET' && url.pathname === '/present/ping') {
+      res.writeHead(200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-cache' });
+      res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, present: true }));
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/present/events') { decks.add(req, res, CORS); return; }
+    // The phone remote: controller, QR, readout channel. These are the only
+    // paths allowRemote let through from off this machine, and not one of them
+    // writes anything — the phone asks the deck to move, it never edits.
+    let body = '';
+    if (req.method === 'POST') {
+      req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
+      req.on('end', () => {
+        try {
+          if (relay.handle(req, res, url, body)) return;
+        } catch {
+          res.writeHead(400, { ...CORS, 'content-type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'bad payload' }));
+          return;
+        }
+        res.writeHead(405);
+        res.end('method not allowed');
+      });
+      return;
+    }
+    if (relay.handle(req, res, url, '')) return;
     if (files(req, res, url)) return;
     res.writeHead(405);
     res.end('method not allowed');
   });
 
-  const actual = await listenTakingOverIfNeeded(server, port, '127.0.0.1');
+  const actual = await listenTakingOverIfNeeded(server, port, host);
+  actualPort = actual;
   console.log(`decklight present on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
-  console.log(`  serving ${root} — GET only, no /edit/* routes, nothing is written`);
+  console.log(`  serving ${root} — no /edit/* routes, nothing is written`);
+  if (token) {
+    console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/remote?t=${token}`);
+    console.log('  off this machine ONLY /remote/* answers, with that token — the deck itself does not');
+  }
   // Before the first slide renders, not after — the point is to be able to
   // decide not to open it.
   for (const line of formatLabel(report)) console.log(line);
