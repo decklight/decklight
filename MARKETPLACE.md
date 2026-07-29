@@ -4,7 +4,7 @@ Status: **draft for review**. Not filed as an issue yet.
 
 This is the consolidated record of the marketplace design, including the two
 late additions that absorbed most of its safety burden: `decklight present` and
-the `.deck` container. Where a later decision supersedes an earlier one, the
+the `.decklight` container. Where a later decision supersedes an earlier one, the
 earlier one is marked rather than deleted — the reasoning matters.
 
 Sections are cited by **mnemonic, never by number** (the SPEC.md convention
@@ -94,26 +94,39 @@ safe way to play a deck you did not author.
 - **It reports an inventory, never a verdict.** "3 script blocks: runtime 0.3.0
   ✔, 2 unaccounted" — not a green checkmark. The scan is heuristic; a defeatable
   verdict manufactures confidence the mechanism cannot back.
+- **On verification failure it degrades to `--strict` and says so** — in the
+  terminal, never on the audience-facing page. Ten minutes before a talk is the
+  worst moment for a refusal, and a `--force` escape hatch teaches the wrong
+  reflex; this way the show goes on with every unaccounted script stripped, and
+  nothing unverified ever executes.
 - **Architectural bonus:** the phone remote and its QR currently live in the
   *edit* server (`cli/edit.mjs`, gated by `allowRemote`), so getting a clicker
   today means running an editing server with `/edit/*` write endpoints against
   your deck. `present` is the natural home for speaker view and the remote with
   **no edit surface registered at all**.
 
-### DECK_FILE — `.deck`, a signed container, not a relabel
+### DECK_FILE — `.decklight`, a signed container, not a relabel
 
-Renaming `.html` to `.deck` changes no bytes and is not a boundary; anyone can
-rename it back. It is a **default-path change**, which is worth having, but it
-earns its existence only as a container:
+Renaming the file changes no bytes and is not a boundary; anyone can rename it
+back. It is a **default-path change**, which is worth having, but it earns its
+existence only as a container:
 
 ```
-talk.deck  =  deck.html  +  signature (Sigstore keyless)  +  manifest
+talk.decklight  =  deck.html  +  signature (Sigstore keyless)  +  manifest
 ```
 
-- `decklight present talk.deck` verifies **before** rendering.
+**Why `.decklight` and not `.deck`:** `.deck` is Decker's native format — an
+active, cross-platform HyperCard revival whose files are ALSO interactive
+decks, exported as single HTML documents, in front of an overlapping audience
+(press-covered as recently as July 2026). Fighting a liked tool for the OS
+association hands the loser's users a confusing double-click. `.dck` is
+Forge/XMage Magic decks. `.decklight` is verbose, collision-proof and
+self-describing — the verbosity is the feature.
+
+- `decklight present talk.decklight` verifies **before** rendering.
 - The manifest (runtime version, extensions, origin repo, commit SHA) sits
   *outside* the payload, where a tamperer cannot edit it in the same pass.
-- A tampered `.deck` fails verification instead of failing a heuristic scan.
+- A tampered `.decklight` fails verification instead of failing a heuristic scan.
 - OS file association makes double-click land in `present` — verified and
   CSP-locked — rather than in a raw browser.
 - `cli/zip.mjs` (from `skills --pack`) already provides the container plumbing.
@@ -123,10 +136,10 @@ talk.deck  =  deck.html  +  signature (Sigstore keyless)  +  manifest
 | Form | For | Promise |
 |---|---|---|
 | `.html` (canonical, unchanged) | publishing, links, `publish` → gh-pages | opens in any browser, offline, no software — the identity stays intact |
-| `.deck` (new, optional) | handing a file to a person | verified on open, provenance attached, lands in `present` |
+| `.decklight` (new, optional) | handing a file to a person | verified on open, provenance attached, lands in `present` |
 
 This maps onto the sharing guidance: **share the link** (HTTPS and repo
-ownership attest it) or **send a `.deck`** (a signature attests it). An
+ownership attest it) or **send a `.decklight`** (a signature attests it). An
 unattested emailed `.html` stops being the default way to hand someone a deck.
 
 ### COMMANDS — The roster: `author` / `present`
@@ -139,13 +152,13 @@ muscle memory exists yet.
 
 ```
 decklight author  talk.html    # the whole authoring loop (was: dev)
-decklight present talk.deck    # play it, verified, read-only
+decklight present talk.decklight    # play it, verified, read-only
 ```
 
 - `dev` stays as a **permanent hidden alias** — one dispatcher line, never
   documented, never punished.
 - `open` is an alias landing in `present` — the verb the OS uses on
-  double-click of a `.deck`. One implementation, two doors.
+  double-click of a `.decklight`. One implementation, two doors.
 - **`edit` is removed.** It existed only because `dev` cost something to start;
   with engines resolved on demand (ENGINES) `author` has zero startup cost by
   construction. Per the #165 precedent it refuses out loud (`renamed: use
@@ -211,8 +224,14 @@ A file cannot vouch for itself: an attacker editing the payload edits any
 embedded checker in the same pass, and `file://` HTML gets no OS signature UI.
 Verification therefore comes from outside the file.
 
-1. **Sign at `bundle`/`publish`** with Sigstore keyless — already used for the
-   npm release, so no new key management. Detached sidecar is the authority.
+1. **`publish` signs by default; `bundle` signs with `--sign`.** Sigstore
+   keyless — already used for the npm release, so no new key management — needs
+   the network (Fulcio/Rekor), and `publish` is already a network action, so
+   signing there adds no failure mode. `bundle` stays offline-clean and never
+   auto-skips signing: a security default that degrades silently is worse than
+   an explicit one. Detached sidecar is the authority. `publish --deck`
+   additionally emits the signed `.decklight` container beside the gh-pages
+   HTML — opt-in until the container proves itself.
 2. **Canonical-shape audit, no crypto required.** A bundled deck has a
    predictable shape, so the auditor can hash the embedded runtime against
    known-good `dist/` per published version, enumerate every `<script>` that is
@@ -224,7 +243,7 @@ Verification therefore comes from outside the file.
 
 Named honestly: none of this reaches a recipient who double-clicks an
 emailed `.html` and runs nothing. That is why build-time-by-default remains the
-backstop. `present` protects those who opted into the tooling; `.deck` and file
+backstop. `present` protects those who opted into the tooling; `.decklight` and file
 association widen that population; share-the-link covers the rest.
 
 ### UNITS — What is distributed
@@ -360,11 +379,15 @@ to play someone else's deck is a single command.
 - [ ] `present --strict` strips every script block that is not the verified
       runtime; the deck still presents faithfully — content, themes, layouts,
       charts and casts all work
-- [ ] `bundle`/`publish` sign the output with Sigstore keyless; `present`
-      verifies before rendering and names the signer
-- [ ] `.deck` is a container of deck + signature + manifest; a tampered `.deck`
+- [ ] `publish` signs by default; `bundle` signs with `--sign` and is never
+      silently unsigned offline; `present` verifies before rendering and names
+      the signer
+- [ ] On verification failure `present` degrades to `--strict` and reports what
+      it stripped in the terminal — it neither refuses outright nor runs the
+      unaccounted script
+- [ ] `.decklight` is a container of deck + signature + manifest; a tampered `.decklight`
       fails verification and does not render
-- [ ] Double-clicking a `.deck` opens `present` on macOS, Windows and Linux
+- [ ] Double-clicking a `.decklight` opens `present` on macOS, Windows and Linux
 - [ ] Presenter-library plugins load only under `present`, may add chrome, and
       **cannot modify slide content** — enforced, not documented
 - [ ] Build-time transforms run only during `bundle`; a transform cannot emit a
@@ -379,7 +402,7 @@ install — it appears under Added and survives a reload. Bundle the deck; the
 output is signed. Append a `<script>alert(1)</script>` to the bundled file and
 run `decklight present` — it names one unaccounted script block; `--strict`
 plays the deck with that block stripped and everything else intact. Wrap it as
-`.deck`, tamper with it, double-click: verification fails and it does not
+`.decklight`, tamper with it, double-click: verification fails and it does not
 render. Then pull the network cable and press `T`: all 62 shipped themes and
 every bundled one are still there, instantly.
 
@@ -420,8 +443,8 @@ Depends column cites tickets by mnemonic, never by position.
 | `PRESENT_SERVER` | `decklight present` — read-only server, CSP header, no `/edit/*` | — |
 | `PRESENT#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `PRESENT_SERVER` |
 | `PRESENT#STRICT` | strip unverified script, prove the deck still plays | `PRESENT#AUDIT` |
-| `INTEGRITY#SIGNING` | sign on `bundle`/`publish` via Sigstore keyless; verify in `present` | `PRESENT#AUDIT` |
-| `DECK_FILE#ASSOC` | `.deck` container + OS file association (macOS UTI, Windows registry, Linux desktop/MIME) | `INTEGRITY#SIGNING` |
+| `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `present` | `PRESENT#AUDIT` |
+| `DECK_FILE#ASSOC` | `.decklight` container + OS file association (macOS UTI, Windows registry, Linux desktop/MIME) | `INTEGRITY#SIGNING` |
 | `MARKETPLACES#CORE` | manifest, `add/list/update/remove`, cache, first-party registered-not-fetched | — |
 | `THEME_BROWSE#UI` | **Browse** in the picker, authoring-only, installing via `theme add` | `MARKETPLACES#CORE` |
 | `EXTENSIONS#TRANSFORMS` | build-time transform API + `extension check` (lint, then load) | `MARKETPLACES#CORE` |
@@ -456,12 +479,21 @@ before 0.3.0 ships to npm.
 5. **Voice likeness and consent** — a marketplace distributing cloned voices
    distributes someone's likeness; no lint catches that. Needs a policy line
    even if the answer is "attestation required".
-6. **Is signing on by default** for `bundle`, or opt-in.
-7. **`.deck` name collision** — check it against existing tooling before
-   committing; `.dck` is the safer-but-uglier fallback.
-8. **What `present` does by default when verification fails** — refuse, warn and
-   continue, or drop to `--strict` automatically.
-9. **Does `publish` also emit a `.deck`** alongside the gh-pages HTML.
+6. ~~Is signing on by default~~ — **resolved: `publish` signs by default**
+   (already a network action, and Sigstore keyless needs one); **`bundle` opts
+   in with `--sign`** and stays offline-clean, never silently unsigned
+   (INTEGRITY).
+7. ~~The container extension~~ — **resolved: `.decklight`**. The obvious
+   `.deck` is Decker's native format — active, cross-platform, semantically
+   adjacent (its decks also export as single HTML documents); `.dck` is
+   Forge/XMage Magic decks. Zero-collision verbosity wins (DECK_FILE).
+8. ~~What `present` does when verification fails~~ — **resolved: degrade to
+   `--strict` and say so** in the terminal, never on the audience-facing page.
+   Neither a refusal (a `--force` habit teaches the wrong reflex) nor a
+   warn-and-run (PRESENT).
+9. ~~Does `publish` also emit the container~~ — **resolved: behind `--deck`** —
+   opt-in until the container proves itself; the flag names the concept, the
+   file carries the full `.decklight` extension (INTEGRITY).
 10. ~~Does the system-voice adapter (#156) stay in core~~ — **resolved: yes**
     (ENGINES). First-`V`-offline still speaks; the wizard upsells rather than
     gates.
