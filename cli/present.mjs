@@ -21,9 +21,10 @@
  * registered (#168 split `cli/serve.mjs` out of `cli/edit.mjs` for precisely
  * this), and nothing here writes to disk.
  *
- * Scope note: the ingredients label (PRESENT#AUDIT) and `--strict`
- * (PRESENT#STRICT) stack on this command in their own tickets. This one is the
- * server.
+ * Three things now ride on that one capability, in the order they run: the
+ * ingredients label names what the file will execute (PRESENT#AUDIT), strict
+ * mode removes what it could not account for on the way out (PRESENT#STRICT),
+ * and the CSP header bounds whatever is left.
  */
 
 import { createServer } from 'node:http';
@@ -31,7 +32,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isLoopback, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
-import { auditDeck, formatLabel } from './audit.mjs';
+import { auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
 
 /**
  * The policy, and honestly what it is worth.
@@ -85,7 +86,7 @@ export const CSP = [
   "object-src 'none'",
 ].join('; ');
 
-const USAGE = `usage: decklight present <deck.html> [--port 8790] [--check]
+const USAGE = `usage: decklight present <deck.html> [--port 8790] [--strict] [--check]
 
   plays a deck read-only over localhost — the safe way to open one you did not
   author. Serves ONLY GET, only under the current directory (which the deck must
@@ -93,6 +94,9 @@ const USAGE = `usage: decklight present <deck.html> [--port 8790] [--check]
 
   --port N   port to bind; a taken port offers to take over that session
              (on a TTY) or moves on to the next free one            [8790]
+  --strict   serve with every script block that is not the runtime removed.
+             The removal happens on the way out — the file on disk is never
+             touched. Turns itself on when the label finds something.
   --check    print the ingredients label and exit — no server. Exits non-zero
              if the deck runs any script that is not the runtime, so CI can
              gate on a deck before it is forwarded or published.
@@ -103,6 +107,18 @@ const USAGE = `usage: decklight present <deck.html> [--port 8790] [--check]
   that will execute and is NOT accounted for. It is an inventory, not a verdict:
   there is no "safe" here, because the scan is a heuristic over a file someone
   may have edited and a green check would promise more than it can keep.
+
+  When the label finds an unaccounted block, strict mode turns ITSELF on and
+  says so in the terminal. It does not ask, and there is no --force to turn it
+  back off: ten minutes before a talk is the worst possible moment for a
+  refusal, and an escape hatch would be reached for exactly then — so the deck
+  always plays, and the part nobody can account for is the part that doesn't.
+  Removed blocks are named in the terminal, never on the audience's screen.
+
+  What survives strict is what a deck needs to render itself: the runtime, the
+  Decklight.init call, JSON data blocks and templates. Builds, layouts, themes,
+  charts and background media are markup, CSS and attributes — never at risk. A
+  clean deck under --strict is byte-identical to the same deck without it.
 
   There is no --remote and no editing surface: the /edit/* routes are not
   registered at all, so a POST to one is as unknown as a POST to anything else.
@@ -168,7 +184,24 @@ export async function presentMain(args) {
   }
   const deckUrl = '/' + deckPath.slice(root.length + 1).split(sep).join('/');
 
-  const files = staticFiles(root, { index: deckUrl, headers: { 'content-security-policy': CSP } });
+  // Strict is not a mode you opt into after reading the label — it is what the
+  // label DOES when it finds something (PRESENT#STRICT). The alternative
+  // designs both fail at the same moment: refusing to serve leaves someone with
+  // no talk ten minutes before they give it, and offering a --force turns the
+  // finding into a prompt that will be clicked through precisely then. Playing
+  // the deck without the part nobody could account for is the only option that
+  // is still the right one under time pressure, so it is the automatic one.
+  const strict = args.includes('--strict') || report.counts.unaccounted > 0;
+
+  // The rewrite covers every html response, not only the deck: strict that
+  // stopped at one file would be walked around by a second page under the same
+  // root, and the deck can reach one — the theme picker, the slide finder and
+  // the speaker view all boot documents into same-origin iframes.
+  const files = staticFiles(root, {
+    index: deckUrl,
+    headers: { 'content-security-policy': CSP },
+    html: strict ? (text) => stripUnaccounted(text).html : null,
+  });
 
   const server = createServer((req, res) => {
     // Loopback only, by construction as well as by binding: nothing here has a
@@ -190,6 +223,15 @@ export async function presentMain(args) {
   // Before the first slide renders, not after — the point is to be able to
   // decide not to open it.
   for (const line of formatLabel(report)) console.log(line);
+  // Here and nowhere else. The audience is looking at the deck; a banner on the
+  // page would tell them something they cannot act on, about a file they did
+  // not choose to open, in the middle of someone's talk.
+  if (strict) {
+    const n = report.counts.unaccounted;
+    console.log(n
+      ? `  ${n} unaccounted script block${n === 1 ? '' : 's'} stripped — serving strict. The file on disk is untouched`
+      : '  --strict: nothing to strip — this deck is served exactly as it is on disk');
+  }
 
   const stop = () => { server.close(); process.exit(0); };
   process.on('SIGINT', stop);

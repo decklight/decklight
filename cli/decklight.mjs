@@ -73,7 +73,8 @@ Commands:
   author   one command for the whole authoring loop: live-reload editing + every bridge this
            machine can run, one Ctrl-C; E in the player edits speaker notes back into the file
            EXAMPLE: decklight author demo/showcase.html   (bridges without prerequisites are skipped)
-  present  play a deck you did not author — read-only over localhost, under a CSP header
+  present  play a deck you did not author — read-only over localhost, under a CSP header;
+           prints what the file will execute, and strips what it cannot account for
            EXAMPLE: decklight present talk.html   (no editing surface, nothing is written)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL
            EXAMPLE: decklight report-bug   (prints and exits — nothing is sent anywhere)
