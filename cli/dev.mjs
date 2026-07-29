@@ -2,24 +2,25 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// decklight dev — one command for the whole authoring loop: the edit server
-// plus whichever optional bridges this machine can actually run.
+// decklight author — one command for the whole authoring loop: the edit
+// server plus whichever optional bridges this machine can actually run.
+// (`decklight dev` is its permanent hidden alias, from before the rename.)
 //
-//   decklight dev <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
-//                 [--project <id>] [--rhubarb <bin>] [--portrait <name=img.png>]…
-//                 [--no-tts] [--no-lipsync]
+//   decklight author <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+//                    [--project <id>] [--rhubarb <bin>] [--portrait <name=img.png>]…
+//                    [--no-tts] [--no-lipsync]
 //
 // The bridges keep their OWN PROCESSES on their own ports, exactly as if you
-// had started them by hand — dev only owns their lifetime, so one Ctrl-C
-// stops everything. That split is the point: edit needs nothing (no
+// had started them by hand — author only owns their lifetime, so one Ctrl-C
+// stops everything. That split is the point: the edit server needs nothing (no
 // credentials, no cost), tts holds Google credentials and spends money per
 // call, lipsync pins a GPU. Folding them into one process would let a Wav2Lip
 // crash or an expired token take down the server you are editing through.
 //
 // A bridge whose prerequisites are missing is SKIPPED with the reason and the
-// fix, never a hard failure: `decklight dev deck.html` on a bare machine still
-// gives you live reload and notes editing, and the player degrades on its own
-// (each bridge is probed via /ping).
+// fix, never a hard failure: `decklight author deck.html` on a bare machine
+// still gives you live reload and notes editing, and the player degrades on
+// its own (each bridge is probed via /ping).
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -39,16 +40,19 @@ import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
+// The deck server's entry since `edit` stopped being a command: its module,
+// run directly. The dispatcher would refuse `edit` out loud.
+const EDIT = fileURLToPath(new URL('./edit.mjs', import.meta.url));
 
-const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
                     [--remote] [--host <addr>]
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
 
   --port N          edit server (live reload + edit write-back)       [8788]
-                    (taken already? dev offers to take over that session on
-                    a TTY, or moves to the next free port otherwise)
+                    (taken already? author offers to take over that session
+                    on a TTY, or moves to the next free port otherwise)
   --remote          also listen on the LAN for the phone remote — off this
                     machine only /remote/* answers, and only with the printed
                     per-run token; /edit/* stays loopback-only regardless
@@ -60,7 +64,7 @@ const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] 
   --git / --no-git  auto-commit the deck on a cadence / never touch git
   --git-mode M      when to commit: timer (a cadence), agent (one commit per
                     agent edit, with the agent's own message), off     [timer]
-                    (no repo + no flag: dev ASKS whether to create one)
+                    (no repo + no flag: author ASKS whether to create one)
   --commit-every N  autocommit cadence in seconds                     [300]
   --agent <name>    preferred AI agent for A (default: first detected)
 
@@ -69,7 +73,7 @@ const USAGE = `usage: decklight dev <deck.html> [--port 8788] [--tts-port 8787] 
                     piper   local, offline, unlimited, no project needed
                     elevenlabs  your own account's voices, the ones you cloned first
                             in the picker — needs $ELEVENLABS_API_KEY
-                    (nothing configured? on a terminal dev offers a one-time
+                    (nothing configured? on a terminal author offers a one-time
                     guided setup; decklight tts --setup re-runs it)
 
   tts flags     --project <id> (or $GOOGLE_CLOUD_PROJECT; gemini/chirp only),
@@ -96,8 +100,10 @@ const VALUE_FLAGS = new Set([
  * `saved` is the machine-level tts config (~/.config/decklight/tts.json,
  * written by the setup wizard) — injected, not read here, so the plan stays
  * pure; precedence is flags > environment > saved config > built-in default.
- * Returns { deck, run: [{name, tag, args, url}], skip: [{name, why}],
- * agents: [names the machine can run] }.
+ * Returns { deck, run: [{name, tag, entry, args, url}], skip: [{name, why}],
+ * agents: [names the machine can run] } — `entry` is the script to spawn:
+ * the bridges go through the dispatcher, the edit server (no longer a
+ * command there) runs its own module.
  */
 export function planServices({
   args = [], env = process.env, hasBin = onPath, saved = null,
@@ -108,7 +114,7 @@ export function planServices({
   const pass = (flag) => (opt(flag) !== undefined ? [flag, opt(flag)] : []);
 
   // first bare token is the deck — step over flags that consume a value, so
-  // `dev --port 8788 deck.html` doesn't mistake "8788" for the deck
+  // `author --port 8788 deck.html` doesn't mistake "8788" for the deck
   let deck;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
@@ -124,7 +130,8 @@ export function planServices({
   run.push({
     name: 'edit',
     tag: 'deck',
-    args: ['edit', deck, '--port', editPort,
+    entry: EDIT,
+    args: [deck, '--port', editPort,
       ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
       ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode'),
       ...(has('--remote') ? ['--remote'] : []), ...pass('--host')],
@@ -181,7 +188,7 @@ export function planServices({
       name: 'voice',
       why: `the piper voice ${voice} is not in ${models} (~120 MB, one time)`
         + ` — ${piperDownloadLine(download)}`,
-      download,   // dev offers to run this on a TTY; nothing is ever pulled silently
+      download,   // author offers to run this on a TTY; nothing is ever pulled silently
     });
   } else if (ttsEngine === 'elevenlabs' && !env[ELEVENLABS_KEY_ENV]?.trim()) {
     // The key never lands in the saved config, so the environment is the only
@@ -203,7 +210,7 @@ export function planServices({
     // nobody typed
     skip.push({ name: 'voice', why: `not a GCP project id: ${JSON.stringify(project)} — stray punctuation from a copy-paste?` });
   } else {
-    run.push({ name: 'tts', tag: 'voice', args: ttsArgs(), url: `http://127.0.0.1:${ttsPort}` });
+    run.push({ name: 'tts', tag: 'voice', entry: CLI, args: ttsArgs(), url: `http://127.0.0.1:${ttsPort}` });
   }
 
   // lip-sync — starts degraded (it probes its own engines), so only bother when
@@ -219,6 +226,7 @@ export function planServices({
     run.push({
       name: 'lipsync',
       tag: 'lips',
+      entry: CLI,
       args: [
         'lipsync', '--port', lipPort,
         ...(has('--rhubarb') ? ['--rhubarb', rhubarb] : []),
@@ -241,7 +249,7 @@ export function planServices({
 }
 
 /**
- * Should dev OFFER the tts setup wizard instead of just printing the skip
+ * Should author OFFER the tts setup wizard instead of just printing the skip
  * line? Only when the skip is the fixable kind — no engine configured, no
  * project to run the default cloud engine with — never when a flag chose the
  * outcome (--no-tts, an unknown engine, a malformed --project: the user's
@@ -273,13 +281,13 @@ export async function devMain(args) {
   let plan = planServices({ args, saved: loadTtsConfig() });
   const deck = plan.deck;
   if (!deck) {
-    console.error('decklight dev needs a deck: decklight dev <deck.html>\n');
+    console.error('decklight author needs a deck: decklight author <deck.html>\n');
     console.error(USAGE);
     process.exitCode = 1;
     return;
   }
   if (!existsSync(deck)) {
-    console.error(`decklight dev: no such deck: ${deck}`);
+    console.error(`decklight author: no such deck: ${deck}`);
     process.exitCode = 1;
     return;
   }
@@ -340,7 +348,7 @@ export async function devMain(args) {
         const result = await runSetupWizard({ ask: (q) => rl.question(q) });
         if (result) {
           // the wizard's test synthesis may hold a resident engine (piper);
-          // dev runs the bridge as its own child process, so let it go
+          // author runs the bridge as its own child process, so let it go
           result.engine.synth.close?.();
           plan = planServices({ args, saved: result.config });
         }
@@ -348,7 +356,7 @@ export async function devMain(args) {
     } finally { rl.close(); }
   }
   // The edit port might already be held — often an earlier decklight session
-  // left running. Resolved here, with dev's OWN stdin, because the edit
+  // left running. Resolved here, with author's OWN stdin, because the edit
   // child below is spawned with its stdin piped (not a terminal) and could
   // never ask on its own.
   const editSvc = plan.run.find((s) => s.name === 'edit');
@@ -388,11 +396,11 @@ export async function devMain(args) {
   };
 
   for (const svc of run) {
-    // stdin is a pipe dev never writes to — it is the leash (see supervise.mjs).
+    // stdin is a pipe author never writes to — it is the leash (see supervise.mjs).
     // Holding it open is what tells the child we are still here; losing it is
     // how the child finds out we are not, even when we were SIGKILLed and
     // never reached shutdown() below.
-    const child = spawn(process.execPath, [CLI, ...svc.args], {
+    const child = spawn(process.execPath, [svc.entry, ...svc.args], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: leashEnv(),
     });
@@ -404,8 +412,8 @@ export async function devMain(args) {
       children.delete(svc.name);
       if (shuttingDown) return;
       if (svc.name === 'edit') {
-        // the deck server is the one service dev cannot run without
-        console.error(`${paint(svc.tag)} exited (${code}) — stopping decklight dev`);
+        // the deck server is the one service author cannot run without
+        console.error(`${paint(svc.tag)} exited (${code}) — stopping decklight author`);
         shutdown(code ?? 1);
       } else {
         console.error(`${paint(svc.tag)} exited (${code}) — carrying on without it; the deck degrades on its own`);

@@ -1,7 +1,8 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `decklight dev`: which services come up, which are skipped, and why.
+// `decklight author` (with `dev` as its permanent hidden alias): which
+// services come up, which are skipped, and why.
 // planServices() is pure — no ports are bound here.
 
 import { test } from 'node:test';
@@ -43,8 +44,11 @@ test('the deck is found past flags that take a value', () => {
 test('the edit server always runs — it needs no credentials and no cost', () => {
   const p = plan(['deck.html']);
   assert.ok(names(p).includes('edit'));
-  assert.deepEqual(svc(p, 'edit').args, ['edit', 'deck.html', '--port', '8788']);
+  assert.deepEqual(svc(p, 'edit').args, ['deck.html', '--port', '8788']);
   assert.equal(svc(p, 'edit').url, 'http://127.0.0.1:8788/deck.html');
+  // `edit` is not a dispatcher command anymore — the plan names the module to run
+  assert.match(svc(p, 'edit').entry, /edit\.mjs$/);
+  assert.match(svc(plan(['deck.html'], { env: { GOOGLE_CLOUD_PROJECT: 'proj-1' } }), 'tts').entry, /decklight\.mjs$/);
 });
 
 test('a bare machine still gets the deck — bridges are skipped, not fatal', () => {
@@ -170,7 +174,7 @@ test('ports and bridge flags pass through to the right child', () => {
 test('git and agent flags ride along to the edit child', () => {
   const p = plan(['deck.html', '--git', '--commit-every', '60', '--agent', 'codex']);
   assert.deepEqual(svc(p, 'edit').args,
-    ['edit', 'deck.html', '--port', '8788', '--git', '--commit-every', '60', '--agent', 'codex']);
+    ['deck.html', '--port', '8788', '--git', '--commit-every', '60', '--agent', 'codex']);
   assert.ok(svc(plan(['deck.html', '--no-git']), 'edit').args.includes('--no-git'));
   // the deck is still found past the new value flags
   assert.equal(plan(['--agent', 'claude', 'deck.html']).deck, 'deck.html');
@@ -179,14 +183,14 @@ test('git and agent flags ride along to the edit child', () => {
 
 test('--remote and --host ride along to the edit child; no flag, no change', () => {
   const p = plan(['deck.html', '--remote']);
-  assert.deepEqual(svc(p, 'edit').args, ['edit', 'deck.html', '--port', '8788', '--remote']);
+  assert.deepEqual(svc(p, 'edit').args, ['deck.html', '--port', '8788', '--remote']);
 
   const h = plan(['deck.html', '--remote', '--host', '192.168.1.5']);
   assert.deepEqual(svc(h, 'edit').args,
-    ['edit', 'deck.html', '--port', '8788', '--remote', '--host', '192.168.1.5']);
+    ['deck.html', '--port', '8788', '--remote', '--host', '192.168.1.5']);
 
   // without the flag the edit child's args are byte-for-byte what they were
-  assert.deepEqual(svc(plan(['deck.html']), 'edit').args, ['edit', 'deck.html', '--port', '8788']);
+  assert.deepEqual(svc(plan(['deck.html']), 'edit').args, ['deck.html', '--port', '8788']);
 
   // the deck is still found past the new value flag
   assert.equal(plan(['--host', '0.0.0.0', 'deck.html']).deck, 'deck.html');
@@ -206,14 +210,37 @@ test('inGitRepo trusts git\'s answer and treats failure as "no repo"', () => {
   assert.equal(inGitRepo('/anywhere', () => { throw new Error('not a repo'); }), false);
 });
 
-test('dev is routed and documented by the dispatcher', () => {
+test('author is routed and documented by the dispatcher', () => {
   const help = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  assert.match(help, /^  dev {5}/m, 'dev is listed in the global help');
+  assert.match(help, /^  author {2}/m, 'author is listed in the global help');
+  assert.doesNotMatch(help, /^  dev {5}/m, 'the alias is documented nowhere');
+  assert.doesNotMatch(help, /^  edit {4}/m, 'the removed command is not offered');
 
-  const devHelp = execFileSync('node', [CLI, 'dev', '--help'], { encoding: 'utf8' });
-  assert.match(devHelp, /usage: decklight dev/);
-  assert.match(devHelp, /--remote/, 'the LAN opt-in is documented');
-  assert.match(devHelp, /--host/, 'and so is the bind address');
+  const authorHelp = execFileSync('node', [CLI, 'author', '--help'], { encoding: 'utf8' });
+  assert.match(authorHelp, /usage: decklight author/);
+  assert.match(authorHelp, /--remote/, 'the LAN opt-in is documented');
+  assert.match(authorHelp, /--host/, 'and so is the bind address');
+});
+
+test('`dev` still works, as a permanent hidden alias — same command, no nag', () => {
+  const viaAlias = execFileSync('node', [CLI, 'dev', '--help'], { encoding: 'utf8' });
+  const direct = execFileSync('node', [CLI, 'author', '--help'], { encoding: 'utf8' });
+  assert.equal(viaAlias, direct, 'flag for flag the same command');
+  assert.doesNotMatch(viaAlias, /deprecat/i, 'an alias forever is not a deprecation');
+
+  // and it really routes to author, not to the unknown-command path
+  const missing = spawnSync('node', [CLI, 'dev', 'nope.html'], { encoding: 'utf8' });
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /no such deck/);
+  assert.doesNotMatch(missing.stderr, /unknown command/);
+});
+
+test('`edit` refuses out loud — the replacement named, never "unknown command"', () => {
+  const r = spawnSync('node', [CLI, 'edit', 'deck.html'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /decklight author/, 'the way forward is named');
+  assert.doesNotMatch(r.stderr, /unknown command/);
+  assert.doesNotMatch(r.stdout + r.stderr, /Usage:\n {2}decklight <command>/, 'no global-help dump — one line, on purpose');
 });
 
 // ── the leash: a child outlives its parent for exactly as long as the pipe ──
@@ -250,14 +277,14 @@ test('leashEnv adds the flag and keeps the rest of the environment', () => {
   assert.deepEqual(leashEnv({ PATH: '/bin' }), { PATH: '/bin', [LEASH]: '1' });
 });
 
-test('SIGKILL to dev takes the deck server with it — no orphan holding the port', async (t) => {
+test('SIGKILL to author takes the deck server with it — no orphan holding the port', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-leash-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   writeFileSync(path.join(dir, 'deck.html'),
     '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div></body></html>\n');
 
   const dev = spawn(process.execPath, [
-    CLI, 'dev', 'deck.html', '--port', '0', '--no-tts', '--no-lipsync', '--no-git',
+    CLI, 'author', 'deck.html', '--port', '0', '--no-tts', '--no-lipsync', '--no-git',
   ], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => { try { dev.kill('SIGKILL'); } catch { /* already gone */ } });
 
@@ -276,7 +303,7 @@ test('SIGKILL to dev takes the deck server with it — no orphan holding the por
   };
 
   const [, spawned] = await until('the deck server to announce its port',
-    async () => out.match(/decklight edit on http:\/\/127\.0\.0\.1:(\d+)/));
+    async () => out.match(/decklight author on http:\/\/127\.0\.0\.1:(\d+)/));
   const port = Number(spawned);
   assert.equal(await isPortOpen(port), true, 'the deck server is up');
 
@@ -286,13 +313,13 @@ test('SIGKILL to dev takes the deck server with it — no orphan holding the por
     async () => (await isPortOpen(port)) === false);
 });
 
-test('dev without a deck, or with a missing one, fails with usage — not a stack trace', () => {
-  const bare = spawnSync('node', [CLI, 'dev'], { encoding: 'utf8' });
+test('author without a deck, or with a missing one, fails with usage — not a stack trace', () => {
+  const bare = spawnSync('node', [CLI, 'author'], { encoding: 'utf8' });
   assert.equal(bare.status, 1);
   assert.match(bare.stderr, /needs a deck/);
   assert.doesNotMatch(bare.stderr, /at .*\.mjs:\d+/, 'no stack trace');
 
-  const missing = spawnSync('node', [CLI, 'dev', 'nope.html'], { encoding: 'utf8' });
+  const missing = spawnSync('node', [CLI, 'author', 'nope.html'], { encoding: 'utf8' });
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /no such deck/);
 });

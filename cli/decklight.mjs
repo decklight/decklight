@@ -70,10 +70,9 @@ Commands:
            EXAMPLE: decklight lipsync    (then pick "Character…" in the deck's / palette)
   video    render the deck to ONE narrated mp4 — a still per slide, held for its narration audio
            EXAMPLE: decklight video deck.html -o deck.mp4   (add --voiceover to synthesize first)
-  edit     serve the deck with live reload; E in the player edits speaker notes back into the file
-           EXAMPLE: decklight edit demo/showcase.html   (then open the printed URL)
-  dev      one command for the whole loop: edit + every bridge this machine can run, one Ctrl-C
-           EXAMPLE: decklight dev demo/showcase.html   (bridges without prerequisites are skipped)
+  author   one command for the whole authoring loop: live-reload editing + every bridge this
+           machine can run, one Ctrl-C; E in the player edits speaker notes back into the file
+           EXAMPLE: decklight author demo/showcase.html   (bridges without prerequisites are skipped)
   present  play a deck you did not author — read-only over localhost, under a CSP header
            EXAMPLE: decklight present talk.html   (no editing surface, nothing is written)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL
@@ -110,7 +109,7 @@ if (cmd === 'help') {
 // output (export, bundle) stays clean
 process.stderr.write(`decklight ${version}\n`);
 
-// When a parent supervises us (dev runs edit and the bridges), go when it
+// When a parent supervises us (author runs the deck server and the bridges), go when it
 // goes — a SIGKILLed parent never gets to reap its children. No-op otherwise.
 const { exitWhenOrphaned } = await import('./supervise.mjs');
 exitWhenOrphaned();
@@ -210,12 +209,8 @@ switch (cmd) {
     process.exitCode = await restoreMain(rest);
     break;
   }
-  case 'edit': {
-    const { editMain } = await import('./edit.mjs');
-    await editMain(rest);
-    break;
-  }
-  case 'dev': {
+  case 'author':
+  case 'dev': {  // permanent hidden alias — the pre-rename name; works forever, documented nowhere
     const { devMain } = await import('./dev.mjs');
     await devMain(rest);
     break;
@@ -224,6 +219,13 @@ switch (cmd) {
     const { presentMain } = await import('./present.mjs');
     process.exitCode = await presentMain(rest);
     break;
+  }
+  case 'edit': {
+    // Removed as a command (COMMANDS in MARKETPLACE.md) — but a removal must
+    // refuse out loud, naming the way forward, not shrug "unknown command".
+    // The server itself lives on in edit.mjs; `author` starts it.
+    process.stderr.write('decklight edit was folded into the authoring loop — run `decklight author <deck.html>` instead\n');
+    process.exit(1);
   }
   default:
     process.stderr.write(`decklight: unknown command "${cmd}"\n\n`);

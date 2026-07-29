@@ -382,7 +382,7 @@ test('flags still beat the saved config, and --setup refuses to run headless', (
   assert.match(setup.stderr, /--setup needs a terminal/);
 });
 
-test('`decklight dev` on a TTY offers the same setup where it would skip the voice', { skip: ptySkip, timeout: 60_000 }, async () => {
+test('`decklight author` on a TTY offers the same setup where it would skip the voice', { skip: ptySkip, timeout: 60_000 }, async () => {
   const { home, env } = freshMachine();
   fs.writeFileSync(path.join(home, 'talk.html'), '<!doctype html><div class="decklight"><section><h2>Hi</h2></section></div>');
   spawnSync('git', ['init', '-q'], { cwd: home }); // no git question — the voice offer is the one under test
@@ -390,7 +390,7 @@ test('`decklight dev` on a TTY offers the same setup where it would skip the voi
 
   const out = await new Promise((resolve, reject) => {
     const child = spawn('/usr/bin/script',
-      ['-qec', `node "${CLI}" dev talk.html --port ${editPort} --tts-port ${editPort + 1} --no-lipsync`, '/dev/null'],
+      ['-qec', `node "${CLI}" author talk.html --port ${editPort} --tts-port ${editPort + 1} --no-lipsync`, '/dev/null'],
       { cwd: home, env, stdio: ['pipe', 'pipe', 'pipe'] });
     let text = '';
     const done = { offer: false, engine: false, int: false };
@@ -413,7 +413,7 @@ test('`decklight dev` on a TTY offers the same setup where it would skip the voi
   });
 
   assert.match(out, /no voice engine configured — set up live narration now\?/);
-  assert.match(out, /decklight tts bridge on http/, 'the bridge joined the same dev session');
+  assert.match(out, /decklight tts bridge on http/, 'the bridge joined the same author session');
   assert.doesNotMatch(out, /voice\s+skipped/, 'no skip line once setup completed');
   assert.deepEqual(loadTtsConfig({ HOME: home }), { engine: 'piper', voice: 'en_US-ryan-high' });
 });

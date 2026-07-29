@@ -73,7 +73,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 
 1. **`decklight init`** — scaffold a starter deck plus the agent skill above.
 2. **Author** one HTML file: `<section>` slides, `data-build` reveals, inline SVG with theme tokens, `<aside class="notes">` split on `⟨CLICK⟩` (notes drive builds, captions, transcript **and** narration all at once).
-3. **`decklight dev deck.html`** — the whole live loop under one Ctrl-C: live-reload editing (from your editor or the browser), plus any narration/lip-sync bridges this machine can run (missing prerequisites are skipped with the fix printed, never a hard failure). In the browser: **`E`** edits notes back into the file, **`L`** cycles layouts, **`Z`/`⇧Z`** undo/redo, and **`A`** asks an installed coding agent — Claude Code, Codex, Gemini, Copilot, Aider and more, auto-detected from `$PATH` — to edit the deck headlessly; the page reloads when it saves. Edits auto-commit as you go.
+3. **`decklight author deck.html`** — the whole live loop under one Ctrl-C: live-reload editing (from your editor or the browser), plus any narration/lip-sync bridges this machine can run (missing prerequisites are skipped with the fix printed, never a hard failure). In the browser: **`E`** edits notes back into the file, **`L`** cycles layouts, **`Z`/`⇧Z`** undo/redo, and **`A`** asks an installed coding agent — Claude Code, Codex, Gemini, Copilot, Aider and more, auto-detected from `$PATH` — to edit the deck headlessly; the page reloads when it saves. Edits auto-commit as you go.
 4. **`decklight rec script.term.yaml`** — record a truthful terminal cast in a real PTY.
 5. **`decklight bundle deck.html --themes all`** — flatten runtime, themes, casts and narration into one offline HTML file to hand off.
 
@@ -97,7 +97,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 |---|---|
 | `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title and offers a git repo; `--open` launches the deck, and it can hand straight off to `dev`) |
 | `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project; `--pack` zips it for upload) |
-| `decklight dev deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
+| `decklight author deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML |
 | `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
@@ -140,7 +140,7 @@ Every one of those agents runs under the same rule: on a public repo, an automat
 ## Architecture
 
 <p align="center">
-  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: a single deck.html and a theme.css feed a zero-dependency browser runtime (engine, terminal player, svg/code/math, narration, overlays); two localhost servers sit beside it — decklight edit for live-reload note editing and decklight tts bridging to Vertex AI Gemini TTS; a node CLI records, refreshes, exports and bundles; and a verification band (WCAG gates, palette rules, headless render assertions, property tests) gates everything against SPEC.md.">
+  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: a single deck.html and a theme.css feed a zero-dependency browser runtime (engine, terminal player, svg/code/math, narration, overlays); two localhost servers sit beside it — decklight author for live-reload note editing and decklight tts bridging to Vertex AI Gemini TTS; a node CLI records, refreshes, exports and bundles; and a verification band (WCAG gates, palette rules, headless render assertions, property tests) gates everything against SPEC.md.">
 </p>
 
 One HTML file and one theme stylesheet feed a **zero-dependency browser runtime**; everything with native dependencies or credentials lives in **localhost tools** (the CLI, the `edit` live-reload server, the `tts` bridge); and a **verification band** — contrast gates, palette rules, headless render assertions, property tests — holds all of it to the `SPEC.md` contract.

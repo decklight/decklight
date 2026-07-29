@@ -303,7 +303,7 @@ test('epilogue: plain when piped, accent + OSC 8 on a TTY, NO_COLOR wins', () =>
 
   const plain = epilogue({ deckPath, tty: false, noColor: false });
   assert.ok(plain.includes(url), 'raw file:// URL present');
-  assert.ok(plain.includes('decklight dev '), 'the way to start editing');
+  assert.ok(plain.includes('decklight author '), 'the way to start editing');
   assert.doesNotMatch(plain, /\x1b/, 'piped output has zero escape codes');
 
   const colored = epilogue({ deckPath, tty: true, noColor: false });
@@ -345,14 +345,14 @@ test('init --git never clobbers an existing .gitignore', () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('init headless without a flag prints the dev hint and touches no git', () => {
+test('init headless without a flag prints the authoring hint and touches no git', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
   const out = execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
   assert.match(out, /git: no repository here — pass --git to create one and auto-commit the deck/);
   assert.equal(fs.existsSync(path.join(dir, '.git')), false);
   // the epilogue is present, plain — piped output carries zero escape codes
   assert.ok(out.includes(pathToFileURL(path.join(dir, 'deck.html')).href));
-  assert.match(out, /decklight dev /);
+  assert.match(out, /decklight author /);
   assert.doesNotMatch(out, /\x1b/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -383,7 +383,7 @@ test('init --git still succeeds when git is missing from PATH', () => {
   assert.equal(r.status, 0, 'the deck is the product — a git problem is not a failure');
   assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
   assert.match(r.stdout, /git: init failed/);
-  assert.match(r.stdout, /decklight dev /, 'the epilogue still prints');
+  assert.match(r.stdout, /decklight author /, 'the epilogue still prints');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(empty, { recursive: true, force: true });
 });
@@ -397,7 +397,7 @@ test('init on a real TTY asks the git question; Y creates the repo and commits',
   assert.match(r.stdout, /create a git repository so your edits are auto-committed\? \[Y\/n\]/);
   // init prints the command instead of asking, or starting anything
   assert.doesNotMatch(r.stdout, /start editing now\?/);
-  assert.match(r.stdout, /decklight dev /, 'the command that starts editing is printed');
+  assert.match(r.stdout, /decklight author /, 'the command that starts editing is printed');
   assert.match(r.stdout, /\x1b\[36m/, 'the epilogue is accent-colored on a TTY');
   const log = execFileSync('git', ['-C', dir, 'log', '--format=%s'], { encoding: 'utf8', env: gitIdEnv });
   assert.equal(log.trim(), 'decklight init');
@@ -492,7 +492,7 @@ test('init --open with no launcher on PATH: deck still created, exit 0, skip lin
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// --- the repo-creation seam (edit/dev --git today; init's git offer, #50) ----
+// --- the repo-creation seam (author --git today; init's git offer, #50) ----
 
 test('createRepo seeds a fresh repository with the starter .gitignore', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitignore-'));
@@ -1134,7 +1134,7 @@ test('the skill tells agents to commit their own logical changes', () => {
 
 test('the AGENTS.md section carries the same instruction for agents that read it', () => {
   assert.match(agentsSection(), /\/edit\/commit/);
-  assert.match(agentsSection(), /No server listening means no dev/);
+  assert.match(agentsSection(), /No server listening means no\n?authoring/);
 });
 
 test('the always-loaded skill tells agents to render and check for clipped slides', () => {

@@ -31,9 +31,10 @@ const run = (cmd, args, cwd) =>
   execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
     .replace(/\s+$/, '');
 
-// start `decklight edit --git`, capture its startup lines, Ctrl-C it
+// start `decklight author --git` (bridges off — git is the point), capture its
+// startup lines, Ctrl-C it
 async function editStartup(dir) {
-  const child = spawn(process.execPath, [CLI, 'edit', 'deck.html', '--port', '0', '--git'],
+  const child = spawn(process.execPath, [CLI, 'author', 'deck.html', '--port', '0', '--git', '--no-tts', '--no-lipsync'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
@@ -78,7 +79,7 @@ mkdirSync(path.resolve(here, '../.shots'), { recursive: true });
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-demo-'));
   const blocks = [];
   blocks.push({ cmd: 'decklight init "Demo Deck" --no-skill', output: run(process.execPath, [CLI, 'init', 'Demo Deck', '--no-skill'], dir) });
-  blocks.push({ cmd: 'decklight edit deck.html --git', output: await editStartup(dir) });
+  blocks.push({ cmd: 'decklight author deck.html --git --no-tts --no-lipsync', output: await editStartup(dir) });
   blocks.push({ cmd: 'cat .gitignore', output: readFileSync(path.join(dir, '.gitignore'), 'utf8').replace(/\s+$/, '') });
   mkdirSync(path.join(dir, '.shots')); mkdirSync(path.join(dir, 'voiceover'));
   writeFileSync(path.join(dir, '.shots', 'evidence.png'), 'png');
@@ -103,7 +104,7 @@ mkdirSync(path.resolve(here, '../.shots'), { recursive: true });
   const before = sha(readFileSync(path.join(dir, '.gitignore')));
   const blocks = [];
   blocks.push({ cmd: 'sha256sum .gitignore   # before', output: before + '…  .gitignore' });
-  blocks.push({ cmd: 'decklight edit deck.html --git', output: await editStartup(dir) });
+  blocks.push({ cmd: 'decklight author deck.html --git --no-tts --no-lipsync', output: await editStartup(dir) });
   const after = sha(readFileSync(path.join(dir, '.gitignore')));
   blocks.push({ cmd: 'sha256sum .gitignore   # after — byte-identical', output: after + '…  .gitignore' });
   blocks.push({ cmd: 'cat .gitignore', output: readFileSync(path.join(dir, '.gitignore'), 'utf8').replace(/\s+$/, '') });

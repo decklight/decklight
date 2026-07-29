@@ -58,7 +58,7 @@ const ttyRun = await new Promise((resolve, reject) => {
 });
 // the epilogue is the evidence: the deck's file:// link and the command that
 // starts editing, in the accent color a pty run gets
-if (!/decklight dev /.test(ttyRun)) {
+if (!/decklight author /.test(ttyRun)) {
   throw new Error(`pty run never printed the start-editing command:\n${ttyRun}`);
 }
 

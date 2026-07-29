@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The AI-agent roster for `decklight dev` — which coding agents this machine
+// The AI-agent roster for `decklight author` — which coding agents this machine
 // can run, and how to hand one a single editing task without a TTY.
 //
 // Every entry is a one-shot, non-interactive invocation: the agent gets the

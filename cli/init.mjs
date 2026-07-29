@@ -29,9 +29,9 @@
  * file is only touched with --force.
  *
  * init ends like the start of an authoring session: outside a repository it
- * offers `git init` (the same question `decklight dev` asks, at the natural
+ * offers `git init` (the same question `decklight author` asks, at the natural
  * moment — the repo starts with the shared starter .gitignore), prints an
- * accent-colored epilogue — the deck's file:// URL and the `decklight dev`
+ * accent-colored epilogue — the deck's file:// URL and the `decklight author`
  * line, which is the command that starts editing. `--open` launches the deck
  * in the default browser (the file IS the presentation).
  */
@@ -105,7 +105,7 @@ export async function resolveTitle(arg, { isTTY = false, ask } = {}) {
 }
 
 // ── git: offer the repository at the natural moment ─────────────────────────
-// The same policy `decklight dev` applies later, decided here as a pure
+// The same policy `decklight author` applies later, decided here as a pure
 // function so the table (--git / --no-git / TTY / repo-present) is testable
 // without a repository or a terminal.
 export function planGit({ args = [], tty = false, inRepo = false } = {}) {
@@ -172,7 +172,7 @@ export function epilogue({ deckPath, tty = false, noColor = false }) {
   return [
     '',
     `  ${a('open to present')}   ${color ? osc8(url) : url}`,
-    `  ${a('start editing')}     decklight dev ${deck}`,
+    `  ${a('start editing')}     decklight author ${deck}`,
     '',
   ].join('\n') + '\n';
 }
@@ -465,7 +465,7 @@ unless --no-skill is given. The deck file is only touched with --force.
   if (openAfter) await openDeck(deckPath);
 
   // No handoff. init scaffolds and gets out of the way: the epilogue above
-  // prints `decklight dev <deck>` under "start editing", and that command IS
+  // prints `decklight author <deck>` under "start editing", and that command IS
   // the handoff. Starting a server for you means init does not return until
   // you stop it — you cannot look at what it made, or read the lines it just
   // printed, without first killing something.

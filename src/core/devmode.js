@@ -1,18 +1,18 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The message every dev-gated action shows when there is no edit server
-// (SPEC PRESENTING). Layout cycling, undo/redo, ask-an-agent and the notes editor each
-// hand-wrote their own version of it, they disagreed on the command — one said
-// `decklight edit` — and none of them told you the thing you actually need:
-// what to type, and where to type it. That matters most for the commonest
-// case, a deck opened by double-clicking the file, where `location.pathname`
-// IS a real filesystem path and can name the folder to run from.
+// The message every author-mode-gated action shows when there is no edit
+// server (SPEC PRESENTING). Layout cycling, undo/redo, ask-an-agent and the notes
+// editor each hand-wrote their own version of it, they disagreed on the
+// command — and none of them told you the thing you actually need: what to
+// type, and where to type it. That matters most for the commonest case, a
+// deck opened by double-clicking the file, where `location.pathname` IS a
+// real filesystem path and can name the folder to run from.
 //
 // Pure and location-injected so it is node-testable (the parseBackground
 // idiom); the engine passes the real `location`.
 
-const CMD = 'npx decklight dev';
+const CMD = 'npx decklight author';
 
 /**
  * Split a `file:` pathname into its folder and filename. Returns empty strings
@@ -43,5 +43,5 @@ export function needsDevMode(action, loc = {}) {
   const { dir, file } = splitFilePath(pathname);
   const deck = /\.html?$/i.test(file) ? file : '<deck.html>';
   const where = protocol === 'file:' && dir ? `from ${dir}, ` : '';
-  return `${action} needs dev mode: ${where}run ${CMD} ${deck}, then reopen the URL it prints`;
+  return `${action} needs author mode: ${where}run ${CMD} ${deck}, then reopen the URL it prints`;
 }
