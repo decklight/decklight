@@ -76,6 +76,8 @@ Commands:
   present  play a deck you did not author — read-only over localhost, under a CSP header;
            prints what the file will execute, and strips what it cannot account for
            EXAMPLE: decklight present talk.html   (no editing surface, nothing is written)
+  associate  wire double-clicking a .decklight file to decklight present
+           EXAMPLE: decklight associate   (per-user, no admin rights; --uninstall undoes it)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL
            EXAMPLE: decklight report-bug   (prints and exits — nothing is sent anywhere)
   help     show this help, or a command's help: decklight help bundle
@@ -219,6 +221,11 @@ switch (cmd) {
   case 'present': {
     const { presentMain } = await import('./present.mjs');
     process.exitCode = await presentMain(rest);
+    break;
+  }
+  case 'associate': {
+    const { associateMain } = await import('./associate.mjs');
+    process.exitCode = await associateMain(rest);
     break;
   }
   case 'edit': {

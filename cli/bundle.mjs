@@ -190,7 +190,7 @@ if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
   process.stdout.write(`decklight bundle — flatten deck(s) into one self-contained HTML file
 
 Usage:
-  decklight bundle <deck.html> [-o out.html] [--sign] [--themes current|all|name,…]
+  decklight bundle <deck.html> [-o out.html] [--sign] [--deck] [--themes current|all|…]
   decklight bundle <deck.html> --all [-o out.html] [--title "…"] [--themes …]
   decklight bundle <a.html> <b.html> … [-o out.html] [--title "…"] [--themes …]
 
@@ -206,6 +206,11 @@ Options:
                    ambient token in CI, or SIGSTORE_ID_TOKEN — and needs the
                    network. Plain bundle neither signs nor warns: offline-clean
                    by default, never silently unsigned.
+  --deck           also write <out>.decklight — the deck, its signature and a
+                   manifest as ONE file, which is what gets forwarded. Implies
+                   --sign, because the container is the signed artifact. A
+                   .decklight renamed to .html still plays in a browser: the
+                   deck comes first in the file and the metadata is appended.
   --title <t>      <title> for a merged presentation
   --themes <sel>   which themes to embed:
                      current       just the deck's linked theme (default)
@@ -217,13 +222,17 @@ Options:
 }
 
 const inputs = [];
-let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false;
+let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false, deckFile = false;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '-o') outPath = argv[++i];
   else if (a === '--themes') themesSel = argv[++i];
   else if (a === '--all') all = true;
   else if (a === '--sign') sign = true;
+  // --deck implies --sign rather than erroring on the pair: the container IS
+  // the signed artifact, so an unsigned one would be a zip wearing the name of
+  // an attestation. Naming the implication beats refusing the obvious command.
+  else if (a === '--deck') { deckFile = true; sign = true; }
   else if (a === '--title') mergedTitle = argv[++i];
   else if (!a.startsWith('-')) inputs.push(a);
   else fail(`unknown argument: ${a}`);
@@ -480,6 +489,23 @@ if (bundleSig) {
   // Read back what was just written the same way a recipient will. A signature
   // this command cannot verify itself is not one to hand anybody.
   process.stdout.write(`${formatSignature(await verifyBytes(html, bundleSig, { client }), { indent: '  ' })}\n`);
+
+  // …and the container is that pair as one artifact, because two files is one
+  // more than people forward (DECK_FILE).
+  if (deckFile) {
+    const { packContainer, containerFor, originOf, runtimeVersionOf } = await import('./deckfile.mjs');
+    const { bytes } = packContainer({
+      payload: html,
+      signature: bundleSig,
+      name: path.basename(outPath),
+      runtime: runtimeVersionOf(html),
+      origin: originOf(firstPath),
+    });
+    const container = containerFor(outPath);
+    fs.writeFileSync(container, bytes);
+    process.stdout.write(`packed → ${container} (${(bytes.length / 1024).toFixed(1)} KB — `
+      + 'the deck, its signature and a manifest in one file; rename it .html and a browser still plays it)\n');
+  }
 }
 for (const n of notices) process.stdout.write(`note: ${n}\n`);
 }

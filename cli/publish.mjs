@@ -62,13 +62,15 @@ if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
 
 Usage:
   decklight publish <deck.html> [--branch gh-pages] [--remote origin]
-                                [--no-bundle] [--no-sign] [--path <subdir>]
+                                [--no-bundle] [--no-sign] [--deck] [--path <subdir>]
 
 Options:
   --branch <name>   branch to publish to (default: gh-pages)
   --remote <name>   git remote to push to (default: origin)
   --no-bundle       push the deck file as-is (skip single-file bundling)
   --no-sign         publish without a Sigstore signature
+  --deck            also publish index.decklight — the signed container, which
+                    is the file a visitor downloads and forwards
   --path <subdir>   publish under a subdirectory of the site (other content
                     on the branch is preserved)
 
@@ -87,18 +89,22 @@ orphan; later publishes append to its history.
   process.exit(0);
 }
 
-let deck = null, branch = 'gh-pages', remote = 'origin', bundle = true, subdir = '', sign = true;
+let deck = null, branch = 'gh-pages', remote = 'origin', bundle = true, subdir = '', sign = true, deckFile = false;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--branch') branch = argv[++i];
   else if (a === '--remote') remote = argv[++i];
   else if (a === '--no-bundle') bundle = false;
   else if (a === '--no-sign') sign = false;
+  else if (a === '--deck') deckFile = true;
   else if (a === '--path') subdir = argv[++i];
   else if (!a.startsWith('-') && !deck) deck = a;
   else fail(`unknown argument: ${a}`);
 }
 if (!deck) fail('no deck given');
+// Checked here rather than at pack time: an argument that cannot work should
+// be refused before the command starts doing things.
+if (deckFile && !sign) fail('--deck packs the SIGNED deck — it cannot be combined with --no-sign');
 if (!branch || !/^[\w][\w./-]*$/.test(branch)) fail(`not a usable branch name: "${branch}"`);
 const parts = (subdir || '').split('/').filter(Boolean);
 if (parts.some((p) => p === '.' || p === '..')) fail(`--path must stay inside the site: "${subdir}"`);
@@ -167,6 +173,20 @@ if (sign) {
 const pageBlob = git(['hash-object', '-w', '--', sitePage]);
 const nojekyllBlob = git(['hash-object', '-w', '--stdin'], '');
 const sigBlob = signature ? git(['hash-object', '-w', '--stdin'], `${JSON.stringify(signature, null, 2)}\n`) : null;
+// The container is opt-in on both commands until it proves itself (INTEGRITY),
+// and it needs the signature it wraps — so --deck without one is refused here
+// rather than quietly producing an unsigned archive under an attesting name.
+let deckBlob = null;
+if (deckFile) {
+  const { packContainer, originOf, runtimeVersionOf } = await import('./deckfile.mjs');
+  const payload = fs.readFileSync(sitePage);
+  const { bytes } = packContainer({
+    payload, signature, name: 'index.html',
+    runtime: runtimeVersionOf(payload.toString('utf8')), origin: originOf(deckPath),
+  });
+  // -w --stdin takes bytes on stdin; a Buffer keeps them exact.
+  deckBlob = execFileSync('git', ['hash-object', '-w', '--stdin'], { cwd, input: bytes, encoding: 'utf8' }).trim();
+}
 if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 
 // A second publish parents on the branch as the REMOTE has it — fetched
@@ -207,6 +227,7 @@ let tree = putBlob(parent, ['.nojekyll'], nojekyllBlob);
 tree = putBlob(tree, [...parts, 'index.html'], pageBlob);
 // Beside the page it covers, under the name a verifier will look for.
 if (sigBlob) tree = putBlob(tree, [...parts, 'index.html.sig'], sigBlob);
+if (deckBlob) tree = putBlob(tree, [...parts, 'index.decklight'], deckBlob);
 
 const config = (key) => {
   try { return execFileSync('git', ['config', key], { cwd, encoding: 'utf8' }).trim(); }
