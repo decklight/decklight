@@ -21,6 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
+| `MARKETPLACE_REGISTRY` | catalogs of themes, templates, skills and engines — registered, not fetched |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -519,6 +520,58 @@ The runtime is not involved: `import` is CLI-only, adds nothing to
 200 lines over `node:zlib` — rather than taking a dependency.
 
 
+## MARKETPLACE_REGISTRY — Marketplaces: registered, not fetched
+
+A marketplace is a git repo (or a local directory) with
+`.decklight/marketplace.json` at its root — decentralized, no central registry,
+mirroring Claude Code's layout deliberately (MARKETPLACE.md MARKETPLACES). The
+manifest names the catalog and its entries:
+
+```json
+{
+  "name": "nord-pack",
+  "description": "cool blues",
+  "entries": [
+    { "name": "nord-deep", "type": "theme", "source": "./themes/nord-deep.css", "description": "deep blues" }
+  ]
+}
+```
+
+`name` and each entry's `name`/`type`/`source` are required (`description`
+optional; versions and compat ranges arrive with code-carrying extensions —
+versions for code, none for data). A malformed manifest is refused **naming the
+line and the field** (`line 7: entries[1].type — missing`), never with a stack
+trace — a typo in somebody's catalog is not an internal error.
+
+`decklight marketplace add <owner/repo | git url | path>` reads the manifest at
+the source's root and registers the catalog; `list`, `update <name>` and
+`remove <name>` complete the roster. State lives under `~/.decklight/`
+(`DECKLIGHT_HOME` overrides): one registry file, `marketplaces.json`, plus a
+`marketplaces/` directory of cached manifests — the config home the engine
+wizard (MARKETPLACE.md ENGINES) shares.
+
+**The invariant everything above serves: registering is not fetching.** The
+network is touched only by an explicit `add` or `update` of a remote source —
+never at registration, never when a deck loads, never while presenting. The
+first-party marketplace is registered on first CLI run as a pure filesystem
+write; its first fetch happens at the first browse or `update`, so first run
+offline is silent and instant, and a deck on conference wifi, on a plane, or
+air-gapped behaves identically to one at a desk. Nothing on the deck-load or
+presenting path imports the marketplace module at all (pinned by
+`test/marketplace.test.mjs`). Offline is a first-class state, not an error
+state: `list` reads only the cache, and a fetch failure is fast and names the
+marketplace and the reason — no spinner, no hang.
+
+Entry names are qualified `name@marketplace`. A bare name resolves only while
+it exists in exactly one registered marketplace; the same bare name in two is
+reported as ambiguous with the qualified forms to use instead — never silently
+resolved to either. The registry registers, caches and names; installing what
+an entry points at is each install surface's own contract (theme browse
+installs through `theme add`, THEME_DISTRIBUTION). Nothing here executes in a
+deck: the marketplace distributes data and authoring-side units, and the
+no-plugin-system line (NON_GOALS) stands.
+
+
 ## REPO_LAYOUT — Repository layout & tooling
 
 ```
@@ -531,7 +584,7 @@ decklight/
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
-  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/theme/import/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides → deck, JS_API), publish.mjs, edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
+  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/theme/import/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides → deck, JS_API), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
   tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        30 × <name>.css + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
