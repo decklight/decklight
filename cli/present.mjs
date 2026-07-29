@@ -152,8 +152,8 @@ export async function presentMain(args) {
     return report.counts.unaccounted ? 1 : 0;
   }
 
-  // The cwd is the served root, and the deck must live under it — `edit`'s rule,
-  // for `edit`'s reason: a deck's assets are not always its siblings. A source
+  // The cwd is the served root, and the deck must live under it — the author
+  // server's rule, for its reason: a deck's assets are not always siblings. A source
   // deck reaches up for the runtime (`demo/showcase.html` loads
   // `../dist/decklight.js`), so rooting at the deck's own directory would 403
   // the engine and serve a page that never boots.
