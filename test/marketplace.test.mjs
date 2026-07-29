@@ -181,22 +181,46 @@ test('removing the first-party marketplace is respected, not undone', () => {
   assert.doesNotMatch(r.stdout, /first-party/);
 });
 
-test('nothing on the deck-load or presenting path imports the marketplace', () => {
+test('nothing on the deck-load or presenting path can FETCH from a marketplace', () => {
   // MARKETPLACE.md MARKETPLACES: a deck on conference wifi, a plane, or
-  // air-gapped behaves identically — so the runtime and every deck-serving
-  // path must be incapable of a marketplace fetch, not merely disinclined.
+  // air-gapped behaves identically — so the runtime and every deck-serving path
+  // must be incapable of a marketplace fetch, not merely disinclined.
+  //
+  // This used to forbid importing cli/marketplace.mjs at all, which was the
+  // right approximation until something on this path legitimately needed to
+  // READ the local cache: the engine wizard (ENGINES#WIZARD) resolves an engine
+  // through `resolveEntry`, whose own docblock names it as a caller. A cached
+  // JSON read is exactly as offline-identical as no read at all, so forbidding
+  // it protected nothing — and the ways around it (a second file that does the
+  // import, an injected lookup) would have moved the capability without
+  // changing it, which is worse than naming what is actually forbidden.
+  //
+  // So: fetching is forbidden, and the fetching functions are named. The
+  // registered-not-fetched invariant is intact; `marketplace update` is still
+  // the only thing that reaches the network, and it is not on this path.
+  const FETCHERS = /fetchManifestText|raw\.githubusercontent|marketplaceMain/;
   const files = [
     ...fs.readdirSync(path.join(root, 'src'), { recursive: true })
       .filter((f) => /\.(js|mjs)$/.test(f)).map((f) => path.join('src', f)),
     'cli/serve.mjs', 'cli/edit.mjs', 'cli/dev.mjs', 'cli/bundle.mjs', 'cli/upgrade.mjs',
+    'cli/present.mjs', 'cli/wizard.mjs',
   ];
   assert.ok(files.length > 10, 'the sweep found the runtime');
   for (const f of files) {
     const text = fs.readFileSync(path.join(root, f), 'utf8');
-    assert.doesNotMatch(text, /marketplace\.mjs|raw\.githubusercontent/,
-      `${f} reaches for the marketplace — the registered-not-fetched invariant`);
+    assert.doesNotMatch(text, FETCHERS,
+      `${f} could fetch from a marketplace — the registered-not-fetched invariant`);
+  }
+
+  // And the runtime still may not import the module at all: a browser has no
+  // config home to read, so any mention there would be a mistake rather than a
+  // considered read.
+  for (const f of files.filter((x) => x.startsWith('src/'))) {
+    assert.doesNotMatch(fs.readFileSync(path.join(root, f), 'utf8'), /marketplace\.mjs/,
+      `${f} is runtime — it has no filesystem to read a catalog from`);
   }
 });
+
 
 // ── the CLI, end to end ────────────────────────────────────────────────────
 

@@ -430,10 +430,143 @@ export function createEditMode({
     },
   });
 
+
+  // ── the engine wizard (MARKETPLACE.md ENGINES#WIZARD) ────────────────────
+  //
+  // Core renders; the plugin only declared. Everything below builds inputs from
+  // a vetted schema with createElement and textContent — never innerHTML from
+  // anything a catalog supplied — which is what makes "the wizard is author-mode
+  // only" a rule core enforces rather than one a plugin's own markup would have
+  // had to honour.
+  let wizEl = null;
+  function closeWizard() { wizEl?.remove(); wizEl = null; }
+
+  async function openWizard(engine) {
+    if (wizEl) { closeWizard(); return; }
+    // The gate. In `present`, in a bundled deck, or on file:// with no author
+    // server, there is nothing to post a credential TO — and a prompt that
+    // collected one anyway would be a phishing form with a deck around it.
+    if (!editAvailable) {
+      toast(needsDevMode('configuring an engine', location), 3200);
+      return;
+    }
+    let schema;
+    try {
+      const r = await fetch(`${editBase}/edit/wizard?engine=${encodeURIComponent(engine)}`);
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.schema) { toast(j.error || `no wizard for ${engine}`, 3200); return; }
+      schema = j.schema;
+    } catch { toast('the author server did not answer', 2600); return; }
+
+    dismissOthers?.();
+    wizEl = document.createElement('div');
+    wizEl.className = 'decklight-narr decklight-editor';
+    const card = document.createElement('div');
+    card.className = 'narr-card';
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    head.textContent = `${schema.title} — ⌘⏎ saves · Esc closes`;
+    card.append(head);
+
+    const inputs = new Map();
+    for (const f of schema.fields) {
+      const row = document.createElement('label');
+      row.className = 'tr-actions';
+      const name = document.createElement('span');
+      name.textContent = f.required ? `${f.label} *` : f.label;
+      let input;
+      if (f.type === 'choice') {
+        input = document.createElement('select');
+        for (const o of f.options) {
+          const opt = document.createElement('option');
+          opt.value = o; opt.textContent = o;
+          input.append(opt);
+        }
+        if (f.default) input.value = f.default;
+      } else if (f.type === 'boolean') {
+        input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = f.default === true;
+      } else {
+        input = document.createElement('input');
+        // A secret is a password field so it is not read over a shoulder, not
+        // captured by a screen recorder, and not autofilled from elsewhere.
+        input.type = f.type === 'secret' ? 'password' : 'text';
+        input.autocomplete = f.type === 'secret' ? 'off' : 'on';
+        input.spellcheck = false;
+        if (f.default !== undefined) input.value = String(f.default);
+      }
+      input.className = 'narr-input';
+      inputs.set(f.name, { field: f, input });
+      row.append(name, input);
+      card.append(row);
+    }
+
+    const status = document.createElement('div');
+    status.className = 'narr-head';
+    const save = document.createElement('button');
+    save.className = 'narr-prev-btn';
+    save.textContent = 'save';
+    const actions = document.createElement('div');
+    actions.className = 'tr-actions';
+    actions.append(save);
+    card.append(actions, status);
+    wizEl.append(card);
+    root.append(wizEl);
+    inputs.values().next().value?.input.focus();
+
+    async function submit() {
+      const answers = {};
+      for (const [k, { field, input }] of inputs) {
+        const v = field.type === 'boolean' ? input.checked : input.value;
+        if (v !== '' && v !== undefined) answers[k] = v;
+      }
+      save.disabled = true;
+      status.textContent = 'checking…';
+      try {
+        const r = await fetch(`${editBase}/edit/wizard`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ engine: schema.engine, answers }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          // The two failures stay two on screen as well as on the wire: one
+          // says try again later, the other says fix what you typed.
+          status.textContent = j.state === 'unreachable'
+            ? `could not reach it — ${j.error ?? 'try again'}`
+            : `not accepted — ${j.error ?? 'check the answers'}`;
+          save.disabled = false;
+          return;
+        }
+        // j.stored is redacted by the server; nothing here ever holds the value
+        // again once it has been posted.
+        debugLog('wizard', `${schema.engine} configured: ${JSON.stringify(j.stored)}`);
+        closeWizard();
+        toast(`${schema.title} configured`, 2200);
+      } catch (e) {
+        status.textContent = `could not reach the author server — ${String(e.message || e).slice(0, 50)}`;
+        save.disabled = false;
+      }
+    }
+    save.addEventListener('click', submit);
+    wizEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); }
+    });
+  }
+
+  overlays.register({
+    isOpen: () => !!wizEl,
+    close: closeWizard,
+    keydown: (e) => e.key === 'Escape' && (closeWizard(), true),
+  });
+
   return {
     deckHistory,
     toggleEditor,
     toggleAgentAsk,
+    /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside author mode. */
+    wizard: openWizard,
     /** R, and what the headless overlay harness drives (it has no git server). */
     restore: { open: openRestore, close: closeRestore, list: () => restoreRows.slice() },
     /** Is a dev server actually serving this deck? Layout cycling asks too. */
