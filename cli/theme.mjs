@@ -19,7 +19,7 @@
 // exactly what an older theme is missing.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import path, { resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools/theme-check.mjs';
 
@@ -75,6 +75,36 @@ export function installTheme(html, name, css) {
     html: html.slice(0, head.index) + block + '\n' + html.slice(head.index),
     replaced: false,
   };
+}
+
+/**
+ * Where a catalog entry's `source` actually lives.
+ *
+ * A manifest says `./themes/nord-deep.css`, which is relative to the
+ * MARKETPLACE — and by the time the catalog is a cached JSON file, the repo it
+ * came from is not the cwd of whoever is installing. The registry records each
+ * marketplace's source, so that is what a relative entry resolves against:
+ * a local path joins, `owner/repo` becomes a raw URL on the default branch.
+ *
+ * This lives in theme.mjs rather than in the author server on purpose. Fetching
+ * an ARTIFACT on an explicit install is fine anywhere; fetching a CATALOG is
+ * what `registered, not fetched` forbids on a deck-serving path, and keeping the
+ * two in different files is what keeps the sweep in test/marketplace.test.mjs
+ * able to tell them apart.
+ */
+export function resolveSource(source, marketplaceSource) {
+  if (/^https?:\/\//i.test(source)) return source;                 // absolute already
+  const rel = source.replace(/^\.\//, '');
+  if (!marketplaceSource) return source;                           // nothing to resolve against
+  if (/^https?:\/\//i.test(marketplaceSource)) {
+    return `${marketplaceSource.replace(/\.git$/, '').replace(/\/$/, '')}/raw/HEAD/${rel}`;
+  }
+  if (/^[\w.-]+\/[\w.-]+$/.test(marketplaceSource)) {
+    // owner/repo — GitHub's raw host, HEAD so a marketplace is not pinned to a
+    // branch name we guessed at.
+    return `https://raw.githubusercontent.com/${marketplaceSource}/HEAD/${rel}`;
+  }
+  return path.resolve(marketplaceSource, rel);                     // a local marketplace
 }
 
 /** Read a theme from disk or over https. */
