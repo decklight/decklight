@@ -14,6 +14,7 @@
  *   decklight bundle   flatten a deck into one self-contained HTML file
  *   decklight upgrade  bring a self-contained deck's inlined runtime up to the installed version
  *   decklight publish  bundle a deck and push it to a gh-pages branch
+ *   decklight marketplace  register catalogs of themes, templates, skills and engines
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
  *   decklight video    render a deck to a narrated mp4 (stills + voiceover audio)
@@ -60,6 +61,9 @@ Commands:
            EXAMPLE: decklight theme add https://gist.../nord-deep.css talk.html
   publish  bundle a deck and push it to GitHub Pages — deck to shareable URL in one command
            EXAMPLE: decklight publish deck.html   (prints https://owner.github.io/repo/)
+  marketplace  register catalogs (git repos with .decklight/marketplace.json) — registered, not fetched
+           EXAMPLE: decklight marketplace add owner/repo   (or a git URL, or a local path)
+           EXAMPLE: decklight marketplace list              (offline-safe: reads only the cache)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
   lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)
@@ -108,6 +112,15 @@ process.stderr.write(`decklight ${version}\n`);
 // goes — a SIGKILLed parent never gets to reap its children. No-op otherwise.
 const { exitWhenOrphaned } = await import('./supervise.mjs');
 exitWhenOrphaned();
+
+// The first-party marketplace is REGISTERED on first run, never fetched
+// (SPEC MARKETPLACE_REGISTRY): this writes two files under ~/.decklight/ and
+// touches nothing else — offline first run is silent and instant. A config
+// home that cannot be written must never cost a command.
+try {
+  const { ensureFirstPartyRegistered } = await import('./marketplace.mjs');
+  ensureFirstPartyRegistered();
+} catch { /* registration is a courtesy, not a dependency */ }
 
 switch (cmd) {
   case 'init': {
@@ -163,6 +176,11 @@ switch (cmd) {
   case 'publish': {
     const { publishMain } = await import('./publish.mjs');
     await publishMain(rest);
+    break;
+  }
+  case 'marketplace': {
+    const { marketplaceMain } = await import('./marketplace.mjs');
+    process.exitCode = await marketplaceMain(rest);
     break;
   }
   case 'tts': {
