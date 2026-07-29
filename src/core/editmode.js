@@ -110,7 +110,58 @@ export function createEditMode({
           return;
         } catch { /* not served by the edit server */ }
       }
+      // Not authored, but possibly PRESENTED (PRESENT#REMOTE): `decklight
+      // present --remote` hosts the phone remote with no edit surface at all, so
+      // the deck wires up the clicker and the position readout and NOTHING else.
+      // `editAvailable` stays false on purpose — every affordance gated on it (E,
+      // A, Z, layout picks) must still say it needs author mode, because it does.
+      await wirePresentRemote();
     })();
+  }
+
+  /**
+   * The presenting control channel: `remote` events in, position echoes out.
+   *
+   * Deliberately a separate, smaller function rather than a flag threaded
+   * through the edit path above. The two servers differ in what they are
+   * ALLOWED to do, and a shared code path with a boolean in it is how a
+   * presenting server quietly acquires an editing capability later.
+   */
+  async function wirePresentRemote() {
+    const base = /^https?:$/.test(location.protocol) ? '' : 'http://127.0.0.1:8790';
+    try {
+      const r = await fetch(base + '/present/ping');
+      if (!r.ok) return;
+      const j = await r.json();
+      if (!j?.ok || !j.present) return;
+      const here = decodeURIComponent(location.pathname.split('/').pop() || '');
+      if (here && j.name && here !== j.name) {
+        debugLog('present', `server presents ${j.name}, this deck is ${here} — not wiring up`);
+        return;
+      }
+      instance.__remoteQr = j.remote ? `${base || location.origin}/remote/qr.svg` : null;
+      const es = new EventSource(base + '/present/events');
+      es.addEventListener('remote', (ev) => {
+        try {
+          const { key } = JSON.parse(ev.data);
+          if (key === 'next') instance.next();
+          else if (key === 'prev') instance.prev();
+        } catch { /* malformed event */ }
+      });
+      // No `onmessage` handler: the unnamed `reload` message is the edit
+      // server's, and a presenting server has no file watcher to send one.
+      const postPos = () => {
+        fetch(base + '/remote/pos', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ i: instance.state.slide, n: instance.state.totalSlides }),
+        }).catch(() => {});
+      };
+      instance.on('slide', postPos);
+      instance.on('build', postPos);
+      postPos();
+      debugLog('present', `remote connected${base ? ` (${base})` : ''} — no edit surface`);
+    } catch { /* not served by present either */ }
   }
 
   // undo/redo (Z / ⇧Z) — the dev server's edit history: layout picks, notes
