@@ -31,6 +31,7 @@ const HARNESSES = [
   'pin-render',
   'overflow-render',
   'split-render',
+  'strict-render',
   'pdf-render',
   'import-render',
   'contrast',

@@ -76,16 +76,26 @@ export const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').
  * no-cache. `index` is the path "/" serves (the deck). `headers` ride on
  * every 200 — the seam a Content-Security-Policy arrives through (PRESENT).
  * Returns whether the request was handled.
+ *
+ * `html` rewrites the text of every text/html response on its way out and
+ * leaves every other type alone. It is how `present --strict` (PRESENT#STRICT)
+ * serves a deck with the unaccounted blocks removed while the file on disk
+ * stays exactly as it arrived: the transform sits between the read and the
+ * write, so there is no point in this path where the modified bytes could be
+ * mistaken for the deck.
  */
-export function staticFiles(root, { index = '/index.html', headers = {} } = {}) {
+export function staticFiles(root, { index = '/index.html', headers = {}, html: rewriteHtml = null } = {}) {
   return (req, res, url) => {
     if (req.method !== 'GET') return false;
     const rel = url.pathname === '/' ? index : decodeURIComponent(url.pathname);
     const file = resolve(root, '.' + rel);
     if (!file.startsWith(root + sep) && file !== root) { res.writeHead(403); res.end('forbidden'); return true; }
     if (!existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end('not found'); return true; }
-    res.writeHead(200, { 'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-cache', ...headers });
-    res.end(readFileSync(file));
+    const type = MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
+    let body = readFileSync(file);
+    if (rewriteHtml && type === MIME['.html']) body = Buffer.from(rewriteHtml(body.toString('utf8'), file), 'utf8');
+    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache', ...headers });
+    res.end(body);
     return true;
   };
 }

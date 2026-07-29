@@ -138,7 +138,9 @@ export function classifyScripts(html) {
   return all.map((s) => {
     const type = /\btype\s*=\s*["']([^"']+)["']/i.exec(s.attrs)?.[1]?.toLowerCase() ?? '';
     const src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(s.attrs)?.[1] ?? null;
-    const at = { line: lineAt(html, s.start), bytes: s.inner.length };
+    // start/end are the block's byte range in `html` — carried so a caller can
+    // act on a block, not merely name it (PRESENT#STRICT splices on them).
+    const at = { line: lineAt(html, s.start), bytes: s.inner.length, start: s.start, end: s.end };
     if (s === runtimeBlock) return { kind: 'runtime', ...at, inner: s.inner };
     if (src) {
       // a source deck loads dist/decklight.js by reference; anything else with
@@ -213,6 +215,44 @@ export function auditDeck(html, { installed = installedRuntime() } = {}) {
     unaccounted: blocks.filter((b) => b.kind === 'unaccounted' || b.kind === 'external'),
     blocks,
   };
+}
+
+/**
+ * The same inventory, with the unaccounted blocks taken out (PRESENT#STRICT).
+ *
+ * Pure: it takes HTML and returns HTML. Nothing here touches the filesystem,
+ * which is the whole design — `present` strips on the way OUT, so the deck you
+ * were sent is still the deck you were sent, byte for byte, and you can hand
+ * the same file to someone else or diff it against the original.
+ *
+ * What survives is exactly what the label calls accounted for: the runtime
+ * (inlined or by `src`), the `Decklight.init` boot call, JSON data blocks and
+ * templates. That set is not a convenience — it is what a deck needs to render
+ * itself. Builds, layouts, themes and `data-chart` JSON are markup and CSS and
+ * attributes, so they are never in the blast radius to begin with.
+ *
+ * What it removes is what `unaccounted` and `external` mean: a block that
+ * executes and matches nothing in the canonical shape. Each becomes a fixed
+ * comment of the same shape — fixed on purpose, since interpolating any of the
+ * removed bytes into the page is how a stripper hands the payload a second way
+ * in, and the terminal is where the details belong anyway (never the
+ * audience-facing page).
+ *
+ * The honest limit: this removes SCRIPT BLOCKS, because that is what the
+ * classifier finds. An inline `onerror=` handler or a `javascript:` href is
+ * neither named by the label nor removed here. Widening one without the other
+ * would let the printed inventory and the served bytes disagree, which is worse
+ * than a limit you can read — so they move together or not at all.
+ */
+export function stripUnaccounted(html) {
+  const blocks = classifyScripts(html);
+  const stripped = blocks.filter((b) => b.kind === 'unaccounted' || b.kind === 'external');
+  let out = html;
+  // Back to front: every splice changes the offsets after it, none before it.
+  for (const b of [...stripped].sort((a, b2) => b2.start - a.start)) {
+    out = `${out.slice(0, b.start)}<!-- decklight strict mode: script block removed (${b.bytes} B) -->${out.slice(b.end)}`;
+  }
+  return { html: out, stripped };
 }
 
 const RUNTIME_LINE = {
