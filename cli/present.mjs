@@ -33,6 +33,7 @@ import { resolve, sep } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isLoopback, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
 import { auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
+import { verifyFile, formatSignature, isVerified, UNSIGNED } from './sign.mjs';
 
 /**
  * The policy, and honestly what it is worth.
@@ -108,8 +109,19 @@ const USAGE = `usage: decklight present <deck.html> [--port 8790] [--strict] [--
   there is no "safe" here, because the scan is a heuristic over a file someone
   may have edited and a green check would promise more than it can keep.
 
-  When the label finds an unaccounted block, strict mode turns ITSELF on and
-  says so in the terminal. It does not ask, and there is no --force to turn it
+  A deck with a detached signature beside it (talk.html.sig) is verified BEFORE
+  it renders, and the terminal names who signed it — an identity you can judge,
+  not a check mark. Sigstore keyless, so there are no keys: the certificate was
+  minted for one signature against the signer's OIDC identity and expired
+  minutes later; the transparency log is what keeps it checkable. A deck with no
+  sidecar is not an alarm — most decks are unsigned, and treating that as a
+  finding would train you to ignore the one that matters. Verifying needs the
+  sigstore client and the network; when it cannot be done here, that is said as
+  its own state and never as a pass.
+
+  When the label finds an unaccounted block — or a signature does not verify,
+  or cannot be checked here — strict mode turns ITSELF on and says so in the
+  terminal. It does not ask, and there is no --force to turn it
   back off: ten minutes before a talk is the worst possible moment for a
   refusal, and an escape hatch would be reached for exactly then — so the deck
   always plays, and the part nobody can account for is the part that doesn't.
@@ -157,15 +169,22 @@ export async function presentMain(args) {
   // use to present means it runs every time, at no extra effort.
   const report = auditDeck(readFileSync(deckPath, 'utf8'));
 
-  // --check reads one file and exits. It is deliberately ahead of the
-  // served-root guard below: that rule is about what a SERVER exposes, and
-  // auditing a deck sitting anywhere on disk exposes nothing. Making CI cd
-  // somewhere first to read a file would be a rule with no reason behind it.
+  // The signature, if the deck came with one (INTEGRITY#SIGNING). Costs nothing
+  // when there is no sidecar — the common case returns without touching the
+  // network — and the audit above runs either way, because the two answer
+  // different questions: a signature says WHO vouched for these bytes, the label
+  // says what the bytes will do. A signed deck can still run something nobody
+  // should, and the label is what would name it.
+  const signature = await verifyFile(deckPath);
+
   if (args.includes('--check')) {
     for (const line of formatLabel(report, { indent: '' })) console.log(line);
-    // Non-zero means "this deck executes something I could not account for" —
-    // not "this deck is malicious", which is a call no exit code should make.
-    return report.counts.unaccounted ? 1 : 0;
+    if (signature.state !== UNSIGNED) console.log(formatSignature(signature, { indent: '' }));
+    // Non-zero means "this deck executes something I could not account for", or
+    // "it carries a signature I could not stand behind" — not "this deck is
+    // malicious", which is a call no exit code should make. `unchecked` counts:
+    // a gate that passes when it could not evaluate the claim is not a gate.
+    return report.counts.unaccounted || (signature.state !== UNSIGNED && !isVerified(signature)) ? 1 : 0;
   }
 
   // The cwd is the served root, and the deck must live under it — the author
@@ -191,7 +210,13 @@ export async function presentMain(args) {
   // finding into a prompt that will be clicked through precisely then. Playing
   // the deck without the part nobody could account for is the only option that
   // is still the right one under time pressure, so it is the automatic one.
-  const strict = args.includes('--strict') || report.counts.unaccounted > 0;
+  //
+  // A signature that does not verify feeds the SAME path (INTEGRITY#SIGNING):
+  // signing adds a source of failure, not a new behaviour. There is deliberately
+  // no third state where a bad signature means something else — one degrade is
+  // one thing to understand at the moment you have no time to understand two.
+  const unverified = signature.state !== UNSIGNED && !isVerified(signature);
+  const strict = args.includes('--strict') || report.counts.unaccounted > 0 || unverified;
 
   // The rewrite covers every html response, not only the deck: strict that
   // stopped at one file would be walked around by a second page under the same
@@ -223,14 +248,16 @@ export async function presentMain(args) {
   // Before the first slide renders, not after — the point is to be able to
   // decide not to open it.
   for (const line of formatLabel(report)) console.log(line);
+  console.log(formatSignature(signature));
   // Here and nowhere else. The audience is looking at the deck; a banner on the
   // page would tell them something they cannot act on, about a file they did
   // not choose to open, in the middle of someone's talk.
   if (strict) {
     const n = report.counts.unaccounted;
+    if (unverified) console.log('  the signature did not verify — serving strict');
     console.log(n
       ? `  ${n} unaccounted script block${n === 1 ? '' : 's'} stripped — serving strict. The file on disk is untouched`
-      : '  --strict: nothing to strip — this deck is served exactly as it is on disk');
+      : '  nothing to strip — this deck is served exactly as it is on disk');
   }
 
   const stop = () => { server.close(); process.exit(0); };

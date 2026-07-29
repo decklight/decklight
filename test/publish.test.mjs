@@ -100,7 +100,7 @@ test('publish bundles to index.html + .nojekyll on an orphan gh-pages, then appe
   const before = snapshot(git);
 
   const { publishMain } = await import('../cli/publish.mjs');
-  const r1 = await publishMain([deck]);
+  const r1 = await publishMain([deck, '--no-sign']);
 
   // the branch exists on the bare origin, orphan, with the bundled site
   assert.equal(bareGit('rev-parse', 'refs/heads/gh-pages'), r1.commit);
@@ -119,7 +119,7 @@ test('publish bundles to index.html + .nojekyll on an orphan gh-pages, then appe
   assert.deepEqual(snapshot(git), before, 'working tree, index, and branch unchanged');
 
   // second publish: same branch, new commit whose parent is the first
-  const r2 = await publishMain([deck]);
+  const r2 = await publishMain([deck, '--no-sign']);
   assert.equal(bareGit('rev-parse', 'refs/heads/gh-pages'), r2.commit);
   assert.equal(r2.parent, r1.commit, 'second publish parents the first — history, not force-push');
   assert.equal(bareGit('rev-parse', 'gh-pages^'), r1.commit);
@@ -132,11 +132,11 @@ test('publish --no-bundle pushes the file as-is; --path nests it and keeps sibli
   const { dir, deck, bareGit } = fixture();
   const { publishMain } = await import('../cli/publish.mjs');
 
-  await publishMain([deck, '--no-bundle']);
+  await publishMain([deck, '--no-sign', '--no-bundle']);
   assert.equal(bareGit('show', 'gh-pages:index.html'), fs.readFileSync(deck, 'utf8').trim(),
     '--no-bundle publishes the deck byte-for-byte');
 
-  await publishMain([deck, '--no-bundle', '--path', 'talks/demo']);
+  await publishMain([deck, '--no-sign', '--no-bundle', '--path', 'talks/demo']);
   assert.equal(bareGit('show', 'gh-pages:talks/demo/index.html'),
     fs.readFileSync(deck, 'utf8').trim());
   // the root index.html from the first publish survives the nested one
@@ -154,7 +154,7 @@ test('publish honors --branch and --remote', async () => {
   git('remote', 'add', 'site', other);
 
   const { publishMain } = await import('../cli/publish.mjs');
-  const r = await publishMain([deck, '--no-bundle', '--remote', 'site', '--branch', 'pages/v2']);
+  const r = await publishMain([deck, '--no-sign', '--no-bundle', '--remote', 'site', '--branch', 'pages/v2']);
   assert.equal(r.branch, 'pages/v2');
   assert.equal(gitIn(other)('rev-parse', 'refs/heads/pages/v2'), r.commit);
   assert.throws(() => bareGit('rev-parse', 'refs/heads/gh-pages'), /./,
@@ -172,11 +172,11 @@ test('the printed URL comes from the remote URL — GitHub remotes get a Pages l
   git('config', `url.${bare}.insteadOf`, 'git@github.com:acme/rocket.git');
 
   const { publishMain } = await import('../cli/publish.mjs');
-  const r1 = await publishMain([deck, '--no-bundle']);
+  const r1 = await publishMain([deck, '--no-sign', '--no-bundle']);
   assert.equal(r1.url, 'https://acme.github.io/rocket/');
   assert.equal(bareGit('rev-list', '--count', 'gh-pages'), '1');
 
-  const r2 = await publishMain([deck, '--no-bundle', '--path', 'talks']);
+  const r2 = await publishMain([deck, '--no-sign', '--no-bundle', '--path', 'talks']);
   assert.equal(r2.url, 'https://acme.github.io/rocket/talks/');
 
   fs.rmSync(dir, { recursive: true, force: true });
@@ -184,7 +184,7 @@ test('the printed URL comes from the remote URL — GitHub remotes get a Pages l
 
 test('first publish points at the Pages setting; the second does not repeat it', () => {
   const { dir, deck } = fixture();
-  const run = () => spawnSync('node', [CLI, 'publish', deck, '--no-bundle'], { encoding: 'utf8' });
+  const run = () => spawnSync('node', [CLI, 'publish', deck, '--no-bundle', '--no-sign'], { encoding: 'utf8' });
 
   const first = run();
   assert.equal(first.status, 0, first.stderr);
@@ -206,7 +206,7 @@ test('publish is routed and documented by the dispatcher, and fails usefully', (
   assert.match(help, /^  publish /m, 'publish is listed in the global help');
   const sub = execFileSync('node', [CLI, 'help', 'publish'], { encoding: 'utf8' });
   assert.match(sub, /decklight publish <deck\.html>/);
-  for (const flag of ['--branch', '--remote', '--no-bundle', '--path']) {
+  for (const flag of ['--branch', '--remote', '--no-bundle', '--no-sign', '--path']) {
     assert.match(sub, new RegExp(flag.replace(/-/g, '\\-')), `help documents ${flag}`);
   }
 
@@ -229,5 +229,57 @@ test('publish is routed and documented by the dispatcher, and fails usefully', (
   const escape = spawnSync('node', [CLI, 'publish', 'deck.html', '--path', '../evil'], { encoding: 'utf8' });
   assert.equal(escape.status, 1);
   assert.match(escape.stderr, /--path must stay inside the site/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- signing (INTEGRITY#SIGNING) ---------------------------------------------
+
+/** A stand-in for the sigstore client: publishing must not need an identity to
+ *  be testable, and what is worth pinning is where the sidecar LANDS. */
+const BUNDLE = { mediaType: 'application/vnd.dev.sigstore.bundle.v0.3+json', messageSignature: { signature: 'zz' } };
+const stubClient = {
+  sign: async () => BUNDLE,
+  verify: async () => ({ identity: { subjectAlternativeName: 'me@example.com', extensions: { issuer: 'https://id.example' } } }),
+};
+
+test('publish signs by DEFAULT, and the sidecar lands beside the page it covers', async () => {
+  const { dir, bareGit, deck } = fixture();
+  const { publishMain } = await import('../cli/publish.mjs');
+
+  await publishMain([deck], { client: stubClient });
+
+  assert.deepEqual(JSON.parse(bareGit('show', 'gh-pages:index.html.sig')), BUNDLE,
+    'index.html.sig, under the name a verifier will look for');
+
+  // and under --path it follows the page rather than staying at the root
+  await publishMain([deck, '--path', 'talks'], { client: stubClient });
+  assert.deepEqual(JSON.parse(bareGit('show', 'gh-pages:talks/index.html.sig')), BUNDLE);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('--no-sign publishes the page alone — an opt-out, not a silent skip', async () => {
+  const { dir, bareGit, deck } = fixture();
+  const { publishMain } = await import('../cli/publish.mjs');
+  await publishMain([deck, '--no-sign'], { client: stubClient });
+  assert.throws(() => bareGit('cat-file', '-e', 'gh-pages:index.html.sig'));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a signing failure pushes NOTHING and names the way past it', () => {
+  const { dir, bareGit, deck } = fixture();
+  // fail() exits the process, so this runs as a child — the assertion is about
+  // the remote, which must look exactly as it did before the attempt.
+  const r = spawnSync('node', [CLI, 'publish', deck], {
+    encoding: 'utf8',
+    env: (() => { const e = { ...process.env }; delete e.SIGSTORE_ID_TOKEN;
+      delete e.ACTIONS_ID_TOKEN_REQUEST_URL; delete e.ACTIONS_ID_TOKEN_REQUEST_TOKEN; return e; })(),
+  });
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /signing (failed|needs)/);
+  assert.match(r.stderr, /--no-sign/, 'never silently unsigned: the way past is named');
+  assert.throws(() => bareGit('rev-parse', 'refs/heads/gh-pages'),
+    'nothing was pushed — the branch does not exist');
+
   fs.rmSync(dir, { recursive: true, force: true });
 });
