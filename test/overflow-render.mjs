@@ -56,15 +56,17 @@ console.warn = ((orig) => (...a) => { warns.push(a.join(' ')); orig(...a); })(co
 Decklight.init();
 const sec = document.querySelectorAll('.decklight-stage > section')[1];
 const ul = document.getElementById('grower');
-// what the engine concluded from its one post-goto frame, before anything moves
-const atFirstFrame = { flagged: null };
-requestAnimationFrame(() => requestAnimationFrame(() => {
-  atFirstFrame.flagged = sec.hasAttribute('data-overflow');
-}));
+// What the engine concluded on arrival, sampled on a TIMER at a point both
+// sides of the ordering have long passed. A requestAnimationFrame sample
+// raced the engine's own timer-scheduled check and read the attribute before
+// it was written — which is the same lesson the fix under test is about, so
+// leaving a frame-scheduled probe in its own harness would be a poor joke.
+const onArrival = { flagged: null };
+setTimeout(() => { onArrival.flagged = sec.hasAttribute('data-overflow'); }, 120);
 setTimeout(() => { ${mutate} }, 250);
 setTimeout(() => {
   document.getElementById('test-sink').textContent = 'DECKLIGHT-OVERFLOW-RESULTS ' + JSON.stringify({
-    atFirstFrame: atFirstFrame.flagged,
+    atFirstFrame: onArrival.flagged,
     flagged: sec.hasAttribute('data-overflow'),
     scrolls: sec.scrollHeight > sec.clientHeight + 2,
     warns: warns.filter((w) => /overflows/.test(w)).length,
@@ -100,7 +102,7 @@ const grew = run(deck('grow', ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'ze
    }`));
 
 check('grew: it really does overflow at read time', grew.scrolls === true, `scrolls=${grew.scrolls}`);
-check('grew: it did NOT overflow on arrival', grew.atFirstFrame === false, `first frame=${grew.atFirstFrame}`);
+check('grew: it did NOT overflow on arrival', grew.atFirstFrame === false, `on arrival=${grew.atFirstFrame}`);
 // the whole regression, in one line: the guardrail noticed the late growth
 check('grew: flagged anyway', grew.flagged === true, `data-overflow=${grew.flagged}`);
 check('grew: warned exactly once', grew.warns === 1, `${grew.warns} warning(s)`);
@@ -113,7 +115,7 @@ const shrank = run(deck('shrink',
   'ul.textContent = \'\';'));
 
 check('shrank: it fits at read time', shrank.scrolls === false, `scrolls=${shrank.scrolls}`);
-check('shrank: it DID overflow on arrival', shrank.atFirstFrame === true, `first frame=${shrank.atFirstFrame}`);
+check('shrank: it DID overflow on arrival', shrank.atFirstFrame === true, `on arrival=${shrank.atFirstFrame}`);
 check('shrank: flag cleared', shrank.flagged === false, `data-overflow=${shrank.flagged}`);
 
 if (bad) { console.error('overflow-render: FAILED'); process.exit(1); }

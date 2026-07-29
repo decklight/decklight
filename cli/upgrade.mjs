@@ -44,12 +44,30 @@ const kb = (s) => `${(Buffer.byteLength(s) / 1024).toFixed(1)} KB`;
  *  purpose: the inlined runtime SCRIPT in the body contains "<style" and
  *  "</style" as strings, which would corrupt a whole-document scan. (The
  *  runtime also contains "</head" — but the real head end comes first.) */
-function headStyles(html) {
+/**
+ * Blank the inside of every HTML comment, preserving length and line breaks.
+ *
+ * A comment that *talks about* markup is still markup to a regex: smoke.html's
+ * slide-15 comment says "its text lives inside a <script>", and a raw scan
+ * pairs that mention with the real `</script>` several lines below, inventing a
+ * block that spans the gap. Masking rather than deleting keeps every offset
+ * exact, so the ranges these scanners return still index the original file —
+ * and since the mask only ever rewrites characters inside comments, any match
+ * found outside one is byte-identical in both strings.
+ */
+const maskComments = (html) => html.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '));
+
+// Exported because the ingredients label (cli/audit.mjs, PRESENT#AUDIT) has to
+// enumerate exactly the blocks this command knows how to find. Two scanners
+// that drift apart would mean upgrade rewriting a block the audit calls
+// unaccounted, or the reverse — so there is one of each.
+export function headStyles(html) {
   const headEnd = html.search(/<\/head>/i);
   const out = [];
   const re = /<style\b([^>]*)>([\s\S]*?)<\/style>/gi;
+  const masked = maskComments(html);
   let m;
-  while ((m = re.exec(html))) {
+  while ((m = re.exec(masked))) {
     if (headEnd !== -1 && m.index >= headEnd) break;
     out.push({ start: m.index, end: m.index + m[0].length, tag: m[0], attrs: m[1], inner: m[2] });
   }
@@ -60,8 +78,8 @@ function headStyles(html) {
  *  runtime payload is scriptSafe-escaped (init, bundle, and this command all
  *  guarantee it), so the first literal "</script>" after an opening tag is
  *  that tag's own closer. */
-function scripts(html) {
-  return [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+export function scripts(html) {
+  return [...maskComments(html).matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
     .map((m) => ({ start: m.index, end: m.index + m[0].length, tag: m[0], attrs: m[1], inner: m[2] }));
 }
 
