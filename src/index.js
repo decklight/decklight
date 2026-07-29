@@ -13,7 +13,12 @@
 import { init as engineInit, registerBuildProvider } from './core/engine.js';
 import * as terminal from 'virtual:terminal';
 
-export const version = '0.1.0';
+// The runtime's version, and it must equal package.json's — build.mjs refuses
+// to build otherwise. It is a literal rather than a read of package.json
+// because this file is browser code with no filesystem, and the build stamps
+// it into the banner (`/*! Decklight vX.Y.Z`) that every tool reads back out of
+// a bundled deck. A release bumps both, and the build is what makes sure of it.
+export const version = '0.3.0';
 export { registerBuildProvider };
 
 export function init(config = {}) {
