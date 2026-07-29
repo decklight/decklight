@@ -27,10 +27,11 @@
  */
 
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isLoopback, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
+import { auditDeck, formatLabel } from './audit.mjs';
 
 /**
  * The policy, and honestly what it is worth.
@@ -84,7 +85,7 @@ export const CSP = [
   "object-src 'none'",
 ].join('; ');
 
-const USAGE = `usage: decklight present <deck.html> [--port 8790]
+const USAGE = `usage: decklight present <deck.html> [--port 8790] [--check]
 
   plays a deck read-only over localhost — the safe way to open one you did not
   author. Serves ONLY GET, only under the current directory (which the deck must
@@ -92,6 +93,16 @@ const USAGE = `usage: decklight present <deck.html> [--port 8790]
 
   --port N   port to bind; a taken port offers to take over that session
              (on a TTY) or moves on to the next free one            [8790]
+  --check    print the ingredients label and exit — no server. Exits non-zero
+             if the deck runs any script that is not the runtime, so CI can
+             gate on a deck before it is forwarded or published.
+
+  Every start prints the ingredients label: which runtime is embedded and
+  whether its bytes are the ones this install ships, how many inert data blocks
+  the runtime will read, and — named, with line numbers — every script block
+  that will execute and is NOT accounted for. It is an inventory, not a verdict:
+  there is no "safe" here, because the scan is a heuristic over a file someone
+  may have edited and a green check would promise more than it can keep.
 
   There is no --remote and no editing surface: the /edit/* routes are not
   registered at all, so a POST to one is as unknown as a POST to anything else.
@@ -125,6 +136,22 @@ export async function presentMain(args) {
     console.error(`deck not found: ${deckPath}`);
     return 1;
   }
+  // The audit runs because it is the only way in (PRESENT): a standalone
+  // `verify` is a step people skip, so folding it into the command you already
+  // use to present means it runs every time, at no extra effort.
+  const report = auditDeck(readFileSync(deckPath, 'utf8'));
+
+  // --check reads one file and exits. It is deliberately ahead of the
+  // served-root guard below: that rule is about what a SERVER exposes, and
+  // auditing a deck sitting anywhere on disk exposes nothing. Making CI cd
+  // somewhere first to read a file would be a rule with no reason behind it.
+  if (args.includes('--check')) {
+    for (const line of formatLabel(report, { indent: '' })) console.log(line);
+    // Non-zero means "this deck executes something I could not account for" —
+    // not "this deck is malicious", which is a call no exit code should make.
+    return report.counts.unaccounted ? 1 : 0;
+  }
+
   // The cwd is the served root, and the deck must live under it — `edit`'s rule,
   // for `edit`'s reason: a deck's assets are not always its siblings. A source
   // deck reaches up for the runtime (`demo/showcase.html` loads
@@ -160,6 +187,9 @@ export async function presentMain(args) {
   const actual = await listenTakingOverIfNeeded(server, port, '127.0.0.1');
   console.log(`decklight present on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
   console.log(`  serving ${root} — GET only, no /edit/* routes, nothing is written`);
+  // Before the first slide renders, not after — the point is to be able to
+  // decide not to open it.
+  for (const line of formatLabel(report)) console.log(line);
 
   const stop = () => { server.close(); process.exit(0); };
   process.on('SIGINT', stop);
