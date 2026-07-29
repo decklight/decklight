@@ -22,6 +22,21 @@ const runtimeVersion = /^export const version = '([^']+)';$/m
   .exec(readFileSync(resolve(here, 'src/index.js'), 'utf8'))?.[1];
 if (!runtimeVersion) throw new Error('src/index.js: exported version const not found');
 
+// …and it has to be the version this package ships, checked here rather than
+// hoped for. The two drifted silently once (src/index.js sat at 0.1.0 while
+// package.json reached 0.3.0), and nothing noticed until the ingredients label
+// started printing the banner to whoever opens someone else's deck — by which
+// point every bundled deck had been claiming a version that was two releases
+// stale. A stamped version nobody verifies is worse than no version at all: it
+// is read as a fact. release.yml already refuses a tag that disagrees with
+// package.json for the same reason; this is that check, one layer in.
+const pkgVersion = JSON.parse(readFileSync(resolve(here, 'package.json'), 'utf8')).version;
+if (runtimeVersion !== pkgVersion) {
+  throw new Error(`version drift: src/index.js says ${runtimeVersion}, package.json says ${pkgVersion}\n`
+    + `  The banner every deck carries is stamped from src/index.js, so these must agree.\n`
+    + `  Fix: set "export const version = '${pkgVersion}';" in src/index.js (a release bumps both).`);
+}
+
 // Shipped theme names, baked into the bundle so the theme picker can list
 // them without any config (directories aren't listable at runtime on file://).
 const shippedThemes = readdirSync(resolve(here, 'themes'))

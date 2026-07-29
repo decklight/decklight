@@ -157,6 +157,22 @@ const runtimeVersion = /^export const version = '([^']+)';$/m
   .exec(fs.readFileSync(path.resolve(here, '../src/index.js'), 'utf8'))[1];
 const pkgVersion = JSON.parse(fs.readFileSync(path.resolve(here, '../package.json'), 'utf8')).version;
 
+test('the runtime version and the package version are the same number', () => {
+  // These drifted silently: src/index.js sat at 0.1.0 while package.json reached
+  // 0.3.0, so every bundled deck carried a banner two releases stale — and the
+  // banner is not decoration. `decklight init` quotes it back when it refuses a
+  // collision, `upgrade` locates the runtime by it, and since PRESENT#AUDIT the
+  // ingredients label prints it to whoever opens a deck they did not author. A
+  // stamped version nobody checks is read as a fact, which is what makes a wrong
+  // one worse than none.
+  //
+  // build.mjs refuses to build on a mismatch; this asserts the same thing in
+  // `npm test`, where it costs nothing and fails in one line rather than
+  // wherever a stale banner happens to surface.
+  assert.equal(runtimeVersion, pkgVersion,
+    'set src/index.js\'s exported version to package.json\'s — a release bumps both');
+});
+
 test('init refusal on a decklight deck leads with upgrade, names both versions', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
   execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
