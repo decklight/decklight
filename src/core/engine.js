@@ -374,7 +374,14 @@ export function init(userConfig = {}) {
   // the instance exists, because restoring the saved theme is one of the first
   // things init does; `deck` hands it the instance later, when a preview or a
   // postMessage finally needs one.
-  const themes = createThemes({ root, config, params, toast, debugLog, overlays, deck: () => instance });
+  // `editmode` is built ~1300 lines below; the picker only ever consults it
+  // from an open dialog, which is why it can be handed over as an accessor.
+  // Nothing here reads it during setup.
+  const themes = createThemes({
+    root, config, params, toast, debugLog, overlays,
+    deck: () => instance,
+    editmode: () => editmode,
+  });
   const { applyTheme, currentTheme, cycleTheme, cancelCyclePending, rollTheme, saveGeneratedTheme } = themes;
 
   // ----- slide finder: / opens find-a-slide with live preview ---------------
@@ -524,6 +531,10 @@ export function init(userConfig = {}) {
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
       { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
       themes.hasGenerated() && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
+      // Contextual, like the save row above: without an author server there is
+      // nothing to install through, so the row is absent rather than a promise
+      // the deck cannot keep (THEME_BROWSE#UI).
+      editmode.available() && { label: 'Browse marketplace themes…', alias: 'marketplace install add third-party download catalog', run: themes.browse },
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
       { label: 'Cycle slide layout (dev)', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
       { label: 'Undo deck edit (dev)', hint: 'Z', alias: 'revert back history', run: () => deckHistory('undo') },

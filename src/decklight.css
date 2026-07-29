@@ -399,6 +399,16 @@
   margin-bottom: 6px;
   padding-bottom: 9px;
 }
+/* Browse, and the marketplace rows it lists. Qualified refs and theme names
+   from someone else's catalog are shown as written — no capitalization. */
+.decklight-theme-picker .tp-row.tp-browse {
+  text-transform: none;
+  color: #b9bec8;
+  border-top: 1px solid rgba(255, 255, 255, .08);
+  margin-top: 6px;
+  padding-top: 9px;
+}
+.decklight-theme-picker .tp-row.tp-mkt { text-transform: none; }
 .decklight-theme-picker .tp-row {
   padding: 7px 12px;
   border-radius: 8px;
