@@ -245,3 +245,148 @@ test('the store is the config home ENGINES decided on, beside the registry', () 
   writeFileSync(path.join(home, 'marketplaces.json'), '{}');
   assert.ok(existsSync(path.join(home, 'credentials.json')), 'the two coexist — one directory, two files');
 });
+
+// ── the endpoints, against a real author server and a real catalog ─────────
+
+const EDIT = path.join(ROOT, 'cli/edit.mjs');
+
+/** A local marketplace whose entry declares a wizard. */
+function catalogHome(wizard) {
+  const repo = tmp();
+  writeFileSync(path.join(repo, 'talk.txt'), 'x');
+  const dl = path.join(repo, '.decklight');
+  execFileSync('mkdir', ['-p', dl]);
+  writeFileSync(path.join(dl, 'marketplace.json'), JSON.stringify({
+    name: 'voices',
+    entries: [{ name: 'elevenlabs', type: 'engine', source: './e.mjs', wizard }],
+  }, null, 2));
+
+  const home = tmp();
+  const env = { ...process.env, DECKLIGHT_HOME: home };
+  execFileSync(process.execPath, [CLI, 'marketplace', 'add', repo], { env, stdio: ['ignore', 'pipe', 'ignore'] });
+  execFileSync(process.execPath, [CLI, 'marketplace', 'update', 'voices'], { env, stdio: ['ignore', 'pipe', 'ignore'] });
+  return home;
+}
+
+const DECK = '<!doctype html><html><body><div class="decklight"><section><h2>A</h2></section></div>'
+  + '<script>Decklight.init()</script></body></html>\n';
+
+async function startAuthor(t, home) {
+  const dir = tmp();
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const child = execFileSync ? null : null;
+  const { spawn } = await import('node:child_process');
+  const proc = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', '--no-git'], {
+    cwd: dir, env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  t.after(() => proc.kill('SIGKILL'));
+  let out = '';
+  proc.stdout.on('data', (c) => { out += c; });
+  proc.stderr.on('data', (c) => { out += c; });
+  const base = await new Promise((resolve, reject) => {
+    const scan = setInterval(() => {
+      const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
+      if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
+    }, 25);
+    proc.on('exit', () => { clearInterval(scan); reject(new Error('author exited early:\n' + out)); });
+    setTimeout(() => { clearInterval(scan); reject(new Error(`timeout:\n${out}`)); }, 10000);
+  });
+  return { base, dir, log: () => out };
+}
+
+test('the author server hands the player a VETTED schema, or refuses to', async (t) => {
+  const home = catalogHome({ engine: 'elevenlabs', title: 'ElevenLabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
+  const { base } = await startAuthor(t, home);
+
+  const got = await (await fetch(`${base}/edit/wizard?engine=elevenlabs`)).json();
+  assert.equal(got.ok, true);
+  assert.equal(got.schema.title, 'ElevenLabs');
+  assert.deepEqual(got.schema.fields[0], { name: 'apiKey', label: 'apiKey', type: 'secret', required: true });
+
+  const missing = await fetch(`${base}/edit/wizard?engine=nope`);
+  assert.equal(missing.status, 404);
+});
+
+test('a catalog declaring a field core cannot render is refused on the way OUT', async (t) => {
+  // A catalog is a file someone else wrote. Handing the renderer a schema core
+  // has not vetted is how "core renders, a plugin declares" quietly becomes
+  // "core renders whatever a plugin sent".
+  // The entry is named elevenlabs; what it DECLARES is the unrenderable thing.
+  const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'x', type: 'html' }] });
+  const { base } = await startAuthor(t, home);
+  const r = await fetch(`${base}/edit/wizard?engine=elevenlabs`);
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /cannot render/);
+});
+
+test('a configured engine is stored 0600, and the response is redacted', async (t) => {
+  const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
+  const { base, log } = await startAuthor(t, home);
+
+  const r = await fetch(`${base}/edit/wizard`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ engine: 'elevenlabs', answers: { apiKey: 'sk-live-secret-value' } }),
+  });
+  assert.equal(r.status, 200);
+  const j = await r.json();
+  assert.equal(j.stored.apiKey, 'set (20 chars)');
+  assert.doesNotMatch(JSON.stringify(j), /sk-live/, 'the response is the one place a key could leak back into a page');
+  assert.doesNotMatch(log(), /sk-live/, 'and the terminal never sees it either');
+
+  assert.equal(loadCredentials(home).elevenlabs.apiKey, 'sk-live-secret-value');
+  assert.equal(credentialsMode(home), 0o600);
+
+  // and forgetting works through the same surface
+  const f = await fetch(`${base}/edit/wizard/forget`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ engine: 'elevenlabs' }),
+  });
+  assert.equal((await f.json()).forgotten, true);
+  assert.deepEqual(loadCredentials(home), {});
+});
+
+test('an engine no marketplace declares is a third answer, not one of the two failures', async (t) => {
+  const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'k', type: 'secret' }] });
+  const { base } = await startAuthor(t, home);
+  const r = await fetch(`${base}/edit/wizard`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ engine: 'ghost', answers: {} }),
+  });
+  assert.equal(r.status, 404, 'not 503 and not 400 — nothing is down and nothing was refused');
+  const j = await r.json();
+  assert.equal(j.state, 'unknown');
+  assert.match(j.error, /marketplace add/, 'and the fix is named');
+});
+
+test('bad answers come back 400 with the schema\'s own complaint', async (t) => {
+  const home = catalogHome({
+    engine: 'elevenlabs',
+    fields: [{ name: 'apiKey', type: 'secret', required: true }, { name: 'voice', type: 'choice', options: ['Rachel'] }],
+  });
+  const { base } = await startAuthor(t, home);
+  const r = await fetch(`${base}/edit/wizard`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ engine: 'elevenlabs', answers: { voice: 'Nobody' } }),
+  });
+  assert.equal(r.status, 400);
+  const j = await r.json();
+  assert.equal(j.state, 'rejected');
+  assert.match(j.error, /required/);
+  assert.match(j.error, /not one of Rachel/);
+  assert.deepEqual(loadCredentials(home), {}, 'and nothing was stored');
+});
+
+test('the player gate: the overlay refuses without an author server', () => {
+  // The runtime asks editAvailable before it renders a single input, and the
+  // refusal is the same needsDevMode line every other author-only affordance
+  // uses. A prompt that collected a credential with nowhere to post it would be
+  // a phishing form with a deck around it.
+  const src = readFileSync(path.join(ROOT, 'src/core/editmode.js'), 'utf8');
+  const fn = src.slice(src.indexOf('async function openWizard'), src.indexOf('overlays.register({\n    isOpen: () => !!wizEl'));
+  assert.match(fn, /if \(!editAvailable\)/, 'gated before anything is built');
+  assert.ok(fn.indexOf('if (!editAvailable)') < fn.indexOf('createElement'),
+    'and gated BEFORE the first element, not after the form is on screen');
+  assert.match(fn, /needsDevMode/);
+  assert.doesNotMatch(fn, /innerHTML/, 'core builds inputs, it never sets markup a catalog supplied');
+  assert.match(fn, /type = f\.type === 'secret' \? 'password'/, 'a secret is not read over a shoulder');
+});

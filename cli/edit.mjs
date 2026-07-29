@@ -50,6 +50,7 @@ import { corsHeaders } from '../tools/bridge.mjs';
 import { deckHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { allowRemote, escapeHtml, lanAddress, sseChannel, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
 import { createRemoteRelay } from './remote.mjs';
+import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, CONFIGURED, UNREACHABLE } from './wizard.mjs';
 
 // file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
 // exactly like the tts bridge — so the endpoints are CORS-open. The server
@@ -234,6 +235,59 @@ export async function editMain(args) {
   const clients = sseChannel();
   const broadcast = (event, data) => clients.broadcast(event, data);
 
+  // ── the engine wizard: where a schema comes from, and who checks answers ─
+  // Both injected into configureEngine rather than reached for inside it: this
+  // server knows how catalogs are read, and cli/wizard.mjs has no business
+  // knowing — which is also what lets the framework be tested without a
+  // network or a real key.
+  const wizardEntry = async (engine) => {
+    const { loadRegistry, loadCatalog, resolveEntry, MarketplaceError } = await import('./marketplace.mjs');
+    // resolveEntry is the seam every install surface goes through — its docblock
+    // names the engine wizard as one of them — so `elevenlabs@voices` works, and
+    // a bare name that exists in two marketplaces is reported as ambiguous
+    // rather than silently resolved to whichever was registered first.
+    const catalogs = {};
+    for (const name of Object.keys(loadRegistry().marketplaces ?? {})) {
+      // loadCatalog returns the VALIDATION result, not the manifest — a cached
+      // catalog that no longer validates has no entries to offer, which is the
+      // right answer rather than a crash.
+      const loaded = loadCatalog(name);
+      if (loaded?.ok) catalogs[name] = loaded.manifest;
+    }
+    try {
+      const hit = resolveEntry(engine, catalogs);
+      return hit.entry.wizard ? hit.entry : null;
+    } catch (e) {
+      if (e instanceof MarketplaceError) return null;
+      throw e;
+    }
+  };
+  const wizardSchemaFor = async (engine) => {
+    const entry = await wizardEntry(engine);
+    if (!entry) throw new Error(`no wizard declared for "${engine}" in any registered marketplace`);
+    return entry.wizard;
+  };
+  /**
+   * Ask the engine's own bridge whether the answers work.
+   *
+   * The plugin declares a PATH, never an origin — a schema that could name where
+   * to send a freshly pasted key would be a credential exfiltration primitive
+   * with a config file for a delivery mechanism. So the origin is this machine,
+   * and the plugin only chooses the path on it.
+   */
+  const wizardValidate = async (schema, answers) => {
+    if (!schema.validate) return true;
+    const r = await fetch(`http://127.0.0.1:8787${schema.validate}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ engine: schema.engine, answers }),
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return false;
+    const j = await r.json().catch(() => ({}));
+    return j?.ok === true;
+  };
+
   // ── the phone remote (#39) — the relay lives in remote.mjs ──────────────
   let actualPort = null;            // filled in once we know what we bound
   const relay = createRemoteRelay({
@@ -404,6 +458,57 @@ export async function editMain(args) {
         const committed = gitAutocommit(deckPath, root, subject);
         if (committed) console.log(`  git: committed "${subject}"`);
         return json(200, { ok: true, committed, subject });
+      }
+      // ── the engine wizard (ENGINES#WIZARD) ─────────────────────────────
+      // The schema the player renders. Validated on the way OUT as well as on
+      // the way in: a catalog is a file someone else wrote, and handing the
+      // renderer a schema core has not vetted is how "core renders, a plugin
+      // declares" becomes "core renders whatever a plugin sent".
+      if (req.method === 'GET' && url.pathname === '/edit/wizard') {
+        const engine = url.searchParams.get('engine') ?? '';
+        const entry = await wizardEntry(engine);
+        if (!entry) return json(404, { ok: false, error: `no wizard declared for "${engine}"` });
+        try {
+          return json(200, { ok: true, schema: validateSchema(entry.wizard) });
+        } catch (e) {
+          return json(400, { ok: false, error: `${engine} declares a wizard core cannot render: ${e.message}` });
+        }
+      }
+      // Author-mode only, and that is structural rather than checked: these are
+      // /edit/* routes, so allowRemote already refuses them off-loopback
+      // unconditionally, and `present` registers nothing like them at all. A
+      // credential prompt in a deck you were emailed has nowhere to post.
+      if (req.method === 'POST' && url.pathname === '/edit/wizard') {
+        const { engine, answers } = JSON.parse(body);
+        if (typeof engine !== 'string') return json(400, { ok: false, error: 'which engine?' });
+        // "No such engine" is a third answer, not one of the two failures. It is
+        // not an outage to wait out and not a refusal by a provider — it is a
+        // marketplace that was never added, and the fix is named.
+        if (!(await wizardEntry(engine))) {
+          return json(404, { ok: false, state: 'unknown',
+            error: `no engine named "${engine}" declares a wizard in any registered marketplace — try: decklight marketplace add <owner/repo>` });
+        }
+        const r = await configureEngine(engine, answers, {
+          fetchSchema: wizardSchemaFor,
+          validateAnswers: wizardValidate,
+        });
+        if (r.state !== CONFIGURED) {
+          // The two failures stay two: 503 for "could not reach", 400 for "that
+          // was refused". A presenter whose key is wrong must not be told to
+          // check their network, and the status code says which it is too.
+          return json(r.state === UNREACHABLE ? 503 : 400, { ok: false, state: r.state, error: r.reason });
+        }
+        // Redacted on the way out, always — the response is the one place a key
+        // could leak back into a page, a devtools log, or a screen recording.
+        console.log(`  wizard: ${engine} configured (${r.file})`);
+        return json(200, { ok: true, state: r.state, engine, stored: r.stored });
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/wizard/forget') {
+        const { engine } = JSON.parse(body);
+        if (typeof engine !== 'string') return json(400, { ok: false, error: 'which engine?' });
+        const had = forgetCredentials(engine);
+        console.log(`  wizard: ${engine} ${had ? 'forgotten' : 'was not configured'}`);
+        return json(200, { ok: true, forgotten: had });
       }
       if (req.method === 'POST' && relay.handle(req, res, url, body)) return;
       if (req.method === 'POST' && url.pathname === '/edit/notes') {
