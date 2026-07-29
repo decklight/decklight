@@ -1,14 +1,19 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Theme Browse (MARKETPLACE.md THEME_BROWSE#UI), server half: what the picker's
-// Browse entry lists, and what installing one actually does.
+// Theme Browse (MARKETPLACE.md THEME_BROWSE#UI): what the picker's Browse entry
+// lists, and what installing one actually does.
 //
 // The claims worth pinning are the ones that keep this from becoming a second,
 // laxer install path: a theme the command line would refuse is refused here by
 // the same code, a failed install leaves the deck byte-for-byte unchanged, and
 // listing never touches the network — a deck on a plane lists what it has and
 // says which catalogs it could not read.
+//
+// This is the server half plus the source-shape claims about the player. The
+// player's BEHAVIOUR — the row appearing only in author mode, the refusal
+// keeping the picker up, the install going out as a qualified ref — needs a real
+// browser and lives in test/engine.html's `browse` and `nobrowse` modes.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -190,4 +195,29 @@ test('present has no browse or install surface at all', async () => {
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(code, /theme\/browse|theme\/add|installTheme/,
     'installing is a deck edit, and the read-only viewer performs none');
+});
+
+test('the player reaches the author server for this and nowhere else', () => {
+  // The invariant Browse exists under: a deck never fetches a theme itself.
+  // Listing and installing are both requests to the author server, which is the
+  // only party allowed to touch a marketplace — so nothing in the picker may
+  // name a host, and a manifest's `source` must never reach the player at all.
+  const src = readFileSync(path.join(ROOT, 'src/core/themes.js'), 'utf8');
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  const urls = code.match(/https?:\/\/[^'"`\s]+/g) ?? [];
+  assert.deepEqual(urls, [], 'the picker addresses the author server by path, never by origin');
+
+  // Every request it makes is built the same way: the author server's own
+  // origin plus a literal path. Nothing a catalog supplied can become a URL
+  // here, which is what keeps a manifest's `source` the server's to resolve.
+  const fetches = [...code.matchAll(/fetch\(([^\n]*)/g)].map((m) => m[1].trim());
+  assert.equal(fetches.length, 2, 'listing and installing, and no third request');
+  for (const arg of fetches) {
+    assert.match(arg, /^authorBase\(\) \+ '\/edit\//, `built from a literal path: ${arg}`);
+  }
+
+  const routes = [...code.matchAll(/'(\/edit\/[^']+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(routes)].sort(), ['/edit/theme/add', '/edit/theme/browse'],
+    'and it uses exactly the two routes Browse is made of');
 });

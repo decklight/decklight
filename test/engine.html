@@ -48,13 +48,41 @@
         + '<style data-theme="nord-deep" data-theme-added media="not all">'
         + '.decklight { --bg: #101018; --fg: #eeeeee; }</style>');
     }
-    const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
-    window.fetch = async (url) => {
+    // Browse (MARKETPLACE.md THEME_BROWSE#UI) needs an author server to exist
+    // at all, so `browse` stands one up in miniature — enough of /edit/ping,
+    // /edit/theme/browse and /edit/theme/add to drive the whole pane. `nobrowse`
+    // is the same deck with NO server, which is where the entry must be absent.
+    const FAKE_BROWSE = {
+      ok: true,
+      cacheOnly: true,
+      stale: ['decklight'],
+      themes: [
+        { name: 'nord-deep', marketplace: 'nord-pack', qualified: 'nord-deep@nord-pack', description: 'deep blues' },
+        { name: 'broken', marketplace: 'nord-pack', qualified: 'broken@nord-pack' },
+      ],
+    };
+    const CALLS = { get: [], post: [] };
+    const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
+    window.fetch = async (url, init) => {
       const u = String(url);
+      if (init?.method === 'POST') CALLS.post.push({ u, body: JSON.parse(init.body ?? '{}') });
+      else CALLS.get.push(u);
       if (HARNESS_MODE === 'restore') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
         if (u.includes('/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
+      }
+      if (HARNESS_MODE === 'browse') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/theme/browse')) return json(FAKE_BROWSE);
+        if (u.includes('/edit/theme/add')) {
+          const ref = JSON.parse(init?.body ?? '{}').ref;
+          // The refusal is `theme add`'s own, verbatim — the picker is not
+          // allowed to have a laxer opinion than the command line.
+          return ref === 'broken@nord-pack'
+            ? json({ error: 'broken fails the theme contract', problems: ['--fg is not defined'] }, 400)
+            : json({ ok: true, name: 'nord-deep', from: ref, replaced: false, undo: 1 });
+        }
       }
       return new Response('', { status: 404 });
     };
@@ -125,6 +153,90 @@
 
         r.PASS = r.inertOnLoad && r.pickerOpens && r.keptItsOwnPacks && r.addedPackListed
           && r.addedPackCount === '1' && r.listedInPack && r.applied && r.picked;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'browse' || mode === 'nobrowse') {
+        // Browse in the theme picker (MARKETPLACE.md THEME_BROWSE#UI). Both
+        // modes run the same deck; the only difference is whether an author
+        // server answered the ping.
+        const P = '.decklight-theme-picker', ROW = '.tp-row';
+        const rows = () => [...document.querySelectorAll(`${P} ${ROW}`)];
+        const find = (re) => rows().find((x) => re.test(x.textContent));
+        const note = () => document.querySelector(`${P} .tp-none`)?.textContent ?? '';
+        const caption = () => document.querySelector(`${P} .tp-caption`)?.textContent ?? '';
+        await settle();                       // let /edit/ping settle either way
+
+        // the palette's contextual route to the same view
+        const palRow = () => [...document.querySelectorAll('.decklight-palette .pal-row')]
+          .find((x) => /Browse marketplace/.test(x.textContent));
+        press('/');
+        r.paletteRow = !!palRow();
+
+        if (mode === 'nobrowse') {
+          escapeUntilClosed('.decklight-palette');
+          press('t');
+          r.pickerOpens = rows().length > 0;
+          // ABSENT, not disabled: there is no server to install through, and a
+          // presented deck must not reach the network for a theme at all.
+          r.absentInPacks = !find(/Browse/);
+          find(/all themes/)?.click();        // …and absent from the flat view too
+          r.absentInAll = !find(/Browse/);
+          r.stillHasThemes = rows().length > 2;
+          r.PASS = r.pickerOpens && !r.paletteRow && r.absentInPacks && r.absentInAll && r.stillHasThemes;
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        // Browse is a VIEW of the picker, so the palette route must land in the
+        // picker rather than opening a dialog of its own.
+        palRow().click();
+        await settle();
+        r.paletteRouteOpensThePicker = !!document.querySelector(P)
+          && rows().some((x) => /nord-deep/.test(x.textContent));
+        escapeUntilClosed(P);
+
+        press('t');
+        r.pickerOpens = rows().length > 0;
+        const browseRow = find(/Browse/);
+        r.browseListed = !!browseRow;
+        browseRow.click();
+        await settle();                       // let /edit/theme/browse settle
+        const listed = rows().map((x) => x.textContent);
+        r.listsMarketplaceThemes = listed.some((t) => /nord-deep/.test(t)) && listed.some((t) => /broken/.test(t));
+        r.tagsTheMarketplace = !!find(/nord-deep/).querySelector('.tp-tag');
+        // offline honesty: an empty-looking list must never hide a catalog that
+        // could not be read, and listing itself never went to the network
+        r.namesUnfetchedCatalogs = /never fetched: decklight/.test(note());
+        r.saysItIsCached = /cache/.test(note());
+        r.listingWasAGet = CALLS.get.some((u) => u.includes('/edit/theme/browse'))
+          && !CALLS.post.some((c) => c.u.includes('/edit/theme/browse'));
+        find(/nord-deep/).dispatchEvent(new MouseEvent('mouseenter'));
+        r.captionDescribes = /deep blues/.test(caption());
+
+        // a theme the command line would refuse is refused here, and the picker
+        // stays up saying why rather than closing on a failure
+        find(/broken/).click();
+        await settle();
+        r.refusalKeepsPickerOpen = !!document.querySelector(P);
+        r.refusalNamesProblems = /--fg is not defined/.test(caption());
+
+        // and the install that works goes out as `theme add`'s own qualified ref
+        find(/nord-deep/).click();
+        await settle();
+        const add = CALLS.post.filter((c) => c.u.includes('/edit/theme/add'));
+        r.installsByQualifiedRef = add.length === 2 && add[1].body.ref === 'nord-deep@nord-pack';
+        r.closesOnInstall = !document.querySelector(P);
+        // nothing in the player fetched the stylesheet itself: the install is a
+        // write on the SERVER, and the watcher's reload is what brings it back
+        r.playerNeverFetchedCss = !CALLS.get.some((u) => /\.css/.test(u));
+
+        r.PASS = r.pickerOpens && r.paletteRow && r.paletteRouteOpensThePicker
+          && r.browseListed && r.listsMarketplaceThemes && r.tagsTheMarketplace
+          && r.namesUnfetchedCatalogs && r.saysItIsCached && r.listingWasAGet && r.captionDescribes
+          && r.refusalKeepsPickerOpen && r.refusalNamesProblems
+          && r.installsByQualifiedRef && r.closesOnInstall && r.playerNeverFetchedCss;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

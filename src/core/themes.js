@@ -20,9 +20,11 @@ import { closeOnBackdrop, selectInList } from './overlay.js';
  * `config`, `params` (the query string), `toast`, `debugLog`, `overlays` (the
  * keyboard registry) and `deck()` — a LATE accessor for the deck instance,
  * because themes are set up before the instance exists but only ever read it
- * from a click or a keystroke.
+ * from a click or a keystroke. `editmode()` is late for the same reason and
+ * more so: edit mode is built after this and only ever consulted from the open
+ * picker. It is what makes Browse authoring-only.
  */
-export function createThemes({ root, config, params, toast, debugLog, overlays, deck }) {
+export function createThemes({ root, config, params, toast, debugLog, overlays, deck, editmode }) {
   // ----- theme switching -----------------------------------------------------
   // Two modes. Link mode: the theme is the stylesheet link pointing into
   // themes/, and applyTheme swaps its href. Inline mode (bundled single-file
@@ -348,12 +350,90 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   const GEN_ROW = '\u0000generate';
   // pack navigation rows (control-char sentinels can't collide with theme
   // names). Views: 'packs' (pack list) · 'pack:<name>' (drilled in, ← goes
-  // back) · 'all' (flattened). An active filter always searches globally.
+  // back) · 'all' (flattened) · 'browse' (marketplace themes, author
+  // mode only). An active filter searches the installed themes globally,
+  // except in 'browse', where it narrows the marketplace listing.
   const PACK_ROW = '\u0001pack:';
   const BACK_ROW = '\u0001back';
   const ALL_ROW = '\u0001all';
+  const BROWSE_ROW = '\u0001browse';
+  // A marketplace theme that is NOT installed yet. Its own sentinel because
+  // it is the one row whose text is a qualified ref rather than a theme name,
+  // and the one row there is nothing in this deck to preview for.
+  const MKT_ROW = '\u0002';
+  /** Any row that is not a theme this deck can already apply. */
+  const nonTheme = (n) => n.charCodeAt(0) < 32;
   let pickerEl = null, pickerSel = 0, pickerDebounce, pickerEntries = [], pickerCandidate = null, pickerFilter = '';
   let pickerView = 'packs';
+  const homeView = () => (PACKS ? 'packs' : 'all');
+
+  // ── Browse: marketplace themes (MARKETPLACE.md THEME_BROWSE#UI) ──────────
+  // The fourth affordance beside Generate, the packs and All. Author mode only,
+  // and ABSENT rather than disabled: installing is a write to the deck on disk,
+  // and a presented deck must never reach the network for a theme — that is the
+  // invariant, so there is nothing here to grey out and explain.
+  //
+  // Listing is served from the author server's catalog CACHE. Offline, on a
+  // plane, air-gapped: it lists what has been fetched and NAMES the
+  // marketplaces it could not read, rather than looking empty. Only installing
+  // touches the network, and it does it on the server side, through the same
+  // `theme add` the command line runs.
+  const authoring = () => editmode?.()?.available() === true;
+  const authorBase = () => editmode?.()?.base() ?? '';
+  const browseRow = () => (authoring() ? [BROWSE_ROW] : []);
+  let browse = null; // { loading } · { themes, stale, cacheOnly } · { error }
+  const browsed = (qualified) => (browse?.themes ?? []).find((t) => t.qualified === qualified);
+
+  async function openBrowse() {
+    browse = { loading: true, themes: [], stale: [] };
+    setPickerView('browse');
+    let next;
+    try {
+      const r = await fetch(authorBase() + '/edit/theme/browse');
+      const j = await r.json().catch(() => ({}));
+      next = r.ok && j.ok
+        ? { themes: j.themes ?? [], stale: j.stale ?? [], cacheOnly: j.cacheOnly !== false }
+        : { themes: [], stale: [], error: j.error || `the author server said ${r.status}` };
+    } catch {
+      // Fails instantly, no spinner to sit through: the author server is on
+      // loopback, so not answering means it is gone, not that the link is slow.
+      next = { themes: [], stale: [], error: 'the author server did not answer' };
+    }
+    if (!pickerEl || pickerView !== 'browse') return; // moved on while we read
+    browse = next;
+    setPickerView('browse');
+  }
+
+  async function installBrowsed(qualified) {
+    const caption = pickerEl?.querySelector('.tp-caption');
+    if (caption) caption.textContent = `installing ${qualified}…`;
+    try {
+      const r = await fetch(authorBase() + '/edit/theme/add', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ref: qualified }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        // `theme add`'s own refusal, carried through with the contract problems
+        // it listed. Same validator as the command line, so the same answer —
+        // and the deck on disk is untouched.
+        const why = [j.error, ...(j.problems ?? [])].filter(Boolean).join(' · ');
+        if (caption) caption.textContent = why || `install failed (${r.status})`;
+        toast(`${qualified}: ${j.error || 'install refused'}`, 3600);
+        return;
+      }
+      closeThemePicker();
+      // The install landed on DISK; the watcher's reload is what brings the
+      // deck back with the <style data-theme-added> block in it. From then on
+      // it is an Added theme like one from the command line — same cycling,
+      // same ?theme=, same carriage through bundle.
+      toast(`installed ${j.name}${j.replaced ? ' (replaced)' : ''} — Z takes it back`, 2800);
+      debugLog('theme', `${qualified} installed from a marketplace`);
+    } catch {
+      if (caption) caption.textContent = 'the author server did not answer';
+    }
+  }
   function previewSrc(name) {
     const st = deck().state;
     const hash = '#/' + st.slide + '/' + st.step;
@@ -379,12 +459,18 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const listBox = pickerEl.querySelector('.tp-list');
     const cur = currentTheme();
     const list = themeList();
-    if (pickerFilter) {
+    if (pickerView === 'browse') {
+      // the filter narrows the MARKETPLACE listing here — the two lists are
+      // disjoint, and nothing installed is in this one
+      const items = (browse?.themes ?? [])
+        .filter((t) => !pickerFilter || t.qualified.includes(pickerFilter));
+      pickerEntries = [BACK_ROW, ...items.map((t) => MKT_ROW + t.qualified)];
+    } else if (pickerFilter) {
       pickerEntries = list.filter((n) => n.includes(pickerFilter));
     } else if (!PACKS || pickerView === 'all') {
-      pickerEntries = PACKS ? [GEN_ROW, BACK_ROW, ...list] : [GEN_ROW, ...list];
+      pickerEntries = PACKS ? [GEN_ROW, BACK_ROW, ...list] : [GEN_ROW, ...list, ...browseRow()];
     } else if (pickerView === 'packs') {
-      pickerEntries = [GEN_ROW, ...packEntries(list).map(([p]) => PACK_ROW + p), ALL_ROW];
+      pickerEntries = [GEN_ROW, ...packEntries(list).map(([p]) => PACK_ROW + p), ALL_ROW, ...browseRow()];
     } else {
       const p = pickerView.slice(5);
       pickerEntries = [BACK_ROW, ...(packEntries(list).find(([q]) => q === p)?.[1] ?? [])];
@@ -404,7 +490,16 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         genRowLabel(row);
       } else if (name === BACK_ROW) {
         row.className = 'tp-row tp-back';
-        row.textContent = '← packs';
+        row.textContent = homeView() === 'packs' ? '← packs' : '← themes';
+      } else if (name === BROWSE_ROW) {
+        row.className = 'tp-row tp-browse';
+        row.textContent = '⌕ Browse marketplaces…';
+      } else if (name.startsWith(MKT_ROW)) {
+        const t = browsed(name.slice(MKT_ROW.length));
+        row.className = 'tp-row tp-mkt';
+        row.textContent = t?.name ?? name.slice(MKT_ROW.length);
+        const label = addedThemes.has(t?.name) ? 'installed' : t?.marketplace;
+        if (label) tag(row, label);
       } else if (name === ALL_ROW) {
         row.className = 'tp-row tp-all';
         row.textContent = '✳ all themes';
@@ -433,6 +528,21 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       none.className = 'tp-none';
       none.textContent = 'no themes match';
       listBox.appendChild(none);
+    }
+    if (pickerView === 'browse') {
+      // The honesty line. An empty Browse must never be indistinguishable from
+      // a Browse that could not read a catalog.
+      const note = document.createElement('div');
+      note.className = 'tp-none';
+      note.textContent = browse?.loading ? 'reading the catalogs…'
+        : browse?.error ? browse.error
+        : !pickerEntries.some((n) => n.startsWith(MKT_ROW))
+          ? (pickerFilter ? 'no marketplace theme matches'
+            : 'no themes in the marketplaces you have registered')
+        : browse.stale?.length
+          ? `from the cache · never fetched: ${browse.stale.join(', ')} — marketplace update`
+          : 'from the cache — listing never goes to the network';
+      listBox.appendChild(note);
     }
     const bar = pickerEl.querySelector('.tp-filter');
     bar.textContent = pickerFilter || 'type to filter…';
@@ -468,7 +578,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const list = themeList();
     if (!hasThemes && !list.length) return;
     pickerFilter = '';
-    pickerView = PACKS ? 'packs' : 'all';
+    pickerView = homeView();
+    browse = null; // a fresh session re-reads the catalogs
     pickerEl = document.createElement('div');
     pickerEl.className = 'decklight-theme-picker';
     pickerEl.innerHTML =
@@ -499,18 +610,29 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     selectInList(pickerEl.querySelectorAll('.tp-row'), pickerSel, 'tp-selected');
     const list = themeList();
     const caption = name === GEN_ROW ? (pickerCandidate ? `✨ ${pickerCandidate.name}` : 'generate new')
-      : name === BACK_ROW ? 'back to packs'
+      : name === BACK_ROW ? (homeView() === 'packs' ? 'back to packs' : 'back to the theme list')
+      : name === BROWSE_ROW ? 'themes from the marketplaces you have registered'
+      : name.startsWith(MKT_ROW) ? browseCaption(name.slice(MKT_ROW.length))
       : name === ALL_ROW ? `all ${list.length} themes, flattened`
       : name.startsWith(PACK_ROW)
         ? `${packLabel(name.slice(PACK_ROW.length))} · ${packEntries(list).find(([q]) => q === name.slice(PACK_ROW.length))?.[1].length ?? 0} themes`
       : PACKS ? `${packLabel(packOf(name))} · ${name}` : name;
     pickerEl.querySelector('.tp-caption').textContent = caption;
     clearTimeout(pickerDebounce);
-    // navigation rows keep the current preview; only theme/gen rows swap it
-    if (name !== GEN_ROW && name.charCodeAt(0) === 1) return;
+    // Navigation rows keep the current preview; only theme/gen rows swap it.
+    // A marketplace row has nothing to preview either — the theme is not in
+    // this deck yet, and previewing it would mean fetching it to look at.
+    if (name !== GEN_ROW && nonTheme(name)) return;
     const frame = pickerEl.querySelector('iframe');
     if (immediate) previewSwap(frame, name);
     else pickerDebounce = setTimeout(() => previewSwap(frame, name), 60);
+  }
+  function browseCaption(qualified) {
+    const t = browsed(qualified);
+    if (!t) return qualified;
+    return [t.qualified, t.description,
+      addedThemes.has(t.name) ? 'installed — ⏎ re-installs it' : '⏎ installs it',
+    ].filter(Boolean).join(' · ');
   }
   // Lazy preview: the embedded deck loads ONCE per picker session; theme
   // changes are postMessage'd into it (silent applyTheme/adoptGenerated on
@@ -552,8 +674,10 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       closeThemePicker();
       return;
     }
-    if (name === BACK_ROW) { setPickerView('packs'); return; }
+    if (name === BACK_ROW) { setPickerView(homeView()); return; }
     if (name === ALL_ROW) { setPickerView('all'); return; }
+    if (name === BROWSE_ROW) { openBrowse(); return; }
+    if (name.startsWith(MKT_ROW)) { installBrowsed(name.slice(MKT_ROW.length)); return; }
     if (name.startsWith(PACK_ROW)) { setPickerView('pack:' + name.slice(PACK_ROW.length), true); return; }
     applyTheme(name);
     closeThemePicker();
@@ -575,7 +699,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         case 'Backspace': setPickerFilter(pickerFilter.slice(0, -1)); break;
         case 'Escape':
           if (pickerFilter) setPickerFilter('');
-          else if (PACKS && pickerView !== 'packs') setPickerView('packs');
+          else if (pickerView !== homeView()) setPickerView(homeView());
           else closeThemePicker();
           break;
         default:
@@ -602,6 +726,15 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     previewQuery,
     openPicker: openThemePicker,
     closePicker: closeThemePicker,
+    /**
+     * The palette's contextual route to Browse. It opens the picker first
+     * because Browse is a VIEW of the picker, not a dialog of its own — one
+     * list, one set of keys, one place a theme is chosen.
+     */
+    browse() {
+      if (!pickerEl) openThemePicker();
+      if (pickerEl) openBrowse();
+    },
     /** Is there an unsaved roll to save? (the palette hides the row otherwise) */
     hasGenerated: () => !!genTheme,
     /**
