@@ -235,27 +235,57 @@ export async function editMain(args) {
   const clients = sseChannel();
   const broadcast = (event, data) => clients.broadcast(event, data);
 
+  // ── the catalogs, read from cache and never fetched ──────────────────────
+  const catalogMap = async () => {
+    const { loadRegistry, loadCatalog } = await import('./marketplace.mjs');
+    const out = {};
+    for (const name of Object.keys(loadRegistry().marketplaces ?? {})) {
+      const loaded = loadCatalog(name);
+      if (loaded?.ok) out[name] = loaded.manifest;
+    }
+    return out;
+  };
+  /** Every theme entry a registered marketplace offers, qualified. */
+  const browsableThemes = async () => {
+    const { loadRegistry, loadCatalog } = await import('./marketplace.mjs');
+    const registered = Object.keys(loadRegistry().marketplaces ?? {});
+    const themes = [];
+    // Registered-but-never-fetched is the FIRST-RUN state, not an error — the
+    // first-party marketplace is deliberately in it — so it is reported as
+    // something the presenter can act on (`marketplace update <name>`) rather
+    // than as an empty list that looks like an empty marketplace.
+    const stale = [];
+    for (const market of registered) {
+      const loaded = loadCatalog(market);
+      if (!loaded) { stale.push(market); continue; }
+      if (!loaded.ok) { stale.push(market); continue; }
+      for (const e of loaded.manifest.entries ?? []) {
+        if (e.type !== 'theme') continue;
+        themes.push({
+          name: e.name, marketplace: market, qualified: `${e.name}@${market}`,
+          description: e.description ?? '', source: e.source,
+        });
+      }
+    }
+    return { themes, stale };
+  };
+
   // ── the engine wizard: where a schema comes from, and who checks answers ─
   // Both injected into configureEngine rather than reached for inside it: this
   // server knows how catalogs are read, and cli/wizard.mjs has no business
   // knowing — which is also what lets the framework be tested without a
   // network or a real key.
   const wizardEntry = async (engine) => {
-    const { loadRegistry, loadCatalog, resolveEntry, MarketplaceError } = await import('./marketplace.mjs');
+    const { resolveEntry, MarketplaceError } = await import('./marketplace.mjs');
     // resolveEntry is the seam every install surface goes through — its docblock
     // names the engine wizard as one of them — so `elevenlabs@voices` works, and
     // a bare name that exists in two marketplaces is reported as ambiguous
     // rather than silently resolved to whichever was registered first.
-    const catalogs = {};
-    for (const name of Object.keys(loadRegistry().marketplaces ?? {})) {
-      // loadCatalog returns the VALIDATION result, not the manifest — a cached
-      // catalog that no longer validates has no entries to offer, which is the
-      // right answer rather than a crash.
-      const loaded = loadCatalog(name);
-      if (loaded?.ok) catalogs[name] = loaded.manifest;
-    }
+    // loadCatalog returns the VALIDATION result, not the manifest — a cached
+    // catalog that no longer validates has no entries to offer, which is the
+    // right answer rather than a crash. catalogMap does that unwrapping once.
     try {
-      const hit = resolveEntry(engine, catalogs);
+      const hit = resolveEntry(engine, await catalogMap());
       return hit.entry.wizard ? hit.entry : null;
     } catch (e) {
       if (e instanceof MarketplaceError) return null;
@@ -458,6 +488,62 @@ export async function editMain(args) {
         const committed = gitAutocommit(deckPath, root, subject);
         if (committed) console.log(`  git: committed "${subject}"`);
         return json(200, { ok: true, committed, subject });
+      }
+      // ── theme Browse (THEME_BROWSE#UI) ─────────────────────────────────
+      // What the picker's Browse entry lists. Cache-only by construction: this
+      // reads the catalogs `marketplace update` already fetched and never
+      // fetches one itself, so a deck on a plane lists what it has and says so
+      // rather than hanging on a network that is not there.
+      if (req.method === 'GET' && url.pathname === '/edit/theme/browse') {
+        const { themes, stale } = await browsableThemes();
+        return json(200, { ok: true, themes, stale, cacheOnly: true });
+      }
+      // Installing goes through `theme add`'s own functions — validation, the
+      // WCAG gates, the block shape — so a theme refused on the command line is
+      // refused here, by the same code, for the same reason.
+      if (req.method === 'POST' && url.pathname === '/edit/theme/add') {
+        const { ref, name: asName } = JSON.parse(body || '{}');
+        if (typeof ref !== 'string' || !ref.trim()) return json(400, { ok: false, error: 'which theme?' });
+        const { resolveEntry, MarketplaceError } = await import('./marketplace.mjs');
+        const { fetchTheme, installTheme, resolveSource } = await import('./theme.mjs');
+        const { validateTheme, themeNameFrom, validThemeName } = await import('../tools/theme-check.mjs');
+
+        let hit;
+        try { hit = resolveEntry(ref.trim(), await catalogMap()); }
+        catch (e) {
+          if (e instanceof MarketplaceError) return json(404, { ok: false, error: e.message });
+          throw e;
+        }
+        if (hit.entry.type !== 'theme') {
+          return json(400, { ok: false, error: `"${hit.qualified}" is a ${hit.entry.type}, not a theme` });
+        }
+        const name = asName || hit.entry.name;
+        if (!validThemeName(name)) return json(400, { ok: false, error: `not a usable theme name: "${name}"` });
+
+        // A manifest's `source` is relative to its MARKETPLACE, not to whoever
+        // is installing — resolveSource is where that is worked out, and it lives
+        // in theme.mjs because fetching an artifact and fetching a catalog are
+        // different permissions on this path.
+        const { loadRegistry } = await import('./marketplace.mjs');
+        const market = loadRegistry().marketplaces?.[hit.marketplace];
+        const src = resolveSource(hit.entry.source, market?.source);
+        let css;
+        try { css = await fetchTheme(src); }
+        catch (e) { return json(502, { ok: false, error: `could not read ${src}: ${oneline(e)}` }); }
+
+        const check = validateTheme(css);
+        if (!check.ok) {
+          // The deck is left byte-for-byte unchanged: a picker that could leave
+          // a deck carrying a broken theme would be worse than no picker.
+          return json(400, { ok: false, error: `${name} fails the theme contract`, problems: check.errors ?? [] });
+        }
+        const before = readDeck();
+        const out = installTheme(before, name, css);
+        if (!out.html) return json(500, { ok: false, error: 'the deck has no </head> to install into' });
+        history.record(before);   // Z takes an install back like any other edit
+        writeFileSync(deckPath, out.html);
+        console.log(`  theme: ${out.replaced ? 'replaced' : 'installed'} ${name} from ${hit.qualified}`);
+        return json(200, { ok: true, name, from: hit.qualified, replaced: out.replaced, ...history.counts() });
       }
       // ── the engine wizard (ENGINES#WIZARD) ─────────────────────────────
       // The schema the player renders. Validated on the way OUT as well as on
