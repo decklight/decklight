@@ -6,7 +6,7 @@
  * decklight publish — turn a deck into a shareable URL in one command.
  *
  *   decklight publish <deck.html> [--branch gh-pages] [--remote origin]
- *                                 [--no-bundle] [--path <subdir>]
+ *                                 [--no-bundle] [--no-sign] [--path <subdir>]
  *
  * Bundles the deck (via `decklight bundle`) to index.html + .nojekyll and
  * pushes them to a gh-pages branch on the remote, then prints the GitHub
@@ -50,21 +50,35 @@ export function pagesUrl(remoteUrl) {
 
 // ---------------------------------------------------------------- arguments
 
-export async function publishMain(argv = process.argv.slice(2)) {
+/**
+ * `client` is the sigstore client seam (cli/sign.mjs owns the concept): pass one
+ * to drive signing without an OIDC identity, `null` to assert the
+ * not-installed path. Omitted, the real client is found the usual way.
+ */
+export async function publishMain(argv = process.argv.slice(2), { client } = {}) {
 
 if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
   process.stdout.write(`decklight publish — bundle a deck and push it to GitHub Pages
 
 Usage:
   decklight publish <deck.html> [--branch gh-pages] [--remote origin]
-                                [--no-bundle] [--path <subdir>]
+                                [--no-bundle] [--no-sign] [--path <subdir>]
 
 Options:
   --branch <name>   branch to publish to (default: gh-pages)
   --remote <name>   git remote to push to (default: origin)
   --no-bundle       push the deck file as-is (skip single-file bundling)
+  --no-sign         publish without a Sigstore signature
   --path <subdir>   publish under a subdirectory of the site (other content
                     on the branch is preserved)
+
+Publishing SIGNS by default: Sigstore keyless mints a short-lived certificate
+against an OIDC identity — the ambient token in CI (GitHub Actions
+needs permissions: id-token: write), or SIGSTORE_ID_TOKEN — and the detached
+signature is pushed as index.html.sig beside the page. There are no keys to
+manage; that is what keyless means. A publish is already a network action, so
+signing adds no failure mode it did not already have. If signing fails nothing
+is pushed, and --no-sign is the deliberate way past it.
 
 The commit is built with git plumbing, so your working tree, index, and
 current branch are untouched. The first publish creates the branch as an
@@ -73,12 +87,13 @@ orphan; later publishes append to its history.
   process.exit(0);
 }
 
-let deck = null, branch = 'gh-pages', remote = 'origin', bundle = true, subdir = '';
+let deck = null, branch = 'gh-pages', remote = 'origin', bundle = true, subdir = '', sign = true;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--branch') branch = argv[++i];
   else if (a === '--remote') remote = argv[++i];
   else if (a === '--no-bundle') bundle = false;
+  else if (a === '--no-sign') sign = false;
   else if (a === '--path') subdir = argv[++i];
   else if (!a.startsWith('-') && !deck) deck = a;
   else fail(`unknown argument: ${a}`);
@@ -126,10 +141,32 @@ if (bundle) {
 
 // --------------------------------------------------------------- plumbing
 
+// Signing is the DEFAULT here and opt-in on `bundle`, which looks inconsistent
+// until you notice what publish already is: a network action. Sigstore keyless
+// needs Fulcio and Rekor, so signing adds no failure mode a publish did not
+// already have — while `bundle` is offline-clean and would gain one
+// (INTEGRITY). It runs before any object is written, so a signing failure
+// leaves the repository and the remote exactly as they were.
+let signature = null;
+if (sign) {
+  const { signBytes, verifyBytes, formatSignature } = await import('./sign.mjs');
+  try {
+    signature = await signBytes(fs.readFileSync(sitePage), { client });
+  } catch (e) {
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
+    // Never silently unsigned: say what broke and name the deliberate way out,
+    // so the unsigned publish is a decision someone made rather than one that
+    // happened to them.
+    fail(`${e.message}\n  publish signs by default — pass --no-sign to publish without a signature`);
+  }
+  process.stdout.write(`${formatSignature(await verifyBytes(fs.readFileSync(sitePage), signature, { client }))}\n`);
+}
+
 // Objects land in the repo's database; nothing references them until the
 // push, and neither the working tree nor the index ever hears about it.
 const pageBlob = git(['hash-object', '-w', '--', sitePage]);
 const nojekyllBlob = git(['hash-object', '-w', '--stdin'], '');
+const sigBlob = signature ? git(['hash-object', '-w', '--stdin'], `${JSON.stringify(signature, null, 2)}\n`) : null;
 if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 
 // A second publish parents on the branch as the REMOTE has it — fetched
@@ -168,6 +205,8 @@ const putBlob = (treeish, pathParts, blobSha) => {
 
 let tree = putBlob(parent, ['.nojekyll'], nojekyllBlob);
 tree = putBlob(tree, [...parts, 'index.html'], pageBlob);
+// Beside the page it covers, under the name a verifier will look for.
+if (sigBlob) tree = putBlob(tree, [...parts, 'index.html.sig'], sigBlob);
 
 const config = (key) => {
   try { return execFileSync('git', ['config', key], { cwd, encoding: 'utf8' }).trim(); }

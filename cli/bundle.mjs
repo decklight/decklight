@@ -183,13 +183,14 @@ function mergeDecks(jobs, baseDir, notices) {
 
 // ---------------------------------------------------------------- arguments
 
-export async function bundleMain(argv = process.argv.slice(2)) {
+/** `client` is the sigstore seam — see publishMain; omitted, the real one is used. */
+export async function bundleMain(argv = process.argv.slice(2), { client } = {}) {
 
 if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
   process.stdout.write(`decklight bundle — flatten deck(s) into one self-contained HTML file
 
 Usage:
-  decklight bundle <deck.html> [-o out.html] [--themes current|all|name,name,…]
+  decklight bundle <deck.html> [-o out.html] [--sign] [--themes current|all|name,…]
   decklight bundle <deck.html> --all [-o out.html] [--title "…"] [--themes …]
   decklight bundle <a.html> <b.html> … [-o out.html] [--title "…"] [--themes …]
 
@@ -199,6 +200,12 @@ Options:
   --all            follow the deck's playlist and merge EVERY module into
                    one single-file presentation (in-file module menu via
                    data-module markers)
+  --sign           sign the output with Sigstore keyless and write a detached
+                   <out>.sig beside it. There are no keys: signing mints a
+                   short-lived certificate against an OIDC identity — the
+                   ambient token in CI, or SIGSTORE_ID_TOKEN — and needs the
+                   network. Plain bundle neither signs nor warns: offline-clean
+                   by default, never silently unsigned.
   --title <t>      <title> for a merged presentation
   --themes <sel>   which themes to embed:
                      current       just the deck's linked theme (default)
@@ -210,12 +217,13 @@ Options:
 }
 
 const inputs = [];
-let outPath = null, themesSel = 'current', all = false, mergedTitle = null;
+let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '-o') outPath = argv[++i];
   else if (a === '--themes') themesSel = argv[++i];
   else if (a === '--all') all = true;
+  else if (a === '--sign') sign = true;
   else if (a === '--title') mergedTitle = argv[++i];
   else if (!a.startsWith('-')) inputs.push(a);
   else fail(`unknown argument: ${a}`);
@@ -449,10 +457,30 @@ if (!jobs) {
   }
 }
 
+// Signing happens BEFORE the write, and that ordering is the feature
+// (INTEGRITY#SIGNING): a failed signature must leave no artifact behind, or
+// the unsigned file sitting there afterwards gets picked up later and sent as
+// though it were finished. Bytes, not a path, for exactly this reason.
+let bundleSig = null;
+if (sign) {
+  const { signBytes } = await import('./sign.mjs');
+  // Through fail(), so an unsigned-because-offline bundle reads as a decision
+  // the tool explains rather than a stack trace the user has to interpret.
+  try { bundleSig = await signBytes(Buffer.from(html, 'utf8'), { client }); } catch (e) { fail(e.message); }
+}
+
 fs.writeFileSync(outPath, html);
 const kb = (fs.statSync(outPath).size / 1024).toFixed(1);
 const what = jobs ? `${jobs.length} modules` : path.basename(firstPath);
 process.stdout.write(`bundled ${what} → ${outPath} (${kb} KB, themes: ${themeNames.join(', ')}; active: ${activeTheme})\n`);
+if (bundleSig) {
+  const { writeSidecar, verifyBytes, formatSignature } = await import('./sign.mjs');
+  const sidecar = writeSidecar(outPath, bundleSig);
+  process.stdout.write(`signed → ${sidecar} (detached — the sidecar is the authority; send both)\n`);
+  // Read back what was just written the same way a recipient will. A signature
+  // this command cannot verify itself is not one to hand anybody.
+  process.stdout.write(`${formatSignature(await verifyBytes(html, bundleSig, { client }), { indent: '  ' })}\n`);
+}
 for (const n of notices) process.stdout.write(`note: ${n}\n`);
 }
 
