@@ -230,8 +230,12 @@ function checkOverflow(section, slideNo) {
     .some((el) => el.scrollHeight > el.clientHeight + 2 &&
                   getComputedStyle(el).overflowY !== 'visible' &&
                   !el.closest('.terminal') && !el.hasAttribute('data-scroll-ok'));
+  const was = section.hasAttribute('data-overflow');
   section.toggleAttribute('data-overflow', clipped);
-  if (clipped) console.warn(`Decklight: slide ${slideNo} content overflows and is clipped — reduce content or font size`);
+  // Only on the way IN. The check re-runs whenever the slide's content changes
+  // size (watchOverflow), so warning on every pass would turn one clipped slide
+  // into a console full of the same line.
+  if (clipped && !was) console.warn(`Decklight: slide ${slideNo} content overflows and is clipped — reduce content or font size`);
 }
 
 /**
@@ -890,6 +894,9 @@ export function init(userConfig = {}) {
       this.state.slide = Math.min(this.state.slide, this.state.totalSlides || 1);
       const rec = this._records[this.state.slide - 1];
       if (rec) this.state.step = Math.min(this.state.step, rec.groups.length);
+      // an edit can replace the very elements being watched (dev mode re-renders
+      // a slide in place), so re-aim at whatever is on stage now
+      watchOverflow(printMode ? this._sections : [this._sections[this.state.slide - 1]]);
     },
 
     _rescanFor(el) {
@@ -958,7 +965,7 @@ export function init(userConfig = {}) {
         this.state.step = step;
         withoutAnim(() => applyBuildState(rec, step));
         this._emit('slide', { slide, total: this.state.totalSlides, direction });
-        requestAnimationFrame(() => checkOverflow(this._sections[slide - 1], slide));
+        watchOverflow([this._sections[slide - 1]]); // measures, then keeps watching
       } else {
         this.state.step = step;
         applyBuildState(rec, step);
@@ -1544,6 +1551,75 @@ export function init(userConfig = {}) {
     rescale();
   }
 
+  // ----- overflow watch ----------------------------------------------------
+  /**
+   * The guardrail measures layout, and layout is not final one frame after a
+   * slide activates: fonts resolve, images decode, charts and terminals mount.
+   * A single post-goto measurement latches whatever happened to be true at that
+   * instant and never revisits it — and on a deep link `goto` runs exactly once,
+   * so that instant is the only one there will ever be.
+   *
+   * A MISSED flag is the dangerous direction. The authoring contract (SPEC
+   * PRESENTING) has agents assert `[data-overflow]` is absent, so a slide that
+   * settles into clipping after that frame does not fail the check — it passes
+   * it, quietly, forever.
+   *
+   * So the check follows the content instead of a moment: whatever is on stage
+   * is watched, and anything that could have changed its height re-runs it.
+   *
+   * It takes both observers, because the two ways a slide starts overflowing
+   * look nothing alike to the DOM. Boxes changing size (a webfont resolving, an
+   * image decoding) are what ResizeObserver is for. Content arriving is NOT —
+   * an overfull child is flex-shrunk to the space available, so its box height
+   * does not move while its scrollHeight runs away, and a resize watch sees
+   * exactly nothing. That one needs MutationObserver.
+   *
+   * And the check is scheduled on a TIMER, not a frame. It used to ride a
+   * requestAnimationFrame, which quietly made the guardrail conditional on the
+   * page painting again — and under `--virtual-time-budget`, the flag every
+   * render harness and `decklight pdf` drive Chrome with, frame production stops
+   * once the page goes idle, so a callback booked after that point is never
+   * called at all. The slide was not measured late; it was never measured, and
+   * an unmeasured slide reads exactly like a clean one. Reading scrollHeight
+   * forces the layout it needs anyway, so waiting for a frame bought nothing.
+   */
+  let watched = [];
+  let overflowTimer = 0;
+  function recheckOverflow() {
+    if (overflowTimer) return; // coalesce: a mount moves several nodes at once
+    overflowTimer = setTimeout(() => {
+      overflowTimer = 0;
+      for (const s of watched) checkOverflow(s, instance._sections.indexOf(s) + 1);
+    });
+  }
+
+  const overflowResize = typeof ResizeObserver === 'function'
+    ? new ResizeObserver(recheckOverflow) : null;
+  const overflowMutate = typeof MutationObserver === 'function'
+    ? new MutationObserver((records) => {
+      // A playing terminal rewrites its screen every frame, and terminals are
+      // excluded from the clip test anyway (SPEC TERMINAL_PLAYER: they scroll
+      // by design). Re-measuring the slide 60 times a second to reach the same
+      // answer is the one cost this watch must not have.
+      const outside = (n) => !(n.nodeType === 1 ? n : n.parentElement)?.closest('.terminal');
+      if (records.some((r) => outside(r.target))) recheckOverflow();
+    }) : null;
+
+  /** Re-aim the watch at `sections` (the active slide, or the whole deck in print). */
+  function watchOverflow(sections) {
+    overflowResize?.disconnect();
+    overflowMutate?.disconnect();
+    watched = sections.filter(Boolean);
+    for (const s of watched) {
+      // the section for stage-level changes, its children for their own: the
+      // section box is a fixed design-resolution rectangle, so content growing
+      // inside it never resizes it — only the children can report that.
+      if (overflowResize) for (const el of [s, ...s.children]) overflowResize.observe(el);
+      overflowMutate?.observe(s, { childList: true, subtree: true, characterData: true });
+    }
+    recheckOverflow(); // arming is also the first measurement
+  }
+
   // ----- hash --------------------------------------------------------------
   let suppressHashChange = false;
   if (config.hash && !printMode) {
@@ -1708,7 +1784,9 @@ export function init(userConfig = {}) {
       buildPrintPages(stage, instance._sections, printVariant);
     }
     // All slides are visible in print — audit the whole deck for clipping.
-    requestAnimationFrame(() => instance._sections.forEach((s, i) => checkOverflow(s, i + 1)));
+    // (`decklight pdf` reads these attributes back out of this very render, so
+    // this is the one that must not depend on another frame ever arriving.)
+    watchOverflow(instance._sections);
     root.__decklight = instance;
     activeInstance = instance;
     instance._emit('ready', { slides: instance.state.totalSlides, print: true });
