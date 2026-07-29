@@ -245,6 +245,42 @@ test('`edit` refuses out loud — the replacement named, never "unknown command"
 
 // ── the leash: a child outlives its parent for exactly as long as the pipe ──
 
+/**
+ * Poll until `want` returns something truthy, or give up.
+ *
+ * The deadline is deliberately generous, and the reason is worth writing down
+ * because the number looks careless otherwise (#172). The leash is EDGE
+ * triggered: the OS closes the pipe, the child reads EOF, the child exits.
+ * There is no timer anywhere in it, and so no threshold at which a working
+ * leash becomes a broken one — a broken leash never releases the port AT ALL,
+ * while a working one releases it as soon as the orphan gets a scheduling
+ * slice. On an idle machine that is ~15ms; under a parallel suite with twenty
+ * node processes and a headless Chrome competing for the CPU, the same working
+ * leash was measured taking seconds.
+ *
+ * So a short deadline cannot tell slow from broken. It can only convert a busy
+ * machine into a red test, which is exactly what the old fixed 10s did. The one
+ * thing a deadline is good for here is stopping a genuinely stuck run from
+ * hanging forever, and for that, generous is correct: a long deadline costs
+ * time only on a real failure, while the short one charged everybody running
+ * `npm test` on a loaded box.
+ *
+ * 60s is six times the longest a working leash has been observed to need. The
+ * fast, load-independent check on the same mechanism is the pipe test below;
+ * this deadline is a backstop, not the assertion.
+ */
+async function waitFor(label, want, context = () => '', timeoutMs = 60000) {
+  const start = Date.now();
+  for (;;) {
+    const got = await want();
+    if (got) return got;
+    if (Date.now() - start > timeoutMs) {
+      assert.fail(`timed out after ${Math.round((Date.now() - start) / 1000)}s waiting for ${label}\n${context()}`);
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 test('the leash is opt-in — an unsupervised command never reads stdin', () => {
   assert.equal(onLeash({}), false);
   assert.equal(onLeash({ [LEASH]: '0' }), false);
@@ -277,6 +313,42 @@ test('leashEnv adds the flag and keeps the rest of the environment', () => {
   assert.deepEqual(leashEnv({ PATH: '/bin' }), { PATH: '/bin', [LEASH]: '1' });
 });
 
+test('a real child on a real pipe exits when the pipe closes, and lets go of its port', async (t) => {
+  // The mechanism, end to end, in two processes and without `author` (#172).
+  //
+  // This is the test that goes red the instant the leash is broken, and it says
+  // so in milliseconds: closing the write end of a pipe is an OS event, so the
+  // only thing between the close and the exit is one scheduling slice. There
+  // are no bridges here, no git probe, no service plan and no third process —
+  // nothing whose latency could be mistaken for the thing under test. It reads
+  // the same on an idle laptop and on a box running twenty test files at once,
+  // which is precisely what the SIGKILL test below cannot promise.
+  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-leash-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(path.join(dir, 'deck.html'),
+    '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div></body></html>\n');
+
+  const child = spawn(process.execPath,
+    [path.resolve(here, '../cli/edit.mjs'), 'deck.html', '--port', '0'],
+    { cwd: dir, stdio: ['pipe', 'pipe', 'pipe'], env: leashEnv() });
+  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  const port = Number((await waitFor('the deck server to announce its port',
+    async () => out.match(/http:\/\/127\.0\.0\.1:(\d+)/), () => out))[1]);
+  assert.equal(await isPortOpen(port), true, 'the deck server is up');
+
+  // Exactly what a SIGKILLed parent does to its end of the pipe, minus the
+  // parent — so a failure here is the leash and cannot be anything else.
+  child.stdin.end();
+  await waitFor('the child to notice the closed pipe', async () => child.exitCode !== null, () => out);
+
+  assert.equal(child.exitCode, 0, 'losing the parent is not a failure — the child leaves quietly');
+  assert.equal(await isPortOpen(port), false, 'and the port goes with it');
+});
+
 test('SIGKILL to author takes the deck server with it — no orphan holding the port', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-leash-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -292,25 +364,15 @@ test('SIGKILL to author takes the deck server with it — no orphan holding the 
   dev.stdout.on('data', (c) => { out += c; });
   dev.stderr.on('data', (c) => { out += c; });
 
-  const until = async (label, want, timeoutMs = 10000) => {
-    const start = Date.now();
-    for (;;) {
-      const got = await want();
-      if (got) return got;
-      if (Date.now() - start > timeoutMs) assert.fail(`timed out waiting for ${label}\n${out}`);
-      await new Promise((r) => setTimeout(r, 25));
-    }
-  };
-
-  const [, spawned] = await until('the deck server to announce its port',
-    async () => out.match(/decklight author on http:\/\/127\.0\.0\.1:(\d+)/));
+  const [, spawned] = await waitFor('the deck server to announce its port',
+    async () => out.match(/decklight author on http:\/\/127\.0\.0\.1:(\d+)/), () => out);
   const port = Number(spawned);
   assert.equal(await isPortOpen(port), true, 'the deck server is up');
 
-  // dev never gets to run shutdown() — this is the crash it cannot handle
+  // author never gets to run shutdown() — this is the crash it cannot handle
   dev.kill('SIGKILL');
-  await until('the orphan to notice and let go of its port',
-    async () => (await isPortOpen(port)) === false);
+  await waitFor(`the orphan on port ${port} to notice and let go`,
+    async () => (await isPortOpen(port)) === false, () => out);
 });
 
 test('author without a deck, or with a missing one, fails with usage — not a stack trace', () => {
