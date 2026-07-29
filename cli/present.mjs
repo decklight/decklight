@@ -33,7 +33,8 @@ import { resolve, sep } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isLoopback, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
 import { auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
-import { verifyFile, formatSignature, isVerified, UNSIGNED } from './sign.mjs';
+import { verifyFile, verifyBytes, formatSignature, isVerified, UNSIGNED, TAMPERED, VERIFIED } from './sign.mjs';
+import { isContainer, readContainer, formatManifest } from './deckfile.mjs';
 
 /**
  * The policy, and honestly what it is worth.
@@ -87,11 +88,16 @@ export const CSP = [
   "object-src 'none'",
 ].join('; ');
 
-const USAGE = `usage: decklight present <deck.html> [--port 8790] [--strict] [--check]
+const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790] [--strict] [--check]
 
   plays a deck read-only over localhost — the safe way to open one you did not
   author. Serves ONLY GET, only under the current directory (which the deck must
   be inside, so its assets resolve), and writes nothing.
+
+  A .decklight container (bundle --deck) is unwrapped in memory and treated
+  exactly like the deck it wraps: same audit, same policy, same strict rule. Its
+  signature is verified and its manifest is printed as what it is — the
+  container's own claim about itself, next to the one thing that was checked.
 
   --port N   port to bind; a taken port offers to take over that session
              (on a TTY) or moves on to the next free one            [8790]
@@ -164,10 +170,20 @@ export async function presentMain(args) {
     console.error(`deck not found: ${deckPath}`);
     return 1;
   }
+  // A .decklight is the same deck with its signature and manifest stapled on
+  // (DECK_FILE), so it is unwrapped here and everything below treats it exactly
+  // like the HTML it wraps — same audit, same CSP, same strict rule. Nothing is
+  // written to unwrap it: the payload is a slice of the bytes already read.
+  let container = null;
+  if (isContainer(deckPath)) {
+    try { container = readContainer(deckPath); } catch (e) { console.error(e.message); return 1; }
+  }
+  const payload = container ? container.payload : readFileSync(deckPath);
+
   // The audit runs because it is the only way in (PRESENT): a standalone
   // `verify` is a step people skip, so folding it into the command you already
   // use to present means it runs every time, at no extra effort.
-  const report = auditDeck(readFileSync(deckPath, 'utf8'));
+  const report = auditDeck(payload.toString('utf8'));
 
   // The signature, if the deck came with one (INTEGRITY#SIGNING). Costs nothing
   // when there is no sidecar — the common case returns without touching the
@@ -175,10 +191,24 @@ export async function presentMain(args) {
   // different questions: a signature says WHO vouched for these bytes, the label
   // says what the bytes will do. A signed deck can still run something nobody
   // should, and the label is what would name it.
-  const signature = await verifyFile(deckPath);
+  let signature;
+  if (container) {
+    signature = container.signature
+      ? await verifyBytes(container.payload, container.signature)
+      : { state: TAMPERED, reason: 'the container carries no signature' };
+    // The manifest is the container's own label. When it does not describe the
+    // deck it is stapled to, something rewrote one half — which is the same
+    // conclusion as a signature that does not verify, so it is the same state.
+    if (!container.digestOk && signature.state === VERIFIED) {
+      signature = { state: TAMPERED, reason: 'the manifest digest does not match the payload' };
+    }
+  } else {
+    signature = await verifyFile(deckPath);
+  }
 
   if (args.includes('--check')) {
     for (const line of formatLabel(report, { indent: '' })) console.log(line);
+    if (container) console.log(formatManifest(container.manifest, { indent: '' }));
     if (signature.state !== UNSIGNED) console.log(formatSignature(signature, { indent: '' }));
     // Non-zero means "this deck executes something I could not account for", or
     // "it carries a signature I could not stand behind" — not "this deck is
@@ -222,11 +252,29 @@ export async function presentMain(args) {
   // stopped at one file would be walked around by a second page under the same
   // root, and the deck can reach one — the theme picker, the slide finder and
   // the speaker view all boot documents into same-origin iframes.
+  const rewrite = strict ? (text) => stripUnaccounted(text).html : null;
   const files = staticFiles(root, {
     index: deckUrl,
     headers: { 'content-security-policy': CSP },
-    html: strict ? (text) => stripUnaccounted(text).html : null,
+    html: rewrite,
   });
+
+  // A container's deck is served from MEMORY, from the slice already in hand.
+  // Unpacking it to a temp file would be the one write this command does not
+  // make — and would leave the payload sitting somewhere after the talk, which
+  // is precisely the file nobody meant to keep. Everything else about the
+  // response is identical to the plain-HTML path: same strict rewrite, same
+  // policy header, same GET-only server around it.
+  const servePayload = (req, res) => {
+    if (req.method !== 'GET') return false;
+    const body = rewrite ? Buffer.from(rewrite(payload.toString('utf8')), 'utf8') : payload;
+    res.writeHead(200, {
+      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache',
+      'content-security-policy': CSP,
+    });
+    res.end(body);
+    return true;
+  };
 
   const server = createServer((req, res) => {
     // Loopback only, by construction as well as by binding: nothing here has a
@@ -234,6 +282,13 @@ export async function presentMain(args) {
     if (!isLoopback(req.socket?.remoteAddress)) { res.writeHead(403); res.end('forbidden'); return; }
     let url;
     try { url = new URL(req.url, 'http://127.0.0.1'); } catch { res.writeHead(400); res.end('bad request'); return; }
+    // The container's own path answers with the deck inside it, so the URL a
+    // person sees is the file they double-clicked. Serving the raw archive
+    // bytes there would hand a browser something it cannot render.
+    if (container && (url.pathname === deckUrl || url.pathname === '/')) {
+      if (servePayload(req, res)) return;
+      res.writeHead(405); res.end('method not allowed'); return;
+    }
     // staticFiles answers GET (200/403/404) and declines everything else. A
     // POST to /edit/notes lands here exactly like a POST to /anything — there
     // is no route to have refused it, which is the point of the ticket.
@@ -248,6 +303,7 @@ export async function presentMain(args) {
   // Before the first slide renders, not after — the point is to be able to
   // decide not to open it.
   for (const line of formatLabel(report)) console.log(line);
+  if (container) console.log(formatManifest(container.manifest));
   console.log(formatSignature(signature));
   // Here and nowhere else. The audience is looking at the deck; a banner on the
   // page would tell them something they cannot act on, about a file they did
@@ -257,7 +313,7 @@ export async function presentMain(args) {
     if (unverified) console.log('  the signature did not verify — serving strict');
     console.log(n
       ? `  ${n} unaccounted script block${n === 1 ? '' : 's'} stripped — serving strict. The file on disk is untouched`
-      : '  nothing to strip — this deck is served exactly as it is on disk');
+      : `  nothing to strip — this deck is served exactly as ${container ? 'the container carries it' : 'it is on disk'}`);
   }
 
   const stop = () => { server.close(); process.exit(0); };

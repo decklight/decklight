@@ -39,11 +39,18 @@ const DOS_TIME = 0;
  * Build a ZIP archive from `[{ name, data }]`, where data is a string or
  * Buffer. Each entry is deflated only when that actually makes it smaller —
  * a stored entry beats a "compressed" one that grew.
+ *
+ * `prefix` is how many bytes will sit in front of this archive in the file it
+ * ends up in. Every offset a ZIP records is measured from the start of the
+ * FILE, not the archive, so an archive appended to something else has to be
+ * written knowing that — which is exactly how self-extracting archives have
+ * always worked, and how the `.decklight` container (DECK_FILE) puts a playable
+ * deck in front of its own signature.
  */
-export function zipSync(entries) {
+export function zipSync(entries, { prefix = 0, comment = '' } = {}) {
   const local = [];
   const central = [];
-  let offset = 0;
+  let offset = prefix;
 
   for (const { name, data } of entries) {
     const nameBuf = Buffer.from(name, 'utf8');
@@ -94,6 +101,12 @@ export function zipSync(entries) {
   }
 
   const cdBuf = Buffer.concat(central);
+  // The archive comment is a real, boring ZIP field — and it is the last thing
+  // in the file, which is what makes it the right place to close the HTML
+  // comment wrapping a `.decklight` container (DECK_FILE). Trailing bytes AFTER
+  // the end record would work for our own reader and make `unzip` complain
+  // about garbage; the comment field is where trailing bytes are supposed to go.
+  const tail = Buffer.from(comment, 'utf8');
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0); // end of central directory
   end.writeUInt16LE(0, 4);
@@ -102,7 +115,7 @@ export function zipSync(entries) {
   end.writeUInt16LE(entries.length, 10);
   end.writeUInt32LE(cdBuf.length, 12);
   end.writeUInt32LE(offset, 16);
-  end.writeUInt16LE(0, 20);          // archive comment length
+  end.writeUInt16LE(tail.length, 20); // archive comment length
 
-  return Buffer.concat([...local, cdBuf, end]);
+  return Buffer.concat([...local, cdBuf, end, tail]);
 }
