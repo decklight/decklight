@@ -74,6 +74,8 @@ Commands:
            EXAMPLE: decklight edit demo/showcase.html   (then open the printed URL)
   dev      one command for the whole loop: edit + every bridge this machine can run, one Ctrl-C
            EXAMPLE: decklight dev demo/showcase.html   (bridges without prerequisites are skipped)
+  present  play a deck you did not author — read-only over localhost, under a CSP header
+           EXAMPLE: decklight present talk.html   (no editing surface, nothing is written)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL
            EXAMPLE: decklight report-bug   (prints and exits — nothing is sent anywhere)
   help     show this help, or a command's help: decklight help bundle
@@ -216,6 +218,11 @@ switch (cmd) {
   case 'dev': {
     const { devMain } = await import('./dev.mjs');
     await devMain(rest);
+    break;
+  }
+  case 'present': {
+    const { presentMain } = await import('./present.mjs');
+    process.exitCode = await presentMain(rest);
     break;
   }
   default:
