@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Port-conflict resolution for `decklight edit` / `decklight dev`: who's on a
+// Port-conflict resolution for `decklight author`'s edit server: who's on a
 // taken port, and the two ways out — take it over (POST /edit/shutdown) or
 // move to the next free port. planPortConflict() is pure and unit-tested
 // directly; identify/shutdown/bump are exercised against a real edit server.
@@ -21,6 +21,7 @@ import {
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
+const EDIT = path.resolve(here, '../cli/edit.mjs');
 
 const DECK = `<!doctype html>
 <html><body><div class="decklight"><section><h2>One</h2></section></div></body></html>
@@ -51,11 +52,11 @@ function waitForExit(child, timeoutMs = 5000) {
   });
 }
 
-/** Spawn `decklight edit` in its own deck dir, on `port` (0 = OS picks one). */
+/** Spawn the edit server (through its module, as `author` does) in its own deck dir, on `port` (0 = OS picks one). */
 async function startEdit(t, port = 0, extraArgs = []) {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
-  const child = spawn(process.execPath, [CLI, 'edit', 'deck.html', '--port', String(port), ...extraArgs], {
+  const child = spawn(process.execPath, [EDIT, 'deck.html', '--port', String(port), ...extraArgs], {
     cwd: dir,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -63,7 +64,7 @@ async function startEdit(t, port = 0, extraArgs = []) {
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
-  const [, actual] = await waitFor(() => out, /decklight edit on http:\/\/127\.0\.0\.1:(\d+)/);
+  const [, actual] = await waitFor(() => out, /decklight author on http:\/\/127\.0\.0\.1:(\d+)/);
   return { child, dir, port: Number(actual), log: () => out };
 }
 
@@ -132,9 +133,9 @@ test('a TTY that answers "kill": takes over the SAME port — A actually exits',
   assert.equal(await isPortOpen(a.port), false);
 });
 
-// ── end to end: `decklight edit` itself never crashes on a taken port ──────
+// ── end to end: the edit server itself never crashes on a taken port ──────
 
-test('a second `decklight edit` on the same port bumps and says why (no TTY, no crash)', async (t) => {
+test('a second edit server on the same port bumps and says why (no TTY, no crash)', async (t) => {
   const a = await startEdit(t);
   const b = await startEdit(t, a.port);
   assert.notEqual(b.port, a.port);
@@ -142,16 +143,16 @@ test('a second `decklight edit` on the same port bumps and says why (no TTY, no 
   assert.equal(b.child.exitCode, null, 'never crashed');
 });
 
-// ── end to end: `decklight dev` resolves the conflict itself — its edit
+// ── end to end: `decklight author` resolves the conflict itself — its edit
 // child's stdin is piped, not a terminal, so IT could never ask ───────────
 
-test('`decklight dev` bumps the edit port on conflict instead of crashing', async (t) => {
+test('`decklight author` bumps the edit port on conflict instead of crashing', async (t) => {
   const a = await startEdit(t);
 
   const devDir = tmp(t);
   writeFileSync(path.join(devDir, 'deck.html'), DECK);
   const dev = spawn(process.execPath, [
-    CLI, 'dev', 'deck.html', '--port', String(a.port), '--no-tts', '--no-lipsync', '--no-git',
+    CLI, 'author', 'deck.html', '--port', String(a.port), '--no-tts', '--no-lipsync', '--no-git',
   ], { cwd: devDir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => { try { dev.kill('SIGKILL'); } catch { /* already gone */ } });
   let out = '';
@@ -159,7 +160,7 @@ test('`decklight dev` bumps the edit port on conflict instead of crashing', asyn
   dev.stderr.on('data', (c) => { out += c; });
 
   await waitFor(() => out, /already in use/);
-  const [, bumped] = await waitFor(() => out, /decklight edit on http:\/\/127\.0\.0\.1:(\d+)/);
+  const [, bumped] = await waitFor(() => out, /decklight author on http:\/\/127\.0\.0\.1:(\d+)/);
   assert.notEqual(Number(bumped), a.port);
-  assert.equal(dev.exitCode, null, 'dev never gave up');
+  assert.equal(dev.exitCode, null, 'author never gave up');
 });

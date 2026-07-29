@@ -1,17 +1,17 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Shared "the port's taken" resolution for `decklight edit` / `decklight dev`.
-// The occupant is usually a PAST decklight edit server (you started one
-// yesterday, forgot, and now `init`/`dev` wants the same default port) — so
+// Shared "the port's taken" resolution for `decklight author`'s edit server.
+// The occupant is usually a PAST edit server (you started one
+// yesterday, forgot, and now `init`/`author` wants the same default port) — so
 // rather than guess at a PID, ask it directly: every edit server answers
 // GET /edit/ping with the deck it's serving, and POST /edit/shutdown stops it
 // as cleanly as its own Ctrl-C (final autocommit included). That makes "kill
 // it and take over" a plain HTTP round trip, no lsof/ps, no platform split.
 //
 // Used two ways: reactively, when edit's own server.listen() hits
-// EADDRINUSE, and proactively, by dev BEFORE it spawns the edit child — that
-// child's stdin is closed (piped, not a TTY), so it could never ask.
+// EADDRINUSE, and proactively, by author BEFORE it spawns the edit child —
+// that child's stdin is closed (piped, not a TTY), so it could never ask.
 
 import { createConnection } from 'node:net';
 
@@ -26,7 +26,7 @@ export function isPortOpen(port, host = '127.0.0.1', timeout = 400) {
   });
 }
 
-/** Ask the occupant what it's editing — null if it isn't a decklight edit server at all. */
+/** Ask the occupant what it's editing — null if it isn't an edit server at all. */
 export async function identifyEditServer(port, host = '127.0.0.1') {
   try {
     const res = await fetch(`http://${host}:${port}/edit/ping`, { signal: AbortSignal.timeout(800) });

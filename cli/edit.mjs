@@ -2,11 +2,13 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// decklight edit — the live-editing dev server (SPEC PRESENTING edit mode).
+// The live-editing deck server behind `decklight author` (SPEC PRESENTING
+// author mode). Not a command of its own anymore — the dispatcher refuses
+// `edit` out loud — author spawns this module directly:
 //
-//   decklight edit <deck.html> [--port 8788] [--git | --no-git]
-//                  [--commit-every <seconds>] [--agent <name>]
-//                  [--remote] [--host <addr>]
+//   node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
+//                     [--commit-every <seconds>] [--agent <name>]
+//                     [--remote] [--host <addr>]
 //
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
@@ -33,7 +35,7 @@
 // basis — every --commit-every seconds when it actually changed, plus a
 // final commit on Ctrl-C. --git also creates the repository when none
 // exists — seeded with a starter .gitignore (createRepo, below).
-// `decklight dev` asks interactively before passing --git down.
+// `decklight author` asks interactively before passing --git down.
 
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, watch, existsSync } from 'node:fs';
@@ -41,6 +43,7 @@ import { resolve, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { agentCommand, detectAgents } from './agents.mjs';
+import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
 import { corsHeaders } from '../tools/bridge.mjs';
@@ -138,7 +141,7 @@ export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 export async function editMain(args) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
-    console.log(`usage: decklight edit <deck.html> [--port 8788] [--git | --no-git]
+    console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
                       [--commit-every <seconds>] [--agent <name>]
                       [--remote] [--host <addr>]
   serves the cwd, live-reloads the deck on change, and accepts edits from the
@@ -438,7 +441,7 @@ export async function editMain(args) {
 
   const actual = await listenTakingOverIfNeeded(server, port, host);
   actualPort = actual; // the QR can only be built once we know what we bound
-  console.log(`decklight edit on http://127.0.0.1:${actual}${deckUrl} — E notes, L layouts, Z undo, A agent. Ctrl-C stops`);
+  console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E notes, L layouts, Z undo, A agent. Ctrl-C stops`);
   if (token) {
     console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/remote?t=${token}`);
     console.log('  off this machine only /remote/* answers (with that token); /edit/* stays loopback-only');
@@ -446,4 +449,9 @@ export async function editMain(args) {
 }
 
 
-if (isMain(import.meta.url)) editMain(process.argv.slice(2));
+if (isMain(import.meta.url)) {
+  // author spawns this module directly, so the leash the dispatcher used to
+  // arm is armed here — a no-op unless a supervising parent set it up.
+  exitWhenOrphaned();
+  editMain(process.argv.slice(2));
+}

@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The dev/edit server's editing surface: layout write-back, the undo/redo
+// The edit server's editing surface: layout write-back, the undo/redo
 // history, git autocommit, and the AI-agent roster. Pure functions are
 // tested directly; the HTTP endpoints against a real server on an
 // ephemeral port with a throwaway deck.
@@ -19,7 +19,9 @@ import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
 import { resolveGitMode, shouldCommit, commitSubject } from '../cli/git.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const CLI = path.resolve(here, '../cli/decklight.mjs');
+// The server's entry since `edit` stopped being a dispatcher command: the
+// module itself, exactly as `decklight author` spawns it.
+const EDIT = path.resolve(here, '../cli/edit.mjs');
 
 const DECK = `<!doctype html>
 <html><body>
@@ -208,7 +210,7 @@ test('inGitRepo tells a work tree from a plain directory', (t) => {
 // ── the HTTP surface, against a real server ────────────────────────────────
 
 async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
-  const child = spawn(process.execPath, [CLI, 'edit', 'deck.html', '--port', '0', ...extraArgs], {
+  const child = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', ...extraArgs], {
     cwd: dir,
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],

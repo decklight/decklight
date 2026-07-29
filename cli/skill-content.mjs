@@ -68,7 +68,7 @@ with a build and notes already wired):
 \`\`\`
 
 **CLI** (\`npx decklight <command>\`, no install needed):
-- \`decklight edit deck.html\` — serve with live reload; **E** in the browser edits speaker notes back into the file
+- \`decklight author deck.html\` — the whole authoring loop: serve with live reload; **E** in the browser edits speaker notes back into the file
 - \`decklight rec script.term.yaml\` — record a truthful terminal cast in a real PTY, for \`<div class="terminal">\`
 - \`decklight bundle deck.html --themes all\` — flatten into one self-contained file to hand off or publish
 - \`decklight pdf deck.html\` — render every slide to a PDF, and report the ones that overflow
@@ -103,8 +103,8 @@ features, so write them even for decks that will only ever be read: split
 multi-beat notes with a bare \`⟨CLICK⟩\` line so narration and build steps
 stay in sync (PRESENTING in the reference).
 
-**Commit your own changes when a dev server is running.** \`decklight dev\` /
-\`edit\` auto-commits the deck, but on a timer and under a generic \`autosave\`
+**Commit your own changes when an authoring server is running.** \`decklight
+author\` auto-commits the deck, but on a timer and under a generic \`autosave\`
 message — it cannot tell your edits from anyone else's, because it did not
 start you. When you finish one logical change, say so:
 
@@ -117,7 +117,7 @@ curl -sf -X POST localhost:8788/edit/commit \\
 One call per logical change, with a subject describing THAT change — not
 \"updated the deck\". It commits only the deck file, and does nothing when
 nothing changed, so an extra call is harmless. If the port is not listening
-there is no dev server: skip it silently and carry on, never start one
+there is no authoring server: skip it silently and carry on, never start one
 yourself. This is what makes a history someone can read afterwards, instead
 of a wall of identical timer commits.
 `;
@@ -147,11 +147,11 @@ line is a slide losing content. Overflow is the late failure, though: a slide
 that fits can still be too crowded, so keep to one idea and ~3–4 bullets per
 column rather than to whatever renders.
 
-When a dev server is running (\`decklight dev\`), commit each logical change
-you finish rather than leaving it to the timer's generic \`autosave\`:
+When an authoring server is running (\`decklight author\`), commit each logical
+change you finish rather than leaving it to the timer's generic \`autosave\`:
 \`curl -sf -X POST localhost:8788/edit/commit -H 'content-type: application/json'
--d '{"message":"what this change did"}'\`. No server listening means no dev
-session — skip it and carry on.
+-d '{"message":"what this change did"}'\`. No server listening means no
+authoring session — skip it and carry on.
 
 Hit a Decklight bug? Run \`npx decklight report-bug\` for the environment
 facts, then ask the user what happened, what they expected, and the smallest

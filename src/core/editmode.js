@@ -1,14 +1,14 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Everything the deck can only do while `decklight edit` (or `dev`) is serving
+// Everything the deck can only do while `decklight author`'s edit server is serving
 // it: live reload, the notes editor, the phone remote, asking an installed
 // agent for an edit, undo/redo over the server's history, and the R dialog
 // that puts the deck back to any commit.
 //
 // One module because they are one capability. All of it hangs off a single
 // probe — /edit/ping, answered once at startup — and everything here either
-// posts to that server or refuses with the same "you are not in dev mode"
+// posts to that server or refuses with the same "you are not in author mode"
 // message. Nothing else in the engine needs to know the server exists; layout
 // cycling, the one other thing that saves through it, asks available()/base().
 
@@ -27,7 +27,7 @@ export function createEditMode({
   notesSegs, dismissOthers,
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
-  // Served by `decklight edit`: the deck subscribes to /edit/events and
+  // Served by the edit server: the deck subscribes to /edit/events and
   // reloads whenever the file changes on disk (any editor works — the
   // #/slide/step hash restores the position). E opens a notes editor whose
   // Save writes the current slide's aside back through the server. Decks
@@ -108,7 +108,7 @@ export function createEditMode({
           debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`
             + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
           return;
-        } catch { /* not served by decklight edit */ }
+        } catch { /* not served by the edit server */ }
       }
     })();
   }

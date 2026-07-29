@@ -2,9 +2,9 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Evidence for `decklight dev --remote` (issue #115). Nothing changes in the
+// Evidence for `decklight author --remote` (issue #115). Nothing changes in the
 // browser, so the shot is the CLI surface itself: this script starts a REAL
-// `decklight dev deck.html --remote`, waits for it to print the LAN URL with
+// `decklight author deck.html --remote`, waits for it to print the LAN URL with
 // the per-run token, then curls the server FROM ITS LAN ADDRESS — the /edit
 // mutation comes back 403 while the same request over loopback lands — and
 // renders the captured transcript as a terminal window for tools/shot.mjs.
@@ -35,7 +35,7 @@ fs.writeFileSync(path.join(dir, 'deck.html'), `<!doctype html>
 
 // --- run the real command, keep the real output --------------------------------
 
-const dev = spawn('node', [CLI, 'dev', 'deck.html', '--remote', '--no-git'], {
+const dev = spawn('node', [CLI, 'author', 'deck.html', '--remote', '--no-git'], {
   cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';
@@ -51,7 +51,7 @@ const until = async (re, ms = 10000) => {
   return out.match(re);
 };
 
-const [, port] = await until(/decklight edit on http:\/\/127\.0\.0\.1:(\d+)/);
+const [, port] = await until(/decklight author on http:\/\/127\.0\.0\.1:(\d+)/);
 const [, token] = await until(/\/remote\?t=([A-Za-z0-9_-]+)/);
 await until(/Ctrl-C stops everything/);
 await new Promise((r) => setTimeout(r, 300));
@@ -81,7 +81,7 @@ const paintCurl = (s) => esc(s)
 const block = (cmd, body) => `<div class="run"><span class="prompt">~/talk $</span> ${esc(cmd)}\n${body}</div>`;
 
 const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>decklight dev --remote</title><style>
+<html lang="en"><head><meta charset="utf-8"><title>decklight author --remote</title><style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          background: linear-gradient(135deg, #1b2735, #090a0f); }
   .term { width: 1120px; background: #10141b; border-radius: 12px;
@@ -101,8 +101,8 @@ const html = `<!doctype html>
 </style></head><body>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-    <span class="t">decklight dev --remote — LAN listener + per-run token; /edit/* stays loopback-only</span></div>
-  <div class="body">${block('decklight dev deck.html --remote', paintDev(out.trimEnd()))}
+    <span class="t">decklight author --remote — LAN listener + per-run token; /edit/* stays loopback-only</span></div>
+  <div class="body">${block('decklight author deck.html --remote', paintDev(out.trimEnd()))}
 ${block(`curl -X POST http://${lan}:${port}/edit/notes -d '…'   # a mutation, from the LAN`, paintCurl(lanRefused))}
 ${block(`curl http://127.0.0.1:${port}/edit/ping                   # the same server, over loopback`, paintCurl(loopbackOk))}</div>
 </div>

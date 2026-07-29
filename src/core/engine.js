@@ -1342,13 +1342,13 @@ export function init(userConfig = {}) {
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
-      <tr><td>R</td><td>restore a version (dev mode — git history, live preview)</td></tr>
-      <tr><td>E</td><td>edit speaker notes (dev mode)</td></tr>
+      <tr><td>R</td><td>restore a version (author mode — git history, live preview)</td></tr>
+      <tr><td>E</td><td>edit speaker notes (author mode)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
-      <tr><td>L / ⇧L</td><td>slide layout — writes the file (dev mode)</td></tr>
-      <tr><td>Z / ⇧Z</td><td>undo / redo deck edits (dev mode)</td></tr>
-      <tr><td>A</td><td>ask an AI agent to edit the deck (dev mode)</td></tr>
+      <tr><td>L / ⇧L</td><td>slide layout — writes the file (author mode)</td></tr>
+      <tr><td>Z / ⇧Z</td><td>undo / redo deck edits (author mode)</td></tr>
+      <tr><td>A</td><td>ask an AI agent to edit the deck (author mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
       <tr><td>?</td><td>this help</td></tr></table></div>`;
@@ -1671,7 +1671,7 @@ export function init(userConfig = {}) {
   instance.themePicker = { open: themes.openPicker, close: themes.closePicker };
   instance.generateTheme = rollTheme;                       // ⌃T, programmatic
   instance.cycleFont = cycleFont;                           // [ / ], programmatic (±1)
-  instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1); dev mode only
+  instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1); author mode only
   instance.layoutRing = layoutRing;                         // the ring a slide would cycle (skips applied)
   instance.toggleMessages = toggleMessages;                 // I, programmatic
   instance.messages = messages;                             // [{ at, text }] — every message shown
@@ -1710,7 +1710,7 @@ export function init(userConfig = {}) {
 
   // ── dev-server features (editmode.js) ────────────────────────────────────
   // Live reload, the notes editor, the phone remote, asking an agent, undo/redo
-  // and the R restore dialog — everything that needs `decklight edit` serving
+  // and the R restore dialog — everything that needs the edit server serving
   // the deck. Built here, last, because it wants the instance and narration's
   // notes segmentation; it registers its own three overlays.
   const editmode = createEditMode({

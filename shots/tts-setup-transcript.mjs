@@ -11,7 +11,7 @@
 //      test/helpers.mjs on PATH so the test synthesis runs without the 120 MB
 //      model — answering Enter to the engine question, Ctrl-C once the bridge
 //      is up;
-//   2. `decklight dev talk.html` in the same HOME right after: the saved
+//   2. `decklight author talk.html` in the same HOME right after: the saved
 //      config starts the voice with no questions asked;
 //   3. the same first-run command piped — proving non-TTY invocations keep
 //      today's error, never a prompt.
@@ -79,7 +79,7 @@ if (!/decklight tts bridge on http/.test(firstRun)) {
   throw new Error(`first run never reached the bridge:\n${firstRun}`);
 }
 
-// --- run 2: dev right after — voice up, no questions ---------------------------
+// --- run 2: author right after — voice up, no questions ------------------------
 
 fs.writeFileSync(path.join(home, 'talk.html'), `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"></head><body>
@@ -88,11 +88,11 @@ fs.writeFileSync(path.join(home, 'talk.html'), `<!doctype html>
 </body></html>
 `);
 spawnSync('git', ['init', '-q'], { cwd: home, env }); // no git question — the voice is the point
-const devRun = await pty(`node "${CLI}" dev talk.html`, home, [
+const devRun = await pty(`node "${CLI}" author talk.html`, home, [
   ['int', /decklight tts bridge on http/, '\x03'],
 ]);
 if (/set up live narration now\?/.test(devRun)) {
-  throw new Error(`dev asked again despite the saved config:\n${devRun}`);
+  throw new Error(`author asked again despite the saved config:\n${devRun}`);
 }
 fs.rmSync(home, { recursive: true, force: true });
 
@@ -100,7 +100,7 @@ fs.rmSync(home, { recursive: true, force: true });
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
-// the handful of sequences tts/dev actually emit: SGR colors, readline's
+// the handful of sequences tts/author actually emit: SGR colors, readline's
 // cursor jockeying (dropped), \r line discipline (normalized)
 function ansiToHtml(raw) {
   let s = raw.replace(/\r+\n/g, '\n').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n');
@@ -147,8 +147,8 @@ const html = `<!doctype html>
 </style></head><body>
 ${term('decklight tts — first run on a fresh machine: guided setup, one audible test synthesis, bridge up',
     `<span class="prompt">~ $</span> decklight tts\n${ansiToHtml(firstRun)}`)}
-${term('decklight dev right after — the saved config starts the voice with no questions asked',
-    `<span class="prompt">~ $</span> decklight dev talk.html\n${ansiToHtml(devRun)}`)}
+${term('decklight author right after — the saved config starts the voice with no questions asked',
+    `<span class="prompt">~ $</span> decklight author talk.html\n${ansiToHtml(devRun)}`)}
 ${term('the same first-run command piped — non-TTY never prompts, today’s error verbatim',
     `<span class="prompt">~ $</span> decklight tts | cat\n${esc(piped.stderr)}`)}
 </body></html>

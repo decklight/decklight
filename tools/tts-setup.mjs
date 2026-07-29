@@ -4,7 +4,7 @@
 // First-run TTS setup (SPEC PRESENTING): the guided questions that turn "gemini needs
 // a GCP project" from a dead end into a working voice. Both entry points share
 // it — `decklight tts` runs it where it used to exit with that error (and on
-// `--setup`), `decklight dev` offers it where it would otherwise skip the
+// `--setup`), `decklight author` offers it where it would otherwise skip the
 // voice bridge.
 //
 // The questions ARE the engines' error strings turned around: everything the
@@ -252,6 +252,6 @@ export async function runSetupWizard({
 
   // 4. only a config that has spoken gets saved
   const file = saveTtsConfig(config, env);
-  log(`  saved to ${file} — decklight tts and decklight dev read it from now on`);
+  log(`  saved to ${file} — decklight tts and decklight author read it from now on`);
   return { config, engine };
 }

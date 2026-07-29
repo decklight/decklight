@@ -418,7 +418,7 @@ export function createNarration({
   function liveFailure(err) {
     const s = String(err?.message ?? err);
     if (s.startsWith('429')) {
-      return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight dev --tts-engine chirp';
+      return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight author --tts-engine chirp';
     }
     if (/^\d{3}/.test(s)) {
       return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · press the key left of 1 for messages`;
