@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import {
   UNIT_TYPES, unitDir, unitPath, listUnits, findUnit, catalogEntries,
   catalogEntriesOfType, adapterFor, installUnit, removeUnit, UnitError,
+  installedVoices,
 } from '../cli/units.mjs';
 import { validateManifest, KNOWN_TYPES, INSTALL_HINT } from '../cli/marketplace.mjs';
 import { templateDeck, titleTemplate } from '../cli/init.mjs';
@@ -123,14 +124,94 @@ test('an unknown kind is accepted, not refused', () => {
   assert.ok(!KNOWN_TYPES.includes('hologram'));
 });
 
+// ── voices: a reference, never a payload (SPEC VOICE_UNITS) ────────────────
+
+test('a voice entry names an engine and one of its voices', () => {
+  const bad = validateManifest(JSON.stringify({
+    name: 'cat', entries: [{ name: 'anna', type: 'voice' }],
+  }, null, 2));
+  assert.equal(bad.ok, false);
+  assert.deepEqual(bad.errors.map((e) => e.field).sort(),
+    ['entries[0].engine', 'entries[0].voiceId']);
+
+  assert.ok(validateManifest(JSON.stringify({
+    name: 'cat', entries: [{ name: 'anna', type: 'voice', engine: 'elevenlabs', voiceId: 'v1' }],
+  })).ok);
+});
+
+test('a voice entry with a source is REFUSED — that is the whole enforcement', () => {
+  // The policy is a shape, not an attestation: `source` is the one field
+  // through which a cloned voice could arrive as bytes, so it does not exist
+  // for this kind. Ignoring it would still let a catalog carry a model that
+  // merely never loads.
+  const v = validateManifest(JSON.stringify({
+    name: 'cat',
+    entries: [{ name: 'anna', type: 'voice', engine: 'elevenlabs', voiceId: 'v1', source: 'voices/anna.onnx' }],
+  }, null, 2));
+  assert.equal(v.ok, false);
+  assert.equal(v.errors[0].field, 'entries[0].source');
+  assert.match(v.errors[0].msg, /does not carry one/);
+  assert.match(v.errors[0].msg, /VOICE_UNITS/);
+});
+
+test('installing a voice fetches NOTHING, and works with no network at all', async () => {
+  const m = market({
+    entries: [{
+      name: 'narrator-anna', type: 'voice', engine: 'elevenlabs',
+      voiceId: 'EXAVITQu4vr4xnSDxMaL', label: 'Anna', description: 'a calm narrator',
+    }],
+  });
+  try {
+    // fetchImpl throws on any call: the reference path must return before the
+    // fetch is REACHABLE, not merely skip it behind a flag.
+    const done = await installUnit('voice', 'narrator-anna', m.home, { fetchImpl: noNetwork });
+    assert.deepEqual(done.files, [], 'a voice install writes no artifact files');
+
+    const ref = JSON.parse(readFileSync(done.path, 'utf8'));
+    assert.equal(ref.engine, 'elevenlabs');
+    assert.equal(ref.voiceId, 'EXAVITQu4vr4xnSDxMaL');
+    assert.equal(ref.marketplace, 'cat', 'the pointer remembers where it came from');
+    assert.ok(!('source' in ref), 'nothing that looks like a payload survives into the library');
+    assert.equal(path.extname(done.path), '.json');
+  } finally { m.cleanup(); }
+});
+
+test('installed voices are offered only on the engine they name', () => {
+  const home = tmp('voices-home');
+  try {
+    mkdirSync(unitDir('voice', home), { recursive: true });
+    const put = (name, body) => writeFileSync(unitPath('voice', name, home), body);
+    put('anna', JSON.stringify({ name: 'anna', engine: 'elevenlabs', voiceId: 'v1', label: 'Anna', marketplace: 'cat' }));
+    put('bob', JSON.stringify({ name: 'bob', engine: 'gemini', voiceId: 'Puck' }));
+    put('broken', '{ not json');
+    put('idless', JSON.stringify({ name: 'idless', engine: 'elevenlabs' }));
+
+    const eleven = installedVoices('elevenlabs', home);
+    assert.deepEqual(eleven.map((v) => v.name), ['anna'],
+      'a reference is only an answer on the engine it names, and a broken pointer costs the roster nothing');
+    assert.equal(eleven[0].label, 'Anna');
+    assert.deepEqual(installedVoices('gemini', home).map((v) => v.label), ['bob'],
+      'a voice with no label falls back to its name');
+    assert.deepEqual(installedVoices('', home), []);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('voice add refuses a catalog entry of another kind, like every other unit', async () => {
+  const m = market();
+  try {
+    await assert.rejects(() => installUnit('voice', 'startup-pitch', m.home, { fetchImpl: noNetwork }),
+      (e) => e instanceof UnitError && /is a template, not a voice/.test(e.message));
+  } finally { m.cleanup(); }
+});
+
 test('every installable type has an install hint, and every hint a real command', () => {
   for (const type of Object.keys(UNIT_TYPES)) {
     assert.ok(INSTALL_HINT[type], `${type} needs a hint — marketplace list prints it`);
   }
   // The kinds with a null hint are real but installed elsewhere or not yet;
   // that distinction is the whole point of listing them at all.
-  assert.equal(INSTALL_HINT.voice, null, 'voices are held on OPEN 5 (likeness and consent)');
   assert.equal(INSTALL_HINT.transform, null, 'transforms are EXTENSIONS#TRANSFORMS');
+  assert.ok(INSTALL_HINT.voice, 'voices install now that VOICE_UNITS settled likeness and consent');
 });
 
 test('marketplace list groups entries by kind and names how to install each', () => {

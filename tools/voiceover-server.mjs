@@ -42,6 +42,7 @@ import { createEngine, ENGINES } from './tts-engines.mjs';
 import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
 import { argReader, isMain } from './args.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
+import { installedVoices } from '../cli/units.mjs';
 
 export async function ttsMain(args) {
   if (args.includes('--help')) {
@@ -121,9 +122,24 @@ export async function ttsMain(args) {
   // ElevenLabs' roster belongs to the account, so it is a network call, not a
   // constant. Cached inside the engine; this just picks whichever kind of
   // answer the live engine has.
-  const voiceRoster = async () => (engine.listVoices
-    ? (await engine.listVoices()).map((v) => [v.name, v.flavor])
-    : engine.voices);
+  // Installed marketplace voices are references, not audio (SPEC VOICE_UNITS):
+  // the library holds `{engine, voiceId}` and the engine does the speaking. Read
+  // once at startup — the library is a local directory the presenter edits with
+  // a CLI, not something that changes under a running bridge.
+  //
+  // The picker offers the human-readable name, so the id it stands for has to be
+  // put back before synth; that resolution lives HERE, next to the merge that
+  // made the name offerable, rather than in each engine — an engine that had to
+  // know about the unit library would be an engine that could no longer be
+  // tested without one.
+  const refs = installedVoices(engine.name);
+  const refIds = new Map(refs.map((r) => [r.label, r.voiceId]));
+  if (refs.length) console.log(`  voices: +${refs.length} installed (decklight voice list)`);
+
+  const voiceRoster = async () => [
+    ...(engine.listVoices ? (await engine.listVoices()).map((v) => [v.name, v.flavor]) : engine.voices),
+    ...refs.map((r) => [r.label, r.marketplace ?? 'installed']),
+  ];
 
   const cache = new Map();
 
@@ -156,8 +172,9 @@ export async function ttsMain(args) {
     }
     if (req.method === 'POST' && req.url === '/tts') {
       try {
-        const { text, voice, style } = JSON.parse((await readBody(req)).toString());
+        const { text, voice: picked, style } = JSON.parse((await readBody(req)).toString());
         if (!text?.trim()) { res.writeHead(400, CORS); return res.end('no text'); }
+        const voice = refIds.get(picked) ?? picked;
         // NUL joins the fields so they cannot run together (a style ending in a
         // space and a text starting with one must not hash like their neighbours)
         // — but written as an ESCAPE, not a raw byte. This file used to carry
@@ -167,7 +184,7 @@ export async function ttsMain(args) {
           .update([engine.name, voice, style, text].join('\u0000')).digest('hex');
         const fresh = !cache.has(key);
         if (fresh) {
-          process.stdout.write(`  ${engine.name} ${voice}: ${text.length} chars … `);
+          process.stdout.write(`  ${engine.name} ${picked}: ${text.length} chars … `);
           const t0 = Date.now();
           cache.set(key, await engine.synth(text, { voice, style }));
           const u = cache.get(key).usage;
