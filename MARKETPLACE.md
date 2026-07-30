@@ -90,7 +90,17 @@ safe way to play a deck you did not author.
   own library — so the deck is unchanged and the plugin is theirs. Scope is
   **chrome only** (timer, teleprompter, ink extras, confidence monitor); a
   plugin may not transform slide content, or a deck stops being a deterministic
-  artifact.
+  artifact. **Shipped as `PRESENT#PLUGINS`, and the enforcement is structural
+  rather than a rule**: a plugin's code runs in `<iframe sandbox="allow-scripts"
+  srcdoc=…>` with no `allow-same-origin`, so it holds an opaque origin and
+  `parent.document` throws. The closed manifest vocabulary and the source lint
+  sit in front of that and are worth having, but neither is load-bearing —
+  they only ever meet a plugin whose author declared what they were doing, and
+  the test that matters smuggles a hostile one past both. Notes reach a plugin
+  only when it declared `needs: ["notes"]`, because a teleprompter is in-scope
+  chrome and a teleprompter without the deck's notes is a text box; reading is
+  not transforming, and the declaration is what keeps a timer from quietly
+  receiving the talk.
 - **It reports an inventory, never a verdict.** "3 script blocks: runtime 0.3.0
   ✔, 2 unaccounted" — not a green checkmark. The scan is heuristic; a defeatable
   verdict manufactures confidence the mechanism cannot back.
@@ -497,3 +507,13 @@ before 0.3.0 ships to npm.
 10. ~~Does the system-voice adapter (#156) stay in core~~ — **resolved: yes**
     (ENGINES). First-`V`-offline still speaks; the wizard upsells rather than
     gates.
+11. ~~What a presenter plugin is MADE of~~ — **resolved: a declarative
+    `plugin.json` plus a `plugin.js` that runs in a sandboxed `srcdoc` frame**
+    (PRESENT#PLUGINS). The wizard's answer — core renders, a plugin only
+    declares — does not stretch this far: a teleprompter has real logic, and a
+    vocabulary rich enough to express one would be a rendering language with a
+    plugin API hidden in it. So a plugin gets real code and is put somewhere it
+    cannot do harm, rather than being denied code and trusted. The frame's
+    opaque origin is the boundary; the manifest vocabulary stays closed on top
+    of it, because "chrome only" also has to mean "not covering the slides",
+    and that part IS expressible as a declaration.
