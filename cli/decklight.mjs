@@ -16,6 +16,8 @@
  *   decklight publish  bundle a deck and push it to a gh-pages branch
  *   decklight marketplace  register catalogs of themes, templates, skills and engines
  *   decklight plugin   install your own presenter chrome (timer, teleprompter) — never enters a deck
+ *   decklight template install deck templates for `init --from`
+ *   decklight importer install import adapters for formats decklight cannot read itself
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
  *   decklight video    render a deck to a narrated mp4 (stills + voiceover audio)
@@ -68,6 +70,10 @@ Commands:
   plugin   install presenter chrome into YOUR library — present loads it, bundle never does
            EXAMPLE: decklight plugin add timer      (then: decklight present talk.html)
            EXAMPLE: decklight plugin list           (says which ones read your speaker notes)
+  template install deck templates from a marketplace — scaffold with: decklight init --from <name>
+           EXAMPLE: decklight template add startup-pitch
+  importer install an import adapter for a format decklight cannot read itself
+           EXAMPLE: decklight importer add marp-import   (import names it when it meets a .marp)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
   lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)
@@ -194,6 +200,13 @@ switch (cmd) {
   case 'plugin': {
     const { pluginMain } = await import('./plugin.mjs');
     process.exitCode = await pluginMain(rest);
+    break;
+  }
+  // Two rows of the same table (UNITS#REST) — one implementation, in units.mjs.
+  case 'template':
+  case 'importer': {
+    const { unitMain } = await import('./units.mjs');
+    process.exitCode = await unitMain(cmd, rest);
     break;
   }
   case 'tts': {

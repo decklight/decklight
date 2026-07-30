@@ -248,8 +248,12 @@ test('add a local repo, list both catalogs offline with qualified names', () => 
 
   const list = run(home, 'list');
   assert.match(list.stdout, /registered, not fetched/, 'first-party still not fetched');
-  assert.match(list.stdout, /nord-deep@nord-pack {2}theme — deep blues/);
-  assert.match(list.stdout, /frost@nord-pack {2}theme/);
+  // Entries are grouped under their KIND, with the install command for that
+  // kind on the heading (UNITS#REST) — what you can do with an entry depends
+  // entirely on what kind it is, and a flat list of names hides that.
+  assert.match(list.stdout, /^ {2}theme {2}— {2}decklight theme add/m);
+  assert.match(list.stdout, /^ {4}nord-deep@nord-pack — deep blues$/m);
+  assert.match(list.stdout, /^ {4}frost@nord-pack$/m);
 });
 
 test('a malformed manifest fails add naming line and field — no stack trace', () => {

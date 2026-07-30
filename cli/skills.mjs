@@ -74,6 +74,7 @@ const HELP = `decklight skills — install the Decklight authoring skill for AI 
 
 Usage:
   decklight skills [agent…] [--dir path | --global] [--all] [--force]
+  decklight skills add|list|remove <name>       marketplace skills
 
 Agents:
 ${Object.entries(TARGETS).map(([k, t]) => `  ${k.padEnd(9)} ${t.label}`).join('\n')}
@@ -100,6 +101,11 @@ Claude Code gets a real skill (.claude/skills/decklight/); Codex, OpenCode
 and IBM Bob get a marked section in AGENTS.md. Both point at a reference
 sliced from this version's SPEC.md, so the contract never drifts from the
 installed runtime.
+
+Marketplace skills (decklight skills add <name>) are a different thing and
+live somewhere else — ~/.decklight/skills/ — so they sit ALONGSIDE the
+authoring skill above and never replace it. The command above always writes
+the authoring skill; nothing installed from a catalog changes that.
 `;
 
 /** The agents found on PATH, in roster order (empty when none is). */
@@ -244,7 +250,25 @@ export function packSkill() {
   ]);
 }
 
+/**
+ * `add`, `list` and `remove` are marketplace skills (`UNITS#REST`); every
+ * other positional is an agent name. They share this command because they
+ * are the same subject — a skill — and a separate `decklight skill` beside
+ * `decklight skills` would be a footgun that reads as a typo either way.
+ *
+ * Unambiguous in practice: the agent roster is a closed set of nouns
+ * (`claude`, `codex`, …) and these are verbs, so no name can be both. A
+ * future agent called "list" would collide, and the roster is ours.
+ */
+const UNIT_SUBCOMMANDS = new Set(['add', 'list', 'remove']);
+
 export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath, env = process.env } = {}) {
+  if (UNIT_SUBCOMMANDS.has(argv[0])) {
+    const { unitMain } = await import('./units.mjs');
+    const code = await unitMain('skill', argv);
+    if (code) process.exitCode = code;
+    return;
+  }
   if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(HELP);
     process.exit(0);

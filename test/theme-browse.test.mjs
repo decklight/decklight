@@ -53,7 +53,10 @@ function marketplace() {
     entries: [
       { name: 'nord-deep', type: 'theme', source: './themes/nord-deep.css', description: 'deep blues' },
       { name: 'broken', type: 'theme', source: './themes/broken.css' },
-      { name: 'marp', type: 'importer', source: './marp.mjs' },
+      // A non-theme entry, here to prove Browse filters it out. `extensions`
+      // is required of an importer since UNITS#REST — it is what lets
+      // `decklight import` name an adapter from the cache, offline.
+      { name: 'marp', type: 'importer', source: './marp', extensions: ['.marp'] },
     ],
   }, null, 2));
   return repo;

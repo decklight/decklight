@@ -267,6 +267,30 @@ homage theme packs, voices and casts.
 (migration must work offline), charts and math (SPEC contracts — `data-chart`
 must mean one thing in every install), the base authoring skill.
 
+**Shipped as `UNITS#REST`:** deck templates, agent skills and import adapters,
+over one install seam (`cli/units.mjs`) with a per-kind row rather than three
+commands that each grew their own resolve-fetch-validate-write. A kind may
+declare extra required manifest fields — `importer` must declare `extensions`,
+because naming the adapter for a `.marp` at the point of failure has to work
+from the cache — while an *unknown* kind is accepted rather than refused, since
+a catalog written against a newer decklight must not become un-addable.
+
+Three of that list are deliberately still out:
+
+- **Voices** wait on `OPEN` 5. The mechanism is easy and the policy is not: a
+  marketplace distributing cloned voices distributes someone's likeness, and no
+  lint catches that. Shipping the install path first would settle the question
+  by default, in the direction nobody argued for.
+- **Publish targets** are an `ENGINES#WIZARD` consumer, not a new seam —
+  gh-pages stays core (git auth, no credential), and Netlify/Vercel/S3 arrive
+  as engines with a token through the wizard flow that already exists.
+- **Running** an installed import adapter is `EXTENSIONS#TRANSFORMS`. An
+  adapter is Node code at author privilege, which is the same capability and
+  the same unanswered compat-range question (`OPEN` 2) — a loader here would
+  answer it in a second place and leave two answers to reconcile. So an adapter
+  installs, `importer list` shows it, and `import` says out loud why it is not
+  being used.
+
 **On themes specifically.** All 62 are **284K against 1.7M of `dist/`**, and
 `bundle` already inlines only the themes a deck actually carries. Moving them
 out shrinks a distributed deck by exactly zero while costing the first-run `T`
