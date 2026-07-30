@@ -51,7 +51,7 @@ export const INSTALL_HINT = {
   importer: 'decklight importer add <name>',
   engine: null,          // ENGINES#WIZARD installs one at the moment of need
   transform: null,       // EXTENSIONS#TRANSFORMS
-  voice: null,           // held: OPEN 5, likeness and consent
+  voice: 'decklight voice add <name>',
   'publish-target': null,
 };
 
@@ -212,7 +212,37 @@ const ENTRY_SHAPES = {
       ? null
       : 'must be a non-empty array of file extensions the adapter reads, e.g. [".marp"]'),
   },
+  // A voice entry is a POINTER (SPEC VOICE_UNITS): which engine, and which of
+  // that engine's voices. Both are needed for the roster to be filtered to the
+  // engine actually running — a reference to an ElevenLabs voice is not an
+  // answer when the bridge is speaking piper.
+  voice: {
+    engine: (v) => (typeof v === 'string' && /^[a-z][a-z0-9-]*$/.test(v)
+      ? null
+      : 'must name the TTS engine the voice belongs to, e.g. "elevenlabs"'),
+    voiceId: (v) => (typeof v === 'string' && v.trim()
+      ? null
+      : "must be the engine's own identifier for the voice"),
+  },
 };
+
+/**
+ * Kinds that NAME a thing rather than carrying it (SPEC VOICE_UNITS).
+ *
+ * A voice is distributed as a reference and never as a payload — no model
+ * weights, no sample audio, nothing that reproduces a person offline. The
+ * enforcement is this set, and it works by SUBTRACTION: an entry listed here
+ * has no `source`, so the code path that fetches bytes is never entered and
+ * there is no field through which a cloned voice could arrive.
+ *
+ * That is deliberately a shape, not an attestation. A `consent: true` field
+ * would be one boolean an uploader types and nobody can check — the same
+ * defeatable green mark the ingredients label refuses to print (SPEC
+ * PRESENTING). Distributing only references puts the consent relationship
+ * where it can actually be enforced and revoked: the provider account whose
+ * terms governed the cloning, and which can unshare the voice.
+ */
+export const REFERENCE_ONLY = new Set(['voice']);
 
 function shapeErrors(entry, p, err) {
   const shape = ENTRY_SHAPES[entry.type];
@@ -267,8 +297,17 @@ export function validateManifest(raw) {
       else if (typeof entry.type !== 'string' || !/^[a-z][a-z0-9-]*$/.test(entry.type)) {
         err(`${p}.type`, `${JSON.stringify(entry.type)} — a lowercase word (theme, template, skill, importer, engine, transform, …)`);
       } else shapeErrors(entry, p, err);
-      if (entry.source === undefined) err(`${p}.source`, 'missing — the repo-relative path or URL the entry is fetched from');
-      else if (typeof entry.source !== 'string' || !entry.source) err(`${p}.source`, 'must be a non-empty string');
+      if (REFERENCE_ONLY.has(entry.type)) {
+        // Refused, not ignored. A `source` on a reference-only entry is the one
+        // field through which a voice could arrive as bytes, and an ignored
+        // field would let a catalog carry a model that merely never loads.
+        if (entry.source !== undefined) {
+          err(`${p}.source`, `a ${entry.type} entry names a ${entry.type}, it does not carry one`
+            + ' — no source, no model, no sample (SPEC VOICE_UNITS)');
+        }
+      } else if (entry.source === undefined) {
+        err(`${p}.source`, 'missing — the repo-relative path or URL the entry is fetched from');
+      } else if (typeof entry.source !== 'string' || !entry.source) err(`${p}.source`, 'must be a non-empty string');
       if (entry.description !== undefined && typeof entry.description !== 'string') {
         err(`${p}.description`, 'must be a string');
       }

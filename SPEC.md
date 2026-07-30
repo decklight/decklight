@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -551,7 +551,8 @@ manifest names the catalog and its entries:
 
 `name` and each entry's `name`/`type`/`source` are required (`description`
 optional; versions and compat ranges arrive with code-carrying extensions —
-versions for code, none for data). A malformed manifest is refused **naming the
+versions for code, none for data). The one exception is a reference-only kind,
+which carries no `source` because it carries nothing at all — see `VOICE_UNITS`. A malformed manifest is refused **naming the
 line and the field** (`line 7: entries[1].type — missing`), never with a stack
 trace — a typo in somebody's catalog is not an internal error.
 
@@ -587,10 +588,10 @@ state: `list` reads only the cache, and a fetch failure is fast and names the
 marketplace and the reason — no spinner, no hang.
 
 **The unit library** (`UNITS#REST`) is where the installable kinds land:
-`~/.decklight/templates/`, `.../skills/`, `.../importers/`, beside the
-`plugins/` that `PRESENT#PLUGINS` writes. One seam installs all of them
-(`decklight template|importer add`, `decklight skills add`), and each is used
-by the command that needs it. **`decklight init --from <name>` scaffolds from
+`~/.decklight/templates/`, `.../skills/`, `.../importers/`, `.../voices/`,
+beside the `plugins/` that `PRESENT#PLUGINS` writes. One seam installs all of
+them (`decklight template|importer|voice add`, `decklight skills add`), and
+each is used by the command that needs it. **`decklight init --from <name>` scaffolds from
 an installed template** — replacing only its `<title>` and first `<h1>`, so a
 template is a deck and not a program — and a name that is not installed is met
 with the install command rather than a download: `init` is the first command
@@ -603,6 +604,44 @@ adapter that reads `.marp` and how to get it, which is the ENGINES pattern
 advance. Installing an adapter does not yet make it *run*: executing a
 marketplace module is `EXTENSIONS#TRANSFORMS`, and until that lands `import`
 says so plainly instead of failing in a way that reads like a bug.
+
+### VOICE_UNITS — Voices: a reference, never a payload
+
+A marketplace distributes voices as **references**. A `voice` entry names an
+engine and one of that engine's own voice identifiers — `{ "name":
+"narrator-anna", "type": "voice", "engine": "elevenlabs", "voiceId": "…" }` —
+and carries no `source`. There are no model weights, no sample audio, and
+nothing else that could reproduce a person's voice on a machine that never
+asked. `decklight voice add` therefore fetches nothing at all: it writes the
+pointer it already had in the catalog cache, which makes it the one install
+that works offline, and speaking through it still needs that engine and the
+installer's own credential.
+
+**The rule is enforced by subtraction.** A `source` on a `voice` entry is
+*refused*, not ignored, so the field through which bytes would arrive does not
+exist — the same shape as the runtime having no plugin system rather than a
+disabled one (NON_GOALS). An ignored field would still let a catalog carry a
+model that merely never loads.
+
+**There is deliberately no consent attestation.** A `consent: true` field would
+be one boolean an uploader types and no one can verify, and printing it back
+would manufacture exactly the confidence the ingredients label refuses to
+manufacture (PRESENTING: an inventory, never a verdict). Distributing only
+references puts the consent relationship where it can actually be held and
+withdrawn: a cloned voice lives in a provider account under terms that governed
+the cloning, it is useless to anyone the owner has not shared it with, and
+unsharing it revokes every reference at once — which no file, once downloaded,
+can be made to do.
+
+**The limit, stated rather than papered over:** this does not stop a catalog
+naming a voice after a person, or pointing at a provider voice that imitates
+one. What it stops is decklight becoming the thing that *hands out the
+likeness*. The rest is the provider's terms and the marketplace's own tier
+(first-party vetted, community screened, third-party unreviewed) — the same
+place every other unreviewable claim about a catalog entry already lives.
+
+Piper voice models are unaffected and stay what they were: downloads offered by
+the engine when a model is missing, not marketplace units.
 
 Entry names are qualified `name@marketplace`. A bare name resolves only while
 it exists in exactly one registered marketplace; the same bare name in two is
@@ -626,7 +665,7 @@ decklight/
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
-  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/theme/import/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides → deck, JS_API), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), units.mjs (install templates/skills/importers into the unit library), plugin.mjs (presenter chrome, PRESENT#PLUGINS), edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
+  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/theme/import/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides → deck, JS_API), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), units.mjs (install templates/skills/importers/voices into the unit library), plugin.mjs (presenter chrome, PRESENT#PLUGINS), edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
   tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        30 × <name>.css + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css

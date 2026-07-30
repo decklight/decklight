@@ -52,6 +52,7 @@ export const UNIT_TYPES = {
     single: 'html',
     label: 'deck template',
     use: 'decklight init --from <name>',
+    example: 'startup-pitch',
     required: [],
   },
   skill: {
@@ -60,6 +61,7 @@ export const UNIT_TYPES = {
     optional: ['reference.md'],
     label: 'agent skill',
     use: 'decklight skills add <name>',
+    example: 'conference-cfp',
     required: [],
   },
   importer: {
@@ -67,7 +69,25 @@ export const UNIT_TYPES = {
     files: ['importer.mjs'],
     label: 'import adapter',
     use: 'decklight import <file>',
+    example: 'marp-import',
     required: ['extensions'],
+  },
+  // The one kind that carries NOTHING. `reference: true` means the install is
+  // the catalog entry itself, written to disk as a pointer — no source to
+  // resolve, no bytes to fetch (SPEC VOICE_UNITS). Two consequences fall out
+  // of that and both are the point: `voice add` is the only add that works
+  // OFFLINE, and there is no code path by which a voice model could land in
+  // the library, because the fetch is not skipped conditionally — it is not
+  // reachable.
+  voice: {
+    dir: 'voices',
+    single: 'json',
+    reference: true,
+    label: 'voice',
+    use: 'the N picker, author mode',
+    example: 'narrator-anna',
+    note: 'A voice is a REFERENCE — which engine, which of its voices. Installing\n  one writes a pointer and fetches nothing, so this is the one add that works\n  offline; speaking through it still needs that engine and your own credential.',
+    required: ['engine', 'voiceId'],
   },
 };
 
@@ -154,6 +174,29 @@ export function adapterFor(ext, home = configHome()) {
     (e.extensions ?? []).some((x) => String(x).toLowerCase().replace(/^\.?/, '.') === want)) ?? null;
 }
 
+/**
+ * Installed voice references for one engine (SPEC VOICE_UNITS).
+ *
+ * Filtered by engine because a reference is only an answer on the engine it
+ * names: an ElevenLabs voice id means nothing to piper, and offering it while
+ * piper is live would put a row in the picker that can only fail. Unreadable
+ * or half-written files are skipped rather than thrown — one bad pointer must
+ * not cost the roster the bridge is otherwise able to report.
+ */
+export function installedVoices(engine, home = configHome()) {
+  const want = String(engine ?? '').toLowerCase();
+  if (!want) return [];
+  const out = [];
+  for (const { name, path } of listUnits('voice', home)) {
+    let ref;
+    try { ref = JSON.parse(readFileSync(path, 'utf8')); } catch { continue; }
+    if (String(ref?.engine ?? '').toLowerCase() !== want) continue;
+    if (!ref.voiceId) continue;
+    out.push({ name, voiceId: String(ref.voiceId), label: ref.label || name, marketplace: ref.marketplace });
+  }
+  return out;
+}
+
 // ── installing, the one place that reaches the network ─────────────────────
 
 /** Read one artifact file from a resolved source (a URL or a local path). */
@@ -207,6 +250,16 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
       + `${UNIT_TYPES[hit.entry.type] ? ` — try: decklight ${hit.entry.type} add ${ref}` : ''}`);
   }
 
+  // A reference-only kind is fully installed by the catalog entry it resolved
+  // to: write the pointer and return, before anything can be fetched.
+  if (t.reference) {
+    const dest = unitPath(type, hit.entry.name, home);
+    const { name, type: _t, source: _s, ...rest } = hit.entry;
+    mkdirSync(unitDir(type, home), { recursive: true });
+    writeFileSync(dest, `${JSON.stringify({ name, ...rest, marketplace: hit.marketplace }, null, 2)}\n`);
+    return { name, qualified: hit.qualified, entry: hit.entry, path: dest, files: [] };
+  }
+
   const { resolveSource } = await import('./theme.mjs');
   const base = resolveSource(hit.entry.source, reg.marketplaces[hit.marketplace]?.source);
 
@@ -248,7 +301,7 @@ export const unitUsage = (type) => {
 
   decklight ${type} add <name[@marketplace]>
     install a ${t.label} from a registered marketplace into ~/.decklight/${t.dir}/
-    EXAMPLE: decklight ${type} add ${type === 'importer' ? 'marp-import' : 'startup-pitch'}
+    EXAMPLE: decklight ${type} add ${t.example}${t.note ? `\n\n  ${t.note}` : ''}
 
   decklight ${type} list
     what is installed, and what the registered catalogs offer that is not
