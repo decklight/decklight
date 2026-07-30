@@ -2,14 +2,18 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Evidence for `decklight author --remote` (issue #115). Nothing changes in the
-// browser, so the shot is the CLI surface itself: this script starts a REAL
-// `decklight author deck.html --remote`, waits for it to print the LAN URL with
-// the per-run token, then curls the server FROM ITS LAN ADDRESS — the /edit
-// mutation comes back 403 while the same request over loopback lands — and
-// renders the captured transcript as a terminal window for tools/shot.mjs.
+// Evidence for `decklight present --remote` (PRESENT#REMOTE). Nothing changes
+// in the browser, so the shot is the CLI surface itself: this script starts a
+// REAL `decklight present deck.html --remote`, waits for it to print the LAN URL
+// with the per-run token, then curls the server FROM ITS LAN ADDRESS — the deck
+// itself comes back 403 while the same request over loopback lands — and renders
+// the captured transcript as a terminal window for tools/shot.mjs.
 //
-//   node shots/dev-remote-transcript.mjs        → .shots/dev-remote.png
+// It used to shoot `author --remote`, which is where the remote lived until the
+// clicker stopped costing an editing server on the LAN. There is no `/edit/*` to
+// refuse here: the seam is that `--remote` widens the LISTENER and nothing else.
+//
+//   node shots/present-remote-transcript.mjs    → .shots/present-remote.png
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -17,7 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { lanAddress } from '../cli/edit.mjs';
+import { lanAddress } from '../cli/serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -35,7 +39,7 @@ fs.writeFileSync(path.join(dir, 'deck.html'), `<!doctype html>
 
 // --- run the real command, keep the real output --------------------------------
 
-const dev = spawn('node', [CLI, 'author', 'deck.html', '--remote', '--no-git'], {
+const dev = spawn('node', [CLI, 'present', 'deck.html', '--remote'], {
   cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';
@@ -51,17 +55,16 @@ const until = async (re, ms = 10000) => {
   return out.match(re);
 };
 
-const [, port] = await until(/decklight author on http:\/\/127\.0\.0\.1:(\d+)/);
-const [, token] = await until(/\/remote\?t=([A-Za-z0-9_-]+)/);
-await until(/Ctrl-C stops everything/);
+const [, port] = await until(/http:\/\/127\.0\.0\.1:(\d+)/);
+await until(/\/remote\?t=([A-Za-z0-9_-]+)/);
 await new Promise((r) => setTimeout(r, 300));
 
 const curl = (...args) => spawnSync('curl', ['-si', '--max-time', '5', ...args], { encoding: 'utf8' }).stdout
   .split('\n').filter((l) => /^(HTTP\/|forbidden|\{)/.test(l)).join('\n').trim();
 
-const lanRefused = curl('-X', 'POST', `http://${lan}:${port}/edit/notes`,
-  '-H', 'content-type: application/json', '-d', '{"slide":1,"text":"pwned from the LAN"}');
-const loopbackOk = curl(`http://127.0.0.1:${port}/edit/ping`);
+// The seam: off this machine only /remote/* answers. The deck is not /remote/*.
+const lanRefused = curl(`http://${lan}:${port}/deck.html`);
+const loopbackOk = curl(`http://127.0.0.1:${port}/present/ping`);
 
 dev.kill('SIGINT');
 await new Promise((r) => dev.on('exit', r));
@@ -74,6 +77,7 @@ const paintDev = (s) => esc(s)
   .replace(/^(deck ⁠?\s*)/gm, '<span class="tag">deck </span>')
   .replace(/(http:\/\/[\d.]+:\d+\/remote\?t=[\w-]+)/g, '<a class="url">$1</a>')
   .replace(/^(<span class="tag">deck <\/span>\s+remote:.*)$/gm, '<span class="ok">$1</span>')
+  .replace(/^(.*ONLY \/remote\/\* answers.*)$/gm, '<span class="hint">$1</span>')
   .replace(/^(<span class="tag">deck <\/span>\s+off this machine.*)$/gm, '<span class="hint">$1</span>');
 const paintCurl = (s) => esc(s)
   .replace(/^(HTTP\/1\.1 403.*)$/gm, '<span class="bad">$1</span>')
@@ -81,7 +85,7 @@ const paintCurl = (s) => esc(s)
 const block = (cmd, body) => `<div class="run"><span class="prompt">~/talk $</span> ${esc(cmd)}\n${body}</div>`;
 
 const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>decklight author --remote</title><style>
+<html lang="en"><head><meta charset="utf-8"><title>decklight present --remote</title><style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          background: linear-gradient(135deg, #1b2735, #090a0f); }
   .term { width: 1120px; background: #10141b; border-radius: 12px;
@@ -101,18 +105,18 @@ const html = `<!doctype html>
 </style></head><body>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-    <span class="t">decklight author --remote — LAN listener + per-run token; /edit/* stays loopback-only</span></div>
-  <div class="body">${block('decklight author deck.html --remote', paintDev(out.trimEnd()))}
-${block(`curl -X POST http://${lan}:${port}/edit/notes -d '…'   # a mutation, from the LAN`, paintCurl(lanRefused))}
-${block(`curl http://127.0.0.1:${port}/edit/ping                   # the same server, over loopback`, paintCurl(loopbackOk))}</div>
+    <span class="t">decklight present --remote — LAN listener + per-run token; only /remote/* answers off this machine</span></div>
+  <div class="body">${block('decklight present deck.html --remote', paintDev(out.trimEnd()))}
+${block(`curl http://${lan}:${port}/deck.html                   # the deck itself, from the LAN`, paintCurl(lanRefused))}
+${block(`curl http://127.0.0.1:${port}/present/ping             # the same server, over loopback`, paintCurl(loopbackOk))}</div>
 </div>
 </body></html>
 `;
 
-const page = path.join(root, '.shots', 'dev-remote-transcript.html');
+const page = path.join(root, '.shots', 'present-remote-transcript.html');
 fs.mkdirSync(path.dirname(page), { recursive: true });
 fs.writeFileSync(page, html);
 execFileSync('node', [path.join(root, 'tools', 'shot.mjs'), page,
-  '-o', path.join(root, '.shots', 'dev-remote.png'), '--size', '1280x860', '--wait', '800'],
+  '-o', path.join(root, '.shots', 'present-remote.png'), '--size', '1280x860', '--wait', '800'],
   { stdio: 'inherit' });
 fs.rmSync(page, { force: true });

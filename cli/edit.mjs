@@ -8,7 +8,11 @@
 //
 //   node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
 //                     [--commit-every <seconds>] [--agent <name>]
-//                     [--remote] [--host <addr>]
+//
+// It binds 127.0.0.1 and nothing else. The phone remote used to be here behind
+// `--remote`, which meant a clicker cost you an editing server on the LAN;
+// `decklight present --remote` hosts it now, with no edit surface to widen
+// (PRESENT#REMOTE). Both flags are refused out loud rather than ignored.
 //
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
@@ -41,29 +45,27 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { resolve, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { agentCommand, detectAgents } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
 import { corsHeaders } from '../tools/bridge.mjs';
 import { deckHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
-import { allowRemote, escapeHtml, lanAddress, sseChannel, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
-import { createRemoteRelay } from './remote.mjs';
+import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, CONFIGURED, UNREACHABLE } from './wizard.mjs';
 
 // file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
-// exactly like the tts bridge — so the endpoints are CORS-open. The server
-// binds 127.0.0.1 only, unless --remote/--host opts it onto the LAN — and
-// even then allowRemote (below) keeps the editing surface loopback-only.
+// exactly like the tts bridge — so the endpoints are CORS-open. CORS-open is
+// safe because the LISTENER is not: this server binds 127.0.0.1 and has no flag
+// that widens it, so there is no off-machine caller for a header to have to
+// refuse.
 const CORS = corsHeaders();
 
 // ── remote access & static serving: extracted to serve.mjs / remote.mjs ────
 // (PRESENT_SERVER in MARKETPLACE.md: `decklight present` reuses the same core
 // with the /edit/* routes ABSENT, not merely refused.) Re-exported here so
 // existing importers — the tests, init.mjs — and SPEC citations keep working.
-export { isLoopback, allowRemote, lanAddress, escapeHtml } from './serve.mjs';
-export { remoteControllerHtml } from './remote.mjs';
+export { isLoopback, lanAddress, escapeHtml } from './serve.mjs';
 
 /** ⟨CLICK⟩-separated plain text → the aside's inner HTML (one <p> per segment). */
 export function notesTextToAside(text) {
@@ -144,7 +146,6 @@ export async function editMain(args) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
                       [--commit-every <seconds>] [--agent <name>]
-                      [--remote] [--host <addr>]
   serves the cwd, live-reloads the deck on change, and accepts edits from the
   player: notes (E), per-slide layout (L/⇧L), undo/redo (Z/⇧Z), agent asks (A)
   a taken --port offers to take over that session (on a TTY) or moves on to
@@ -155,19 +156,26 @@ export async function editMain(args) {
   --git-mode M     when to commit: timer (a cadence), agent (one commit per
                    agent edit, with the agent's own message), off      [timer]
   --agent <name>   preferred AI agent for A (default: first one detected)
-  --remote         also listen on the LAN for the phone remote — off this
-                   machine only /remote/* answers, and only with the printed
-                   per-run token; /edit/* stays loopback-only regardless
-  --host <addr>    the address --remote binds                       [0.0.0.0]`);
+  the server binds 127.0.0.1 only; for a phone remote use decklight present`);
     return;
   }
   const { opt } = argReader(args);
   const port = Number(opt('--port', 8788));
-  // --remote (or a chosen --host) opts the listener onto the LAN; the token
-  // is per-run and random — the value the /remote?t= URL carries (#39c)
-  const remote = args.includes('--remote') || opt('--host') !== undefined;
-  const host = remote ? opt('--host', '0.0.0.0') : '127.0.0.1';
-  const token = remote ? randomBytes(16).toString('base64url') : null;
+  // Refused out loud, not ignored (PRESENT#REMOTE). Someone typing --remote
+  // wants a clicker; silently binding loopback would leave them holding a phone
+  // that never connects and no idea why. `present` is where the remote went,
+  // and the reason it went is worth saying at the moment it is asked for.
+  const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
+  if (gone.length) {
+    console.error(`author no longer takes ${gone.join(' or ')} — the phone remote moved to \`decklight present\`.`);
+    console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
+    console.error('  /edit/agent were reachable from the same run you were not watching. present has no edit');
+    console.error('  surface to widen, so that is where it lives.');
+    console.error(`\n  decklight present ${args.find((a) => !a.startsWith('-')) ?? '<deck.html>'} --remote`);
+    process.exitCode = 2;
+    return;
+  }
+  const host = '127.0.0.1';
   const root = process.cwd();
   const deckPath = resolve(root, args.find((a) => !a.startsWith('-')));
   if (!existsSync(deckPath)) { console.error(`deck not found: ${deckPath}`); process.exitCode = 1; return; }
@@ -318,16 +326,6 @@ export async function editMain(args) {
     return j?.ok === true;
   };
 
-  // ── the phone remote (#39) — the relay lives in remote.mjs ──────────────
-  let actualPort = null;            // filled in once we know what we bound
-  const relay = createRemoteRelay({
-    deckName: basename(deckPath),
-    token,
-    remoteUrl: () => `http://${lanAddress() ?? host}:${actualPort}/remote?t=${token}`,
-    relayToDeck: broadcast,
-    deckCount: () => clients.size,
-    CORS,
-  });
   let pending = null;
   watch(deckPath, () => {
     clearTimeout(pending);
@@ -389,13 +387,10 @@ export async function editMain(args) {
   const files = staticFiles(root, { index: deckUrl });
   const server = createServer(async (req, res) => {
     try {
-      // the security seam: off-loopback callers only ever reach /remote/*
-      // (with the token) — /edit/* and the static files answer loopback only
-      if (!allowRemote(req, token)) {
-        console.log(`  refused off-loopback: ${req.method} ${req.url} from ${req.socket.remoteAddress}`);
-        res.writeHead(403, { ...CORS, 'content-type': 'text/plain' });
-        return res.end('forbidden: /edit/* answers loopback only; off this machine use /remote/* with the session token');
-      }
+      // No off-loopback classifier here: the listener is bound to 127.0.0.1,
+      // so there is no such caller to classify. That is the enforcement — a
+      // check would only be reachable if someone had first widened the bind,
+      // which is the change this file no longer offers (PRESENT#REMOTE).
       const url = new URL(req.url, 'http://x');
       const json = (code, obj) => {
         res.writeHead(code, { ...CORS, 'content-type': 'application/json' });
@@ -405,8 +400,6 @@ export async function editMain(args) {
       if (req.method === 'GET' && url.pathname === '/edit/ping') {
         return json(200, {
           ok: true, deck: deckUrl, name: basename(deckPath),
-          // the speaker view only offers the QR when there is a LAN URL to scan
-          remote: !!token,
           ...history.counts(), git: gitOn,
           agents: agents.map((a) => ({ name: a.name, label: a.label })),
           agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt },
@@ -439,10 +432,6 @@ export async function editMain(args) {
         }
       }
 
-      // ── the phone remote: controller, its QR, and the readout channel ──
-      // These are the ONLY paths allowRemote lets through off-loopback, and
-      // none of them writes to the deck file (createRemoteRelay, remote.mjs).
-      if (req.method === 'GET' && relay.handle(req, res, url)) return;
       if (req.method === 'POST' && url.pathname === '/edit/shutdown') {
         res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
@@ -560,10 +549,10 @@ export async function editMain(args) {
           return json(400, { ok: false, error: `${engine} declares a wizard core cannot render: ${e.message}` });
         }
       }
-      // Author-mode only, and that is structural rather than checked: these are
-      // /edit/* routes, so allowRemote already refuses them off-loopback
-      // unconditionally, and `present` registers nothing like them at all. A
-      // credential prompt in a deck you were emailed has nowhere to post.
+      // Author-mode only, and that is structural rather than checked: this
+      // server answers loopback alone, and `present` registers nothing like
+      // these at all. A credential prompt in a deck you were emailed has
+      // nowhere to post.
       if (req.method === 'POST' && url.pathname === '/edit/wizard') {
         const { engine, answers } = JSON.parse(body);
         if (typeof engine !== 'string') return json(400, { ok: false, error: 'which engine?' });
@@ -596,7 +585,6 @@ export async function editMain(args) {
         console.log(`  wizard: ${engine} ${had ? 'forgotten' : 'was not configured'}`);
         return json(200, { ok: true, forgotten: had });
       }
-      if (req.method === 'POST' && relay.handle(req, res, url, body)) return;
       if (req.method === 'POST' && url.pathname === '/edit/notes') {
         const { slide, text } = JSON.parse(body);
         if (!Number.isInteger(slide) || slide < 1 || typeof text !== 'string') throw new Error('bad payload');
@@ -631,12 +619,7 @@ export async function editMain(args) {
   });
 
   const actual = await listenTakingOverIfNeeded(server, port, host);
-  actualPort = actual; // the QR can only be built once we know what we bound
   console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E notes, L layouts, Z undo, A agent. Ctrl-C stops`);
-  if (token) {
-    console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/remote?t=${token}`);
-    console.log('  off this machine only /remote/* answers (with that token); /edit/* stays loopback-only');
-  }
 }
 
 

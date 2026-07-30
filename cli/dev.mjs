@@ -47,16 +47,11 @@ const EDIT = fileURLToPath(new URL('./edit.mjs', import.meta.url));
 const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
-                    [--remote] [--host <addr>]
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
 
   --port N          edit server (live reload + edit write-back)       [8788]
                     (taken already? author offers to take over that session
                     on a TTY, or moves to the next free port otherwise)
-  --remote          also listen on the LAN for the phone remote — off this
-                    machine only /remote/* answers, and only with the printed
-                    per-run token; /edit/* stays loopback-only regardless
-  --host <addr>     the address --remote binds                        [0.0.0.0]
   --tts-port N      live voice bridge                                 [8787]
   --lipsync-port N  lip-sync bridge (visemes + talking head)          [8789]
   --no-tts          don't start the voice bridge
@@ -67,6 +62,8 @@ const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 878
                     (no repo + no flag: author ASKS whether to create one)
   --commit-every N  autocommit cadence in seconds                     [300]
   --agent <name>    preferred AI agent for A (default: first detected)
+
+  every server binds 127.0.0.1; for a phone remote: decklight present --remote
 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
                     chirp   Cloud TTS Chirp 3: HD — same voices, ~1s, 1M chars/month free
@@ -90,7 +87,7 @@ const VALUE_FLAGS = new Set([
   '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--project', '--tts-model',
   '--location', '--voice', '--data-dir', '--lang', '--tts-format',
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
-  '--python', '--cache-dir', '--commit-every', '--agent', '--host', '--git-mode',
+  '--python', '--cache-dir', '--commit-every', '--agent', '--git-mode',
   '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
 ]);
 
@@ -133,8 +130,7 @@ export function planServices({
     entry: EDIT,
     args: [deck, '--port', editPort,
       ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
-      ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode'),
-      ...(has('--remote') ? ['--remote'] : []), ...pass('--host')],
+      ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode')],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
 
@@ -245,7 +241,12 @@ export function planServices({
     });
   }
 
-  return { deck, run, skip, agents: detectAgents({ env, hasBin }).map((a) => a.name) };
+  // Reported, not passed through. The phone remote moved to `present`
+  // (PRESENT#REMOTE), and a flag that quietly did nothing would leave someone
+  // holding a phone that never connects. devMain is what prints and exits —
+  // the plan stays pure so a test can ask what it decided.
+  const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
+  return { deck, run, skip, gone, agents: detectAgents({ env, hasBin }).map((a) => a.name) };
 }
 
 /**
@@ -279,6 +280,15 @@ export async function devMain(args) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
 
   let plan = planServices({ args, saved: loadTtsConfig() });
+  if (plan.gone.length) {
+    console.error(`decklight author no longer takes ${plan.gone.join(' or ')} — the phone remote moved to \`decklight present\`.`);
+    console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
+    console.error('  /edit/agent were reachable from the same run you were not watching. present has no edit');
+    console.error('  surface to widen, so that is where it lives.');
+    console.error(`\n  decklight present ${plan.deck ?? '<deck.html>'} --remote`);
+    process.exitCode = 2;
+    return;
+  }
   const deck = plan.deck;
   if (!deck) {
     console.error('decklight author needs a deck: decklight author <deck.html>\n');
