@@ -8,13 +8,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, chmodSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, allowRemote, lanAddress } from '../cli/edit.mjs';
+import { setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress } from '../cli/edit.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
 import { resolveGitMode, shouldCommit, commitSubject } from '../cli/git.mjs';
 
@@ -95,48 +95,6 @@ test('history is capped — the oldest snapshots fall off, not the newest', () =
   assert.equal(h.undo('d'), 'c');
   assert.equal(h.undo('c'), 'b'); // 'a' fell off
   assert.equal(h.undo('b'), null);
-});
-
-// ── allowRemote: the security seam for the phone remote (#115) ─────────────
-// One pure classifier decides every request: loopback always answers,
-// off-loopback only /remote/* with the per-run token — and /edit/* refuses
-// non-loopback callers no matter what the request carries.
-
-const reqOf = (addr, url, headers = {}) => ({ socket: { remoteAddress: addr }, url, headers });
-
-test('allowRemote: loopback always answers — token or no token, any path', () => {
-  for (const addr of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '127.8.9.10']) {
-    assert.equal(allowRemote(reqOf(addr, '/edit/notes'), null), true, addr);
-    assert.equal(allowRemote(reqOf(addr, '/edit/undo'), 'tok'), true, addr);
-    assert.equal(allowRemote(reqOf(addr, '/deck.html'), 'tok'), true, addr);
-  }
-});
-
-test('allowRemote: off-loopback, only /remote/* — and only with the right token', () => {
-  const LAN = '192.168.1.23';
-  // the /remote?t= URL the phone will carry, and its sub-paths
-  assert.equal(allowRemote(reqOf(LAN, '/remote?t=tok'), 'tok'), true);
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t=tok'), 'tok'), true);
-  // the token can ride a header too (fetches from the controller page)
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state', { 'x-decklight-token': 'tok' }), 'tok'), true);
-  // wrong token, missing token: refused
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t=nope'), 'tok'), false);
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state'), 'tok'), false);
-  // no --remote (token null): nothing off-loopback answers at all
-  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t='), null), false);
-  assert.equal(allowRemote(reqOf(LAN, '/remote?t=null'), null), false);
-});
-
-test('allowRemote: /edit/* refuses off-loopback UNCONDITIONALLY — token included', () => {
-  const LAN = '10.0.0.7';
-  for (const p of ['/edit/notes', '/edit/layout', '/edit/undo', '/edit/redo', '/edit/agent', '/edit/shutdown']) {
-    assert.equal(allowRemote(reqOf(LAN, `${p}?t=tok`), 'tok'), false, p);
-  }
-  // static files are not reachable off-loopback either
-  assert.equal(allowRemote(reqOf(LAN, '/deck.html?t=tok'), 'tok'), false);
-  // path tricks normalize before the check, and a prefix is not a directory
-  assert.equal(allowRemote(reqOf(LAN, '/remote/../edit/notes?t=tok'), 'tok'), false);
-  assert.equal(allowRemote(reqOf(LAN, '/remotely?t=tok'), 'tok'), false);
 });
 
 // ── the agent roster ───────────────────────────────────────────────────────
@@ -368,44 +326,21 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   assert.equal(missing.status, 400);
 });
 
-// ── --remote: LAN binding, the token, and the gate — end to end ───────────
+// ── the author server is loopback-only, and has no remote (PRESENT#REMOTE) ─
 
-test('--remote: a LAN-addressed /edit/notes is refused; loopback keeps working', async (t) => {
-  const lan = lanAddress();
-  if (!lan) return t.skip('no non-loopback IPv4 interface on this machine');
-  const dir = tmp(t);
-  const deck = path.join(dir, 'deck.html');
-  writeFileSync(deck, DECK);
-  const { base, log, waitFor } = await startEdit(t, dir, { extraArgs: ['--remote'], env: { PATH: dir } });
-  const port = new URL(base).port;
-
-  // the per-run token is printed as the LAN /remote?t= URL, IP and all — on a
-  // line AFTER the loopback URL that startEdit resolved on, so it is waited
-  // for rather than assumed to have arrived
-  const m = await waitFor(/remote: listening on 0\.0\.0\.0 — http:\/\/([\d.]+):\d+\/remote\?t=([A-Za-z0-9_-]+)/);
-  assert.ok(m, 'the remote URL is printed:\n' + log());
-  assert.equal(m[1], lan, 'the printed IP comes from os.networkInterfaces()');
-  const token = m[2];
-
-  // off-loopback, the editing surface is closed — mutation, ping, and files
-  const refused = await post(`http://${lan}:${port}`, '/edit/notes', { slide: 1, text: 'pwned' });
-  assert.equal(refused.status, 403);
-  assert.doesNotMatch(readFileSync(deck, 'utf8'), /pwned/, 'the refused write never lands');
-  assert.equal((await fetch(`http://${lan}:${port}/edit/ping`)).status, 403);
-  assert.equal((await fetch(`http://${lan}:${port}/deck.html`)).status, 403);
-
-  // off-loopback /remote/* clears the gate with the token (404 until #39c
-  // adds the endpoints — the point is it is not 403), and only with it
-  assert.notEqual((await fetch(`http://${lan}:${port}/remote?t=${token}`)).status, 403);
-  assert.equal((await fetch(`http://${lan}:${port}/remote?t=wrong`)).status, 403);
-
-  // loopback edits work exactly as before, flag or no flag
-  const ok = await post(base, '/edit/notes', { slide: 1, text: 'hello' });
-  assert.equal(ok.status, 200);
-  assert.match(readFileSync(deck, 'utf8'), /hello/);
+test('--remote and --host are refused out loud, naming where the remote went', () => {
+  // Silently binding loopback would leave someone holding a phone that never
+  // connects and no way to find out why. The refusal names the replacement.
+  for (const flag of ['--remote', '--host']) {
+    const r = spawnSync(process.execPath, [EDIT, 'deck.html', flag, ...(flag === '--host' ? ['0.0.0.0'] : [])],
+      { encoding: 'utf8' });
+    assert.equal(r.status, 2, flag);
+    assert.match(r.stderr, new RegExp(`no longer takes \\${flag}`), flag);
+    assert.match(r.stderr, /decklight present .* --remote/, `${flag} names the command that does this now`);
+  }
 });
 
-test('without --remote the server binds 127.0.0.1 only — the LAN cannot even connect', async (t) => {
+test('the author server binds 127.0.0.1 — the LAN cannot even connect', async (t) => {
   const lan = lanAddress();
   if (!lan) return t.skip('no non-loopback IPv4 interface on this machine');
   const dir = tmp(t);
@@ -413,137 +348,31 @@ test('without --remote the server binds 127.0.0.1 only — the LAN cannot even c
   const { base, log } = await startEdit(t, dir, { env: { PATH: dir } });
   const port = new URL(base).port;
 
-  assert.doesNotMatch(log(), /remote:/, 'no token, no remote URL without the flag');
+  assert.doesNotMatch(log(), /remote:/, 'and advertises no LAN URL, because there is none');
   await assert.rejects(
     fetch(`http://${lan}:${port}/edit/ping`, { signal: AbortSignal.timeout(2000) }),
     'the LAN address must not be listening');
 });
 
-// ── the phone remote (#39): controller, relay, readout ─────────────────────
-// The security seam (which paths answer off-loopback, and on what token) is
-// covered above with allowRemote. These cover what the endpoints actually do.
-
-/**
- * Subscribe to an SSE endpoint and wait for text to appear on it. The fetch
- * resolves once the response headers land, which is after the server has
- * registered the client — so a POST issued after this returns cannot be missed.
- */
-async function openSse(t, base, ep) {
-  const ctl = new AbortController();
-  t.after(() => ctl.abort());
-  const res = await fetch(base + ep, { signal: ctl.signal });
-  assert.equal(res.status, 200);
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
-  return {
-    // Race every read against the deadline: a server that simply never sends
-    // the event would otherwise park in reader.read() forever, and a suite
-    // that hangs is worse than one that fails — it says nothing, slowly.
-    async until(want, ms = 5000) {
-      const deadline = Date.now() + ms;
-      while (!buf.includes(want)) {
-        const left = deadline - Date.now();
-        if (left <= 0) throw new Error(`SSE never carried "${want}"; saw:\n${buf}`);
-        let timer;
-        const next = await Promise.race([
-          reader.read(),
-          new Promise((r) => { timer = setTimeout(() => r('timeout'), left); }),
-        ]);
-        clearTimeout(timer);
-        if (next === 'timeout') throw new Error(`SSE never carried "${want}"; saw:\n${buf}`);
-        if (next.done) throw new Error(`SSE closed before "${want}"; saw:\n${buf}`);
-        buf += dec.decode(next.value, { stream: true });
-      }
-      return buf;
-    },
-  };
-}
-
-test('the phone controller is a self-contained page — no asset it could not reach', async (t) => {
+test('no /remote/* route is registered here at all', async (t) => {
+  // The negative space, mirroring present.test.mjs's "no /edit/* route": a
+  // clicker must not cost you an editing server, so the two capabilities do not
+  // live in one process. Absent, not refused.
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
-  const res = await fetch(base + '/remote');
-  assert.equal(res.status, 200);
-  assert.match(res.headers.get('content-type'), /text\/html/);
-  const html = await res.text();
-  assert.match(html, /id="next"/);
-  assert.match(html, /id="prev"/);
-  assert.match(html, /id="pos"/);
-  // a phone is off-loopback: anything it fetches from elsewhere is a hole
-  assert.doesNotMatch(html, /<link\b/i, 'no external stylesheet');
-  assert.doesNotMatch(html, /src\s*=\s*["']https?:/i, 'no external script or image');
-  // SPEC NON_GOALS — a clicker, not a second screen
-  assert.doesNotMatch(html, /class="decklight"/, 'the phone renders no slides');
-});
-
-test('a tap on the phone reaches the deck as a remote event on its own stream', async (t) => {
-  const dir = tmp(t);
-  writeFileSync(path.join(dir, 'deck.html'), DECK);
-  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-
-  const deck = await openSse(t, base, '/edit/events'); // the deck's stream
-  const res = await post(base, '/remote/key', { key: 'next' });
-  assert.equal(res.status, 200);
-  assert.equal((await res.json()).decks, 1, 'the server saw one deck listening');
-
-  const seen = await deck.until('event: remote');
-  assert.match(seen, /event: remote\ndata: \{"key":"next"\}/);
-});
-
-test("the deck's position reaches the phone's readout", async (t) => {
-  const dir = tmp(t);
-  writeFileSync(path.join(dir, 'deck.html'), DECK);
-  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-
-  const phone = await openSse(t, base, '/remote/events');
-  assert.equal((await post(base, '/remote/pos', { i: 3, n: 9 })).status, 200);
-  const seen = await phone.until('event: pos');
-  assert.match(seen, /event: pos\ndata: \{"i":3,"n":9\}/);
-});
-
-test('a phone joining mid-talk is told the position at once', async (t) => {
-  const dir = tmp(t);
-  writeFileSync(path.join(dir, 'deck.html'), DECK);
-  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-
-  await post(base, '/remote/pos', { i: 5, n: 12 }); // deck moved before the phone joined
-  const phone = await openSse(t, base, '/remote/events');
-  assert.match(await phone.until('event: pos'), /\{"i":5,"n":12\}/);
-});
-
-test('the remote refuses anything that is not a move', async (t) => {
-  const dir = tmp(t);
-  writeFileSync(path.join(dir, 'deck.html'), DECK);
-  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-
-  for (const bad of [{ key: 'delete' }, { key: 1 }, {}]) {
-    assert.equal((await post(base, '/remote/key', bad)).status, 400, JSON.stringify(bad));
+  for (const p of ['/remote', '/remote/qr.svg', '/remote/events']) {
+    assert.equal((await fetch(base + p)).status, 404, p);
   }
-  for (const bad of [{ i: 'x', n: 2 }, { i: 1 }, {}]) {
-    assert.equal((await post(base, '/remote/pos', bad)).status, 400, JSON.stringify(bad));
-  }
-});
+  // a POST lands as 405 — unknown method on an unknown path, exactly what any
+  // other made-up route gets. Not a refusal: there is nothing to have refused.
+  assert.equal((await post(base, '/remote/key', { key: 'next' })).status, 405);
+  assert.equal((await post(base, '/remote/pos', { i: 1, n: 2 })).status, 405);
 
-test('the QR is served only when the remote is actually on', async (t) => {
-  const dir = tmp(t);
-  writeFileSync(path.join(dir, 'deck.html'), DECK);
-
-  const plain = await startEdit(t, dir, { env: { PATH: dir } });
-  assert.equal((await fetch(plain.base + '/remote/qr.svg')).status, 404,
-    'without --remote there is no LAN URL worth encoding');
-
-  const dir2 = tmp(t);
-  writeFileSync(path.join(dir2, 'deck.html'), DECK);
-  const withRemote = await startEdit(t, dir2, { env: { PATH: dir2 }, extraArgs: ['--remote'] });
-  const res = await fetch(withRemote.base + '/remote/qr.svg');
-  assert.equal(res.status, 200);
-  assert.match(res.headers.get('content-type'), /image\/svg\+xml/);
-  const svg = await res.text();
-  assert.match(svg, /^<svg/);
-  assert.match(svg, /viewBox=/);
+  const src = readFileSync(EDIT, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.doesNotMatch(src, /createRemoteRelay|remoteControllerHtml/,
+    'and the module does not import the relay it would need to serve them');
 });
 
 // ── when to commit (#128): the policy, and the untrusted message ───────────

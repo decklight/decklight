@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { CSP } from '../cli/present.mjs';
+import { allowRemote } from '../cli/serve.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -310,6 +311,62 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
 
   assert.match(log(), /ONLY \/remote\/\* answers/i);
   assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK, 'and nothing was written');
+});
+
+// The classifier itself. It moved here with the remote: the author server used
+// to call it too, and now binds 127.0.0.1 with no flag that widens it, so this
+// is the only server whose requests it decides.
+const reqOf = (addr, url, headers = {}) => ({ socket: { remoteAddress: addr }, url, headers });
+
+test('allowRemote: loopback always answers — token or no token, any path', () => {
+  for (const addr of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '127.8.9.10']) {
+    assert.equal(allowRemote(reqOf(addr, '/talk.html'), null), true, addr);
+    assert.equal(allowRemote(reqOf(addr, '/present/ping'), 'tok'), true, addr);
+    assert.equal(allowRemote(reqOf(addr, '/remote/pos'), null), true, addr);
+  }
+});
+
+test('allowRemote: off-loopback, only /remote/* — and only with the right token', () => {
+  const LAN = '192.168.1.23';
+  // the /remote?t= URL the phone will carry, and its sub-paths
+  assert.equal(allowRemote(reqOf(LAN, '/remote?t=tok'), 'tok'), true);
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t=tok'), 'tok'), true);
+  // the token can ride a header too (fetches from the controller page)
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state', { 'x-decklight-token': 'tok' }), 'tok'), true);
+  // wrong token, missing token: refused
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t=nope'), 'tok'), false);
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state'), 'tok'), false);
+  // no --remote (token null): nothing off-loopback answers at all
+  assert.equal(allowRemote(reqOf(LAN, '/remote/state?t='), null), false);
+  assert.equal(allowRemote(reqOf(LAN, '/remote?t=null'), null), false);
+});
+
+test('allowRemote: the deck itself refuses off-loopback UNCONDITIONALLY', () => {
+  const LAN = '10.0.0.7';
+  // --remote widens the listener for the clicker and nothing else: the deck and
+  // every file beside it stay unreachable from the LAN, token or no token.
+  for (const p of ['/talk.html', '/theme.css', '/present/ping', '/present/events']) {
+    assert.equal(allowRemote(reqOf(LAN, `${p}?t=tok`), 'tok'), false, p);
+  }
+  // path tricks normalize before the check, and a prefix is not a directory
+  assert.equal(allowRemote(reqOf(LAN, '/remote/../talk.html?t=tok'), 'tok'), false);
+  assert.equal(allowRemote(reqOf(LAN, '/remotely?t=tok'), 'tok'), false);
+});
+
+test('the controller is a self-contained page — no asset a phone could not reach', async (t) => {
+  const dir = deckDir();
+  const { base } = await startPresent(t, dir, { extraArgs: ['--remote'] });
+  const res = await fetch(base + '/remote');
+  assert.match(res.headers.get('content-type'), /text\/html/);
+  const html = await res.text();
+  assert.match(html, /id="next"/);
+  assert.match(html, /id="prev"/);
+  assert.match(html, /id="pos"/);
+  // a phone is off-loopback: anything it fetches from elsewhere is a hole
+  assert.doesNotMatch(html, /<link\b/i, 'no external stylesheet');
+  assert.doesNotMatch(html, /src\s*=\s*["']https?:/i, 'no external script or image');
+  // SPEC NON_GOALS — a clicker, not a second screen
+  assert.doesNotMatch(html, /class="decklight"/, 'the phone renders no slides');
 });
 
 test('the QR refuses to encode a URL a phone cannot use', async (t) => {

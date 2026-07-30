@@ -181,19 +181,33 @@ test('git and agent flags ride along to the edit child', () => {
   assert.equal(plan(['--commit-every', '60', 'deck.html']).deck, 'deck.html');
 });
 
-test('--remote and --host ride along to the edit child; no flag, no change', () => {
-  const p = plan(['deck.html', '--remote']);
-  assert.deepEqual(svc(p, 'edit').args, ['deck.html', '--port', '8788', '--remote']);
+test('--remote and --host are reported as gone, never passed to the edit child', () => {
+  // The phone remote lives on `present` now (PRESENT#REMOTE). The plan REPORTS
+  // the refusal rather than performing it, so it stays pure and devMain is the
+  // one place that prints and exits.
+  assert.deepEqual(plan(['deck.html', '--remote']).gone, ['--remote']);
+  assert.deepEqual(plan(['deck.html', '--host', '192.168.1.5']).gone, ['--host']);
+  assert.deepEqual(plan(['deck.html', '--remote', '--host=1.2.3.4']).gone, ['--remote', '--host']);
+  assert.deepEqual(plan(['deck.html']).gone, [], 'and nothing is reported when nothing was asked');
 
-  const h = plan(['deck.html', '--remote', '--host', '192.168.1.5']);
-  assert.deepEqual(svc(h, 'edit').args,
-    ['deck.html', '--port', '8788', '--remote', '--host', '192.168.1.5']);
+  // whatever it reports, the edit child never receives them
+  for (const args of [['deck.html'], ['deck.html', '--remote'], ['deck.html', '--host', '0.0.0.0']]) {
+    assert.deepEqual(svc(plan(args), 'edit').args, ['deck.html', '--port', '8788'], args.join(' '));
+  }
 
-  // without the flag the edit child's args are byte-for-byte what they were
-  assert.deepEqual(svc(plan(['deck.html']), 'edit').args, ['deck.html', '--port', '8788']);
+  // --host no longer consumes its argument, so a deck sitting after it is still
+  // found rather than being eaten as the bind address
+  assert.equal(plan(['--host', '0.0.0.0', 'deck.html']).deck, '0.0.0.0');
+});
 
-  // the deck is still found past the new value flag
-  assert.equal(plan(['--host', '0.0.0.0', 'deck.html']).deck, 'deck.html');
+test('author refuses --remote out loud and names the command that replaced it', () => {
+  const r = spawnSync('node', [CLI, 'author', 'deck.html', '--remote'], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /no longer takes --remote/);
+  assert.match(r.stderr, /decklight present deck\.html --remote/,
+    'and names it with the deck already filled in');
+  // it must not have started anything before deciding
+  assert.doesNotMatch(r.stdout, /decklight author on http/);
 });
 
 test('the agent roster is part of the plan — the big three included', () => {
@@ -218,8 +232,11 @@ test('author is routed and documented by the dispatcher', () => {
 
   const authorHelp = execFileSync('node', [CLI, 'author', '--help'], { encoding: 'utf8' });
   assert.match(authorHelp, /usage: decklight author/);
-  assert.match(authorHelp, /--remote/, 'the LAN opt-in is documented');
-  assert.match(authorHelp, /--host/, 'and so is the bind address');
+  // neither is offered as an author flag any more — a flag listed in the help
+  // is a promise to honour it, and author refuses both
+  assert.doesNotMatch(authorHelp, /^\s+--remote\b/m, 'the LAN opt-in is gone');
+  assert.doesNotMatch(authorHelp, /^\s+--host\b/m, 'and so is the bind address');
+  assert.match(authorHelp, /decklight present --remote/, 'but the help says where it went');
 });
 
 test('`dev` still works, as a permanent hidden alias — same command, no nag', () => {
