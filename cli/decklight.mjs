@@ -15,6 +15,7 @@
  *   decklight upgrade  bring a self-contained deck's inlined runtime up to the installed version
  *   decklight publish  bundle a deck and push it to a gh-pages branch
  *   decklight marketplace  register catalogs of themes, templates, skills and engines
+ *   decklight plugin   install your own presenter chrome (timer, teleprompter) — never enters a deck
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
  *   decklight video    render a deck to a narrated mp4 (stills + voiceover audio)
@@ -64,6 +65,9 @@ Commands:
   marketplace  register catalogs (git repos with .decklight/marketplace.json) — registered, not fetched
            EXAMPLE: decklight marketplace add owner/repo   (or a git URL, or a local path)
            EXAMPLE: decklight marketplace list              (offline-safe: reads only the cache)
+  plugin   install presenter chrome into YOUR library — present loads it, bundle never does
+           EXAMPLE: decklight plugin add timer      (then: decklight present talk.html)
+           EXAMPLE: decklight plugin list           (says which ones read your speaker notes)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
   lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)
@@ -185,6 +189,11 @@ switch (cmd) {
   case 'marketplace': {
     const { marketplaceMain } = await import('./marketplace.mjs');
     process.exitCode = await marketplaceMain(rest);
+    break;
+  }
+  case 'plugin': {
+    const { pluginMain } = await import('./plugin.mjs');
+    process.exitCode = await pluginMain(rest);
     break;
   }
   case 'tts': {

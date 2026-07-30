@@ -41,6 +41,7 @@ import { corsHeaders } from '../tools/bridge.mjs';
 // same-origin with the server that serves it.
 const CORS = corsHeaders();
 import { auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
+import { loadLibrary, injectChrome } from './plugin.mjs';
 import { verifyFile, verifyBytes, formatSignature, isVerified, UNSIGNED, TAMPERED, VERIFIED } from './sign.mjs';
 import { isContainer, readContainer, formatManifest } from './deckfile.mjs';
 
@@ -97,7 +98,7 @@ export const CSP = [
 ].join('; ');
 
 const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790] [--strict]
-                        [--remote] [--host <addr>] [--check]
+                        [--remote] [--host <addr>] [--check] [--no-plugins]
 
   plays a deck read-only over localhost — the safe way to open one you did not
   author. Serves ONLY GET, only under the current directory (which the deck must
@@ -121,6 +122,20 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
   --check    print the ingredients label and exit — no server. Exits non-zero
              if the deck runs any script that is not the runtime, so CI can
              gate on a deck before it is forwarded or published.
+  --no-plugins  present without your own chrome, whatever is installed.
+
+  Your presenter plugins (decklight plugin) are layered on at serve time from
+  ~/.decklight/plugins/ — a timer, a teleprompter, a confidence monitor. They
+  are YOURS: the deck on disk is untouched, nothing is written into it, and the
+  same file presented on a machine without them is identical slides and no
+  warning. Each one renders inside a sandboxed frame with an opaque origin, so
+  it draws chrome and cannot reach the slides — a plugin that asks for slide
+  content is refused by name, because a deck has to stay a deterministic
+  artifact or two people presenting the same file present different decks.
+
+  A plugin is never part of the ingredients label: the label counts what is in
+  the file, the chrome is listed under it as what it is. Loading one registers
+  no route and does not widen the policy below by a single source.
 
   Every start prints the ingredients label: which runtime is embedded and
   whether its bytes are the ones this install ships, how many inert data blocks
@@ -280,7 +295,36 @@ export async function presentMain(args) {
   // stopped at one file would be walked around by a second page under the same
   // root, and the deck can reach one — the theme picker, the slide finder and
   // the speaker view all boot documents into same-origin iframes.
-  const rewrite = strict ? (text) => stripUnaccounted(text).html : null;
+  // The presenter's own chrome (PRESENT#PLUGINS) — a timer, a teleprompter,
+  // a confidence monitor. It is loaded from ~/.decklight/plugins/, which is
+  // the presenter's library and not the deck's: the installer is the
+  // risk-bearer and nothing here travels, which is the same trust model that
+  // makes a build-time transform defensible (MARKETPLACE.md EXTENSIONS).
+  //
+  // Two orderings below are load-bearing rather than incidental:
+  //   - it loads AFTER `auditDeck` has read the bytes, so a plugin is never
+  //     counted as an unaccounted script block in the ingredients label. The
+  //     label describes the file; a plugin is not in the file.
+  //   - it injects AFTER `stripUnaccounted`, so strict mode never strips the
+  //     chrome as if the deck had smuggled it in.
+  // With an empty library `injectChrome` returns its input, so this whole
+  // paragraph is a no-op and `present` is byte-for-byte the command it was.
+  const chrome = args.includes('--no-plugins') ? { plugins: [], refused: [] } : loadLibrary();
+  const strip = strict ? (text) => stripUnaccounted(text).html : null;
+
+  // Only the deck gets chrome. Every OTHER html file under the root still gets
+  // the strict rewrite — strict that stopped at one file would be walked
+  // around by a second page under the same root, and the deck can reach one
+  // (the theme picker, the slide finder and the speaker view all boot
+  // documents into same-origin iframes). Those same iframes are why the chrome
+  // is deck-only: presenter chrome belongs to the document the presenter is
+  // looking at, and the shim removes itself if it finds it is framed anyway.
+  const rewrite = (strip || chrome.plugins.length)
+    ? (text, file) => {
+      const out = strip ? strip(text) : text;
+      return file === deckPath ? injectChrome(out, chrome.plugins) : out;
+    }
+    : null;
   const files = staticFiles(root, {
     index: deckUrl,
     headers: { 'content-security-policy': CSP },
@@ -295,7 +339,9 @@ export async function presentMain(args) {
   // policy header, same GET-only server around it.
   const servePayload = (req, res) => {
     if (req.method !== 'GET') return false;
-    const body = rewrite ? Buffer.from(rewrite(payload.toString('utf8')), 'utf8') : payload;
+    const body = rewrite
+      ? Buffer.from(rewrite(payload.toString('utf8'), deckPath), 'utf8')
+      : payload;
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache',
       'content-security-policy': CSP,
@@ -391,6 +437,20 @@ export async function presentMain(args) {
   for (const line of formatLabel(report)) console.log(line);
   if (container) console.log(formatManifest(container.manifest));
   console.log(formatSignature(signature));
+  // Reported UNDER the label and never inside it. The label is an inventory of
+  // the file; a plugin is not in the file, and folding one into those counts
+  // would make the label start describing things the deck does not contain —
+  // which is exactly the honesty the label exists for. Naming which plugins
+  // read the speaker notes is the other half of `needs: ["notes"]` being a
+  // declaration rather than a silent grant.
+  for (const p of chrome.plugins) {
+    console.log(`  chrome: ${p.name} (${p.slot}) — yours, not in the deck`
+      + `${p.needs.includes('notes') ? '; reads your speaker notes' : ''}`);
+  }
+  for (const r of chrome.refused) {
+    console.log(`  chrome: ${r.name} REFUSED — not loaded, the deck plays without it`);
+    console.log(`    ${r.reason.replace(/\n/g, '\n    ')}`);
+  }
   // Here and nowhere else. The audience is looking at the deck; a banner on the
   // page would tell them something they cannot act on, about a file they did
   // not choose to open, in the middle of someone's talk.

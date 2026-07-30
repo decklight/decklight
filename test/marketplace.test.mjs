@@ -203,7 +203,12 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
     ...fs.readdirSync(path.join(root, 'src'), { recursive: true })
       .filter((f) => /\.(js|mjs)$/.test(f)).map((f) => path.join('src', f)),
     'cli/serve.mjs', 'cli/edit.mjs', 'cli/dev.mjs', 'cli/bundle.mjs', 'cli/upgrade.mjs',
-    'cli/present.mjs', 'cli/wizard.mjs',
+    // cli/plugin.mjs is on the presenting path (present injects presenter
+    // chrome from the local library, PRESENT#PLUGINS). It reads the catalog
+    // CACHE to resolve `plugin add`, which is the same considered read the
+    // wizard makes; what it must never grow is a catalog fetch, and this is
+    // where that is held.
+    'cli/present.mjs', 'cli/wizard.mjs', 'cli/plugin.mjs',
   ];
   assert.ok(files.length > 10, 'the sweep found the runtime');
   for (const f of files) {

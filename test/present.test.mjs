@@ -35,10 +35,21 @@ function deckDir() {
   return dir;
 }
 
-/** Start the server on an ephemeral port; resolve its base URL. */
+/**
+ * Start the server on an ephemeral port; resolve its base URL.
+ *
+ * DECKLIGHT_HOME points at an empty directory so the presenter's own plugin
+ * library (PRESENT#PLUGINS) cannot reach these tests. Several of them assert
+ * the deck is served byte for byte, and that is a claim about a machine with
+ * nothing installed — on the machine of a developer who installed a timer it
+ * would otherwise fail for a reason that has nothing to do with the change
+ * they are making.
+ */
 async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs = [] } = {}) {
+  const home = mkdtempSync(path.join(tmpdir(), 'decklight-present-home-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
   const child = spawn(process.execPath, [CLI, 'present', deck, '--port', '0', ...extraArgs],
-    { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(() => { child.kill('SIGKILL'); rmSync(dir, { recursive: true, force: true }); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
