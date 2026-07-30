@@ -8,7 +8,7 @@
  * without a web search or a guess from Reveal.js memory.
  *
  *   decklight init ["My Deck"] [-o deck.html] [--dir path] [--themes …]
- *                  [--git | --no-git] [--open] [--force]
+ *                  [--from <template>] [--git | --no-git] [--open] [--force]
  *                  [--no-skill | --global-skill]
  *
  * Run bare in a terminal it asks one question — the deck's title — with
@@ -93,6 +93,61 @@ function resolveThemes(sel) {
     }
   }
   return names;
+}
+
+/**
+ * The deck body for `--from <template>`: an installed template, or a refusal
+ * that names how to install one (`UNITS#REST`).
+ *
+ * It **refuses rather than fetching**, and that is the point of the flag's
+ * design. `init` scaffolds; installing is a separate, explicit act, exactly as
+ * it is for `theme add` and `plugin add`. The alternative — resolve the name
+ * in a catalog and download it right here — would make the one command people
+ * run first into a command that reaches the network, and would do it on the
+ * machine least likely to have been asked. So an uninstalled name is met with
+ * the install line, and a name nothing offers is met with that instead.
+ *
+ * The lookup is cache-only, so this stays as offline as `init` has always been.
+ */
+export function templateDeck(name, { home, listInstalled, offered } = {}) {
+  const found = listInstalled(name, home);
+  if (found) return { ok: true, html: fs.readFileSync(found.path, 'utf8') };
+
+  // Returns the refusal rather than exiting, the way planGit and planSkill
+  // return a decision — the caller acts. A helper that ends the process is a
+  // helper that can only be tested by starting one.
+  const any = offered(home);
+  const candidate = any.find((e) => e.name === name);
+  if (candidate) {
+    return { ok: false, message: `no template "${name}" installed — a registered marketplace offers it:\n`
+      + `    decklight template add ${candidate.qualified}\n`
+      + '  then run this again. Installing is its own step on purpose: init does not\n'
+      + '  reach the network, and a scaffold command should not start now.' };
+  }
+  return { ok: false, message: `no template "${name}" installed, and no registered marketplace offers one`
+    + (any.length ? `\n  available: ${any.map((e) => e.qualified).join(', ')}` : '')
+    + '\n  decklight template list         — what is installed and what is offered'
+    + '\n  decklight marketplace add <owner/repo>  — register a catalog to install from' };
+}
+
+/**
+ * Put the title into a template's `<title>` and first `<h1>`, and nothing else.
+ *
+ * A template is someone's deck, so this is deliberately the smallest possible
+ * edit: two substitutions that are true of every deck, rather than a
+ * templating language that would make a template a program. Neither is
+ * required — a template that wants its own title keeps it by not having an
+ * `<h1>`, and the deck still scaffolds.
+ */
+export function titleTemplate(html, title) {
+  const safe = escapeHtml(title);
+  // A function replacement, not a string one: a title is user input and may
+  // contain `$&` or `$1`, which a string replacement would expand into the
+  // matched text instead of printing.
+  const put = (_m, open, _inner, close) => open + safe + close;
+  return html
+    .replace(/(<title>)([\s\S]*?)(<\/title>)/i, put)
+    .replace(/(<h1[^>]*>)([\s\S]*?)(<\/h1>)/i, put);
 }
 
 // No title argument: ask on a TTY (the one thing every run would have passed
@@ -281,12 +336,19 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …]
-                 [--git | --no-git] [--open] [--force]
+                 [--from <template>] [--git | --no-git] [--open] [--force]
                  [--no-skill | --global-skill]
 
 Options:
   -o <file>       deck output path (default: deck.html)
   --dir <path>    target directory (default: current directory)
+  --from <name>   scaffold from an installed deck template instead of the
+                  starter deck (decklight template list). The title argument
+                  replaces the template's <title> and first <h1>; everything
+                  else is the template's. Not installed? init names the
+                  install command rather than fetching — installing is its own
+                  step, and init does not reach the network.
+                  Cannot be combined with --themes: a template brings its own.
   --themes <sel>  which themes to inline into the deck:
                     all           every shipped theme (default)
                     name,name,…   an explicit list (aurora stays active when
@@ -321,11 +383,13 @@ unless --no-skill is given. The deck file is only touched with --force.
   }
 
   let title = null, outFile = 'deck.html', dir = '.', force = false, themesSel = 'all', openAfter = false;
+  let from = null;
   const args = [...argv];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '-o') outFile = args[++i];
     else if (a === '--dir') dir = args[++i];
+    else if (a === '--from') from = args[++i];
     else if (a === '--themes') themesSel = args[++i];
     else if (a === '--force') force = true;
     else if (a === '--open') openAfter = true;
@@ -364,8 +428,15 @@ unless --no-skill is given. The deck file is only touched with --force.
   };
   const askYes = async (q) => !/^n/i.test((await question(q)).trim());
 
+  if (from && themesSel !== 'all') {
+    // A template carries its own themes — it is a whole deck, not a body to
+    // dress. Silently ignoring --themes would be the kind of no-op that gets
+    // reported as a bug six months later.
+    fail('--from and --themes are mutually exclusive — a template brings its own themes');
+  }
+
   title = await resolveTitle(title, { isTTY: tty, ask: question });
-  const themeNames = resolveThemes(themesSel);
+  const themeNames = resolveThemes(from ? 'all' : themesSel);
   const activeTheme = themeNames.includes(STARTER_THEME) ? STARTER_THEME : themeNames[0];
 
   const root = path.resolve(dir);
@@ -389,10 +460,23 @@ unless --no-skill is given. The deck file is only touched with --force.
     }
     fail(`${rel} already exists — pass --force to overwrite`);
   }
-  fs.writeFileSync(deckPath, starterDeck(title, themeNames, activeTheme));
-  const themeNote = themeNames.length === 1
-    ? `theme: ${themeNames[0]}`
-    : `${themeNames.length} themes, ${activeTheme} active`;
+  let body, themeNote;
+  if (from) {
+    const { findUnit, catalogEntriesOfType } = await import('./units.mjs');
+    const found = templateDeck(from, {
+      listInstalled: (name, home) => findUnit('template', name, home),
+      offered: (home) => catalogEntriesOfType('template', home),
+    });
+    if (!found.ok) fail(found.message);
+    body = titleTemplate(found.html, title);
+    themeNote = `from template ${from}`;
+  } else {
+    body = starterDeck(title, themeNames, activeTheme);
+    themeNote = themeNames.length === 1
+      ? `theme: ${themeNames[0]}`
+      : `${themeNames.length} themes, ${activeTheme} active`;
+  }
+  fs.writeFileSync(deckPath, body);
   note(`created ${path.relative('.', deckPath) || outFile} (${themeNote})`);
 
   // ── the skill — project scope by default, global as a proposition ────────

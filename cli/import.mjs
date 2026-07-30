@@ -218,6 +218,43 @@ ${sections.join('\n\n')}
 `;
 }
 
+/**
+ * What to say about a file this importer cannot read.
+ *
+ * Three answers, and they are deliberately distinguishable — "no adapter
+ * exists", "one exists and here is how to get it", and "you already have it".
+ * A single message covering all three would be the kind of help that tells you
+ * nothing at the moment you need something.
+ *
+ * The third answer is the honest one this release owes: an installed adapter
+ * does NOT run yet. Loading a Node module from a marketplace is
+ * `EXTENSIONS#TRANSFORMS`, and it is blocked on the compat-range question
+ * (`OPEN` 2 in MARKETPLACE.md) — shipping a loader here would answer that in a
+ * second place and leave two answers to reconcile. So the adapter installs,
+ * `importer list` shows it, and this says plainly why it is not being used
+ * rather than failing in a way that reads like a bug.
+ */
+export async function adapterOffer(source, { home } = {}) {
+  const name = basename(String(source ?? ''));
+  const ext = /(\.[A-Za-z0-9]+)$/.exec(name)?.[1]?.toLowerCase() ?? '';
+  const out = [`decklight import: don't know how to read ${name}`,
+    '  supported: .pptx, .key (macOS), or a Google Slides URL'];
+  if (!ext) return out;
+
+  const { adapterFor, findUnit } = await import('./units.mjs');
+  const offered = adapterFor(ext, home);
+  if (!offered) return out;
+
+  if (findUnit('importer', offered.name, home)) {
+    out.push(`  ${offered.name} is installed and reads ${ext}, but import adapters do not`,
+      '  execute yet — loading a marketplace module is EXTENSIONS#TRANSFORMS, still open.');
+    return out;
+  }
+  out.push(`  no adapter for ${ext} — ${offered.qualified} reads it:`,
+    `    decklight importer add ${offered.qualified}`);
+  return out;
+}
+
 export async function importMain(args = []) {
   if (!args.length || args.includes('--help') || args.includes('-h')) {
     console.log(USAGE);
@@ -273,8 +310,15 @@ export async function importMain(args = []) {
       console.error('  Expected https://docs.google.com/presentation/d/<id>/…');
       return 1;
     } else {
-      console.error(`decklight import: don't know how to read ${basename(source)}`);
-      console.error('  supported: .pptx, .key (macOS), or a Google Slides URL');
+      // The offer at the point of failure (UNITS#REST): the moment someone
+      // learns .marp is unsupported is the only moment they care which adapter
+      // reads it, so the answer belongs HERE rather than in a setup step
+      // nobody performs in advance. This is the ENGINES pattern.
+      //
+      // Cache-only, always: the lookup reads catalogs already on disk, so a
+      // command that worked offline before still does. With nothing cached it
+      // simply has nothing to add, and the message is the one it always was.
+      for (const line of await adapterOffer(source)) console.error(line);
       return 1;
     }
   } catch (e) {

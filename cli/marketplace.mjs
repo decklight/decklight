@@ -34,6 +34,29 @@ import { oneline } from './git.mjs';
 export const MANIFEST_PATH = '.decklight/marketplace.json';
 export const NAME_RE = /^[A-Za-z0-9_-]+$/;
 
+/**
+ * Every kind of entry this decklight recognises, and how you install one.
+ *
+ * It lives here rather than in units.mjs because this module owns the manifest
+ * vocabulary and units.mjs is the layer above it — the other direction would
+ * be a cycle. A `null` hint means the kind is real but nothing installs it
+ * here yet, which `marketplace list` prints as its own state: "not yet" and
+ * "typo" must not look alike.
+ */
+export const INSTALL_HINT = {
+  theme: 'decklight theme add <source> <deck>',
+  plugin: 'decklight plugin add <name>',
+  template: 'decklight template add <name>',
+  skill: 'decklight skills add <name>',
+  importer: 'decklight importer add <name>',
+  engine: null,          // ENGINES#WIZARD installs one at the moment of need
+  transform: null,       // EXTENSIONS#TRANSFORMS
+  voice: null,           // held: OPEN 5, likeness and consent
+  'publish-target': null,
+};
+
+export const KNOWN_TYPES = Object.keys(INSTALL_HINT);
+
 /** The catalog every install registers, and no install ever fetches. */
 export const FIRST_PARTY = { name: 'decklight', source: 'decklight/marketplace' };
 
@@ -171,6 +194,40 @@ export function jsonLineMap(raw) {
 }
 
 /**
+ * The extra fields a given kind of entry must carry (`UNITS`).
+ *
+ * A type NOT in this table is accepted rather than refused, and that is
+ * deliberate: a catalog is a file someone else wrote, quite possibly against a
+ * newer decklight than the one reading it, and rejecting a manifest wholesale
+ * because one entry names a kind we have not shipped yet would make every
+ * catalog un-addable the day it adds an entry. The unknown kind is surfaced by
+ * `marketplace list` instead, where it is information rather than a wall.
+ */
+const ENTRY_SHAPES = {
+  // `import` has to name the adapter for a `.marp` file from the CACHE, with
+  // no network — so which extensions an adapter claims is a fact the catalog
+  // must carry, not something discoverable by installing it and looking.
+  importer: {
+    extensions: (v) => (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string' && /^\.?[A-Za-z0-9]+$/.test(x))
+      ? null
+      : 'must be a non-empty array of file extensions the adapter reads, e.g. [".marp"]'),
+  },
+};
+
+function shapeErrors(entry, p, err) {
+  const shape = ENTRY_SHAPES[entry.type];
+  if (!shape) return;
+  for (const [field, check] of Object.entries(shape)) {
+    if (entry[field] === undefined) {
+      err(`${p}.${field}`, `missing — ${entry.type} entries must declare it: ${check(undefined) ?? 'see UNITS'}`);
+      continue;
+    }
+    const why = check(entry[field]);
+    if (why) err(`${p}.${field}`, why);
+  }
+}
+
+/**
  * Validate a manifest text. Returns `{ ok, manifest, errors }`; every error
  * carries the LINE and the FIELD it is about — a typo in somebody's catalog
  * is met with "line 7: entries[1].type — missing", never a stack trace.
@@ -209,7 +266,7 @@ export function validateManifest(raw) {
       if (entry.type === undefined) err(`${p}.type`, 'missing — what kind of thing this is (theme, template, skill, importer, engine, transform, …)');
       else if (typeof entry.type !== 'string' || !/^[a-z][a-z0-9-]*$/.test(entry.type)) {
         err(`${p}.type`, `${JSON.stringify(entry.type)} — a lowercase word (theme, template, skill, importer, engine, transform, …)`);
-      }
+      } else shapeErrors(entry, p, err);
       if (entry.source === undefined) err(`${p}.source`, 'missing — the repo-relative path or URL the entry is fetched from');
       else if (typeof entry.source !== 'string' || !entry.source) err(`${p}.source`, 'must be a non-empty string');
       if (entry.description !== undefined && typeof entry.description !== 'string') {
@@ -412,9 +469,23 @@ function listMain(home) {
     } else if (!cached.ok) {
       console.log(`${head} — cached copy unreadable (decklight marketplace update ${name})`);
     } else {
-      console.log(`${head} — ${cached.manifest.entries.length} entries`);
-      for (const e of cached.manifest.entries) {
-        console.log(`  ${e.name}@${name}  ${e.type}${e.description ? ` — ${e.description}` : ''}`);
+      // Grouped by KIND rather than listed flat (UNITS): a catalog's entries
+      // are not one undifferentiated bag of names — what you can do with an
+      // entry depends entirely on what kind it is, and the install command
+      // differs per kind. A kind this decklight does not know is shown as
+      // exactly that, so a catalog written against a newer version reads as
+      // "not yet" rather than as a typo.
+      const entries = cached.manifest.entries;
+      console.log(`${head} — ${entries.length} ${entries.length === 1 ? 'entry' : 'entries'}`);
+      const kinds = [...new Set(entries.map((e) => e.type))].sort();
+      for (const kind of kinds) {
+        const known = KNOWN_TYPES.includes(kind);
+        const how = INSTALL_HINT[kind];
+        console.log(`  ${kind}${known ? '' : ' (this decklight does not install this kind)'}`
+          + `${how ? `  —  ${how}` : ''}`);
+        for (const e of entries.filter((x) => x.type === kind)) {
+          console.log(`    ${e.name}@${name}${e.description ? ` — ${e.description}` : ''}`);
+        }
       }
     }
   }
