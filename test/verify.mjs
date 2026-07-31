@@ -33,6 +33,7 @@ const HARNESSES = [
   'split-render',
   'strict-render',
   'plugin-render',
+  'extension-check-render',
   'deckfile-render',
   'pdf-render',
   'import-render',
