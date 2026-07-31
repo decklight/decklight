@@ -21,15 +21,14 @@
  * deck at a desk.
  *
  * WHAT IS DELIBERATELY NOT HERE: running an installed unit. A template is
- * HTML and a skill is Markdown, so both are just files. An import adapter is
- * **Node code**, and executing one is the same capability as
- * `EXTENSIONS#TRANSFORMS` — including the compat question, now resolved
- * (`OPEN` 2: an independent, additive-only `apiVersion`, never decklight's
- * own package version — see `TRANSFORM_API_VERSION` in `marketplace.mjs`).
- * What is still missing is the loader itself; shipping one here would build
- * it twice, once for adapters and once for transforms, instead of once
- * shared. So this installs an adapter and stops. `cli/import.mjs` says so out
- * loud rather than failing in a way that reads like a bug.
+ * HTML and a skill is Markdown, so both are just files. An import adapter and
+ * a build-time transform are both **Node code**, and executing either is one
+ * shared capability rather than two copies of resolve-fetch-validate-load —
+ * `cli/loader.mjs` (`EXTENSIONS#LOADER`) is that shared loader. `bundle
+ * --transform <name>` calls it once a transform is installed by the seam
+ * below; `cli/import.mjs` still says an installed adapter does not execute
+ * yet (`EXTENSIONS#ADAPTEREXEC`, not built), rather than failing in a way
+ * that reads like a bug.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -74,6 +73,20 @@ export const UNIT_TYPES = {
     use: 'decklight import <file>',
     example: 'marp-import',
     required: ['extensions'],
+  },
+  // Node code, like an importer — but this one DOES run (EXTENSIONS#LOADER):
+  // `bundle --transform <name>` loads it through cli/loader.mjs. `apiVersion`
+  // is not persisted onto the installed file (there is nowhere on an .mjs to
+  // put it); the loader re-reads it from the catalog cache at run time, the
+  // same way `adapterFor` re-reads an importer's `extensions` rather than
+  // duplicating it into the library.
+  transform: {
+    dir: 'transforms',
+    single: 'mjs',
+    label: 'build-time transform',
+    use: 'decklight bundle --transform <name>',
+    example: 'grammar-check',
+    required: ['apiVersion'],
   },
   // The one kind that carries NOTHING. `reference: true` means the install is
   // the catalog entry itself, written to disk as a pointer — no source to

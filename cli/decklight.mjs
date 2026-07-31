@@ -18,6 +18,7 @@
  *   decklight plugin   install your own presenter chrome (timer, teleprompter) — never enters a deck
  *   decklight template install deck templates for `init --from`
  *   decklight importer install import adapters for formats decklight cannot read itself
+ *   decklight transform install build-time transforms, run via `bundle --transform <name>`
  *   decklight voice    add a marketplace voice to the N picker — a reference, never a model
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
@@ -75,6 +76,9 @@ Commands:
            EXAMPLE: decklight template add startup-pitch
   importer install an import adapter for a format decklight cannot read itself
            EXAMPLE: decklight importer add marp-import   (import names it when it meets a .marp)
+  transform install a build-time transform — Node code that runs during bundle, never in the deck
+           EXAMPLE: decklight transform add grammar-check
+           EXAMPLE: decklight bundle deck.html --transform grammar-check   (runs it before signing)
   voice    add a marketplace voice to the picker — a reference to one of an engine's
            voices, never a model, so nothing that reproduces a person is ever downloaded
            EXAMPLE: decklight voice add narrator-anna    (works offline; speaking needs your key)
@@ -206,10 +210,11 @@ switch (cmd) {
     process.exitCode = await pluginMain(rest);
     break;
   }
-  // Two rows of the same table (UNITS#REST) — one implementation, in units.mjs.
+  // Four rows of the same table (UNITS#REST) — one implementation, in units.mjs.
   case 'template':
   case 'voice':
-  case 'importer': {
+  case 'importer':
+  case 'transform': {
     const { unitMain } = await import('./units.mjs');
     process.exitCode = await unitMain(cmd, rest);
     break;
