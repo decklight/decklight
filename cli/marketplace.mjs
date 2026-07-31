@@ -50,7 +50,7 @@ export const INSTALL_HINT = {
   skill: 'decklight skills add <name>',
   importer: 'decklight importer add <name>',
   engine: null,          // ENGINES#WIZARD installs one at the moment of need
-  transform: null,       // EXTENSIONS#TRANSFORMS — no loader yet (compat is resolved: apiVersion, OPEN 2)
+  transform: 'decklight transform add <name>',  // EXTENSIONS#LOADER — installs; bundle --transform <name> runs it
   voice: 'decklight voice add <name>',
   'publish-target': null,
 };

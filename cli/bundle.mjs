@@ -212,6 +212,9 @@ Options:
                    .decklight renamed to .html still plays in a browser: the
                    deck comes first in the file and the metadata is appended.
   --title <t>      <title> for a merged presentation
+  --transform <name>  run an installed build-time transform (decklight transform
+                   add <name>) on the deck's own source before anything else
+                   is inlined — repeatable, applied in the order given
   --themes <sel>   which themes to embed:
                      current       just the deck's linked theme (default)
                      all           every theme in the deck's themes/ directory
@@ -223,11 +226,13 @@ Options:
 
 const inputs = [];
 let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false, deckFile = false;
+const transformNames = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '-o') outPath = argv[++i];
   else if (a === '--themes') themesSel = argv[++i];
   else if (a === '--all') all = true;
+  else if (a === '--transform') transformNames.push(argv[++i]);
   else if (a === '--sign') sign = true;
   // --deck implies --sign rather than erroring on the pair: the container IS
   // the signed artifact, so an unsigned one would be a zip wearing the name of
@@ -283,6 +288,29 @@ const read = (rel) => {
   if (!fs.existsSync(p)) fail(`referenced file not found: ${rel} (${p})`);
   return fs.readFileSync(p, 'utf8');
 };
+
+// --------------------------------------------------------------- transforms
+
+// EXTENSIONS#LOADER. Deliberately BEFORE every other section below: a
+// transform sees the deck's own source, the way the author wrote it, not
+// decklight's runtime/theme/images already spliced in (SPEC
+// EXTENSIONS_TRANSFORMS) — and that puts it ahead of signing for free, since
+// everything in this file runs top to bottom before the sign step near the end.
+if (transformNames.length) {
+  const { runTransform, LoaderError } = await import('./loader.mjs');
+  for (const name of transformNames) {
+    let result;
+    try {
+      result = await runTransform(name, html);
+    } catch (e) {
+      if (e instanceof LoaderError) fail(e.message);
+      throw e;
+    }
+    html = result.html;
+    notices.push(`transform ${name} applied`
+      + (result.checked ? '' : ' (no cached catalog entry — apiVersion not checked)'));
+  }
+}
 
 // ---------------------------------------------------------- theme selection
 

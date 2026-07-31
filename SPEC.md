@@ -642,8 +642,9 @@ ahead of what this decklight currently implements: a catalog is a file someone
 else wrote, quite possibly against a newer decklight, and the same reasoning
 that leaves an unrecognised `type` accepted rather than refused applies here
 too. Whether a *particular* transform can actually run on *this* decklight is
-a question for the loader `EXTENSIONS#TRANSFORMS` still owes — this section
-only settles what it will check against once it exists.
+answered by the loader (`EXTENSIONS#LOADER`, `cli/loader.mjs`) — this section
+only settled what it checks against; running an installed import adapter
+(`EXTENSIONS#ADAPTEREXEC`) still owes the same question on that surface.
 
 ### EXTENSIONS_TRANSFORMS — Build-time transforms: the v1 contract
 
@@ -680,8 +681,9 @@ export default async function transform(html, opts) {
 - **The return value must be a string**, or a thrown/rejected value the
   *loader* reports by naming the transform — a transform has no other
   contract obligation. Turning a throw into a clean refusal rather than a raw
-  stack trace is the loader's job (`EXTENSIONS#LOADER`, not yet built), the
-  same UX every other unit-installing surface in this codebase already gives.
+  stack trace is the loader's job (`EXTENSIONS#LOADER`, `cli/loader.mjs`,
+  called from `bundle --transform <name>`), the same UX every other
+  unit-installing surface in this codebase already gives.
 
 This is the contract `apiVersion` (`UNIT_COMPAT`) names a version *of*.
 Freezing it here, ahead of the loader that will call it, is deliberate: the

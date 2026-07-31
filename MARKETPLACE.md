@@ -87,6 +87,30 @@ threat this design already accepted. Contrast `PRESENT#PLUGINS`, sandboxed
 because that code runs on a presenter's machine at a stranger's request — a
 different actor, a different risk.
 
+**`EXTENSIONS#LOADER` — the pipeline stage (`cli/loader.mjs`).** A transform
+installs through the same seam as every other unit (`decklight transform
+add/list/remove`, `cli/units.mjs`), and `bundle --transform <name>` (repeatable,
+applied in the order given) runs it against the deck's own source before
+anything else is inlined — ahead of theme/image/script inlining and therefore
+ahead of signing, since the whole bundle pipeline runs top to bottom. Two
+things the loader alone decides, both left open by `EXTENSIONS#CONVENTION`:
+
+- **`apiVersion` currency**, not merely shape. `marketplace add`/`update`
+  already validated the field is a positive integer; the loader is where a
+  transform declaring more than `TRANSFORM_API_VERSION` actually gets refused,
+  by name, before it runs. That number is not persisted onto the installed
+  `.mjs` — there is nowhere on a single file to put it — so the loader
+  re-reads it from the catalog cache, the same way `adapterFor` re-reads an
+  importer's `extensions` rather than duplicating it into the library. A
+  transform with no matching cached entry (its marketplace was since removed,
+  or it was placed in the library by hand) still runs — refusing an
+  explicitly-named, already-installed transform over metadata that merely
+  went missing is not what this design's trust model asks for.
+- **Every failure shape collapses to one clean, transform-naming error** — no
+  default export, an export that is not a function, a thrown/rejected value,
+  a non-string return — never a raw stack trace, the same UX every other
+  unit-installing surface already gives.
+
 ### PRESENT — `decklight present`, the trusted local viewer
 
 `decklight present <deck>` serves a deck read-only over localhost and is the
@@ -550,7 +574,10 @@ before 0.3.0 ships to npm.
    reasoning an unknown `type` already gets); this decklight is compatible
    with anything at or below its own `TRANSFORM_API_VERSION`. This settles the
    design question for both `EXTENSIONS#TRANSFORMS` and running an installed
-   import adapter — the loader itself, for either surface, is still not built.
+   import adapter. The loader itself now exists for the `bundle --transform`
+   surface (`EXTENSIONS#LOADER`, `cli/loader.mjs`); wiring the same loader
+   into `cli/import.mjs` so an installed import adapter runs is
+   `EXTENSIONS#ADAPTEREXEC`, still open.
 3. ~~Where the authoring-time library lives~~ — **resolved: `~/.decklight/`**
    (plugins and credentials both, ENGINES). How `author` and `present` resolve
    a bare reference is implementation detail of `ENGINES#WIZARD`.

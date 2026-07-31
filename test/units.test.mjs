@@ -210,7 +210,7 @@ test('every installable type has an install hint, and every hint a real command'
   }
   // The kinds with a null hint are real but installed elsewhere or not yet;
   // that distinction is the whole point of listing them at all.
-  assert.equal(INSTALL_HINT.transform, null, 'transforms are EXTENSIONS#TRANSFORMS');
+  assert.ok(INSTALL_HINT.transform, 'transforms install now that EXTENSIONS#LOADER runs them');
   assert.ok(INSTALL_HINT.voice, 'voices install now that VOICE_UNITS settled likeness and consent');
 });
 
