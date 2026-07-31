@@ -18,7 +18,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -44,7 +44,7 @@ const TEMPLATE_HTML = `<!doctype html><html><head><title>Pitch</title></head>
 const ENTRIES = [
   { name: 'startup-pitch', type: 'template', source: 'templates/startup-pitch.html', description: 'a 10-slide pitch' },
   { name: 'note-taking', type: 'skill', source: 'skills/note-taking' },
-  { name: 'marp-import', type: 'importer', source: 'importers/marp', extensions: ['.marp', '.md'] },
+  { name: 'marp-import', type: 'importer', source: 'importers/marp', extensions: ['.marp', '.md'], apiVersion: 1 },
 ];
 
 /** A local marketplace on disk, registered into a fresh config home. */
@@ -60,7 +60,17 @@ function market({ entries = ENTRIES, home = tmp('units-home') } = {}) {
   writeFileSync(path.join(root, 'skills/note-taking/SKILL.md'), '# Note taking\n');
   writeFileSync(path.join(root, 'skills/note-taking/reference.md'), 'reference\n');
   mkdirSync(path.join(root, 'importers/marp'), { recursive: true });
-  writeFileSync(path.join(root, 'importers/marp/importer.mjs'), 'export function convert() {}\n');
+  // A real default export (EXTENSIONS_ADAPTERS): bytes in, one HTML string of
+  // section markup out — enough for the execution tests below to prove the
+  // adapter actually ran, not merely that it installed.
+  writeFileSync(path.join(root, 'importers/marp/importer.mjs'),
+    'export default async function importAdapter(bytes) {\n'
+    + '  const body = bytes.toString("utf8").trim();\n'
+    + '  return body.split(/\\n(?=# )/).map((chunk) => {\n'
+    + '    const [heading, ...rest] = chunk.split("\\n");\n'
+    + '    return `<section><h2>${heading.replace(/^#\\s*/, "")}</h2>${rest.join(" ").trim()}</section>`;\n'
+    + '  }).join("\\n");\n'
+    + '}\n');
 
   execFileSync(process.execPath, [CLI, 'marketplace', 'add', root],
     { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -82,6 +92,14 @@ const run = (args, home, cwd) => {
 /** A fetch that fails the test if it is ever called. */
 const noNetwork = () => { throw new Error('the network was touched on an offline path'); };
 
+/** Like `run`, but combines stdout+stderr regardless of exit code — `import`'s
+ *  own success summary is printed to stderr (piped output stays clean), which
+ *  `run`'s stdout-only success case would otherwise miss. */
+const runCombined = (args, home, cwd) => {
+  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', cwd, env: { ...process.env, DECKLIGHT_HOME: home } });
+  return { code: r.status, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+};
+
 // ── the declared shapes ────────────────────────────────────────────────────
 
 test('an importer entry must declare the extensions it reads', () => {
@@ -96,7 +114,7 @@ test('an importer entry must declare the extensions it reads', () => {
   assert.ok(bad.errors[0].line > 1, 'the error carries the line, like every other manifest error');
 
   const good = validateManifest(JSON.stringify({
-    name: 'cat', entries: [{ name: 'marp-import', type: 'importer', source: 'a/b', extensions: ['.marp'] }],
+    name: 'cat', entries: [{ name: 'marp-import', type: 'importer', source: 'a/b', extensions: ['.marp'], apiVersion: 1 }],
   }));
   assert.ok(good.ok, JSON.stringify(good.errors));
 });
@@ -104,13 +122,23 @@ test('an importer entry must declare the extensions it reads', () => {
 test('extensions must actually be extensions', () => {
   for (const bad of [[], 'marp', [''], ['../etc/passwd'], [4]]) {
     const v = validateManifest(JSON.stringify({
-      name: 'cat', entries: [{ name: 'x', type: 'importer', source: 'a', extensions: bad }],
+      name: 'cat', entries: [{ name: 'x', type: 'importer', source: 'a', extensions: bad, apiVersion: 1 }],
     }));
     assert.equal(v.ok, false, `${JSON.stringify(bad)} must be refused`);
   }
   assert.ok(validateManifest(JSON.stringify({
-    name: 'cat', entries: [{ name: 'x', type: 'importer', source: 'a', extensions: ['marp', '.MD'] }],
+    name: 'cat', entries: [{ name: 'x', type: 'importer', source: 'a', extensions: ['marp', '.MD'], apiVersion: 1 }],
   })).ok, 'a leading dot is optional and case does not matter');
+});
+
+test('an importer entry must declare apiVersion — a v1 adapter is Node code too', () => {
+  const bad = validateManifest(JSON.stringify({
+    name: 'cat', entries: [{ name: 'marp-import', type: 'importer', source: 'a/b', extensions: ['.marp'] }],
+  }, null, 2));
+  assert.equal(bad.ok, false);
+  const e = bad.errors.find((x) => x.field === 'entries[0].apiVersion');
+  assert.ok(e, 'apiVersion missing must be its own named error');
+  assert.match(e.msg, /positive integer/);
 });
 
 test('an unknown kind is accepted, not refused', () => {
@@ -429,19 +457,41 @@ test('import names the adapter for an extension it cannot read', async () => {
   m.cleanup();
 });
 
-test('an installed adapter is reported as installed-but-not-running', async () => {
-  // The seam this release owes an explanation for: loading a marketplace
-  // module is EXTENSIONS#TRANSFORMS's loader, still not built (its compat
-  // question, OPEN 2, is resolved — see marketplace.mjs's TRANSFORM_API_VERSION)
-  // — so the honest thing is to say so rather than fail in a way that reads
-  // like a bug.
+test('an installed adapter actually runs — decklight import produces a deck (EXTENSIONS#ADAPTEREXEC)', async () => {
   const m = market();
   await installUnit('importer', 'marp-import', m.home);
-  const lines = (await adapterOffer('talk.marp', { home: m.home })).join('\n');
-  assert.match(lines, /marp-import is installed/);
-  assert.match(lines, /do not\n\s+execute yet/);
-  assert.doesNotMatch(lines, /importer add/, 'it does not tell you to install what you have');
-  m.cleanup();
+  const work = tmp('units-adapter-run');
+  const src = path.join(work, 'talk.marp');
+  writeFileSync(src, '# Slide one\n\nfirst body\n\n# Slide two\n\nsecond body\n');
+  try {
+    const { code, out } = runCombined(['import', src], m.home, work);
+    assert.equal(code, 0, out);
+    assert.match(out, /reading talk\.marp with marp-import/);
+    assert.match(out, /2 slide\(s\).*imported via marp-import/);
+    const deck = readFileSync(path.join(work, 'talk.html'), 'utf8');
+    assert.match(deck, /<section><h2>Slide one<\/h2>first body<\/section>/);
+    assert.match(deck, /<section><h2>Slide two<\/h2>second body<\/section>/);
+    assert.match(deck, /data-decklight-runtime="js"/, 'still the standard init output shape');
+  } finally { rmSync(work, { recursive: true, force: true }); m.cleanup(); }
+});
+
+test('an installed adapter that fails its own contract is refused cleanly, not left half-written', async () => {
+  const m = market({
+    entries: [{ name: 'broken-import', type: 'importer', source: 'importers/broken', extensions: ['.marp'], apiVersion: 1 }],
+  });
+  mkdirSync(path.join(m.root, 'importers/broken'), { recursive: true });
+  writeFileSync(path.join(m.root, 'importers/broken/importer.mjs'),
+    'export default async function importAdapter() { throw new Error("bad markup"); }\n');
+  await installUnit('importer', 'broken-import', m.home);
+  const work = tmp('units-adapter-throws');
+  const src = path.join(work, 'talk.marp');
+  writeFileSync(src, '# Slide one\n');
+  try {
+    const { code, out } = runCombined(['import', src], m.home, work);
+    assert.equal(code, 1, out);
+    assert.match(out, /importer "broken-import" threw: bad markup/);
+    assert.ok(!existsSync(path.join(work, 'talk.html')), 'nothing was written');
+  } finally { rmSync(work, { recursive: true, force: true }); m.cleanup(); }
 });
 
 test('with nothing cached, import says exactly what it always said', async () => {

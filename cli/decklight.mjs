@@ -75,8 +75,9 @@ Commands:
            EXAMPLE: decklight plugin list           (says which ones read your speaker notes)
   template install deck templates from a marketplace — scaffold with: decklight init --from <name>
            EXAMPLE: decklight template add startup-pitch
-  importer install an import adapter for a format decklight cannot read itself
-           EXAMPLE: decklight importer add marp-import   (import names it when it meets a .marp)
+  importer install an import adapter for a format decklight cannot read itself — decklight
+           import runs it the moment it is installed for the extension in hand
+           EXAMPLE: decklight importer add marp-import   (then: decklight import talk.marp)
   transform install a build-time transform — Node code that runs during bundle, never in the deck
            EXAMPLE: decklight transform add grammar-check
            EXAMPLE: decklight bundle deck.html --transform grammar-check   (runs it before signing)

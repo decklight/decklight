@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units; the transform calling convention; the marketplace admission gate for it |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -750,6 +750,65 @@ have no output to refuse, and this command's whole premise is loading code
 nobody has vetted yet — so a submission that never returns has to become a
 refusal too, not an unbounded hang in whatever is running the check (a
 marketplace's own CI).
+
+### EXTENSIONS_ADAPTERS — Import adapters: the v1 contract, and running one
+
+An import adapter is a single file, `importer.mjs`, exporting one function —
+the same shape `EXTENSIONS_TRANSFORMS` gives a build-time transform, with the
+one difference its different input forces:
+
+```js
+export default async function importAdapter(bytes, opts) {
+  return html; // bytes in, HTML out — the deck's <section> markup, nothing else crosses
+}
+```
+
+- **`bytes` is the source file's raw contents** (a `Buffer`, read by `cli/
+  import.mjs` before the adapter ever runs) — never a path, so an adapter's
+  contract needs no filesystem access of its own and stays as pure as a
+  transform's `html in, html out`. What the built-in importer calls "a
+  CONTENT importer, not a pixel renderer" (`DECK_IMPORT`) applies here too:
+  the adapter owns turning its format into markup, and decklight themes it
+  same as anything else.
+- **The return value is the deck's section markup — one HTML string**, not
+  the `{ sections, report }` pair `cli/import.mjs`'s own PowerPoint path uses
+  internally. Requiring a third-party adapter to reproduce that pair would
+  leak an implementation detail of one specific importer into a contract
+  every future adapter has to match; a single string is the same minimal
+  surface `EXTENSIONS_TRANSFORMS` chose for the same reason. Per-slide drop
+  reporting (`DECK_IMPORT`'s "every drop is reported with its slide number")
+  is therefore not part of the v1 adapter contract — an adapter that wants it
+  is free to `console.error` its own, since it runs at the same trust level
+  as anything else in `EXTENSIONS`.
+- **`opts` is reserved and empty in v1**, for the identical reason
+  `EXTENSIONS_TRANSFORMS`'s is: a later version may add a field, and doing so
+  is *additive* under `UNIT_COMPAT` rather than a version bump, because an
+  adapter that ignores an unrecognised field keeps working exactly as before.
+- **Loaded by dynamic `import()`, in the same process as `decklight import` —
+  no subprocess, no VM sandbox.** Identical reasoning to
+  `EXTENSIONS_TRANSFORMS`: an import adapter is Node code at author
+  privilege, the trust model `MARKETPLACE.md EXTENSIONS` already settled
+  (the installer is the risk-bearer), and isolating it from the process that
+  invoked it would defend against a threat this design already accepted.
+- **An independent `apiVersion`, `IMPORTER_API_VERSION` — not
+  `TRANSFORM_API_VERSION`.** The two are different calling conventions
+  (`html, opts → html` versus `bytes, opts → html`) that will each change on
+  their own schedule; sharing one counter would bump every installed
+  transform's compatibility number the day the *importer* contract grew a
+  field it never asked for. Both move the same way `UNIT_COMPAT` already
+  established — additive-only, bumped only when that ONE contract would
+  break an existing unit — they just count separately.
+- **The return value must be a string**, or a thrown/rejected value the
+  loader reports by naming the adapter — the same clean, never-a-raw-stack
+  collapse `EXTENSIONS#LOADER` already gives a transform's failures
+  (`cli/loader.mjs`'s `runImporterAt`, called from `cli/import.mjs` once
+  `sourceKind` finds no built-in reader for the file but a cached catalog
+  entry names an installed adapter for its extension).
+
+`import` still says exactly what it always said when no adapter is known, or
+when one is known but not installed (`decklight importer add <name>`); only
+an INSTALLED adapter's extension now actually runs, rather than reporting
+that it does not yet (`EXTENSIONS#ADAPTEREXEC`, MARKETPLACE.md).
 
 ### VOICE_UNITS — Voices: a reference, never a payload
 

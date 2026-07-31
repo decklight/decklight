@@ -405,13 +405,16 @@ Of that list, one is still deliberately out:
   request signing (SigV4) rather than a bearer token, and a hand-rolled signer
   nobody can exercise against a real bucket in CI is a correctness claim not
   worth shipping unverified; Netlify and Vercel prove the shape generalizes.
-- **Running** an installed import adapter is `EXTENSIONS#TRANSFORMS`. An
-  adapter is Node code at author privilege, which is the same capability as a
-  build-time transform — including the compat question, now resolved (`OPEN`
-  2: an independent `apiVersion`, SPEC `UNIT_COMPAT`). What is still missing is
-  the loader itself; building one here would duplicate `EXTENSIONS#TRANSFORMS`'s
-  rather than share it. So an adapter installs, `importer list` shows it, and
-  `import` says out loud why it is not being used.
+- ~~Running an installed import adapter is missing~~ — **resolved: landed**
+  (`EXTENSIONS#ADAPTEREXEC`, SPEC `EXTENSIONS_ADAPTERS`). An adapter is Node
+  code at author privilege, the same capability as a build-time transform —
+  including the compat question (`OPEN` 2: an independent `apiVersion`, SPEC
+  `UNIT_COMPAT` — an adapter counts its own `IMPORTER_API_VERSION`, never
+  `TRANSFORM_API_VERSION`) — and it shares `EXTENSIONS#LOADER`'s loader rather
+  than duplicating it: same dynamic `import()`, same one-clean-error collapse,
+  a different calling convention (`bytes, opts → html`, not `html, opts →
+  html`). An adapter installs, `importer list` shows it, and `import` now
+  actually runs it the moment it is installed for the extension in hand.
 
 **On themes specifically.** All 62 are **284K against 1.7M of `dist/`**, and
 `bundle` already inlines only the themes a deck actually carries. Moving them
@@ -648,7 +651,11 @@ before 0.3.0 ships to npm.
    import adapter. The loader itself now exists for the `bundle --transform`
    surface (`EXTENSIONS#LOADER`, `cli/loader.mjs`); wiring the same loader
    into `cli/import.mjs` so an installed import adapter runs is
-   `EXTENSIONS#ADAPTEREXEC`, still open.
+   `EXTENSIONS#ADAPTEREXEC` — **resolved: landed** (full contract text: SPEC
+   `EXTENSIONS_ADAPTERS`). An adapter counts compatibility on its own
+   `IMPORTER_API_VERSION`, independent of `TRANSFORM_API_VERSION`, since the
+   two calling conventions (`html, opts → html` vs `bytes, opts → html`) move
+   on their own schedules.
 3. ~~Where the authoring-time library lives~~ — **resolved: `~/.decklight/`**
    (plugins and credentials both, ENGINES). How `author` and `present` resolve
    a bare reference is implementation detail of `ENGINES#WIZARD`.

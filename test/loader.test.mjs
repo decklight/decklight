@@ -23,9 +23,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { resolveTransform, runTransform, LoaderError } from '../cli/loader.mjs';
+import {
+  resolveTransform, runTransform, resolveImporter, runImporter, LoaderError,
+} from '../cli/loader.mjs';
 import { installUnit, unitPath, unitDir, findUnit } from '../cli/units.mjs';
-import { TRANSFORM_API_VERSION } from '../cli/marketplace.mjs';
+import { TRANSFORM_API_VERSION, IMPORTER_API_VERSION } from '../cli/marketplace.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
@@ -39,6 +41,31 @@ const tmp = (p) => mkdtempSync(path.join(tmpdir(), `decklight-${p}-`));
 function putTransform(home, name, source) {
   mkdirSync(unitDir('transform', home), { recursive: true });
   writeFileSync(unitPath('transform', name, home), source);
+}
+
+/** Write an import adapter straight into the library, bypassing install —
+ *  the importer equivalent of `putTransform`. An importer is a directory unit
+ *  (`files: ['importer.mjs']`), unlike a transform's single `.mjs` file. */
+function putImporter(home, name, source) {
+  const dir = unitPath('importer', name, home);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, 'importer.mjs'), source);
+}
+
+/** A local marketplace with one importer entry, registered into `home`. */
+function importerMarket(home, { apiVersion = IMPORTER_API_VERSION, name = 'marp-import', source = 'marp', body } = {}) {
+  const root = tmp('importer-market');
+  mkdirSync(path.join(root, '.decklight'), { recursive: true });
+  writeFileSync(path.join(root, '.decklight/marketplace.json'), JSON.stringify({
+    name: 'cat',
+    entries: [{ name, type: 'importer', source, extensions: ['.marp'], apiVersion }],
+  }, null, 2));
+  mkdirSync(path.join(root, source), { recursive: true });
+  writeFileSync(path.join(root, source, 'importer.mjs'),
+    body ?? 'export default async function importAdapter(bytes) { return `<section>${bytes.toString("utf8")}</section>`; }\n');
+  execFileSync(process.execPath, [CLI, 'marketplace', 'add', root],
+    { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
+  return root;
 }
 
 /** A local marketplace with one transform entry, registered into `home`. */
@@ -274,4 +301,105 @@ test('bundle --transform refuses an apiVersion this decklight does not implement
     rmSync(home, { recursive: true, force: true });
     rmSync(path.dirname(out), { recursive: true, force: true });
   }
+});
+
+// ── running an installed import adapter (EXTENSIONS#ADAPTEREXEC) ───────────
+// The adapter half of everything above: same loader, same one-clean-error
+// collapse, `bytes` in rather than `html`, and its OWN apiVersion ceiling
+// (SPEC EXTENSIONS_ADAPTERS) — decklight import's CLI wiring end to end is
+// covered separately in test/units.test.mjs, alongside adapterFor/installUnit.
+
+test('runImporter applies the installed adapter to bytes and reports it unchecked with no catalog behind it', async () => {
+  const home = tmp('importer-load-plain');
+  try {
+    putImporter(home, 'shout', 'export default async function importAdapter(bytes) { return bytes.toString("utf8").toUpperCase(); }\n');
+    const { html, checked } = await runImporter('shout', Buffer.from('<p>hi</p>'), home);
+    assert.equal(html, '<P>HI</P>');
+    assert.equal(checked, false, 'no cached catalog entry names this importer');
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('a matching catalog entry at or under IMPORTER_API_VERSION runs, and is reported checked', async () => {
+  const home = tmp('importer-load-checked');
+  try {
+    importerMarket(home, { apiVersion: IMPORTER_API_VERSION });
+    await installUnit('importer', 'marp-import', home);
+    const { checked } = await runImporter('marp-import', Buffer.from('hi'), home);
+    assert.equal(checked, true);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('an apiVersion ahead of IMPORTER_API_VERSION refuses to run, naming both numbers', async () => {
+  const home = tmp('importer-load-ahead');
+  try {
+    importerMarket(home, { apiVersion: IMPORTER_API_VERSION + 3 });
+    await installUnit('importer', 'marp-import', home);
+    await assert.rejects(() => runImporter('marp-import', Buffer.from('hi'), home), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, new RegExp(`needs apiVersion ${IMPORTER_API_VERSION + 3}`));
+      assert.match(e.message, new RegExp(`up to ${IMPORTER_API_VERSION}`));
+      return true;
+    });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('an uninstalled importer names the install command, not a file-not-found error', async () => {
+  const home = tmp('importer-missing');
+  try {
+    await assert.rejects(() => runImporter('nope', Buffer.from('hi'), home), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, /no importer "nope" installed/);
+      assert.match(e.message, /decklight importer add nope, decklight importer list/);
+      return true;
+    });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('an importer with no default export function is refused, citing EXTENSIONS_ADAPTERS', async () => {
+  const home = tmp('importer-noexport');
+  try {
+    putImporter(home, 'broken', 'export const importAdapter = () => "x";\n');
+    await assert.rejects(() => runImporter('broken', Buffer.from('hi'), home), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, /no default export function/);
+      assert.match(e.message, /EXTENSIONS_ADAPTERS/);
+      return true;
+    });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('a throwing importer is reported cleanly, naming it — never a raw stack', async () => {
+  const home = tmp('importer-throws');
+  try {
+    putImporter(home, 'boom', 'export default async function importAdapter() { throw new Error("bad markup"); }\n');
+    await assert.rejects(() => runImporter('boom', Buffer.from('hi'), home), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, /importer "boom" threw: bad markup/);
+      assert.doesNotMatch(e.message, /at Object|at async|\.mjs:\d+:\d+/, 'no stack frame leaks through');
+      return true;
+    });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('an importer that returns a non-string is refused', async () => {
+  const home = tmp('importer-nonstring');
+  try {
+    putImporter(home, 'wrong', 'export default async function importAdapter() { return { not: "a string" }; }\n');
+    await assert.rejects(() => runImporter('wrong', Buffer.from('hi'), home), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, /must return a string \(returned object\)/);
+      return true;
+    });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('resolveImporter surfaces the same install-command error without running anything', () => {
+  const home = tmp('importer-resolve-only');
+  try {
+    assert.throws(() => resolveImporter('nope', home), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, /decklight importer add nope, decklight importer list/);
+      return true;
+    });
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });
