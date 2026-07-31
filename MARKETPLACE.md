@@ -70,6 +70,23 @@ extension's declared origins, consent at first open by the recipient, full-DOM
 access refused at the `bundle` boundary, and no execution in `?embedded`,
 `?print`, `pdf` or `video`.
 
+**`EXTENSIONS#CONVENTION` — the v1 calling convention (full contract text: SPEC
+`EXTENSIONS_TRANSFORMS`).** A transform is one file, `transform.mjs`, a single
+default export `async function transform(html, opts)` returning HTML. `html`
+is the deck's OWN source, before `bundle` inlines anything — a transform
+compiling `<pre class="mermaid">` needs the markup the author wrote, not
+decklight's runtime already spliced in, and a small fixture beats needing a
+full bundled deck to test against. `opts` is reserved and empty in v1; adding
+a field to it later is additive under `UNIT_COMPAT` and does not bump
+`TRANSFORM_API_VERSION` — only a change that would break an existing
+transform's assumptions does. Loaded by dynamic `import()`, **in the same
+process as `bundle`** — no subprocess, no VM sandbox — because the trust model
+for build-time code is already decided above (installer is the risk-bearer);
+isolating a transform from the process that invoked it would defend against a
+threat this design already accepted. Contrast `PRESENT#PLUGINS`, sandboxed
+because that code runs on a presenter's machine at a stranger's request — a
+different actor, a different risk.
+
 ### PRESENT — `decklight present`, the trusted local viewer
 
 `decklight present <deck>` serves a deck read-only over localhost and is the
@@ -491,7 +508,10 @@ Depends column cites tickets by mnemonic, never by position.
 | `DECK_FILE#ASSOC` | `.decklight` container + OS file association (macOS UTI, Windows registry, Linux desktop/MIME) | `INTEGRITY#SIGNING` |
 | `MARKETPLACES#CORE` | manifest, `add/list/update/remove`, cache, first-party registered-not-fetched | — |
 | `THEME_BROWSE#UI` | **Browse** in the picker, authoring-only, installing via `theme add` | `MARKETPLACES#CORE` |
-| `EXTENSIONS#TRANSFORMS` | build-time transform API + `extension check` (lint, then load) | `MARKETPLACES#CORE` |
+| `EXTENSIONS#CONVENTION` | freeze the transform calling convention `apiVersion` names a version of | `OPEN` 2 (resolved) |
+| `EXTENSIONS#LOADER` | the pipeline stage: install a transform, run it from `bundle --transform <name>` before signing | `EXTENSIONS#CONVENTION` |
+| `EXTENSIONS#CHECK` | `extension check` — lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
+| `EXTENSIONS#ADAPTEREXEC` | wire the same loader into `cli/import.mjs` — an installed import adapter finally runs | `EXTENSIONS#LOADER` |
 | `PRESENT#PLUGINS` | presenter-library plugins, chrome-only, enforced | `PRESENT_SERVER`, `MARKETPLACES#CORE` |
 | `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` `0600` writes, author-mode-only | `MARKETPLACES#CORE` |
 | `ENGINES#TTS` | TTS engines as marketplace plugins — the proving case for the wizard | `ENGINES#WIZARD` |
