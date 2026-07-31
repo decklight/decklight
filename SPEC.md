@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` · `EXTENSIONS_TRANSFORMS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units; the transform calling convention |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -644,6 +644,50 @@ that leaves an unrecognised `type` accepted rather than refused applies here
 too. Whether a *particular* transform can actually run on *this* decklight is
 a question for the loader `EXTENSIONS#TRANSFORMS` still owes — this section
 only settles what it will check against once it exists.
+
+### EXTENSIONS_TRANSFORMS — Build-time transforms: the v1 contract
+
+A transform is a single file, `transform.mjs`, exporting one function:
+
+```js
+export default async function transform(html, opts) {
+  return html; // HTML in, HTML out (MARKETPLACE.md EXTENSIONS) — nothing else crosses
+}
+```
+
+- **`html` is the deck's own source** — the file as the author wrote it,
+  *before* `bundle` inlines themes, images, casts or narration. A transform
+  compiling `<pre class="mermaid">…</pre>` into inline SVG needs the markup
+  the author wrote, not decklight's own runtime already spliced in; running
+  before that inlining also keeps a transform's test fixture small — a
+  two-line HTML snippet, not a full bundled deck — and keeps decklight's own
+  inlining regexes untouched by whatever a transform's output contains.
+- **`opts` is reserved and empty in v1.** Nothing populates it yet. A later
+  version MAY add a field (deck title, target theme, …), and doing so is an
+  *additive* change under `UNIT_COMPAT` — it does not bump
+  `TRANSFORM_API_VERSION`, because an existing transform that ignores an
+  unrecognised field keeps working exactly as it did before. Only a change
+  that would break an existing transform's assumptions bumps the version.
+- **Loaded by dynamic `import()`, in the same process as `bundle`/`import` —
+  no subprocess, no VM sandbox.** This is not a gap: `MARKETPLACE.md
+  EXTENSIONS` already decided the trust model for build-time code — the
+  installer is the risk-bearer, the same defensible model Claude's own plugin
+  marketplace uses — so isolating a transform from the process that invoked
+  it would defend against a threat this design already accepted. Contrast
+  `PRESENT#PLUGINS`, which sandboxes because *that* code runs on a
+  presenter's machine at a stranger's request — a different actor, a
+  different risk.
+- **The return value must be a string**, or a thrown/rejected value the
+  *loader* reports by naming the transform — a transform has no other
+  contract obligation. Turning a throw into a clean refusal rather than a raw
+  stack trace is the loader's job (`EXTENSIONS#LOADER`, not yet built), the
+  same UX every other unit-installing surface in this codebase already gives.
+
+This is the contract `apiVersion` (`UNIT_COMPAT`) names a version *of*.
+Freezing it here, ahead of the loader that will call it, is deliberate: the
+loader is comparatively mechanical once this is fixed, and fixing it after
+the loader existed would mean the first version number was never actually
+pinned to anything.
 
 ### VOICE_UNITS — Voices: a reference, never a payload
 
