@@ -228,11 +228,14 @@ ${sections.join('\n\n')}
  *
  * The third answer is the honest one this release owes: an installed adapter
  * does NOT run yet. Loading a Node module from a marketplace is
- * `EXTENSIONS#TRANSFORMS`, and it is blocked on the compat-range question
- * (`OPEN` 2 in MARKETPLACE.md) — shipping a loader here would answer that in a
- * second place and leave two answers to reconcile. So the adapter installs,
- * `importer list` shows it, and this says plainly why it is not being used
- * rather than failing in a way that reads like a bug.
+ * `EXTENSIONS#TRANSFORMS`'s loader, and building one just for adapters would
+ * duplicate it rather than share it. The compat question that used to block
+ * even starting on this (`OPEN` 2 in MARKETPLACE.md) is resolved — an adapter
+ * or a transform declares its own `apiVersion`, never decklight's package
+ * version (`TRANSFORM_API_VERSION` in `cli/marketplace.mjs`) — what remains is
+ * the loader itself. So the adapter installs, `importer list` shows it, and
+ * this says plainly why it is not being used rather than failing in a way
+ * that reads like a bug.
  */
 export async function adapterOffer(source, { home } = {}) {
   const name = basename(String(source ?? ''));
@@ -247,7 +250,7 @@ export async function adapterOffer(source, { home } = {}) {
 
   if (findUnit('importer', offered.name, home)) {
     out.push(`  ${offered.name} is installed and reads ${ext}, but import adapters do not`,
-      '  execute yet — loading a marketplace module is EXTENSIONS#TRANSFORMS, still open.');
+      '  execute yet — loading a marketplace module is EXTENSIONS#TRANSFORMS, not built yet.');
     return out;
   }
   out.push(`  no adapter for ${ext} — ${offered.qualified} reads it:`,

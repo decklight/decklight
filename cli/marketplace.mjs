@@ -50,7 +50,7 @@ export const INSTALL_HINT = {
   skill: 'decklight skills add <name>',
   importer: 'decklight importer add <name>',
   engine: null,          // ENGINES#WIZARD installs one at the moment of need
-  transform: null,       // EXTENSIONS#TRANSFORMS
+  transform: null,       // EXTENSIONS#TRANSFORMS — no loader yet (compat is resolved: apiVersion, OPEN 2)
   voice: 'decklight voice add <name>',
   'publish-target': null,
 };
@@ -203,6 +203,24 @@ export function jsonLineMap(raw) {
  * catalog un-addable the day it adds an entry. The unknown kind is surfaced by
  * `marketplace list` instead, where it is information rather than a wall.
  */
+/**
+ * The build-time transform invocation contract's own version (SPEC
+ * `UNIT_COMPAT`, `OPEN` 2 in MARKETPLACE.md).
+ *
+ * Deliberately NOT decklight's package version: `src/core/engine.js` has been
+ * split apart repeatedly (four modules pulled out in #147 alone) without that
+ * ever being a promise to anyone outside the repo, so checking a transform's
+ * compatibility against decklight's package.json would tie every installed
+ * extension to churn it never touches. This number instead tracks only the
+ * narrow "HTML in, HTML out" calling convention `EXTENSIONS#TRANSFORMS`
+ * declares, and moves the way `CAST_FORMAT`'s `decklightCast` does: additive
+ * only, bumped only when that calling convention itself would break an
+ * existing transform, never for an internal reorganisation. A transform
+ * declares the lowest version it needs; this decklight is compatible with
+ * anything at or below `TRANSFORM_API_VERSION`.
+ */
+export const TRANSFORM_API_VERSION = 1;
+
 const ENTRY_SHAPES = {
   // `import` has to name the adapter for a `.marp` file from the CACHE, with
   // no network — so which extensions an adapter claims is a fact the catalog
@@ -211,6 +229,17 @@ const ENTRY_SHAPES = {
     extensions: (v) => (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string' && /^\.?[A-Za-z0-9]+$/.test(x))
       ? null
       : 'must be a non-empty array of file extensions the adapter reads, e.g. [".marp"]'),
+  },
+  // A transform is Node code, so it declares the invocation-contract version
+  // it needs rather than pinning decklight's own package version (OPEN 2) —
+  // see TRANSFORM_API_VERSION above. Any positive integer validates here
+  // regardless of what THIS decklight currently implements: a catalog written
+  // against a newer contract must stay addable, the same reasoning that
+  // leaves an unknown `type` accepted rather than refused (below).
+  transform: {
+    apiVersion: (v) => (Number.isInteger(v) && v >= 1
+      ? null
+      : 'must be a positive integer — the EXTENSIONS#TRANSFORMS contract version this transform needs, not a decklight version'),
   },
   // A voice entry is a POINTER (SPEC VOICE_UNITS): which engine, and which of
   // that engine's voices. Both are needed for the roster to be filtered to the

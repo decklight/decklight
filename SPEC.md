@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -552,7 +552,7 @@ manifest names the catalog and its entries:
 
 `name` and each entry's `name`/`type`/`source` are required (`description`
 optional; versions and compat ranges arrive with code-carrying extensions —
-versions for code, none for data). The one exception is a reference-only kind,
+versions for code, none for data — see `UNIT_COMPAT`). The one exception is a reference-only kind,
 which carries no `source` because it carries nothing at all — see `VOICE_UNITS`. A malformed manifest is refused **naming the
 line and the field** (`line 7: entries[1].type — missing`), never with a stack
 trace — a typo in somebody's catalog is not an internal error.
@@ -605,6 +605,45 @@ adapter that reads `.marp` and how to get it, which is the ENGINES pattern
 advance. Installing an adapter does not yet make it *run*: executing a
 marketplace module is `EXTENSIONS#TRANSFORMS`, and until that lands `import`
 says so plainly instead of failing in a way that reads like a bug.
+
+### UNIT_COMPAT — Compat for code-carrying units: an API version, not an engine version
+
+A build-time transform (and, later, an executed import adapter) is Node code,
+so its catalog entry declares a version — unlike a theme or a voice, which
+carry none. What that version is checked *against* is deliberately **not**
+decklight's own package version:
+
+```json
+{ "name": "grammar-check", "type": "transform", "source": "./grammar.mjs", "apiVersion": 1 }
+```
+
+**Why not decklight's version.** `src/core/engine.js` has been split apart
+repeatedly — four feature modules pulled out in one PR alone — without any of
+those reorganisations ever being a promise to anyone outside the repo. Pinning
+a transform's compatibility to decklight's package version would tie it to
+that same internal churn: a patch release could break every installed
+transform for a reason the transform never touched.
+
+**The alternative:** `apiVersion` names a version of the transform *invocation
+contract* alone — the narrow "HTML in, HTML out" calling convention
+`EXTENSIONS#TRANSFORMS` declares — and that number moves the way
+`CAST_FORMAT`'s `decklightCast` does: **additive only**, bumped only when the
+calling convention itself would break an existing transform, never for an
+internal reorganisation elsewhere in the codebase. A transform declares the
+lowest contract version it needs; decklight is compatible with anything at or
+below its own `TRANSFORM_API_VERSION` (`cli/marketplace.mjs`), because nothing
+additive-only ever removes what an older transform relied on.
+
+**Validated for shape, not for currency.** `apiVersion` must be a positive
+integer — that is checked the moment a catalog is registered (`marketplace
+add`/`update`), by the same `ENTRY_SHAPES` mechanism that requires an
+`importer`'s `extensions`. It is never refused merely for naming a version
+ahead of what this decklight currently implements: a catalog is a file someone
+else wrote, quite possibly against a newer decklight, and the same reasoning
+that leaves an unrecognised `type` accepted rather than refused applies here
+too. Whether a *particular* transform can actually run on *this* decklight is
+a question for the loader `EXTENSIONS#TRANSFORMS` still owes — this section
+only settles what it will check against once it exists.
 
 ### VOICE_UNITS — Voices: a reference, never a payload
 

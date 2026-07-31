@@ -431,8 +431,10 @@ test('import names the adapter for an extension it cannot read', async () => {
 
 test('an installed adapter is reported as installed-but-not-running', async () => {
   // The seam this release owes an explanation for: loading a marketplace
-  // module is EXTENSIONS#TRANSFORMS and is still open, so the honest thing is
-  // to say so rather than fail in a way that reads like a bug.
+  // module is EXTENSIONS#TRANSFORMS's loader, still not built (its compat
+  // question, OPEN 2, is resolved — see marketplace.mjs's TRANSFORM_API_VERSION)
+  // — so the honest thing is to say so rather than fail in a way that reads
+  // like a bug.
   const m = market();
   await installUnit('importer', 'marp-import', m.home);
   const lines = (await adapterOffer('talk.marp', { home: m.home })).join('\n');

@@ -294,11 +294,12 @@ Of that list, one is still deliberately out:
   nobody can exercise against a real bucket in CI is a correctness claim not
   worth shipping unverified; Netlify and Vercel prove the shape generalizes.
 - **Running** an installed import adapter is `EXTENSIONS#TRANSFORMS`. An
-  adapter is Node code at author privilege, which is the same capability and
-  the same unanswered compat-range question (`OPEN` 2) — a loader here would
-  answer it in a second place and leave two answers to reconcile. So an adapter
-  installs, `importer list` shows it, and `import` says out loud why it is not
-  being used.
+  adapter is Node code at author privilege, which is the same capability as a
+  build-time transform — including the compat question, now resolved (`OPEN`
+  2: an independent `apiVersion`, SPEC `UNIT_COMPAT`). What is still missing is
+  the loader itself; building one here would duplicate `EXTENSIONS#TRANSFORMS`'s
+  rather than share it. So an adapter installs, `importer list` shows it, and
+  `import` says out loud why it is not being used.
 
 **On themes specifically.** All 62 are **284K against 1.7M of `dist/`**, and
 `bundle` already inlines only the themes a deck actually carries. Moving them
@@ -513,8 +514,23 @@ before 0.3.0 ships to npm.
 1. **`upgrade` semantics** once a theme can come from a marketplace — re-fetch,
    pin, or refuse on a stale compat range. Blocks `THEME_BROWSE#SPLIT`
    specifically.
-2. **Compat range vs engine version** for the build-time transform API. The
-   18-module engine split is the precedent for how fast a documented API drifts.
+2. ~~Compat range vs engine version~~ — **resolved: an independent, additive-
+   only `apiVersion`, never decklight's own package version** (SPEC
+   `UNIT_COMPAT`). `src/core/engine.js` has been split apart repeatedly (four
+   modules pulled out in #147 alone) without that ever being a promise to
+   anyone outside the repo; checking a transform against decklight's package
+   version would tie every installed extension to that same churn. Instead the
+   invocation contract itself — `EXTENSIONS#TRANSFORMS`'s "HTML in, HTML out"
+   — gets its own small integer, moved the way `CAST_FORMAT`'s `decklightCast`
+   does: bumped only when the calling convention would break an existing
+   transform, never for an internal reorg. A `transform` catalog entry
+   declares the version it needs (`apiVersion`, validated in
+   `cli/marketplace.mjs`'s `ENTRY_SHAPES`, for shape only — never refused for
+   naming a version ahead of what this decklight implements, the same
+   reasoning an unknown `type` already gets); this decklight is compatible
+   with anything at or below its own `TRANSFORM_API_VERSION`. This settles the
+   design question for both `EXTENSIONS#TRANSFORMS` and running an installed
+   import adapter — the loader itself, for either surface, is still not built.
 3. ~~Where the authoring-time library lives~~ — **resolved: `~/.decklight/`**
    (plugins and credentials both, ENGINES). How `author` and `present` resolve
    a bare reference is implementation detail of `ENGINES#WIZARD`.
