@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` · `EXTENSIONS_TRANSFORMS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units; the transform calling convention |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units; the transform calling convention; the marketplace admission gate for it |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -690,6 +690,54 @@ Freezing it here, ahead of the loader that will call it, is deliberate: the
 loader is comparatively mechanical once this is fixed, and fixing it after
 the loader existed would mean the first version number was never actually
 pinned to anything.
+
+### EXTENSIONS_CHECK — The marketplace admission gate for build-time code
+
+`decklight extension check <file> [--type transform]` (`--type transform` is
+both the default and, in v1, the only kind implemented) validates ONE
+transform source file and reports 0 or 1, the same shape `theme check`
+already gives. It is not part of `bundle`, `import` or `publish` — those run
+an already-*installed*, catalog-backed unit (`EXTENSIONS#LOADER`) and never
+re-check it. `extension check` instead runs against a bare FILE, because its
+job is admitting an entry to a marketplace catalog in the first place: a
+marketplace repo's own CI runs it on every PR that adds or updates a
+`transform` entry, and a failing check blocks that PR — which is what
+"failure blocks publish" means (MARKETPLACE.md `EXTENSIONS#CHECK`):
+publishing the *extension*, not `decklight publish`ing a deck.
+
+Two phases, checking two different things:
+
+- **Lint the source text.** Refused if the file contains `fetch(`, `eval(`,
+  `XMLHttpRequest`, or a dynamic `import(`, anywhere — a shallow source-text
+  scan, the same kind `PRESENT#PLUGINS` already runs on a presenter plugin's
+  source. It is NOT the same kind of check, though: a plugin's lint catches
+  something that *also* fails at run time (its `<iframe sandbox>`'s opaque
+  origin throws on `parent.document` regardless of the lint), so that lint is
+  a friendlier echo of an enforcement the sandbox already provides. A
+  transform has no such backstop — it runs as trusted, unsandboxed Node
+  (`EXTENSIONS_TRANSFORMS`), where `fetch` and `eval` simply work. This lint
+  IS the enforcement: the only thing standing between "HTML in, HTML out"
+  and a transform that quietly does network I/O or loads code a
+  marketplace's SHA pin never covered.
+- **A headless load of the OUTPUT, not the source.** The file is run (through
+  the same loader `EXTENSIONS#LOADER` uses — a CI runner checking a
+  submission is exactly as much an installer as anyone else, for the
+  duration of the check) against ONE small fixture this command owns,
+  never the submitter's own deck — proving the CONTRACT, not "does it handle
+  some particular author's markup" (the same "a small fixture beats a full
+  bundled deck" reasoning `EXTENSIONS_TRANSFORMS` already uses to justify
+  testing against the pre-`bundle` source). The output is then rendered
+  headlessly and refused if it contains a `<script>` block, full stop — this
+  is the one automatable proof that a given transform actually honors
+  "build-time transforms produce output, not code; nothing executable
+  travels" (MARKETPLACE.md `EXTENSIONS`, SUPERSEDED), rather than merely
+  being asked to. `apiVersion` currency plays no part here: that is
+  `EXTENSIONS#LOADER`'s question at USE time, on an installed unit, not this
+  command's question at ADMISSION time, on a bare file.
+
+Needs a real browser to run the second phase — the same Chrome dependency
+`npm run verify`'s render harnesses already carry — and answers the same way
+they already do when Chrome is absent: a named refusal, never a silent pass.
 
 ### VOICE_UNITS — Voices: a reference, never a payload
 

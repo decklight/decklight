@@ -111,6 +111,71 @@ things the loader alone decides, both left open by `EXTENSIONS#CONVENTION`:
   a non-string return — never a raw stack trace, the same UX every other
   unit-installing surface already gives.
 
+**`EXTENSIONS#CHECK` — scoped (full contract text: SPEC `EXTENSIONS_CHECK`),
+not yet built.** `decklight extension check <file>` is the marketplace
+admission gate the WHY section already promised ("a written bar enforced by
+CI"), for the same reason `theme check` is one: it operates on a source FILE,
+not an installed, catalog-backed unit — a marketplace repo's own CI runs it
+against a submitted `transform.mjs` before merging the PR that adds the
+catalog entry, which is what "failure blocks publish" means here — *publishing
+the extension to a catalog*, not `decklight publish`ing a deck. `bundle` and
+`publish` stay exactly as `EXTENSIONS#LOADER` left them: an installed
+transform a deck actually uses is never re-checked on that path, the same way
+an installed theme is never re-run through `theme check` on `bundle` — the
+gate sits at the marketplace's door, once, not on every local iteration.
+
+Named `extension`, not `transform`, on purpose: `decklight plugin check`
+already exists for presenter-library plugins (a different risk — a
+stranger's code on the presenter's machine, SPEC `PRESENT#PLUGINS`); this is
+the gate for **build-time** code units specifically, and `EXTENSIONS#ADAPTEREXEC`
+will need the identical two-phase shape for import adapters once *their*
+calling convention is frozen. `--type transform` (default, and the only kind
+this command implements yet) leaves that room without a rename later.
+
+Two phases, and they are not the same kind of check:
+
+- **Lint the source text** — refuses `fetch(`, `eval(`, `XMLHttpRequest`, or a
+  dynamic `import(` appearing anywhere in the file, by the same shallow
+  source-text scan `PRESENT#PLUGINS` already uses for its own lint. The
+  difference from that precedent is what makes this one load-bearing rather
+  than a friendlier echo of a runtime failure: a presenter plugin's lint
+  catches something that **also** fails at run time (an opaque iframe origin
+  throws on `parent.document` regardless), but a transform runs as trusted,
+  unsandboxed Node (`EXTENSIONS#LOADER`) — nothing stops `fetch` or `eval`
+  from *working* there. The lint is the only thing that keeps a "HTML in,
+  HTML out" pure function from quietly doing network I/O or loading code a
+  marketplace's SHA pin never covered; there is no sandbox standing behind it
+  the way there is for a plugin.
+- **A headless load of the transform's OUTPUT, not its source.** The checked
+  file is run (through `cli/loader.mjs`, same in-process trust model — a CI
+  runner is exactly as much an installer as anyone else for the duration of
+  the check) against ONE small canonical fixture this command owns, the same
+  "a small fixture beats needing a full bundled deck" reasoning
+  `EXTENSIONS#CONVENTION` already used for testing the contract itself — this
+  proves the CONTRACT, not "does it handle any particular author's deck."
+  What the headless render (`--headless --dump-dom`, same technique
+  `test/harness.mjs` already gives the render suite) checks for is exactly
+  one thing: **the output contains no `<script>` block**, because "build-time
+  transforms produce output, not code; nothing executable travels" (this
+  document's SUPERSEDED list) is an already-decided invariant, and this is
+  the one automatable place that actually proves a given transform honors it
+  rather than merely being asked to. (The acceptance checklist's older phrase
+  — "a script not declared in the manifest" — predates that invariant and is
+  superseded by it: there is no such declaration, and no exception; a
+  transform emitting *any* `<script>` fails the check.) `apiVersion` currency
+  plays no part here — that is `EXTENSIONS#LOADER`'s question at USE time, not
+  this command's question at ADMISSION time.
+
+Right-sized as ONE ticket, unlike `EXTENSIONS#TRANSFORMS`: that one fanned
+into four because it bundled a design freeze with three separate execution
+surfaces (the contract, the loader, running it from `import`). Here the
+design is what this paragraph just settled, and the remaining surface —
+lint, fixture run, headless dump, `decklight extension` command — is
+comparable in size to `theme add`/`check` landing together (#206). It needs
+Chrome the same way `npm run verify`'s render harnesses do, and answers the
+same way they already do when Chrome is absent: a named refusal, never a
+silent pass.
+
 ### PRESENT — `decklight present`, the trusted local viewer
 
 `decklight present <deck>` serves a deck read-only over localhost and is the
