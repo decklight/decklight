@@ -275,15 +275,24 @@ because naming the adapter for a `.marp` at the point of failure has to work
 from the cache — while an *unknown* kind is accepted rather than refused, since
 a catalog written against a newer decklight must not become un-addable.
 
-Three of that list are deliberately still out:
+Of that list, one is still deliberately out:
 
-- **Voices** wait on `OPEN` 5. The mechanism is easy and the policy is not: a
-  marketplace distributing cloned voices distributes someone's likeness, and no
-  lint catches that. Shipping the install path first would settle the question
-  by default, in the direction nobody argued for.
-- **Publish targets** are an `ENGINES#WIZARD` consumer, not a new seam —
-  gh-pages stays core (git auth, no credential), and Netlify/Vercel/S3 arrive
-  as engines with a token through the wizard flow that already exists.
+- ~~Voices wait on `OPEN` 5~~ — **resolved: reference-only** (SPEC
+  `VOICE_UNITS`, `OPEN` 5). A voice entry names an engine and one of its
+  voices; no `source`, so no model weight or sample audio can travel — refused
+  at `marketplace add`, not merely undocumented.
+- ~~Publish targets are an `ENGINES#WIZARD` consumer~~ — **landed: Netlify and
+  Vercel**, `decklight publish --target <name>`. The token comes from that
+  provider's own CLI env var (`NETLIFY_AUTH_TOKEN`, `VERCEL_TOKEN`), never a
+  terminal prompt or the browser wizard — `publish` is a one-shot, often-
+  headless command with no author server to post a pasted key to, so it
+  follows the ElevenLabs-key precedent (env, never written to disk) rather
+  than `/edit/wizard`'s. The schema is still a real `ENGINES#WIZARD` schema,
+  validated by the same `validateSchema`/`checkAnswers` every engine goes
+  through. **S3 is deliberately not here yet** — the one target needing
+  request signing (SigV4) rather than a bearer token, and a hand-rolled signer
+  nobody can exercise against a real bucket in CI is a correctness claim not
+  worth shipping unverified; Netlify and Vercel prove the shape generalizes.
 - **Running** an installed import adapter is `EXTENSIONS#TRANSFORMS`. An
   adapter is Node code at author privilege, which is the same capability and
   the same unanswered compat-range question (`OPEN` 2) — a loader here would
@@ -510,9 +519,17 @@ before 0.3.0 ships to npm.
    (plugins and credentials both, ENGINES). How `author` and `present` resolve
    a bare reference is implementation detail of `ENGINES#WIZARD`.
 4. **Which themes are core** — the graded set needs an actual list.
-5. **Voice likeness and consent** — a marketplace distributing cloned voices
-   distributes someone's likeness; no lint catches that. Needs a policy line
-   even if the answer is "attestation required".
+5. ~~Voice likeness and consent~~ — **resolved: reference-only** (SPEC
+   `VOICE_UNITS`). A voice entry names an engine and one of its voices and
+   carries no `source` — refused, not merely undocumented, so no model weight
+   or sample audio can travel. No consent attestation either: a `consent: true`
+   field is one boolean nobody can verify, the same defeatable green mark the
+   ingredients label already refuses to print. Left open by this: the wording
+   above says "voice" but `character.js` also carries custom art and a
+   talking-head video mode, and a marketplace unit combining art with a voice
+   reference is a synthetic presenter — the likeness question is a face, not
+   only a voice, and item 12 below is that scope question stated on its own
+   rather than folded into a "resolved" line.
 6. ~~Is signing on by default~~ — **resolved: `publish` signs by default**
    (already a network action, and Sigstore keyless needs one); **`bundle` opts
    in with `--sign`** and stays offline-clean, never silently unsigned
@@ -541,3 +558,17 @@ before 0.3.0 ships to npm.
     opaque origin is the boundary; the manifest vocabulary stays closed on top
     of it, because "chrome only" also has to mean "not covering the slides",
     and that part IS expressible as a declaration.
+12. **Does "likeness" stop at voice** — item 5's resolution covers a cloned
+    voice reference; it says nothing about custom character art
+    (`config.narration.character.svg`) or the talking-head video mode
+    (`character.js`), both of which can be built from a real person's image the
+    same way a voice can be built from their recordings. Widening `VOICE_UNITS`
+    to cover art and video the same way (reference-only, no consent
+    attestation) is probably the same answer again — this item exists so the
+    scope decision is made on purpose rather than by item 5 quietly not
+    reaching that far.
+13. **Do `voices` in `UNITS` mean terminal casts too** — `UNITS`' "voices and
+    casts" reads as one list, but `CAST_FORMAT`'s `cast` (a terminal recording)
+    and a narration voice are unrelated data types filed together by name
+    collision. If "casts" means terminal casts, that item carries none of
+    item 5's likeness question and was shippable the whole time.

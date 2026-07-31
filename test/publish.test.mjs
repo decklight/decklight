@@ -206,7 +206,7 @@ test('publish is routed and documented by the dispatcher, and fails usefully', (
   assert.match(help, /^  publish /m, 'publish is listed in the global help');
   const sub = execFileSync('node', [CLI, 'help', 'publish'], { encoding: 'utf8' });
   assert.match(sub, /decklight publish <deck\.html>/);
-  for (const flag of ['--branch', '--remote', '--no-bundle', '--no-sign', '--path']) {
+  for (const flag of ['--branch', '--remote', '--no-bundle', '--no-sign', '--path', '--target']) {
     assert.match(sub, new RegExp(flag.replace(/-/g, '\\-')), `help documents ${flag}`);
   }
 
@@ -281,5 +281,93 @@ test('a signing failure pushes NOTHING and names the way past it', () => {
   assert.throws(() => bareGit('rev-parse', 'refs/heads/gh-pages'),
     'nothing was pushed — the branch does not exist');
 
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// --- --target: netlify/vercel beside gh-pages (MARKETPLACE.md ENGINES) ------
+
+/** A standalone deck with no git repo at all — a token-based target needs none. */
+function looseDeck() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-publish-target-'));
+  const deck = path.join(dir, 'deck.html');
+  fs.writeFileSync(deck, '<!doctype html><html><body>hi</body></html>');
+  return { dir, deck };
+}
+
+test('an unknown --target is refused, and gh-pages plus the real ones are named', () => {
+  const { dir, deck } = looseDeck();
+  const r = spawnSync('node', [CLI, 'publish', deck, '--no-bundle', '--no-sign', '--target', 'heroku'],
+    { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /"heroku" is not a publish target/);
+  assert.match(r.stderr, /gh-pages/);
+  assert.match(r.stderr, /netlify/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('--branch/--remote are refused alongside a non-gh-pages target — they would silently do nothing', () => {
+  const { dir, deck } = looseDeck();
+  const r = spawnSync('node',
+    [CLI, 'publish', deck, '--no-bundle', '--no-sign', '--target', 'netlify', '--branch', 'gh-pages'],
+    { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /--branch\/--remote are gh-pages options/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a token target with no credentials in the environment refuses and names the real env vars', () => {
+  const { dir, deck } = looseDeck();
+  const env = { ...process.env };
+  delete env.NETLIFY_AUTH_TOKEN; delete env.NETLIFY_SITE_ID;
+  const r = spawnSync('node', [CLI, 'publish', deck, '--no-bundle', '--no-sign', '--target', 'netlify'],
+    { encoding: 'utf8', env });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /netlify needs/);
+  assert.match(r.stderr, /NETLIFY_AUTH_TOKEN/);
+  assert.match(r.stderr, /NETLIFY_SITE_ID/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('publish --target netlify needs no git repo at all, and deploys the bundled page', async () => {
+  const { dir, deck } = looseDeck();
+  const { publishMain } = await import('../cli/publish.mjs');
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url: String(url), init });
+    return { ok: true, json: async () => ({ id: 'd1', ssl_url: 'https://my-site.netlify.app' }) };
+  };
+  const restore = process.env;
+  process.env = { ...process.env, NETLIFY_AUTH_TOKEN: 'nfp_test', NETLIFY_SITE_ID: 'my-site' };
+  let result;
+  try {
+    result = await publishMain([deck, '--no-bundle', '--no-sign', '--target', 'netlify'], { fetchImpl });
+  } finally { process.env = restore; }
+
+  assert.equal(result.target, 'netlify');
+  assert.equal(result.url, 'https://my-site.netlify.app');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://api.netlify.com/api/v1/sites/my-site/deploys');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('publish --target vercel honors --path in the uploaded file name, same as gh-pages', async () => {
+  const { dir, deck } = looseDeck();
+  const { publishMain } = await import('../cli/publish.mjs');
+  let sentFiles;
+  const fetchImpl = async (_url, init) => {
+    sentFiles = JSON.parse(init.body).files;
+    return { ok: true, json: async () => ({ id: 'v1', url: 'talks-abc.vercel.app' }) };
+  };
+  const restore = process.env;
+  process.env = { ...process.env, VERCEL_TOKEN: 't', VERCEL_PROJECT: 'talks' };
+  let result;
+  try {
+    result = await publishMain(
+      [deck, '--no-bundle', '--no-sign', '--target', 'vercel', '--path', 'talks'], { fetchImpl },
+    );
+  } finally { process.env = restore; }
+
+  assert.equal(result.url, 'https://talks-abc.vercel.app');
+  assert.deepEqual(sentFiles.map((f) => f.file), ['talks/index.html']);
   fs.rmSync(dir, { recursive: true, force: true });
 });
