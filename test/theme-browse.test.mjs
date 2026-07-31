@@ -56,7 +56,7 @@ function marketplace() {
       // A non-theme entry, here to prove Browse filters it out. `extensions`
       // is required of an importer since UNITS#REST — it is what lets
       // `decklight import` name an adapter from the cache, offline.
-      { name: 'marp', type: 'importer', source: './marp', extensions: ['.marp'] },
+      { name: 'marp', type: 'importer', source: './marp', extensions: ['.marp'], apiVersion: 1 },
     ],
   }, null, 2));
   return repo;

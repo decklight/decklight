@@ -221,14 +221,36 @@ export function jsonLineMap(raw) {
  */
 export const TRANSFORM_API_VERSION = 1;
 
+/**
+ * The import-adapter invocation contract's own version (SPEC
+ * `EXTENSIONS_ADAPTERS`, `EXTENSIONS#ADAPTEREXEC`).
+ *
+ * A separate counter from `TRANSFORM_API_VERSION`, deliberately: the two are
+ * different calling conventions (`html, opts → html` vs `bytes, opts →
+ * html`) that will each grow a field on their own schedule, so sharing one
+ * number would bump every installed transform's compatibility the day the
+ * *importer* contract changed something a transform never touched — the same
+ * churn-isolation argument `TRANSFORM_API_VERSION` itself makes against
+ * decklight's own package version. Additive-only, the same way: bumped only
+ * when the import-adapter calling convention itself would break an existing
+ * adapter, never for an internal reorganisation.
+ */
+export const IMPORTER_API_VERSION = 1;
+
 const ENTRY_SHAPES = {
   // `import` has to name the adapter for a `.marp` file from the CACHE, with
   // no network — so which extensions an adapter claims is a fact the catalog
   // must carry, not something discoverable by installing it and looking.
+  // `apiVersion` is the same shape-only check `transform` gets below, against
+  // its own contract (SPEC EXTENSIONS_ADAPTERS) — an adapter is Node code
+  // running an installed unit, exactly like a transform is.
   importer: {
     extensions: (v) => (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string' && /^\.?[A-Za-z0-9]+$/.test(x))
       ? null
       : 'must be a non-empty array of file extensions the adapter reads, e.g. [".marp"]'),
+    apiVersion: (v) => (Number.isInteger(v) && v >= 1
+      ? null
+      : 'must be a positive integer — the EXTENSIONS_ADAPTERS contract version this adapter needs, not a decklight version'),
   },
   // A transform is Node code, so it declares the invocation-contract version
   // it needs rather than pinning decklight's own package version (OPEN 2) —

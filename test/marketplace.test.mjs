@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  FIRST_PARTY, MANIFEST_PATH, MarketplaceError, TRANSFORM_API_VERSION,
+  FIRST_PARTY, MANIFEST_PATH, MarketplaceError, TRANSFORM_API_VERSION, IMPORTER_API_VERSION,
   classifySource, configHome, ensureFirstPartyRegistered, fetchManifestText,
   jsonLineMap, loadCatalog, loadRegistry, parseErrorLine, resolveEntry,
   validateManifest,
@@ -170,6 +170,45 @@ test('apiVersion names the transform contract, not a decklight version — the f
   const v = validateManifest(GOOD); // GOOD has only `theme` entries
   assert.equal(v.ok, true);
   assert.equal(v.manifest.entries[0].apiVersion, undefined);
+});
+
+// ── an import adapter's apiVersion: its OWN counter, not TRANSFORM_API_VERSION ──
+// (SPEC EXTENSIONS_ADAPTERS, MARKETPLACE.md EXTENSIONS#ADAPTEREXEC)
+
+const IMPORTER = `{
+  "name": "marp-pack",
+  "entries": [
+    { "name": "marp-import", "type": "importer", "source": "./marp.mjs", "extensions": [".marp"], "apiVersion": 1 }
+  ]
+}
+`;
+
+test('an importer entry validates with a positive-integer apiVersion, alongside extensions', () => {
+  const v = validateManifest(IMPORTER);
+  assert.equal(v.ok, true, JSON.stringify(v.errors));
+  assert.equal(v.manifest.entries[0].apiVersion, 1);
+});
+
+test('an importer with no apiVersion is refused, naming the field — extensions alone is not enough', () => {
+  const raw = IMPORTER.replace(', "apiVersion": 1', '');
+  const v = validateManifest(raw);
+  assert.equal(v.ok, false);
+  const e = v.errors.find((x) => x.field === 'entries[0].apiVersion');
+  assert.ok(e, JSON.stringify(v.errors));
+  assert.match(e.msg, /missing/);
+});
+
+test('an importer apiVersion ahead of what this decklight implements still validates — shape only', () => {
+  const ahead = IMPORTER.replace('"apiVersion": 1', `"apiVersion": ${IMPORTER_API_VERSION + 10}`);
+  assert.equal(validateManifest(ahead).ok, true);
+});
+
+test('IMPORTER_API_VERSION is its own counter, independent of TRANSFORM_API_VERSION', () => {
+  // Equal today (both 1) is fine — what the design owes is that they are two
+  // SEPARATE bindings, so bumping the import-adapter contract can never
+  // silently move a transform's ceiling too (SPEC EXTENSIONS_ADAPTERS).
+  assert.equal(IMPORTER_API_VERSION, 1);
+  assert.equal(TRANSFORM_API_VERSION, 1);
 });
 
 // ── sources ────────────────────────────────────────────────────────────────
