@@ -18,7 +18,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  FIRST_PARTY, MANIFEST_PATH, MarketplaceError,
+  FIRST_PARTY, MANIFEST_PATH, MarketplaceError, TRANSFORM_API_VERSION,
   classifySource, configHome, ensureFirstPartyRegistered, fetchManifestText,
   jsonLineMap, loadCatalog, loadRegistry, parseErrorLine, resolveEntry,
   validateManifest,
@@ -120,6 +120,56 @@ test('jsonLineMap knows where every key and element lives', () => {
   assert.equal(m.get('entries'), 4);
   assert.equal(m.get('entries[0]'), 5);
   assert.equal(m.get('entries[1].name'), 6);
+});
+
+// ── a transform's apiVersion: independent of decklight's own version ───────
+// (SPEC UNIT_COMPAT, MARKETPLACE.md OPEN 2)
+
+const TRANSFORM = `{
+  "name": "grammar-pack",
+  "entries": [
+    { "name": "grammar-check", "type": "transform", "source": "./grammar.mjs", "apiVersion": 1 }
+  ]
+}
+`;
+
+test('a transform entry validates with a positive-integer apiVersion', () => {
+  const v = validateManifest(TRANSFORM);
+  assert.equal(v.ok, true, JSON.stringify(v.errors));
+  assert.equal(v.manifest.entries[0].apiVersion, 1);
+});
+
+test('a transform with no apiVersion is refused, naming the field', () => {
+  const raw = TRANSFORM.replace(', "apiVersion": 1', '');
+  const v = validateManifest(raw);
+  assert.equal(v.ok, false);
+  const e = v.errors.find((x) => x.field === 'entries[0].apiVersion');
+  assert.ok(e, JSON.stringify(v.errors));
+  assert.match(e.msg, /missing/);
+});
+
+test('a non-integer or non-positive apiVersion is refused, not silently coerced', () => {
+  for (const bad of ['"1"', '0', '-1', '1.5', 'true']) {
+    const v = validateManifest(TRANSFORM.replace('"apiVersion": 1', `"apiVersion": ${bad}`));
+    assert.equal(v.ok, false, `apiVersion: ${bad} should not validate`);
+    assert.match(v.errors.find((x) => x.field === 'entries[0].apiVersion').msg, /positive integer/);
+  }
+});
+
+test('apiVersion is checked for SHAPE only, never against what this decklight implements', () => {
+  // A catalog may declare a contract version ahead of what this decklight
+  // currently has — refusing it here would make a manifest written against a
+  // newer decklight un-addable, the same reasoning ENTRY_SHAPES already
+  // applies to an unrecognised `type`.
+  const ahead = TRANSFORM.replace('"apiVersion": 1', `"apiVersion": ${TRANSFORM_API_VERSION + 10}`);
+  assert.equal(validateManifest(ahead).ok, true);
+});
+
+test('apiVersion names the transform contract, not a decklight version — the field never appears on other kinds', () => {
+  assert.equal(TRANSFORM_API_VERSION, 1);
+  const v = validateManifest(GOOD); // GOOD has only `theme` entries
+  assert.equal(v.ok, true);
+  assert.equal(v.manifest.entries[0].apiVersion, undefined);
 });
 
 // ── sources ────────────────────────────────────────────────────────────────

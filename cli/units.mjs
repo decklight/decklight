@@ -22,11 +22,14 @@
  *
  * WHAT IS DELIBERATELY NOT HERE: running an installed unit. A template is
  * HTML and a skill is Markdown, so both are just files. An import adapter is
- * **Node code**, and executing one is the same capability — and the same
- * unanswered compat-range question (`OPEN` 2) — as `EXTENSIONS#TRANSFORMS`.
- * Shipping a loader here would answer that in a second place, so this installs
- * an adapter and stops. `cli/import.mjs` says so out loud rather than failing
- * in a way that reads like a bug.
+ * **Node code**, and executing one is the same capability as
+ * `EXTENSIONS#TRANSFORMS` — including the compat question, now resolved
+ * (`OPEN` 2: an independent, additive-only `apiVersion`, never decklight's
+ * own package version — see `TRANSFORM_API_VERSION` in `marketplace.mjs`).
+ * What is still missing is the loader itself; shipping one here would build
+ * it twice, once for adapters and once for transforms, instead of once
+ * shared. So this installs an adapter and stops. `cli/import.mjs` says so out
+ * loud rather than failing in a way that reads like a bug.
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
