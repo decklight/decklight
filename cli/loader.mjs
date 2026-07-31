@@ -61,35 +61,42 @@ export function resolveTransform(name, home = configHome()) {
 }
 
 /**
- * Run one installed transform against `html` (SPEC `EXTENSIONS_TRANSFORMS`).
- * `opts` is reserved and empty in v1 — nothing populates it yet.
- *
- * The return value must be a string, or a thrown/rejected value the loader
- * reports by naming the transform — a transform has no other contract
- * obligation, so every other failure shape (no default export, an export
- * that isn't a function, a non-string return) is turned into the same clean
- * `LoaderError` here rather than a raw stack trace reaching the caller.
+ * Run a transform module at a given path against `html`, collapsing every
+ * failure shape into one clean, `label`-naming `LoaderError` (SPEC
+ * `EXTENSIONS_TRANSFORMS`) — no default export, an export that is not a
+ * function, a thrown/rejected value, a non-string return, never a raw stack
+ * trace. Split out from `runTransform` so `tools/extension-check.mjs` can run
+ * a bare FILE the same way, without an installed unit or a catalog behind it.
  */
-export async function runTransform(name, html, home = configHome()) {
-  const unit = resolveTransform(name, home);
+export async function runTransformAt(modulePath, html, label) {
   let mod;
   try {
-    mod = await import(pathToFileURL(unit.path).href);
+    mod = await import(pathToFileURL(modulePath).href);
   } catch (e) {
-    throw new LoaderError(`transform "${name}" failed to load — ${e.message}`);
+    throw new LoaderError(`transform "${label}" failed to load — ${e.message}`);
   }
   if (typeof mod.default !== 'function') {
-    throw new LoaderError(`transform "${name}" has no default export function`
+    throw new LoaderError(`transform "${label}" has no default export function`
       + ' (SPEC EXTENSIONS_TRANSFORMS: export default async function transform(html, opts))');
   }
   let out;
   try {
     out = await mod.default(html, {});
   } catch (e) {
-    throw new LoaderError(`transform "${name}" threw: ${e.message}`);
+    throw new LoaderError(`transform "${label}" threw: ${e.message}`);
   }
   if (typeof out !== 'string') {
-    throw new LoaderError(`transform "${name}" must return a string (returned ${typeof out})`);
+    throw new LoaderError(`transform "${label}" must return a string (returned ${typeof out})`);
   }
+  return out;
+}
+
+/**
+ * Run one installed transform against `html` (SPEC `EXTENSIONS_TRANSFORMS`).
+ * `opts` is reserved and empty in v1 — nothing populates it yet.
+ */
+export async function runTransform(name, html, home = configHome()) {
+  const unit = resolveTransform(name, home);
+  const out = await runTransformAt(unit.path, html, name);
   return { html: out, checked: unit.checked };
 }

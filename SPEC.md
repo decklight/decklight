@@ -739,6 +739,18 @@ Needs a real browser to run the second phase — the same Chrome dependency
 `npm run verify`'s render harnesses already carry — and answers the same way
 they already do when Chrome is absent: a named refusal, never a silent pass.
 
+**The headless load carries a hard wall-clock kill (15s), separate from
+`--virtual-time-budget`.** That flag bounds Chrome's own clock, not the real
+one: a synchronous `alert()`/`confirm()`/`prompt()` in the OUTPUT opens a
+native dialog that blocks the render loop outside virtual time entirely, and
+an infinite loop blocks it the same way — measured directly, not a
+theoretical concern. Every other transform failure this section refuses is a
+*string* found in an *output*; a hang is the one shape that would otherwise
+have no output to refuse, and this command's whole premise is loading code
+nobody has vetted yet — so a submission that never returns has to become a
+refusal too, not an unbounded hang in whatever is running the check (a
+marketplace's own CI).
+
 ### VOICE_UNITS — Voices: a reference, never a payload
 
 A marketplace distributes voices as **references**. A `voice` entry names an

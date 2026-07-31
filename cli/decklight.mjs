@@ -19,6 +19,7 @@
  *   decklight template install deck templates for `init --from`
  *   decklight importer install import adapters for formats decklight cannot read itself
  *   decklight transform install build-time transforms, run via `bundle --transform <name>`
+ *   decklight extension check a transform file — the marketplace admission gate, not a bundle step
  *   decklight voice    add a marketplace voice to the N picker — a reference, never a model
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
@@ -79,6 +80,9 @@ Commands:
   transform install a build-time transform — Node code that runs during bundle, never in the deck
            EXAMPLE: decklight transform add grammar-check
            EXAMPLE: decklight bundle deck.html --transform grammar-check   (runs it before signing)
+  extension  the marketplace admission gate for a transform file — lint, then a headless load
+           of its OUTPUT; not run by bundle/import/publish, which never re-check an installed unit
+           EXAMPLE: decklight extension check grammar-check.mjs
   voice    add a marketplace voice to the picker — a reference to one of an engine's
            voices, never a model, so nothing that reproduces a person is ever downloaded
            EXAMPLE: decklight voice add narrator-anna    (works offline; speaking needs your key)
@@ -217,6 +221,11 @@ switch (cmd) {
   case 'transform': {
     const { unitMain } = await import('./units.mjs');
     process.exitCode = await unitMain(cmd, rest);
+    break;
+  }
+  case 'extension': {
+    const { extensionMain } = await import('./extension.mjs');
+    process.exitCode = await extensionMain(rest);
     break;
   }
   case 'tts': {
