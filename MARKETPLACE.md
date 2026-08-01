@@ -374,7 +374,7 @@ association widen that population; share-the-link covers the rest.
 **Marketplace:** import adapters (Marp, Slidev, Deckset, reveal.js, PDF),
 TTS/lipsync engine adapters, deck templates (`init --from`), specialised agent
 skills, layout packs (CSS), export targets, build-time transforms, novelty and
-homage theme packs, voices and casts.
+homage theme packs, voices. ("Casts" dropped from this line — `OPEN` 13.)
 
 **Stays in core:** the graded house theme set, the full `reveal-*` compat set
 (migration must work offline), charts and math (SPEC contracts — `data-chart`
@@ -759,8 +759,16 @@ before 0.3.0 ships to npm.
     attestation) is probably the same answer again — this item exists so the
     scope decision is made on purpose rather than by item 5 quietly not
     reaching that far.
-13. **Do `voices` in `UNITS` mean terminal casts too** — `UNITS`' "voices and
-    casts" reads as one list, but `CAST_FORMAT`'s `cast` (a terminal recording)
-    and a narration voice are unrelated data types filed together by name
-    collision. If "casts" means terminal casts, that item carries none of
-    item 5's likeness question and was shippable the whole time.
+13. ~~Do `voices` in `UNITS` mean terminal casts too~~ — **resolved: no, "casts"
+    meant `CAST_FORMAT`'s terminal recordings, an unrelated data type filed
+    next to `voices` by name collision alone** — a `.cast.json` is keystrokes
+    and timed output, nobody's likeness, and carries none of item 5's consent
+    question. Confirmed unbuilt, not silently dropped: `cli/units.mjs`'s
+    `UNIT_TYPES` has no `cast` entry, and `UNITS#REST` — the ticket that
+    actually shipped `templates`/`skills`/`importers`/`publish targets`/
+    `voices` — never listed `casts` either, so nothing scoped ever depended on
+    it. It was carried only in the `UNITS` section's own original "Marketplace:"
+    line above, now corrected to drop it. Distributing a terminal cast (a
+    shared demo recording, say) is a real future unit if a case ever asks for
+    it — same shape as `voice`, a reference-only or single-file kind added to
+    `UNIT_TYPES` — but it owes its own ticket, not a rider on this one.
