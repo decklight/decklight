@@ -1,17 +1,11 @@
 {
   "order": [
     "default",
-    "classics",
-    "oldmachines",
-    "tvseries",
-    "movies"
+    "classics"
   ],
   "labels": {
     "default": "Default",
-    "classics": "Classics",
-    "oldmachines": "Old Machines",
-    "tvseries": "TV Series",
-    "movies": "Movies"
+    "classics": "Classics"
   },
   "packs": {
     "default": [
@@ -63,28 +57,6 @@
       "reveal-dracula",
       "metropolis",
       "seriph"
-    ],
-    "oldmachines": [
-      "apple2",
-      "c64",
-      "gameboy",
-      "snes",
-      "genesis",
-      "ibm-oldschool"
-    ],
-    "tvseries": [
-      "miami-vice",
-      "friends",
-      "severance",
-      "stranger-things"
-    ],
-    "movies": [
-      "aliens",
-      "blade-runner",
-      "star-wars",
-      "terminator",
-      "godfather",
-      "pulp-fiction"
     ]
   }
 }

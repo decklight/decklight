@@ -37,10 +37,11 @@ that inversion.
   `.decklight/marketplace.json` at the repo root, added with
   `decklight marketplace add owner/repo`. No central registry to host or
   moderate.
-- **A first-party vetted marketplace in the decklight org**, registered
-  automatically on first run — **registered, not fetched**. The network is
-  touched only when the browse UI is opened, so a deck on conference wifi, on a
-  plane, or air-gapped behaves identically.
+- **A first-party vetted marketplace in the decklight org**
+  (`decklight/decklight-plugins-official`), registered automatically on first
+  run — **registered, not fetched**. The network is touched only when the
+  browse UI is opened, so a deck on conference wifi, on a plane, or air-gapped
+  behaves identically.
 - "Vetted" means a written bar enforced by CI (`theme check`, `extension
   check`), not a folder with the project's logo on it.
 - Third-party marketplaces are unreviewed, auto-update off by default; the
@@ -416,14 +417,17 @@ Of that list, one is still deliberately out:
   html`). An adapter installs, `importer list` shows it, and `import` now
   actually runs it the moment it is installed for the extension in hand.
 
-**On themes specifically.** All 62 are **284K against 1.7M of `dist/`**, and
-`bundle` already inlines only the themes a deck actually carries. Moving them
-out shrinks a distributed deck by exactly zero while costing the first-run `T`
-picker, the `contrast` and `palette-rules` CI gates, and offline `?theme=`.
-Split by purpose instead: novelty and homage packs move (which also reduces the
-trademark surface of what ships under the project's own name), the graded and
-compat sets stay — concretely, `packs.json`'s `oldmachines`/`tvseries`/`movies`
-(16 themes) move, `default`/`classics` (46) stay (`OPEN` 4).
+**On themes specifically — landed (`THEME_BROWSE#SPLIT`).** All 62 were
+**284K against 1.7M of `dist/`**, and `bundle` already inlines only the themes
+a deck actually carries — moving them out shrank a distributed deck by exactly
+zero, so the split was purely about which 16 belong under decklight's own name
+and which 46 stay. Split by purpose: novelty and homage packs
+(`packs.json`'s `oldmachines`/`tvseries`/`movies`) moved to
+`decklight/decklight-plugins-official` — the first-party marketplace
+(`FIRST_PARTY`, `cli/marketplace.mjs`), registered by every install and
+already carrying them the moment `marketplace update decklight` is run — which
+also reduces the trademark surface of what ships under the project's own name;
+the graded and compat sets (`default`/`classics`, 46 themes) stay (`OPEN` 4).
 
 ### THEME_BROWSE — The theme picker
 
@@ -563,7 +567,7 @@ output is signed. Append a `<script>alert(1)</script>` to the bundled file and
 run `decklight present` — it names one unaccounted script block; `--strict`
 plays the deck with that block stripped and everything else intact. Wrap it as
 `.decklight`, tamper with it, double-click: verification fails and it does not
-render. Then pull the network cable and press `T`: all 62 shipped themes and
+render. Then pull the network cable and press `T`: all 46 shipped themes and
 every bundled one are still there, instantly.
 
 ### Anything the agent should know
@@ -619,7 +623,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `UNITS#REST` | templates (`init --from`), skills, importers, publish targets, voices | `MARKETPLACES#CORE` |
 | `COMMANDS#RENAME` | `dev` → `author` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
 | `PRESENT#REMOTE` | move speaker view + phone remote off the edit server onto `present` | `PRESENT_SERVER` |
-| `THEME_BROWSE#SPLIT` | move `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) out of core; `palette-rules` stops grading them, `theme check` still would wherever they land (`OPEN` 1, `OPEN` 4 — scoped, not yet built) | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
+| `THEME_BROWSE#SPLIT` | **landed** — `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme check` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
 
 `PRESENT_SERVER` through `DECK_FILE#ASSOC` are a coherent first release with no
 marketplace at all — they make playing someone else's deck safe, which is worth
@@ -679,8 +683,9 @@ before 0.3.0 ships to npm.
    `gameboy`, `snes`, `genesis`, `ibm-oldschool`, `miami-vice`, `friends`,
    `severance`, `stranger-things`, `aliens`, `blade-runner`, `star-wars`,
    `terminator`, `godfather`, `pulp-fiction`) are the novelty/homage packs
-   `THEME_BROWSE#SPLIT` moves out.** No new list to invent: `packs.json`
-   already groups all 62 by exactly this judgment (baked into the runtime at
+   `THEME_BROWSE#SPLIT` moves out (**landed**, at
+   `decklight/decklight-plugins-official`).** No new list to invent: `packs.json`
+   already grouped all 62 by exactly this judgment (baked into the runtime at
    build time for the `T` picker's own pack view, `src/core/themes.js`) — an
    aesthetic tied to a specific franchise or console (movies, TV, retro
    hardware) is homage; an aesthetic that is not (`synthwave`, a genre, not a
@@ -688,11 +693,13 @@ before 0.3.0 ships to npm.
    `classics` folds the full `reveal-*` migration set in with two originals
    (`metropolis`, `seriph`) that share its professional register, matching
    "the graded house theme set, the full `reveal-*` compat set" above.
-   Mechanical once moved: `test/contrast.mjs`/`test/palette-rules.mjs` already
+   Mechanical, as expected: `test/contrast.mjs`/`test/palette-rules.mjs` already
    scan `themes/` by `readdirSync`, not a hardcoded list, so the CI gates
-   shrink to match on their own; only `packs.json` itself needs its three
-   packs' entries removed (or repointed at wherever they move to). This also
-   answers the ticket's "decide where grading lives": the two gates are not
+   shrank to match on their own; `packs.json` lost its three moved packs'
+   entries, and the 16 files landed in `decklight/decklight-plugins-official`'s
+   own `.decklight/marketplace.json` as `theme` entries, installable the same
+   way any third-party theme is (`decklight theme add star-wars@decklight`).
+   This also answers the ticket's "decide where grading lives": the two gates are not
    one bar wearing two names. `theme check` (`tools/theme-check.mjs` — SPEC
    `THEME_DISTRIBUTION`) is the token contract + WCAG gates, and it travels
    with a theme wherever it lives, because it is about whether the theme
