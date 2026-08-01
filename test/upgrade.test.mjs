@@ -150,6 +150,26 @@ test('theme blocks refresh from the installed themes/, active one stays active, 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('a theme added from outside decklight (data-theme-added) gets its own warning — never a fetch (MARKETPLACE.md OPEN 1)', () => {
+  const dir = tmp();
+  const p = oldDeck(dir);
+  let deck = fs.readFileSync(p, 'utf8');
+  // The same "not in themes/" situation as a retired theme, but marked the
+  // way theme add/Browse mark an installed block (SPEC THEME_DISTRIBUTION) —
+  // upgrade has to tell the two apart rather than call this one "retired"
+  // when decklight never shipped it in the first place.
+  deck = deck.replace('</head>',
+    '  <style data-theme="nord-deep" data-theme-added media="not all">.decklight.theme-nord-deep{--bg:#000}</style>\n</head>');
+  fs.writeFileSync(p, deck);
+
+  const out = execFileSync('node', [CLI, 'upgrade', p], { encoding: 'utf8' });
+  assert.match(out, /warning: theme "nord-deep" was added from outside decklight \(theme add\/Browse\) — not decklight's to refresh; kept as-is/);
+  assert.doesNotMatch(out, /no longer ships upstream/, 'an added theme was never "upstream" to begin with');
+  const after = fs.readFileSync(p, 'utf8');
+  assert.equal(after.includes('.decklight.theme-nord-deep{--bg:#000}'), true, 'kept as-is, byte for byte');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('a file with no Decklight.init is refused: exit 1, clear message, file untouched', () => {
   const dir = tmp();
   const p = path.join(dir, 'page.html');

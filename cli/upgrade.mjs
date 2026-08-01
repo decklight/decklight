@@ -197,7 +197,20 @@ Options:
     const name = nameM[1];
     const cssPath = path.join(PKG_ROOT, 'themes', `${name}.css`);
     if (!fs.existsSync(cssPath)) {
-      warnings.push(`theme "${name}" no longer ships upstream — kept as-is`);
+      // Two different situations look identical from here (neither block is
+      // in themes/), and MARKETPLACE.md OPEN 1 says they should read
+      // differently: `data-theme-added` is theme add/Browse's own marker
+      // (SPEC THEME_DISTRIBUTION), so a theme carrying it was never
+      // decklight's to begin with — upgrade has nothing "upstream" to refresh
+      // it FROM, and never fetches one (MARKETPLACE_REGISTRY's registered-
+      // not-fetched invariant extends here too; a theme also carries no
+      // version to pin or refuse a stale one against, unlike a transform's
+      // apiVersion — THEMING is deliberate about that). Absent the marker,
+      // this is a theme decklight itself used to ship and has since dropped.
+      const added = /\bdata-theme-added\b/i.test(s.attrs);
+      warnings.push(added
+        ? `theme "${name}" was added from outside decklight (theme add/Browse) — not decklight's to refresh; kept as-is`
+        : `theme "${name}" no longer ships upstream — kept as-is`);
       continue;
     }
     const fresh = fs.readFileSync(cssPath, 'utf8');
