@@ -58,7 +58,7 @@ export const INSTALL_HINT = {
 export const KNOWN_TYPES = Object.keys(INSTALL_HINT);
 
 /** The catalog every install registers, and no install ever fetches. */
-export const FIRST_PARTY = { name: 'decklight', source: 'decklight/marketplace' };
+export const FIRST_PARTY = { name: 'decklight', source: 'decklight/decklight-plugins-official' };
 
 /** A failure with a message for a human — the mains print it, never a stack. */
 export class MarketplaceError extends Error {}
@@ -478,7 +478,7 @@ const USAGE = `usage: decklight marketplace <add|list|update|remove> …
   decklight marketplace add <owner/repo | git url | path> [--name <name>]
     read ${MANIFEST_PATH} at the source's root and register the catalog
     under ~/.decklight/ — a local path never touches the network
-    EXAMPLE: decklight marketplace add decklight/marketplace
+    EXAMPLE: decklight marketplace add decklight/decklight-plugins-official
     EXAMPLE: decklight marketplace add ../my-marketplace
 
   decklight marketplace list

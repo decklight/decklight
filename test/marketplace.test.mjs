@@ -322,7 +322,7 @@ test('fresh home: first-party appears in list as registered-not-fetched', () => 
   const home = tmp();
   const r = run(home, 'list');
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /^decklight \(first-party\) {2}decklight\/marketplace — registered, not fetched/m);
+  assert.match(r.stdout, /^decklight \(first-party\) {2}decklight\/decklight-plugins-official — registered, not fetched/m);
   assert.match(r.stdout, /marketplace update decklight/, 'and says how to fetch it');
   assert.ok(fs.existsSync(path.join(home, 'marketplaces.json')));
 });
