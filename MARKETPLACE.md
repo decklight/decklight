@@ -422,7 +422,8 @@ out shrinks a distributed deck by exactly zero while costing the first-run `T`
 picker, the `contrast` and `palette-rules` CI gates, and offline `?theme=`.
 Split by purpose instead: novelty and homage packs move (which also reduces the
 trademark surface of what ships under the project's own name), the graded and
-compat sets stay.
+compat sets stay — concretely, `packs.json`'s `oldmachines`/`tvseries`/`movies`
+(16 themes) move, `default`/`classics` (46) stay (`OPEN` 4).
 
 ### THEME_BROWSE — The theme picker
 
@@ -618,7 +619,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `UNITS#REST` | templates (`init --from`), skills, importers, publish targets, voices | `MARKETPLACES#CORE` |
 | `COMMANDS#RENAME` | `dev` → `author` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
 | `PRESENT#REMOTE` | move speaker view + phone remote off the edit server onto `present` | `PRESENT_SERVER` |
-| `THEME_BROWSE#SPLIT` | move novelty/homage packs out of core, decide where grading lives | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
+| `THEME_BROWSE#SPLIT` | move `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) out of core; `palette-rules` stops grading them, `theme check` still would wherever they land (`OPEN` 1, `OPEN` 4 — scoped, not yet built) | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
 
 `PRESENT_SERVER` through `DECK_FILE#ASSOC` are a coherent first release with no
 marketplace at all — they make playing someone else's deck safe, which is worth
@@ -629,9 +630,22 @@ before 0.3.0 ships to npm.
 
 ## OPEN — Still open
 
-1. **`upgrade` semantics** once a theme can come from a marketplace — re-fetch,
-   pin, or refuse on a stale compat range. Blocks `THEME_BROWSE#SPLIT`
-   specifically.
+1. ~~`upgrade` semantics~~ once a theme can come from a marketplace — **resolved:
+   neither re-fetch nor pin; kept as-is, and the warning says which of two
+   things this is** (full text: SPEC `PRESENTING`'s runtime-upgrade bullet). Both
+   re-fetching and pinning need something this design deliberately does not
+   keep: a theme carries no version (THEMING — compatibility with a runtime
+   *is* passing `theme check`, there is no compat range to be stale against),
+   and once a theme is inline in a deck nothing records which marketplace it
+   came from, so there is nowhere to re-fetch FROM even if `upgrade` fetched
+   at all — which it does not, the same registered-not-fetched posture
+   `MARKETPLACE_REGISTRY` already holds for everything else on a deck-serving
+   path. What `upgrade` already did for any theme not in `themes/` (kept
+   as-is, warned) was actually two different situations wearing one message:
+   `data-theme-added` (`theme add`/Browse's own marker) distinguishes "never
+   decklight's to begin with" from "decklight's own shipped set dropped
+   this" — the fix was naming which, not changing the behavior. No longer
+   blocks `THEME_BROWSE#SPLIT`.
 2. ~~Compat range vs engine version~~ — **resolved: an independent, additive-
    only `apiVersion`, never decklight's own package version** (SPEC
    `UNIT_COMPAT`). `src/core/engine.js` has been split apart repeatedly (four
@@ -659,7 +673,37 @@ before 0.3.0 ships to npm.
 3. ~~Where the authoring-time library lives~~ — **resolved: `~/.decklight/`**
    (plugins and credentials both, ENGINES). How `author` and `present` resolve
    a bare reference is implementation detail of `ENGINES#WIZARD`.
-4. **Which themes are core** — the graded set needs an actual list.
+4. ~~Which themes are core~~ — **resolved: `themes/packs.json`'s existing
+   `default` + `classics` groups (46 themes) are the graded/compat set that
+   stays; `oldmachines` + `tvseries` + `movies` (16: `apple2`, `c64`,
+   `gameboy`, `snes`, `genesis`, `ibm-oldschool`, `miami-vice`, `friends`,
+   `severance`, `stranger-things`, `aliens`, `blade-runner`, `star-wars`,
+   `terminator`, `godfather`, `pulp-fiction`) are the novelty/homage packs
+   `THEME_BROWSE#SPLIT` moves out.** No new list to invent: `packs.json`
+   already groups all 62 by exactly this judgment (baked into the runtime at
+   build time for the `T` picker's own pack view, `src/core/themes.js`) — an
+   aesthetic tied to a specific franchise or console (movies, TV, retro
+   hardware) is homage; an aesthetic that is not (`synthwave`, a genre, not a
+   trademark) stays in `default` alongside the rest of the graded set.
+   `classics` folds the full `reveal-*` migration set in with two originals
+   (`metropolis`, `seriph`) that share its professional register, matching
+   "the graded house theme set, the full `reveal-*` compat set" above.
+   Mechanical once moved: `test/contrast.mjs`/`test/palette-rules.mjs` already
+   scan `themes/` by `readdirSync`, not a hardcoded list, so the CI gates
+   shrink to match on their own; only `packs.json` itself needs its three
+   packs' entries removed (or repointed at wherever they move to). This also
+   answers the ticket's "decide where grading lives": the two gates are not
+   one bar wearing two names. `theme check` (`tools/theme-check.mjs` — SPEC
+   `THEME_DISTRIBUTION`) is the token contract + WCAG gates, and it travels
+   with a theme wherever it lives, because it is about whether the theme
+   RENDERS correctly against a runtime — the same reason it already ships
+   under `tools/`, reachable from outside this repo. `palette-rules` (R1–R8)
+   is a CURATION bar for decklight's own graded collection's house look — a
+   shipped homage theme already carries waived exceptions against it
+   (`star-wars.css`, `synthwave.css`), because looking like a specific
+   franchise and looking like decklight's own palette rules are different
+   goals. A moved-out pack stops being graded by it because it stops being
+   part of that collection, not because the gate follows it somewhere new.
 5. ~~Voice likeness and consent~~ — **resolved: reference-only** (SPEC
    `VOICE_UNITS`). A voice entry names an engine and one of its voices and
    carries no `source` — refused, not merely undocumented, so no model weight
