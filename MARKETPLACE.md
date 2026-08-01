@@ -716,12 +716,11 @@ before 0.3.0 ships to npm.
    carries no `source` — refused, not merely undocumented, so no model weight
    or sample audio can travel. No consent attestation either: a `consent: true`
    field is one boolean nobody can verify, the same defeatable green mark the
-   ingredients label already refuses to print. Left open by this: the wording
-   above says "voice" but `character.js` also carries custom art and a
-   talking-head video mode, and a marketplace unit combining art with a voice
-   reference is a synthetic presenter — the likeness question is a face, not
-   only a voice, and item 12 below is that scope question stated on its own
-   rather than folded into a "resolved" line.
+   ingredients label already refuses to print. The wording above says "voice"
+   but `character.js` also carries custom art and a talking-head video mode —
+   item 12 below is that scope question asked on its own rather than folded
+   into this line, and resolves to: neither is ever a marketplace unit today,
+   so there is nothing to widen this rule onto.
 6. ~~Is signing on by default~~ — **resolved: `publish` signs by default**
    (already a network action, and Sigstore keyless needs one); **`bundle` opts
    in with `--sign`** and stays offline-clean, never silently unsigned
@@ -750,15 +749,34 @@ before 0.3.0 ships to npm.
     opaque origin is the boundary; the manifest vocabulary stays closed on top
     of it, because "chrome only" also has to mean "not covering the slides",
     and that part IS expressible as a declaration.
-12. **Does "likeness" stop at voice** — item 5's resolution covers a cloned
-    voice reference; it says nothing about custom character art
-    (`config.narration.character.svg`) or the talking-head video mode
-    (`character.js`), both of which can be built from a real person's image the
-    same way a voice can be built from their recordings. Widening `VOICE_UNITS`
-    to cover art and video the same way (reference-only, no consent
-    attestation) is probably the same answer again — this item exists so the
-    scope decision is made on purpose rather than by item 5 quietly not
-    reaching that far.
+12. ~~Does "likeness" stop at voice~~ — **resolved: yes, and there is nothing to
+    widen `VOICE_UNITS` onto.** `VOICE_UNITS`'s reference-only rule is a shape
+    decision about a MARKETPLACE CATALOG ENTRY — refusing `source` on a
+    `voice` entry closes the one door through which a third party could hand
+    an installer a cloned voice they never independently obtained. Custom
+    character art (`config.narration.character.svg`/`sprites`) and the
+    talking-head video mode's portrait have no such door, because neither is
+    ever a catalog entry in the first place:
+    - **`svg`/`sprites`** are deck config the deck's own AUTHOR points at
+      their own asset — inline markup, a same-document `#id`, or a URL
+      (`src/core/character.js` fetches it exactly once, at present time). That
+      is the identical authorship-level trust decklight already extends to a
+      background `<img src>` or video; nothing about it is character-specific,
+      and no marketplace ever names or installs one.
+    - **`portrait`** (video mode) is a bare local file path the PRESENTER
+      supplies to their OWN `decklight lipsync` process (`--portrait
+      name=face.png`, `tools/lipsync-server.mjs`) — never installed, never
+      named in any catalog, never travels with the deck. That is
+      `PRESENT#PLUGINS`'s own trust model exactly (presenter-owned, the
+      installer is the risk-bearer), not a gap `VOICE_UNITS` left open.
+
+    Widening a reference-only rule presupposes a marketplace unit to widen it
+    onto; none exists for character art or portraits, and no ticket in this
+    document proposes one. If a future ticket ever DOES propose distributing
+    either as a marketplace unit — a curated cast of ready-made narrators,
+    say — that ticket inherits this answer by default: reference-only, no
+    consent attestation, item 5's reasoning verbatim. Until one exists, this
+    item resolves as *not applicable*, not as a quiet repeat of item 5.
 13. ~~Do `voices` in `UNITS` mean terminal casts too~~ — **resolved: no, "casts"
     meant `CAST_FORMAT`'s terminal recordings, an unrelated data type filed
     next to `voices` by name collision alone** — a `.cast.json` is keystrokes
