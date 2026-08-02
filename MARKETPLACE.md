@@ -112,10 +112,11 @@ things the loader alone decides, both left open by `EXTENSIONS#CONVENTION`:
   a non-string return — never a raw stack trace, the same UX every other
   unit-installing surface already gives.
 
-**`EXTENSIONS#CHECK` — scoped (full contract text: SPEC `EXTENSIONS_CHECK`),
-not yet built.** `decklight extension check <file>` is the marketplace
-admission gate the WHY section already promised ("a written bar enforced by
-CI"), for the same reason `theme check` is one: it operates on a source FILE,
+**`EXTENSIONS#CHECK` — landed (full contract text: SPEC `EXTENSIONS_CHECK`;
+`cli/extension.mjs`, `tools/extension-check.mjs`).** `decklight extension
+check <file>` is the marketplace admission gate the WHY section already
+promised ("a written bar enforced by CI"), for the same reason `theme check`
+is one: it operates on a source FILE,
 not an installed, catalog-backed unit — a marketplace repo's own CI runs it
 against a submitted `transform.mjs` before merging the PR that adds the
 catalog entry, which is what "failure blocks publish" means here — *publishing
