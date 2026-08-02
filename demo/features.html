@@ -1,0 +1,875 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Decklight — every feature, demonstrated by the slide that explains it</title>
+  <link rel="stylesheet" href="../dist/decklight.css">
+  <link rel="stylesheet" href="../themes/midnight.css">
+  <style>
+    /* the SMIL message dots on the diagram slide sit out reduced-motion */
+    @media (prefers-reduced-motion: reduce) { .msg-dot { display: none; } }
+    /* park the dots until their build step: SMIL's animated opacity outranks
+       the draw-fade CSS, and visibility is the one property SMIL never touches */
+    .decklight .msg-dots[data-build-state="pending"] .msg-dot { visibility: hidden; }
+    /* the marketplace slide's two-column trust table */
+    .trust { display: flex; gap: 18px; margin-top: 0.5em; }
+    .trust > div { flex: 1; padding: 16px 18px; text-align: left;
+      background: var(--block-bg); border: var(--block-border); border-radius: var(--block-radius); }
+    .trust h3 { margin: 0 0 8px; font-size: 0.58em; color: var(--accent); }
+    .trust p { margin: 0 0 6px; font-size: 0.46em; opacity: .9; }
+    .trust .no { color: var(--d-muted); }
+  </style>
+</head>
+<body>
+  <div class="decklight">
+
+    <!-- ══ 1 · title ══ -->
+    <section data-logo="118">
+      <h1>Decklight</h1>
+      <p>Every feature, demonstrated by the slide that explains it</p>
+      <p style="font-size:0.58em; opacity:.8">This deck is the reference implementation of its own documentation.<br>
+        <strong>V</strong> speaks · <strong>N</strong> voice · <strong>T</strong> theme · <strong>S</strong> speaker view · <strong>?</strong> help</p>
+      <aside class="notes">
+        <p>This is the long tour — every feature Decklight has, demonstrated by the slide that explains it. Not screenshots of the feature: the feature, running, on the slide making the claim. If a slide says builds work like this, that slide is built like that. The mark above the title is the first one already — that's the hero logo, one attribute on the section.</p>
+      </aside>
+      <aside class="rehearse"><p>Every claim demonstrated live — hero logo already</p></aside>
+    </section>
+
+    <!-- ══ 2 · anatomy ══ -->
+    <section>
+      <h2>The Whole Format</h2>
+      <p>A deck is an HTML file. A slide is a <code>&lt;section&gt;</code>. There is no third concept.</p>
+      <pre data-lines="2-3|6|7-8" data-lines-numbers><code class="language-html">&lt;head&gt;
+  &lt;link rel="stylesheet" href="decklight/dist/decklight.css"&gt;
+  &lt;link rel="stylesheet" href="decklight/themes/midnight.css"&gt;
+&lt;/head&gt;
+&lt;body&gt;
+  &lt;div class="decklight"&gt;
+    &lt;section&gt;&lt;h1&gt;Title&lt;/h1&gt;&lt;/section&gt;
+    &lt;section&gt;&lt;h2&gt;Slide two&lt;/h2&gt;&lt;aside class="notes"&gt;spoken&lt;/aside&gt;&lt;/section&gt;
+  &lt;/div&gt;
+  &lt;script src="decklight/dist/decklight.js"&gt;&lt;/script&gt;
+  &lt;script&gt;Decklight.init({})&lt;/script&gt;</code></pre>
+      <aside class="notes">
+        <p>Start with the whole format, because it fits on one slide and it never gets bigger than this.</p><p>⟨CLICK⟩</p><p>Two stylesheets: the runtime, which is structure only, and a theme, which is color and type only. That separation is the reason a theme can be one file you email to someone.</p><p>⟨CLICK⟩</p><p>One div marks the deck.</p><p>⟨CLICK⟩</p><p>And a slide is a section element. Speaker notes are an aside inside it. That's the entire vocabulary — there is no third concept to learn, and everything else in this deck is an attribute on one of those.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>The format fits on a slide</p>
+        <p>⟨CLICK⟩</p><p>Runtime CSS + theme CSS, separate on purpose</p>
+        <p>⟨CLICK⟩</p><p>One div = the deck</p>
+        <p>⟨CLICK⟩</p><p>section = slide, aside = notes</p>
+      </aside>
+    </section>
+
+    <!-- ══ 3 · builds ══ -->
+    <section data-layout="centered">
+      <h2>Builds</h2>
+      <p>Keynote-style progressive reveals — the <em>container</em> opts in</p>
+      <ul data-build="fade-up">
+        <li><code>data-build</code> on the list — every child steps in document order</li>
+        <li>One attribute, zero per-item classes</li>
+        <li>Hidden steps <strong>hold their space</strong> — the layout never shifts</li>
+      </ul>
+      <p data-build="pop">…and a leaf element can <strong>pop</strong> in on its own.</p>
+      <aside class="notes">
+        <p>Builds — progressive reveals. The Decklight take is that the container opts in and the engine reads the DOM like sheet music.</p><p>⟨CLICK⟩</p><p>That whole list carries exactly one attribute, and each press reveals one child in document order.</p><p>⟨CLICK⟩</p><p>Not a single class on the items themselves.</p><p>⟨CLICK⟩</p><p>And notice what didn't happen: nothing jumped. Hidden steps keep their box — visibility, not display — so the slide is geometrically stable from the first pixel to the last. That's the difference between a build and a layout bug.</p><p>⟨CLICK⟩</p><p>A lone element can be its own step too.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Container opts in</p>
+        <p>⟨CLICK⟩</p><p>One attribute, document order</p>
+        <p>⟨CLICK⟩</p><p>Zero per-item classes</p>
+        <p>⟨CLICK⟩</p><p>No layout shift — visibility not display</p>
+        <p>⟨CLICK⟩</p><p>Leaf pop</p>
+      </aside>
+    </section>
+
+    <!-- ══ 4 · entrance styles ══ -->
+    <section>
+      <h2>Eight Entrance Styles</h2>
+      <p>Each one is CSS — the engine only decides <em>when</em></p>
+      <div style="display:flex; gap:16px; justify-content:center; flex-wrap:wrap; font-size:0.62em; margin-top:0.4em">
+        <span data-build="fade" style="padding:12px 18px; background:var(--block-bg); border-radius:10px">fade</span>
+        <span data-build="fade-up" style="padding:12px 18px; background:var(--block-bg); border-radius:10px">fade-up</span>
+        <span data-build="zoom" style="padding:12px 18px; background:var(--block-bg); border-radius:10px">zoom</span>
+        <span data-build="pop" style="padding:12px 18px; background:var(--block-bg); border-radius:10px">pop</span>
+        <span data-build="highlight" style="padding:12px 18px; background:var(--block-bg); border-radius:10px">highlight</span>
+      </div>
+      <p style="font-size:0.56em; opacity:.75; margin-top:0.6em">Plus <code>draw</code> for SVG strokes and chart series — you'll see it twice more in this deck.</p>
+      <aside class="notes">
+        <p>Eight entrance styles, and every one of them is plain CSS. The engine's entire job is deciding when a step becomes visible; how it arrives is a stylesheet's business.</p><p>⟨CLICK⟩</p><p>Fade.</p><p>⟨CLICK⟩</p><p>Fade-up.</p><p>⟨CLICK⟩</p><p>Zoom.</p><p>⟨CLICK⟩</p><p>Pop.</p><p>⟨CLICK⟩</p><p>And highlight, for when a thing should flare rather than arrive. There's also draw, which animates SVG stroke geometry — you'll see it on the diagram and again on a chart, because a chart is a diagram underneath.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Entrances are CSS; engine owns timing only</p>
+        <p>⟨CLICK⟩</p><p>fade</p><p>⟨CLICK⟩</p><p>fade-up</p>
+        <p>⟨CLICK⟩</p><p>zoom</p><p>⟨CLICK⟩</p><p>pop</p>
+        <p>⟨CLICK⟩</p><p>highlight (+ draw later)</p>
+      </aside>
+    </section>
+
+    <!-- ══ 5 · svg diagrams ══ -->
+    <section>
+      <h2>Theme-Aware SVG Diagrams</h2>
+      <p>Authored once with tokens — recolored by all 46 themes</p>
+      <svg viewBox="0 0 800 260" width="800" data-build="draw" aria-label="Decklight architecture">
+        <defs><marker id="fx-arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" style="fill: var(--d-stroke)"/></marker></defs>
+        <g>
+          <rect data-concept="engine" x="310" y="14" width="180" height="58" rx="10" style="fill: var(--d-fill-3); stroke: var(--d-accent)" stroke-width="2.5"/>
+          <text x="400" y="40" text-anchor="middle" font-size="15" font-weight="700" style="font-family: var(--font-body); fill: var(--d-accent)">Engine</text>
+          <text x="400" y="59" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">builds · nav · svg · print</text>
+        </g>
+        <g>
+          <line x1="330" y1="78" x2="185" y2="132" stroke-width="1.5" style="stroke: var(--d-stroke)" marker-end="url(#fx-arr)"/>
+          <rect data-concept="themes" x="85" y="138" width="200" height="56" rx="10" style="fill: var(--d-fill-5); stroke: var(--d-stroke)" stroke-width="2"/>
+          <text x="185" y="162" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">46 themes · 2 packs</text>
+          <text x="185" y="180" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">one token contract</text>
+        </g>
+        <g>
+          <line x1="400" y1="78" x2="400" y2="132" stroke-width="1.5" style="stroke: var(--d-stroke)" marker-end="url(#fx-arr)"/>
+          <rect data-concept="terminal" x="300" y="138" width="200" height="56" rx="10" style="fill: var(--d-fill-1); stroke: var(--d-stroke)" stroke-width="2"/>
+          <text x="400" y="162" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">Terminal player</text>
+          <text x="400" y="180" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">event casts, never video</text>
+        </g>
+        <g>
+          <line x1="470" y1="78" x2="615" y2="132" stroke-width="1.5" style="stroke: var(--d-stroke)" marker-end="url(#fx-arr)"/>
+          <rect data-concept="cli" x="515" y="138" width="200" height="56" rx="10" style="fill: var(--d-fill-4); stroke: var(--d-stroke)" stroke-width="2"/>
+          <text x="615" y="162" text-anchor="middle" font-size="13" font-weight="600" style="font-family: var(--font-body); fill: var(--d-text)">CLI</text>
+          <text x="615" y="180" text-anchor="middle" font-size="10" style="font-family: var(--font-body); fill: var(--d-muted)">import · rec · pdf · bundle</text>
+        </g>
+        <g class="msg-dots">
+          <text x="400" y="232" text-anchor="middle" font-size="11" style="font-family: var(--font-body); fill: var(--d-muted)">strokes draw in · messages flow (SMIL) · ids auto-namespaced · concept colors pin boxes</text>
+          <circle class="msg-dot" r="3.5" opacity="0" style="fill: var(--d-accent)">
+            <animateMotion dur="1.8s" begin="0s" repeatCount="indefinite" path="M330,80 L189,130"/>
+            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.8s" begin="0s" repeatCount="indefinite"/>
+          </circle>
+          <circle class="msg-dot" r="3.5" opacity="0" style="fill: var(--d-accent)">
+            <animateMotion dur="1.8s" begin="0.6s" repeatCount="indefinite" path="M400,80 L400,130"/>
+            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" dur="1.8s" begin="0.6s" repeatCount="indefinite"/>
+          </circle>
+        </g>
+      </svg>
+      <aside class="notes">
+        <p>Diagrams are first-class here, and the trick is that they're authored against the same tokens the text uses. Draw a box with d-fill-three, and every theme in the set has an opinion about what that color is.</p><p>⟨CLICK⟩</p><p>This one carries data-build draw, so the strokes animate in stroke by stroke, like a plotter pen. Watch the boxes arrive.</p><p>⟨CLICK⟩</p><p>And the flowing dots are SMIL, tokened the same way — motion that costs no JavaScript. Two more things you can't see but would hit immediately: SVG ids get auto-namespaced, so two diagrams with the same gradient id don't clobber each other, and concept colors let you pin a box to a specific fill so that "engine" is the same color on every slide it appears.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Tokens, not hardcoded colors</p>
+        <p>⟨CLICK⟩</p><p>data-build="draw" — strokes animate</p>
+        <p>⟨CLICK⟩</p><p>SMIL dots · ids namespaced · concepts pin</p>
+      </aside>
+    </section>
+
+    <!-- ══ 6 · charts ══ -->
+    <section>
+      <h2>Charts From Data</h2>
+      <p>Declare the numbers — the theme paints them. No chart library, no images</p>
+      <div style="display:flex; gap:28px; align-items:center; justify-content:center; margin-top:0.3em">
+        <div class="chart" data-chart="bar" data-title="Build minutes per week" data-aspect="16:10">
+          <script type="application/json">
+          { "labels": ["W1", "W2", "W3", "W4", "W5"],
+            "series": [ { "name": "humans", "data": [38, 42, 35, 41, 33] },
+                        { "name": "agents", "data": [12, 19, 27, 36, 48] } ] }
+          </script>
+        </div>
+        <div class="chart" data-chart="donut" data-title="Where the tokens go" data-aspect="16:10">
+          <script type="application/json">
+          { "labels": ["code", "tests", "docs", "chat"], "series": [ { "data": [46, 27, 15, 12] } ] }
+          </script>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>Charts. You don't draw them and you don't screenshot them out of a spreadsheet — you declare the data as a small block of JSON and the runtime generates the SVG on the slide. Bar, line, area, pie, donut. Every color is a theme token, the same ones the diagrams use, so cycling the theme repaints both of these instantly with the contrast rules still holding. And they sit side by side in a split layout like any other content block.</p>
+      </aside>
+      <aside class="rehearse"><p>JSON in, themed SVG out — , / . repaints</p></aside>
+    </section>
+
+    <!-- ══ 7 · charts build ══ -->
+    <section>
+      <h2>A Chart Is a Diagram</h2>
+      <p><code>data-build="draw"</code> — each series draws in on its own beat, same machinery as the strokes</p>
+      <div class="chart" data-chart="line" data-title="Latency by release (ms)" data-build="draw" style="max-width:62%">
+        <script type="application/json">
+        { "labels": ["v1", "v2", "v3", "v4", "v5", "v6"],
+          "series": [ { "name": "p99", "data": [340, 310, 260, 240, 205, 190] },
+                      { "name": "p50", "data": [120, 100, 85, 70, 60, 45] } ] }
+        </script>
+      </div>
+      <aside class="notes">
+        <p>And because a chart is an SVG diagram underneath, it builds like one. This chart carries the same draw attribute the architecture diagram did.</p><p>⟨CLICK⟩</p><p>There goes p99, drawing left to right on the same dash-offset machinery the hand-authored strokes use. The chart got that for free — nobody wrote chart-specific animation code.</p><p>⟨CLICK⟩</p><p>And p50 follows on the next beat, so the room reads the gap between them rather than squinting at a finished picture. Numbers with dramatic timing is most of the job.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Charts inherit diagram machinery</p>
+        <p>⟨CLICK⟩</p><p>p99 draws</p>
+        <p>⟨CLICK⟩</p><p>p50 follows — read the gap</p>
+      </aside>
+    </section>
+
+    <!-- ══ 8 · split layout ══ -->
+    <section data-layout="split">
+      <h2>Comparison Slides</h2>
+      <p><code>data-layout="split"</code> — two sibling blocks become the columns</p>
+      <div>
+        <h3>Pros</h3>
+        <ul>
+          <li>The columns <strong>share a top edge</strong> — unequal heights, headings still line up</li>
+          <li>No per-column flexbox to hand-roll</li>
+          <li><code>split-flip</code> mirrors the pair</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Cons</h3>
+        <ul>
+          <li>You have to decide what goes on the right</li>
+        </ul>
+      </div>
+      <aside class="notes">
+        <p>Comparison slides — pros and cons, this versus that, before and after. Two sibling blocks inside a split layout become the columns, and this slide is its own demo: the Cons column has one bullet against three, and the two headings still sit on the same line. That top-edge alignment is the thing you'd otherwise hand-roll in flexbox on every single comparison slide you ever make.</p>
+      </aside>
+      <aside class="rehearse"><p>Two siblings = two columns, tops aligned</p></aside>
+    </section>
+
+    <!-- ══ 9 · auto-animate (a) ══ -->
+    <section data-auto-animate>
+      <h2>Auto-Animate</h2>
+      <p>Magic Move between adjacent slides — matching <code>data-id</code>s morph</p>
+      <div style="display:flex; justify-content:center; gap:44px; margin-top:0.5em;">
+        <div data-id="fx-a" style="width:260px; height:140px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
+          <span style="font-size:0.72em; font-weight:700;">Extract</span>
+        </div>
+        <div data-id="fx-b" style="width:260px; height:140px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
+          <span data-id="fx-b-label" style="font-size:0.72em; font-weight:700;">Transform</span>
+        </div>
+        <div data-id="fx-c" style="width:260px; height:140px; display:flex; align-items:center; justify-content:center; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 14px;">
+          <span style="font-size:0.72em; font-weight:700;">Load</span>
+        </div>
+      </div>
+      <p style="font-size:0.56em; opacity:.75">Advance once — keep your eye on the middle box.</p>
+      <aside class="notes">
+        <p>Magic Move — the Keynote party trick. Three boxes, three data-ids. On the next slide only one of them survives. Keep your eye on the middle one.</p>
+      </aside>
+      <aside class="rehearse"><p>3 boxes — watch the middle</p></aside>
+    </section>
+
+    <!-- ══ 10 · auto-animate (b) ══ -->
+    <section data-auto-animate>
+      <h2>Auto-Animate</h2>
+      <p>FLIP-morphed geometry — HTML and SVG alike, no keyframes written</p>
+      <div data-id="fx-b" style="width:740px; height:320px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; margin:0.4em auto 0; background: var(--block-bg); border: 2px solid var(--accent); border-radius: 20px;">
+        <span data-id="fx-b-label" style="font-size:1.0em; font-weight:800;">Transform</span>
+        <div style="display:flex; gap:24px;">
+          <div style="padding: 18px 28px; background: var(--d-fill-2); border: 1.5px solid var(--d-stroke); border-radius: 16px; font-size:0.6em; color: var(--d-text);">validate the schema</div>
+          <div style="padding: 18px 28px; background: var(--d-fill-4); border: 1.5px solid var(--d-stroke); border-radius: 16px; font-size:0.6em; color: var(--d-text);">enrich with lookups</div>
+        </div>
+      </div>
+      <aside class="notes">
+        <p>And there it goes. The middle box grew into the whole stage — same element, geometry morphed with FLIP; its neighbors bowed out; and the two detail steps inside faded in as fresh content. That zoom-into-the-detail move is one attribute and matching ids. Nobody wrote a keyframe, and it works on SVG elements the same way it works on divs.</p>
+      </aside>
+      <aside class="rehearse"><p>Middle box zooms — details fade in, zero keyframes</p></aside>
+    </section>
+
+    <!-- ══ 11 · element animations ══ -->
+    <section>
+      <h2>Element Animations</h2>
+      <p>Nine looping attention effects — only while the slide is on stage</p>
+      <div style="display:flex; gap:18px; justify-content:center; font-size:0.68em; flex-wrap:wrap;">
+        <span data-animate="pulse" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">pulse</span>
+        <span data-animate="float" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">float</span>
+        <span data-animate="shake" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">shake</span>
+        <span data-animate="spin" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">spin</span>
+        <span data-animate="blink" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">blink</span>
+      </div>
+      <div style="display:flex; gap:18px; justify-content:center; font-size:0.68em; flex-wrap:wrap; margin-top: 22px;">
+        <span data-animate="bounce" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">bounce</span>
+        <span data-animate="swing" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">swing</span>
+        <span data-animate="glow" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">glow</span>
+        <span data-animate="breathe" style="padding:11px 18px; background: var(--block-bg); border-radius: 10px;">breathe</span>
+      </div>
+      <p style="font-size:0.56em; opacity:.75">All of it collapses under <code>prefers-reduced-motion</code>.</p>
+      <aside class="notes">
+        <p>Nine looping attention-getters, one attribute apiece. Two things make them safe: they only run while their slide is actually on stage, so a deck isn't burning CPU animating slide forty while you're on slide three — and every one sits down politely when the viewer has asked for reduced motion. Use them like hot sauce.</p>
+      </aside>
+      <aside class="rehearse"><p>Nine loops · on-stage only · reduced-motion aware</p></aside>
+    </section>
+
+    <!-- ══ 12 · code ══ -->
+    <section>
+      <h2>Code, Stepped Line by Line</h2>
+      <p>This snippet is the source of the builds slide you saw earlier</p>
+      <pre data-lines="1|2-4|6" data-lines-numbers><code class="language-html">&lt;ul data-build="fade-up"&gt;
+  &lt;li&gt;data-build on the list — every child steps&lt;/li&gt;
+  &lt;li&gt;One attribute, zero per-item classes&lt;/li&gt;
+  &lt;li&gt;Hidden steps hold their space&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p data-build="pop"&gt;…and a leaf can pop in on its own.&lt;/p&gt;</code></pre>
+      <aside class="notes">
+        <p>Code slides. The syntax highlighting rides the same theme tokens as everything else, so there is no second highlighter theme to keep in sync — the best config file is the one that doesn't exist.</p><p>⟨CLICK⟩</p><p>data-lines turns highlight ranges into build steps. First beat, the container line.</p><p>⟨CLICK⟩</p><p>Second beat, the items.</p><p>⟨CLICK⟩</p><p>And the standalone pop. Everything you're not talking about dims to the theme's own opacity — a spotlight, but for code.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Highlighting via theme tokens</p>
+        <p>⟨CLICK⟩</p><p>Line 1: container</p>
+        <p>⟨CLICK⟩</p><p>Lines 2–4: items</p>
+        <p>⟨CLICK⟩</p><p>Line 6: the pop</p>
+      </aside>
+    </section>
+
+    <!-- ══ 13 · math ══ -->
+    <section data-math>
+      <h2>Math, Rendered Native</h2>
+      <p><code>data-math</code> + LaTeX → MathML Core — no webfonts, no build step, no network</p>
+      <p style="font-size:1.05em; margin:0.5em 0 0.4em">$$\begin{aligned}
+        \nabla \cdot \vec{E} \;&amp;= \frac{\rho}{\varepsilon_0} &amp;
+        \nabla \times \vec{E} \;&amp;= -\frac{\partial \vec{B}}{\partial t} \\[0.5em]
+        \nabla \cdot \vec{B} \;&amp;= 0 &amp;
+        \nabla \times \vec{B} \;&amp;= \mu_0 \Bigl( \vec{J} + \varepsilon_0 \frac{\partial \vec{E}}{\partial t} \Bigr)
+      \end{aligned}$$</p>
+      <p style="font-size:0.74em">Inline math sits in the sentence — light moves at \(c = 1/\sqrt{\mu_0 \varepsilon_0}\) —
+        while <code>\$</code> keeps \$5 five dollars, and a lone <code>$</code> never trips the parser.</p>
+      <aside class="notes">
+        <p>Academic decks, welcome home. Mark a slide data-math and write LaTeX — double dollars for display, backslash-parens for inline. That's Maxwell, all four, rendering as native MathML: no webfonts shipped, no network fetched, no per-deck build step. And note what is deliberately not supported — the single dollar sign. Your prose about a five-dollar budget stays prose. The parser only listens where you actually meant math.</p>
+      </aside>
+      <aside class="rehearse"><p>LaTeX → native MathML · no single-$ ambiguity</p></aside>
+    </section>
+
+    <!-- ══ 14 · terminal ══ -->
+    <section>
+      <h2>Terminal Recordings</h2>
+      <p>Real PTY output, replayed step by step — never a video</p>
+      <div class="terminal" data-cast-inline="#cast-git-tour" data-mode="step" data-rows="12"></div>
+      <aside class="notes">
+        <p>Terminal demos. This was recorded by decklight rec from a YAML script — a real PTY, real output, secrets redacted at capture time. Not a screen recording. Never a video.</p><p>⟨CLICK⟩</p><p>Each advance types the command with humane little imperfections, then streams the output exactly as recorded. Truthful, repeatable, and it will never hang on conference wifi.</p><p>⟨CLICK⟩</p><p>Casts embed the script that made them, so when your CLI changes its output next quarter — and it will — decklight refresh re-records everything and reports precisely what drifted.</p><p>⟨CLICK⟩</p><p>And decklight export flattens a cast to asciicast v2, which opens the whole asciinema ecosystem.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>PTY truth, not video</p>
+        <p>⟨CLICK⟩</p><p>Typed + streamed per step</p>
+        <p>⟨CLICK⟩</p><p>refresh re-records, reports drift</p>
+        <p>⟨CLICK⟩</p><p>export → asciicast v2</p>
+      </aside>
+    </section>
+
+    <!-- ══ 15 · agent authoring ══ -->
+    <section>
+      <h2>Slides From a Prompt</h2>
+      <p>Describe the slide — an agent writes the Decklight</p>
+      <div class="terminal" data-cast-inline="#cast-ai-prompt" data-mode="step" data-rows="13"></div>
+      <aside class="notes">
+        <p>This is the workflow the whole format exists to enable. Decklight was designed to be authored by agents, so the loop is: describe the slide you want, in plain English, to your coding agent.</p><p>⟨CLICK⟩</p><p>Watch the ask — a broker, a partitioned topic, messages flowing to two consumers, and the part everyone forgets: an explicit request for labels. Offsets, arrows, names. Agents draw exactly what you name. Name the labels. What comes back is tokens, draw builds and SMIL motion — editable text, not an exported picture.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Describe it, an agent writes it</p>
+        <p>⟨CLICK⟩</p><p>NAME the labels — agents draw what you name</p>
+      </aside>
+    </section>
+
+    <!-- ══ 16 · themes ══ -->
+    <section data-transition="slide">
+      <h2>46 Themes, Two Graders</h2>
+      <p>Try it now — <strong>,</strong> and <strong>.</strong> cycle, everything on screen repaints</p>
+      <table data-build>
+        <tbody>
+          <tr><td><strong>T</strong></td><td>theme picker — packs first, Enter drills in, type to filter</td></tr>
+          <tr><td><strong>, / .</strong></td><td>cycle themes — crossing a pack asks you to confirm</td></tr>
+          <tr><td><strong>⌃T</strong></td><td>generate a brand-new theme (WCAG-fitted, rule-conforming)</td></tr>
+          <tr><td><strong>⌃⇧T</strong></td><td>save it — localStorage plus a portable <code>.css</code> download</td></tr>
+          <tr><td><strong>[ / ]</strong></td><td>cycle the deck's type through nine font stacks</td></tr>
+        </tbody>
+      </table>
+      <aside class="notes">
+        <p>Forty-six themes in two packs — Default and Classics, which carries the full reveal-js compatibility set for anyone migrating. One token contract, and when you switch, everything moves: text, diagrams, code, charts, terminals. By the way, did you catch that slide transition? Per-slide override. The deck is still demoing.</p><p>⟨CLICK⟩</p><p>T opens the picker on the packs, and typing filters.</p><p>⟨CLICK⟩</p><p>Comma and period cycle — and crossing into a different pack asks first. Guardrails, not walls.</p><p>⟨CLICK⟩</p><p>Control-T rolls a brand-new theme on the spot, WCAG-fitted and palette-rule-conforming. It cannot fail validation, and that's property-tested across hundreds of seeds, because 'trust me' is not a spec.</p><p>⟨CLICK⟩</p><p>Control-shift-T saves it and hands you a portable CSS file.</p><p>⟨CLICK⟩</p><p>And brackets swap the typography live. Nine stacks, zero rebuilds.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>46 themes, 2 packs, one contract</p>
+        <p>⟨CLICK⟩</p><p>T → picker</p>
+        <p>⟨CLICK⟩</p><p>, . cycle + pack guard</p>
+        <p>⟨CLICK⟩</p><p>⌃T generate — can't fail</p>
+        <p>⟨CLICK⟩</p><p>⌃⇧T save</p>
+        <p>⟨CLICK⟩</p><p>[ ] fonts</p>
+      </aside>
+    </section>
+
+    <!-- ══ 17 · theme distribution ══ -->
+    <section>
+      <h2>A Theme Is Just a File</h2>
+      <p>No registry, no version number — the unit you share is one CSS file</p>
+      <pre data-lines="1|2"><code class="language-bash">decklight theme check sunset.css          # contract-complete? WCAG gates?
+decklight theme add sunset.css deck.html  # validates, then installs</code></pre>
+      <ul data-build>
+        <li>Added themes join the picker under an <strong>Added</strong> pack — they cycle, resolve from <code>?theme=</code>, and bundle like any other</li>
+        <li>A file that fails leaves the deck <strong>byte-for-byte unchanged</strong></li>
+        <li>Re-adding the same name replaces it in place: <em>add</em> is the update path</li>
+      </ul>
+      <aside class="notes">
+        <p>So you rolled a theme you love. How do you give it to someone? A theme is one CSS file, and that's the whole distribution story — no registry to publish to, no version to bump. Compatibility with a runtime just is passing that runtime's check.</p><p>⟨CLICK⟩</p><p>theme check runs the token contract and the contrast gates on any file — the same function that grades the shipped set, so the two can never drift.</p><p>⟨CLICK⟩</p><p>theme add validates and then installs, refusing anything the shipped set wouldn't be allowed to contain.</p><p>⟨CLICK⟩</p><p>An added theme shows up under its own Added pack and behaves like every other one from there.</p><p>⟨CLICK⟩</p><p>If a file fails, your deck is byte for byte what it was. Nothing half-installed.</p><p>⟨CLICK⟩</p><p>And fixing a bug in your theme means running add again with the same name. Adding is the update path.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>One CSS file, no registry</p>
+        <p>⟨CLICK⟩</p><p>check = contract + WCAG</p>
+        <p>⟨CLICK⟩</p><p>add = validate then install</p>
+        <p>⟨CLICK⟩</p><p>Added pack</p>
+        <p>⟨CLICK⟩</p><p>Fail → deck unchanged</p>
+        <p>⟨CLICK⟩</p><p>Re-add = update</p>
+      </aside>
+    </section>
+
+    <!-- ══ 18 · marketplace ══ -->
+    <section>
+      <h2>Marketplaces: Registered, Not Fetched</h2>
+      <p>A marketplace is a git repo with a manifest at its root. There is no central registry.</p>
+      <ul data-build>
+        <li><code>decklight marketplace add owner/repo</code> — registers a catalog; <strong>the network is touched only when you browse or install</strong></li>
+        <li>So a deck on a plane behaves exactly like a deck at a desk — <code>list</code> reads the cache and names what it couldn't read, rather than showing an empty list that looks like an empty marketplace</li>
+        <li>The first-party catalog is registered on first run and <em>never</em> auto-fetched — the homage theme packs live there</li>
+        <li>Units: themes · templates (<code>init --from</code>) · agent skills · import adapters · publish targets · voices</li>
+      </ul>
+      <aside class="notes">
+        <p>Now distribution at scale. A marketplace here is just a git repo with a manifest file at its root — decentralized, mirroring Claude Code's own layout deliberately. There's no central registry to host or moderate.</p><p>⟨CLICK⟩</p><p>You register a catalog by name, and here is the invariant that matters more than any feature: registering is not fetching. The network is touched when you browse or explicitly install, and at no other time.</p><p>⟨CLICK⟩</p><p>Which means a deck on conference wifi, on a plane, or air-gapped behaves identically to one at your desk. And when list can't read a cached catalog it says so by name — because an empty list and an unreachable marketplace must never look the same.</p><p>⟨CLICK⟩</p><p>The first-party catalog is registered automatically on first run and never auto-fetched. That's where the novelty and homage theme packs went — the Game Boy theme, the movie ones — since an aesthetic tied to a specific franchise doesn't belong shipping under the project's own name.</p><p>⟨CLICK⟩</p><p>And six kinds of unit install through one seam: themes, deck templates, agent skills, import adapters, publish targets, and voices.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Git repo + manifest, no central registry</p>
+        <p>⟨CLICK⟩</p><p>REGISTERED ≠ FETCHED</p>
+        <p>⟨CLICK⟩</p><p>Plane = desk; unreadable ≠ empty</p>
+        <p>⟨CLICK⟩</p><p>First-party = where homage packs live</p>
+        <p>⟨CLICK⟩</p><p>Six unit kinds, one seam</p>
+      </aside>
+    </section>
+
+    <!-- ══ 19 · extensions ══ -->
+    <section data-layout="split">
+      <h2>Extensions Run at Build Time</h2>
+      <p>The decision that keeps a travelling deck safe</p>
+      <div>
+        <h3>Build-time transform</h3>
+        <p style="font-size:0.5em; opacity:.9">Node, on <em>your</em> machine, during <code>bundle</code>. HTML in, HTML out.
+          Mermaid, PlantUML, new chart types — all compile to SVG before anyone opens the deck.</p>
+        <p style="font-size:0.5em; opacity:.9"><strong>Only its output travels.</strong></p>
+      </div>
+      <div>
+        <h3>In-deck runtime</h3>
+        <p style="font-size:0.5em; opacity:.9">Would run in the <em>audience's</em> browser — someone who installed
+          nothing and consented to nothing.</p>
+        <p style="font-size:0.5em; opacity:.9"><strong>Deliberately not shipped.</strong> The first cut has no in-deck
+          execution surface at all.</p>
+      </div>
+      <aside class="notes">
+        <p>Extensions are where most plugin systems quietly become a security problem, so this one starts from an asymmetry. Claude Code's plugin marketplace is safe enough because the person who installs a plugin is the person at risk — their machine, their privilege, their choice. A deck breaks that symmetry, because a deck travels. Code inlined into it runs in front of an audience that installed nothing.</p><p>⟨CLICK⟩</p><p>So the default is a build-time transform: Node code that runs on your machine during bundle, taking HTML and returning HTML. Mermaid diagrams, PlantUML, alternative renderers — they all compile to SVG before the file ever leaves, and the audience's browser executes nothing new. Only the output travels.</p><p>⟨CLICK⟩</p><p>And the in-deck runtime — code that would execute in the viewer's browser — is deliberately not shipped. Not deferred because it was hard; refused because the first cut should have no such surface at all. If a live case ever justifies it, it arrives with Worker isolation, a CSP allowlist and consent at first open.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Decks travel — that breaks the plugin trust model</p>
+        <p>⟨CLICK⟩</p><p>Build-time: HTML in/out, only output travels</p>
+        <p>⟨CLICK⟩</p><p>In-deck runtime: refused, not deferred</p>
+      </aside>
+    </section>
+
+    <!-- ══ 20 · extension check ══ -->
+    <section>
+      <h2>The Admission Gate</h2>
+      <p><code>decklight extension check transform.mjs</code> — what a marketplace's CI runs before merging your submission</p>
+      <ul data-build>
+        <li><strong>Lint the source</strong> — no <code>fetch</code>, no <code>eval</code>, no <code>XMLHttpRequest</code>, no dynamic <code>import()</code>. A transform runs unsandboxed, so this lint <em>is</em> the enforcement, not a friendly echo of one</li>
+        <li><strong>Headlessly load its OUTPUT</strong> against a fixture — and refuse any <code>&lt;script&gt;</code> in the result. The one automatable proof that "nothing executable travels" actually holds for a given transform</li>
+        <li>Not run by <code>bundle</code> or <code>publish</code>: the gate sits at the marketplace's door, once, not on every local iteration</li>
+      </ul>
+      <aside class="notes">
+        <p>And a rule nobody checks is a wish, so there's a command that checks this one.</p><p>⟨CLICK⟩</p><p>First it lints the source for network and dynamic-code calls. Now — a presenter plugin has a similar lint, but that one is a courtesy, because the plugin's sandbox already makes those calls fail. A build-time transform runs as trusted, unsandboxed Node on your machine. Nothing else stops fetch from working there. So this lint is the actual enforcement, and it's worth being clear-eyed about which of those two situations you're in.</p><p>⟨CLICK⟩</p><p>Then it runs the transform against a small fixture and headlessly loads what came out, refusing any script block in the result. That's the automatable proof that this specific transform honors 'nothing executable travels' — rather than merely having been asked to.</p><p>⟨CLICK⟩</p><p>And it deliberately isn't part of bundle or publish. An installed transform you use every day is never re-checked; the gate is at the marketplace's door, once.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>A rule nobody checks is a wish</p>
+        <p>⟨CLICK⟩</p><p>Lint IS enforcement here (no sandbox behind it)</p>
+        <p>⟨CLICK⟩</p><p>Headless-load the OUTPUT, refuse &lt;script&gt;</p>
+        <p>⟨CLICK⟩</p><p>Gate at the door, not every build</p>
+      </aside>
+    </section>
+
+    <!-- ══ 21 · presenting ══ -->
+    <section data-transition="scale">
+      <h2>Presenting</h2>
+      <p>Everything a stage needs — from a double-clicked file, no server</p>
+      <ul data-build>
+        <li><strong>S</strong> — speaker view: thumbnails, timer, notes synced to builds</li>
+        <li><strong>S again</strong> — rehearse mode: cue cards instead of prose (this deck has them)</li>
+        <li><strong>G</strong> — slide finder with live preview · <strong>/</strong> the command palette</li>
+        <li><strong>O</strong> overview grid · <strong>B</strong> blackout · <strong>F</strong> fullscreen · <strong>H</strong> progress bar</li>
+        <li>Pinned titles, auto-subtitles, per-slide print, brand-logo chrome that follows the theme's luminance</li>
+      </ul>
+      <aside class="notes">
+        <p>Everything a stage needs, and all of it works from a double-clicked file — no dev server, no build step, no 'hang on, let me npm install' in front of two hundred people.</p><p>⟨CLICK⟩</p><p>S opens speaker view in a popup: thumbnails, a timer, and notes that highlight in sync as you advance through builds.</p><p>⟨CLICK⟩</p><p>Press S again and the prose becomes big cue cards. This deck has both written for every slide, which is why rehearse mode has something to show.</p><p>⟨CLICK⟩</p><p>G finds any slide by its words — slide forty-something, doesn't matter, type the word. Slash opens the command palette where every feature answers to its name.</p><p>⟨CLICK⟩</p><p>O, B, F, H — overview, blackout, fullscreen, progress. The classics.</p><p>⟨CLICK⟩</p><p>And the details: titles pin at one height deck-wide so they don't jitter between slides, subtitles style themselves, and the corner logo swaps its light and dark variants by measuring the theme's actual background luminance.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>file:// is enough — no server</p>
+        <p>⟨CLICK⟩</p><p>S speaker view</p>
+        <p>⟨CLICK⟩</p><p>S again = cue cards</p>
+        <p>⟨CLICK⟩</p><p>G finder · / palette</p>
+        <p>⟨CLICK⟩</p><p>O B F H</p>
+        <p>⟨CLICK⟩</p><p>Pins, subtitles, luminance-aware logo</p>
+      </aside>
+    </section>
+
+    <!-- ══ 22 · narration ══ -->
+    <section>
+      <h2>The Deck Speaks</h2>
+      <p><strong>V</strong> narrates · <strong>N</strong> picks the voice · <strong>C</strong> captions · <strong>P</strong> pauses</p>
+      <ul data-build>
+        <li><strong>The voice already on your machine</strong> — macOS <code>say</code>, Windows SAPI. No key, no download, no signup</li>
+        <li>Or cloud voices, your own cloned ones, or <code>piper</code> fully offline — <code>decklight tts</code> sets itself up on first run</li>
+        <li><strong>The voice is the clock</strong>: ⟨CLICK⟩ markers split the notes, each spoken beat reveals the next build</li>
+        <li>When the voice <em>can't</em> play, the deck <strong>stops advancing</strong> and says why — rather than walking the talk past slides nobody heard</li>
+      </ul>
+      <aside class="notes">
+        <p>This deck has been able to talk since slide one. V starts it, N picks the voice, C puts captions underneath, P pauses mid-sentence and resumes exactly there.</p><p>⟨CLICK⟩</p><p>And it uses the voice already on your machine. Every desktop has shipped a speech synthesizer for twenty years and the current ones are genuinely good — macOS Premium and Personal voices, Windows natural voices. With nothing configured, no key and no account, it just talks.</p><p>⟨CLICK⟩</p><p>Prefer a cloud voice, your own cloned one, or piper running entirely offline? All there, and the first time the bridge can't start it asks you a few plain questions instead of throwing an error.</p><p>⟨CLICK⟩</p><p>The voice is the clock. Those click markers in the notes split the audio into beats, and when a beat ends the next build lands. A deck that can rehearse with you at two in the morning.</p><p>⟨CLICK⟩</p><p>And the failure mode got the most thought. When the voice cannot play — a quota error, a dead bridge, a browser that blocked autoplay — the deck stops advancing and tells you why, naming the cause and the fix. Auto-advancing through slides nobody has heard is worse than stopping.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>V · N · C · P</p>
+        <p>⟨CLICK⟩</p><p>Your OS's own voice — free</p>
+        <p>⟨CLICK⟩</p><p>Cloud / cloned / piper offline</p>
+        <p>⟨CLICK⟩</p><p>Voice = clock, ⟨CLICK⟩ = beats</p>
+        <p>⟨CLICK⟩</p><p>Can't play → STOPS, says why</p>
+      </aside>
+    </section>
+
+    <!-- ══ 23 · character ══ -->
+    <section>
+      <h2>A Narrator With a Face</h2>
+      <p><strong>N</strong> → Character… — lips synced to the narration, fully offline</p>
+      <ul data-build>
+        <li><strong>2D</strong> — a layered SVG bust with one mouth group per Rhubarb viseme; a 30 Hz loop maps the audio clock onto the timeline, so pause and speed sync for free</li>
+        <li><strong>Neural video</strong> — a muted talking head generated by Wav2Lip or SadTalker <em>on your own GPU</em>, drift-corrected against the audio</li>
+        <li><strong>Solo</strong> puts the narrator on the whole stage — a talking-head slide without authoring one</li>
+        <li>Bring your own art: any SVG honoring the <code>[data-mouth]</code> contract</li>
+      </ul>
+      <aside class="notes">
+        <p>And if a voice isn't enough, there's a face. N, then Character.</p><p>⟨CLICK⟩</p><p>The 2D mode is a layered SVG bust with one mouth group per Rhubarb viseme shape. A thirty-hertz loop maps the narration audio's current time onto a viseme timeline — which means pausing and changing voice speed stay in sync for free, because the mouth is reading the same clock the audio is.</p><p>⟨CLICK⟩</p><p>Video mode is a real talking head from Wav2Lip or SadTalker, running on your own GPU. Nothing leaves the machine, and the video is muted — the audio always comes from the narration element, which also makes it immune to autoplay policy.</p><p>⟨CLICK⟩</p><p>Solo mode steps the slide content aside and centers the narrator. A talking-head slide, without authoring one.</p><p>⟨CLICK⟩</p><p>And the art is yours if you want it — any SVG that honors the data-mouth contract works.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>N → Character…, offline</p>
+        <p>⟨CLICK⟩</p><p>2D visemes on the audio clock</p>
+        <p>⟨CLICK⟩</p><p>Neural video, your GPU, muted</p>
+        <p>⟨CLICK⟩</p><p>Solo = talking-head slide</p>
+        <p>⟨CLICK⟩</p><p>BYO art via [data-mouth]</p>
+      </aside>
+    </section>
+
+    <!-- ══ 24 · background image ══ -->
+    <section data-background-image="assets/sunrise.svg" data-background-dim="0.55">
+      <h2>Full-Bleed Backgrounds</h2>
+      <p>One attribute on the section — the deck does the rest</p>
+      <ul data-build>
+        <li><code>data-background-image</code> — cover by default; <code>contain</code> and position on demand</li>
+        <li><code>data-background-dim</code> — a canvas-colored wash keeps text readable (this slide is wearing one)</li>
+        <li><code>class="full-bleed"</code> on any <code>&lt;img&gt;</code> — the same treatment for content images</li>
+      </ul>
+      <aside class="notes">
+        <p>Sometimes a slide wants a photograph behind it, edge to edge. One attribute — and what's glowing behind these words is exactly that.</p><p>⟨CLICK⟩</p><p>Cover by default so the image fills the frame; ask for contain or a position when the crop matters.</p><p>⟨CLICK⟩</p><p>And because white text over a bright sky is a crime against the back row, the dim attribute lays a canvas-colored wash between the photo and the words. This slide has one at fifty-five percent.</p><p>⟨CLICK⟩</p><p>Content images get the same trick with a class, and split layouts cap a tall photo before it blows the frame.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>One attribute = full-bleed</p>
+        <p>⟨CLICK⟩</p><p>cover / contain / position</p>
+        <p>⟨CLICK⟩</p><p>dim = readable text</p>
+        <p>⟨CLICK⟩</p><p>full-bleed imgs too</p>
+      </aside>
+    </section>
+
+    <!-- ══ 25 · background video ══ -->
+    <section data-background-video="assets/clip.mp4" data-background-poster="assets/clip-poster.jpg" data-background-dim="0.35">
+      <h2>Background Video</h2>
+      <p>Muted, looping — and honest about print</p>
+      <ul data-build>
+        <li>Plays while the slide is active — <em>actually paused</em> when you move on, not merely hidden</li>
+        <li><code>data-background-poster</code> — the still that stands in under <code>?print</code>, so your PDF never buffers</li>
+        <li>Bundles keep the clip external, with a notice — inlining 50 MB of video into an HTML file helps nobody</li>
+      </ul>
+      <aside class="notes">
+        <p>And yes, video. The drift behind this slide is a real mp4 — muted, looping, playing inline, all the attributes you'd forget to type.</p><p>⟨CLICK⟩</p><p>It plays while the slide is on stage and it gets paused, actually paused rather than just hidden, the moment you move on. Your laptop fans stay quiet.</p><p>⟨CLICK⟩</p><p>Print is a still world, so print gets a still — the poster renders as the background and no video element is created at all. Your PDF doesn't buffer.</p><p>⟨CLICK⟩</p><p>And bundling keeps the clip external with a note saying so. Same policy as the character's video clips.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Real mp4, muted + looping</p>
+        <p>⟨CLICK⟩</p><p>Paused for real off-stage</p>
+        <p>⟨CLICK⟩</p><p>?print = poster still</p>
+        <p>⟨CLICK⟩</p><p>bundle keeps it external</p>
+      </aside>
+    </section>
+
+    <!-- ══ 26 · import ══ -->
+    <section>
+      <h2>Bring the Deck You Already Have</h2>
+      <p><code>decklight import</code> — PowerPoint, Keynote, or a Google Slides link</p>
+      <ul data-build>
+        <li>Slides, nested bullets, notes, images, tables — and PowerPoint's own per-paragraph builds become <code>data-build</code></li>
+        <li>A <strong>content</strong> importer, not a pixel renderer: the old template's look is traded away, and that trade is what buys everything else in this deck</li>
+        <li>Anything that can't cross is <strong>named with its slide number</strong>. Never a silent drop</li>
+        <li>A format decklight can't read itself runs through an <strong>installed import adapter</strong> — bytes in, deck markup out</li>
+      </ul>
+      <aside class="notes">
+        <p>Nobody starts from zero, and 'rewrite eighty decks by hand' is not an adoption story.</p><p>⟨CLICK⟩</p><p>Slides come across in presentation order, bullets keep their real nesting, notes land in the notes aside, images inline, tables become tables. PowerPoint's own per-paragraph animation list becomes real builds — your existing reveals survive the trip.</p><p>⟨CLICK⟩</p><p>Now the honest part. This is a content importer, not a pixel renderer: your old template's look is deliberately thrown away and replaced by decklight theming. That's the trade, and it's what buys the deck forty-six themes, builds, narration, agent editing — everything you've watched.</p><p>⟨CLICK⟩</p><p>The things that genuinely can't cross — SmartArt, an embedded chart — are named with their slide number and what to rebuild them as. A chart that quietly vanishes from slide fourteen is something you discover on stage, and that's the one failure this feature wasn't allowed to have.</p><p>⟨CLICK⟩</p><p>And for a format decklight doesn't speak — Marp, Slidev, whatever comes next — you install an import adapter from a marketplace and it runs: bytes in, deck markup out.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>pptx · key · Slides link</p>
+        <p>⟨CLICK⟩</p><p>Bullets, notes, images, builds survive</p>
+        <p>⟨CLICK⟩</p><p>Content not pixels — the trade IS the point</p>
+        <p>⟨CLICK⟩</p><p>Drops named with slide numbers</p>
+        <p>⟨CLICK⟩</p><p>Adapters for other formats</p>
+      </aside>
+    </section>
+
+    <!-- ══ 27 · the CLI ══ -->
+    <section data-transition="flip">
+      <h2>One File to Ship</h2>
+      <p>The CLI records, refreshes, renders — and flattens</p>
+      <pre data-lines="1|2|3|4|5|6"><code class="language-bash">decklight rec demo.term.yaml        # record a cast in a real PTY
+decklight refresh casts/            # re-record everything, report drift
+decklight pdf deck.html             # every slide — and it NAMES the overflows
+decklight video deck.html -o t.mp4  # a narrated mp4, stills + voiceover
+decklight bundle deck.html --all    # ONE self-contained HTML, themes included
+decklight publish deck.html         # → gh-pages, signed by default</code></pre>
+      <aside class="notes">
+        <p>The command-line story, which is about as long as a CLI story should be.</p><p>⟨CLICK⟩</p><p>rec records a cast against a YAML script in a real PTY.</p><p>⟨CLICK⟩</p><p>refresh re-runs every embedded script and reports drift.</p><p>⟨CLICK⟩</p><p>pdf renders every slide through the deck's own print path and names the slides that overflow — which makes it the one command an agent should run before calling a deck done.</p><p>⟨CLICK⟩</p><p>video renders a narrated mp4: a full-resolution still per slide, held for that slide's narration audio, muxed together.</p><p>⟨CLICK⟩</p><p>bundle merges a deck — or a whole course playlist — into one self-contained HTML file you can email with no instructions attached.</p><p>⟨CLICK⟩</p><p>And publish takes it to GitHub Pages and signs it by default, because publishing is already a network action so signing there adds no new failure mode.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Six commands</p>
+        <p>⟨CLICK⟩</p><p>rec = PTY capture</p>
+        <p>⟨CLICK⟩</p><p>refresh = drift report</p>
+        <p>⟨CLICK⟩</p><p>pdf = render + overflow names</p>
+        <p>⟨CLICK⟩</p><p>video = narrated mp4</p>
+        <p>⟨CLICK⟩</p><p>bundle = one file</p>
+        <p>⟨CLICK⟩</p><p>publish = signed URL</p>
+      </aside>
+    </section>
+
+    <!-- ══ 28 · present ══ -->
+    <section>
+      <h2>Playing a Deck You Didn't Write</h2>
+      <p><code>decklight present</code> — read-only over localhost, under a real CSP <em>header</em></p>
+      <ul data-build>
+        <li>An <strong>ingredients label</strong> before the first slide: the runtime's hash against the build you have, and <strong>every unaccounted script by line number</strong></li>
+        <li>An <em>inventory, never a verdict</em> — no green check, because a check promises more than a heuristic can keep</li>
+        <li><code>--strict</code> strips every script that isn't the verified runtime — and the deck <strong>still plays</strong></li>
+        <li>The audit runs <strong>because it is the only way in</strong> — a standalone <code>verify</code> is a step people skip</li>
+      </ul>
+      <aside class="notes">
+        <p>A deck arrives on machines belonging to people who agreed to nothing, so there's a command for playing one you didn't write. It serves the file read-only over localhost under a real CSP — an HTTP header, which the document cannot override, unlike a meta tag inside a file an attacker may have edited.</p><p>⟨CLICK⟩</p><p>Before the first slide renders it prints an ingredients label: which runtime is embedded and whether its hash matches the build this install ships, the counts of inert data, and then every script block it could not account for, with line numbers and opening lines.</p><p>⟨CLICK⟩</p><p>And it refuses to print a verdict. No green check, no score. It's a heuristic reading a file someone may have edited, and a green mark would promise more than the mechanism can keep. A list of what will run promises nothing and is still what you needed.</p><p>⟨CLICK⟩</p><p>Strict mode strips every script that isn't the verified runtime, and the deck still plays — because a well-formed decklight deck carries no third-party JavaScript in the first place. Content is HTML, themes are CSS, charts and casts are JSON read by trusted code.</p><p>⟨CLICK⟩</p><p>And the audit runs because it's the only way in. A standalone verify command is a step people skip; folding it into the command you'd use anyway means it runs every time at no extra effort.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>CSP as a HEADER, not a meta tag</p>
+        <p>⟨CLICK⟩</p><p>Ingredients label, unaccounted by line</p>
+        <p>⟨CLICK⟩</p><p>Inventory NEVER a verdict</p>
+        <p>⟨CLICK⟩</p><p>--strict → still plays</p>
+        <p>⟨CLICK⟩</p><p>Audit runs because it's the only way in</p>
+      </aside>
+    </section>
+
+    <!-- ══ 29 · container + plugins ══ -->
+    <section data-layout="split">
+      <h2>Two More Safety Rails</h2>
+      <p>For the file that travels, and the chrome that doesn't</p>
+      <div>
+        <h3>The <code>.decklight</code> container</h3>
+        <p style="font-size:0.48em; opacity:.9">A signed deck is two files, and two is one more than people forward — so the
+          container carries deck, signature and manifest as one artifact.</p>
+        <p style="font-size:0.48em; opacity:.9">Rename it to <code>.html</code> and it <strong>still plays in a plain
+          browser</strong>. Degrading to the artifact it wraps, rather than to garbage, is the whole design.</p>
+      </div>
+      <div>
+        <h3>Presenter plugins</h3>
+        <p style="font-size:0.48em; opacity:.9">A timer, a teleprompter, a confidence monitor — installed by the
+          <em>presenter</em>, injected at serve time. The deck on disk is untouched.</p>
+        <p style="font-size:0.48em; opacity:.9">Chrome only, and <strong>the browser enforces it</strong>: an opaque-origin
+          sandboxed frame where <code>parent.document</code> throws. Not a rule against reaching — an inability to.</p>
+      </div>
+      <aside class="notes">
+        <p>Two more rails, quickly.</p><p>⟨CLICK⟩</p><p>First, the container. A signed deck is two files — the deck and its signature sidecar — and two is one more than people actually forward. So the dot-decklight container carries the deck, the signature and a manifest as a single artifact. And the load-bearing detail: rename it to dot-html and it still plays in a plain browser, because the recipient without the tooling is exactly who this format must not become a wall for.</p><p>⟨CLICK⟩</p><p>Second, presenter plugins — a talk timer, a teleprompter, a confidence monitor. Installed by the presenter, into their own library, injected at serve time. The deck on disk never changes, and bundle can't see them.</p><p>⟨CLICK⟩</p><p>Scope is chrome only, and the browser is what enforces it: the plugin's code runs in a sandboxed frame with no same-origin permission, so it gets an opaque origin and parent-dot-document throws. That's not a rule asking plugins politely not to touch your slides — it's the absence of any handle to touch them with.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Two rails</p>
+        <p>⟨CLICK⟩</p><p>.decklight = one artifact, still plays as .html</p>
+        <p>⟨CLICK⟩</p><p>Plugins = presenter's, deck untouched</p>
+        <p>⟨CLICK⟩</p><p>Opaque origin: inability, not a rule</p>
+      </aside>
+    </section>
+
+    <!-- ══ 30 · verification ══ -->
+    <section>
+      <h2>Verified by Construction</h2>
+      <p>Built for authors who don't have eyeballs</p>
+      <ul data-build>
+        <li>Clipped content marks itself <code>data-overflow</code> in the DOM — <code>decklight pdf</code> checks a whole deck in one pass and names the offenders</li>
+        <li>Every theme passes WCAG gates <em>and</em> codified palette rules; generated themes <strong>cannot</strong> fail either — property-tested across seeds</li>
+        <li>Headless-render assertions ship in the repo; <code>SPEC.md</code> is the contract every subsystem builds against</li>
+        <li>When the docs and the code disagree, one of them is a bug — and we know which one</li>
+      </ul>
+      <aside class="notes">
+        <p>Here's the philosophy under all of it. Decklight is built to be authored by agents, and agents don't have eyeballs — so every claim has to be checkable by a machine.</p><p>⟨CLICK⟩</p><p>If content would clip, the slide raises its hand with an attribute right in the DOM where a headless test can see it. And pdf reads every one of them in a single pass, so 'is my deck intact' is one command instead of twenty screenshots.</p><p>⟨CLICK⟩</p><p>Every shipped theme passes two independent graders, and the generator is property-tested across hundreds of seeds — not 'we ran it twice and it looked fine.'</p><p>⟨CLICK⟩</p><p>Headless render assertions ship in the repo, and SPEC.md is the contract every subsystem builds against.</p><p>⟨CLICK⟩</p><p>Which gives you the property that matters: when the docs and the code disagree, one of them is a bug, and there's no argument about which.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Agent-authorable = machine-checkable</p>
+        <p>⟨CLICK⟩</p><p>data-overflow, checked by pdf</p>
+        <p>⟨CLICK⟩</p><p>Two graders + seeded property tests</p>
+        <p>⟨CLICK⟩</p><p>SPEC.md is the contract</p>
+        <p>⟨CLICK⟩</p><p>Docs vs code → one is a bug</p>
+      </aside>
+    </section>
+
+    <!-- ══ 31 · close ══ -->
+    <section data-logo="96">
+      <h2>One HTML File. No Build Step.</h2>
+      <p>Two stylesheets, one script — view source on this deck to start yours</p>
+      <p style="font-size:0.6em; opacity:.85">Press <strong>O</strong> to see everything you just watched, or <strong>/</strong> to jump back anywhere.</p>
+      <aside class="notes">
+        <p>And that's the whole tour. Two stylesheets, one script, no build step — and every feature you just watched was demonstrated by the slide that explained it, which is the only documentation format I actually trust. The fastest way to learn any of it is to view source on this very deck; the entire thing is right there in one file. Press O to see it all at once, or slash to jump back to anything. Go make something worth presenting.</p>
+      </aside>
+      <aside class="rehearse"><p>View source — it's one file. O for overview.</p></aside>
+    </section>
+
+  </div>
+
+  <!-- brand marks for the logo chrome (cloned by id; bundle- and file://-safe) -->
+  <div style="display:none" aria-hidden="true">
+    <svg id="dl-mark-snow" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path d="M24 8 h16 a4 4 0 0 1 4 4 v10 h-24 v-10 a4 4 0 0 1 4 -4 z" fill="#fafafa"/>
+      <path d="M20 24 h24 l10 30 h-44 z" fill="#fafafa" opacity="0.35"/>
+      <rect x="26" y="56" width="12" height="3" rx="1.5" fill="#fafafa"/>
+    </svg>
+    <svg id="dl-mark-charcoal" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path d="M24 8 h16 a4 4 0 0 1 4 4 v10 h-24 v-10 a4 4 0 0 1 4 -4 z" fill="#1e1e1e"/>
+      <path d="M20 24 h24 l10 30 h-44 z" fill="#1e1e1e" opacity="0.35"/>
+      <rect x="26" y="56" width="12" height="3" rx="1.5" fill="#1e1e1e"/>
+    </svg>
+  </div>
+
+  <script type="application/json" id="cast-git-tour">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 28,
+  "recorded": "2026-07-06T19:08:48.090Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "cwd": "../..",
+  "prompt": "$ ",
+  "steps": [
+   {
+    "cmd": "git -c color.ui=always log --oneline -3",
+    "note": "recent history"
+   },
+   {
+    "cmd": "git -c color.status=always status --short --branch",
+    "note": "working tree state"
+   },
+   {
+    "cmd": "ls -la src/"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "git -c color.ui=always log --oneline -3",
+   "output": [
+    [
+     0.018,
+     "\u001b[33mb3d659f\u001b[m\u001b[33m (\u001b[m\u001b[1;36mHEAD\u001b[m\u001b[33m -> \u001b[m\u001b[1;32mmain\u001b[m\u001b[33m)\u001b[m Theme picker: T opens a list with a live minified preview of the current slide\r\n"
+    ],
+    [
+     0.018,
+     "\u001b[33m6a75529\u001b[m Live theme switching: ?theme= param, T/shift-T cycling, instance.theme()\r\n"
+    ],
+    [
+     0.018,
+     "\u001b[33m71d4710\u001b[m Fix draw entrance consuming authored stroke-dasharray"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.032,
+   "note": "recent history"
+  },
+  {
+   "cmd": "git -c color.status=always status --short --branch",
+   "output": [
+    [
+     0.02,
+     "## \u001b[32mmain\u001b[m\r\n \u001b[31mM\u001b[m cli/rec.mjs\r\n \u001b[31mM\u001b[m demo/casts/git-tour.cast.json\r\n \u001b[31mM\u001b[m src/terminal/player.mjs\r\n"
+    ],
+    [
+     0.02,
+     " \u001b[31mM\u001b[m test/cast.test.mjs\r\n \u001b[31mM\u001b[m test/player.html\r\n\u001b[31m??\u001b[m demo/casts/interactive-demo.cast.json\r\n\u001b[31m??\u001b[m demo/casts/interactive-demo.term.yaml\r\n\u001b[31m??\u001b[m test/fixtures/features.cast.json\r\n\u001b[31m??\u001b[m test/fixtures/import.cast"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.032,
+   "note": "working tree state"
+  },
+  {
+   "cmd": "ls -la src/",
+   "output": [
+    [
+     0.007,
+     "total 48\r\n"
+    ],
+    [
+     0.007,
+     "drwxr-xr-x@  8 gphilippart  staff    256 Jul  6 21:00 .\r\n"
+    ],
+    [
+     0.007,
+     "drwxr-xr-x@ 19 gphilippart  staff    608 Jul  6 20:58 ..\r\ndrwxr-xr-x@  3 gphilippart  staff     96 Jul  6 18:36 code\r\ndrwxr-xr-x@  7 gphilippart  staff    224 Jul  6 20:59 core\r\n-rw-r--r--@  1 gphilippart  staff   1044 Jul  6 18:38 index.js\r\n"
+    ],
+    [
+     0.007,
+     "-rw-r--r--@  1 gphilippart  staff  19352 Jul  6 21:00 decklight.css\r\ndrwxr-xr-x@  3 gphilippart  staff     96 Jul  6 18:43 md\r\n"
+    ],
+    [
+     0.007,
+     "drwxr-xr-x@  5 gphilippart  staff    160 Jul  6 20:54 terminal"
+    ]
+   ],
+   "exit": 0,
+   "duration": 0.017
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-ai-prompt">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 13,
+  "recorded": "2026-07-08T09:00:00.000Z",
+  "prompt": "$ "
+ },
+ "script": {
+  "shell": "zsh",
+  "prompt": "$ ",
+  "steps": [
+   {
+    "cmd": "claude \"Create an animated slide with a Kafka broker, a topic with a few partitions, and show how messages are produced to that topic round-robin across the partitions and consumed by 2 different consumers over different partitions. Label everything — broker, topic name, each partition, message offsets, and the produce/consume arrows — so the diagram reads without narration\"",
+    "note": "describe the slide you want"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "cmd": "claude \"Create an animated slide with a Kafka broker, a topic with a few partitions, and show how messages are produced to that topic round-robin across the partitions and consumed by 2 different consumers over different partitions. Label everything — broker, topic name, each partition, message offsets, and the produce/consume arrows — so the diagram reads without narration\"",
+   "output": [
+    [0.6, "\u001b[36m✻\u001b[m Reading the request… broker · partitioned topic · produce flow · two consumers · label everything.\r\n"],
+    [1.1, "\u001b[35m●\u001b[m Authoring in Decklight: inline SVG on var(--d-*) tokens, data-build=\"draw\" groups,\r\n"],
+    [0.3, "  SMIL message dots (reduced-motion aware), speaker + rehearse notes.\r\n"],
+    [1.0, "  ⎿ 4 builds: broker & partitions → producer → consumer A → consumer B · offsets + arrows labelled\r\n"],
+    [0.9, "\u001b[32m✔\u001b[m Slide written. Advance to see it — shipped exactly as generated.\r\n"]
+   ],
+   "exit": 0,
+   "duration": 3.9,
+   "note": "describe the slide you want"
+  }
+ ]
+}</script>
+
+  <script src="../dist/decklight.js"></script>
+  <script>
+  Decklight.init({
+    transition: 'fade',
+    slideNumber: 'n/N',
+    pinTitles: true,
+    concepts: { engine: 3, themes: 5, terminal: 1, cli: 4 },
+    logo: { onLight: '#dl-mark-charcoal', onDark: '#dl-mark-snow' },
+  });
+  </script>
+</body>
+</html>
