@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Decklight — slides that survive contact with reality</title>
+  <link rel="stylesheet" href="../dist/decklight.css">
+  <link rel="stylesheet" href="../themes/aurora.css">
+  <style>
+    /* the "what breaks" slide: a stack of failure cards that light up red */
+    .breaks { display: flex; flex-direction: column; gap: 12px; max-width: 24em; margin: 0.5em auto 0; text-align: left; }
+    .breaks li { list-style: none; padding: 0.55em 0.9em; font-size: 0.58em;
+      background: var(--block-bg); border: var(--block-border); border-radius: var(--block-radius); }
+    .breaks li b { color: var(--accent); }
+    /* the three-promise row on the close */
+    .promises { display: flex; gap: 20px; justify-content: center; margin-top: 0.6em; flex-wrap: wrap; }
+    .promises div { flex: 1 1 220px; max-width: 260px; padding: 18px 20px; text-align: left;
+      background: var(--block-bg); border: var(--block-border); border-radius: var(--block-radius); }
+    .promises h3 { margin: 0 0 6px; font-size: 0.62em; color: var(--accent); }
+    .promises p { margin: 0; font-size: 0.5em; opacity: .9; }
+  </style>
+</head>
+<body>
+  <div class="decklight">
+
+    <!-- 1 · title -->
+    <section data-logo="120">
+      <h1>Decklight</h1>
+      <p>Slides that survive contact with reality</p>
+      <p style="font-size:0.58em; opacity:.8">This deck is one HTML file. It has no build step, works offline, and is
+        reading itself aloud if you press <strong>V</strong>.<br>→ to advance · <strong>?</strong> for help</p>
+      <aside class="notes">
+        <p>Ten minutes. That's what I'm asking for, and I'll spend the first thirty seconds telling you exactly what this is, so you can decide whether the other nine and a half are worth it. Decklight is a presentation library where a deck is one HTML file — no build step, no export, no app. What you're looking at right now is that file. And if you press V, it will read itself to you in a voice that came free with your operating system. Let's talk about why any of that matters.</p>
+      </aside>
+      <aside class="rehearse"><p>One file. No build step. It talks.</p></aside>
+    </section>
+
+    <!-- 2 · the problem -->
+    <section data-layout="centered">
+      <h2>Every Deck Tool Breaks the Same Four Ways</h2>
+      <ul class="breaks" data-build="fade-up">
+        <li><b>It's a binary.</b> You cannot diff it, review it, or let an agent edit it.</li>
+        <li><b>The demo is a video.</b> Recorded once, wrong by the next release, and nobody notices until the room does.</li>
+        <li><b>It needs the internet.</b> Or the app. Or the right font. Or the same laptop.</li>
+        <li><b>It's beautiful or it's accessible.</b> Pick one, apparently.</li>
+      </ul>
+      <aside class="notes">
+        <p>I want to start with the problem, because the features only land if we agree on what's actually broken. And in my experience it's the same four things, every tool, every time.</p><p>⟨CLICK⟩</p><p>First: your deck is a binary blob. You can't diff it in a pull request. You can't ask a coding agent to fix slide fourteen. The single most powerful workflow of the last three years just doesn't reach your slides.</p><p>⟨CLICK⟩</p><p>Second: the demo is a video. You recorded it in March, the CLI changed its output in April, and you find out in front of two hundred people in May.</p><p>⟨CLICK⟩</p><p>Third: it needs something. The internet, the app, a font you installed once, the laptop you left at the hotel. Every one of those is a coin flip you're making in public.</p><p>⟨CLICK⟩</p><p>And fourth — the one nobody says out loud — you get to pick beautiful or accessible. The gorgeous template has three-to-one contrast and the back row can't read it. That trade should not exist, and I'll show you why it doesn't have to.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Four failures, every tool</p>
+        <p>⟨CLICK⟩</p><p>Binary — no diff, no agent</p>
+        <p>⟨CLICK⟩</p><p>Video demo rots</p>
+        <p>⟨CLICK⟩</p><p>Needs net/app/font/laptop</p>
+        <p>⟨CLICK⟩</p><p>Pretty XOR readable</p>
+      </aside>
+    </section>
+
+    <!-- 3 · the answer: one file -->
+    <section>
+      <h2>A Deck Is One HTML File</h2>
+      <p>Two stylesheets, one script — that's the whole runtime</p>
+      <pre data-lines="1-4|6-9" data-lines-numbers><code class="language-html">&lt;head&gt;
+  &lt;link rel="stylesheet" href="decklight/dist/decklight.css"&gt;
+  &lt;link rel="stylesheet" href="decklight/themes/aurora.css"&gt;
+&lt;/head&gt;
+
+&lt;div class="decklight"&gt;
+  &lt;section&gt;&lt;h1&gt;Your talk&lt;/h1&gt;&lt;/section&gt;
+  &lt;section&gt;&lt;h2&gt;Slide two&lt;/h2&gt;&lt;/section&gt;
+&lt;/div&gt;</code></pre>
+      <aside class="notes">
+        <p>Here's the entire mental model. A deck is an HTML file.</p><p>⟨CLICK⟩</p><p>Two stylesheets and one script. That's the runtime. There is no bundler, no framework, no node_modules in your talk.</p><p>⟨CLICK⟩</p><p>And a slide is a section element. That's it. That's the format. Which means your deck diffs in a pull request, an agent can edit it, and the file you double-click in three years still opens — because it's HTML, and HTML is the most backwards-compatible format humanity has ever shipped.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>A deck is an HTML file</p>
+        <p>⟨CLICK⟩</p><p>2 CSS + 1 JS = the runtime</p>
+        <p>⟨CLICK⟩</p><p>A slide is a &lt;section&gt;</p>
+      </aside>
+    </section>
+
+    <!-- 4 · agent-authored -->
+    <section data-layout="split">
+      <h2>Describe It. An Agent Writes It.</h2>
+      <p>Built from day one to be authored by AI — because plain text is the only format they can actually write</p>
+      <div>
+        <h3>You say</h3>
+        <p style="font-size:0.56em; opacity:.9">“A slide showing a broker with a partitioned topic,
+          messages flowing to two consumers. Label the offsets and the arrows.”</p>
+      </div>
+      <div>
+        <h3>You get</h3>
+        <p style="font-size:0.56em; opacity:.9">A themed SVG diagram, drawn stroke by stroke on each click,
+          recolored by every theme, with the labels you asked for — in your deck, as text you can edit.</p>
+      </div>
+      <aside class="notes">
+        <p>Now the part that changes how you work. Decklight was designed from day one to be written by AI agents, and the reason is almost boring: agents write text. They cannot click a toolbar, drag a shape, or nudge an alignment guide. Give them a text format and they are extraordinary at it.</p><p>⟨CLICK⟩</p><p>So the workflow is this. You describe the slide you want in plain English — and here's the trick I'll give you for free: name the labels. Ask for the offsets, the arrow captions, the box names. Agents draw exactly what you name.</p><p>⟨CLICK⟩</p><p>And what comes back isn't a picture. It's a themed SVG that draws itself in on each click, recolors with every theme in the set, and sits in your file as text you can edit by hand afterwards. Nobody exported anything.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Agents write text — so the format is text</p>
+        <p>⟨CLICK⟩</p><p>Describe it — and NAME the labels</p>
+        <p>⟨CLICK⟩</p><p>Get editable themed SVG, not a picture</p>
+      </aside>
+    </section>
+
+    <!-- 5 · themes: the false trade -->
+    <section data-transition="slide">
+      <h2>Beautiful <em>and</em> Readable</h2>
+      <p>46 themes, two graders, zero judgment calls — press <strong>,</strong> and <strong>.</strong> right now</p>
+      <ul data-build>
+        <li>Every theme passes <strong>WCAG contrast gates</strong> — body text, code tokens, all 16 terminal colors, and diagram ink against <em>every</em> panel fill</li>
+        <li>And <strong>codified palette rules</strong> distilled from the themes developers actually love — limited hues, quiet canvases, no neon shouting</li>
+        <li><strong>⌃T</strong> rolls you a brand-new one that <em>cannot</em> fail either grader — property-tested across hundreds of seeds</li>
+      </ul>
+      <aside class="notes">
+        <p>Back to that fourth failure — beautiful or accessible, pick one. Decklight refuses the trade, and it refuses it with machines rather than good intentions.</p><p>⟨CLICK⟩</p><p>Every theme in the set passes WCAG contrast gates. Not just body text — code tokens, all sixteen terminal colors, and diagram ink checked against every single panel fill, because a theme can pass every canvas check while its diagram boxes are unreadable. We learned that one the hard way.</p><p>⟨CLICK⟩</p><p>And then a second grader, which is the unusual one: codified palette rules, distilled from the themes developers actually love — Solarized, Nord, Catppuccin. Limited hues. Quiet canvases. No single color shouting over its neighbors. Taste, written down as tests.</p><p>⟨CLICK⟩</p><p>Which means Control-T can roll you a brand-new theme on the spot that cannot fail either grader. Not 'usually passes' — cannot fail. We property-tested that claim across hundreds of random seeds, because 'trust me' is not a specification. Try the comma and period keys sometime during this talk; everything on screen repaints, and it stays readable.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Refusing the pretty-vs-readable trade</p>
+        <p>⟨CLICK⟩</p><p>WCAG gates — incl. diagram ink on fills</p>
+        <p>⟨CLICK⟩</p><p>Palette rules = taste as tests</p>
+        <p>⟨CLICK⟩</p><p>⌃T can't fail either grader</p>
+      </aside>
+    </section>
+
+    <!-- 6 · truthful demos -->
+    <section>
+      <h2>Your Demo Stops Rotting</h2>
+      <p>Terminal recordings are real PTY output, replayed — never a video</p>
+      <pre data-lines="1|2"><code class="language-bash">decklight rec demo.term.yaml   # record in a real PTY, secrets redacted
+decklight refresh casts/       # re-run every script, report what drifted</code></pre>
+      <p data-build style="font-size:0.6em; opacity:.85">The cast embeds the script that made it. When your CLI changes,
+        one command tells you which slide is now lying.</p>
+      <aside class="notes">
+        <p>Failure number two: the demo that rots. Decklight records terminal demos as event streams from a real PTY — every keystroke, every byte of output, with timing. Not a screen capture. Never a video.</p><p>⟨CLICK⟩</p><p>You record it from a YAML script, so the recording is reproducible rather than a performance you got right once. Secrets get redacted at capture time, before they ever hit disk.</p><p>⟨CLICK⟩</p><p>And this is the part I actually care about: each cast embeds the script that produced it. So when your tool changes its output next quarter — and it will — one command re-runs every script in your deck and tells you exactly which slide is now lying to your audience. Your demos stay honest even when your tools won't sit still.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>PTY events, not video</p>
+        <p>⟨CLICK⟩</p><p>rec from YAML, secrets redacted</p>
+        <p>⟨CLICK⟩</p><p>refresh names what drifted</p>
+      </aside>
+    </section>
+
+    <!-- 7 · it presents itself -->
+    <section>
+      <h2>The Deck Presents Itself</h2>
+      <p><strong>V</strong> speaks · <strong>N</strong> picks the voice · <strong>C</strong> captions · <strong>S</strong> speaker view</p>
+      <ul data-build>
+        <li>Uses <strong>the voice already on your machine</strong> — macOS <code>say</code>, Windows SAPI. No key, no download, no signup</li>
+        <li>The voice is the <em>clock</em>: each spoken beat ends, the next build lands — a deck that rehearses with you at 2am</li>
+        <li>Speaker view has notes synced to builds, a timer, and a second press turns prose into <strong>cue cards</strong></li>
+      </ul>
+      <aside class="notes">
+        <p>This deck has been able to talk since slide one. Press V and it narrates the speaker notes; N changes the voice, C puts captions underneath.</p><p>⟨CLICK⟩</p><p>And it uses the voice already on your machine. Every desktop has shipped a speech synthesizer for twenty years, and the current ones are genuinely good. So with nothing configured — no API key, no download, no account — it just talks.</p><p>⟨CLICK⟩</p><p>The interesting part is that the voice is the clock. When a spoken beat finishes, the next build reveals itself, and then the next slide. Which means the deck can rehearse with you at two in the morning when there's nobody else to practice on.</p><p>⟨CLICK⟩</p><p>And when it's showtime, speaker view gives you notes that highlight in sync with your builds, a timer, and — press S twice — your prose collapses into big cue cards. Because reading your slides to the room is a crime we have all committed exactly once.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>V · N · C · S</p>
+        <p>⟨CLICK⟩</p><p>Your OS's own voice — free</p>
+        <p>⟨CLICK⟩</p><p>Voice = the clock (rehearse at 2am)</p>
+        <p>⟨CLICK⟩</p><p>S twice = cue cards</p>
+      </aside>
+    </section>
+
+    <!-- 8 · migration -->
+    <section>
+      <h2>You Don't Start From Zero</h2>
+      <p><code>decklight import</code> — PowerPoint, Keynote, or a Google Slides link</p>
+      <ul data-build>
+        <li>Slides, nested bullets, notes, images, tables — and PowerPoint's own per-paragraph builds become real builds</li>
+        <li>A <strong>content</strong> importer, not a pixel renderer — the old template's look is traded away deliberately, and that trade is what buys you everything else here</li>
+        <li>Anything that can't cross is <strong>named with its slide number</strong>. Never a silent drop</li>
+      </ul>
+      <aside class="notes">
+        <p>Now the objection I'd raise if I were you: I have a folder of eighty decks, and 'rewrite them by hand' is not an adoption story.</p><p>⟨CLICK⟩</p><p>So: decklight import. PowerPoint, Keynote, or paste the link to a Google Slides deck. Slides come across in order, bullets keep their real nesting, notes land as notes, images inline, tables stay tables. Even PowerPoint's own per-paragraph animation list becomes real builds.</p><p>⟨CLICK⟩</p><p>Here's the honest part. This is a content importer, not a pixel renderer. Your old template's look is deliberately thrown away. That sounds like a limitation and it's actually the trade — throwing away that look is exactly what buys the deck themes, builds, narration, agent editing, everything I've shown you.</p><p>⟨CLICK⟩</p><p>And the things that genuinely can't cross — SmartArt, an embedded chart — are named with their slide number and what to rebuild them as. Because a chart that quietly vanishes from slide fourteen is something you discover on stage, and that's the one failure this feature was not allowed to have.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>80 existing decks? import them</p>
+        <p>⟨CLICK⟩</p><p>Bullets, notes, images, builds survive</p>
+        <p>⟨CLICK⟩</p><p>Content not pixels — the trade IS the point</p>
+        <p>⟨CLICK⟩</p><p>Drops named w/ slide numbers</p>
+      </aside>
+    </section>
+
+    <!-- 9 · safety -->
+    <section data-transition="scale">
+      <h2>Safe to Open Someone Else's</h2>
+      <p>A deck travels. That means it arrives on a machine that consented to nothing</p>
+      <ul data-build>
+        <li><code>decklight present</code> serves it read-only under a real CSP header, and prints an <strong>ingredients label</strong>: what's in this file, what will execute</li>
+        <li>An <em>inventory, never a verdict</em> — no green check mark, because a check mark promises more than any scan can keep</li>
+        <li><code>--strict</code> strips every script that isn't the known runtime, and the deck <strong>still plays</strong> — content is HTML, themes are CSS, charts and casts are data</li>
+      </ul>
+      <aside class="notes">
+        <p>One more, and it's the one most tools never think about. A deck travels — emailed, published, handed over on a USB stick. Which means it lands on a machine belonging to someone who installed nothing and agreed to nothing.</p><p>⟨CLICK⟩</p><p>So there's a command for playing a deck you did not write. It serves the file read-only over localhost under a real CSP header — an HTTP header, which the document cannot override — and before the first slide renders, it prints an ingredients label. What runtime is in here, does it match the build I have, and every script block it could not account for, by line number.</p><p>⟨CLICK⟩</p><p>And note what it refuses to print: a verdict. No green check, no safety score. It's a heuristic reading a file someone may have edited, and a green mark would promise more than the mechanism can keep. A list of what will run promises nothing, and is still exactly what you needed.</p><p>⟨CLICK⟩</p><p>Then strict mode, which is the part I find genuinely elegant: it strips every script that isn't the verified runtime — and the deck still plays. Perfectly. Because content is HTML, themes are CSS, and charts and terminal casts are just data read by trusted code. A well-formed decklight deck carries no third-party JavaScript at all, so there is nothing to lose.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Decks travel to strangers' machines</p>
+        <p>⟨CLICK⟩</p><p>present = read-only + CSP + label</p>
+        <p>⟨CLICK⟩</p><p>Inventory, never a verdict</p>
+        <p>⟨CLICK⟩</p><p>--strict strips JS, deck still plays</p>
+      </aside>
+    </section>
+
+    <!-- 10 · ship it -->
+    <section>
+      <h2>Then Ship It Anywhere</h2>
+      <pre data-lines="1|2|3"><code class="language-bash">decklight bundle deck.html     # ONE self-contained file — themes, casts, images inlined
+decklight pdf    deck.html     # every slide, and it NAMES the ones that overflow
+decklight publish deck.html    # → https://you.github.io/talk/ , signed by default</code></pre>
+      <p data-build style="font-size:0.6em; opacity:.85">Email the bundle with no instructions attached. It opens in any browser, offline, forever.</p>
+      <aside class="notes">
+        <p>And then you ship, three ways.</p><p>⟨CLICK⟩</p><p>Bundle flattens everything — runtime, themes, terminal casts, images as data URIs — into one self-contained HTML file. You email that to a colleague with no instructions attached, because there are no instructions. They double-click it.</p><p>⟨CLICK⟩</p><p>PDF renders every slide through the deck's own print path, and — this is the bit agents love — it names the slides whose content overflows. So 'is my deck actually intact' is one command instead of twenty screenshots.</p><p>⟨CLICK⟩</p><p>And publish takes it to GitHub Pages in one command and signs it by default, so the thing on the internet is provably the thing you built.</p><p>⟨CLICK⟩</p><p>The bundle is the one I'd point at, though. One file, works offline, opens in any browser, and will still open in a decade. That's not a feature list — that's just what a file is, and we gave it up somewhere along the way.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Three ways to ship</p>
+        <p>⟨CLICK⟩</p><p>bundle = one offline file</p>
+        <p>⟨CLICK⟩</p><p>pdf = render + overflow report</p>
+        <p>⟨CLICK⟩</p><p>publish = signed URL</p>
+        <p>⟨CLICK⟩</p><p>A file that still opens in a decade</p>
+      </aside>
+    </section>
+
+    <!-- 11 · the close -->
+    <section data-logo="96">
+      <h2>Three Promises</h2>
+      <div class="promises" data-build="fade-up">
+        <div>
+          <h3>It's text</h3>
+          <p>Diffable, reviewable, agent-editable. Your slides join the workflow the rest of your work already has.</p>
+        </div>
+        <div>
+          <h3>It's true</h3>
+          <p>Demos re-record and report drift. Overflow raises its hand. Themes pass two graders. Claims are checkable by machine.</p>
+        </div>
+        <div>
+          <h3>It's yours</h3>
+          <p>One file, no build step, no service, no account. It works offline today and opens in a decade.</p>
+        </div>
+      </div>
+      <p style="font-size:0.58em; opacity:.85; margin-top:0.5em">The fastest way to learn it: <strong>view source on this deck</strong>. It's all right there, in one file.</p>
+      <aside class="notes">
+        <p>So let me land this in three promises.</p><p>⟨CLICK⟩</p><p>It's text. Which means your slides finally join the workflow the rest of your work has had for twenty years — diffs, reviews, version control, and an agent that can do the tedious parts.</p><p>⟨CLICK⟩</p><p>It's true. Demos re-record themselves and report drift. Clipped slides raise their hand in the DOM where a test can see them. Themes pass two independent graders. Every claim this project makes is checkable by a machine, because it was built for authors who don't have eyeballs.</p><p>⟨CLICK⟩</p><p>And it's yours. One file. No build step, no service, no account, no subscription that lapses. It works on a plane today and it opens in a decade.</p><p>⟨CLICK⟩</p><p>If you want to know how any of this works, view source on this deck. Everything you just watched is in that one file, and that is the entire pitch. Thanks for the ten minutes.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Three promises</p>
+        <p>⟨CLICK⟩</p><p>Text — joins your workflow</p>
+        <p>⟨CLICK⟩</p><p>True — machine-checkable claims</p>
+        <p>⟨CLICK⟩</p><p>Yours — one file, forever</p>
+        <p>⟨CLICK⟩</p><p>View source. Thanks.</p>
+      </aside>
+    </section>
+
+  </div>
+
+  <!-- brand marks for the logo chrome (cloned by id; bundle- and file://-safe) -->
+  <div style="display:none" aria-hidden="true">
+    <svg id="dl-mark-snow" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path d="M24 8 h16 a4 4 0 0 1 4 4 v10 h-24 v-10 a4 4 0 0 1 4 -4 z" fill="#fafafa"/>
+      <path d="M20 24 h24 l10 30 h-44 z" fill="#fafafa" opacity="0.35"/>
+      <rect x="26" y="56" width="12" height="3" rx="1.5" fill="#fafafa"/>
+    </svg>
+    <svg id="dl-mark-charcoal" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path d="M24 8 h16 a4 4 0 0 1 4 4 v10 h-24 v-10 a4 4 0 0 1 4 -4 z" fill="#1e1e1e"/>
+      <path d="M20 24 h24 l10 30 h-44 z" fill="#1e1e1e" opacity="0.35"/>
+      <rect x="26" y="56" width="12" height="3" rx="1.5" fill="#1e1e1e"/>
+    </svg>
+  </div>
+
+  <script src="../dist/decklight.js"></script>
+  <script>
+  Decklight.init({
+    transition: 'fade',
+    slideNumber: 'n/N',
+    pinTitles: true,
+    logo: { onLight: '#dl-mark-charcoal', onDark: '#dl-mark-snow' },
+  });
+  </script>
+</body>
+</html>
