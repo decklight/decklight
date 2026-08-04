@@ -258,7 +258,11 @@ function catalogHome(wizard) {
   execFileSync('mkdir', ['-p', dl]);
   writeFileSync(path.join(dl, 'marketplace.json'), JSON.stringify({
     name: 'voices',
-    entries: [{ name: 'elevenlabs', type: 'engine', source: './e.mjs', wizard }],
+    entries: [
+      { name: 'elevenlabs', type: 'engine', source: './e.mjs', wizard },
+      // no wizard declared — must never be advertised as configurable
+      { name: 'plain', type: 'engine', source: './p.mjs' },
+    ],
   }, null, 2));
 
   const home = tmp();
@@ -305,6 +309,16 @@ test('the author server hands the player a VETTED schema, or refuses to', async 
 
   const missing = await fetch(`${base}/edit/wizard?engine=nope`);
   assert.equal(missing.status, 404);
+});
+
+test('ping advertises what a wizard can configure — the palette rows come from here', async (t) => {
+  // Without this list the player half is unreachable: nothing in a deck knows
+  // an engine name to ask /edit/wizard about, so openWizard has no caller.
+  const home = catalogHome({ engine: 'elevenlabs', title: 'ElevenLabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
+  const { base } = await startAuthor(t, home);
+  const ping = await (await fetch(`${base}/edit/ping`)).json();
+  assert.deepEqual(ping.wizards, [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }],
+    'qualified so the player names it unambiguously, titled so the palette can label the row — and the wizardless entry is not offered');
 });
 
 test('a catalog declaring a field core cannot render is refused on the way OUT', async (t) => {

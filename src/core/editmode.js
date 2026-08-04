@@ -42,6 +42,7 @@ export function createEditMode({
   let editAvailable = false;
   let editBase = '';
   let editAgents = [];   // [{name, label}] the dev machine can run
+  let editWizards = [];  // [{name, qualified, title}] engines a marketplace declares a wizard for
   let agentBusy = null;  // {agent, prompt, startedAt} while a one-shot runs
   if (!printMode && !params.has('embedded')) {
     const bases = config.edit?.url ? [config.edit.url]
@@ -61,6 +62,7 @@ export function createEditMode({
           editBase = base;
           editAvailable = true;
           editAgents = Array.isArray(j.agents) ? j.agents : [];
+          editWizards = Array.isArray(j.wizards) ? j.wizards : [];
           // No QR and no clicker on this path: the author server binds
           // 127.0.0.1 and serves no /remote/* at all (PRESENT#REMOTE). A deck
           // being AUTHORED has a keyboard in front of it; a deck being
@@ -547,6 +549,8 @@ export function createEditMode({
     toggleAgentAsk,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside author mode. */
     wizard: openWizard,
+    /** What the server's ping said a wizard can configure — the palette's Configure rows. */
+    wizards: () => editWizards.slice(),
     /** R, and what the headless overlay harness drives (it has no git server). */
     restore: { open: openRestore, close: closeRestore, list: () => restoreRows.slice() },
     /** Is a dev server actually serving this deck? Layout cycling asks too. */
