@@ -17,7 +17,7 @@
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
 //
-//   GET  /edit/ping     → { ok, deck, undo, redo, git, agents, agentBusy }
+//   GET  /edit/ping     → { ok, deck, undo, redo, git, agents, agentBusy, wizards }
 //   GET  /edit/events   → SSE; `reload` on deck change, `agent` job status
 //   POST /edit/notes    → { slide, text }           rewrite that slide's notes
 //   POST /edit/layout   → { slide, layout }         write data-layout to the file
@@ -285,6 +285,30 @@ export async function editMain(args) {
     }
     return { themes, stale };
   };
+  /**
+   * Every entry a registered marketplace declares a wizard for, qualified.
+   * Advertised in /edit/ping beside the agents: the palette's Configure rows
+   * come from here, so a player never has to guess an engine name to ask
+   * /edit/wizard about (ENGINES#WIZARD).
+   */
+  const configurableEngines = async () => {
+    const { loadRegistry, loadCatalog } = await import('./marketplace.mjs');
+    const engines = [];
+    for (const market of Object.keys(loadRegistry().marketplaces ?? {})) {
+      const loaded = loadCatalog(market);
+      if (!loaded?.ok) continue;
+      for (const e of loaded.manifest.entries ?? []) {
+        if (!e.wizard) continue;
+        // The title is display-only; a malformed schema still gets listed, so
+        // opening it surfaces validateSchema's refusal instead of silence.
+        engines.push({
+          name: e.name, qualified: `${e.name}@${market}`,
+          title: typeof e.wizard.title === 'string' ? e.wizard.title : e.name,
+        });
+      }
+    }
+    return engines;
+  };
 
   // ── the engine wizard: where a schema comes from, and who checks answers ─
   // Both injected into configureEngine rather than reached for inside it: this
@@ -421,6 +445,7 @@ export async function editMain(args) {
           ...history.counts(), git: gitOn,
           agents: agents.map((a) => ({ name: a.name, label: a.label })),
           agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt },
+          wizards: await configurableEngines(),
         });
       }
       if (req.method === 'GET' && url.pathname === '/edit/events') {

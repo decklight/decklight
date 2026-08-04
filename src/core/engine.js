@@ -535,6 +535,15 @@ export function init(userConfig = {}) {
       // nothing to install through, so the row is absent rather than a promise
       // the deck cannot keep (THEME_BROWSE#UI).
       editmode.available() && { label: 'Browse marketplace themes…', alias: 'marketplace install add third-party download catalog', run: themes.browse },
+      // Contextual for the same reason as Browse: each engine a registered
+      // marketplace declares a wizard for gets its own row (ENGINES#WIZARD).
+      // Without an author server the list is empty — there is nowhere to post
+      // a credential, so no row makes a promise the deck cannot keep.
+      ...editmode.wizards().map((w) => ({
+        label: `Configure ${w.title}… (dev)`,
+        alias: 'engine wizard setup api key credential token marketplace',
+        run: () => editmode.wizard(w.qualified),
+      })),
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
       { label: 'Cycle slide layout (dev)', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
       { label: 'Undo deck edit (dev)', hint: 'Z', alias: 'revert back history', run: () => deckHistory('undo') },
@@ -1738,6 +1747,9 @@ export function init(userConfig = {}) {
   // R programmatically — and what the headless overlay harness drives, since
   // it cannot reach a git server to populate the real list.
   instance.restore = editmode.restore;
+  // The engine wizard (ENGINES#WIZARD), for drivers that cannot click the
+  // palette's Configure rows. Same author-mode gate either way.
+  instance.wizard = editmode.wizard;
 
   if (params.has('voiceover') && narration.status().track && !printMode) {
     // whichever gesture fires first must disarm the OTHER listener too, or

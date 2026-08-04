@@ -61,6 +61,20 @@
         { name: 'broken', marketplace: 'nord-pack', qualified: 'broken@nord-pack' },
       ],
     };
+    // The wizard (MARKETPLACE.md ENGINES#WIZARD) also needs an author server to
+    // exist, so `wizard` stands one up in miniature: a ping that advertises one
+    // configurable engine, a GET that hands over a vetted schema covering every
+    // renderable field type, and a POST that rejects the first answers so the
+    // failure surface is exercised before the success one.
+    const FAKE_WIZARD_SCHEMA = {
+      engine: 'elevenlabs', title: 'ElevenLabs',
+      fields: [
+        { name: 'apiKey', label: 'API key', type: 'secret', required: true },
+        { name: 'voice', label: 'Voice', type: 'choice', options: ['Rachel', 'Adam'], required: false },
+        { name: 'cache', label: 'Cache audio', type: 'boolean', default: true, required: false },
+        { name: 'note', label: 'Note', type: 'text', required: false },
+      ],
+    };
     const CALLS = { get: [], post: [] };
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url, init) => {
@@ -82,6 +96,19 @@
           return ref === 'broken@nord-pack'
             ? json({ error: 'broken fails the theme contract', problems: ['--fg is not defined'] }, 400)
             : json({ ok: true, name: 'nord-deep', from: ref, replaced: false, undo: 1 });
+        }
+      }
+      if (HARNESS_MODE === 'wizard') {
+        if (u.includes('/edit/ping')) {
+          return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
+            wizards: [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }] });
+        }
+        if (u.includes('/edit/wizard')) {
+          if (init?.method !== 'POST') return json({ ok: true, schema: FAKE_WIZARD_SCHEMA });
+          // first answers rejected (the wrong-key path), second accepted
+          return CALLS.post.filter((c) => c.u.includes('/edit/wizard')).length <= 1
+            ? json({ ok: false, state: 'rejected', error: 'that key did not authenticate' }, 400)
+            : json({ ok: true, state: 'configured', stored: { apiKey: 'set (13 chars)', voice: 'Rachel', cache: true } });
         }
       }
       return new Response('', { status: 404 });
@@ -175,7 +202,15 @@
         r.paletteRow = !!palRow();
 
         if (mode === 'nobrowse') {
+          // ENGINES#WIZARD rides the same absence: no author server means no
+          // Configure row — a credential prompt with nowhere to post is a
+          // phishing form with a deck around it…
+          r.noConfigureRow = ![...document.querySelectorAll('.decklight-palette .pal-row')]
+            .some((x) => /Configure/.test(x.textContent));
           escapeUntilClosed('.decklight-palette');
+          // …and the programmatic door refuses before building a single input
+          await deck.wizard('elevenlabs');
+          r.wizardRefusesWithoutServer = !document.querySelector('.decklight-editor');
           press('t');
           r.pickerOpens = rows().length > 0;
           // ABSENT, not disabled: there is no server to install through, and a
@@ -184,7 +219,8 @@
           find(/all themes/)?.click();        // …and absent from the flat view too
           r.absentInAll = !find(/Browse/);
           r.stillHasThemes = rows().length > 2;
-          r.PASS = r.pickerOpens && !r.paletteRow && r.absentInPacks && r.absentInAll && r.stillHasThemes;
+          r.PASS = r.pickerOpens && !r.paletteRow && r.absentInPacks && r.absentInAll && r.stillHasThemes
+            && r.noConfigureRow && r.wizardRefusesWithoutServer;
           sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
           return;
         }
@@ -378,6 +414,73 @@
           && r.downMoves && r.wrapsAround && r.escapeCloses && r.reopens
           && r.backdropCloses && r.paletteUp && r.restoreUp && r.paletteGone
           && r.hasApi && r.apiLists && r.apiCloses;
+      }
+
+      if (mode === 'wizard') {
+        // The engine wizard (MARKETPLACE.md ENGINES#WIZARD) reached the way a
+        // presenter reaches it: the palette's contextual Configure row. The
+        // form is the REAL renderer mounting a server-vetted schema — the
+        // regex tests in test/wizard.test.mjs prove the gate order in source;
+        // this proves the thing actually comes up and round-trips answers.
+        const W = '.decklight-editor';
+        const statusLine = () => [...document.querySelectorAll(`${W} .narr-head`)].pop()?.textContent ?? '';
+        await settle();                       // let /edit/ping resolve
+
+        press('/');
+        const row = [...document.querySelectorAll('.decklight-palette .pal-row')]
+          .find((x) => /Configure ElevenLabs/.test(x.textContent));
+        r.paletteRow = !!row;
+        row?.click();
+        await settle();                       // let the schema fetch resolve
+        r.mounts = !!document.querySelector(W);
+        r.paletteGone = !document.querySelector('.decklight-palette');
+        // asked by QUALIFIED name, so two marketplaces sharing a bare name
+        // cannot silently resolve to whichever answered first
+        r.asksByQualifiedName = CALLS.get.some((u) => u.includes('/edit/wizard?engine=elevenlabs%40voices'));
+
+        // core rendered the schema: one typed control per field
+        r.titleShown = /ElevenLabs/.test(document.querySelector(`${W} .narr-head`)?.textContent ?? '');
+        const secret = document.querySelector(`${W} input[type="password"]`);
+        r.secretIsPassword = !!secret;
+        const sel = document.querySelector(`${W} select`);
+        r.choiceIsSelect = !!sel && [...sel.options].map((o) => o.value).join(',') === 'Rachel,Adam';
+        const box = document.querySelector(`${W} input[type="checkbox"]`);
+        r.booleanIsCheckboxWithDefault = !!box && box.checked === true;
+        r.requiredIsMarked = [...document.querySelectorAll(`${W} label span`)]
+          .some((s) => s.textContent === 'API key *');
+
+        // a rejection is SAID, distinctly from unreachable, and the form stays
+        // up for a second try instead of eating the answers
+        secret.value = 'sk-live-wrong';
+        [...document.querySelectorAll(`${W} button`)].find((b) => b.textContent === 'save')?.click();
+        await settle();
+        r.rejectionSaid = /not accepted — that key did not authenticate/.test(statusLine());
+        r.staysUpOnRejection = !!document.querySelector(W);
+
+        // fix the key, submit by the advertised chord this time
+        secret.value = 'sk-live-right';
+        secret.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle();
+        const posts = CALLS.post.filter((c) => c.u.includes('/edit/wizard'));
+        r.postsTypedAnswers = posts.length === 2 && posts[1].body.engine === 'elevenlabs'
+          && posts[1].body.answers.apiKey === 'sk-live-right'
+          && posts[1].body.answers.voice === 'Rachel'
+          && posts[1].body.answers.cache === true;
+        r.closesOnSuccess = !document.querySelector(W);
+
+        // and the programmatic door, for drivers that cannot click a palette
+        r.hasApi = typeof deck.wizard === 'function';
+        await deck.wizard('elevenlabs@voices');
+        await settle();
+        r.apiMounts = !!document.querySelector(W);
+        r.escapeCloses = escapeUntilClosed(W);
+
+        r.PASS = r.paletteRow && r.mounts && r.paletteGone && r.asksByQualifiedName
+          && r.titleShown && r.secretIsPassword && r.choiceIsSelect
+          && r.booleanIsCheckboxWithDefault && r.requiredIsMarked
+          && r.rejectionSaid && r.staysUpOnRejection
+          && r.postsTypedAnswers && r.closesOnSuccess
+          && r.hasApi && r.apiMounts && r.escapeCloses;
       }
     } catch (e) {
       r.exception = String((e && e.stack) || e);
