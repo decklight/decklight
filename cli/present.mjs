@@ -325,14 +325,23 @@ export async function presentMain(args) {
       return file === deckPath ? injectChrome(out, chrome.plugins) : out;
     }
     : null;
-  const files = staticFiles(root, { index: deckUrl, html: rewrite });
+  // No `index` here: "/" is the deck, and the deck is answered from memory
+  // before this handler is consulted — a fallthrough should 404, not reopen
+  // the disk read this route exists to avoid.
+  const files = staticFiles(root, { html: rewrite });
 
-  // A container's deck is served from MEMORY, from the slice already in hand.
-  // Unpacking it to a temp file would be the one write this command does not
-  // make — and would leave the payload sitting somewhere after the talk, which
-  // is precisely the file nobody meant to keep. Everything else about the
-  // response is identical to the plain-HTML path: same strict rewrite, same
-  // policy header, same GET-only server around it.
+  // The deck itself is served from MEMORY — container and plain HTML alike —
+  // from the bytes the audit read and the signature covered. The label, the
+  // signature verdict and `strict` were all decided against those bytes at
+  // startup and printed as a verdict; re-reading the file per request would
+  // let a deck edited on disk AFTER that moment ride out under it (#235). For
+  // a container this also avoids the one write this command does not make —
+  // unpacking to a temp file that would sit somewhere after the talk, which is
+  // precisely the file nobody meant to keep. Everything else about the
+  // response is identical to any other file under the root: same strict
+  // rewrite, same policy header, same GET-only server around it. If live
+  // reload of the deck under `present` is ever wanted, it must re-run the
+  // audit and re-print the verdict — never silently serve new bytes.
   const servePayload = (req, res) => {
     if (req.method !== 'GET') return false;
     const body = rewrite
@@ -341,6 +350,16 @@ export async function presentMain(args) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
     res.end(body);
     return true;
+  };
+
+  // Is this URL the deck? Matched on the RESOLVED path, exactly as staticFiles
+  // would resolve it, so a percent-encoded spelling of the same file cannot
+  // slip past this route into the per-request disk read below it.
+  const isDeck = (url) => {
+    if (url.pathname === '/') return true;
+    let rel;
+    try { rel = decodeURIComponent(url.pathname); } catch { return false; }
+    return resolve(root, '.' + rel) === deckPath;
   };
 
   // Two one-way channels, kept apart on purpose. `decks` is what a deck served
@@ -378,10 +397,11 @@ export async function presentMain(args) {
     }
     let url;
     try { url = new URL(req.url, 'http://127.0.0.1'); } catch { res.writeHead(400); res.end('bad request'); return; }
-    // The container's own path answers with the deck inside it, so the URL a
-    // person sees is the file they double-clicked. Serving the raw archive
-    // bytes there would hand a browser something it cannot render.
-    if (container && (url.pathname === deckUrl || url.pathname === '/')) {
+    // The deck's own path answers from the audited bytes (servePayload above).
+    // For a container that also means the URL a person sees is the file they
+    // double-clicked — serving the raw archive bytes there would hand a
+    // browser something it cannot render.
+    if (isDeck(url)) {
       if (servePayload(req, res)) return;
       res.writeHead(405); res.end('method not allowed'); return;
     }
@@ -458,7 +478,7 @@ export async function presentMain(args) {
     if (unverified) console.log('  the signature did not verify — serving strict');
     console.log(n
       ? `  ${n} unaccounted script block${n === 1 ? '' : 's'} stripped — serving strict. The file on disk is untouched`
-      : `  nothing to strip — this deck is served exactly as ${container ? 'the container carries it' : 'it is on disk'}`);
+      : `  nothing to strip — this deck is served exactly as ${container ? 'the container carries it' : 'it was read from disk'}`);
   }
 
   const stop = () => { server.close(); process.exit(0); };

@@ -256,6 +256,34 @@ test('nothing is written — the directory is byte-identical after a session', a
   assert.deepEqual(snapshot(dir), before, 'no file created, changed, or touched');
 });
 
+// ── the audited bytes are the served bytes (#235) ──────────────────────────
+
+test('a disk edit after startup never reaches the audience — the deck serves from the audited bytes', async (t) => {
+  const dir = deckDir();
+  const { base } = await startPresent(t, dir);
+  assert.match(await (await fetch(base + '/talk.html')).text(), /<h2>Alpha<\/h2>/);
+
+  // Someone with write access edits the deck under the running server. The
+  // verdict in the terminal — and the presenter's decision to open the deck —
+  // is already spent on the old bytes, so the new ones must never ride it.
+  writeFileSync(path.join(dir, 'talk.html'),
+    DECK.replace('</body>', '<script>/*smuggled after the verdict*/</script></body>'));
+
+  // Every spelling of the deck's URL still answers with the bytes the label
+  // described — including a percent-encoded one, which resolves to the same
+  // file and must not slip past into a fresh disk read.
+  for (const p of ['/', '/talk.html', '/%74alk.html']) {
+    const text = await (await fetch(base + p)).text();
+    assert.doesNotMatch(text, /smuggled/, `${p} never serves bytes the audit did not read`);
+    assert.match(text, /<h2>Alpha<\/h2>/, `${p} serves the audited deck`);
+  }
+
+  // The boundary: the label is an inventory of the DECK, so only the deck is
+  // pinned — a file beside it is read per request, exactly as before.
+  writeFileSync(path.join(dir, 'theme.css'), '.decklight { color: blue }');
+  assert.match(await (await fetch(base + '/theme.css')).text(), /blue/);
+});
+
 test('the module imports no filesystem writer at all', () => {
   // Cheaper and stricter than watching for a write: if it cannot write, it
   // cannot be made to write by a later edit that forgets why.
