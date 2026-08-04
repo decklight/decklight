@@ -30,6 +30,57 @@ export function isLoopback(addr) {
 }
 
 /**
+ * Is this `Origin` a loopback WEB origin — a page a localhost server handed
+ * out (`http://127.0.0.1:8788`, `http://localhost:5173`, `http://[::1]:…`)? A
+ * hostname, not a socket address: this reads the string the browser stamped on
+ * the request, which is a different question from `isLoopback` (who is dialing
+ * the socket) and the one a CSRF gate has to ask.
+ */
+export function isLoopbackOrigin(origin) {
+  let u;
+  try { u = new URL(String(origin)); } catch { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host === '::1') return true;
+  // 127.0.0.0/8, and ONLY as a dotted quad. `isLoopback` above is deliberately
+  // loose (`/^127\./`) because it reads SOCKET addresses, which are numeric. A
+  // hostname is not: `127.0.0.1.evil.example` is a domain an attacker can
+  // register and would sail through that prefix test, so the origin check
+  // pins all four octets.
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  return !!m && m[1] === '127' && m.slice(1).every((o) => Number(o) <= 255);
+}
+
+/**
+ * The CSRF gate for the author server's `/edit/*` surface (#222). The attacker
+ * is the user's OWN browser: while `decklight author` runs, any page in any tab
+ * can `fetch()` loopback, and a permissive `access-control-allow-origin` is no
+ * defense — a "simple" `text/plain` POST is sent with NO preflight, so the
+ * agent has already run by the time the browser consults CORS on the way back.
+ * The gate therefore runs BEFORE the handler, on the one field a page cannot
+ * forge: the `Origin` the browser attaches.
+ *
+ * Answered YES for:
+ *   - a request with no `Origin` at all — the CLI, `curl`, the port-conflict
+ *     probe, the test suite: not a browser cross-origin call.
+ *   - a loopback web origin — the deck this very server serves (same-origin),
+ *     and any other same-machine dev server the author is running.
+ *   - `null` — a `file://`-opened deck, the SPEC'd double-click path.
+ *
+ * Answered NO for every other origin, which is exactly the `https://evil.example`
+ * tab the ticket is about. Residual: `null` is also the origin of a sandboxed
+ * iframe, so a page that embeds one can still reach here; closing that would
+ * cost the `file://` path a token it has no way to receive, and the SPEC keeps
+ * the double-click affordance. It is called out in PRESENTING.
+ */
+export function allowEditRequest(req) {
+  const origin = req.headers?.origin;
+  if (origin === undefined) return true;
+  if (origin === 'null') return true;
+  return isLoopbackOrigin(origin);
+}
+
+/**
  * Pure request classifier: may this request be answered at all?
  * Loopback: always. Off-loopback: only /remote/* paths carrying the per-run
  * token (?t= query or x-decklight-token header) — everything else, all

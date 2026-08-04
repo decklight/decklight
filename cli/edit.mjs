@@ -49,17 +49,25 @@ import { agentCommand, detectAgents } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
-import { corsHeaders } from '../tools/bridge.mjs';
 import { deckHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
-import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded } from './serve.mjs';
+import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, CONFIGURED, UNREACHABLE } from './wizard.mjs';
 
-// file://-opened decks probe http://127.0.0.1:8788 directly (origin "null"),
-// exactly like the tts bridge — so the endpoints are CORS-open. CORS-open is
-// safe because the LISTENER is not: this server binds 127.0.0.1 and has no flag
-// that widens it, so there is no off-machine caller for a header to have to
-// refuse.
-const CORS = corsHeaders();
+// The `/edit/*` surface answers loopback only — but "loopback" is the wrong
+// boundary for the threat (#222). The dangerous caller is not off-machine: it
+// is the user's own browser, where any open tab can `fetch()` this port. Binding
+// 127.0.0.1 does nothing about that, and a wildcard `access-control-allow-origin`
+// actively invites it. So every request is gated by `allowEditRequest` on its
+// `Origin` (below), and CORS is echoed per request rather than granted to `*` —
+// a foreign site's `fetch` never reaches a handler. The one origin still let
+// through besides loopback is `null`: a file://-opened deck probes this server
+// directly, and the SPEC keeps that double-click path (PRESENTING).
+const corsHeadersFor = (origin) => ({
+  ...(origin !== undefined ? { 'access-control-allow-origin': origin } : {}),
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type',
+  vary: 'Origin',
+});
 
 // ── remote access & static serving: extracted to serve.mjs / remote.mjs ────
 // (PRESENT_SERVER in MARKETPLACE.md: `decklight present` reuses the same core
@@ -386,11 +394,21 @@ export async function editMain(args) {
 
   const files = staticFiles(root, { index: deckUrl });
   const server = createServer(async (req, res) => {
+    // The CSRF gate (#222), before anything runs. A same-machine browser tab is
+    // the threat, not an off-machine caller, so the check is the request's
+    // `Origin`, not its socket address. A foreign origin is refused here —
+    // before the body is read, before any file is written, before an agent is
+    // spawned — and refused WITHOUT permissive CORS, so the page cannot even
+    // read the refusal. Loopback origins, `null` (file://), and the header's
+    // absence (the CLI, the port-conflict probe, curl) pass.
+    const origin = req.headers.origin;
+    const CORS = corsHeadersFor(origin);
+    if (!allowEditRequest(req)) {
+      res.writeHead(403, { 'content-type': 'text/plain' });
+      res.end('forbidden: the author edit surface answers this machine only, and not a foreign web origin');
+      return;
+    }
     try {
-      // No off-loopback classifier here: the listener is bound to 127.0.0.1,
-      // so there is no such caller to classify. That is the enforcement — a
-      // check would only be reachable if someone had first widened the bind,
-      // which is the change this file no longer offers (PRESENT#REMOTE).
       const url = new URL(req.url, 'http://x');
       const json = (code, obj) => {
         res.writeHead(code, { ...CORS, 'content-type': 'application/json' });
