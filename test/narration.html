@@ -103,9 +103,13 @@
       }
       if (!u.startsWith(BRIDGE)) return realFetch(url, opts);
       if (u.endsWith('/ping')) {
+        // xss: the roster is somebody ELSE'S text — an ElevenLabs voice is
+        // named by whoever shared it, and that name may be markup
         const roster = mode === 'roster'
           ? { engine: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false, voices: [['My Voice', 'cloned'], ['Rachel', 'calm']] }
-          : { engine: 'mock', model: 'mock', stylable: true, voices: [['Alnilam', 'firm']] };
+          : mode === 'xss'
+            ? { engine: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false, voices: [['<img src=x onerror="window.__xss=true">', '<b>bold claim</b>'], ['Rachel', 'calm']] }
+            : { engine: 'mock', model: 'mock', stylable: true, voices: [['Alnilam', 'firm']] };
         return new Response(JSON.stringify({ ok: true, ...roster }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
@@ -333,6 +337,26 @@
 
           r.PASS = r.noModuleMenu && r.finderOpens && r.listsSlides
             && r.listsModules && r.hidesCurrentModule && r.moduleRowMarked;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'xss') {
+          // The N picker lists whatever the bridge said it can speak. A voice
+          // named with markup must land in the rows as TEXT — the picker runs
+          // in the deck's origin, and in author mode that origin can reach the
+          // edit server, so a parsed name would be code execution.
+          press('n', document.body);                 // no tracks → voices view
+          await new Promise((ok) => setTimeout(ok, 500));   // /ping answers, view repaints
+          const picker = document.querySelector('.decklight-narr');
+          const labels = [...(picker?.querySelectorAll('.narr-row-label') ?? [])];
+          r.rows = labels.length;
+          r.scriptDidNotRun = !window.__xss;
+          r.nothingParsed = !picker?.querySelector('img, b');
+          const hostile = labels.find((l) => l.textContent.includes('<img src=x onerror="window.__xss=true">'));
+          r.nameIsLiteralText = !!hostile;
+          r.flavorIsLiteralText = hostile?.querySelector('.narr-flavor')?.textContent === '<b>bold claim</b>';
+          r.PASS = r.scriptDidNotRun && r.nothingParsed && r.nameIsLiteralText && r.flavorIsLiteralText;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

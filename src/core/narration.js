@@ -856,14 +856,12 @@ export function createNarration({
     if (view === 'tracks') {
       head.textContent = 'narration';
       narrSets.forEach((t) => narrRows.push({
-        text: t.manifest
-          // ☁ says the audio is not in this deck's folder; the countdown says
-          // how long that will keep being true. Both come from the manifest
-          // only once it has been loaded — before that, the row is honest
-          // about knowing only where to look.
-          ? `☁ ${t.label} <span class="narr-flavor">${manifestFlavor(t)}</span>`
-          : `🔊 ${t.label} (${t.dir}/)`,
-        html: !!t.manifest,
+        // ☁ says the audio is not in this deck's folder; the countdown says
+        // how long that will keep being true. Both come from the manifest
+        // only once it has been loaded — before that, the row is honest
+        // about knowing only where to look.
+        text: t.manifest ? `☁ ${t.label}` : `🔊 ${t.label} (${t.dir}/)`,
+        flavor: t.manifest ? manifestFlavor(t) : '',
         cur: t === narrSet,
         commit: () => {
           narrSet = t; persistNarr(); closeNarrPicker(); toast(`🔊 track: ${t.label}`);
@@ -893,14 +891,14 @@ export function createNarration({
       const vids = bi?.engines?.video ?? [];
       narrRows.push({ text: 'Off', cur: character.mode === 'off', commit: () => applyCharacter('off') });
       narrRows.push({
-        text: `🎭 2D character — offline visemes${bi?.engines?.viseme ? '' : ' <span class="narr-flavor">bridge offline — amplitude fallback</span>'}`,
-        html: true,
+        text: '🎭 2D character — offline visemes',
+        flavor: bi?.engines?.viseme ? '' : 'bridge offline — amplitude fallback',
         cur: character.mode === 'viseme',
         commit: () => applyCharacter('viseme'),
       });
       narrRows.push({
-        text: `🎥 Neural video — local GPU${vids.length ? '…' : ' <span class="narr-flavor">needs the bridge — run: decklight lipsync</span>'}`,
-        html: true,
+        text: `🎥 Neural video — local GPU${vids.length ? '…' : ''}`,
+        flavor: vids.length ? '' : 'needs the bridge — run: decklight lipsync',
         cur: character.mode === 'video',
         commit: () => {
           if (vids.length) renderNarr('charvideo');
@@ -910,8 +908,8 @@ export function createNarration({
       // a toggle, not a mode: solo works with either look above
       if (character.mode !== 'off') {
         narrRows.push({
-          text: `${character.solo ? '◉' : '○'} Solo — the narrator takes the stage <span class="narr-flavor">slide content steps aside</span>`,
-          html: true,
+          text: `${character.solo ? '◉' : '○'} Solo — the narrator takes the stage`,
+          flavor: 'slide content steps aside',
           cur: character.solo,
           commit: () => applySolo(!character.solo),
         });
@@ -957,8 +955,8 @@ export function createNarration({
       wrap.append(test, reset);
       card.appendChild(wrap);
       liveVoices.forEach(([name, flavor]) => narrRows.push({
-        text: `${name} <span class="narr-flavor">${flavor}</span>`,
-        html: true,
+        text: name,
+        flavor,
         preview: { voice: name, style: '', prefetch: 'voices' },
         cur: narrSet?.live && liveCfg.voice === name,
         // chirp and piper have no delivery-instruction channel, so there is no
@@ -1016,7 +1014,16 @@ export function createNarration({
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '');
       const label = document.createElement('span');
       label.className = 'narr-row-label';
-      if (row.html) label.innerHTML = row.text; else label.textContent = row.text;
+      // Built as nodes, not innerHTML: a bridge's voice names and flavors are
+      // somebody else's text (an ElevenLabs roster is named by whoever shared
+      // the voices) — textContent escapes them by construction.
+      label.textContent = row.text;
+      if (row.flavor) {
+        const flavor = document.createElement('span');
+        flavor.className = 'narr-flavor';
+        flavor.textContent = row.flavor;
+        label.appendChild(flavor);
+      }
       el.appendChild(label);
       if (row.preview) {
         const btn = document.createElement('button');

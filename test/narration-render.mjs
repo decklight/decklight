@@ -18,6 +18,9 @@
  *   roster  — the bridge speaks its OWN voices (an ElevenLabs key knows none of
  *             the Gemini star names): the persisted voice is stale, so the deck
  *             takes the bridge's first, says it did, and remembers
+ *   xss     — the bridge's roster names a voice WITH MARKUP (an ElevenLabs
+ *             voice is named by whoever shared it): the N picker must render
+ *             it as text, never parse it
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +38,7 @@ function run(mode, extra = '') {
 }
 
 let bad = 0;
-for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster',
+for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'hint', 'hint&print', 'manifest', 'expired']) {
   const [m, extra] = mode.split('&');
   const r = run(m, extra ? `&${extra}` : '');
@@ -64,6 +67,12 @@ for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', '
   if (mode === 'keys') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} play: \` opens=${r.playOpens} closes=${r.playCloses} azerty(²)=${r.azertyOpens}`
       + ` · edit: bare ignored=${r.editIgnoresBareKey} ⌃\` opens=${r.editCtrlOpens} ⌥\` opens=${r.editAltOpens}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'xss') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ${r.rows} rows · script did not run=${r.scriptDidNotRun}`
+      + ` nothing parsed=${r.nothingParsed} name literal=${r.nameIsLiteralText} flavor literal=${r.flavorIsLiteralText}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
