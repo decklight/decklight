@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { CSP } from '../cli/present.mjs';
 import { allowRemote } from '../cli/serve.mjs';
+import { createRemoteRelay } from '../cli/remote.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -143,6 +144,33 @@ test('every response carries the CSP as an HTTP header', async (t) => {
     const res = await fetch(base + p);
     assert.equal(res.headers.get('content-security-policy'), CSP, `${p} carries the policy`);
   }
+});
+
+test('the CSP also rides on errors and the control channels — no uncovered response', async (t) => {
+  // The property is "every response", not "every 200" (PRESENT): a 404 page,
+  // the control-channel JSON/SSE and the remote controller are all fixed
+  // strings or first-party content today, and the header set at one seam is
+  // what keeps that true by construction instead of by inspection.
+  const dir = deckDir();
+  const { base } = await startPresent(t, dir);
+
+  const covered = async (p, init) => {
+    const res = await fetch(base + p, init);
+    assert.equal(res.headers.get('content-security-policy'), CSP, `${init?.method ?? 'GET'} ${p}`);
+    return res;
+  };
+  assert.equal((await covered('/missing.html')).status, 404);
+  assert.equal((await covered('/talk.html', { method: 'POST', body: '{}' })).status, 405);
+  assert.equal((await covered('/present/ping')).status, 200);
+  assert.equal((await covered('/remote')).status, 200, 'the controller is a document — where a policy matters most');
+  assert.equal((await covered('/remote/qr.svg')).status, 404, 'without --remote the QR refuses — covered too');
+
+  // the SSE stream: its headers arrive before any event does
+  const ctl = new AbortController();
+  const sse = await fetch(base + '/present/events', { signal: ctl.signal });
+  assert.equal(sse.headers.get('content-security-policy'), CSP, 'GET /present/events');
+  assert.match(sse.headers.get('content-type'), /text\/event-stream/);
+  ctl.abort();
 });
 
 test('the policy denies by default and opens only what SPEC needs', () => {
@@ -401,6 +429,39 @@ test('a locally-presented deck still gets its position readout', async (t) => {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"i":2,"n":9}',
   });
   assert.equal(pos.status, 200);
+});
+
+test('POST /remote/pos is deck→phones only — an off-loopback caller is refused, not rebroadcast', () => {
+  // The deck is the one thing that knows the position and it reports from
+  // this machine. A phone — or anyone who obtained the QR token — posting a
+  // fabricated {i,n} would desync the readout every other phone shows, and a
+  // phone has no reason to post one at all.
+  const relay = createRemoteRelay({
+    deckName: 'talk.html', token: 'tok', remoteUrl: () => 'http://x',
+    relayToDeck: () => {}, deckCount: () => 1, CORS: {},
+  });
+  const answer = (addr, method, path, body = '') => {
+    const out = { code: null, chunks: [] };
+    const res = {
+      writeHead: (code) => { out.code = code; },
+      write: (c) => out.chunks.push(String(c)),
+      end: (c) => { if (c) out.chunks.push(String(c)); },
+    };
+    relay.handle({ method, socket: { remoteAddress: addr }, on: () => {} }, res, new URL('http://127.0.0.1' + path), body);
+    return out;
+  };
+
+  // a phone subscribes to the readout stream…
+  const phone = answer('192.168.1.23', 'GET', '/remote/events');
+  // …and another LAN caller, token in hand, tries to fabricate the position
+  const forged = answer('192.168.1.99', 'POST', '/remote/pos', '{"i":99,"n":99}');
+  assert.equal(forged.code, 403, 'refused — pos is not a phone-facing input');
+  assert.ok(!phone.chunks.some((c) => c.includes('event: pos')), 'and nothing reached the phones');
+
+  // the deck itself, over loopback, still lands and reaches the phone
+  const deck = answer('127.0.0.1', 'POST', '/remote/pos', '{"i":2,"n":9}');
+  assert.equal(deck.code, 200);
+  assert.ok(phone.chunks.some((c) => c.includes('"i":2')), 'the readout shows the real position');
 });
 
 test('the remote never writes, and a malformed payload is refused not crashed', async (t) => {
