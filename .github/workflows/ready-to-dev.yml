@@ -330,11 +330,15 @@ jobs:
             gh pr edit "$BRANCH" --add-reviewer gphilipp
           fi
 
-          # The repo keeps a linear history (no merge commits), so auto-merge
-          # must squash. Every PR still has to opt in — without this the PR would
-          # sit green and unmerged, waiting for a click. If the branch falls
-          # behind main, auto-merge updates and re-tests it before landing.
-          gh pr merge "$BRANCH" --auto --squash || \
+          # The merge queue owns the strategy (it squashes, keeping history
+          # linear) — passing --squash here asks gh to also choose one, and
+          # GitHub rejects that outright: "the merge strategy for main is set
+          # by the merge queue". Bare --auto enqueues and lets the queue apply
+          # its own configured method. Every PR still has to opt in — without
+          # this the PR would sit green and unmerged, waiting for a click. If
+          # the branch falls behind main, auto-merge updates and re-tests it
+          # before landing.
+          gh pr merge "$BRANCH" --auto || \
             echo "::warning::could not arm auto-merge — the PR will need a manual merge"
 
           if [ "$opened" = pat ]; then
