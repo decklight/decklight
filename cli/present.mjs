@@ -32,7 +32,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep, basename } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { argReader, isMain } from '../tools/args.mjs';
-import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded } from './serve.mjs';
+import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded, withHeaders } from './serve.mjs';
 import { createRemoteRelay } from './remote.mjs';
 import { corsHeaders } from '../tools/bridge.mjs';
 
@@ -325,11 +325,7 @@ export async function presentMain(args) {
       return file === deckPath ? injectChrome(out, chrome.plugins) : out;
     }
     : null;
-  const files = staticFiles(root, {
-    index: deckUrl,
-    headers: { 'content-security-policy': CSP },
-    html: rewrite,
-  });
+  const files = staticFiles(root, { index: deckUrl, html: rewrite });
 
   // A container's deck is served from MEMORY, from the slice already in hand.
   // Unpacking it to a temp file would be the one write this command does not
@@ -342,10 +338,7 @@ export async function presentMain(args) {
     const body = rewrite
       ? Buffer.from(rewrite(payload.toString('utf8'), deckPath), 'utf8')
       : payload;
-    res.writeHead(200, {
-      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache',
-      'content-security-policy': CSP,
-    });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
     res.end(body);
     return true;
   };
@@ -366,7 +359,13 @@ export async function presentMain(args) {
     CORS,
   });
 
-  const server = createServer((req, res) => {
+  // The CSP is set once, out here, for EVERY response this server writes —
+  // the deck and its assets, but also the 403/404/405 pages, the control-
+  // channel JSON and SSE, and the remote controller. Every body below is a
+  // fixed string or first-party content, so no uncovered response was
+  // exploitable — but "every response carries the header" is only worth
+  // stating if it holds by construction, not by each writeHead remembering.
+  const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
     // Loopback always; off-loopback only /remote/* carrying the per-run token,
     // and only when --remote asked for a listener at all. Every other path is
     // refused off this machine unconditionally — flag or no flag, token or no
@@ -422,7 +421,7 @@ export async function presentMain(args) {
     if (files(req, res, url)) return;
     res.writeHead(405);
     res.end('method not allowed');
-  });
+  }));
 
   const actual = await listenTakingOverIfNeeded(server, port, host);
   actualPort = actual;

@@ -11,7 +11,7 @@
 // deck file: the phone asks the deck to move, it never edits.
 
 import { qrSvg } from './qr.mjs';
-import { escapeHtml, sseChannel } from './serve.mjs';
+import { escapeHtml, isLoopback, sseChannel } from './serve.mjs';
 
 /**
  * The phone controller page (#39): a clicker, NOT a second screen — SPEC NON_GOALS
@@ -130,6 +130,13 @@ export function createRemoteRelay({ deckName, token, remoteUrl, relayToDeck, dec
         return json(200, { ok: true, key, decks: deckCount() });
       }
       if (req.method === 'POST' && url.pathname === '/remote/pos') {
+        // The deck→phones direction, and only that. The deck reporting its
+        // position is a loopback caller; a phone — or anyone who obtained the
+        // QR token — has no business posting here, and accepting it would let
+        // one fabricated {i,n} desync the readout every other phone shows.
+        if (!isLoopback(req.socket?.remoteAddress)) {
+          return json(403, { ok: false, error: 'position reports come from the deck, not the phone' });
+        }
         const { i, n } = JSON.parse(body);
         if (!Number.isInteger(i) || !Number.isInteger(n)) throw new Error('bad payload');
         lastPos = { i, n };

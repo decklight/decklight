@@ -72,10 +72,26 @@ export const MIME = {
 export const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 /**
+ * Wrap a request handler so EVERY response it writes carries `headers` —
+ * the deck, its assets, error pages, JSON, SSE, all of it. They are set
+ * before the handler runs, and writeHead merges them under any headers a
+ * route names itself, so a route can sharpen one but can never lose one by
+ * not mentioning it. This is the seam the present server's
+ * Content-Security-Policy arrives through (PRESENT): "every response
+ * carries the header" holds by construction here, instead of by every
+ * writeHead in every route remembering.
+ */
+export function withHeaders(headers, handler) {
+  return (req, res) => {
+    for (const [name, value] of Object.entries(headers)) res.setHeader(name, value);
+    return handler(req, res);
+  };
+}
+
+/**
  * Static files under `root`, GET only: traversal-guarded, MIME-typed,
- * no-cache. `index` is the path "/" serves (the deck). `headers` ride on
- * every 200 — the seam a Content-Security-Policy arrives through (PRESENT).
- * Returns whether the request was handled.
+ * no-cache. `index` is the path "/" serves (the deck). Returns whether the
+ * request was handled.
  *
  * `html` rewrites the text of every text/html response on its way out and
  * leaves every other type alone. It is how `present --strict` (PRESENT#STRICT)
@@ -84,7 +100,7 @@ export const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').
  * write, so there is no point in this path where the modified bytes could be
  * mistaken for the deck.
  */
-export function staticFiles(root, { index = '/index.html', headers = {}, html: rewriteHtml = null } = {}) {
+export function staticFiles(root, { index = '/index.html', html: rewriteHtml = null } = {}) {
   return (req, res, url) => {
     if (req.method !== 'GET') return false;
     const rel = url.pathname === '/' ? index : decodeURIComponent(url.pathname);
@@ -94,7 +110,7 @@ export function staticFiles(root, { index = '/index.html', headers = {}, html: r
     const type = MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
     let body = readFileSync(file);
     if (rewriteHtml && type === MIME['.html']) body = Buffer.from(rewriteHtml(body.toString('utf8'), file), 'utf8');
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache', ...headers });
+    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache' });
     res.end(body);
     return true;
   };
