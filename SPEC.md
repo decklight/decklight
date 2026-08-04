@@ -759,49 +759,80 @@ marketplace repo's own CI runs it on every PR that adds or updates a
 "failure blocks publish" means (MARKETPLACE.md `EXTENSIONS#CHECK`):
 publishing the *extension*, not `decklight publish`ing a deck.
 
-Two phases, checking two different things:
+Three phases, checking three different things:
 
-- **Lint the source text.** Refused if the file contains `fetch(`, `eval(`,
-  `XMLHttpRequest`, or a dynamic `import(`, anywhere — a shallow source-text
-  scan, the same kind `PRESENT#PLUGINS` already runs on a presenter plugin's
-  source. It is NOT the same kind of check, though: a plugin's lint catches
-  something that *also* fails at run time (its `<iframe sandbox>`'s opaque
-  origin throws on `parent.document` regardless of the lint), so that lint is
-  a friendlier echo of an enforcement the sandbox already provides. A
-  transform has no such backstop — it runs as trusted, unsandboxed Node
-  (`EXTENSIONS_TRANSFORMS`), where `fetch` and `eval` simply work. This lint
-  IS the enforcement: the only thing standing between "HTML in, HTML out"
-  and a transform that quietly does network I/O or loads code the catalog's
-  digest pin (`UNIT_PINNING`) never covered.
-- **A headless load of the OUTPUT, not the source.** The file is run (through
-  the same loader `EXTENSIONS#LOADER` uses — a CI runner checking a
-  submission is exactly as much an installer as anyone else, for the
-  duration of the check) against ONE small fixture this command owns,
-  never the submitter's own deck — proving the CONTRACT, not "does it handle
-  some particular author's markup" (the same "a small fixture beats a full
+- **Lint the source text — advisory, not a boundary.** Refused if the file
+  contains `fetch(`, `eval(`, `XMLHttpRequest`, or a dynamic `import(`,
+  anywhere — a shallow source-text scan, the same kind `PRESENT#PLUGINS`
+  already runs on a presenter plugin's source. It catches the honest mistake
+  and states the bar in a sentence, and that is ALL it does: a static
+  `import { execSync } from 'node:child_process'`, a `new Function('return
+  fetch')()`, a `globalThis['fet' + 'ch']` all pass a regex unmatched, and
+  no source-text scan closes that class. What constrains the submission
+  during the check is the process boundary below; what constrains it after
+  admission is nothing — an installed transform runs as trusted, unsandboxed
+  Node (`EXTENSIONS_TRANSFORMS`), because the trust model for build-time
+  code is that the installer bears the risk (MARKETPLACE.md `EXTENSIONS`).
+  Admission screens; it does not absolve.
+- **The submission only ever executes behind a process boundary.** The
+  checker itself never `import()`s the checked file — a marketplace's CI
+  would be executing a stranger's code at its own privilege *before*
+  deciding whether to admit it. The transform runs in a SEPARATE Node
+  process under the permission model (`--permission`, or
+  `--experimental-permission` back to the `engines` floor of Node 20;
+  a Node with neither is a named refusal, never a silent unsandboxed run):
+  filesystem reads limited to decklight's own package and the submitted
+  file's directory, no filesystem writes, no child processes, no workers, no
+  native addons; a REPLACED environment (the fixture is the only variable
+  that crosses, so a CI runner's secrets never enter the child); a temp
+  working directory; and its own 15s wall-clock kill, because a transform
+  that never returns must become a refusal, not a hang. Stated plainly,
+  what the boundary does NOT cover: Node's permission model does not
+  restrict the network, so a hostile submission can still phone home during
+  the check — the boundary protects the checking machine's files, processes
+  and environment, not its network egress.
+- **A headless load of the OUTPUT, not the source.** The transform is run
+  against ONE small fixture this command owns — RANDOMISED per check, a
+  fresh nonce in its title, heading and body, so a submission cannot
+  recognise the fixture and behave only while being checked — never the
+  submitter's own deck: proving the CONTRACT, not "does it handle some
+  particular author's markup" (the same "a small fixture beats a full
   bundled deck" reasoning `EXTENSIONS_TRANSFORMS` already uses to justify
   testing against the pre-`bundle` source). The output is then rendered
-  headlessly and refused if it contains a `<script>` block, full stop — this
-  is the one automatable proof that a given transform actually honors
-  "build-time transforms produce output, not code; nothing executable
-  travels" (MARKETPLACE.md `EXTENSIONS`, SUPERSEDED), rather than merely
-  being asked to. `apiVersion` currency plays no part here: that is
-  `EXTENSIONS#LOADER`'s question at USE time, on an installed unit, not this
-  command's question at ADMISSION time, on a bare file.
+  headlessly and refused if it contains a `<script>` block OR an inline
+  event handler (an `on…=` attribute) — the second is exactly as executable
+  as the first, just waiting for a click, and a `<script>`-only grep missed
+  it entirely. Both refuse for the same reason: "build-time transforms
+  produce output, not code; nothing executable travels" (MARKETPLACE.md
+  `EXTENSIONS`, SUPERSEDED) is the one invariant this phase can actually
+  prove a given transform honors, rather than merely being asked to.
+  `apiVersion` currency plays no part here: that is `EXTENSIONS#LOADER`'s
+  question at USE time, on an installed unit, not this command's question at
+  ADMISSION time, on a bare file.
 
-Needs a real browser to run the second phase — the same Chrome dependency
+What this gate is, honestly: a screen, not a proof. Code that behaves during
+one check can behave differently once installed, and no admission-time
+analysis of Turing-complete code closes that gap — the randomised fixture
+and the scrubbed, temp-cwd child merely remove the cheap tells a submission
+could key on. The load-bearing decisions remain the catalog's digest pin
+(`UNIT_PINNING`) and the trust model (`EXTENSIONS`: the installer
+bears the risk); this command exists so that the obvious failures never
+reach either.
+
+Needs a real browser to run the last phase — the same Chrome dependency
 `npm run verify`'s render harnesses already carry — and answers the same way
 they already do when Chrome is absent: a named refusal, never a silent pass.
 
-**The headless load carries a hard wall-clock kill (15s), separate from
-`--virtual-time-budget`.** That flag bounds Chrome's own clock, not the real
-one: a synchronous `alert()`/`confirm()`/`prompt()` in the OUTPUT opens a
-native dialog that blocks the render loop outside virtual time entirely, and
-an infinite loop blocks it the same way — measured directly, not a
-theoretical concern. Every other transform failure this section refuses is a
-*string* found in an *output*; a hang is the one shape that would otherwise
-have no output to refuse, and this command's whole premise is loading code
-nobody has vetted yet — so a submission that never returns has to become a
+**Both executions carry a hard wall-clock kill (15s each), and the headless
+load's is separate from `--virtual-time-budget`.** That flag bounds Chrome's
+own clock, not the real one: a synchronous `alert()`/`confirm()`/`prompt()`
+in the OUTPUT opens a native dialog that blocks the render loop outside
+virtual time entirely, and an infinite loop blocks it the same way —
+measured directly, not a theoretical concern. Every other transform failure
+this section refuses is a *string* found in an *output*; a hang is the one
+shape that would otherwise have no output to refuse, and this command's
+whole premise is running code nobody has vetted yet — so a submission that
+never returns, in its own run or in its output's load, has to become a
 refusal too, not an unbounded hang in whatever is running the check (a
 marketplace's own CI).
 

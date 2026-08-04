@@ -462,17 +462,17 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
       <h2>The Admission Gate</h2>
       <p><code>decklight extension check transform.mjs</code> — what a marketplace's CI runs before merging your submission</p>
       <ul data-build>
-        <li><strong>Lint the source</strong> — no <code>fetch</code>, no <code>eval</code>, no <code>XMLHttpRequest</code>, no dynamic <code>import()</code>. A transform runs unsandboxed, so this lint <em>is</em> the enforcement, not a friendly echo of one</li>
-        <li><strong>Headlessly load its OUTPUT</strong> against a fixture — and refuse any <code>&lt;script&gt;</code> in the result. The one automatable proof that "nothing executable travels" actually holds for a given transform</li>
+        <li><strong>Lint the source</strong> — no <code>fetch</code>, no <code>eval</code>, no <code>XMLHttpRequest</code>, no dynamic <code>import()</code>. Advisory: it catches the honest mistake — the submission never executes in the checker's own process, but behind a locked-down child</li>
+        <li><strong>Headlessly load its OUTPUT</strong> against a randomised fixture — and refuse any <code>&lt;script&gt;</code> or inline <code>on…=</code> handler in the result. The one automatable proof that "nothing executable travels" actually holds for a given transform</li>
         <li>Not run by <code>bundle</code> or <code>publish</code>: the gate sits at the marketplace's door, once, not on every local iteration</li>
       </ul>
       <aside class="notes">
-        <p>And a rule nobody checks is a wish, so there's a command that checks this one.</p><p>⟨CLICK⟩</p><p>First it lints the source for network and dynamic-code calls. Now — a presenter plugin has a similar lint, but that one is a courtesy, because the plugin's sandbox already makes those calls fail. A build-time transform runs as trusted, unsandboxed Node on your machine. Nothing else stops fetch from working there. So this lint is the actual enforcement, and it's worth being clear-eyed about which of those two situations you're in.</p><p>⟨CLICK⟩</p><p>Then it runs the transform against a small fixture and headlessly loads what came out, refusing any script block in the result. That's the automatable proof that this specific transform honors 'nothing executable travels' — rather than merely having been asked to.</p><p>⟨CLICK⟩</p><p>And it deliberately isn't part of bundle or publish. An installed transform you use every day is never re-checked; the gate is at the marketplace's door, once.</p>
+        <p>And a rule nobody checks is a wish, so there's a command that checks this one.</p><p>⟨CLICK⟩</p><p>First it lints the source for network and dynamic-code calls. Be clear-eyed about what a lint is, though: it catches the honest mistake, not a determined one — a static child_process import sails right past a regex. So the check never runs the submission in its own process. It runs it in a separate Node process under the permission model: no file writes, no child processes, a scrubbed environment, a hard kill. The screen is the lint; the enforcement is the boundary.</p><p>⟨CLICK⟩</p><p>Then it runs the transform against a small randomised fixture — randomised so a submission can't recognise the checker and behave just for it — and headlessly loads what came out, refusing any script block or inline handler in the result. That's the automatable proof that this specific transform honors 'nothing executable travels' — rather than merely having been asked to.</p><p>⟨CLICK⟩</p><p>And it deliberately isn't part of bundle or publish. An installed transform you use every day is never re-checked; the installer bears that risk, and the gate is at the marketplace's door, once.</p>
       </aside>
       <aside class="rehearse">
         <p>A rule nobody checks is a wish</p>
-        <p>⟨CLICK⟩</p><p>Lint IS enforcement here (no sandbox behind it)</p>
-        <p>⟨CLICK⟩</p><p>Headless-load the OUTPUT, refuse &lt;script&gt;</p>
+        <p>⟨CLICK⟩</p><p>Lint screens; the process boundary enforces</p>
+        <p>⟨CLICK⟩</p><p>Headless-load the OUTPUT, refuse &lt;script&gt; and on…=</p>
         <p>⟨CLICK⟩</p><p>Gate at the door, not every build</p>
       </aside>
     </section>

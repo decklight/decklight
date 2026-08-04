@@ -138,39 +138,61 @@ will need the identical two-phase shape for import adapters once *their*
 calling convention is frozen. `--type transform` (default, and the only kind
 this command implements yet) leaves that room without a rename later.
 
-Two phases, and they are not the same kind of check:
+Three phases, and they are not the same kind of check:
 
-- **Lint the source text** — refuses `fetch(`, `eval(`, `XMLHttpRequest`, or a
-  dynamic `import(` appearing anywhere in the file, by the same shallow
-  source-text scan `PRESENT#PLUGINS` already uses for its own lint. The
-  difference from that precedent is what makes this one load-bearing rather
-  than a friendlier echo of a runtime failure: a presenter plugin's lint
-  catches something that **also** fails at run time (an opaque iframe origin
-  throws on `parent.document` regardless), but a transform runs as trusted,
-  unsandboxed Node (`EXTENSIONS#LOADER`) — nothing stops `fetch` or `eval`
-  from *working* there. The lint is the only thing that keeps a "HTML in,
-  HTML out" pure function from quietly doing network I/O or loading code the
-  catalog's digest pin (`EXTENSIONS#PIN`) never covered; there is no sandbox
-  standing behind it the way there is for a plugin.
+- **Lint the source text — advisory.** Refuses `fetch(`, `eval(`,
+  `XMLHttpRequest`, or a dynamic `import(` appearing anywhere in the file, by
+  the same shallow source-text scan `PRESENT#PLUGINS` already uses for its
+  own lint. It states the bar and catches the honest mistake; it does not
+  constrain a determined one — a static `import { execSync } from
+  'node:child_process'`, a `new Function('return fetch')()`, a
+  `globalThis['fet' + 'ch']` all pass a regex unmatched, and no source scan
+  closes that class. Unlike a presenter plugin's lint there is no sandbox at
+  USE time standing behind it (`EXTENSIONS#LOADER` runs an installed
+  transform as trusted, unsandboxed Node — the installer bears that risk, by
+  this document's own decision above); what stands behind it *during the
+  check* is the process boundary below. Admission screens; it does not
+  absolve.
+- **The submission executes only behind a process boundary.** The checker
+  never `import()`s the checked file into its own process — that would mean
+  a marketplace's CI running a stranger's code at CI privilege *before*
+  deciding whether to admit it. It is run in a separate Node process under
+  the permission model (`--permission` / `--experimental-permission`; a Node
+  with neither is a named refusal, never a silent unsandboxed run): reads
+  limited to decklight's package and the submission's own directory, no
+  writes, no child processes, no workers, a replaced environment so the CI
+  runner's secrets never enter the child, a temp working directory, and a
+  15s wall-clock kill of its own. Stated honestly, the boundary does not
+  cover the network — Node's permission model restricts files, processes and
+  addons, not `fetch` — so it protects the checking machine, not the
+  network it sits on.
 - **A headless load of the transform's OUTPUT, not its source.** The checked
-  file is run (through `cli/loader.mjs`, same in-process trust model — a CI
-  runner is exactly as much an installer as anyone else for the duration of
-  the check) against ONE small canonical fixture this command owns, the same
-  "a small fixture beats needing a full bundled deck" reasoning
-  `EXTENSIONS#CONVENTION` already used for testing the contract itself — this
+  file is run against ONE small fixture this command owns — **randomised per
+  check** (a fresh nonce in title, heading and body), so a submission cannot
+  recognise the fixture and behave only for the checker — the same "a small
+  fixture beats needing a full bundled deck" reasoning
+  `EXTENSIONS#CONVENTION` already used for testing the contract itself: this
   proves the CONTRACT, not "does it handle any particular author's deck."
   What the headless render (`--headless --dump-dom`, same technique
-  `test/harness.mjs` already gives the render suite) checks for is exactly
-  one thing: **the output contains no `<script>` block**, because "build-time
+  `test/harness.mjs` already gives the render suite) refuses is **any
+  `<script>` block and any inline event handler (`on…=` attribute)** —
+  the handler is exactly as executable as the script, just waiting for a
+  click, and a `<script>`-only grep missed it — because "build-time
   transforms produce output, not code; nothing executable travels" (this
   document's SUPERSEDED list) is an already-decided invariant, and this is
   the one automatable place that actually proves a given transform honors it
   rather than merely being asked to. (The acceptance checklist's older phrase
   — "a script not declared in the manifest" — predates that invariant and is
-  superseded by it: there is no such declaration, and no exception; a
-  transform emitting *any* `<script>` fails the check.) `apiVersion` currency
-  plays no part here — that is `EXTENSIONS#LOADER`'s question at USE time, not
-  this command's question at ADMISSION time.
+  superseded by it: there is no such declaration, and no exception.)
+  `apiVersion` currency plays no part here — that is `EXTENSIONS#LOADER`'s
+  question at USE time, not this command's question at ADMISSION time.
+
+What the gate is, honestly: a screen, not a proof. Code that behaves during
+one check can behave differently once installed — no admission-time analysis
+of Turing-complete code closes that — so the load-bearing decisions remain
+the digest pin (`EXTENSIONS#PIN`) and the trust model above; the check
+exists so the obvious
+failures never reach either.
 
 Right-sized as ONE ticket, unlike `EXTENSIONS#TRANSFORMS`: that one fanned
 into four because it bundled a design freeze with three separate execution
@@ -180,11 +202,12 @@ lint, fixture run, headless dump, `decklight extension` command — is
 comparable in size to `theme add`/`check` landing together (#206). It needs
 Chrome the same way `npm run verify`'s render harnesses do, and answers the
 same way they already do when Chrome is absent: a named refusal, never a
-silent pass. The headless load also carries a hard 15s wall-clock kill,
-separate from `--virtual-time-budget`: that flag bounds Chrome's own clock,
-not the real one, and a synchronous `alert()`/`confirm()`/`prompt()` or an
-infinite loop in the OUTPUT blocks the render loop outside it entirely
-(measured, not theoretical) — this command's whole premise is loading code
+silent pass. Both executions carry a hard 15s wall-clock kill — the
+transform's own run in its child process, and the headless load, whose kill
+is separate from `--virtual-time-budget`: that flag bounds Chrome's own
+clock, not the real one, and a synchronous `alert()`/`confirm()`/`prompt()`
+or an infinite loop in the OUTPUT blocks the render loop outside it entirely
+(measured, not theoretical) — this command's whole premise is running code
 nobody has vetted yet, so a submission that never returns has to become a
 refusal too, not an unbounded hang in whatever is running the check.
 

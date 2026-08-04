@@ -30,9 +30,12 @@ const USAGE = `usage: decklight extension check <file> [--type transform]
 
   decklight extension check <file>
     lints the source — refuses fetch(), eval(), XMLHttpRequest or a dynamic
-    import() anywhere in it — then runs it against a small fixture and
-    headlessly loads the OUTPUT, refusing any <script> block in it. Exits
-    non-zero on a refusal, so a marketplace's own CI can gate admission on it.
+    import() anywhere in it — then runs it against a randomised fixture in a
+    SEPARATE Node process under the permission model (no filesystem writes,
+    no child processes, no workers; a scrubbed environment; a temp working
+    directory; a 15s kill) and headlessly loads the OUTPUT, refusing any
+    <script> block or inline event handler (on…=) in it. Exits non-zero on
+    a refusal, so a marketplace's own CI can gate admission on it.
     On a pass it prints the file's sha256 — the pin the catalog entry carries,
     which installs are held to (SPEC UNIT_PINNING)
     EXAMPLE: decklight extension check grammar-check.mjs
@@ -47,16 +50,20 @@ const USAGE = `usage: decklight extension check <file> [--type transform]
   catalog: "failure blocks publish" means blocking that admission, not
   decklight's own publish command.
 
-  The lint is not a friendlier echo of a runtime failure the way
-  \`decklight plugin check\`'s is — a transform runs as trusted, unsandboxed
-  Node, so nothing else stops fetch or eval from working; this lint is the
-  enforcement. Needs a real Chrome to run the headless phase, the same way
-  \`npm run verify\`'s render harnesses do.`;
+  The lint is advisory: a source-text scan catches the honest mistake, not a
+  determined one (a static child_process import sails right past it). What
+  constrains the submission DURING the check is the process boundary — which
+  does not cover the network; Node's permission model stops files, processes
+  and env, not fetch. And past admission, an installed transform runs as
+  trusted, unsandboxed Node: the installer bears that risk (MARKETPLACE.md
+  EXTENSIONS). Admission screens; it does not absolve. Needs a real Chrome
+  to run the headless phase, the same way \`npm run verify\`'s render
+  harnesses do.`;
 
 /** The validation report, as the lines to print. */
 export function reportLines(name, result) {
   if (result.ok) {
-    return [`✔ ${name} — lints clean, output carries no <script>`,
+    return [`✔ ${name} — lints clean, output carries no <script> or inline handler`,
       // The pin the entry carries once admitted (SPEC UNIT_PINNING):
       // `transform add` refuses to install without it, or past a mismatch.
       `  sha256: ${result.sha256} — the catalog entry pins the file to this digest`];
