@@ -388,9 +388,9 @@ export function chartSvg(spec) {
 
 /**
  * Expand every chart declaration under `root`, synchronously, in place.
- * Runs in the init pipeline between initMarkdown and namespaceSvgIds, so the
- * generated SVG is id-namespaced (it emits none, but the invariant holds) and
- * build-scanned like any hand-drawn diagram. Invalid input renders a visible
+ * Runs in the init pipeline ahead of namespaceSvgIds and the build scan, so
+ * the generated SVG is id-namespaced (it emits none, but the invariant holds)
+ * and build-scanned like any hand-drawn diagram. Invalid input renders a visible
  * .chart-broken box — never a blank slide, never a thrown error.
  */
 export function initCharts(root) {

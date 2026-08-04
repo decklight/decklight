@@ -103,7 +103,7 @@ function leadingHeading(section) {
 /**
  * Subtitle (SPEC DECK_ANATOMY/PRESENTING): the <p> immediately following a section's leading
  * heading is the slide's subtitle — one canonical look whether the slide is
- * markdown- or HTML-authored, pinned or centered. Opt out per slide with
+ * pinned or centered. Opt out per slide with
  * data-subtitle="none"; an author-placed class="subtitle" is respected as-is.
  */
 function detectSubtitle(section, heading) {

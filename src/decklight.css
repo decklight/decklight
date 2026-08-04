@@ -225,7 +225,7 @@
 
 /* ---------- subtitle (SPEC DECK_ANATOMY) ---------------------------------------------
    The <p> directly after a slide's leading heading. One canonical look
-   everywhere — markdown or HTML authored, pinned or centered. Absolute size
+   everywhere — pinned or centered. Absolute size
    (0.72 × the 30px slide base) so per-section font-size adaptations on dense
    slides can't shrink it: the design space is fixed 1280×720, px is stable. */
 .decklight .subtitle {

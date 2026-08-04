@@ -205,8 +205,9 @@ export function speakerState(instance, url) {
     notesSegments: notesSegments(notesEl ? notesEl.innerHTML : ''),
     rehearseSegments: rehearseEl ? notesSegments(rehearseEl.innerHTML) : null,
     labels: instance._stepLabels(slide - 1),
-    // The phone-remote QR, or null when the remote is off (#39) — the engine
-    // sets it from /edit/ping, so a deck with no dev server never offers one.
+    // The phone-remote QR, or null when the remote is off (#39) — editmode's
+    // present wiring sets it from /present/ping (PRESENT#REMOTE); the author
+    // server serves no /remote/* at all, so an authored deck never offers one.
     qr: instance.__remoteQr ?? null,
   };
 }
