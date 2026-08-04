@@ -55,6 +55,8 @@ const elapsedMs = Date.now() - before;
 
 const checks = [
   ['a clean transform passes the headless load', results.clean.ok === true],
+  ['a passing check emits the digest its catalog entry pins (SPEC UNIT_PINNING)',
+    /^[0-9a-f]{64}$/.test(results.clean.sha256 ?? '')],
   ['a transform whose OUTPUT carries a <script> is refused, at the output phase — not the lint',
     results.smuggled.ok === false && results.smuggled.phase === 'output'],
   ['a transform whose OUTPUT blocks the page (alert()) is refused rather than hanging the check',

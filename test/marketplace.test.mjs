@@ -211,6 +211,38 @@ test('IMPORTER_API_VERSION is its own counter, independent of TRANSFORM_API_VERS
   assert.equal(TRANSFORM_API_VERSION, 1);
 });
 
+// ── the pin a code-carrying entry installs against (SPEC UNIT_PINNING) ─────
+
+const HEX64 = 'a'.repeat(64);
+
+test('a well-formed sha256 validates on both code-carrying kinds', () => {
+  const t = validateManifest(TRANSFORM.replace('"apiVersion": 1', `"apiVersion": 1, "sha256": "${HEX64}"`));
+  assert.equal(t.ok, true, JSON.stringify(t.errors));
+  const i = validateManifest(IMPORTER.replace('"apiVersion": 1', `"apiVersion": 1, "sha256": "${HEX64}"`));
+  assert.equal(i.ok, true, JSON.stringify(i.errors));
+});
+
+test('a malformed sha256 is refused naming the line and the field', () => {
+  for (const bad of ['"abc"', `"${'g'.repeat(64)}"`, `"${'A'.repeat(64)}"`, `"${'a'.repeat(63)}"`, '17']) {
+    const v = validateManifest(TRANSFORM.replace('"apiVersion": 1', `"apiVersion": 1, "sha256": ${bad}`));
+    assert.equal(v.ok, false, `sha256: ${bad} should not validate`);
+    const e = v.errors.find((x) => x.field === 'entries[0].sha256');
+    assert.ok(e, JSON.stringify(v.errors));
+    assert.match(e.msg, /64 lowercase hex/);
+    assert.ok(e.line > 1, 'the error carries the line, like every other manifest error');
+  }
+});
+
+test('an ABSENT sha256 does not invalidate the manifest — the refusal is install-time', () => {
+  // Requiring the pin here would refuse a whole catalog over one unpinned
+  // transform, costing its theme entries too — the blast-radius reasoning
+  // that already leaves an unknown `type` accepted. cli/units.mjs is where
+  // an unpinned executable entry is refused, at the moment of risk
+  // (test/units.test.mjs).
+  assert.equal(validateManifest(TRANSFORM).ok, true);
+  assert.equal(validateManifest(IMPORTER).ok, true);
+});
+
 // ── sources ────────────────────────────────────────────────────────────────
 
 test('a source spec is read the way a human meant it', () => {

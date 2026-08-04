@@ -32,7 +32,9 @@ const USAGE = `usage: decklight extension check <file> [--type transform]
     lints the source — refuses fetch(), eval(), XMLHttpRequest or a dynamic
     import() anywhere in it — then runs it against a small fixture and
     headlessly loads the OUTPUT, refusing any <script> block in it. Exits
-    non-zero on a refusal, so a marketplace's own CI can gate admission on it
+    non-zero on a refusal, so a marketplace's own CI can gate admission on it.
+    On a pass it prints the file's sha256 — the pin the catalog entry carries,
+    which installs are held to (SPEC UNIT_PINNING)
     EXAMPLE: decklight extension check grammar-check.mjs
 
   --type transform   what kind of extension this is (default, and in v1 the
@@ -53,7 +55,12 @@ const USAGE = `usage: decklight extension check <file> [--type transform]
 
 /** The validation report, as the lines to print. */
 export function reportLines(name, result) {
-  if (result.ok) return [`✔ ${name} — lints clean, output carries no <script>`];
+  if (result.ok) {
+    return [`✔ ${name} — lints clean, output carries no <script>`,
+      // The pin the entry carries once admitted (SPEC UNIT_PINNING):
+      // `transform add` refuses to install without it, or past a mismatch.
+      `  sha256: ${result.sha256} — the catalog entry pins the file to this digest`];
+  }
   if (result.phase === 'lint') {
     return [`✘ ${name}`, ...result.lint.map((l) => `    line ${l.line}: ${l.why}\n      ${l.text}`)];
   }

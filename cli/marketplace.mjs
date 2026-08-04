@@ -237,6 +237,29 @@ export const TRANSFORM_API_VERSION = 1;
  */
 export const IMPORTER_API_VERSION = 1;
 
+/**
+ * The pin a code-carrying entry installs against (SPEC `UNIT_PINNING`): the
+ * SHA-256 of the module file's bytes, lowercase hex, as `sha256sum` prints it
+ * and `decklight extension check` emits it on success.
+ *
+ * Validated for SHAPE when present, like everything else in `ENTRY_SHAPES` —
+ * but its ABSENCE is refused at install time (`cli/units.mjs`), not here.
+ * Requiring it at the manifest level would invalidate a whole catalog over
+ * one unpinned transform, costing its theme entries too — the same
+ * blast-radius reasoning that leaves an unknown `type` accepted. The refusal
+ * instead lands at the one moment the risk does: installing the executable
+ * entry.
+ */
+const sha256Shape = (v) => (typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)
+  ? null
+  : 'must be 64 lowercase hex characters — the SHA-256 of the module file\'s bytes (SPEC UNIT_PINNING)');
+
+/** Fields a kind MAY carry, checked only when present — see `sha256Shape`. */
+const ENTRY_SHAPES_OPTIONAL = {
+  importer: { sha256: sha256Shape },
+  transform: { sha256: sha256Shape },
+};
+
 const ENTRY_SHAPES = {
   // `import` has to name the adapter for a `.marp` file from the CACHE, with
   // no network — so which extensions an adapter claims is a fact the catalog
@@ -303,6 +326,11 @@ function shapeErrors(entry, p, err) {
       err(`${p}.${field}`, `missing — ${entry.type} entries must declare it: ${check(undefined) ?? 'see UNITS'}`);
       continue;
     }
+    const why = check(entry[field]);
+    if (why) err(`${p}.${field}`, why);
+  }
+  for (const [field, check] of Object.entries(ENTRY_SHAPES_OPTIONAL[entry.type] ?? {})) {
+    if (entry[field] === undefined) continue;
     const why = check(entry[field]);
     if (why) err(`${p}.${field}`, why);
   }

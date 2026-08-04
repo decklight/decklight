@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` · `UNIT_PINNING` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units; the digest pin they install against; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -646,6 +646,60 @@ answered by the loader (`EXTENSIONS#LOADER`, `cli/loader.mjs`) — this section
 only settled what it checks against; running an installed import adapter
 (`EXTENSIONS#ADAPTEREXEC`) still owes the same question on that surface.
 
+### UNIT_PINNING — Code-carrying units install pinned, or not at all
+
+A `transform` or `importer` entry carries the SHA-256 of its module file's
+bytes — lowercase hex, exactly as `sha256sum` prints it:
+
+```json
+{ "name": "grammar-check", "type": "transform", "source": "./grammar.mjs",
+  "apiVersion": 1, "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08" }
+```
+
+**Why the pin exists.** An entry's relative `source` resolves against the
+marketplace's default branch (`resolveSource` fetches `HEAD` deliberately — no
+branch name is guessed at), so the bytes an install fetches are whatever the
+file says *now*, not whatever it said when the marketplace admitted the entry
+(`EXTENSIONS_CHECK`). For a theme that gap is closed by `theme add` re-running
+the entire THEMING contract at install; for Node code the loader runs
+unsandboxed at author privilege (`EXTENSIONS_TRANSFORMS`,
+`EXTENSIONS_ADAPTERS`) there is no equivalent re-check — the digest is what
+makes the code that installs the code that was screened.
+
+**A content digest, not a commit SHA.** A commit pin only reaches sources a
+host can serve by commit, and verifying it means trusting that host; a digest
+of the bytes holds identically for a raw URL, a git URL and a local
+directory, and holds against the math rather than the server. `decklight
+extension check` prints the digest on a pass, so the gate that admits a
+submission also emits the pin its catalog entry carries; `sha256sum
+<file>` produces the same value.
+
+**Enforced at install, with two named refusals** (`cli/units.mjs`).
+`decklight transform add` / `importer add` refuse a pinned kind's entry that
+carries no `sha256` — *before* anything is fetched, since without a pin there
+is no fact to hold the fetched bytes to — and refuse a fetched module whose
+digest does not match, *before* anything is written, naming both digests. A
+mismatch means the file changed since the catalog was cached: possibly a
+legitimate re-pin (`marketplace update <name>` and try again), possibly the
+exact substitution the pin exists to stop — either way nothing lands in the
+library, the same fetch-first-write-second rule every other refusal there
+keeps.
+
+**Validated for shape when present, required only at install.** The same
+split `apiVersion` already made (`UNIT_COMPAT`): a *malformed* `sha256` fails
+`marketplace add` naming the line and the field, but an *absent* one does not
+invalidate the manifest — refusing a whole catalog over one unpinned
+transform would cost its theme entries too, the blast-radius reasoning that
+already leaves an unknown `type` accepted. The refusal lands at the one
+moment the risk does: installing the executable entry.
+
+**What is deliberately not pinned.** Data kinds (themes, templates, skills)
+install unpinned — nothing in them executes, and a theme re-passes its whole
+contract at install. A unit placed in the library by hand still runs
+(`EXTENSIONS#LOADER`'s decision, unchanged): the pin governs what an
+*install* may write into the library, and the trust model for *running* what
+is there stays `EXTENSIONS_TRANSFORMS`'s — the installer is the risk-bearer.
+
 ### EXTENSIONS_TRANSFORMS — Build-time transforms: the v1 contract
 
 A transform is a single file, `transform.mjs`, exporting one function:
@@ -717,8 +771,8 @@ Two phases, checking two different things:
   transform has no such backstop — it runs as trusted, unsandboxed Node
   (`EXTENSIONS_TRANSFORMS`), where `fetch` and `eval` simply work. This lint
   IS the enforcement: the only thing standing between "HTML in, HTML out"
-  and a transform that quietly does network I/O or loads code a
-  marketplace's SHA pin never covered.
+  and a transform that quietly does network I/O or loads code the catalog's
+  digest pin (`UNIT_PINNING`) never covered.
 - **A headless load of the OUTPUT, not the source.** The file is run (through
   the same loader `EXTENSIONS#LOADER` uses — a CI runner checking a
   submission is exactly as much an installer as anyone else, for the

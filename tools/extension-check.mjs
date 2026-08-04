@@ -28,6 +28,7 @@
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { runTransformAt, LoaderError } from '../cli/loader.mjs';
@@ -36,6 +37,15 @@ import { chromeBin, chromeArgs } from './chrome.mjs';
 /** Extension kinds `extension check` knows how to validate. Grows to include
  *  `importer` once EXTENSIONS#ADAPTEREXEC freezes that contract. */
 export const TYPES = ['transform'];
+
+/**
+ * The pin a passing submission's catalog entry carries (SPEC UNIT_PINNING) —
+ * the SHA-256 of the file's raw bytes, exactly as `sha256sum` prints it, so
+ * the gate that admits a transform also emits the digest `decklight
+ * transform add` will hold the fetched module to.
+ */
+export const artifactSha256 = (file) =>
+  createHash('sha256').update(readFileSync(file)).digest('hex');
 
 /** The fixture every check runs a transform against — small on purpose (SPEC
  *  EXTENSIONS_CHECK): this proves the calling convention, not any particular
@@ -133,5 +143,5 @@ export async function checkExtension(file, { type = 'transform' } = {}) {
     return { ok: false, phase: 'output', error: 'the output contains a <script> block — a transform'
       + ' must produce HTML only; nothing executable may travel (MARKETPLACE.md EXTENSIONS)' };
   }
-  return { ok: true };
+  return { ok: true, sha256: artifactSha256(abs) };
 }
