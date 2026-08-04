@@ -19,6 +19,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -41,10 +42,25 @@ const tmp = (p) => mkdtempSync(path.join(tmpdir(), `decklight-${p}-`));
 const TEMPLATE_HTML = `<!doctype html><html><head><title>Pitch</title></head>
 <body><div class="decklight"><section><h1>Pitch</h1></section></div></body></html>`;
 
+/** The pin a code-carrying entry carries (SPEC UNIT_PINNING). */
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+
+// A real default export (EXTENSIONS_ADAPTERS): bytes in, one HTML string of
+// section markup out — enough for the execution tests below to prove the
+// adapter actually ran, not merely that it installed.
+const MARP_IMPORTER_MJS =
+  'export default async function importAdapter(bytes) {\n'
+  + '  const body = bytes.toString("utf8").trim();\n'
+  + '  return body.split(/\\n(?=# )/).map((chunk) => {\n'
+  + '    const [heading, ...rest] = chunk.split("\\n");\n'
+  + '    return `<section><h2>${heading.replace(/^#\\s*/, "")}</h2>${rest.join(" ").trim()}</section>`;\n'
+  + '  }).join("\\n");\n'
+  + '}\n';
+
 const ENTRIES = [
   { name: 'startup-pitch', type: 'template', source: 'templates/startup-pitch.html', description: 'a 10-slide pitch' },
   { name: 'note-taking', type: 'skill', source: 'skills/note-taking' },
-  { name: 'marp-import', type: 'importer', source: 'importers/marp', extensions: ['.marp', '.md'], apiVersion: 1 },
+  { name: 'marp-import', type: 'importer', source: 'importers/marp', extensions: ['.marp', '.md'], apiVersion: 1, sha256: sha256(MARP_IMPORTER_MJS) },
 ];
 
 /** A local marketplace on disk, registered into a fresh config home. */
@@ -60,17 +76,7 @@ function market({ entries = ENTRIES, home = tmp('units-home') } = {}) {
   writeFileSync(path.join(root, 'skills/note-taking/SKILL.md'), '# Note taking\n');
   writeFileSync(path.join(root, 'skills/note-taking/reference.md'), 'reference\n');
   mkdirSync(path.join(root, 'importers/marp'), { recursive: true });
-  // A real default export (EXTENSIONS_ADAPTERS): bytes in, one HTML string of
-  // section markup out — enough for the execution tests below to prove the
-  // adapter actually ran, not merely that it installed.
-  writeFileSync(path.join(root, 'importers/marp/importer.mjs'),
-    'export default async function importAdapter(bytes) {\n'
-    + '  const body = bytes.toString("utf8").trim();\n'
-    + '  return body.split(/\\n(?=# )/).map((chunk) => {\n'
-    + '    const [heading, ...rest] = chunk.split("\\n");\n'
-    + '    return `<section><h2>${heading.replace(/^#\\s*/, "")}</h2>${rest.join(" ").trim()}</section>`;\n'
-    + '  }).join("\\n");\n'
-    + '}\n');
+  writeFileSync(path.join(root, 'importers/marp/importer.mjs'), MARP_IMPORTER_MJS);
 
   execFileSync(process.execPath, [CLI, 'marketplace', 'add', root],
     { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -476,12 +482,12 @@ test('an installed adapter actually runs — decklight import produces a deck (E
 });
 
 test('an installed adapter that fails its own contract is refused cleanly, not left half-written', async () => {
+  const broken = 'export default async function importAdapter() { throw new Error("bad markup"); }\n';
   const m = market({
-    entries: [{ name: 'broken-import', type: 'importer', source: 'importers/broken', extensions: ['.marp'], apiVersion: 1 }],
+    entries: [{ name: 'broken-import', type: 'importer', source: 'importers/broken', extensions: ['.marp'], apiVersion: 1, sha256: sha256(broken) }],
   });
   mkdirSync(path.join(m.root, 'importers/broken'), { recursive: true });
-  writeFileSync(path.join(m.root, 'importers/broken/importer.mjs'),
-    'export default async function importAdapter() { throw new Error("bad markup"); }\n');
+  writeFileSync(path.join(m.root, 'importers/broken/importer.mjs'), broken);
   await installUnit('importer', 'broken-import', m.home);
   const work = tmp('units-adapter-throws');
   const src = path.join(work, 'talk.marp');
@@ -512,6 +518,83 @@ test('a file with no extension gets no adapter talk', async () => {
   const m = market();
   const lines = await adapterOffer('Makefile', { home: m.home });
   assert.equal(lines.length, 2);
+  m.cleanup();
+});
+
+// ── the pin: code-carrying units install pinned, or not at all ─────────────
+// (SPEC UNIT_PINNING) — a transform/importer `source` resolves against a
+// moving ref, so what `add` fetches is held to the sha256 the catalog
+// admitted: no pin, no fetch; off the pin, no write.
+
+test('an executable unit with no pin is refused BEFORE any fetch', async () => {
+  // The artifact file deliberately does not exist: if this refusal were
+  // fetch-side, the error would be "no such file", not the pin.
+  const m = market({
+    entries: [{ name: 'grammar-check', type: 'transform', source: 'grammar.mjs', apiVersion: 1 }],
+  });
+  try {
+    await assert.rejects(() => installUnit('transform', 'grammar-check', m.home), (e) => {
+      assert.ok(e instanceof UnitError);
+      assert.match(e.message, /carries no sha256/);
+      assert.match(e.message, /UNIT_PINNING/);
+      return true;
+    });
+    assert.equal(listUnits('transform', m.home).length, 0, 'nothing was written');
+  } finally { m.cleanup(); }
+});
+
+test('an unpinned importer is refused the same way — both code-carrying kinds are pinned', async () => {
+  const m = market({
+    entries: [{ name: 'marp-import', type: 'importer', source: 'importers/marp', extensions: ['.marp'], apiVersion: 1 }],
+  });
+  try {
+    await assert.rejects(() => installUnit('importer', 'marp-import', m.home),
+      (e) => e instanceof UnitError && /carries no sha256/.test(e.message));
+    assert.ok(!existsSync(unitPath('importer', 'marp-import', m.home)));
+  } finally { m.cleanup(); }
+});
+
+test('a module changed since the catalog was cached is refused naming both digests — the moving-ref attack', async () => {
+  const m = market(); // marp-import, pinned to MARP_IMPORTER_MJS at `marketplace add` time
+  try {
+    // The marketplace repo moves on after admission: what an install would now
+    // fetch is not what was screened. The ref moved; the cached pin did not.
+    writeFileSync(path.join(m.root, 'importers/marp/importer.mjs'),
+      'export default async function importAdapter() { return "<section>not what was admitted</section>"; }\n');
+    await assert.rejects(() => installUnit('importer', 'marp-import', m.home), (e) => {
+      assert.ok(e instanceof UnitError);
+      assert.match(e.message, /does not match the catalog's pin/);
+      assert.match(e.message, new RegExp(`pinned {2}sha256 ${sha256(MARP_IMPORTER_MJS)}`));
+      assert.match(e.message, /fetched sha256 [0-9a-f]{64}/);
+      assert.match(e.message, /marketplace update cat/, 'a legitimate re-pin has a named way forward');
+      return true;
+    });
+    assert.ok(!existsSync(unitPath('importer', 'marp-import', m.home)),
+      'a mismatch writes nothing — the library is exactly as it was');
+  } finally { m.cleanup(); }
+});
+
+test('a matching pin installs, and the installed bytes are the pinned bytes', async () => {
+  const module = 'export default async function transform(html) { return html; }\n';
+  const m = market({
+    entries: [{ name: 'grammar-check', type: 'transform', source: 'grammar.mjs', apiVersion: 1, sha256: sha256(module) }],
+  });
+  writeFileSync(path.join(m.root, 'grammar.mjs'), module);
+  try {
+    const done = await installUnit('transform', 'grammar-check', m.home);
+    assert.equal(readFileSync(done.path, 'utf8'), module);
+  } finally { m.cleanup(); }
+});
+
+test('decklight transform add surfaces the pin refusal as a clean message, never a stack', () => {
+  const m = market({
+    entries: [{ name: 'grammar-check', type: 'transform', source: 'grammar.mjs', apiVersion: 1 }],
+  });
+  const { code, out } = run(['transform', 'add', 'grammar-check'], m.home);
+  assert.equal(code, 1);
+  assert.match(out, /carries no sha256/);
+  assert.match(out, /decklight extension check prints the digest/);
+  assert.doesNotMatch(out, /^\s+at /m, 'an unpinned catalog entry is not an internal error');
   m.cleanup();
 });
 

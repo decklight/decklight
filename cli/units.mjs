@@ -32,6 +32,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { configHome, loadRegistry, loadCatalog, resolveEntry, MarketplaceError } from './marketplace.mjs';
 
@@ -66,6 +67,13 @@ export const UNIT_TYPES = {
     example: 'conference-cfp',
     required: [],
   },
+  // `pinned` marks the kinds that are Node code the loader runs unsandboxed
+  // at author privilege (EXTENSIONS#LOADER): their `source` resolves against
+  // a moving ref (`resolveSource` deliberately fetches HEAD), so an entry
+  // installs only against the `sha256` its catalog admitted — refused before
+  // any fetch without one, refused before any write on a mismatch (SPEC
+  // UNIT_PINNING). Data kinds stay unpinned: a theme re-passes its whole
+  // contract at `theme add`, and nothing in a template or skill executes.
   importer: {
     dir: 'importers',
     files: ['importer.mjs'],
@@ -73,6 +81,7 @@ export const UNIT_TYPES = {
     use: 'decklight import <file>',
     example: 'marp-import',
     required: ['extensions'],
+    pinned: true,
   },
   // Node code, like an importer — but this one DOES run (EXTENSIONS#LOADER):
   // `bundle --transform <name>` loads it through cli/loader.mjs. `apiVersion`
@@ -87,6 +96,7 @@ export const UNIT_TYPES = {
     use: 'decklight bundle --transform <name>',
     example: 'grammar-check',
     required: ['apiVersion'],
+    pinned: true,
   },
   // The one kind that carries NOTHING. `reference: true` means the install is
   // the catalog entry itself, written to disk as a pointer — no source to
@@ -276,6 +286,16 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
     return { name, qualified: hit.qualified, entry: hit.entry, path: dest, files: [] };
   }
 
+  // A pinned kind with no pin is refused HERE, before the network is touched:
+  // its source resolves against a moving ref, so without a digest there is no
+  // fact to hold the fetched bytes to (SPEC UNIT_PINNING).
+  if (t.pinned && !hit.entry.sha256) {
+    throw new UnitError(`${hit.qualified} carries no sha256 — a ${t.label} is Node code decklight`
+      + ` runs unsandboxed, so it installs only pinned to the digest its catalog admitted`
+      + ` (SPEC UNIT_PINNING). Ask the marketplace to pin the entry; decklight extension check`
+      + ` prints the digest to use`);
+  }
+
   const { resolveSource } = await import('./theme.mjs');
   const base = resolveSource(hit.entry.source, reg.marketplaces[hit.marketplace]?.source);
 
@@ -287,6 +307,23 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
     for (const file of t.files) fetched.push([file, await fetchArtifact(joinSource(base, file), { fetchImpl })]);
     for (const file of t.optional ?? []) {
       try { fetched.push([file, await fetchArtifact(joinSource(base, file), { fetchImpl })]); } catch { /* optional */ }
+    }
+  }
+
+  // The pin covers the MODULE — the file the loader will import() — and it is
+  // checked between fetch and write, so a mismatch leaves the library exactly
+  // as it was, like every other refusal here.
+  if (hit.entry.sha256) {
+    const moduleFile = t.single ? '' : t.files[0];
+    const got = createHash('sha256').update(fetched.find(([f]) => f === moduleFile)[1]).digest('hex');
+    const want = String(hit.entry.sha256).toLowerCase();
+    if (got !== want) {
+      throw new UnitError(`${hit.qualified}: the fetched ${t.single ? `.${t.single} file` : t.files[0]}`
+        + ` does not match the catalog's pin (SPEC UNIT_PINNING)\n`
+        + `  pinned  sha256 ${want}\n`
+        + `  fetched sha256 ${got}\n`
+        + `  the file changed since this catalog was cached — nothing was installed. If the`
+        + ` marketplace re-pinned it, decklight marketplace update ${hit.marketplace} and try again`);
     }
   }
 

@@ -18,6 +18,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -35,6 +36,9 @@ const CLI = path.join(ROOT, 'cli/decklight.mjs');
 const DEMO = path.join(ROOT, 'demo/intro.html');
 
 const tmp = (p) => mkdtempSync(path.join(tmpdir(), `decklight-${p}-`));
+
+/** The pin a code-carrying catalog entry must carry (SPEC UNIT_PINNING). */
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
 /** Write a transform straight into the library, bypassing install — for the
  *  loader tests that do not need a catalog behind it at all. */
@@ -55,14 +59,14 @@ function putImporter(home, name, source) {
 /** A local marketplace with one importer entry, registered into `home`. */
 function importerMarket(home, { apiVersion = IMPORTER_API_VERSION, name = 'marp-import', source = 'marp', body } = {}) {
   const root = tmp('importer-market');
+  const module = body ?? 'export default async function importAdapter(bytes) { return `<section>${bytes.toString("utf8")}</section>`; }\n';
   mkdirSync(path.join(root, '.decklight'), { recursive: true });
   writeFileSync(path.join(root, '.decklight/marketplace.json'), JSON.stringify({
     name: 'cat',
-    entries: [{ name, type: 'importer', source, extensions: ['.marp'], apiVersion }],
+    entries: [{ name, type: 'importer', source, extensions: ['.marp'], apiVersion, sha256: sha256(module) }],
   }, null, 2));
   mkdirSync(path.join(root, source), { recursive: true });
-  writeFileSync(path.join(root, source, 'importer.mjs'),
-    body ?? 'export default async function importAdapter(bytes) { return `<section>${bytes.toString("utf8")}</section>`; }\n');
+  writeFileSync(path.join(root, source, 'importer.mjs'), module);
   execFileSync(process.execPath, [CLI, 'marketplace', 'add', root],
     { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
   return root;
@@ -71,12 +75,13 @@ function importerMarket(home, { apiVersion = IMPORTER_API_VERSION, name = 'marp-
 /** A local marketplace with one transform entry, registered into `home`. */
 function market(home, { apiVersion = TRANSFORM_API_VERSION, name = 'grammar-check', source = 'grammar.mjs', body } = {}) {
   const root = tmp('transform-market');
+  const module = body ?? `export default async function transform(html) { return html; }\n`;
   mkdirSync(path.join(root, '.decklight'), { recursive: true });
   writeFileSync(path.join(root, '.decklight/marketplace.json'), JSON.stringify({
     name: 'cat',
-    entries: [{ name, type: 'transform', source, apiVersion }],
+    entries: [{ name, type: 'transform', source, apiVersion, sha256: sha256(module) }],
   }, null, 2));
-  writeFileSync(path.join(root, source), body ?? `export default async function transform(html) { return html; }\n`);
+  writeFileSync(path.join(root, source), module);
   execFileSync(process.execPath, [CLI, 'marketplace', 'add', root],
     { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
   return root;

@@ -18,7 +18,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { extensionLint, checkExtension, TYPES, FIXTURE_HTML } from '../tools/extension-check.mjs';
+import { extensionLint, checkExtension, TYPES, FIXTURE_HTML, artifactSha256 } from '../tools/extension-check.mjs';
+import { reportLines } from '../cli/extension.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -130,6 +131,27 @@ test('a transform returning a non-string fails at the load phase', async () => {
 test('the fixture is small HTML, not a full deck', () => {
   assert.match(FIXTURE_HTML, /^<!doctype html>/i);
   assert.ok(FIXTURE_HTML.length < 300, 'the fixture stays small on purpose (SPEC EXTENSIONS_CHECK)');
+});
+
+// ── the pin the gate emits (SPEC UNIT_PINNING) ────────────────────────────
+
+test('artifactSha256 hashes the file BYTES, exactly as sha256sum prints it', () => {
+  const dir = tmp('extcheck-sha');
+  try {
+    // The well-known SHA-256 of "abc" — the digest is of the raw bytes, so a
+    // marketplace can produce the same pin with sha256sum and paste it into
+    // the catalog entry `transform add` will hold the fetched module to.
+    const file = transform(dir, 'x.mjs', 'abc');
+    assert.equal(artifactSha256(file),
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a passing report carries the digest the catalog entry pins — the gate emits the pin', () => {
+  const lines = reportLines('x.mjs', { ok: true, sha256: 'a'.repeat(64) });
+  assert.equal(lines.length, 2);
+  assert.match(lines[1], new RegExp(`sha256: ${'a'.repeat(64)}`));
+  assert.match(lines[1], /pins the file to this digest/);
 });
 
 // ── the CLI ─────────────────────────────────────────────────────────────

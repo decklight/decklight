@@ -45,8 +45,12 @@ that inversion.
 - "Vetted" means a written bar enforced by CI (`theme check`, `extension
   check`), not a folder with the project's logo on it.
 - Third-party marketplaces are unreviewed, auto-update off by default; the
-  community one screens submissions and pins to a commit SHA. This is Claude's
-  tiering, adopted deliberately.
+  community one screens submissions and pins what it screened. This is
+  Claude's tiering, adopted deliberately. For a code-carrying entry the pin
+  is not a courtesy the tier extends but a fact decklight itself enforces: a
+  `transform`/`importer` entry carries the module file's `sha256`, and `add`
+  refuses to install without it or past a mismatch (`EXTENSIONS#PIN`, SPEC
+  `UNIT_PINNING`).
 
 ### EXTENSIONS — Build-time by default
 
@@ -145,9 +149,9 @@ Two phases, and they are not the same kind of check:
   throws on `parent.document` regardless), but a transform runs as trusted,
   unsandboxed Node (`EXTENSIONS#LOADER`) — nothing stops `fetch` or `eval`
   from *working* there. The lint is the only thing that keeps a "HTML in,
-  HTML out" pure function from quietly doing network I/O or loading code a
-  marketplace's SHA pin never covered; there is no sandbox standing behind it
-  the way there is for a plugin.
+  HTML out" pure function from quietly doing network I/O or loading code the
+  catalog's digest pin (`EXTENSIONS#PIN`) never covered; there is no sandbox
+  standing behind it the way there is for a plugin.
 - **A headless load of the transform's OUTPUT, not its source.** The checked
   file is run (through `cli/loader.mjs`, same in-process trust model — a CI
   runner is exactly as much an installer as anyone else for the duration of
@@ -183,6 +187,24 @@ infinite loop in the OUTPUT blocks the render loop outside it entirely
 (measured, not theoretical) — this command's whole premise is loading code
 nobody has vetted yet, so a submission that never returns has to become a
 refusal too, not an unbounded hang in whatever is running the check.
+
+**`EXTENSIONS#PIN` — landed (full contract text: SPEC `UNIT_PINNING`).** The
+pin the tiering above reasons about, made real where the risk lands rather
+than left as a property a good marketplace merely has. What `extension
+check` admits and what `transform add`/`importer add` later fetch were two
+reads of a moving ref (`resolveSource` resolves a relative `source` against
+`HEAD`, deliberately — no branch name guessed at), with nothing holding them
+equal: a repo edited after admission would install and then run, unsandboxed,
+in the installer's own Node process. Now a code-carrying entry carries the
+module file's `sha256` — a content digest, not a commit SHA, so it holds for
+raw URLs, git URLs and local directories alike, against the math rather than
+the host — and installing is held to it twice: no pin, no fetch; a fetched
+module off the pin, no write, both refusals named. `extension check` prints
+the digest on a pass, so the admission gate emits the very pin the catalog
+entry carries. Data kinds stay unpinned (a theme re-passes its whole contract
+at `theme add`; templates and skills execute nothing), and a hand-placed unit
+still runs — the pin governs what an *install* writes, `EXTENSIONS`' trust
+model still governs running it.
 
 ### PRESENT — `decklight present`, the trusted local viewer
 
@@ -460,7 +482,8 @@ free.
 
 Player-first surface · `.decklight/marketplace.json` mirroring Claude's layout ·
 versions for code, none for data · `extension check` = lint, then headless load ·
-disclosure at install · official curated + community screened with SHA pinning ·
+disclosure at install · official curated + community screened with pinning
+(landed as an artifact digest, not a commit SHA — `EXTENSIONS#PIN`) ·
 third-party unreviewed with auto-update off.
 
 ### SUPERSEDED — Earlier decisions, replaced
@@ -625,6 +648,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `COMMANDS#RENAME` | `dev` → `author` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
 | `PRESENT#REMOTE` | move speaker view + phone remote off the edit server onto `present` | `PRESENT_SERVER` |
 | `THEME_BROWSE#SPLIT` | **landed** — `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme check` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
+| `EXTENSIONS#PIN` | **landed** — `sha256` on transform/importer entries; `add` refuses unpinned or mismatched, `extension check` prints the digest | `EXTENSIONS#CHECK`, `UNITS#REST` |
 
 `PRESENT_SERVER` through `DECK_FILE#ASSOC` are a coherent first release with no
 marketplace at all — they make playing someone else's deck safe, which is worth
