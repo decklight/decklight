@@ -90,6 +90,36 @@ test('the replacement carries none of the removed bytes', () => {
   assert.equal((html.match(/-->/g) ?? []).length, 1, 'exactly the one comment it wrote');
 });
 
+test('an inline handler attribute is spliced out, and nothing around it moved', () => {
+  const attr = `onerror="fetch('//evil')"`;
+  const poisoned = CLEAN.replace('<h2>Alpha</h2>', `<h2>Alpha</h2><img src=x ${attr}>`);
+  const { html, stripped } = stripUnaccounted(poisoned);
+  assert.equal(stripped.length, 1);
+  assert.doesNotMatch(html, /onerror|evil/, 'the payload is not in the served bytes at all');
+  assert.match(html, /<img src=x >/, 'the tag survives without its handler');
+  // everything except the removed attribute is the original, character for character
+  assert.equal(html.replace('<img src=x >', `<img src=x ${attr}>`), poisoned);
+});
+
+test('a javascript: href loses the attribute, not the anchor', () => {
+  const poisoned = CLEAN.replace('<h2>Alpha</h2>',
+    `<h2>Alpha</h2><a href="javascript:alert(1)">win a prize</a>`);
+  const { html, stripped } = stripUnaccounted(poisoned);
+  assert.equal(stripped.length, 1);
+  assert.doesNotMatch(html, /javascript:|alert/);
+  assert.match(html, />win a prize<\/a>/, 'the audience still sees the text — inert');
+});
+
+test('a handler on a block already being stripped is not spliced twice', () => {
+  // Overlapping splices would corrupt the bytes that survive. The block's own
+  // removal carries its tag — and the attribute on it — out in one piece.
+  const poisoned = CLEAN.replace('</body>', '  <script onload="x()">evil()</script>\n</body>');
+  const { html, stripped } = stripUnaccounted(poisoned);
+  assert.equal(stripped.length, 1, 'one splice: the block');
+  assert.doesNotMatch(html, /onload|evil/);
+  assert.equal(html.replace(/<!-- decklight strict mode:[^>]*-->/, '<script onload="x()">evil()</script>'), poisoned);
+});
+
 test('several blocks at once — later offsets survive the earlier splices', () => {
   const poisoned = CLEAN
     .replace('<div class="decklight">', '<script>one()</script>\n  <div class="decklight">')
@@ -142,6 +172,23 @@ test('an unaccounted block turns strict on by itself, and the deck still plays',
   assert.match(body, /Decklight\.init/, 'including the call that boots it');
 
   assert.match(log(), /1 unaccounted script block stripped — serving strict/,
+    'the terminal says what happened, without being asked');
+});
+
+test('a handler-only deck turns strict on by itself, and the attribute is gone', async (t) => {
+  // No <script> was added, so a block-only scan sees a clean deck — this is
+  // the ticket's attack, and it has to trip the same automatic degrade.
+  const dir = deckDir(CLEAN.replace('<h2>Alpha</h2>',
+    '<h2>Alpha</h2><img src=x onerror="window.__pwned = 1">'));
+  const { base, log } = await startPresent(t, dir);
+
+  const res = await fetch(base + '/');
+  assert.equal(res.status, 200, 'it never refuses to serve');
+  const body = await res.text();
+  assert.doesNotMatch(body, /onerror|__pwned/, 'the handler is not in the served bytes');
+  assert.match(body, /<img src=x >/, 'the image itself still renders');
+  assert.match(body, /<h2>Alpha<\/h2>/);
+  assert.match(log(), /1 executable attribute stripped — serving strict/,
     'the terminal says what happened, without being asked');
 });
 

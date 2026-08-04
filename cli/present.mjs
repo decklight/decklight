@@ -111,17 +111,19 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
 
   --port N   port to bind; a taken port offers to take over that session
              (on a TTY) or moves on to the next free one            [8790]
-  --strict   serve with every script block that is not the runtime removed.
-             The removal happens on the way out — the file on disk is never
-             touched. Turns itself on when the label finds something.
+  --strict   serve with every script block that is not the runtime removed,
+             along with every inline on*= handler, javascript: URL and srcdoc
+             document. The removal happens on the way out — the file on disk
+             is never touched. Turns itself on when the label finds something.
   --remote   also listen on the LAN for the phone remote. Off this machine ONLY
              /remote/* answers, and only with the per-run token the printed URL
              and its QR carry — the deck itself, and every file beside it, stay
              unreachable from the LAN whether or not this flag is passed.
   --host A   the address --remote binds                            [0.0.0.0]
   --check    print the ingredients label and exit — no server. Exits non-zero
-             if the deck runs any script that is not the runtime, so CI can
-             gate on a deck before it is forwarded or published.
+             if the deck runs any script that is not the runtime — a block or
+             an executable attribute — so CI can gate on a deck before it is
+             forwarded or published.
   --no-plugins  present without your own chrome, whatever is installed.
 
   Your presenter plugins (decklight plugin) are layered on at serve time from
@@ -140,7 +142,10 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
   Every start prints the ingredients label: which runtime is embedded and
   whether its bytes are the ones this install ships, how many inert data blocks
   the runtime will read, and — named, with line numbers — every script block
-  that will execute and is NOT accounted for. It is an inventory, not a verdict:
+  that will execute and is NOT accounted for, plus every executable attribute
+  (an inline on*= handler, a javascript: or data:text/html URL, an inline
+  srcdoc document — the vectors 'unsafe-inline' below would otherwise let run
+  unnamed). It is an inventory, not a verdict:
   there is no "safe" here, because the scan is a heuristic over a file someone
   may have edited and a green check would promise more than it can keep.
 
@@ -257,7 +262,8 @@ export async function presentMain(args) {
     // "it carries a signature I could not stand behind" — not "this deck is
     // malicious", which is a call no exit code should make. `unchecked` counts:
     // a gate that passes when it could not evaluate the claim is not a gate.
-    return report.counts.unaccounted || (signature.state !== UNSIGNED && !isVerified(signature)) ? 1 : 0;
+    return report.counts.unaccounted || report.counts.handlers
+      || (signature.state !== UNSIGNED && !isVerified(signature)) ? 1 : 0;
   }
 
   // The cwd is the served root, and the deck must live under it — the author
@@ -289,7 +295,8 @@ export async function presentMain(args) {
   // no third state where a bad signature means something else — one degrade is
   // one thing to understand at the moment you have no time to understand two.
   const unverified = signature.state !== UNSIGNED && !isVerified(signature);
-  const strict = args.includes('--strict') || report.counts.unaccounted > 0 || unverified;
+  const strict = args.includes('--strict') || report.counts.unaccounted > 0
+    || report.counts.handlers > 0 || unverified;
 
   // The rewrite covers every html response, not only the deck: strict that
   // stopped at one file would be walked around by a second page under the same
@@ -474,10 +481,14 @@ export async function presentMain(args) {
   // page would tell them something they cannot act on, about a file they did
   // not choose to open, in the middle of someone's talk.
   if (strict) {
-    const n = report.counts.unaccounted;
+    const n = report.counts.unaccounted, h = report.counts.handlers;
     if (unverified) console.log('  the signature did not verify — serving strict');
-    console.log(n
-      ? `  ${n} unaccounted script block${n === 1 ? '' : 's'} stripped — serving strict. The file on disk is untouched`
+    const removed = [
+      n ? `${n} unaccounted script block${n === 1 ? '' : 's'}` : '',
+      h ? `${h} executable attribute${h === 1 ? '' : 's'}` : '',
+    ].filter(Boolean).join(' and ');
+    console.log(removed
+      ? `  ${removed} stripped — serving strict. The file on disk is untouched`
       : `  nothing to strip — this deck is served exactly as ${container ? 'the container carries it' : 'it was read from disk'}`);
   }
 
