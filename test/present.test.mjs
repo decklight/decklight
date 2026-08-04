@@ -99,17 +99,56 @@ test('present serves the deck at / and its assets alongside', async (t) => {
   assert.equal(css.headers.get('content-type'), 'text/css');
 });
 
-test('a deck up the tree still resolves its assets, and nothing above escapes', async (t) => {
+// ── the served root is the deck's, and secrets beside it stay unreachable ──
+
+test('dotfiles beside the deck are refused unconditionally', async (t) => {
+  // The ticket's attack (#226): fetch('/.env') same-origin, POST it to any
+  // https: host. The read must fail, decoded or percent-encoded.
+  const dir = deckDir();
+  writeFileSync(path.join(dir, '.env'), 'AWS_SECRET_ACCESS_KEY=hunter2');
+  mkdirSync(path.join(dir, '.git'));
+  writeFileSync(path.join(dir, '.git', 'config'), '[remote "origin"]');
+  const { base } = await startPresent(t, dir);
+
+  for (const p of ['/.env', '/.git/config', '/%2e%65%6e%76' /* ".env" */, '/%2Egit/config']) {
+    assert.equal((await fetch(base + p)).status, 403, `${p} is refused, not served`);
+  }
+  // and the deck itself is unaffected
+  assert.equal((await fetch(base + '/talk.html')).status, 200);
+});
+
+test('file types a deck cannot use are refused, not served as octet-stream', async (t) => {
+  const dir = deckDir();
+  writeFileSync(path.join(dir, 'id_rsa'), '-----BEGIN OPENSSH PRIVATE KEY-----');
+  writeFileSync(path.join(dir, 'backup.pem'), '-----BEGIN CERTIFICATE-----');
+  writeFileSync(path.join(dir, 'notes.sqlite'), 'SQLite format 3');
+  // a deck DOES use video: the MIME table has to know mp4, or spec'd
+  // background video (DECK_ANATOMY) would be refused by the same gate
+  writeFileSync(path.join(dir, 'clip.mp4'), 'not really video');
+  const { base } = await startPresent(t, dir);
+
+  for (const p of ['/id_rsa', '/backup.pem', '/notes.sqlite']) {
+    assert.equal((await fetch(base + p)).status, 403, `${p} is refused`);
+  }
+  const clip = await fetch(base + '/clip.mp4');
+  assert.equal(clip.status, 200);
+  assert.equal(clip.headers.get('content-type'), 'video/mp4');
+});
+
+test('--root: a source deck up the tree resolves its assets, and nothing above escapes', async (t) => {
   // A source deck reaches UP for the runtime (demo/showcase.html loads
-  // ../dist/decklight.js), which is why the cwd is the root and not the deck's
-  // own directory. The traversal guard is what keeps that from being a hole.
+  // ../dist/decklight.js), which is what --root exists for — the wider
+  // exposure is a flag someone typed, never inherited from the cwd. The
+  // traversal guard is what keeps the widened root from being a hole.
   const outer = mkdtempSync(path.join(tmpdir(), 'decklight-outer-'));
   mkdirSync(path.join(outer, 'dist'));
   writeFileSync(path.join(outer, 'dist', 'runtime.js'), 'globalThis.Decklight = {}');
   const sub = path.join(outer, 'sub');
   mkdirSync(sub);
   writeFileSync(path.join(sub, 'talk.html'), DECK.replace('theme.css', '../dist/runtime.js'));
-  const { base } = await startPresent(t, outer, { deck: 'sub/talk.html', cwd: outer });
+  const { base } = await startPresent(t, outer, {
+    deck: 'sub/talk.html', cwd: outer, extraArgs: ['--root', '.'],
+  });
 
   assert.equal((await fetch(base + '/sub/talk.html')).status, 200);
   assert.equal((await fetch(base + '/dist/runtime.js')).status, 200, 'the sibling the deck reaches for');
@@ -118,20 +157,48 @@ test('a deck up the tree still resolves its assets, and nothing above escapes', 
   assert.notEqual((await fetch(base + '/%2e%2e/%2e%2e/etc/passwd')).status, 200);
 });
 
-test('a deck outside the served directory is refused, not silently rooted elsewhere', async () => {
+test('without --root, the served root is the deck directory — a source deck cannot reach up', async (t) => {
+  const outer = mkdtempSync(path.join(tmpdir(), 'decklight-noroot-'));
+  mkdirSync(path.join(outer, 'dist'));
+  writeFileSync(path.join(outer, 'dist', 'runtime.js'), 'globalThis.Decklight = {}');
+  const sub = path.join(outer, 'sub');
+  mkdirSync(sub);
+  writeFileSync(path.join(sub, 'talk.html'), DECK.replace('theme.css', '../dist/runtime.js'));
+  const { base } = await startPresent(t, outer, { deck: 'sub/talk.html', cwd: outer });
+
+  // the root travelled to the deck's own directory, so the deck is /talk.html…
+  assert.equal((await fetch(base + '/talk.html')).status, 200);
+  // …and the runtime one level up is simply not in the served tree
+  assert.notEqual((await fetch(base + '/dist/runtime.js')).status, 200);
+  assert.notEqual((await fetch(base + '/../dist/runtime.js')).status, 200);
+});
+
+test('a deck outside the chosen --root is refused, not silently rooted elsewhere', async () => {
   const { execFileSync } = await import('node:child_process');
   const outer = mkdtempSync(path.join(tmpdir(), 'decklight-outside-'));
   writeFileSync(path.join(outer, 'talk.html'), DECK);
   const cwd = mkdtempSync(path.join(tmpdir(), 'decklight-cwd-'));
   let code = 0; let out = '';
   try {
-    execFileSync(process.execPath, [CLI, 'present', path.join(outer, 'talk.html'), '--port', '0'],
+    execFileSync(process.execPath, [CLI, 'present', path.join(outer, 'talk.html'), '--port', '0', '--root', '.'],
       { cwd, encoding: 'utf8', stdio: 'pipe', timeout: 8000 });
   } catch (e) { code = e.status; out = String(e.stderr); }
   rmSync(outer, { recursive: true, force: true });
   rmSync(cwd, { recursive: true, force: true });
   assert.equal(code, 1);
-  assert.match(out, /deck must live under the current directory/);
+  assert.match(out, /deck must live under --root/);
+});
+
+test('a deck presents from any cwd — the root travels with the deck, not the shell', async (t) => {
+  // The file-association path (`decklight associate`) launches present from
+  // wherever the OS pleases; the served root must not depend on that.
+  const dir = deckDir();
+  const cwd = mkdtempSync(path.join(tmpdir(), 'decklight-elsewhere-'));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  const { base } = await startPresent(t, dir, { deck: path.join(dir, 'talk.html'), cwd });
+
+  assert.equal((await fetch(base + '/')).status, 200);
+  assert.equal((await fetch(base + '/theme.css')).status, 200, 'siblings resolve relative to the deck');
 });
 
 // ── the CSP is a header, and it is the documented one ──────────────────────

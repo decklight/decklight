@@ -117,6 +117,7 @@ export const MIME = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg',
   '.gif': 'image/gif', '.ico': 'image/x-icon', '.webp': 'image/webp',
   '.wav': 'audio/wav', '.m4a': 'audio/mp4', '.mp3': 'audio/mpeg',
+  '.mp4': 'video/mp4', '.webm': 'video/webm',
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.map': 'application/json',
 };
 
@@ -150,18 +151,36 @@ export function withHeaders(headers, handler) {
  * stays exactly as it arrived: the transform sits between the read and the
  * write, so there is no point in this path where the modified bytes could be
  * mistaken for the deck.
+ *
+ * Dotfiles are refused unconditionally — no path segment may start with `.`,
+ * decoded or not. A deck has no business fetching `.env` or `.git/config`,
+ * and with `connect-src https:` open (PRESENT), anything a hostile deck can
+ * read same-origin it can also send anywhere.
+ *
+ * `knownTypesOnly` additionally refuses every extension the MIME table does
+ * not name. `present` passes it: the table is the set of types a deck can
+ * actually use, and a file beside a travelled deck that is none of them —
+ * `id_rsa`, a `.pem`, a database — is only ever fetched to be exfiltrated.
+ * The author server does not, so an author's exotic asset still serves as
+ * octet-stream from their own machine.
  */
-export function staticFiles(root, { index = '/index.html', html: rewriteHtml = null } = {}) {
+export function staticFiles(root, { index = '/index.html', html: rewriteHtml = null, knownTypesOnly = false } = {}) {
   return (req, res, url) => {
     if (req.method !== 'GET') return false;
     const rel = url.pathname === '/' ? index : decodeURIComponent(url.pathname);
     const file = resolve(root, '.' + rel);
     if (!file.startsWith(root + sep) && file !== root) { res.writeHead(403); res.end('forbidden'); return true; }
     if (!existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end('not found'); return true; }
-    const type = MIME[extname(file).toLowerCase()] ?? 'application/octet-stream';
+    // Policy refusals come AFTER the existence check on purpose: a path that
+    // is not there stays a plain 404, indistinguishable from any other unknown
+    // path — a probe for /edit/ping must not learn anything from the answer.
+    const type = MIME[extname(file).toLowerCase()];
+    if (rel.split('/').some((s) => s.startsWith('.')) || (knownTypesOnly && !type)) {
+      res.writeHead(403); res.end('forbidden'); return true;
+    }
     let body = readFileSync(file);
     if (rewriteHtml && type === MIME['.html']) body = Buffer.from(rewriteHtml(body.toString('utf8'), file), 'utf8');
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-cache' });
+    res.writeHead(200, { 'content-type': type ?? 'application/octet-stream', 'cache-control': 'no-cache' });
     res.end(body);
     return true;
   };
