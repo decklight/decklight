@@ -35,8 +35,12 @@ process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
  * Slide 2 fits on arrival and is grown (or shrunk) well after init's frame —
  * `mutate` runs at 250ms, the DOM is read at 900ms. The deck is deep-linked so
  * `goto` fires exactly once: without a live watch there is no second look.
+ *
+ * `late` runs at 550ms, after the 250ms mutation has been observed AND
+ * measured (the flag is sampled between the two, at 420ms) — the second act
+ * for content that arrives and only then grows.
  */
-function deck(name, items, mutate) {
+function deck(name, items, mutate, late = '') {
   const file = path.join(dir, `${name}.html`);
   writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="${path.join(root, 'dist/decklight.css')}">
@@ -64,11 +68,17 @@ const ul = document.getElementById('grower');
 const onArrival = { flagged: null };
 setTimeout(() => { onArrival.flagged = sec.hasAttribute('data-overflow'); }, 120);
 setTimeout(() => { ${mutate} }, 250);
+const afterMutation = { flagged: null };
+setTimeout(() => { afterMutation.flagged = sec.hasAttribute('data-overflow'); }, 420);
+setTimeout(() => { ${late} }, 550);
 setTimeout(() => {
+  const lateEl = document.getElementById('late');
   document.getElementById('test-sink').textContent = 'DECKLIGHT-OVERFLOW-RESULTS ' + JSON.stringify({
     atFirstFrame: onArrival.flagged,
+    afterMutation: afterMutation.flagged,
     flagged: sec.hasAttribute('data-overflow'),
     scrolls: sec.scrollHeight > sec.clientHeight + 2,
+    lateScrolls: lateEl ? lateEl.scrollHeight > lateEl.clientHeight + 2 : null,
     warns: warns.filter((w) => /overflows/.test(w)).length,
   });
 }, 900);
@@ -117,6 +127,37 @@ const shrank = run(deck('shrink',
 check('shrank: it fits at read time', shrank.scrolls === false, `scrolls=${shrank.scrolls}`);
 check('shrank: it DID overflow on arrival', shrank.atFirstFrame === true, `on arrival=${shrank.atFirstFrame}`);
 check('shrank: flag cleared', shrank.flagged === false, `data-overflow=${shrank.flagged}`);
+
+// ---- a node added after arming grows later, silently ------------------------
+// The mutation observer sees the <ul> arrive at 250ms and measures it — it
+// fits. At 550ms an image INSIDE it gets its src and loads: setting an
+// attribute fires no watched mutation, the list’s own box is a fixed 200px so
+// no sibling moves, and nothing armed at goto time resizes. Worse, this
+// harness runs out of frames the moment the page goes idle (the same trap the
+// engine's timer comment describes), so even a ResizeObserver aimed straight
+// at the image reports the growth in a frame that never comes. Without a
+// frame-independent ear on late media, the slide settles into clipping
+// unmeasured — and passes the `[data-overflow]`-is-absent assertion (SPEC
+// PRESENTING) silently.
+const lateGrew = run(deck('late-grow', ['alpha', 'beta', 'gamma'],
+  `const late = document.createElement('ul');
+   late.id = 'late';
+   late.style.cssText = 'height:200px;overflow-y:auto;margin:0';
+   const item = document.createElement('li');
+   const img = document.createElement('img');
+   img.id = 'late-img';
+   item.appendChild(img);
+   late.appendChild(item);
+   sec.appendChild(late);`,
+  `document.getElementById('late-img').src = 'data:image/svg+xml,'
+     + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="600"></svg>');`));
+
+check('late: clean on arrival', lateGrew.atFirstFrame === false, `on arrival=${lateGrew.atFirstFrame}`);
+check('late: clean once the arrival was measured', lateGrew.afterMutation === false, `after mutation=${lateGrew.afterMutation}`);
+check('late: the added node really clips at read time', lateGrew.lateScrolls === true, `late scrolls=${lateGrew.lateScrolls}`);
+// the whole ticket, in one line: growth after the arrival was measured, seen
+check('late: flagged anyway', lateGrew.flagged === true, `data-overflow=${lateGrew.flagged}`);
+check('late: warned exactly once', lateGrew.warns === 1, `${lateGrew.warns} warning(s)`);
 
 if (bad) { console.error('overflow-render: FAILED'); process.exit(1); }
 console.log('overflow-render: PASS');

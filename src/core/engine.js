@@ -1594,6 +1594,16 @@ export function init(userConfig = {}) {
    * does not move while its scrollHeight runs away, and a resize watch sees
    * exactly nothing. That one needs MutationObserver.
    *
+   * And a third ear, for the same reason as the timer below: ResizeObserver
+   * DELIVERY rides the rendering pipeline, and once a headless render goes
+   * idle there are no more frames to ride — an image that finishes decoding
+   * after that point resizes in a frame that never comes, and the recruit
+   * into the resize watch reports nothing. Subresources finishing is not
+   * frame-bound, though: `load`/`error` are plain tasks, and a capturing
+   * listener on the section hears every descendant's. So the one late-growth
+   * cause that needs no JS to happen — media landing — re-runs the check in
+   * every environment, frames or not.
+   *
    * And the check is scheduled on a TIMER, not a frame. It used to ride a
    * requestAnimationFrame, which quietly made the guardrail conditional on the
    * page painting again — and under `--virtual-time-budget`, the flag every
@@ -1615,6 +1625,25 @@ export function init(userConfig = {}) {
 
   const overflowResize = typeof ResizeObserver === 'function'
     ? new ResizeObserver(recheckOverflow) : null;
+
+  /**
+   * Recruit `el` and everything inside it into the resize watch. The section
+   * box is a fixed design-resolution rectangle, so content growing inside it
+   * never resizes it — only the content can report that. And ALL of the
+   * content, not just the direct children: a grandchild can grow on its own
+   * (an image decoding long after mount) while every box between it and the
+   * section sits clamped at its flex minimum, moving nothing a shallower
+   * watch observes. Terminal internals are skipped for the same reason the
+   * mutation filter below skips them: a playing cast redraws constantly, and
+   * terminals are excluded from the clip test anyway.
+   */
+  function watchResizes(el) {
+    if (!overflowResize) return;
+    for (const n of [el, ...el.querySelectorAll('*')]) {
+      if (!n.parentElement?.closest('.terminal')) overflowResize.observe(n);
+    }
+  }
+
   const overflowMutate = typeof MutationObserver === 'function'
     ? new MutationObserver((records) => {
       // A playing terminal rewrites its screen every frame, and terminals are
@@ -1622,20 +1651,36 @@ export function init(userConfig = {}) {
       // by design). Re-measuring the slide 60 times a second to reach the same
       // answer is the one cost this watch must not have.
       const outside = (n) => !(n.nodeType === 1 ? n : n.parentElement)?.closest('.terminal');
-      if (records.some((r) => outside(r.target))) recheckOverflow();
+      let relevant = false;
+      for (const r of records) {
+        if (!outside(r.target)) continue;
+        relevant = true;
+        // Measuring an arriving subtree once is not enough: its later growth
+        // (an image inside it decoding a second on) fires no further mutation,
+        // and once every box above it is clamped, no resize of anything armed
+        // earlier. Nodes that arrive after arming join the watch the same way
+        // arming recruited what was already on stage.
+        for (const n of r.addedNodes) if (n.nodeType === 1 && n.isConnected) watchResizes(n);
+      }
+      if (relevant) recheckOverflow();
     }) : null;
+
+  // `load`/`error` do not bubble, but a capturing listener still hears every
+  // descendant's — including on media that mounts after arming.
+  const onLateMedia = (e) => {
+    if (!e.target.closest?.('.terminal')) recheckOverflow();
+  };
 
   /** Re-aim the watch at `sections` (the active slide, or the whole deck in print). */
   function watchOverflow(sections) {
     overflowResize?.disconnect();
     overflowMutate?.disconnect();
+    for (const s of watched) for (const t of ['load', 'error']) s.removeEventListener(t, onLateMedia, true);
     watched = sections.filter(Boolean);
     for (const s of watched) {
-      // the section for stage-level changes, its children for their own: the
-      // section box is a fixed design-resolution rectangle, so content growing
-      // inside it never resizes it — only the children can report that.
-      if (overflowResize) for (const el of [s, ...s.children]) overflowResize.observe(el);
+      watchResizes(s);
       overflowMutate?.observe(s, { childList: true, subtree: true, characterData: true });
+      for (const t of ['load', 'error']) s.addEventListener(t, onLateMedia, true);
     }
     recheckOverflow(); // arming is also the first measurement
   }
