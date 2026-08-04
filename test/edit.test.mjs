@@ -14,7 +14,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import http from 'node:http';
+
 import { setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress } from '../cli/edit.mjs';
+import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
 import { resolveGitMode, shouldCommit, commitSubject } from '../cli/git.mjs';
 
@@ -373,6 +376,121 @@ test('no /remote/* route is registered here at all', async (t) => {
   const src = readFileSync(EDIT, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(src, /createRemoteRelay|remoteControllerHtml/,
     'and the module does not import the relay it would need to serve them');
+});
+
+// ── CSRF: a foreign web origin cannot drive the author server (#222) ───────
+//
+// The threat is the user's OWN browser: while `decklight author` runs on
+// loopback, any page in any tab can fetch() this port. Binding 127.0.0.1 does
+// nothing about it, and the old wildcard `access-control-allow-origin: *`
+// waved the browser through. The gate is now the request's Origin.
+
+test('allowEditRequest / isLoopbackOrigin: the Origin allow-list', () => {
+  // a browser page a localhost server handed out — the deck this very server
+  // serves is one of these (same-origin), and so is any other local dev server
+  for (const o of ['http://127.0.0.1:8788', 'http://localhost:5173', 'https://localhost', 'http://[::1]:9000']) {
+    assert.equal(isLoopbackOrigin(o), true, o);
+    assert.equal(allowEditRequest({ headers: { origin: o } }), true, o);
+  }
+  // the whole point of the ticket: a foreign site is refused
+  for (const o of ['https://evil.example', 'http://attacker.test:1234', 'http://127.0.0.1.evil.example', 'null-ish']) {
+    assert.equal(isLoopbackOrigin(o), false, o);
+    assert.equal(allowEditRequest({ headers: { origin: o } }), false, o);
+  }
+  // no Origin header at all → not a browser cross-origin call (curl, the CLI,
+  // the port-conflict probe, this test suite): allowed
+  assert.equal(allowEditRequest({ headers: {} }), true);
+  // `null` → a file://-opened deck, the SPEC'd double-click path: allowed. It
+  // is NOT a loopback web origin (that is the residual noted in serve.mjs), so
+  // the two helpers deliberately disagree on it.
+  assert.equal(isLoopbackOrigin('null'), false);
+  assert.equal(allowEditRequest({ headers: { origin: 'null' } }), true);
+});
+
+// http.request, not fetch: `Origin` is a browser-forbidden request header and
+// undici's fetch drops it, so the one header this whole test turns on could
+// never be set through fetch(). A raw client sets it exactly like a browser.
+function rawReq(base, { method = 'GET', path = '/edit/ping', headers = {}, body } = {}) {
+  const u = new URL(base + path);
+  return new Promise((resolve, reject) => {
+    const r = http.request({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, method, headers }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    });
+    r.on('error', reject);
+    if (body !== undefined) r.write(body);
+    r.end();
+  });
+}
+
+test('a foreign web origin is refused at every /edit/* route, with no CORS grant', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const EVIL = 'https://evil.example';
+
+  // the RCE vector itself: a POST that runs a coding agent against the deck dir
+  const agent = await rawReq(base, {
+    method: 'POST', path: '/edit/agent', body: JSON.stringify({ prompt: 'rm the repo' }),
+    headers: { origin: EVIL, 'content-type': 'application/json' },
+  });
+  assert.equal(agent.status, 403, 'the agent endpoint refuses a foreign origin');
+  assert.notEqual(agent.headers['access-control-allow-origin'], '*', 'and hands out no wildcard grant');
+  assert.notEqual(agent.headers['access-control-allow-origin'], EVIL, 'nor echoes the attacker back');
+
+  // reads leak the deck too — refused the same way
+  for (const path_ of ['/edit/ping', '/edit/history']) {
+    const r = await rawReq(base, { path: path_, headers: { origin: EVIL } });
+    assert.equal(r.status, 403, path_);
+  }
+  // disk-writing mutations, all refused
+  for (const [path_, payload] of [['/edit/notes', { slide: 1, text: 'x' }], ['/edit/restore', { ref: 'HEAD' }]]) {
+    const r = await rawReq(base, {
+      method: 'POST', path: path_, body: JSON.stringify(payload),
+      headers: { origin: EVIL, 'content-type': 'application/json' },
+    });
+    assert.equal(r.status, 403, path_);
+  }
+  // and the browser's preflight for such a POST is refused before it is sent
+  const pre = await rawReq(base, {
+    method: 'OPTIONS', path: '/edit/agent',
+    headers: { origin: EVIL, 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
+  });
+  assert.equal(pre.status, 403, 'the preflight itself is refused');
+  assert.notEqual(pre.headers['access-control-allow-origin'], '*');
+
+  // the deck on disk is untouched by any of it
+  assert.equal(readFileSync(path.join(dir, 'deck.html'), 'utf8'), DECK);
+});
+
+test('the legitimate callers still get through — loopback, file://, and the CLI', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  // the deck this server serves, same-origin (a loopback web origin): echoed,
+  // never a wildcard
+  const same = await rawReq(base, { path: '/edit/ping', headers: { origin: base } });
+  assert.equal(same.status, 200);
+  assert.equal(same.headers['access-control-allow-origin'], base, 'the origin is echoed, not *');
+
+  // a file://-opened deck probes with Origin: null — the SPEC'd double-click path
+  const file = await rawReq(base, { path: '/edit/ping', headers: { origin: 'null' } });
+  assert.equal(file.status, 200);
+  assert.equal(file.headers['access-control-allow-origin'], 'null');
+
+  // the CLI / port-conflict probe / curl send no Origin: still answered
+  const cli = await rawReq(base, { path: '/edit/ping' });
+  assert.equal(cli.status, 200);
+  assert.equal(JSON.parse(cli.body).ok, true);
+  // a preflight from the served deck is granted, echoing its origin
+  const pre = await rawReq(base, {
+    method: 'OPTIONS', path: '/edit/notes',
+    headers: { origin: base, 'access-control-request-method': 'POST' },
+  });
+  assert.equal(pre.status, 204);
+  assert.equal(pre.headers['access-control-allow-origin'], base);
 });
 
 // ── when to commit (#128): the policy, and the untrusted message ───────────

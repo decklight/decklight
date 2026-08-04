@@ -35,10 +35,13 @@ export function createEditMode({
   // reloads whenever the file changes on disk (any editor works — the
   // #/slide/step hash restores the position). E opens a notes editor whose
   // Save writes the current slide's aside back through the server. Decks
-  // opened via file:// probe the server at its default localhost port
-  // (CORS-open, like the tts bridge) — the printed URL and a double-clicked
-  // file both work; config.edit.url overrides. A basename guard refuses to
-  // wire up against a server that's editing a DIFFERENT deck.
+  // opened via file:// probe the server at its default localhost port — the
+  // printed URL and a double-clicked file both work; config.edit.url overrides.
+  // A basename guard refuses to wire up against a server that's editing a
+  // DIFFERENT deck. Nothing here sends a token: the server authorizes on the
+  // request's Origin, which the browser stamps for us — a served deck's is its
+  // own loopback origin, a file:// deck's is `null`, and both are admitted
+  // while a foreign tab's fetch is refused server-side (#222, cli/serve.mjs).
   let editAvailable = false;
   let editBase = '';
   let editAgents = [];   // [{name, label}] the dev machine can run
