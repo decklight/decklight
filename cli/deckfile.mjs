@@ -54,6 +54,12 @@
  * too — and the *signature*, which they cannot, is what makes that matter. The
  * manifest describes; the sidecar attests. Neither is asked to do the other's
  * job.
+ *
+ * The other direction has no such guard: nothing stops a repacker from keeping
+ * a signed payload and rewriting the manifest around it, because the signature
+ * covers the payload alone. So the manifest's provenance fields (origin repo
+ * and commit) are recorded for tooling but never printed by `present` — see
+ * `formatManifest`.
  */
 
 import { readFileSync, existsSync } from 'node:fs';
@@ -200,9 +206,17 @@ export function readContainer(file) {
 export function formatManifest(manifest, { indent = '  ' } = {}) {
   const bits = [];
   if (manifest?.runtime) bits.push(`runtime ${manifest.runtime}`);
-  if (manifest?.origin?.repo) {
-    bits.push(`from ${manifest.origin.repo}${manifest.origin.commit ? `@${manifest.origin.commit.slice(0, 7)}` : ''}`);
-  }
+  // The manifest's origin is deliberately NOT printed. The signature covers the
+  // payload alone, so on a VERIFIED deck the origin is still whatever the
+  // packer wrote: repack an Alice-signed payload with origin.repo naming a repo
+  // people trust, and both the signature and the digest still pass. The runtime
+  // claim above survives because the ingredients label measures the embedded
+  // runtime independently, so a lie there prints next to its own contradiction;
+  // a borrowed repo name has nothing beside it but one skim between "says:
+  // from <repo>" and "signed by". A claim nobody vouches for gets no line
+  // beside one somebody did — the origin stays in the manifest for tooling to
+  // read, and earns this line back only if it ever comes inside the signed
+  // bytes.
   const ext = manifest?.extensions ?? [];
   bits.push(ext.length ? `declares ${ext.length} extension${ext.length === 1 ? '' : 's'}: ${ext.join(', ')}` : 'declares no extensions');
   // "says" and not "is" — the manifest is the container's own claim about

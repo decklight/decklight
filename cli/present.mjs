@@ -108,6 +108,11 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
   exactly like the deck it wraps: same audit, same policy, same strict rule. Its
   signature is verified and its manifest is printed as what it is — the
   container's own claim about itself, next to the one thing that was checked.
+  The manifest's origin (repo and commit) is never printed: the signature
+  covers the deck alone, so even on a verified container the origin is whatever
+  the packer wrote, and a provenance line nobody vouches for does not belong
+  one skim away from a verified identity. It stays in the manifest for tooling
+  to read.
 
   --port N   port to bind; a taken port offers to take over that session
              (on a TTY) or moves on to the next free one            [8790]
