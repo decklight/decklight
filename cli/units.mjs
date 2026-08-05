@@ -26,9 +26,9 @@
  * shared capability rather than two copies of resolve-fetch-validate-load —
  * `cli/loader.mjs` (`EXTENSIONS#LOADER`) is that shared loader. `bundle
  * --transform <name>` calls it once a transform is installed by the seam
- * below; `cli/import.mjs` still says an installed adapter does not execute
- * yet (`EXTENSIONS#ADAPTEREXEC`, not built), rather than failing in a way
- * that reads like a bug.
+ * below, and `cli/import.mjs` calls the same loader's `runImporter` the
+ * moment an installed adapter matches the extension in hand
+ * (`EXTENSIONS#ADAPTEREXEC`, SPEC `EXTENSIONS_ADAPTERS`).
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';

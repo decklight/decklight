@@ -60,3 +60,28 @@ test('speaker.js does not attribute the phone-remote QR to /edit/ping', () => {
   assert.ok(!speaker.includes('/edit/ping'),
     'speaker.js points at /edit/ping — the QR comes from /present/ping (PRESENT#REMOTE)');
 });
+
+test('no cli or tools comment still describes EXTENSIONS#ADAPTEREXEC as pending', () => {
+  // UNITS#REST closed with the adapter half landed: an installed import
+  // adapter RUNS (cli/loader.mjs runImporter, SPEC EXTENSIONS_ADAPTERS), and
+  // the calling convention that work was said to wait on is frozen, with its
+  // own IMPORTER_API_VERSION. A comment still saying "not built" or "once the
+  // contract is frozen" re-opens a settled question for whoever reads it —
+  // the same drift the sweeps above catch in src/, here for the CLI side,
+  // where the marketplace subsystem actually lives.
+  const stale = [];
+  for (const d of ['cli', 'tools']) {
+    const dir = path.resolve(srcDir, '..', d);
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.mjs')) continue;
+      const text = fs.readFileSync(path.join(dir, name), 'utf8');
+      if (/ADAPTEREXEC[^)\n]*not built/.test(text)) stale.push(`${d}/${name}: "not built"`);
+      if (/installed adapter does not execute/.test(text)) stale.push(`${d}/${name}: "does not execute"`);
+      if (/once [^\n]*(?:calling convention is frozen|have their own contract|freezes that contract)/.test(text)) {
+        stale.push(`${d}/${name}: "once … frozen"`);
+      }
+    }
+  }
+  assert.deepEqual(stale, [],
+    'a comment still describes EXTENSIONS#ADAPTEREXEC as unbuilt or its contract as unfrozen — both landed (SPEC EXTENSIONS_ADAPTERS)');
+});
