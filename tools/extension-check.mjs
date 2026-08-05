@@ -7,32 +7,51 @@
 // already gives: test/ does not, so a marketplace's own CI needs this
 // reachable from the installed package, not from a suite that never travels.
 //
-// Two phases, checking two different things:
+// Three phases, checking three different things:
 //
-//   THE LINT IS LOAD-BEARING HERE, UNLIKE PRESENT#PLUGINS'. A presenter
-//   plugin's lint catches something that ALSO fails at run time — its
-//   sandboxed frame's opaque origin throws on `parent.document` regardless.
-//   A transform runs as trusted, unsandboxed Node (EXTENSIONS_TRANSFORMS), so
-//   nothing else stops `fetch` or `eval` from working. This lint is the only
-//   thing standing between "HTML in, HTML out" and a transform that quietly
-//   does network I/O or loads code a marketplace's SHA pin never covered.
+//   THE LINT IS ADVISORY, NOT A BOUNDARY. A shallow source-text scan for the
+//   reaches a build-time transform has no business making — the same kind
+//   `cli/plugin.mjs`'s `pluginLint` runs. It catches the honest mistake and
+//   states the bar in a sentence; it does not constrain a determined one. A
+//   static `import { execSync } from 'node:child_process'`, a `new
+//   Function('return fetch')()`, a `globalThis['fet' + 'ch']` all pass a
+//   regex unmatched, and no source-text scan closes that class.
 //
-//   THE HEADLESS LOAD CHECKS THE OUTPUT, NOT THE SOURCE. The file is run
-//   (through the same loader EXTENSIONS#LOADER uses) against ONE small
-//   fixture this module owns, never the submitter's own deck — proving the
-//   CONTRACT, not "does it handle some particular author's markup". Refused
-//   if the rendered result carries a <script> block, full stop: the one
-//   automatable proof that "build-time transforms produce output, not code;
-//   nothing executable travels" (MARKETPLACE.md EXTENSIONS) actually holds
-//   for a given transform.
+//   THE SUBMISSION ONLY EVER EXECUTES BEHIND A PROCESS BOUNDARY. This
+//   process never `import()`s the checked file: `runTransformIsolated` runs
+//   it in a separate Node process under the permission model, with reads
+//   limited to decklight's own package and the submission's directory, no
+//   filesystem writes, no child processes, no workers, a scrubbed
+//   environment, a temp working directory, and a wall-clock kill. What the
+//   boundary does NOT cover, stated plainly: Node's permission model does
+//   not restrict the network, so a hostile submission can still phone home
+//   during the check — the boundary protects the checking machine's files,
+//   processes and environment, not its network. And admission proves nothing
+//   about later: an installed transform runs as trusted, unsandboxed Node
+//   (EXTENSIONS_TRANSFORMS) — the installer bears that risk (MARKETPLACE.md
+//   EXTENSIONS). Admission screens; it does not absolve.
+//
+//   THE HEADLESS LOAD CHECKS THE OUTPUT, NOT THE SOURCE. The transform runs
+//   against ONE small fixture this module owns — randomised per check, so a
+//   submission cannot recognise the fixture and behave only for the checker —
+//   never the submitter's own deck: proving the CONTRACT, not "does it
+//   handle some particular author's markup". Refused if the rendered result
+//   carries a <script> block or an inline event handler (`on…=` attribute):
+//   both are "the deck now carries executable code", the invariant
+//   "build-time transforms produce output, not code; nothing executable
+//   travels" (MARKETPLACE.md EXTENSIONS) exists to refuse.
 
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { runTransformAt, LoaderError } from '../cli/loader.mjs';
+import { fileURLToPath } from 'node:url';
 import { chromeBin, chromeArgs } from './chrome.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const PKG_ROOT = path.resolve(here, '..');
+const RUNNER = path.join(here, 'extension-check-runner.mjs');
 
 /** Extension kinds `extension check` knows how to validate. Grows to include
  *  `importer` once EXTENSIONS#ADAPTEREXEC freezes that contract. */
@@ -47,16 +66,30 @@ export const TYPES = ['transform'];
 export const artifactSha256 = (file) =>
   createHash('sha256').update(readFileSync(file)).digest('hex');
 
-/** The fixture every check runs a transform against — small on purpose (SPEC
- *  EXTENSIONS_CHECK): this proves the calling convention, not any particular
- *  author's deck. */
-export const FIXTURE_HTML = '<!doctype html>\n<html><head><title>fixture</title></head>'
-  + '<body><section><h2>Fixture</h2><p>decklight extension check</p></section></body></html>\n';
+/** How long the submission gets, in each of its two executions (the transform
+ *  run and the headless load of its output), before a hard kill. */
+export const CHECK_TIMEOUT_MS = 15_000;
+
+/** What the runner's verdict on stdout follows — AFTER whatever the transform
+ *  itself printed, so the parent reads past the LAST occurrence and a forged
+ *  marker is overwritten by the real one. */
+export const RESULT_DELIM = '\n__decklight_extension_check_result__';
 
 /**
- * Reaches a build-time transform has no business making — not a sandbox
- * boundary (there isn't one here), the bar itself. A shallow source-text
- * scan, the same kind `cli/plugin.mjs`'s `pluginLint` already runs.
+ * The fixture a check runs a transform against — small on purpose (SPEC
+ * EXTENSIONS_CHECK: this proves the calling convention, not any particular
+ * author's deck) and randomised per call, so a submission cannot recognise
+ * the fixture and behave only while being checked.
+ */
+export function makeFixture() {
+  const nonce = randomBytes(8).toString('hex');
+  return `<!doctype html>\n<html><head><title>check ${nonce}</title></head>`
+    + `<body><section><h2>Check ${nonce}</h2><p>decklight extension check ${nonce}</p></section></body></html>\n`;
+}
+
+/**
+ * Reaches a build-time transform has no business making. Advisory (see the
+ * header): the boundary is `runTransformIsolated`, not this scan.
  */
 const LINT = [
   [/\bfetch\s*\(/, 'calls fetch()'],
@@ -74,6 +107,79 @@ export function extensionLint(js) {
     }
   });
   return out;
+}
+
+/** The permission-model flag this Node answers to (`--permission` from 22.13,
+ *  `--experimental-permission` back to the `engines` floor of 20), probed once
+ *  and cached — or null on a Node that has neither, which `checkExtension`
+ *  turns into a named refusal, never a silent unsandboxed run. */
+let cachedPermissionFlag;
+function permissionFlag() {
+  if (cachedPermissionFlag !== undefined) return cachedPermissionFlag;
+  for (const flag of ['--permission', '--experimental-permission']) {
+    if (spawnSync(process.execPath, [flag, '-e', '0'], { stdio: 'ignore' }).status === 0) {
+      cachedPermissionFlag = flag;
+      return flag;
+    }
+  }
+  cachedPermissionFlag = null;
+  return null;
+}
+
+/**
+ * Run one transform file against `fixture` behind the process boundary the
+ * header describes, via tools/extension-check-runner.mjs. Returns `{ ok:
+ * true, html }`, or `{ ok: false, phase, error }` ready for `checkExtension`
+ * to hand back — `phase` is `'boundary'` when the boundary itself cannot be
+ * established, `'load'` for everything the submission did wrong.
+ *
+ * The env is REPLACED, not extended: the fixture is the only variable that
+ * crosses, so whatever secrets the checking machine's environment holds (a
+ * CI runner's tokens, say) never enter the process the submission runs in.
+ */
+export function runTransformIsolated(file, fixture, { timeoutMs = CHECK_TIMEOUT_MS } = {}) {
+  const abs = path.resolve(file);
+  const flag = permissionFlag();
+  if (!flag) {
+    return { ok: false, phase: 'boundary', error: 'this Node has no permission model'
+      + ' (needs --permission or --experimental-permission, Node 20+) — refusing to run'
+      + ' an unvetted transform without the process boundary' };
+  }
+  const cwd = mkdtempSync(path.join(tmpdir(), 'decklight-extension-run-'));
+  try {
+    const res = spawnSync(process.execPath, [
+      flag,
+      `--allow-fs-read=${PKG_ROOT}${path.sep}`,
+      `--allow-fs-read=${path.dirname(abs)}${path.sep}`,
+      RUNNER, abs,
+    ], {
+      cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
+      timeout: timeoutMs, killSignal: 'SIGKILL',
+      env: { DECKLIGHT_CHECK_FIXTURE: fixture },
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (res.error?.code === 'ETIMEDOUT' || res.signal) {
+      return { ok: false, phase: 'load', error: `the transform did not finish within ${Math.round(timeoutMs / 1000)}s`
+        + ' and was killed — a transform must return (an infinite loop, or waiting on something'
+        + ' that never comes)' };
+    }
+    if (res.error) {
+      return { ok: false, phase: 'load', error: `the transform could not be run — ${res.error.message}` };
+    }
+    const at = (res.stdout ?? '').lastIndexOf(RESULT_DELIM);
+    let verdict;
+    try {
+      verdict = at < 0 ? null : JSON.parse(res.stdout.slice(at + RESULT_DELIM.length));
+    } catch { verdict = null; }
+    if (!verdict) {
+      return { ok: false, phase: 'load', error: 'the transform exited without returning its output'
+        + ' (a process.exit(), or a crash) — a transform must return a string' };
+    }
+    if (!verdict.ok) return { ok: false, phase: 'load', error: verdict.error };
+    return { ok: true, html: verdict.html };
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -97,7 +203,7 @@ function headlessLoad(html) {
       '--virtual-time-budget=2000', '--dump-dom', `file://${file}`,
     ), {
       encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
-      timeout: 15_000, killSignal: 'SIGKILL',
+      timeout: CHECK_TIMEOUT_MS, killSignal: 'SIGKILL',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
   } finally {
@@ -108,7 +214,8 @@ function headlessLoad(html) {
 /**
  * Validate one transform source file. Returns `{ ok: true }` or `{ ok:
  * false, phase, ... }` — `phase` is `'lint'` (with `lint`, the matches),
- * `'load'` (with `error`, a `LoaderError` message) or `'output'` (with
+ * `'boundary'` (the process boundary could not be established), `'load'`
+ * (with `error`, what the submission did wrong when run) or `'output'` (with
  * `error`) — never a raw stack trace.
  */
 export async function checkExtension(file, { type = 'transform' } = {}) {
@@ -121,17 +228,12 @@ export async function checkExtension(file, { type = 'transform' } = {}) {
   const lint = extensionLint(readFileSync(abs, 'utf8'));
   if (lint.length) return { ok: false, phase: 'lint', lint };
 
-  let output;
-  try {
-    output = await runTransformAt(abs, FIXTURE_HTML, path.basename(abs));
-  } catch (e) {
-    if (e instanceof LoaderError) return { ok: false, phase: 'load', error: e.message };
-    throw e;
-  }
+  const run = runTransformIsolated(abs, makeFixture());
+  if (!run.ok) return run;
 
   let dumped;
   try {
-    dumped = headlessLoad(output);
+    dumped = headlessLoad(run.html);
   } catch (e) {
     if (e.signal || e.code === 'ETIMEDOUT') {
       return { ok: false, phase: 'output', error: 'the headless load did not finish within 15s and was killed —'
@@ -142,6 +244,11 @@ export async function checkExtension(file, { type = 'transform' } = {}) {
   if (/<script[\s>]/i.test(dumped)) {
     return { ok: false, phase: 'output', error: 'the output contains a <script> block — a transform'
       + ' must produce HTML only; nothing executable may travel (MARKETPLACE.md EXTENSIONS)' };
+  }
+  if (/<[a-z][^>]*\son[a-z]+\s*=/i.test(dumped)) {
+    return { ok: false, phase: 'output', error: 'the output carries an inline event handler (an on…= attribute)'
+      + ' — as executable as a <script> block, just waiting for a click; nothing executable'
+      + ' may travel (MARKETPLACE.md EXTENSIONS)' };
   }
   return { ok: true, sha256: artifactSha256(abs) };
 }

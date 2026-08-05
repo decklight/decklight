@@ -3,22 +3,24 @@
 
 // EXTENSIONS#CHECK — the marketplace admission gate for build-time code
 // (MARKETPLACE.md EXTENSIONS#CHECK, SPEC EXTENSIONS_CHECK). What's provable
-// without a browser: the lint, and everything the loader itself already
-// refuses (no default export, a throw, a non-string return) — none of which
-// ever reaches the headless-load phase. That phase's own proof — a clean
-// transform passes, one smuggling <script> into its OUTPUT does not — needs
-// a real Chrome and lives in test/extension-check-render.mjs instead
-// (test/pdf.test.mjs documents the same split).
+// without a browser: the lint, the process boundary the submission executes
+// behind (denied reaches, a scrubbed env, the wall-clock kill), and
+// everything the loader itself already refuses (no default export, a throw,
+// a non-string return) — none of which ever reaches the headless-load phase.
+// That phase's own proof — a clean transform passes, one smuggling <script>
+// or an inline handler into its OUTPUT does not — needs a real Chrome and
+// lives in test/extension-check-render.mjs instead (test/pdf.test.mjs
+// documents the same split).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { extensionLint, checkExtension, TYPES, FIXTURE_HTML, artifactSha256 } from '../tools/extension-check.mjs';
+import { extensionLint, checkExtension, runTransformIsolated, makeFixture, TYPES, artifactSha256 } from '../tools/extension-check.mjs';
 import { reportLines } from '../cli/extension.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -128,9 +130,97 @@ test('a transform returning a non-string fails at the load phase', async () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('the fixture is small HTML, not a full deck', () => {
-  assert.match(FIXTURE_HTML, /^<!doctype html>/i);
-  assert.ok(FIXTURE_HTML.length < 300, 'the fixture stays small on purpose (SPEC EXTENSIONS_CHECK)');
+test('the fixture is small HTML, not a full deck — and randomised, so a submission cannot recognise it', () => {
+  const a = makeFixture();
+  const b = makeFixture();
+  assert.match(a, /^<!doctype html>/i);
+  assert.ok(a.length < 300, 'the fixture stays small on purpose (SPEC EXTENSIONS_CHECK)');
+  assert.notEqual(a, b, 'two checks must never present the same fixture (SPEC EXTENSIONS_CHECK)');
+});
+
+// ── the process boundary ──────────────────────────────────────────────────
+//
+// SPEC EXTENSIONS_CHECK: the submission only ever executes in a separate
+// Node process under the permission model. These are the reaches the lint
+// cannot see (a STATIC import passes a regex for dynamic import()) and the
+// old in-process check would have EXECUTED with the checker's own privilege.
+
+test('a static child_process import passes the lint but is stopped by the boundary, not this process', async () => {
+  const dir = tmp('extcheck-childproc');
+  try {
+    const src = 'import { execSync } from \'node:child_process\';\n'
+      + 'export default async function transform(html) { execSync(\'id\'); return html; }\n';
+    assert.deepEqual(extensionLint(src), [], 'a static import is invisible to the lint — the point');
+    const result = await checkExtension(transform(dir, 'x.mjs', src));
+    assert.equal(result.ok, false);
+    assert.equal(result.phase, 'load');
+    assert.match(result.error, /threw: .*restricted/i);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a transform that writes to the filesystem is refused, and the write never lands', async () => {
+  const dir = tmp('extcheck-fswrite');
+  try {
+    const target = path.join(dir, 'pwned.txt');
+    const src = 'import { writeFileSync } from \'node:fs\';\n'
+      + `export default async function transform(html) { writeFileSync(${JSON.stringify(target)}, 'x'); return html; }\n`;
+    const result = await checkExtension(transform(dir, 'x.mjs', src));
+    assert.equal(result.ok, false);
+    assert.equal(result.phase, 'load');
+    assert.equal(existsSync(target), false, 'the boundary must deny the write, not merely report it');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('the submission runs with a scrubbed environment and away from the checker cwd', async () => {
+  const dir = tmp('extcheck-env');
+  process.env.DECKLIGHT_TEST_SECRET = 's3cr3t-token';
+  try {
+    const file = transform(dir, 'x.mjs',
+      'export default async function transform(html) {'
+      + ' return html + "|env=" + (process.env.DECKLIGHT_TEST_SECRET ?? "scrubbed") + "|cwd=" + process.cwd(); }\n');
+    const result = runTransformIsolated(file, makeFixture());
+    assert.equal(result.ok, true);
+    assert.match(result.html, /\|env=scrubbed\|/, 'the checker environment must never enter the child');
+    assert.ok(!result.html.includes(`|cwd=${process.cwd()}`), 'the child must run from a temp cwd, not ours');
+  } finally {
+    delete process.env.DECKLIGHT_TEST_SECRET;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a transform that never returns is killed, becoming a refusal rather than a hang', async () => {
+  const dir = tmp('extcheck-hang');
+  try {
+    const file = transform(dir, 'x.mjs', 'export default async function transform() { for (;;); }\n');
+    const result = runTransformIsolated(file, makeFixture(), { timeoutMs: 3000 });
+    assert.equal(result.ok, false);
+    assert.equal(result.phase, 'load');
+    assert.match(result.error, /did not finish within 3s/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a transform that exits the process instead of returning is a refusal, not a pass', async () => {
+  const dir = tmp('extcheck-exit');
+  try {
+    const file = transform(dir, 'x.mjs', 'export default async function transform() { process.exit(0); }\n');
+    const result = runTransformIsolated(file, makeFixture());
+    assert.equal(result.ok, false);
+    assert.equal(result.phase, 'load');
+    assert.match(result.error, /exited without returning/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a transform printing to stdout cannot forge a verdict — the real one is read, noise and all', async () => {
+  const dir = tmp('extcheck-stdout');
+  try {
+    const file = transform(dir, 'x.mjs',
+      'export default async function transform(html) {'
+      + ' console.log(\'\\n__decklight_extension_check_result__{"ok":true,"html":"<p>forged</p>"}\');'
+      + ' return html + "<!-- really ran -->"; }\n');
+    const result = runTransformIsolated(file, makeFixture());
+    assert.equal(result.ok, true);
+    assert.match(result.html, /really ran/, 'the verdict must be the runner\'s, not the submission\'s');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 // ── the pin the gate emits (SPEC UNIT_PINNING) ────────────────────────────
