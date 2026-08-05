@@ -74,6 +74,14 @@
         { name: 'cache', label: 'Cache audio', type: 'boolean', default: true, required: false },
         { name: 'note', label: 'Note', type: 'text', required: false },
       ],
+      validate: '/validate',
+    };
+    // What cli/wizard.mjs's provenance() derives for that schema (#232) — the
+    // asker in the registry's words and where the answers go. `bare@voices`
+    // below deliberately arrives WITHOUT this pair, to prove the refusal.
+    const FAKE_WIZARD_PROVENANCE = {
+      askedBy: 'asked by elevenlabs@voices',
+      sentTo: 'answers go to its own bridge on this machine (127.0.0.1:8787/validate), then ~/.decklight/credentials.json (0600)',
     };
     const CALLS = { get: [], post: [] };
     const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
@@ -104,7 +112,13 @@
             wizards: [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }] });
         }
         if (u.includes('/edit/wizard')) {
-          if (init?.method !== 'POST') return json({ ok: true, schema: FAKE_WIZARD_SCHEMA });
+          if (init?.method !== 'POST') {
+            // an old or hostile server that hands over a schema with no
+            // provenance — the player must refuse to prompt with it (#232)
+            if (u.includes('bare')) return json({ ok: true, schema: FAKE_WIZARD_SCHEMA });
+            return json({ ok: true, schema: FAKE_WIZARD_SCHEMA,
+              from: 'elevenlabs@voices', provenance: FAKE_WIZARD_PROVENANCE });
+          }
           // first answers rejected (the wrong-key path), second accepted
           return CALLS.post.filter((c) => c.u.includes('/edit/wizard')).length <= 1
             ? json({ ok: false, state: 'rejected', error: 'that key did not authenticate' }, 400)
@@ -438,6 +452,15 @@
         // cannot silently resolve to whichever answered first
         r.asksByQualifiedName = CALLS.get.some((u) => u.includes('/edit/wizard?engine=elevenlabs%40voices'));
 
+        // the provenance line (#232): who is asking (the registry's qualified
+        // name, not the schema's own title) and where the answers go, standing
+        // ABOVE the first input so it is read before anything can be typed
+        const src = document.querySelector(`${W} .wiz-src`);
+        r.provenanceShown = !!src && src.textContent.includes(FAKE_WIZARD_PROVENANCE.askedBy)
+          && src.textContent.includes(FAKE_WIZARD_PROVENANCE.sentTo);
+        r.provenanceAboveInputs = !!src && !!(src.compareDocumentPosition(
+          document.querySelector(`${W} input, ${W} select`)) & Node.DOCUMENT_POSITION_FOLLOWING);
+
         // core rendered the schema: one typed control per field
         r.titleShown = /ElevenLabs/.test(document.querySelector(`${W} .narr-head`)?.textContent ?? '');
         const secret = document.querySelector(`${W} input[type="password"]`);
@@ -475,12 +498,20 @@
         r.apiMounts = !!document.querySelector(W);
         r.escapeCloses = escapeUntilClosed(W);
 
+        // a schema that arrives WITHOUT provenance is refused, not rendered
+        // bare (#232) — the stub answers `bare@voices` with the schema alone
+        await deck.wizard('bare@voices');
+        await settle();
+        r.refusesWithoutProvenance = !document.querySelector(W);
+
         r.PASS = r.paletteRow && r.mounts && r.paletteGone && r.asksByQualifiedName
+          && r.provenanceShown && r.provenanceAboveInputs
           && r.titleShown && r.secretIsPassword && r.choiceIsSelect
           && r.booleanIsCheckboxWithDefault && r.requiredIsMarked
           && r.rejectionSaid && r.staysUpOnRejection
           && r.postsTypedAnswers && r.closesOnSuccess
-          && r.hasApi && r.apiMounts && r.escapeCloses;
+          && r.hasApi && r.apiMounts && r.escapeCloses
+          && r.refusesWithoutProvenance;
       }
     } catch (e) {
       r.exception = String((e && e.stack) || e);

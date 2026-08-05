@@ -435,12 +435,22 @@ export function createEditMode({
       toast(needsDevMode('configuring an engine', location), 3200);
       return;
     }
-    let schema;
+    let schema, prov;
     try {
       const r = await fetch(`${editBase}/edit/wizard?engine=${encodeURIComponent(engine)}`);
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.schema) { toast(j.error || `no wizard for ${engine}`, 3200); return; }
+      // No provenance, no form (#232). Every string the schema itself puts on
+      // screen — title, labels — was written by the plugin, so a card that
+      // cannot say who is asking and where the answer goes in someone else's
+      // words must not collect an answer at all.
+      if (typeof j.from !== 'string' || !j.from
+          || typeof j.provenance?.askedBy !== 'string' || typeof j.provenance?.sentTo !== 'string') {
+        toast(`the server did not say who is asking for these answers — not prompting`, 3200);
+        return;
+      }
       schema = j.schema;
+      prov = j.provenance;
     } catch { toast('the author server did not answer', 2600); return; }
 
     dismissOthers?.();
@@ -451,7 +461,19 @@ export function createEditMode({
     const head = document.createElement('div');
     head.className = 'narr-head';
     head.textContent = `${schema.title} — ⌘⏎ saves · Esc closes`;
-    card.append(head);
+    // The provenance line (#232), above the first input: the title above and
+    // every label below are the plugin's own words, so core states who is
+    // asking (the registry's qualified name) and where the answer goes before
+    // anything can be typed. textContent like everything else here — this line
+    // in particular must never render markup a catalog supplied.
+    const src = document.createElement('div');
+    src.className = 'wiz-src';
+    const who = document.createElement('div');
+    who.textContent = prov.askedBy;
+    const dest = document.createElement('div');
+    dest.textContent = prov.sentTo;
+    src.append(who, dest);
+    card.append(head, src);
 
     const inputs = new Map();
     for (const f of schema.fields) {

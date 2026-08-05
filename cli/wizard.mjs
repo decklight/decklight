@@ -31,6 +31,11 @@
  *
  * A credential prompt in a deck you were *emailed* is a phishing primitive, so
  * `present` registers none of this and a bundled deck has nothing to post to.
+ *
+ * And the prompt itself names its asker and its destination (#232): every
+ * string a schema puts on screen — the title, each field's label — was written
+ * by the plugin, so `provenance` below derives the one line the plugin cannot
+ * write, and the player refuses to render a schema that arrives without it.
  */
 
 import { readFileSync, writeFileSync, mkdirSync, chmodSync, statSync, existsSync } from 'node:fs';
@@ -142,6 +147,39 @@ export function validateSchema(raw) {
     fields,
     ...(raw.validate ? { validate: raw.validate } : {}),
     ...(raw.install ? { install: raw.install } : {}),
+  };
+}
+
+/**
+ * Where a declared `validate`/`install` path actually resolves: the plugin's
+ * own bridge on this machine. One constant, exported, so the code that POSTs
+ * answers there (cli/edit.mjs) and the provenance the player shows can never
+ * name two different places.
+ */
+export const BRIDGE_ADDR = '127.0.0.1:8787';
+
+/**
+ * The provenance a wizard prompt must carry before a single answer is typed
+ * (#232). A field labelled "OpenAI API key" backed by an `install` endpoint is
+ * a phishing form when the label is the only thing on screen — the same
+ * untrusted party chose the question and the recipient. So the card also says
+ * who is asking and where the answer goes, in words the plugin did not write:
+ * `qualified` is the entry's registry name (`name@marketplace`, resolved by
+ * the author server from the catalog, never read from the schema), and the
+ * destination is derived from the *vetted* schema's endpoint declarations.
+ * One function so the wording exists once; the player prints both strings
+ * verbatim (as text, never markup) and refuses a schema that lacks them.
+ */
+export function provenance(schema, qualified) {
+  if (typeof qualified !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(qualified)) {
+    throw new SchemaError('provenance needs the entry\'s qualified registry name, like "elevenlabs@voices"');
+  }
+  const endpoints = [...new Set([schema.validate, schema.install].filter(Boolean))];
+  return {
+    askedBy: `asked by ${qualified}`,
+    sentTo: endpoints.length
+      ? `answers go to its own bridge on this machine (${endpoints.map((p) => BRIDGE_ADDR + p).join(' and ')}), then ~/.decklight/credentials.json (0600)`
+      : 'answers stay on this machine: ~/.decklight/credentials.json (0600)',
   };
 }
 
