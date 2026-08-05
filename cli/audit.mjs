@@ -19,7 +19,10 @@
  * What it does catch is the realistic attack this whole wave exists for:
  * someone appends a `<script>` to a bundled deck before forwarding it. That
  * block matches nothing in the canonical shape, so it gets named, with its
- * line and its opening bytes, before the first slide renders.
+ * line and its opening bytes, before the first slide renders. The same holds
+ * for the vector that never needs a block at all: an inline `onerror=` handler
+ * or a `javascript:` href, which the CSP's unavoidable `'unsafe-inline'`
+ * would happily run — `executableAttributes` names those.
  *
  * The crypto path — a Sigstore signature over the whole file — is
  * INTEGRITY#SIGNING and is separate on purpose: this audit needs no signature,
@@ -170,6 +173,106 @@ function dataSubtype(attrs) {
   return 'cast';
 }
 
+/** Attributes whose value a browser treats as a URL to follow or load. */
+const URL_ATTRS = /^(href|src|action|formaction|xlink:href|data)$/i;
+
+/**
+ * The value the way a browser would read it before deciding what it is:
+ * character references decoded, then the whitespace and control characters
+ * browsers ignore inside a scheme dropped. `jav&#x61;script:` and
+ * `java\tscript:` both resolve to `javascript:` in a browser, so they resolve
+ * to it here too — matching on spelling would be a scanner an attacker chooses
+ * the spelling for.
+ */
+function resolvedValue(value) {
+  const cp = (n) => (n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : '');
+  const named = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&', colon: ':', semi: ';', tab: '\t', newline: '\n' };
+  return value
+    .replace(/&#x([0-9a-f]+);?/gi, (_, h) => cp(parseInt(h, 16)))
+    .replace(/&#(\d+);?/g, (_, d) => cp(Number(d)))
+    .replace(/&([a-z]+);/gi, (_, n) => named[n.toLowerCase()] ?? `&${n};`)
+    .replace(/[\u0000-\u0020]/g, '')
+    .toLowerCase();
+}
+
+/** Blank a block's inner text, length- and line-preserving, like maskComments. */
+const blankInner = (html, re) =>
+  html.replace(re, (_, open, inner, close) => open + inner.replace(/[^\n]/g, ' ') + close);
+
+/**
+ * Executable ATTRIBUTES — what no `<script>` scan can see.
+ *
+ * `script-src 'unsafe-inline'` (which a bundled deck forces, cli/present.mjs)
+ * does not only permit script blocks: it is exactly what lets an inline
+ * `onerror=` handler or a `javascript:` href run too. A deck's canonical shape
+ * contains neither — content is markup, behaviour lives in the runtime — so
+ * every one found is named, the same way an unaccounted block is.
+ *
+ * Named, in the one scan the label and the stripper share (PRESENT#STRICT):
+ *   - `on*` handler attributes carrying a value (`onerror=`, `onclick=`, …)
+ *   - URL attributes (href, src, action, formaction, xlink:href, data) whose
+ *     value resolves to `javascript:` or `data:text/html`
+ *   - `srcdoc` — an inline document that inherits the deck's CSP, so script
+ *     inside it runs under the same `'unsafe-inline'` that lets the deck boot
+ *
+ * Deliberately NOT named: a handler *mentioned* in prose, an HTML comment, an
+ * escaped code sample (`&lt;img onerror=…&gt;` never forms a tag), or the
+ * runtime's own strings. Everything that is not an attribute on a real tag is
+ * masked before the scan — a label that cried wolf on a slide ABOUT XSS would
+ * be turned off within a day. Still a heuristic over markup, like everything
+ * here: an inventory, never a verdict.
+ */
+export function executableAttributes(html) {
+  // Comments first (the same mask scripts() applies), then script and style
+  // text, so the tag walk below only ever reads markup. Every mask preserves
+  // length and line breaks, so offsets found here index the original file.
+  let masked = html.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '));
+  masked = blankInner(masked, /(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi);
+  masked = blankInner(masked, /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi);
+
+  const found = [];
+  const open = /<([a-zA-Z][^\s/>]*)/g;
+  let m;
+  while ((m = open.exec(masked))) {
+    // Walk to the tag's own `>` — quote-aware, because an attribute value may
+    // legitimately contain one (`data-chart` JSON does).
+    let i = m.index + m[0].length;
+    while (i < masked.length && masked[i] !== '>') {
+      const c = masked[i];
+      if (c === '"' || c === "'") {
+        i = masked.indexOf(c, i + 1);
+        if (i === -1) { i = masked.length; break; }
+      }
+      i++;
+    }
+    const attrsStart = m.index + m[0].length;
+    // Sequential, so a value is consumed by its own attribute's match and its
+    // contents are never re-read as attribute names — `alt="use onclick= here"`
+    // is one attribute, not two.
+    const attrRe = /([^\s"'<>/=]+)(\s*=\s*("([^"]*)"|'([^']*)'|[^\s>]*))?/g;
+    const attrsText = masked.slice(attrsStart, Math.min(i, masked.length));
+    let a;
+    while ((a = attrRe.exec(attrsText))) {
+      const name = a[1];
+      const value = a[4] ?? a[5] ?? a[3] ?? '';
+      const what =
+        /^on[a-z]+$/i.test(name) && a[2] !== undefined ? 'handler'
+          : URL_ATTRS.test(name) && /^(javascript:|data:text\/html)/.test(resolvedValue(value)) ? 'executable URL'
+            : /^srcdoc$/i.test(name) && value.trim() ? 'inline document'
+              : null;
+      if (!what) continue;
+      const start = attrsStart + a.index;
+      const end = start + a[0].length;
+      found.push({
+        kind: what, tag: m[1].toLowerCase(), attr: name.toLowerCase(),
+        line: lineAt(html, start), start, end, snippet: snippet(html.slice(start, end)),
+      });
+    }
+    open.lastIndex = i + 1;
+  }
+  return found;
+}
+
 /**
  * The whole label, as data. `present` prints it; `--check` exits on it.
  *
@@ -181,6 +284,7 @@ function dataSubtype(attrs) {
  */
 export function auditDeck(html, { installed = installedRuntime() } = {}) {
   const blocks = classifyScripts(html);
+  const handlers = executableAttributes(html);
   const rt = blocks.find((b) => b.kind === 'runtime');
   const rtSrc = blocks.find((b) => b.kind === 'runtime-src');
   const version = runtimeVersion(html);
@@ -211,8 +315,10 @@ export function auditDeck(html, { installed = installedRuntime() } = {}) {
       template: count('template'),
       boot: count('boot'),
       unaccounted: count('unaccounted') + count('external'),
+      handlers: handlers.length,
     },
     unaccounted: blocks.filter((b) => b.kind === 'unaccounted' || b.kind === 'external'),
+    handlers,
     blocks,
   };
 }
@@ -238,21 +344,39 @@ export function auditDeck(html, { installed = installedRuntime() } = {}) {
  * in, and the terminal is where the details belong anyway (never the
  * audience-facing page).
  *
- * The honest limit: this removes SCRIPT BLOCKS, because that is what the
- * classifier finds. An inline `onerror=` handler or a `javascript:` href is
- * neither named by the label nor removed here. Widening one without the other
- * would let the printed inventory and the served bytes disagree, which is worse
- * than a limit you can read — so they move together or not at all.
+ * Executable ATTRIBUTES go in the same pass, because the label names them
+ * (`executableAttributes` is the one scanner both share): an inline `onerror=`
+ * handler, a `javascript:` href, an inline `srcdoc` document. An attribute is
+ * spliced OUT of its tag with nothing in its place — a comment cannot live
+ * inside a tag, and the fixed-text rule holds either way: none of the removed
+ * bytes enter the page. Widening the label without this stripper (or the
+ * reverse) would let the printed inventory and the served bytes disagree,
+ * which is worse than a limit you can read — so they move together.
+ *
+ * The honest limit that remains: both are heuristics over markup. A parser
+ * trick this scan does not see is a parser trick strict serves, which is why
+ * the label is an inventory and never a verdict.
  */
 export function stripUnaccounted(html) {
   const blocks = classifyScripts(html);
-  const stripped = blocks.filter((b) => b.kind === 'unaccounted' || b.kind === 'external');
+  const strippedBlocks = blocks.filter((b) => b.kind === 'unaccounted' || b.kind === 'external');
+  // An attribute inside a block that is going away rides out with the block's
+  // own splice — splicing its range a second time would corrupt what survives.
+  const attrs = executableAttributes(html)
+    .filter((a) => !strippedBlocks.some((b) => a.start >= b.start && a.end <= b.end));
+  const splices = [
+    ...strippedBlocks.map((b) => ({
+      at: b, start: b.start, end: b.end,
+      insert: `<!-- decklight strict mode: script block removed (${b.bytes} B) -->`,
+    })),
+    ...attrs.map((a) => ({ at: a, start: a.start, end: a.end, insert: '' })),
+  ];
   let out = html;
   // Back to front: every splice changes the offsets after it, none before it.
-  for (const b of [...stripped].sort((a, b2) => b2.start - a.start)) {
-    out = `${out.slice(0, b.start)}<!-- decklight strict mode: script block removed (${b.bytes} B) -->${out.slice(b.end)}`;
+  for (const s of [...splices].sort((a, b) => b.start - a.start)) {
+    out = `${out.slice(0, s.start)}${s.insert}${out.slice(s.end)}`;
   }
-  return { html: out, stripped };
+  return { html: out, stripped: splices.sort((a, b) => a.start - b.start).map((s) => s.at) };
 }
 
 const RUNTIME_LINE = {
@@ -266,7 +390,7 @@ const RUNTIME_LINE = {
 
 /** The printed label: plain lines, no verdict, caller decides where they go. */
 export function formatLabel(report, { indent = '  ' } = {}) {
-  const { counts, unaccounted } = report;
+  const { counts, unaccounted, handlers } = report;
   const lines = [`${indent}ingredients — what this file will execute`];
   lines.push(`${indent}  ${RUNTIME_LINE[report.runtime.state](report.runtime)}`);
 
@@ -284,6 +408,17 @@ export function formatLabel(report, { indent = '  ' } = {}) {
     for (const b of unaccounted) {
       const size = b.src ? `src=${b.src}` : `${b.bytes} B`;
       lines.push(`${indent}    line ${String(b.line).padStart(5)}  ${size.padEnd(10)}  ${b.snippet}`);
+    }
+  }
+  // Attributes are the other executable surface `script-src 'unsafe-inline'`
+  // lets through, and the zero line is as load-bearing as the findings: it is
+  // what says this class of content was examined at all.
+  if (!counts.handlers) {
+    lines.push(`${indent}  0 inline handlers or executable URLs in attributes`);
+  } else {
+    lines.push(`${indent}  ${counts.handlers} executable attribute${counts.handlers === 1 ? '' : 's'} — this file runs code outside any script block:`);
+    for (const h of handlers) {
+      lines.push(`${indent}    line ${String(h.line).padStart(5)}  ${`<${h.tag}>`.padEnd(10)}  ${h.snippet}`);
     }
   }
   return lines;

