@@ -271,7 +271,13 @@ self-describing — the verbosity is the feature.
 
 - `decklight present talk.decklight` verifies **before** rendering.
 - The manifest (runtime version, extensions, origin repo, commit SHA) sits
-  *outside* the payload, where a tamperer cannot edit it in the same pass.
+  *outside* the payload, where a tamperer cannot edit it in the same pass —
+  which also puts it outside the signature: the sidecar attests to the payload
+  alone, so the manifest stays a claim. `present` therefore never prints the
+  manifest's origin — provenance the signature does not cover is
+  attacker-controlled even on a verified deck, and a claim nobody vouches for
+  adds nothing beside a verified identity. It stays in the manifest for
+  tooling to read.
 - A tampered `.decklight` fails verification instead of failing a heuristic scan.
 - OS file association makes double-click land in `present` — verified and
   CSP-locked — rather than in a raw browser.

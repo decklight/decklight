@@ -90,11 +90,16 @@ test('the manifest describes the payload, and the digest is checked against it',
   assert.equal(read.payload.toString('utf8'), DECK);
   assert.deepEqual(read.signature, SIG);
   assert.equal(read.digestOk, true);
-  assert.match(formatManifest(read.manifest), /runtime 0\.3\.0 · from https:\/\/github\.com\/decklight\/decklight@abc1234/);
+  assert.match(formatManifest(read.manifest), /runtime 0\.3\.0/);
   assert.match(formatManifest(read.manifest), /declares 1 extension: charts/);
   // "says", never "is" — the manifest is the container's own claim, and only
   // the signature was checked by anybody.
   assert.match(formatManifest(read.manifest), /says:/);
+  // The origin rides in the manifest for tooling to read, but the printed line
+  // never carries it: the signature does not cover the manifest, so provenance
+  // is a claim nobody vouches for — and it gets no line beside one somebody did.
+  assert.equal(read.manifest.origin.repo, 'https://github.com/decklight/decklight');
+  assert.doesNotMatch(formatManifest(read.manifest), /decklight@abc1234|from /);
 });
 
 test('a tampered payload breaks the digest the manifest carries', () => {
@@ -135,6 +140,38 @@ test('the payload length is read from the zip, not from the manifest that claims
   const read = readContainer(file);
   assert.equal(read.payload.length, DECK.length, 'structure wins over the label');
   assert.equal(read.digestOk, false, 'and the disagreement is reported, not resolved in the label\'s favour');
+});
+
+test('a repacked origin claim is carried but never printed — the signature does not cover it', () => {
+  // The attack the printed line used to invite (#236): take an Alice-signed
+  // payload and repack it with origin.repo naming a repo people trust. Neither
+  // the signature nor the digest covers the manifest, so both still pass — and
+  // the borrowed provenance would have printed one skim away from Alice's
+  // verified identity.
+  const dir = tmp();
+  const file = path.join(dir, `talk${DECK_EXT}`);
+  writeFileSync(file, forge(DECK, {
+    decklight: 1,
+    payload: { name: 'talk.html', bytes: DECK.length, sha256: createHash('sha256').update(DECK).digest('hex') },
+    runtime: '0.3.0',
+    origin: { repo: 'github.com/trusted/repo', commit: 'decafbad00' },
+    extensions: [],
+    signature: 'talk.html.sig',
+  }));
+
+  const read = readContainer(file);
+  assert.equal(read.digestOk, true, 'nothing about the repack trips the digest — that is the point');
+  assert.equal(read.manifest.origin.repo, 'github.com/trusted/repo', 'the claim is still in the manifest, for tooling');
+  assert.doesNotMatch(formatManifest(read.manifest), /trusted\/repo|from /,
+    'and no line prints it — a claim nobody vouches for gets no line beside one somebody did');
+
+  // End to end: the --check transcript carries the container line without the claim.
+  let log = '';
+  try {
+    log = execFileSync(process.execPath, [CLI, 'present', file, '--check'], { encoding: 'utf8', stdio: 'pipe' });
+  } catch (e) { log = String(e.stdout); }
+  assert.match(log, /container — says:/);
+  assert.doesNotMatch(log, /trusted\/repo/);
 });
 
 test('a file that is not a container says so, rather than half-reading one', () => {
