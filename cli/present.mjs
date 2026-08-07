@@ -97,6 +97,45 @@ export const CSP = [
   "object-src 'none'",
 ].join('; ');
 
+/**
+ * Serve files under `root` over http://127.0.0.1 with this module's CSP on
+ * EVERY response, for the render tools (`tools/shot.mjs`, `tools/video.mjs`).
+ *
+ * It is `present`'s serving core with the audit/strict/remote/edit surface
+ * stripped off: `withHeaders` for the policy, `staticFiles` for a
+ * traversal-guarded GET, an ephemeral loopback port. A deck screenshotted or
+ * filmed BEFORE anyone presents it therefore runs under the same policy
+ * `present` gives it — instead of over `file://` with
+ * `--allow-file-access-from-files`, the flag that let a deck's own JS read any
+ * local file it could name and ship it anywhere (#229). An http origin cannot
+ * read `file://` at all, and the CSP bounds where the rest can reach; a read is
+ * confined to what `staticFiles` will serve under `root`.
+ *
+ * `html` rewrites the text of every text/html response on its way out (shot
+ * injects its driver and `--theme` link there, in memory — no temp file). The
+ * server must be driven with an ASYNC Chrome (execFile, not execFileSync): a
+ * synchronous child blocks the event loop, and this in-process server would
+ * never answer the browser it launched.
+ *
+ * Returns `{ origin, close }` — `origin` is `http://127.0.0.1:<port>`, `close`
+ * resolves when the listener is shut.
+ */
+export async function serveForRender(root, { html = null } = {}) {
+  const files = staticFiles(root, { html });
+  const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
+    let url;
+    try { url = new URL(req.url, 'http://127.0.0.1'); }
+    catch { res.writeHead(400); res.end('bad request'); return; }
+    if (files(req, res, url)) return;
+    res.writeHead(405); res.end('method not allowed');
+  }));
+  const port = await listenTakingOverIfNeeded(server, 0, '127.0.0.1');
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    close: () => new Promise((r) => server.close(r)),
+  };
+}
+
 const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790] [--strict]
                         [--remote] [--host <addr>] [--check] [--no-plugins]
 
