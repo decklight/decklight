@@ -53,8 +53,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(here, '..');
 const RUNNER = path.join(here, 'extension-check-runner.mjs');
 
-/** Extension kinds `extension check` knows how to validate. Grows to include
- *  `importer` once EXTENSIONS#ADAPTEREXEC freezes that contract. */
+/** Extension kinds `extension check` knows how to validate. The import-adapter
+ *  contract this would grow to is frozen (SPEC EXTENSIONS_ADAPTERS); an
+ *  `importer` kind here is future work with its ticket still to file. */
 export const TYPES = ['transform'];
 
 /**

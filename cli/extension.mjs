@@ -18,8 +18,10 @@
  * Named `extension`, not `transform`: `decklight plugin check` already gates
  * presenter-library plugins (a different risk — a stranger's code on the
  * presenter's own machine). This is the gate for build-time code
- * specifically, and `--type` leaves room for `EXTENSIONS#ADAPTEREXEC`'s
- * import adapters later, once their own calling convention is frozen.
+ * specifically, and `--type` leaves room for an `importer` check later. The
+ * adapter calling convention that check would gate is frozen (SPEC
+ * `EXTENSIONS_ADAPTERS`, landed with `EXTENSIONS#ADAPTEREXEC`); the check
+ * itself is its own ticket, not a hidden mode of this one.
  */
 
 import { existsSync } from 'node:fs';
@@ -40,9 +42,10 @@ const USAGE = `usage: decklight extension check <file> [--type transform]
     which installs are held to (SPEC UNIT_PINNING)
     EXAMPLE: decklight extension check grammar-check.mjs
 
-  --type transform   what kind of extension this is (default, and in v1 the
-                     only kind implemented — EXTENSIONS#ADAPTEREXEC will add
-                     "importer" once import adapters have their own contract)
+  --type transform   what kind of extension this is (default, and the only
+                     kind implemented — the import-adapter contract is frozen
+                     (SPEC EXTENSIONS_ADAPTERS), so an "importer" type can
+                     follow as its own ticket)
 
   This is not part of bundle, import or publish — those run an
   already-installed unit and never re-check it (EXTENSIONS#LOADER). It is
