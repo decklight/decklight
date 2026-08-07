@@ -75,7 +75,8 @@ const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 878
 
   tts flags     --project <id> (or $GOOGLE_CLOUD_PROJECT; gemini/chirp only),
                 --tts-model, --location, --voice, --data-dir, --lang,
-                --tts-format pcm|mp3 (elevenlabs)
+                --tts-format pcm|mp3 (elevenlabs),
+                --tts-stability creative|natural|robust (elevenlabs eleven_v3 only)
   lipsync flags --rhubarb <bin>, --portrait <name=img.png>…, --wav2lip-dir,
                 --wav2lip-ckpt, --sadtalker-dir, --python, --cache-dir,
                 --veo (animate the portrait once through Vertex — BILLED),
@@ -85,7 +86,7 @@ const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 878
 // flags that take a value (so the deck argument can be found past them)
 const VALUE_FLAGS = new Set([
   '--port', '--tts-port', '--lipsync-port', '--tts-engine', '--project', '--tts-model',
-  '--location', '--voice', '--data-dir', '--lang', '--tts-format',
+  '--location', '--voice', '--data-dir', '--lang', '--tts-format', '--tts-stability',
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
   '--python', '--cache-dir', '--commit-every', '--agent', '--git-mode',
   '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
@@ -165,6 +166,7 @@ export function planServices({
     ...(cloudVoice ? ['--project', project] : []),
     ...pass('--tts-model'), ...pass('--location'),
     ...pass('--voice'), ...pass('--data-dir'), ...pass('--lang'), ...pass('--tts-format'),
+    ...pass('--tts-stability'),
   ];
   if (has('--no-tts')) {
     skip.push({ name: 'voice', why: 'disabled with --no-tts' });

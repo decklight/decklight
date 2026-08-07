@@ -39,7 +39,7 @@ function run(mode, extra = '') {
 
 let bad = 0;
 for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'hint', 'hint&print', 'manifest', 'expired']) {
+  'elevenlabsv3', 'hint', 'hint&print', 'manifest', 'expired']) {
   const [m, extra] = mode.split('&');
   const r = run(m, extra ? `&${extra}` : '');
   const ok = r.PASS === true;
@@ -73,6 +73,12 @@ for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', '
   if (mode === 'xss') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ${r.rows} rows · script did not run=${r.scriptDidNotRun}`
       + ` nothing parsed=${r.nothingParsed} name literal=${r.nameIsLiteralText} flavor literal=${r.flavorIsLiteralText}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'elevenlabsv3') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} tone step shown=${r.toneStepShown}`
+      + ` · tones offered=${r.toneLabels?.length ?? 0} · sent short v3 cue "${r.sentStyle}" (not the gemini prose)`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

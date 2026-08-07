@@ -26,6 +26,45 @@ const API = 'https://api.elevenlabs.io/v1';
 // latency, which live narration may prefer on a long deck.
 export const DEFAULT_MODEL = 'eleven_multilingual_v2';
 
+// The only ElevenLabs model that reads bracketed audio tags ([excited],
+// [whispers], …) as performance direction instead of words to pronounce — v3
+// joins the same style channel gemini has always had, opt-in only, because
+// every other model would read the brackets aloud (SPEC PRESENTING).
+export const V3_MODEL = 'eleven_v3';
+
+// v3's stability slider is not the continuous 0–1 knob older models expose —
+// ElevenLabs documents exactly these three named positions. Creative follows
+// a tag hardest and drifts most; Robust barely moves and mostly ignores tags;
+// Natural is the middle ground. Unnamed values are refused rather than
+// silently rounded to the nearest preset.
+export const STABILITY_PRESETS = { creative: 0, natural: 0.5, robust: 1 };
+
+// A tag this long stops being a short performance cue and starts being a
+// second sentence — cut it back rather than let it run on. 40 chars covers
+// every named ElevenLabs tag with room for a typed phrase like "on the verge
+// of tears" and still reads as direction, not dialogue.
+const MAX_TAG_LEN = 40;
+
+/**
+ * A `style` string, or free-typed text, as a single ElevenLabs v3 audio tag —
+ * or '' if there is nothing to say.
+ *
+ * Someone who already knows v3 syntax can type `[whispers]` and get exactly
+ * that cue: the first well-formed bracketed group survives untouched (and
+ * only the first — a second `[…]` later in the string would be a second cue
+ * riding along uninvited, so everything after the first close-bracket is
+ * dropped). Anyone else just types a word or a short phrase, which is wrapped
+ * in brackets for them. Either way the result is capped to MAX_TAG_LEN so a
+ * persona too long to be a cue is cut back rather than spoken.
+ */
+export function styleTag(style, maxLen = MAX_TAG_LEN) {
+  const raw = String(style ?? '').trim();
+  if (!raw) return '';
+  const bracketed = raw.match(/^\[([^[\]]+)\]/);
+  const cue = (bracketed ? bracketed[1] : raw).trim().slice(0, maxLen).trim();
+  return cue ? `[${cue}]` : '';
+}
+
 // PCM is what the rest of decklight is built on: ⇧V stitches per-slide WAVs
 // out of the sentence cache, and rhubarb reads WAV to find visemes. mp3 plays
 // perfectly well in the deck but does neither, so it is opt-in rather than a
@@ -108,12 +147,26 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * evicts itself, so a key fixed in another terminal is picked up on the next
  * probe rather than needing a restart.
  */
-export function createSynth({ key, model = DEFAULT_MODEL, format = 'pcm', fetchImpl = fetch } = {}) {
+export function createSynth({
+  key, model = DEFAULT_MODEL, format = 'pcm', stability, fetchImpl = fetch,
+} = {}) {
   if (!key) {
     throw new Error(`ElevenLabs needs an API key — set $${KEY_ENV} `
       + '(create one at https://elevenlabs.io/app/settings/api-keys)');
   }
   if (!FORMATS.includes(format)) throw new Error(`unknown --tts-format '${format}' — use ${FORMATS.join(' or ')}`);
+  // A stability preset means nothing to a model with no such slider — refused
+  // up front, at construction, rather than accepted and quietly doing nothing.
+  let stabilityValue;
+  if (stability != null) {
+    if (model !== V3_MODEL) {
+      throw new Error(`--tts-stability is a v3 feature — pass --tts-model ${V3_MODEL}, or drop --tts-stability`);
+    }
+    stabilityValue = STABILITY_PRESETS[stability];
+    if (stabilityValue == null) {
+      throw new Error(`unknown --tts-stability '${stability}' — use ${Object.keys(STABILITY_PRESETS).join(', ')}`);
+    }
+  }
   const headers = { 'xi-api-key': key };
 
   let roster = null;
@@ -130,12 +183,16 @@ export function createSynth({ key, model = DEFAULT_MODEL, format = 'pcm', fetchI
   }
 
   async function call(text, voice) {
+    const payload = { text, model_id: model };
+    // Unasked, the account's own voice settings are left alone — sending a
+    // voice_settings object at all overrides them, even to "no opinion".
+    if (stabilityValue != null) payload.voice_settings = { stability: stabilityValue };
     const res = await fetchImpl(
       `${API}/text-to-speech/${encodeURIComponent(voice.id)}?output_format=${OUTPUT[format]}`,
       {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
-        body: JSON.stringify({ text, model_id: model }),
+        body: JSON.stringify(payload),
       },
     );
     if (!res.ok) {
@@ -148,26 +205,34 @@ export function createSynth({ key, model = DEFAULT_MODEL, format = 'pcm', fetchI
     return format === 'pcm' ? wavFromPcm(body, PCM_RATE) : body;
   }
 
-  async function synth(text, { voice } = {}) {
+  async function synth(text, { voice, style } = {}) {
     const list = await listVoices();
     const picked = pickVoice(list, voice);
     if (!picked) {
       throw new Error(`no ElevenLabs voice named ${JSON.stringify(voice)} on this key — have: `
         + list.map((v) => v.name).join(', '));
     }
+    // Audio tags are a v3-only delivery channel (SPEC PRESENTING). Sent to any
+    // other model the brackets are read aloud as words, so a tone is NEVER
+    // attached unless this is the model that can act on it.
+    const tag = model === V3_MODEL ? styleTag(style) : '';
+    const sent = tag ? `${tag} ${text}` : text;
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return {
-          wav: await call(text, picked),
+          wav: await call(sent, picked),
           usage: {
             model,
-            chars: text.length,
+            // Billed on what actually went out — the tag rides inside the same
+            // text field ElevenLabs meters, so a report that ignored it would
+            // undercount every styled sentence.
+            chars: sent.length,
             // ElevenLabs meters CHARACTERS against a monthly plan allowance, and
             // the per-character rate depends on a tier we cannot see. Reporting a
             // dollar figure would be inventing one, so the bridge shows characters.
             cost: 0,
-            note: `${text.length} chars · ${picked.name}`,
+            note: tag ? `${sent.length} chars · ${picked.name} · ${tag}` : `${sent.length} chars · ${picked.name}`,
           },
         };
       } catch (e) {

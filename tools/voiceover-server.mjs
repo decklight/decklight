@@ -48,7 +48,7 @@ export async function ttsMain(args) {
   if (args.includes('--help')) {
     console.log(`usage: decklight tts [--port 8787] [--engine ${ENGINES.join('|')}] [--project <id>]
                      [--tts-model id] [--location global] [--voice name] [--data-dir dir] [--lang en-US]
-                     [--tts-format pcm|mp3] [--setup]
+                     [--tts-format pcm|mp3] [--tts-stability creative|natural|robust] [--setup]
 
   gemini  gemini-2.5-pro-tts (default) or --tts-model gemini-2.5-flash-tts — Vertex AI, best
           delivery, the only engine that honors a style instruction. No free tier.
@@ -57,7 +57,12 @@ export async function ttsMain(args) {
   piper   local neural TTS — offline, unlimited, no credentials, no cost.
   elevenlabs  your ElevenLabs account's own voices — the ones you cloned included, listed
           first in the picker. Needs $ELEVENLABS_API_KEY (never written to disk).
-          --tts-model eleven_multilingual_v2 (default) / eleven_turbo_v2_5 for latency.
+          --tts-model eleven_multilingual_v2 (default) / eleven_turbo_v2_5 for latency /
+          eleven_v3 to opt into style direction via audio tags — higher latency, more
+          variable consistency, and best on short prompts; the only ElevenLabs model
+          the picker's tone step appears for.
+          --tts-stability creative|natural|robust — how hard v3 follows a tag (v3 only;
+          refused on any other model rather than silently doing nothing).
           --tts-format mp3 if your plan has no PCM output (costs you ⇧V and lip-sync).
 
   project also read from $GOOGLE_CLOUD_PROJECT (gemini and chirp only)
@@ -103,6 +108,7 @@ export async function ttsMain(args) {
         dataDir: opt('--data-dir') ?? savedFor?.dataDir,
         lang: opt('--lang'),
         format: opt('--tts-format') ?? savedFor?.format,
+        stability: opt('--tts-stability'),
       });
     } catch (e) {
       // an explicit --engine/--project is a hand on the wheel — fail exactly
@@ -225,6 +231,9 @@ export async function ttsMain(args) {
 
   server.listen(port, '127.0.0.1', () => {
     console.log(`decklight tts bridge on http://127.0.0.1:${port} — ${engine.name} · ${engine.model} (${engine.cost}) — Ctrl-C stops`);
+    // Stated here, once, where the presenter is still choosing — not
+    // discovered mid-talk when the delivery already varied more than expected.
+    if (engine.caveat) console.log(`  ${engine.caveat}`);
     // piper loads a ~120 MB model on start; do it now, while the deck is still
     // being opened, so the first sentence isn't a 13-second silence
     if (engine.synth.warm) {

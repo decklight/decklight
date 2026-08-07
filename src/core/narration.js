@@ -61,10 +61,12 @@ export function createNarration({
   // (tools/voiceover.mjs, or ⇧V below; config.narration.files = '<dir>' or
   // [{ label, dir, ext }, …] — ext defaults to 'm4a', ⇧V recordings are
   // 'wav'). LIVE: synthesized on the fly per slide through the local bridge
-  // (`decklight tts`) — pick a Gemini voice and a delivery tone in the
-  // picker; responses are cached per (slide, voice, style) and the next
-  // slide is prefetched while the current one plays. N opens the picker
-  // (tracks → voices → tones → custom-tone input); choice persists per deck.
+  // (`decklight tts`) — pick a voice and, on an engine that can be told HOW
+  // to say it (gemini, always; elevenlabs only with --tts-model eleven_v3),
+  // a delivery tone in the picker; responses are cached per (slide, voice,
+  // style) and the next slide is prefetched while the current one plays. N
+  // opens the picker (tracks → voices → tones → custom-tone input); choice
+  // persists per deck.
   // ⇧V, live voice only: downloads every slide's narration as slide-NN.wav
   // STITCHED FROM THE SENTENCE CACHE (already-heard clips are free; only
   // unheard sentences synthesize), so the deck can later run RECORDED with
@@ -122,16 +124,25 @@ export function createNarration({
       .catch(() => null); // no bridge — the picker still works, V just warns
     return livePing;
   }
+  // Third element is the SAME tone as a short ElevenLabs v3 audio-tag cue —
+  // v3 wants a bracketed word or two of direction, not a Gemini-shaped prose
+  // instruction, so each preset carries both and toneStyle() below picks the
+  // one the live engine can actually act on.
   const TONES = [
     // single directive clauses: instruction-shaped text steers; persona
     // sentences ("You're a…") can stochastically be read aloud
-    ['Warm senior engineer', 'Read in a warm, welcoming tone, like a friendly battle-hardened senior engineer who is still curious about new technology.'],
-    ['Professional', 'Read in a clear, professional tone — measured, confident, and articulate.'],
-    ['Too serious', 'Read in an extremely grave, deadly serious tone, as if announcing news of the utmost importance.'],
-    ['Joyful', 'Read in a joyful, light-hearted tone, smiling through every sentence.'],
-    ['Super excited', 'Read in a super-excited, high-energy tone, barely containing your enthusiasm.'],
-    ['Sad', 'Read in a somber, melancholic tone, on the verge of a sigh.'],
+    ['Warm senior engineer', 'Read in a warm, welcoming tone, like a friendly battle-hardened senior engineer who is still curious about new technology.', 'warmly'],
+    ['Professional', 'Read in a clear, professional tone — measured, confident, and articulate.', 'professionally'],
+    ['Too serious', 'Read in an extremely grave, deadly serious tone, as if announcing news of the utmost importance.', 'serious'],
+    ['Joyful', 'Read in a joyful, light-hearted tone, smiling through every sentence.', 'joyfully'],
+    ['Super excited', 'Read in a super-excited, high-energy tone, barely containing your enthusiasm.', 'excited'],
+    ['Sad', 'Read in a somber, melancholic tone, on the verge of a sigh.', 'sad'],
   ];
+  // Gemini reads the full instruction as a prompt prefix; ElevenLabs v3 reads
+  // a short bracketed cue instead (tools/elevenlabs-tts.mjs wraps it in
+  // brackets) — never the long Gemini-shaped sentence, which would still work
+  // as v3 input but is not the short cue the ticket asks for.
+  const toneStyle = ([, geminiText, tag]) => (liveEngine === 'elevenlabs' ? tag : geminiText);
   const narrSets = (() => {
     const f = config.narration?.files;
     if (!f) return [];
@@ -837,7 +848,7 @@ export function createNarration({
       if (prefetch === 'voices') {
         prefetchPreviews(text, GEMINI_VOICES.map(([n]) => ({ voice: n, style: '' })), 'voices');
       } else if (prefetch === 'tones') {
-        prefetchPreviews(text, TONES.map(([, s]) => ({ voice, style: s })), `tones:${voice}`);
+        prefetchPreviews(text, TONES.map((t) => ({ voice, style: toneStyle(t) })), `tones:${voice}`);
       }
     }).catch(() => {
       if (btn?.isConnected) btn.textContent = '▶';
@@ -969,12 +980,16 @@ export function createNarration({
       }));
     } else if (view === 'tones') {
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone · ▶ previews`;
-      TONES.forEach(([label, styleText]) => narrRows.push({
-        text: label,
-        preview: { voice: liveDraft ?? liveCfg.voice, style: styleText, prefetch: 'tones' },
-        cur: narrSet?.live && liveCfg.tone === label,
-        commit: () => applyLive(label, styleText),
-      }));
+      TONES.forEach((t) => {
+        const [label] = t;
+        const styleText = toneStyle(t);
+        narrRows.push({
+          text: label,
+          preview: { voice: liveDraft ?? liveCfg.voice, style: styleText, prefetch: 'tones' },
+          cur: narrSet?.live && liveCfg.tone === label,
+          commit: () => applyLive(label, styleText),
+        });
+      });
       narrRows.push({ text: 'Custom…', cur: narrSet?.live && liveCfg.tone === 'Custom', commit: () => renderNarr('custom') });
     } else { // custom tone input
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — type the delivery instruction · ▶ previews`;

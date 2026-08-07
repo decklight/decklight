@@ -26,7 +26,10 @@
 //   elevenlabs — the one whose roster is YOUR account's, cloned voices included.
 //            Needs $ELEVENLABS_API_KEY (never saved to disk). Metered in
 //            characters against a plan allowance we cannot see, so it reports
-//            characters and no dollar estimate.
+//            characters and no dollar estimate. Style is ignored on every
+//            model except the opt-in --tts-model eleven_v3 (its own delivery
+//            channel: bracketed audio tags read as direction, not words), so
+//            `stylable` here depends on the model chosen, not just the engine.
 //
 // Cost is always an ESTIMATE from published list prices. Chirp's estimate is
 // the list price *ignoring* the free tier — we cannot see your monthly usage,
@@ -38,7 +41,10 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
-import { createSynth as createElevenLabs, apiKey as elevenLabsKey, DEFAULT_MODEL as ELEVENLABS_MODEL } from './elevenlabs-tts.mjs';
+import {
+  createSynth as createElevenLabs, apiKey as elevenLabsKey,
+  DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
+} from './elevenlabs-tts.mjs';
 import { detectLocalVoice, sayArgs, sapiArgs } from './local-voice.mjs';
 
 export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs', 'say', 'sapi'];
@@ -344,7 +350,9 @@ function createNative({ kind, voice, shell = 'powershell.exe' }) {
   };
 }
 
-export function createEngine({ engine = 'gemini', project, model, location, voice, dataDir, lang, format, env = process.env } = {}) {
+export function createEngine({
+  engine = 'gemini', project, model, location, voice, dataDir, lang, format, stability, env = process.env,
+} = {}) {
   if (!ENGINES.includes(engine)) throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')}`);
 
   // `cost` is the human-facing price note — the bridge's startup line and the
@@ -371,10 +379,26 @@ export function createEngine({ engine = 'gemini', project, model, location, voic
   }
   if (engine === 'elevenlabs') {
     const m = model ?? ELEVENLABS_MODEL;
-    const { listVoices, synth } = createElevenLabs({ key: elevenLabsKey(env), model: m, format: format ?? 'pcm' });
+    const isV3 = m === ELEVENLABS_V3_MODEL;
+    const { listVoices, synth } = createElevenLabs({
+      key: elevenLabsKey(env), model: m, format: format ?? 'pcm', stability,
+    });
     return {
-      name: 'elevenlabs', model: m, needsProject: false, stylable: false,
+      name: 'elevenlabs', model: m, needsProject: false,
+      // v3 alone reads audio tags as direction — every other ElevenLabs model
+      // would read a tag's brackets aloud as words, so the tone step is v3-only,
+      // decided here from the model rather than the picker guessing by name.
+      stylable: isV3,
       cost: 'metered in characters against your plan',
+      // Stated once, at startup, where the presenter is still choosing —
+      // v3 trades latency and consistency for expressiveness, and ElevenLabs'
+      // own guidance targets prompts over ~250 characters against decklight's
+      // one spoken sentence at a time, read live rather than pre-rendered.
+      caveat: isV3
+        ? 'eleven_v3: higher latency, more variable consistency, and ElevenLabs '
+          + 'recommends prompts over ~250 characters — a live decklight sentence is '
+          + 'shorter than that, so delivery may vary more than a ⇧V recording.'
+        : undefined,
       // the real roster arrives from the account; until it does the picker has
       // nothing truthful to show, which is better than thirty names it cannot say
       voices: [], listVoices,
