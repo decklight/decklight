@@ -392,6 +392,19 @@ than this", never "you can't do anything yet".
    problems.
 5. **Recorded narration needs none of this** — a deck with a voice track plays
    from files with no engine; the wizard is for live synthesis only.
+6. **The prompt names its asker and its destination, in words the plugin did
+   not write** (#232). Every string a schema puts on screen — the title, each
+   field's label — was chosen by the plugin, so a field labelled "OpenAI API
+   key" backed by a `validate`/`install` endpoint is a phishing form when the
+   label is the only thing visible: the same untrusted party wrote the
+   question and receives the answer. Before the first input renders, the card
+   therefore shows the entry's **qualified registry name** (`name@marketplace`,
+   resolved by the author server from the catalog, never read from the schema)
+   and **where the answers go** (the declared bridge path(s) on this machine,
+   then the `0600` credentials file). The wording is derived once, in
+   `cli/wizard.mjs` (`provenance`), from the same constant the server actually
+   posts to; a schema that arrives without provenance is refused by the
+   player, not rendered bare.
 
 ### INTEGRITY — A deck in transit
 

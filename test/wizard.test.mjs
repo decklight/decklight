@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import {
   FIELD_TYPES, SchemaError, validateSchema, checkAnswers, secretNames,
   credentialsPath, credentialsMode, loadCredentials, saveCredentials, forgetCredentials,
-  redactAnswers, configureEngine, CONFIGURED, REJECTED, UNREACHABLE,
+  redactAnswers, configureEngine, provenance, BRIDGE_ADDR, CONFIGURED, REJECTED, UNREACHABLE,
 } from '../cli/wizard.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -102,6 +102,43 @@ test('the rest of the shape rules, each with its own message', () => {
   assert.throws(() => validateSchema({
     engine: 'x', fields: Array.from({ length: 13 }, (_, i) => ({ name: `f${i}`, type: 'text' })),
   }), /12 is the ceiling/);
+});
+
+// ── provenance: the one line the plugin cannot write (#232) ────────────────
+
+test('provenance names the asker and the destination in words the schema did not choose', () => {
+  // A field labelled "OpenAI API key" plus a validate endpoint is a phishing
+  // form when the label is the only thing on screen — the same untrusted party
+  // wrote the question and receives the answer. The provenance pair is what
+  // the card shows against that, so it must carry the registry's name for the
+  // entry and the real destination, and no free plugin text at all.
+  const p = provenance(validateSchema(SCHEMA), 'elevenlabs@voices');
+  assert.equal(p.askedBy, 'asked by elevenlabs@voices');
+  assert.match(p.sentTo, new RegExp(`${BRIDGE_ADDR.replaceAll('.', '\\.')}/validate`),
+    'the declared endpoint is shown as the address answers actually go to');
+  assert.match(p.sentTo, /credentials\.json \(0600\)/, 'and where they land afterwards');
+  assert.doesNotMatch(p.askedBy + p.sentTo, /ElevenLabs|API key/,
+    'the plugin\'s own title and labels never leak into the trusted line');
+});
+
+test('provenance without an endpoint says the answers stay on this machine', () => {
+  const p = provenance(validateSchema({ engine: 'piper', fields: [{ name: 'model', type: 'path' }] }), 'piper@voices');
+  assert.match(p.sentTo, /stay on this machine/);
+  assert.doesNotMatch(p.sentTo, /bridge|8787/, 'no endpoint, no bridge to mention');
+});
+
+test('provenance names every declared endpoint — install as well as validate', () => {
+  const p = provenance(validateSchema({
+    engine: 'x', fields: [{ name: 'k', type: 'secret' }], validate: '/v', install: '/i',
+  }), 'x@m');
+  assert.match(p.sentTo, new RegExp(`${BRIDGE_ADDR.replaceAll('.', '\\.')}/v and ${BRIDGE_ADDR.replaceAll('.', '\\.')}/i`));
+});
+
+test('provenance refuses a bare name — an unqualified asker is not an identity', () => {
+  // Two marketplaces can both carry an "elevenlabs"; only name@marketplace
+  // says which one is asking, so a caller that lost the qualification is a bug.
+  assert.throws(() => provenance(validateSchema(SCHEMA), 'elevenlabs'), SchemaError);
+  assert.throws(() => provenance(validateSchema(SCHEMA), ''), SchemaError);
 });
 
 test('answers are checked against the schema, and every problem is reported at once', () => {
@@ -299,13 +336,24 @@ async function startAuthor(t, home) {
 }
 
 test('the author server hands the player a VETTED schema, or refuses to', async (t) => {
-  const home = catalogHome({ engine: 'elevenlabs', title: 'ElevenLabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
+  const home = catalogHome({
+    engine: 'elevenlabs', title: 'ElevenLabs', validate: '/validate',
+    fields: [{ name: 'apiKey', type: 'secret', required: true }],
+  });
   const { base } = await startAuthor(t, home);
 
   const got = await (await fetch(`${base}/edit/wizard?engine=elevenlabs`)).json();
   assert.equal(got.ok, true);
   assert.equal(got.schema.title, 'ElevenLabs');
   assert.deepEqual(got.schema.fields[0], { name: 'apiKey', label: 'apiKey', type: 'secret', required: true });
+
+  // Provenance rides beside the schema (#232): the asker is the REGISTRY's
+  // qualified name for the entry, not anything the schema declared, and the
+  // destination names the endpoint answers will actually be posted to.
+  assert.equal(got.from, 'elevenlabs@voices');
+  assert.deepEqual(got.provenance, provenance(got.schema, 'elevenlabs@voices'),
+    'one wording, derived by the same function the unit tests pin down');
+  assert.match(got.provenance.sentTo, /\/validate/);
 
   const missing = await fetch(`${base}/edit/wizard?engine=nope`);
   assert.equal(missing.status, 404);
@@ -403,4 +451,17 @@ test('the player gate: the overlay refuses without an author server', () => {
   assert.match(fn, /needsDevMode/);
   assert.doesNotMatch(fn, /innerHTML/, 'core builds inputs, it never sets markup a catalog supplied');
   assert.match(fn, /type = f\.type === 'secret' \? 'password'/, 'a secret is not read over a shoulder');
+
+  // #232: the provenance gate and the provenance line. A response without
+  // askedBy/sentTo is refused before a single element exists, and what IS
+  // rendered goes in as textContent — this line above all must never carry
+  // markup a catalog chose.
+  assert.match(fn, /j\.provenance\?\.askedBy/, 'the player demands provenance, it does not default it');
+  assert.ok(fn.indexOf('j.provenance?.askedBy') < fn.indexOf('createElement'),
+    'and demands it BEFORE anything is built');
+  assert.match(fn, /wiz-src/, 'the card carries the provenance element');
+  assert.match(fn, /who\.textContent = prov\.askedBy/);
+  assert.match(fn, /dest\.textContent = prov\.sentTo/);
+  assert.ok(fn.indexOf('wiz-src') < fn.indexOf('inputs.set'),
+    'shown above the fields — read before anything can be typed');
 });

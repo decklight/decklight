@@ -51,7 +51,7 @@ import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
 import { deckHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
-import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, CONFIGURED, UNREACHABLE } from './wizard.mjs';
+import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE } from './wizard.mjs';
 
 // The `/edit/*` surface answers loopback only — but "loopback" is the wrong
 // boundary for the threat (#222). The dangerous caller is not off-machine: it
@@ -326,16 +326,19 @@ export async function editMain(args) {
     // right answer rather than a crash. catalogMap does that unwrapping once.
     try {
       const hit = resolveEntry(engine, await catalogMap());
-      return hit.entry.wizard ? hit.entry : null;
+      // The whole hit, not just the entry: `qualified` is what the wizard's
+      // provenance line shows as the asker (#232), and it has to come from the
+      // registry rather than from anything the schema itself declares.
+      return hit.entry.wizard ? hit : null;
     } catch (e) {
       if (e instanceof MarketplaceError) return null;
       throw e;
     }
   };
   const wizardSchemaFor = async (engine) => {
-    const entry = await wizardEntry(engine);
-    if (!entry) throw new Error(`no wizard declared for "${engine}" in any registered marketplace`);
-    return entry.wizard;
+    const hit = await wizardEntry(engine);
+    if (!hit) throw new Error(`no wizard declared for "${engine}" in any registered marketplace`);
+    return hit.entry.wizard;
   };
   /**
    * Ask the engine's own bridge whether the answers work.
@@ -347,7 +350,9 @@ export async function editMain(args) {
    */
   const wizardValidate = async (schema, answers) => {
     if (!schema.validate) return true;
-    const r = await fetch(`http://127.0.0.1:8787${schema.validate}`, {
+    // BRIDGE_ADDR is shared with provenance() so the destination the player
+    // showed the presenter and the one this line posts to cannot drift apart.
+    const r = await fetch(`http://${BRIDGE_ADDR}${schema.validate}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ engine: schema.engine, answers }),
@@ -584,10 +589,15 @@ export async function editMain(args) {
       // declares" becomes "core renders whatever a plugin sent".
       if (req.method === 'GET' && url.pathname === '/edit/wizard') {
         const engine = url.searchParams.get('engine') ?? '';
-        const entry = await wizardEntry(engine);
-        if (!entry) return json(404, { ok: false, error: `no wizard declared for "${engine}"` });
+        const hit = await wizardEntry(engine);
+        if (!hit) return json(404, { ok: false, error: `no wizard declared for "${engine}"` });
         try {
-          return json(200, { ok: true, schema: validateSchema(entry.wizard) });
+          const schema = validateSchema(hit.entry.wizard);
+          // Provenance rides BESIDE the schema, never inside it (#232): `from`
+          // is the registry's name for the entry and the sentence pair is
+          // derived here from the vetted schema, so the card can say who is
+          // asking and where the answer goes in words the plugin did not write.
+          return json(200, { ok: true, schema, from: hit.qualified, provenance: provenance(schema, hit.qualified) });
         } catch (e) {
           return json(400, { ok: false, error: `${engine} declares a wizard core cannot render: ${e.message}` });
         }

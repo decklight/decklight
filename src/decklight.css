@@ -1237,6 +1237,18 @@
 
 /* notes editor (E, served by `decklight edit`) */
 .decklight-editor .narr-card { width: min(640px, 88vw); }
+/* the engine wizard's provenance line (ENGINES#WIZARD, #232): who is asking and
+   where the answer goes — deliberately NOT the muted narr-head treatment, since
+   this is the one line a presenter must read before pasting a key */
+.decklight-editor .wiz-src {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 12px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  margin-bottom: 4px;
+  opacity: .85;
+}
+.decklight-editor .wiz-src div:first-child { font-weight: 650; }
 .decklight-editor .edit-notes {
   min-height: 240px;
   resize: vertical;
