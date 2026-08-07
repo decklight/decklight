@@ -13,7 +13,7 @@
 # sign-off is verified before anything lands) is inherited unchanged, because
 # the fixing is still pr-fix. This file only decides WHEN to knock.
 #
-# WHY IT IS SAFE TO AUTO-FIRE ON A PUBLIC REPO. Three guards, together:
+# WHY IT IS SAFE TO AUTO-FIRE ON A PUBLIC REPO. Four guards, together:
 #
 #   1. Only our own branches. A `workflow_run` job runs with full write
 #      permissions even for a fork's PR — the classic footgun. So the FIRST
@@ -26,6 +26,15 @@
 #   3. A hard attempt cap. Each pr-fix run leaves one comment; at three of them
 #      this loop stops knocking and says the branch needs a human. A red build
 #      can never become an argument between two robots.
+#   4. No untrusted voice in the thread. pr-fix reads every comment, review
+#      comment, and review on the PR as evidence while it diagnoses the
+#      failure — commenting needs no special access on a public repo, so
+#      without this guard a stranger's "also fix X like so: ..." would ride
+#      along into the agent's context with no human ever having chosen to
+#      trust it. `fix-it`'s gate IS a maintainer's write access to apply the
+#      label; this checks the same thing (`author_association`) on everyone
+#      who has spoken in the thread before knocking, so auto-dispatch never
+#      hands the agent a voice fix-it's own gate would never have let in.
 #
 # The dispatch itself needs no PAT: `workflow_dispatch` is the one event GitHub
 # lets a GITHUB_TOKEN start (the same exception issue-analyzer leans on to chain
@@ -130,6 +139,28 @@ jobs:
               gh pr comment "$N" -R "$REPO" --body "$(printf '%s\n🤖 **auto fix-ci** — CI is still red after %s automatic fix attempts, so this loop is standing down. This branch needs a human. Label it `fix-it` to try once more by hand.' "$CAP_MARKER" "$attempts")"
             fi
             echo "cap reached — not dispatching pr-fix"
+            exit 0
+          fi
+
+          # Guard 4: no untrusted voice in the thread. pr-fix reads every issue
+          # comment, review comment, and review on this PR as evidence while
+          # diagnosing the failure — a plausible "also fix X like so: ..."
+          # from ANY GitHub account (this is a public repo; commenting needs
+          # no special access) rides along unchecked. fix-it's gate is a
+          # maintainer's write access to apply the label; auto-dispatch has
+          # no human in that loop at all, so give it the same check: refuse to
+          # knock if anyone without write access has said anything here, and
+          # say so instead of silently feeding it to the agent.
+          untrusted=$(
+            {
+              gh api "repos/$REPO/issues/$N/comments" --paginate --jq '.[].author_association'
+              gh api "repos/$REPO/pulls/$N/comments" --paginate --jq '.[].author_association'
+              gh api "repos/$REPO/pulls/$N/reviews" --paginate --jq '.[].author_association'
+            } | grep -vxE 'OWNER|MEMBER|COLLABORATOR' | head -1 || true
+          )
+          if [ -n "$untrusted" ]; then
+            gh pr comment "$N" -R "$REPO" --body "🤖 **auto fix-ci** — CI is red, but this thread has a comment or review from an account without write access ($untrusted), and auto-dispatch will not feed that text to an unattended agent. A maintainer can label this PR \`fix-it\` to run the same fix by hand after reviewing the thread."
+            echo "untrusted author ($untrusted) present in the thread — not dispatching pr-fix"
             exit 0
           fi
 
