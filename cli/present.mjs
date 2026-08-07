@@ -29,7 +29,7 @@
 
 import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve, sep, basename } from 'node:path';
+import { resolve, sep, basename, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { argReader, isMain } from '../tools/args.mjs';
 import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded, withHeaders } from './serve.mjs';
@@ -137,11 +137,12 @@ export async function serveForRender(root, { html = null } = {}) {
 }
 
 const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790] [--strict]
-                        [--remote] [--host <addr>] [--check] [--no-plugins]
+                        [--root <dir>] [--remote] [--host <addr>] [--check]
+                        [--no-plugins]
 
   plays a deck read-only over localhost — the safe way to open one you did not
-  author. Serves ONLY GET, only under the current directory (which the deck must
-  be inside, so its assets resolve), and writes nothing.
+  author. Serves ONLY GET, only under the deck's own directory — refusing
+  dotfiles and every file type a deck cannot use — and writes nothing.
 
   A .decklight container (bundle --deck) is unwrapped in memory and treated
   exactly like the deck it wraps: same audit, same policy, same strict rule. Its
@@ -159,6 +160,12 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
              along with every inline on*= handler, javascript: URL and srcdoc
              document. The removal happens on the way out — the file on disk
              is never touched. Turns itself on when the label finds something.
+  --root D   serve D instead of the deck's directory, for a SOURCE deck that
+             reaches up for its runtime (demo/talk.html loading
+             ../dist/decklight.js). The deck must live under D, and everything
+             under D that passes the dotfile and file-type rules becomes
+             fetchable by the deck's own script — which is why widening the
+             root is a flag you type, never something the cwd decides.
   --remote   also listen on the LAN for the phone remote. Off this machine ONLY
              /remote/* answers, and only with the per-run token the printed URL
              and its QR carry — the deck itself, and every file beside it, stay
@@ -259,8 +266,7 @@ export async function presentMain(args, { client } = {}) {
   const host = remote ? opt('--host', '0.0.0.0') : '127.0.0.1';
   const token = remote ? randomBytes(16).toString('base64url') : null;
 
-  const root = process.cwd();
-  const deckPath = resolve(root, positional[0]);
+  const deckPath = resolve(process.cwd(), positional[0]);
   if (!existsSync(deckPath)) {
     console.error(`deck not found: ${deckPath}`);
     return 1;
@@ -313,18 +319,23 @@ export async function presentMain(args, { client } = {}) {
       || (signature.state !== UNSIGNED && !isVerified(signature)) ? 1 : 0;
   }
 
-  // The cwd is the served root, and the deck must live under it — the author
-  // server's rule, for its reason: a deck's assets are not always siblings. A source
-  // deck reaches up for the runtime (`demo/showcase.html` loads
-  // `../dist/decklight.js`), so rooting at the deck's own directory would 403
-  // the engine and serve a page that never boots.
+  // The served root is the deck's OWN directory, never the cwd. Everything
+  // under the root is fetchable by the deck's own script same-origin, and with
+  // `connect-src https:` open below, fetchable means exfiltratable — so a root
+  // inherited from wherever the command happened to run (a project checkout,
+  // $HOME via file association) would hand a hostile deck whatever lived
+  // there. A deck handed to you is a bundled single file with no external refs
+  // at all; its directory is exactly the exposure you accepted by opening it.
   //
-  // The exposure is therefore chosen by where you run the command, which is why
-  // startup prints the directory rather than only the URL. A deck handed to you
-  // is usually a bundled single file with no external refs at all — for those,
-  // `cd` to its directory and the served root is exactly it.
+  // A SOURCE deck's assets are not always siblings — `demo/showcase.html`
+  // reaches up for `../dist/decklight.js` — and rooting at the deck's
+  // directory would 403 the engine and serve a page that never boots. That is
+  // what `--root` is for: the same wider exposure, but chosen by a flag you
+  // typed, and printed at startup so it is never silent.
+  const rootArg = opt('--root');
+  const root = rootArg ? resolve(process.cwd(), rootArg) : dirname(deckPath);
   if (!deckPath.startsWith(root + sep)) {
-    console.error('deck must live under the current directory');
+    console.error('deck must live under --root');
     return 1;
   }
   const deckUrl = '/' + deckPath.slice(root.length + 1).split(sep).join('/');
@@ -382,7 +393,7 @@ export async function presentMain(args, { client } = {}) {
   // No `index` here: "/" is the deck, and the deck is answered from memory
   // before this handler is consulted — a fallthrough should 404, not reopen
   // the disk read this route exists to avoid.
-  const files = staticFiles(root, { html: rewrite });
+  const files = staticFiles(root, { html: rewrite, knownTypesOnly: true });
 
   // The deck itself is served from MEMORY — container and plain HTML alike —
   // from the bytes the audit read and the signature covered. The label, the
@@ -500,7 +511,8 @@ export async function presentMain(args, { client } = {}) {
   const actual = await listenTakingOverIfNeeded(server, port, host);
   actualPort = actual;
   console.log(`decklight present on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
-  console.log(`  serving ${root} — no /edit/* routes, nothing is written`);
+  console.log(`  serving ${root} — ${rootArg ? '--root as given' : "the deck's own directory"};`
+    + ' dotfiles and non-deck file types refused; no /edit/* routes, nothing is written');
   if (token) {
     console.log(`  remote: listening on ${host} — http://${lanAddress() ?? host}:${actual}/remote?t=${token}`);
     console.log('  off this machine ONLY /remote/* answers, with that token — the deck itself does not');
