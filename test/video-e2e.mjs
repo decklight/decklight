@@ -42,26 +42,32 @@ if (!existsSync(join(root, 'dist', 'decklight.js'))) {
 
 // A 2-slide fixture: slide 2 opts into a per-slide hold via data-video-hold —
 // with --hold 1 both slides hold 1s, so the whole video comes out ≈ 2s.
-const dir = mkdtempSync(join(tmpdir(), 'decklight-video-e2e-'));
+//
+// The fixture lives UNDER the repo root and references the runtime with a
+// RELATIVE `../dist/…`. video now serves the deck over http://127.0.0.1 rooted
+// at the cwd (#229) instead of over file://, so an absolute-path <link> would
+// not resolve as a URL and the deck must sit inside the served tree — both of
+// which a repo-root-relative fixture, run with cwd=root, satisfies.
+const dir = mkdtempSync(join(root, '.video-e2e-'));
 const deck = join(dir, 'deck.html');
 writeFileSync(deck, `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<link rel="stylesheet" href="${root}/dist/decklight.css">
+<link rel="stylesheet" href="../dist/decklight.css">
 <style>.decklight { --bg:#14161d; --fg:#e8eaf2; --muted:#8b90a3; --heading-color:#fff; }</style>
 </head><body>
 <div class="decklight">
   <section><h2>Slide one</h2><ul data-build><li>built</li><li>fully</li></ul></section>
   <section data-video-hold="1"><h2>Slide two</h2><p>the end</p></section>
 </div>
-<script src="${root}/dist/decklight.js"></script>
+<script src="../dist/decklight.js"></script>
 <script>Decklight.init({ transition: 'none' });</script>
 </body></html>`);
 
-const out = join(dir, 'deck.mp4');
+const out = join(tmpdir(), `deck-e2e-${process.pid}.mp4`);
 try {
   const log = execFileSync(process.execPath,
     [join(root, 'cli', 'decklight.mjs'), 'video', deck, '-o', out, '--hold', '1', '--fps', '10'],
-    { encoding: 'utf8' });
+    { encoding: 'utf8', cwd: root });
   console.log(log.trim());
 
   assert.ok(existsSync(out), 'the mp4 exists');
@@ -79,4 +85,5 @@ try {
   console.log(`video-e2e: OK — ${out} is ${duration.toFixed(2)}s of playable mp4`);
 } finally {
   rmSync(dir, { recursive: true, force: true });
+  rmSync(out, { force: true });
 }

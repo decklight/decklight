@@ -18,20 +18,25 @@
 // concatenated audio track stays continuous.
 //
 // Capture is the tools/shot.mjs mechanism: one one-shot headless Chrome per
-// frame against file://deck.html#/n/999 (an oversized step clamps to the last
-// build, so every slide renders fully built). No puppeteer, no CDP, no new
-// deps — which is also the honest limit: frames are stills, so the character
-// overlay appears but frozen, and timing is per-slide, not per-build-step
-// (animated lipsync needs a CDP screencast — a Node ≥22 follow-up).
+// frame against the deck served over http://127.0.0.1 at #/n/999 (an oversized
+// step clamps to the last build, so every slide renders fully built). The deck
+// is served under the `present` CSP, NOT opened over file:// with
+// --allow-file-access-from-files (#229): that flag let a deck's own JS read any
+// local file and exfiltrate it, and video renders decks you may not have
+// vetted. No puppeteer, no CDP, no new deps — which is also the honest limit:
+// frames are stills, so the character overlay appears but frozen, and timing is
+// per-slide, not per-build-step (animated lipsync needs a CDP screencast — a
+// Node ≥22 follow-up).
 
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader } from './args.mjs';
 import { sectionBodies } from './deck-html.mjs';
+import { serveForRender } from '../cli/present.mjs';
 
 const run = promisify(execFile);
 
@@ -188,6 +193,17 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
   const deck = resolve(deckArg);
   if (!existsSync(deck)) { console.error(`decklight video: no such deck: ${deck}`); process.exit(1); }
 
+  // The served root is the directory you run from — the deck must sit inside it
+  // so its relative assets (`../dist/decklight.js`, `themes/…`) resolve as URLs
+  // off the loopback origin the frames are captured against. This is `present`'s
+  // rule, for the same reason (#229): the deck runs under the CSP, and a read
+  // cannot escape the served tree. `cd` to a directory containing the deck.
+  const root = process.cwd();
+  if (deck !== root && !deck.startsWith(root + sep)) {
+    console.error(`decklight video: the deck must live under the current directory (${root}) — cd there first`);
+    process.exit(1);
+  }
+
   // the voiceover encoder-detection policy: a missing tool is a hard, friendly
   // error naming what to install — not a stack trace three steps later
   if (!have('ffmpeg') || !have('ffprobe')) {
@@ -239,16 +255,19 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       + `${plan.filter((p) => p.audio).length} narrated`
       + (narration ? ` (${narration.dir})` : ' (silent)'));
 
-    // --theme: a sibling copy so every relative href still resolves (shot.mjs)
-    const src = theme
-      ? deck.replace(/\.html?$/i, `.__video-${process.pid}.html`)
-      : deck;
-    if (theme) {
-      writeFileSync(src, html.replace(/(<\/head>)/i,
-        `<link rel="stylesheet" href="themes/${theme}.css">$1`));
-    }
+    // --theme rides on the deck's response in memory (no temp file): only the
+    // deck itself gets the injected link; every other html asset under the root
+    // is served untouched. Over the loopback origin `themes/…` resolves exactly
+    // as the sibling-copy path used to, so a themed render is unchanged.
+    const inject = theme
+      ? (text, file) => (resolve(file) === deck
+        ? text.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`)
+        : text)
+      : null;
+    const deckPath = '/' + relative(root, deck).split(sep).join('/');
 
     const work = mkdtempSync(join(tmpdir(), 'decklight-video-'));
+    const server = await serveForRender(root, { html: inject });
     try {
       const chrome = chromeBin('video');
       const segments = [];
@@ -258,12 +277,11 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
         // one one-shot Chrome per frame; #/n/999 clamps to the last build step
         await exec(chrome, chromeArgs(
           '--hide-scrollbars',
-          '--allow-file-access-from-files',
           '--autoplay-policy=no-user-gesture-required',
           `--window-size=${w},${h}`,
           '--virtual-time-budget=1500',
           `--screenshot=${frame}`,
-          `file://${src}#/${p.slide}/999`,
+          `${server.origin}${deckPath}#/${p.slide}/999`,
         ));
         if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
         const seg = join(work, `seg-${nn}.mp4`);
@@ -279,8 +297,8 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       writeFileSync(list, concatList(segments));
       await exec('ffmpeg', concatArgs(list, out));
     } finally {
+      await server.close();
       rmSync(work, { recursive: true, force: true });
-      if (theme) rmSync(src, { force: true });
     }
 
     const total = Number((await exec('ffprobe', ffprobeArgs(out))).stdout.trim());
