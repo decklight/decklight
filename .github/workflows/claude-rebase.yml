@@ -238,6 +238,15 @@ jobs:
                 git push --force-with-lease="$lease" "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" "HEAD:$BRANCH"
                 note="Rebased onto \`${{ steps.pick.outputs.base }}\` and force-pushed. ⚠️ This push used \`GITHUB_TOKEN\`, so **CI will not re-run on its own** — nudge it with \`gh pr close $N && gh pr reopen $N\`, or set a \`CI_NUDGE_PAT\` secret."
               fi
+              # The push alone does not reliably re-enqueue a PR that already
+              # had auto-merge armed from before the rebase — the auto-merge
+              # mutation is idempotent, so calling --auto again on a PR where
+              # it is already enabled is a no-op. Only a genuine off→on
+              # transition re-triggers the queue, so toggle it rather than
+              # relying on the flag surviving the force-push.
+              gh pr merge "$N" -R "$REPO" --disable-auto >/dev/null 2>&1 || true
+              gh pr merge "$N" -R "$REPO" --auto >/dev/null 2>&1 || \
+                echo "::warning::could not re-arm auto-merge on #$N after rebase"
               printf '🤖 **rebase** — main had moved; Claude replayed this branch on top of it, report posted unedited.\n\n%s\n\n---\n%s\n' "$report" "$note" \
                 | gh pr comment "$N" -R "$REPO" --body-file -
               ;;
