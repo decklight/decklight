@@ -68,19 +68,31 @@ export function pdfPageCount(buf) {
 }
 
 /**
- * Which slides the print-mode guardrail flagged, 1-based, from a dumped DOM.
+ * Which slides carry a guardrail attribute, 1-based, from a dumped DOM.
  * Sections are in document order in print mode (print never re-runs sync()),
- * so position IS the slide number.
+ * so position IS the slide number. The attribute must sit in the section TAG:
+ * a deck that merely talks about data-overflow in a code sample stays clean.
  */
-export function overflowSlides(html) {
+function flaggedSlides(html, attr) {
   const out = [];
+  const has = new RegExp(`\\b${attr}\\b`);
   let n = 0;
   for (const m of html.matchAll(/<section\b[^>]*>/g)) {
     n += 1;
-    if (/\bdata-overflow\b/.test(m[0])) out.push(n);
+    if (has.test(m[0])) out.push(n);
   }
   return out;
 }
+
+/** Slides the overflow guardrail flagged (SPEC PRESENTING). */
+export const overflowSlides = (html) => flaggedSlides(html, 'data-overflow');
+
+/**
+ * Slides mixing data-layout="split" with their own column flexbox (SPEC
+ * COMPARISON_SLIDES) — the engine marks the cause the overflow guardrail
+ * only ever catches the symptom of.
+ */
+export const splitConflictSlides = (html) => flaggedSlides(html, 'data-split-conflict');
 
 /** Slides in the printed deck — the number the page count should equal. */
 export const slideCount = (html) => (html.match(/<section\b/g) ?? []).length;
@@ -130,6 +142,10 @@ export async function pdfMain(args = []) {
 
   for (const n of overflowSlides(html)) {
     console.error(`pdf: ⚠ slide ${n} overflows — it will be clipped in the PDF`);
+  }
+  for (const n of splitConflictSlides(html)) {
+    console.error(`pdf: ⚠ slide ${n} mixes data-layout="split" with its own column flexbox — `
+      + 'two layout systems fight; drop one (SPEC COMPARISON_SLIDES)');
   }
   const buf = readFileSync(out);
   const pages = pdfPageCount(buf);

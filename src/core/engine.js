@@ -204,17 +204,44 @@ function splitContent(sec) {
 }
 
 function setupSplit(sections) {
-  sections.forEach((sec) => {
+  sections.forEach((sec, i) => {
     sec.querySelectorAll(':scope > .split-columns, :scope > .split-footer')
       .forEach((el) => el.classList.remove('split-columns', 'split-footer'));
-    if (!/^split/.test(sec.getAttribute('data-layout') || '')) return;
+    if (!/^split/.test(sec.getAttribute('data-layout') || '')) {
+      sec.removeAttribute('data-split-conflict');
+      return;
+    }
     const content = splitContent(sec);
+    checkSplitConflict(sec, content, i + 1);
     if (content.length === 1 && content[0].matches('ul, ol')) {
       content[0].classList.add('split-columns');
       return;
     }
     for (const el of content.slice(2)) el.classList.add('split-footer');
   });
+}
+
+/**
+ * The split trap (SPEC COMPARISON_SLIDES): a section carrying data-layout="split"
+ * while a content block brings its OWN row flexbox has two layout systems
+ * arguing — the split row's alignment defeats the pinned title's reserved
+ * space, the columns shrink, the footer is pushed off the bottom. The overflow
+ * guardrail catches the symptom; this names the cause. Mark (data-split-conflict,
+ * assertable headlessly like data-overflow) and warn once, on the way in —
+ * a computed display, so an inline style and a stylesheet class both count.
+ * Column-direction flex is fine: it stacks, it does not take sides.
+ */
+function checkSplitConflict(sec, content, slideNo) {
+  const conflict = content.some((el) => {
+    const cs = getComputedStyle(el);
+    return /flex$/.test(cs.display) && cs.flexDirection.startsWith('row');
+  });
+  const was = sec.hasAttribute('data-split-conflict');
+  sec.toggleAttribute('data-split-conflict', conflict);
+  if (conflict && !was) {
+    console.warn(`Decklight: slide ${slideNo} combines data-layout="split" with its own column flexbox — `
+      + 'two layout systems fight; drop the data-layout or the flex shell (SPEC COMPARISON_SLIDES)');
+  }
 }
 
 /**
@@ -879,7 +906,11 @@ export function init(userConfig = {}) {
     setupPinnedTitles(instance._sections, config);
     setupSplit(instance._sections);
     checkOverflow(sec, idx);
-    toast(`layout: ${name}`);
+    // the pick can land split on a slide that hand-rolls its own columns —
+    // say so at the keypress, not only in a console nobody has open
+    toast(sec.hasAttribute('data-split-conflict')
+      ? `layout: ${name} — fights this slide's own column flexbox; pick one`
+      : `layout: ${name}`);
     debugLog('layout', `slide ${idx}: ${name}`);
   }
 

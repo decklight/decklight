@@ -96,7 +96,10 @@ your own column flexbox.** Two sibling blocks become the columns, a third
 becomes a full-width footer. A hand-rolled flex shell inside a section that
 also carries \`data-layout="split"\` leaves two layout systems fighting, and the
 visible result is the pinned title landing on top of the column headings.
-COMPARISON_SLIDES has the markup.
+COMPARISON_SLIDES has the markup. The engine marks the mixed state
+\`data-split-conflict\` (assertable headlessly, like \`data-overflow\`), and the
+same \`decklight pdf\` run above names such slides — one render check catches
+both.
 
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
