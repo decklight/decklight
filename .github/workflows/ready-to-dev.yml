@@ -259,6 +259,22 @@ jobs:
             echo "no local branch $BRANCH — the implement step made no commit"
             exit 0
           fi
+          # Existence alone is not evidence of work: a run that gets as far as
+          # `git checkout -b` and then fails before its first commit leaves a
+          # local branch identical to main. Pushing that isn't a smaller
+          # version of doing the work, it is a branch `gh pr create` refuses
+          # outright ("No commits between main and $BRANCH") — and since that
+          # failure lands after this step, under set -euo pipefail it aborts
+          # the job before the PO-handoff step's own "did this run push
+          # anything?" check ever runs, so the label is left stuck on in-dev
+          # with no comment explaining why. Check for actual new commits, not
+          # just the ref — fetched fresh rather than trusting whatever
+          # remote-tracking ref the checkout happened to leave behind.
+          git fetch --quiet origin main
+          if [ -z "$(git log origin/main.."$BRANCH" --oneline)" ]; then
+            echo "$BRANCH has no commits ahead of main — the implement step made no commit"
+            exit 0
+          fi
           if [ -n "${NUDGE_PAT:-}" ]; then
             git push "https://x-access-token:${NUDGE_PAT}@github.com/${GITHUB_REPOSITORY}.git" "$BRANCH:$BRANCH"
           else
