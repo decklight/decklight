@@ -16,7 +16,10 @@ import { fileURLToPath } from 'node:url';
 
 import http from 'node:http';
 
-import { setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress } from '../cli/edit.mjs';
+import {
+  setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
+  removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
+} from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
 import { resolveGitMode, shouldCommit, commitSubject } from '../cli/git.mjs';
@@ -63,6 +66,44 @@ test('setSlideLayout is exact about its inputs', () => {
   assert.throws(() => setSlideLayout(DECK, 1, 'sideways'), /unknown layout/);
   // idempotence: same layout in → identical file out (the server skips the write)
   assert.equal(setSlideLayout(DECK, 2, 'centered'), DECK);
+});
+
+// ── element edit mode (#112): remove / replace content / build effect ─────
+
+test('removeSlideElement deletes the element at its raw child index (title included)', () => {
+  const removed = removeSlideElement(DECK, 1, 0); // index 0 is <h2>Alpha</h2>
+  assert.doesNotMatch(removed, /Alpha/);
+  assert.match(removed, /<section>\s*<ul><li>one<\/li><\/ul>\s*<\/section>/);
+
+  assert.throws(() => removeSlideElement(DECK, 1, 5), /no element at index 5/);
+});
+
+test('setSlideElementHtml replaces just that element\'s outerHTML', () => {
+  const edited = setSlideElementHtml(DECK, 1, 0, '<h2>Renamed</h2>');
+  assert.match(edited, /<section>\s*<h2>Renamed<\/h2>\s*<ul>/);
+  assert.doesNotMatch(edited, /Alpha/);
+});
+
+test('setSlideElementBuild writes data-build, "none" is a real value, null strips the attribute', () => {
+  const withFade = setSlideElementBuild(DECK, 1, 0, 'fade-up');
+  assert.match(withFade, /<h2 data-build="fade-up">Alpha<\/h2>/);
+
+  // 'none' is a real, explicit build step — distinct from having no attribute
+  const withNone = setSlideElementBuild(DECK, 1, 0, 'none');
+  assert.match(withNone, /<h2 data-build="none">Alpha<\/h2>/);
+
+  // switching effects replaces, it doesn't accumulate
+  const switched = setSlideElementBuild(withFade, 1, 0, 'zoom');
+  assert.match(switched, /<h2 data-build="zoom">Alpha<\/h2>/);
+  assert.equal((switched.match(/data-build/g) || []).length, 1);
+
+  // null is "remove effect": the attribute disappears entirely
+  const stripped = setSlideElementBuild(withFade, 1, 0, null);
+  assert.match(stripped, /<h2>Alpha<\/h2>/);
+  assert.doesNotMatch(stripped, /data-build/);
+
+  assert.throws(() => setSlideElementBuild(DECK, 1, 0, 'sideways'), /unknown build effect/);
+  assert.ok(BUILD_EFFECTS.includes('none') && BUILD_EFFECTS.length === 8);
 });
 
 // ── the history: one stack for every mutation, independent of git ─────────
@@ -262,6 +303,46 @@ test('layout, undo, and redo write the deck FILE — and share one history', asy
   assert.equal((await post(base, '/edit/layout', { slide: 'x', layout: 'top' })).status, 400);
 });
 
+test('element edit mode: source, content, effect, and remove all land on the undo stack', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  // GET source reads fresh from the FILE — index 0 is slide 1's <h2>
+  let r = await (await fetch(base + '/edit/element/source?slide=1&index=0')).json();
+  assert.deepEqual(r, { ok: true, html: '<h2>Alpha</h2>' });
+  assert.equal((await fetch(base + '/edit/element/source?slide=1&index=9')).status, 404);
+
+  // content: replace that element's outerHTML
+  r = await (await post(base, '/edit/element/content', { slide: 1, index: 0, html: '<h2>Renamed</h2>' })).json();
+  assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
+  assert.match(readFileSync(deck, 'utf8'), /<h2>Renamed<\/h2>/);
+
+  // effect: writes data-build; 'none' is accepted as a real value
+  r = await (await post(base, '/edit/element/effect', { slide: 1, index: 0, effect: 'fade-up' })).json();
+  assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 2 });
+  assert.match(readFileSync(deck, 'utf8'), /<h2 data-build="fade-up">Renamed<\/h2>/);
+
+  // effect: null strips it back off — the separate "remove effect" action
+  r = await (await post(base, '/edit/element/effect', { slide: 1, index: 0, effect: null })).json();
+  assert.equal(r.changed, true);
+  assert.doesNotMatch(readFileSync(deck, 'utf8'), /data-build/);
+
+  // remove: the element is gone; Z takes every one of these back in order
+  r = await (await post(base, '/edit/element/remove', { slide: 1, index: 0 })).json();
+  assert.equal(r.changed, true);
+  assert.doesNotMatch(readFileSync(deck, 'utf8'), /Renamed/);
+  assert.deepEqual((await (await post(base, '/edit/undo')).json()).undo, 3);
+  assert.match(readFileSync(deck, 'utf8'), /Renamed/, 'undo brought the element back');
+
+  // garbage in, 400 out — same contract as /edit/layout
+  assert.equal((await post(base, '/edit/element/remove', { slide: 1, index: -1 })).status, 400);
+  assert.equal((await post(base, '/edit/element/content', { slide: 1, index: 0, html: 5 })).status, 400);
+  assert.equal((await post(base, '/edit/element/effect', { slide: 1, index: 0, effect: 'sideways' })).status, 400);
+  assert.equal((await post(base, '/edit/element/remove', { slide: 1, index: 99 })).status, 400);
+});
+
 test('--git auto-commits on a cadence; undo/redo never consume the commits', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
@@ -445,7 +526,10 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
     assert.equal(r.status, 403, path_);
   }
   // disk-writing mutations, all refused
-  for (const [path_, payload] of [['/edit/notes', { slide: 1, text: 'x' }], ['/edit/restore', { ref: 'HEAD' }]]) {
+  for (const [path_, payload] of [
+    ['/edit/notes', { slide: 1, text: 'x' }], ['/edit/restore', { ref: 'HEAD' }],
+    ['/edit/element/remove', { slide: 1, index: 0 }],
+  ]) {
     const r = await rawReq(base, {
       method: 'POST', path: path_, body: JSON.stringify(payload),
       headers: { origin: EVIL, 'content-type': 'application/json' },

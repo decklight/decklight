@@ -302,6 +302,244 @@ export function createEditMode({
     setTimeout(() => ta.focus(), 0);
   }
 
+  // ── element edit mode (E) + its right-click menu — SPEC PRESENTING, #112 ──
+  // E only ARMS the mode; the actual editing surface is right-clicking the
+  // current slide. A specific element gets the full menu (notes / remove /
+  // edit content / add a text effect); the bare slide background gets only
+  // "Edit speaker notes" — which is why E no longer opens it directly, that
+  // moved to the background row. The notes ROW reuses toggleEditor() itself
+  // rather than a second copy of it.
+  //
+  // The first CURSOR-ANCHORED overlay in the engine: every other one — theme
+  // picker, palette, notes editor — is a centered, dimmed backdrop card. This
+  // one gets a transparent backdrop (dimming would hide the very slide the
+  // menu is about) and a card positioned at the click, not centered — see
+  // .decklight-ctxmenu in decklight.css. closeOnBackdrop/selectInList still
+  // apply unchanged: nothing about them assumes a dimmed, centered overlay.
+  const TEXT_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight'];
+  let elementEditOn = false;
+  let menuEl = null, menuRows = [], menuSel = 0, menuView = 'main', menuTarget = null;
+
+  function toggleElementEdit() {
+    if (!editAvailable) {
+      toast(needsDevMode('editing an element', location), 3200);
+      return;
+    }
+    elementEditOn = !elementEditOn;
+    closeElementMenu();
+    toast(elementEditOn ? 'element edit mode on — right-click a slide element' : 'element edit mode off', 2200);
+  }
+
+  /** The direct child of `sec` that contains `target`, or null for the bare background (target IS sec). */
+  function topLevelChild(sec, target) {
+    let el = target;
+    while (el && el !== sec && el.parentElement !== sec) el = el.parentElement;
+    return el && el !== sec ? el : null;
+  }
+
+  root.addEventListener('contextmenu', (e) => {
+    if (!elementEditOn) return;
+    const sec = e.target.closest('section');
+    const slide = sec ? instance._sections.indexOf(sec) + 1 : 0;
+    if (!sec || !slide) return; // not a real slide section — leave the OS menu alone
+    e.preventDefault();
+    // No per-element source mapping exists for a markdown-authored slide (its
+    // content lived in a <script type="text/template"> the browser never
+    // parsed) — same reason a removed-markdown slide has nothing for the
+    // notes editor to key off either.
+    if (sec.hasAttribute('data-markdown-removed')) {
+      toast('this slide has no per-element source mapping (data-markdown, removed in 0.4.0) — edit the file directly', 3400);
+      return;
+    }
+    const child = topLevelChild(sec, e.target);
+    const index = child ? [...sec.children].indexOf(child) : null;
+    dismissOthers?.();
+    openElementMenu(e.clientX, e.clientY, { sec, slide, index });
+  });
+
+  function closeElementMenu() {
+    menuEl?.remove();
+    menuEl = null;
+    menuView = 'main';
+  }
+
+  function renderElementMenu() {
+    const list = menuEl.querySelector('.cm-list');
+    list.textContent = '';
+    const rows = [];
+    if (menuView === 'effects') {
+      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      for (const fx of TEXT_EFFECTS) rows.push({ label: fx, run: () => commitEffect(fx) });
+      // 'none' is a real, explicit build step (still one more advance reveals
+      // the element) — distinct from "remove effect", which strips data-build.
+      rows.push({ label: 'none (instant)', run: () => commitEffect('none') });
+      rows.push({ label: 'remove effect', run: () => commitEffect(null) });
+    } else if (menuTarget.index === null) {
+      rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
+    } else {
+      rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
+      rows.push({ label: 'Remove element', run: commitRemove });
+      rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
+      rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
+    }
+    menuRows = rows;
+    rows.forEach((r, i) => {
+      const row = document.createElement('div');
+      row.className = 'cm-row' + (r.back ? ' cm-back' : '');
+      row.setAttribute('role', 'option');
+      row.textContent = r.label;
+      row.addEventListener('mouseenter', () => selectElementRow(i, false));
+      row.addEventListener('click', r.run);
+      list.appendChild(row);
+    });
+    selectElementRow(0, false);
+  }
+
+  function selectElementRow(i, scroll) {
+    const rows = menuEl.querySelectorAll('.cm-row');
+    if (!rows.length) return;
+    menuSel = selectInList(rows, i, 'cm-selected', { scroll });
+  }
+
+  function openElementMenu(x, y, target) {
+    menuTarget = target;
+    menuView = 'main';
+    menuEl = document.createElement('div');
+    menuEl.className = 'decklight-ctxmenu';
+    const card = document.createElement('div');
+    card.className = 'cm-card';
+    const list = document.createElement('div');
+    list.className = 'cm-list';
+    list.setAttribute('role', 'listbox');
+    list.setAttribute('aria-label', 'Element edit menu');
+    card.appendChild(list);
+    menuEl.appendChild(card);
+    root.appendChild(menuEl);
+    renderElementMenu();
+    // Anchored at the click, but never pushed off the deck's own box — a menu
+    // that opens partway off-screen is not "cursor-anchored", it is broken.
+    const rect = root.getBoundingClientRect();
+    const left = Math.min(x - rect.left, rect.width - card.offsetWidth - 4);
+    const top = Math.min(y - rect.top, rect.height - card.offsetHeight - 4);
+    card.style.left = Math.max(4, left) + 'px';
+    card.style.top = Math.max(4, top) + 'px';
+    closeOnBackdrop(menuEl, closeElementMenu);
+  }
+
+  async function commitRemove() {
+    const { slide, index } = menuTarget;
+    closeElementMenu();
+    try {
+      const res = await fetch(editBase + '/edit/element/remove', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ slide, index }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || res.status);
+      toast(j.changed ? 'element removed — reloading' : 'nothing to remove');
+    } catch (e) {
+      toast(`remove failed: ${String(e.message || e).slice(0, 60)}`, 2200);
+    }
+  }
+
+  async function commitEffect(effect) {
+    const { slide, index } = menuTarget;
+    closeElementMenu();
+    try {
+      const res = await fetch(editBase + '/edit/element/effect', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ slide, index, effect }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || res.status);
+      toast(effect === null ? 'effect removed — reloading' : `effect: ${effect} — reloading`);
+    } catch (e) {
+      toast(`effect save failed: ${String(e.message || e).slice(0, 60)}`, 2200);
+    }
+  }
+
+  // "Edit content (HTML)" — the element's raw outerHTML, read fresh from the
+  // FILE (never the live DOM: the engine mutates elements in place, so what
+  // the player sees is not what a Save should write back over).
+  let contentEl = null;
+  function closeContentEditor() { contentEl?.remove(); contentEl = null; }
+  function openElementContentEditor({ slide, index }) {
+    contentEl = document.createElement('div');
+    contentEl.className = 'decklight-narr decklight-editor';
+    const card = document.createElement('div');
+    card.className = 'narr-card';
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    head.textContent = `edit content — slide ${slide}, element ${index} · ⌘⏎ saves · Esc closes`;
+    const ta = document.createElement('textarea');
+    ta.className = 'narr-input edit-notes';
+    ta.value = 'loading…';
+    ta.disabled = true;
+    ta.spellcheck = false;
+    const save = async () => {
+      try {
+        const res = await fetch(editBase + '/edit/element/content', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ slide, index, html: ta.value }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        toast('element content saved — reloading');
+      } catch (e) {
+        toast(`save failed: ${String(e.message || e).slice(0, 60)}`);
+      }
+    };
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { save(); e.preventDefault(); }
+      else if (e.key === 'Escape') { closeContentEditor(); e.preventDefault(); }
+      e.stopPropagation();
+    });
+    const actions = document.createElement('div');
+    actions.className = 'tr-actions';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'narr-prev-btn';
+    btn.textContent = '💾 save to file';
+    btn.addEventListener('click', save);
+    actions.appendChild(btn);
+    card.append(head, ta, actions);
+    contentEl.appendChild(card);
+    closeOnBackdrop(contentEl, closeContentEditor);
+    root.appendChild(contentEl);
+    (async () => {
+      try {
+        const res = await fetch(`${editBase}/edit/element/source?slide=${slide}&index=${index}`);
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok || !j.ok) throw new Error(j.error || res.status);
+        ta.value = j.html;
+        ta.disabled = false;
+        ta.focus();
+      } catch (e) {
+        ta.value = '';
+        toast(`could not read the element's source: ${String(e.message || e).slice(0, 60)}`, 2600);
+      }
+    })();
+  }
+
+  overlays.register({
+    isOpen: () => !!menuEl,
+    close: closeElementMenu,
+    keydown(e) {
+      switch (e.key) {
+        case 'ArrowDown': selectElementRow(menuSel + 1, true); break;
+        case 'ArrowUp': selectElementRow(menuSel - 1, true); break;
+        case 'Enter': menuRows[menuSel]?.run(); break;
+        case 'Escape': closeElementMenu(); break;
+        default: return false;
+      }
+      return true;
+    },
+  });
+  overlays.register({
+    isOpen: () => !!contentEl,
+    close: closeContentEditor,
+    keydown: (e) => e.key === 'Escape' && (closeContentEditor(), true),
+  });
+
   // ----- restore overlay (R) — SPEC PRESENTING ---------------------------------------
   // The git-level sibling of Z/⇧Z: Z takes back a keystroke, R takes back a
   // session. Rows are the deck's commits (from `decklight restore`'s own
@@ -572,6 +810,10 @@ export function createEditMode({
     deckHistory,
     toggleEditor,
     toggleAgentAsk,
+    /** E — arm/disarm the right-click element menu (#112). Refuses outside author mode. */
+    toggleElementEdit,
+    /** Is element edit mode currently armed? The palette's own on/off label asks. */
+    elementEditOn: () => elementEditOn,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside author mode. */
     wizard: openWizard,
     /** What the server's ping said a wizard can configure — the palette's Configure rows. */

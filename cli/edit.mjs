@@ -17,15 +17,19 @@
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
 //
-//   GET  /edit/ping     → { ok, deck, undo, redo, git, agents, agentBusy, wizards }
-//   GET  /edit/events   → SSE; `reload` on deck change, `agent` job status
-//   POST /edit/notes    → { slide, text }           rewrite that slide's notes
-//   POST /edit/layout   → { slide, layout }         write data-layout to the file
-//   POST /edit/undo     → step the deck file back through the edit history
-//   POST /edit/redo     → step it forward again
-//   POST /edit/agent    → { prompt, agent? }        one-shot AI agent edit
-//   POST /edit/shutdown → final autocommit, then exit — same as Ctrl-C, so a
-//                         port conflict can take over an old session cleanly
+//   GET  /edit/ping            → { ok, deck, undo, redo, git, agents, agentBusy, wizards }
+//   GET  /edit/events          → SSE; `reload` on deck change, `agent` job status
+//   POST /edit/notes           → { slide, text }           rewrite that slide's notes
+//   POST /edit/layout          → { slide, layout }         write data-layout to the file
+//   GET  /edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
+//   POST /edit/element/remove  → { slide, index }          delete that element
+//   POST /edit/element/content → { slide, index, html }    replace its outerHTML
+//   POST /edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
+//   POST /edit/undo            → step the deck file back through the edit history
+//   POST /edit/redo            → step it forward again
+//   POST /edit/agent           → { prompt, agent? }        one-shot AI agent edit
+//   POST /edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
+//                                port conflict can take over an old session cleanly
 //
 // Every mutation goes through ONE undo history — snapshots of the whole
 // file, held in memory, capped. Undo/redo is deliberately independent of
@@ -48,7 +52,7 @@ import { spawn } from 'node:child_process';
 import { agentCommand, detectAgents } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
-import { NOTES_ASIDE, locateSlide } from '../tools/deck-html.mjs';
+import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
 import { deckHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE } from './wizard.mjs';
@@ -113,6 +117,52 @@ export function setSlideLayout(html, slide, name) {
   return parts.join('');
 }
 
+/** Look up element `index` (raw child position) on slide `slide`, or throw. */
+function locateElement(html, slide, index) {
+  const { parts, idx } = locateSlide(html, slide);
+  const seg = parts[idx];
+  const ranges = sectionChildRanges(seg);
+  const r = ranges[index];
+  if (!r) throw new Error(`slide ${slide}: no element at index ${index} (has ${ranges.length})`);
+  return { parts, idx, seg, r };
+}
+
+/** Remove slide N's element at raw child index `index` (title included). */
+export function removeSlideElement(html, slide, index) {
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  parts[idx] = seg.slice(0, r.start) + seg.slice(r.end);
+  return parts.join('');
+}
+
+/** Replace slide N's element at raw child index `index` with `outerHtml` verbatim. */
+export function setSlideElementHtml(html, slide, index, outerHtml) {
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  parts[idx] = seg.slice(0, r.start) + outerHtml + seg.slice(r.end);
+  return parts.join('');
+}
+
+// The spec's 7 entrance styles (MOTION), plus 'none' — an explicit, instant
+// build step, distinct from having no data-build attribute at all: one more
+// advance still reveals the element, it just has no animation.
+export const BUILD_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'];
+
+/**
+ * Set slide N's element `index`'s build/entrance effect, or — when `effect`
+ * is `null` — strip `data-build` entirely (the menu's separate "remove
+ * effect" action).
+ */
+export function setSlideElementBuild(html, slide, index, effect) {
+  if (effect !== null && !BUILD_EFFECTS.includes(effect)) throw new Error(`unknown build effect "${effect}"`);
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  const el = seg.slice(r.start, r.end);
+  const gt = el.indexOf('>');
+  if (gt < 0) throw new Error(`slide ${slide}: malformed element at index ${index}`);
+  let head = el.slice(0, gt).replace(/\s+data-build=("[^"]*"|'[^']*')/, '');
+  if (effect !== null) head += ` data-build="${effect}"`;
+  parts[idx] = seg.slice(0, r.start) + head + el.slice(gt) + seg.slice(r.end);
+  return parts.join('');
+}
+
 /**
  * The edit history: whole-file snapshots, in memory, capped. record() the
  * content a mutation is about to replace; undo()/redo() take the CURRENT
@@ -155,7 +205,8 @@ export async function editMain(args) {
     console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
                       [--commit-every <seconds>] [--agent <name>]
   serves the cwd, live-reloads the deck on change, and accepts edits from the
-  player: notes (E), per-slide layout (L/⇧L), undo/redo (Z/⇧Z), agent asks (A)
+  player: notes (right-click a slide's background), per-slide layout (L/⇧L),
+  element edit mode (E, then right-click an element), undo/redo (Z/⇧Z), agent asks (A)
   a taken --port offers to take over that session (on a TTY) or moves on to
   the next free one
   --git            auto-commit the deck on a regular basis (creates the repo if needed)
@@ -479,6 +530,24 @@ export async function editMain(args) {
           return res.end('no such revision of this deck');
         }
       }
+      // ── element edit mode (E, right-click a slide element) — #112 ─────
+      // Reads the element's outerHTML fresh from the FILE, never the live
+      // DOM: the engine mutates elements in place (pinned-title classes,
+      // namespaced SVG ids, chart/code/math subtree replacement), so the DOM
+      // the player sees is not what a Save should write back over.
+      if (req.method === 'GET' && url.pathname === '/edit/element/source') {
+        const slide = Number(url.searchParams.get('slide'));
+        const index = Number(url.searchParams.get('index'));
+        if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) {
+          return json(400, { ok: false, error: 'bad payload' });
+        }
+        try {
+          const { parts, idx, r } = locateElement(readDeck(), slide, index);
+          return json(200, { ok: true, html: parts[idx].slice(r.start, r.end) });
+        } catch (e) {
+          return json(404, { ok: false, error: oneline(e) });
+        }
+      }
 
       if (req.method === 'POST' && url.pathname === '/edit/shutdown') {
         res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
@@ -652,6 +721,35 @@ export async function editMain(args) {
         if (changed) console.log(`  layout saved: slide ${slide} → ${layout}`);
         return json(200, { ok: true, changed, ...history.counts() });
       }
+      // ── element edit mode (E, right-click a slide element) — #112 ─────
+      // Same door as layout/notes: a pure (html, slide, index, …) → html
+      // transform, through applyEdit, onto the ONE undo/redo stack.
+      if (req.method === 'POST' && url.pathname === '/edit/element/remove') {
+        const { slide, index } = JSON.parse(body);
+        if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
+        const changed = applyEdit(removeSlideElement(readDeck(), slide, index));
+        if (changed) console.log(`  element removed: slide ${slide} #${index}`);
+        return json(200, { ok: true, changed, ...history.counts() });
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/element/content') {
+        const { slide, index, html } = JSON.parse(body);
+        if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || typeof html !== 'string') {
+          throw new Error('bad payload');
+        }
+        const changed = applyEdit(setSlideElementHtml(readDeck(), slide, index, html));
+        if (changed) console.log(`  element content saved: slide ${slide} #${index}`);
+        return json(200, { ok: true, changed, ...history.counts() });
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/element/effect') {
+        const { slide, index, effect } = JSON.parse(body);
+        if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0
+            || (effect !== null && typeof effect !== 'string')) {
+          throw new Error('bad payload');
+        }
+        const changed = applyEdit(setSlideElementBuild(readDeck(), slide, index, effect));
+        if (changed) console.log(`  element effect saved: slide ${slide} #${index} → ${effect ?? '(removed)'}`);
+        return json(200, { ok: true, changed, ...history.counts() });
+      }
       if (req.method === 'POST' && url.pathname === '/edit/agent') {
         const { prompt, agent, message } = JSON.parse(body);
         if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
@@ -672,7 +770,7 @@ export async function editMain(args) {
   });
 
   const actual = await listenTakingOverIfNeeded(server, port, host);
-  console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E notes, L layouts, Z undo, A agent. Ctrl-C stops`);
+  console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
 }
 
 
