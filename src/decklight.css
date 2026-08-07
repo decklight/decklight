@@ -1235,7 +1235,8 @@
 }
 .decklight.decklight-print .decklight-character { display: none !important; }
 
-/* notes editor (E, served by `decklight edit`) */
+/* notes editor (right-click a slide's background, or the palette) — E now
+   arms element edit mode instead (below) */
 .decklight-editor .narr-card { width: min(640px, 88vw); }
 /* the engine wizard's provenance line (ENGINES#WIZARD, #232): who is asking and
    where the answer goes — deliberately NOT the muted narr-head treatment, since
@@ -1255,6 +1256,40 @@
   line-height: 1.6;
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 13px;
+}
+
+/* element edit mode's right-click menu (E arms it, then right-click a slide
+   element — #112). The first CURSOR-ANCHORED overlay: every other one dims
+   the whole screen and centers a card — this one must not, since the slide
+   under the cursor is the thing the menu is about. The backdrop stays fully
+   transparent; only .cm-card is visible, positioned at the click by JS. */
+.decklight-ctxmenu {
+  position: absolute;
+  inset: 0;
+  z-index: 80;
+}
+.decklight-ctxmenu .cm-card {
+  position: absolute;
+  min-width: 190px;
+  background: #16181d;
+  color: #e8eaee;
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .55);
+  font: 14px/1.4 system-ui, sans-serif;
+}
+.decklight-ctxmenu .cm-row {
+  padding: 7px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.decklight-ctxmenu .cm-row.cm-selected { background: rgba(255, 255, 255, .14); }
+.decklight-ctxmenu .cm-row.cm-back {
+  color: #b9bec8;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  margin-bottom: 4px;
+  padding-bottom: 9px;
 }
 
 /* transcript overlay (palette → Transcript…) */

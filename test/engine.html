@@ -106,6 +106,17 @@
             : json({ ok: true, name: 'nord-deep', from: ref, replaced: false, undo: 1 });
         }
       }
+      // Element edit mode (E, then right-click a slide element — #112) needs
+      // an author server to exist at all, same as every other author-mode
+      // feature here: enough of /edit/ping for editAvailable, plus the four
+      // /edit/element/* routes the menu's actions actually call.
+      if (HARNESS_MODE === 'contextmenu') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'wizard') {
         if (u.includes('/edit/ping')) {
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
@@ -162,7 +173,11 @@
     const settle = () => new Promise((res) => setTimeout(res, 50));
 
     const r = {};
-    (async () => {
+    // A screenshot driver (shots/*.mjs, via tools/shot.mjs --drive) wants the
+    // mocked bridge below with NOTHING else racing it — no automated sequence
+    // fighting the driver's own keypresses and clicks for the same overlay.
+    if (params.has('shot')) { sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify({ shot: true }); }
+    else (async () => {
     try {
       if (mode === 'added') {
         // `decklight theme add` put a third-party theme into a LINK-mode deck.
@@ -512,6 +527,108 @@
           && r.postsTypedAnswers && r.closesOnSuccess
           && r.hasApi && r.apiMounts && r.escapeCloses
           && r.refusesWithoutProvenance;
+      }
+
+      if (mode === 'contextmenu') {
+        // Element edit mode (#112): E only ARMS it — right-clicking a slide
+        // element is the actual surface, and the menu it opens differs by
+        // WHAT was right-clicked, not by a separate keystroke.
+        const M = '.decklight-ctxmenu', ROW = '.cm-row', SEL = 'cm-selected';
+        const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu',
+          { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        const rowsText = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.textContent);
+        const clickRow = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === label)?.click();
+        await settle();                        // let /edit/ping resolve
+
+        const sections = [...document.querySelectorAll('.decklight section')];
+        const h1 = sections[0].querySelector('h1');
+
+        // E arms the mode; it does not open anything by itself
+        press('e');
+        r.armingOpensNoMenu = !document.querySelector(M);
+
+        // right-click ON an element → the full menu
+        rightClick(h1);
+        r.opensOnElement = !!document.querySelector(M);
+        r.fullMenuRows = JSON.stringify(rowsText())
+          === JSON.stringify(['Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Add text effect ▸']);
+        const a = selectedIndex(M, ROW, SEL);
+        r.hasSelection = a.i === 0;
+        press('ArrowDown');
+        r.downMoves = selectedIndex(M, ROW, SEL).i === 1;
+        r.escapeCloses = escapeUntilClosed(M);
+
+        // right-click the SECTION ITSELF (no descendant under the cursor) →
+        // background only gets "Edit speaker notes", which is where notes
+        // editing lives now that E means something else
+        rightClick(sections[0]);
+        r.opensOnBackground = !!document.querySelector(M);
+        r.backgroundOnlyNotes = JSON.stringify(rowsText()) === JSON.stringify(['Edit speaker notes']);
+        press('Escape');
+
+        // "Add text effect ▸" drills into a submenu — the 7 SPEC entrance
+        // styles, 'none' (a real, instant build step), "remove effect", and a
+        // back row — and committing one posts { slide, index, effect }
+        rightClick(h1);
+        clickRow('Add text effect ▸');
+        const fx = rowsText();
+        r.submenuShape = fx[0] === '← back' && fx.includes('fade-up') && fx.includes('highlight')
+          && fx.includes('none (instant)') && fx.includes('remove effect') && fx.length === 10;
+        clickRow('fade-up');
+        await settle();
+        const fxPost = CALLS.post.find((c) => c.u.includes('/edit/element/effect'));
+        r.postsEffect = fxPost?.body.slide === 1 && fxPost?.body.index === 0 && fxPost?.body.effect === 'fade-up';
+        r.closesAfterEffect = !document.querySelector(M);
+
+        // "Remove element" posts { slide, index }
+        rightClick(h1);
+        clickRow('Remove element');
+        await settle();
+        const rmPost = CALLS.post.find((c) => c.u.includes('/edit/element/remove'));
+        r.postsRemove = rmPost?.body.slide === 1 && rmPost?.body.index === 0;
+
+        // "Edit content (HTML)" reads the element's outerHTML fresh from the
+        // FILE (the fake /edit/element/source above), never the live DOM, and
+        // Save posts the edited value back
+        rightClick(h1);
+        clickRow('Edit content (HTML)');
+        await settle();
+        const W = '.decklight-editor';
+        const ta = document.querySelector(`${W} textarea`);
+        r.contentMounts = !!ta;
+        r.contentLoadedFromSource = ta?.value === '<h1>One</h1>';
+        ta.value = '<h1>Renamed</h1>';
+        ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle();
+        const contentPost = CALLS.post.find((c) => c.u.includes('/edit/element/content'));
+        r.postsContent = contentPost?.body.slide === 1 && contentPost?.body.index === 0
+          && contentPost?.body.html === '<h1>Renamed</h1>';
+        r.escapeClosesContentEditor = escapeUntilClosed(W);
+
+        // A slide with no per-element source mapping (data-markdown-removed,
+        // #112's stand-in for the notes editor's markdown guard — markdown
+        // slides were removed in 0.4.0, so this repo has no real fixture)
+        // declines the whole menu rather than opening one that lies about
+        // what it can save.
+        sections[1].setAttribute('data-markdown-removed', '');
+        rightClick(sections[1].querySelector('h2'));
+        r.declinesOnMarkdownSlide = !document.querySelector(M);
+
+        // backdrop click closes
+        rightClick(h1);
+        document.querySelector(M)?.click();
+        r.backdropCloses = !document.querySelector(M);
+
+        // E again disarms — no more menu on right-click
+        press('e');
+        rightClick(h1);
+        r.disarmedNoMenu = !document.querySelector(M);
+
+        r.PASS = r.armingOpensNoMenu && r.opensOnElement && r.fullMenuRows && r.hasSelection && r.downMoves
+          && r.escapeCloses && r.opensOnBackground && r.backgroundOnlyNotes
+          && r.submenuShape && r.postsEffect && r.closesAfterEffect && r.postsRemove
+          && r.contentMounts && r.contentLoadedFromSource && r.postsContent && r.escapeClosesContentEditor
+          && r.declinesOnMarkdownSlide && r.backdropCloses && r.disarmedNoMenu;
       }
     } catch (e) {
       r.exception = String((e && e.stack) || e);

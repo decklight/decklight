@@ -573,7 +573,8 @@ export function init(userConfig = {}) {
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'H', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: `Narration ${narration.status().paused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
-      { label: 'Edit speaker notes…', hint: 'E', alias: 'edit mode notes write', run: toggleEditor },
+      { label: 'Edit speaker notes…', alias: 'edit mode notes write right-click background', run: toggleEditor },
+      { label: `Element edit mode ${editmode.elementEditOn() ? 'off' : 'on'} (dev)`, hint: 'E', alias: 'right-click remove delete html content build animation entrance effect context menu', run: toggleElementEdit },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
@@ -1363,7 +1364,7 @@ export function init(userConfig = {}) {
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
       <tr><td>R</td><td>restore a version (author mode — git history, live preview)</td></tr>
-      <tr><td>E</td><td>edit speaker notes (author mode)</td></tr>
+      <tr><td>E</td><td>element edit mode — right-click a slide element (author mode)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
       <tr><td>L / ⇧L</td><td>slide layout — writes the file (author mode)</td></tr>
@@ -1512,7 +1513,7 @@ export function init(userConfig = {}) {
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
       case 'r': case 'R': editmode.restore.open(); break;
-      case 'e': case 'E': toggleEditor(); break;
+      case 'e': case 'E': toggleElementEdit(); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
       case 'n': case 'N': openNarrPicker(); break;
@@ -1788,13 +1789,14 @@ export function init(userConfig = {}) {
       if (palEl) closePalette();
     },
   });
-  const { deckHistory, toggleEditor, toggleAgentAsk } = editmode;
+  const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
   // R programmatically — and what the headless overlay harness drives, since
   // it cannot reach a git server to populate the real list.
   instance.restore = editmode.restore;
   // The engine wizard (ENGINES#WIZARD), for drivers that cannot click the
   // palette's Configure rows. Same author-mode gate either way.
   instance.wizard = editmode.wizard;
+  instance.toggleElementEdit = toggleElementEdit;           // E programmatically; author mode only
 
   if (params.has('voiceover') && narration.status().track && !printMode) {
     // whichever gesture fires first must disarm the OTHER listener too, or
