@@ -236,7 +236,10 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
   bundled deck IS inline script, so this does not stop a deck from running
   code. It stops that code from reaching anywhere it shouldn't.`;
 
-export async function presentMain(args) {
+// `client` is the sigstore client — injectable for the same reason as
+// `bundleMain`'s: `undefined` means "go load the real one", an explicit stub
+// lets a test drive the verification states without the network.
+export async function presentMain(args, { client } = {}) {
   const positional = args.filter((a) => !a.startsWith('-'));
   if (args.includes('--help') || args.includes('-h') || !positional.length) {
     console.log(USAGE);
@@ -286,7 +289,7 @@ export async function presentMain(args) {
   let signature;
   if (container) {
     signature = container.signature
-      ? await verifyBytes(container.payload, container.signature)
+      ? await verifyBytes(container.payload, container.signature, { client })
       : { state: TAMPERED, reason: 'the container carries no signature' };
     // The manifest is the container's own label. When it does not describe the
     // deck it is stapled to, something rewrote one half — which is the same
@@ -295,7 +298,7 @@ export async function presentMain(args) {
       signature = { state: TAMPERED, reason: 'the manifest digest does not match the payload' };
     }
   } else {
-    signature = await verifyFile(deckPath);
+    signature = await verifyFile(deckPath, { client });
   }
 
   if (args.includes('--check')) {

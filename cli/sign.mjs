@@ -106,8 +106,17 @@ export const TAMPERED = 'tampered';
 export const UNCHECKED = 'unchecked';
 export const UNSIGNED = 'unsigned';
 
-/** Did verification actually establish who signed these bytes? */
-export const isVerified = (r) => r.state === VERIFIED;
+/**
+ * Did verification actually establish who signed these bytes?
+ *
+ * Both halves are required. A result that verified but names nobody —
+ * "verified with unknown identity" — gates like `unchecked`: the design here
+ * is "print the name, the human judges it", and a nameless signer leaves
+ * nothing to judge. This is the single predicate every consequential decision
+ * routes through (`--check`'s exit code, the strict-mode degrade), so the
+ * tightening lives here and not at the call sites.
+ */
+export const isVerified = (r) => r.state === VERIFIED && r.identity != null;
 
 /**
  * When the signature was recorded, read straight out of the bundle.
@@ -185,10 +194,17 @@ export function writeSidecar(file, bundle) {
  * too. The identity is the part a person can actually judge.
  */
 export function formatSignature(result, { indent = '  ' } = {}) {
-  const who = result.identity ?? 'an identity the certificate does not name';
   switch (result.state) {
     case VERIFIED:
-      return `${indent}signature — verified: signed by ${who}`
+      // A signature can check out cryptographically while the certificate
+      // names nobody. Precision matters: the bytes did verify, the signer did
+      // not resolve to a name — and `isVerified` gates it as unverified,
+      // because a name nobody can judge is not an attestation.
+      if (result.identity == null) {
+        return `${indent}signature — verified with unknown identity: the certificate does not name`
+          + ` who signed these bytes${result.at ? ` (${result.at})` : ''}`;
+      }
+      return `${indent}signature — verified: signed by ${result.identity}`
         + `${result.issuer ? ` via ${result.issuer}` : ''}${result.at ? `, ${result.at}` : ''}`;
     case TAMPERED:
       return `${indent}signature — DOES NOT VERIFY: these are not the bytes that were signed (${result.reason})`;
