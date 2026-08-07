@@ -9,7 +9,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  KEY_ENV, DEFAULT_MODEL, FORMATS, apiKey, shapeVoices, pickVoice, synthError, createSynth,
+  KEY_ENV, DEFAULT_MODEL, V3_MODEL, STABILITY_PRESETS, FORMATS,
+  apiKey, shapeVoices, pickVoice, synthError, createSynth, styleTag,
 } from '../tools/elevenlabs-tts.mjs';
 import { createEngine, ENGINES } from '../tools/tts-engines.mjs';
 import { suggestEngine } from '../tools/tts-setup.mjs';
@@ -139,6 +140,88 @@ test('mp3 is passed through untouched — it is already a container', async () =
   assert.equal(synth.mimeType, 'audio/mpeg', 'so the bridge does not label mp3 as audio/wav');
 });
 
+// ── v3 audio tags — style as a short bracketed cue, v3 only ────────────────
+
+test('styleTag wraps plain text, keeps a well-formed cue verbatim, and drops a second one', () => {
+  assert.equal(styleTag('excited'), '[excited]', 'someone who does not know v3 syntax still gets a cue');
+  assert.equal(styleTag('[whispers]'), '[whispers]', 'someone who already knows it gets exactly that');
+  assert.equal(styleTag('[whispers] [also excited]'), '[whispers]', 'only the first cue — a second is not invited');
+  assert.equal(styleTag(''), '', 'nothing to say is not a tag');
+  assert.equal(styleTag(null), '');
+  assert.equal(styleTag('   '), '', 'whitespace is nothing, not a cue');
+});
+
+test('a persona too long to be a cue is cut back, not spoken', () => {
+  const long = 'a'.repeat(80);
+  const tag = styleTag(long, 10);
+  assert.equal(tag, `[${'a'.repeat(10)}]`);
+});
+
+test('a tag is prepended to the text and billed as part of what was sent — v3 only', async () => {
+  const fetchImpl = fakeFetch();
+  const { synth } = createSynth({ key: 'k', model: V3_MODEL, fetchImpl });
+  const { usage } = await synth('Hello there.', { voice: 'Gilles', style: 'excited' });
+
+  const post = fetchImpl.calls.find((c) => c.init.method === 'POST');
+  assert.equal(JSON.parse(post.init.body).text, '[excited] Hello there.');
+  assert.equal(usage.chars, '[excited] Hello there.'.length, 'billed on what actually went out');
+  assert.match(usage.note, /\[excited\]/, 'the per-sentence line shows the cue it sent');
+});
+
+test('a style is never sent to a non-v3 model — the brackets would just be read aloud', async () => {
+  const fetchImpl = fakeFetch();
+  const { synth } = createSynth({ key: 'k', fetchImpl }); // DEFAULT_MODEL, not v3
+  const { usage } = await synth('Hello there.', { voice: 'Gilles', style: 'excited' });
+
+  const post = fetchImpl.calls.find((c) => c.init.method === 'POST');
+  assert.equal(JSON.parse(post.init.body).text, 'Hello there.', 'unchanged — no tag riding along');
+  assert.equal(usage.chars, 'Hello there.'.length);
+  assert.doesNotMatch(usage.note, /\[/, 'nothing bracketed in the report either');
+});
+
+test('no style at all sends the sentence untouched, even on v3', async () => {
+  const fetchImpl = fakeFetch();
+  const { synth } = createSynth({ key: 'k', model: V3_MODEL, fetchImpl });
+  await synth('Hello there.', { voice: 'Gilles' });
+  const post = fetchImpl.calls.find((c) => c.init.method === 'POST');
+  assert.equal(JSON.parse(post.init.body).text, 'Hello there.');
+});
+
+// ── v3 stability presets — a v3-only knob, refused elsewhere ───────────────
+
+test('a stability preset maps to its documented number and rides in voice_settings', async () => {
+  const fetchImpl = fakeFetch();
+  const { synth } = createSynth({ key: 'k', model: V3_MODEL, stability: 'creative', fetchImpl });
+  await synth('hi', { voice: 'Gilles' });
+  const post = fetchImpl.calls.find((c) => c.init.method === 'POST');
+  assert.equal(JSON.parse(post.init.body).voice_settings.stability, STABILITY_PRESETS.creative);
+  assert.equal(STABILITY_PRESETS.creative, 0);
+  assert.equal(STABILITY_PRESETS.natural, 0.5);
+  assert.equal(STABILITY_PRESETS.robust, 1);
+});
+
+test('unasked, no voice_settings is sent at all — the account setting is left alone', async () => {
+  const fetchImpl = fakeFetch();
+  const { synth } = createSynth({ key: 'k', model: V3_MODEL, fetchImpl });
+  await synth('hi', { voice: 'Gilles' });
+  const post = fetchImpl.calls.find((c) => c.init.method === 'POST');
+  assert.equal(JSON.parse(post.init.body).voice_settings, undefined);
+});
+
+test('a stability preset asked of a model with no such slider is refused up front', () => {
+  assert.throws(
+    () => createSynth({ key: 'k', model: DEFAULT_MODEL, stability: 'creative' }),
+    /--tts-stability is a v3 feature/,
+  );
+});
+
+test('an unknown stability name is refused, not silently rounded to the nearest preset', () => {
+  assert.throws(
+    () => createSynth({ key: 'k', model: V3_MODEL, stability: 'chill' }),
+    /unknown --tts-stability 'chill'/,
+  );
+});
+
 test('the request carries the key, the model and the resolved voice id', async () => {
   const fetchImpl = fakeFetch();
   const { synth } = createSynth({ key: 'sk-abc', fetchImpl });
@@ -185,8 +268,20 @@ test('createEngine hands back the shape every engine has', () => {
   assert.equal(e.model, DEFAULT_MODEL);
   assert.equal(e.needsProject, false, 'no GCP project — a key is the whole prerequisite');
   assert.equal(e.stylable, false, 'no delivery-instruction channel, so the picker skips tones');
+  assert.equal(e.caveat, undefined, 'nothing to warn about on a model with no style channel');
   assert.deepEqual(e.voices, [], 'the roster belongs to the account, so it is fetched');
   assert.equal(typeof e.listVoices, 'function');
+});
+
+test('eleven_v3 alone reports stylable — the tone step follows the model, not the engine name', () => {
+  const v3 = createEngine({ engine: 'elevenlabs', model: V3_MODEL, env: { [KEY_ENV]: 'k' } });
+  assert.equal(v3.stylable, true);
+  assert.match(v3.caveat, /eleven_v3/, 'the trade-offs are named, ready for the startup line');
+  assert.match(v3.caveat, /250 characters/);
+
+  const v2 = createEngine({ engine: 'elevenlabs', model: DEFAULT_MODEL, env: { [KEY_ENV]: 'k' } });
+  assert.equal(v2.stylable, false);
+  assert.equal(v2.caveat, undefined);
 });
 
 test('the key is read from the environment, and only from there', () => {
@@ -225,4 +320,16 @@ test('--tts-format rides along to the bridge', () => {
   });
   assert.ok(p.run.find((s) => s.name === 'tts').args.join(' ').includes('--tts-format mp3'));
   assert.equal(p.deck, 'deck.html', 'and the deck is still found past it');
+});
+
+test('--tts-model and --tts-stability both ride along, and the deck is still found past them', () => {
+  const p = planServices({
+    args: ['deck.html', '--tts-engine', 'elevenlabs', '--tts-model', V3_MODEL, '--tts-stability', 'natural'],
+    env: { [KEY_ENV]: 'k' },
+    hasBin: () => false,
+  });
+  const argv = p.run.find((s) => s.name === 'tts').args.join(' ');
+  assert.ok(argv.includes(`--tts-model ${V3_MODEL}`));
+  assert.ok(argv.includes('--tts-stability natural'));
+  assert.equal(p.deck, 'deck.html');
 });
