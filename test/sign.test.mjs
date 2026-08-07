@@ -122,6 +122,23 @@ test('an unreachable trust root is UNCHECKED, not tampered — different facts',
   }
 });
 
+test('a verified result that names nobody is not verified — nothing to judge', async () => {
+  // A signature can check out cryptographically while the verifier resolves
+  // no name (older sigstore majors returned no Signer at all). The state stays
+  // VERIFIED — the bytes did verify — but the gate must not pass it: the whole
+  // design is "print the name, the human judges it", and a nameless identity
+  // gives the presenter nothing to judge.
+  const r = await verifyBytes('deck', BUNDLE(), { client: stub({ verify: async () => ({}) }) });
+  assert.equal(r.state, VERIFIED);
+  assert.equal(r.identity, null);
+  assert.equal(isVerified(r), false, 'verified with unknown identity gates exactly like unchecked');
+
+  const line = formatSignature(r);
+  assert.match(line, /verified with unknown identity/, 'the one standard phrase for this condition');
+  assert.doesNotMatch(line, /signed by/, 'no name is claimed where none was established');
+  assert.equal(line.split('\n').length, 1);
+});
+
 test('no client means UNCHECKED — never a pass', async () => {
   const r = await verifyBytes('deck', BUNDLE(), { client: null });
   assert.equal(r.state, UNCHECKED);
@@ -275,6 +292,34 @@ test('present --check fails a deck whose signature does not verify', () => {
   } catch (e) { code = e.status; out = String(e.stdout); }
   assert.equal(code, 1, 'a gate that passes what it could not stand behind is not a gate');
   assert.match(out, /DOES NOT VERIFY/);
+});
+
+test('--check routes a nameless verified signature the same as unchecked', async () => {
+  // Both consequential call sites — --check's exit code and the strict-mode
+  // degrade — gate on the same `state !== UNSIGNED && !isVerified(signature)`
+  // expression, so exercising --check through the injectable client covers the
+  // one choke point they share.
+  const { presentMain } = await import('../cli/present.mjs');
+  const dir = tmp();
+  const deck = path.join(dir, 'talk.html');
+  writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');
+  writeSidecar(deck, BUNDLE());
+
+  const check = async (client) => {
+    const lines = [];
+    const orig = console.log;
+    console.log = (...a) => { lines.push(a.join(' ')); };
+    try { return { code: await presentMain([deck, '--check'], { client }), out: lines.join('\n') }; }
+    finally { console.log = orig; }
+  };
+
+  const named = await check(stub({}));
+  assert.equal(named.code, 0, `a named identity passes: ${named.out}`);
+  assert.match(named.out, /signed by gilles@example\.com/);
+
+  const nameless = await check(stub({ verify: async () => ({}) }));
+  assert.equal(nameless.code, 1, 'the same sidecar with no established name fails the gate');
+  assert.match(nameless.out, /verified with unknown identity/);
 });
 
 test('an unsigned deck passes --check — most decks are unsigned', () => {
