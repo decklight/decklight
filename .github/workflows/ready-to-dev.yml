@@ -338,6 +338,15 @@ jobs:
           # this the PR would sit green and unmerged, waiting for a click. If
           # the branch falls behind main, auto-merge updates and re-tests it
           # before landing.
+          #
+          # A single --auto call on a brand-new PR reliably sets the flag but
+          # does not reliably enqueue it — GitHub's auto-merge mutation is
+          # idempotent, and a fresh PR here has repeatedly landed armed, green,
+          # and never enqueued. The transition that actually triggers the
+          # queue is a genuine off→on toggle, not a second on→on call, so
+          # clear any (nonexistent) prior state before arming rather than
+          # arming once and hoping.
+          gh pr merge "$BRANCH" --disable-auto >/dev/null 2>&1 || true
           gh pr merge "$BRANCH" --auto || \
             echo "::warning::could not arm auto-merge — the PR will need a manual merge"
 
