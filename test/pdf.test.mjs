@@ -12,7 +12,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { pdfOut, printUrl, pdfPageCount, overflowSlides, slideCount } from '../cli/pdf.mjs';
+import { pdfOut, printUrl, pdfPageCount, overflowSlides, splitConflictSlides, slideCount } from '../cli/pdf.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -59,6 +59,18 @@ test('a deck that merely TALKS about data-overflow does not report itself', () =
   // has to be matched inside a <section> tag, not anywhere in the document
   const dom = '<section><h2>Overflow</h2><pre><code>data-overflow</code></pre></section>';
   assert.deepEqual(overflowSlides(dom), []);
+});
+
+test('slides mixing split with their own column flexbox are named too', () => {
+  // the SPEC COMPARISON_SLIDES trap: the engine marks the CAUSE with
+  // data-split-conflict, and the audit reads it back like data-overflow
+  const dom = '<section><h2>clean</h2></section>'
+    + '<section data-layout="split" data-split-conflict=""><h2>mixed</h2></section>'
+    + '<section data-layout="split"><h2>proper split</h2></section>';
+  assert.deepEqual(splitConflictSlides(dom), [2]);
+  assert.deepEqual(overflowSlides(dom), [], 'the two audits are independent');
+  // and talking about the attribute in a code sample is not carrying it
+  assert.deepEqual(splitConflictSlides('<section><pre><code>data-split-conflict</code></pre></section>'), []);
 });
 
 test('pdf is routed and documented by the dispatcher', () => {

@@ -120,6 +120,14 @@ particular:
 > `data-layout`. This is a real deck that shipped that way; the overflow
 > guardrail caught it, which is why PRESENTING asks you to check.
 
+The engine flags the mixed state itself, not just its symptom: a `split`
+section with a content block that computes to a **row** flexbox is marked
+`data-split-conflict` — assertable headlessly exactly like `data-overflow`
+(PRESENTING) — with one console warning naming the slide, and `decklight pdf`'s
+audit names such slides beside the overflowing ones. Cycling a layout onto such
+a slide with `L`/`⇧L` says so in the toast. Column-direction flex inside a
+block is fine: it stacks, it does not take sides.
+
 Three columns is deliberately not a shape here (PRESENTING). Two and a footer, or
 another slide — see SLIDE_DENSITY for why.
 

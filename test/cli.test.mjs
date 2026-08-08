@@ -1185,6 +1185,9 @@ test('the skill names the comparison recipe and its one trap', () => {
   assert.match(md, /full-width footer/);
   assert.match(md, /COMPARISON_SLIDES/, 'and points at the worked markup');
   assert.match(md, /SLIDE_DENSITY/, 'and at the density guidance');
+  // the engine marks the mixed state; the always-loaded file names the mark so
+  // the standing `decklight pdf` check is known to catch this trap too
+  assert.match(md, /data-split-conflict/, 'the attribute the engine sets on the mixed state');
 });
 
 test('init states the commit policy when it creates a repository', (t) => {

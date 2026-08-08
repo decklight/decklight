@@ -74,6 +74,7 @@ setTimeout(() => {
     footerSpans: f ? Math.round(f.width) >= Math.round(b.right - a.left) - 4 : null,
     footerBelow: f ? Math.round(f.top) >= Math.round(Math.max(a.bottom, b.bottom)) - 1 : null,
     overflow: sec.hasAttribute('data-overflow'),
+    conflict: sec.hasAttribute('data-split-conflict'),
   });
 }, 400);
 </script></body></html>`);
@@ -118,6 +119,7 @@ for (const flip of [false, true]) {
   check(`${tag}: columns share a top edge`, r.topGap <= 1, `${r.topGap}px apart`);
   check(`${tag}: and so do their headings`, r.headingGap <= 1, `${r.headingGap}px apart`);
   check(`${tag}: nothing clipped`, r.overflow === false, `data-overflow=${r.overflow}`);
+  check(`${tag}: plain blocks raise no conflict`, r.conflict === false, `data-split-conflict=${r.conflict}`);
 }
 
 const f = run(deck({ footer: true }));
@@ -164,6 +166,67 @@ setTimeout(() => {
   check('recipe: and it spans both columns', r.footerSpans === true, `${r.footerSpans}`);
   check('recipe: nothing clipped', r.overflow === false, `data-overflow=${r.overflow}`);
   check('recipe: notes included', r.notes === true, `${r.notes}`);
+}
+
+// ── the trap itself: split + a hand-rolled column shell (#86) ──────────────
+// The deck that shipped broken: data-layout="split" left on a section that
+// ALSO brings its own flex row of Pros/Cons. The engine must name the cause
+// (data-split-conflict, one warning), keep quiet about column-direction flex
+// (it stacks, it does not take sides), and clear the mark when the author
+// picks one layout system.
+{
+  const file = path.join(dir, 'conflict.html');
+  writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="${path.join(root, 'dist/decklight.css')}">
+<link rel="stylesheet" href="${path.join(root, 'themes/aurora.css')}"></head>
+<body><div class="decklight">
+<section data-layout="split">
+  <h2>git</h2>
+  <p>Distributed version control.</p>
+  <div style="display:flex; gap:24px">
+    <div><h3>Pros</h3><ul><li>fast</li><li>offline</li></ul></div>
+    <div><h3>Cons</h3><ul><li>sharp edges</li><li>submodules</li></ul></div>
+  </div>
+  <p><strong>Alternatives:</strong> Mercurial; Jujutsu</p>
+</section>
+<section data-layout="split">
+  <h2>benign</h2>
+  <div style="display:flex; flex-direction:column"><h3>Pros</h3><ul><li>stacked, not columned</li></ul></div>
+  <div><h3>Cons</h3><ul><li>none</li></ul></div>
+</section>
+</div>
+<pre id="test-sink">running…</pre>
+<script src="${path.join(root, 'dist/decklight.js')}"></script>
+<script>
+const warns = [];
+console.warn = ((orig) => (...a) => { warns.push(a.join(' ')); orig(...a); })(console.warn);
+const deck = Decklight.init();
+setTimeout(() => {
+  const conflictWarns = () => warns.filter((w) => /column flexbox/.test(w)).length;
+  const [mixed, benign] = document.querySelectorAll('.decklight-stage > section');
+  const flagged = mixed.hasAttribute('data-split-conflict');
+  const benignFlagged = benign.hasAttribute('data-split-conflict');
+  const warnsOnEntry = conflictWarns();
+  deck.sync();                       // still conflicted: the mark stays, the warning does not repeat
+  const stillFlagged = mixed.hasAttribute('data-split-conflict');
+  const warnsAfterResync = conflictWarns();
+  mixed.removeAttribute('data-layout'); // the fix: one layout system
+  deck.sync();
+  document.getElementById('test-sink').textContent = 'DECKLIGHT-SPLIT-RESULTS ' + JSON.stringify({
+    flagged, benignFlagged, warnsOnEntry, stillFlagged, warnsAfterResync,
+    cleared: !mixed.hasAttribute('data-split-conflict'),
+  });
+}, 400);
+</script></body></html>`);
+  const r = resultsFrom(
+    dumpDom(`file://${file}`, { fileAccess: true, budget: 5000, quietStderr: true, who: 'split-render' }),
+    'SPLIT', 'split + hand-rolled column shell');
+  check('conflict: the mixed slide is marked', r.flagged === true, `data-split-conflict=${r.flagged}`);
+  check('conflict: and warned about, once', r.warnsOnEntry === 1, `${r.warnsOnEntry} warning(s)`);
+  check('conflict: column-direction flex is not a conflict', r.benignFlagged === false, `flagged=${r.benignFlagged}`);
+  check('conflict: a re-sync repeats the mark, not the warning',
+    r.stillFlagged === true && r.warnsAfterResync === 1, `flagged=${r.stillFlagged}, ${r.warnsAfterResync} warning(s)`);
+  check('conflict: dropping data-layout clears it', r.cleared === true, `cleared=${r.cleared}`);
 }
 
 if (bad) { console.error('split-render: FAILED'); process.exit(1); }
