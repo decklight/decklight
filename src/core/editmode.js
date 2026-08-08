@@ -44,7 +44,8 @@ export function createEditMode({
   // while a foreign tab's fetch is refused server-side (#222, cli/serve.mjs).
   let editAvailable = false;
   let editBase = '';
-  let editAgents = [];   // [{name, label}] the dev machine can run
+  let editAgents = [];   // [{name, label, installed}] the dev machine can run
+  let preferredAgent = null; // the one A reaches for, remembered server-side (#125)
   let editWizards = [];  // [{name, qualified, title}] engines a marketplace declares a wizard for
   let agentBusy = null;  // {agent, prompt, startedAt} while a one-shot runs
   if (!printMode && !params.has('embedded')) {
@@ -65,6 +66,7 @@ export function createEditMode({
           editBase = base;
           editAvailable = true;
           editAgents = Array.isArray(j.agents) ? j.agents : [];
+          preferredAgent = typeof j.preferredAgent === 'string' ? j.preferredAgent : null;
           editWizards = Array.isArray(j.wizards) ? j.wizards : [];
           // No QR and no clicker on this path: the author server binds
           // 127.0.0.1 and serves no /remote/* at all (PRESENT#REMOTE). A deck
@@ -198,7 +200,12 @@ export function createEditMode({
     ta.className = 'narr-input edit-notes';
     ta.placeholder = `e.g. "make slide ${instance.state.slide} a split layout with the diagram on the left"`;
     ta.spellcheck = false;
-    let pickedAgent = editAgents[0].name;
+    // Opens on the remembered agent, not on whichever was detected first —
+    // the point of remembering one (#125). A preference naming an agent this
+    // machine no longer has is ignored rather than offered.
+    let pickedAgent = (preferredAgent && editAgents.some((a) => a.name === preferredAgent))
+      ? preferredAgent
+      : editAgents[0].name;
     const actions = document.createElement('div');
     actions.className = 'tr-actions';
     if (editAgents.length > 1) {
@@ -210,7 +217,20 @@ export function createEditMode({
         o.textContent = a.label;
         sel.appendChild(o);
       }
-      sel.addEventListener('change', () => { pickedAgent = sel.value; });
+      sel.value = pickedAgent;
+      // Changing the agent REMEMBERS it: the next session's A opens here too.
+      // Fire-and-forget — a preference that failed to save must not block the
+      // ask the presenter actually came to make.
+      sel.addEventListener('change', () => {
+        pickedAgent = sel.value;
+        preferredAgent = sel.value;
+        fetch(editBase + '/edit/agent/prefer', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ agent: sel.value }),
+        }).catch(() => {});
+        debugLog('agent', `preferred agent → ${sel.value}`);
+      });
       sel.addEventListener('keydown', (e) => e.stopPropagation());
       actions.appendChild(sel);
     }

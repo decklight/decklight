@@ -114,6 +114,22 @@ export const UNIT_TYPES = {
     required: ['apiVersion', 'capability'],
     pinned: true,
   },
+  // A reference kind like `voice` below, but for a different reason: not
+  // consent, blast radius (SPEC AGENT_UNITS). An agent descriptor names a
+  // binary the user installed THEMSELVES and the argv of its headless mode,
+  // so teaching decklight a new agent downloads nothing and runs nothing of
+  // the catalog's — which is what keeps an open roster out of UNIT_PINNING's
+  // risk class entirely, unlike the engine directly above.
+  agent: {
+    dir: 'agents',
+    single: 'json',
+    reference: true,
+    label: 'AI agent',
+    use: 'A, author mode',
+    example: 'my-agent',
+    note: 'An agent unit is a DESCRIPTOR — which command to run and how to run it\n  headlessly. Installing one fetches nothing; you install the agent itself the\n  way its own docs say, and this only teaches decklight how to call it.',
+    required: ['bin', 'args'],
+  },
   // The one kind that carries NOTHING. `reference: true` means the install is
   // the catalog entry itself, written to disk as a pointer — no source to
   // resolve, no bytes to fetch (SPEC VOICE_UNITS). Two consequences fall out

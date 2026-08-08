@@ -22,6 +22,7 @@
  *   decklight engine   install a speech engine beyond the six built in — the N picker then offers it
  *   decklight extension check a transform file — the marketplace admission gate, not a bundle step
  *   decklight voice    add a marketplace voice to the N picker — a reference, never a model
+ *   decklight agent    teach A a coding agent beyond the built-in roster — a descriptor, never code
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
  *   decklight video    render a deck to a narrated mp4 (stills + voiceover audio)
@@ -91,6 +92,9 @@ Commands:
   voice    add a marketplace voice to the picker — a reference to one of an engine's
            voices, never a model, so nothing that reproduces a person is ever downloaded
            EXAMPLE: decklight voice add narrator-anna    (works offline; speaking needs your key)
+  agent    teach A a coding agent the built-in roster does not cover — a descriptor of how to
+           run it headlessly, never code, so this downloads nothing and works offline
+           EXAMPLE: decklight agent add my-agent     (install the agent itself its own way)
   tts      serve the live voice bridge — the player synthesizes narration on the fly through it
            EXAMPLE: decklight tts        (then pick "Live voice…" in the deck's / palette)
   lipsync  serve the lip-sync bridge — offline visemes (rhubarb) + talking-head video (local GPU)
@@ -222,6 +226,7 @@ switch (cmd) {
   // Four rows of the same table (UNITS#REST) — one implementation, in units.mjs.
   case 'template':
   case 'voice':
+  case 'agent':
   case 'importer':
   case 'engine':
   case 'transform': {
