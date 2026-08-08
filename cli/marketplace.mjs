@@ -254,8 +254,15 @@ export const IMPORTER_API_VERSION = 1;
  */
 export const ENGINE_API_VERSION = 1;
 
-/** What an installed engine's `capability` may say, and this decklight runs. */
-export const ENGINE_CAPABILITIES = ['tts'];
+/**
+ * What an installed engine's `capability` may say, and this decklight runs.
+ *
+ * `lipsync` joined `tts` with ENGINES#LIPSYNC: the loader's contract is the
+ * same factory either way, and what differs is the PREREQUISITES an engine
+ * declares (SPEC ENGINE_PREREQUISITES) — a binary and a checkout rather than
+ * only a pasted key.
+ */
+export const ENGINE_CAPABILITIES = ['tts', 'lipsync'];
 
 /**
  * The pin a code-carrying entry installs against (SPEC `UNIT_PINNING`): the

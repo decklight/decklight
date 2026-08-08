@@ -494,9 +494,11 @@ test('an engine capability is checked for SHAPE only — a kind this decklight c
   // The refusal belongs at LOAD time (test/loader.test.mjs), where it can name
   // the one engine; refusing here would invalidate the whole catalog and take
   // its themes down with it.
-  const lipsync = ENGINE.replace('"capability": "tts"', '"capability": "lipsync"');
-  assert.equal(validateManifest(lipsync).ok, true);
-  assert.equal(ENGINE_CAPABILITIES.includes('lipsync'), false, 'and this decklight does NOT run it');
+  const unknown = ENGINE.replace('"capability": "tts"', '"capability": "transcription"');
+  assert.equal(validateManifest(unknown).ok, true);
+  assert.equal(ENGINE_CAPABILITIES.includes('transcription'), false, 'and this decklight does NOT run it');
+  // the two it DOES run, so a future third does not silently widen the gate
+  assert.deepEqual(ENGINE_CAPABILITIES, ['tts', 'lipsync']);
 
   const ahead = ENGINE.replace('"apiVersion": 1', `"apiVersion": ${ENGINE_API_VERSION + 10}`);
   assert.equal(validateManifest(ahead).ok, true);

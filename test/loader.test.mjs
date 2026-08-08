@@ -512,12 +512,14 @@ test('apiVersion is the loader\'s check, and capability is refused only at load'
   const other = tmp('engine-capability');
   try {
     // a capability this decklight does not run: addable (a catalog written for
-    // a newer decklight must not be invalidated), refused when actually loaded
-    engineMarket(other, { capability: 'lipsync' });
+    // a newer decklight must not be invalidated), refused when actually loaded.
+    // `transcription` is deliberately a kind decklight has no affordance for —
+    // `lipsync` stopped being one the moment ENGINES#LIPSYNC landed.
+    engineMarket(other, { capability: 'transcription' });
     assert.equal(run(['engine', 'add', 'azure-tts'], other).code, 0, 'still installs');
     assert.throws(() => resolveEngine('azure-tts', other), (e) => {
       assert.ok(e instanceof LoaderError);
-      assert.match(e.message, /is a lipsync engine.*only runs: tts/);
+      assert.match(e.message, /is a transcription engine.*only runs: tts, lipsync/);
       return true;
     });
   } finally { rmSync(other, { recursive: true, force: true }); }

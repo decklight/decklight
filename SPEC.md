@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `UNIT_COMPAT` · `UNIT_PINNING` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; agents as descriptors, and the remembered preference; the speech-engine factory contract and installing one; compat for code-carrying units; the digest pin they install against; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; agents as descriptors, and the remembered preference; the speech-engine factory contract and installing one; what an engine needs from the machine before a key is worth asking for; compat for code-carrying units; the digest pin they install against; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -959,6 +959,52 @@ export default function createEngine(opts) {
   author server; `present` registers nothing that could reach either, and a
   credential still comes from the wizard (`ENGINES#WIZARD`) and is still
   written `0600`, never into a deck.
+### ENGINE_PREREQUISITES — What an engine needs before a key is worth asking for
+
+TTS made two failure states look like enough — "could not reach it" and "that
+key was refused" — because a credential is the only thing a TTS provider ever
+needs. Lipsync is the case that proves otherwise (`ENGINES#LIPSYNC`): rhubarb
+is a **binary**, Wav2Lip is a **python checkout plus model weights**, and only
+Veo is the paste-a-key shape. So a wizard schema may declare what it needs
+from the machine, beside what it needs from the person:
+
+```json
+"requires": [
+  { "kind": "binary", "name": "rhubarb", "hint": "brew install rhubarb-lip-sync" },
+  { "kind": "file",   "name": "~/models/wav2lip.pth", "hint": "download the checkpoint" }
+]
+```
+
+- **Two kinds, and deliberately no third.** `binary` (a command that must be
+  on `PATH`) and `file` (a path that must exist — a checkout, a checkpoint, a
+  model). Everything a talking-head engine needs is one of those two, and a
+  vocabulary that grew past them would stop being a declaration and start
+  being a build script. Closed for the same reason `FIELD_TYPES` is: a
+  prerequisite core cannot check is refused **by name**, never rendered as a
+  best guess.
+- **`hint` is displayed, never executed.** It is the line a human would type,
+  shown so it can be copied. Decklight does not run it — and that is the only
+  reason it can be catalog-supplied at all. A plugin able to get a shell
+  command run at author privilege merely by declaring a "prerequisite" would
+  make the wizard a remote-code-execution primitive with a config file for a
+  delivery mechanism, the exact inversion `MARKETPLACE.md WHY` exists to
+  refuse. The piper offer-to-fetch (`PRESENTING`) looks similar and is not:
+  that command is chosen by decklight's own code, against a package decklight
+  names, and no catalog can put a string in it.
+- **A third state, `prerequisite`, beside `unreachable` and `rejected`** —
+  `412` on the wire, its own line in the player. Someone missing rhubarb must
+  not be told to check their key, exactly as someone with a wrong key must not
+  be told to check their network.
+- **The gate runs first.** Before the answers are checked, before the network
+  is touched, and before anything is written: an engine that cannot run here
+  never has a credential collected for it, and a provider outage can never
+  mask a missing binary.
+- **Nothing is ever downloaded, and non-TTY runs never prompt** — unchanged
+  from the offer-to-fetch precedents, because nothing here fetches at all.
+- **`capability: "lipsync"`** is a runnable engine kind alongside `tts`
+  (`ENGINE_UNITS`): the factory contract is identical, and what differs is
+  exactly the prerequisites above.
+
 ### AGENT_UNITS — AI agents: a descriptor, and a remembered preference
 
 `A` (PRESENTING) hands an installed coding agent one editing task. The roster
