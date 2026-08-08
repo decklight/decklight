@@ -35,6 +35,12 @@
 // the list price *ignoring* the free tier — we cannot see your monthly usage,
 // so the bridge reports characters too, which is what the free tier is
 // denominated in.
+//
+// A seventh engine is whatever the machine INSTALLED (SPEC ENGINE_UNITS):
+// `resolveEngine` at the bottom of this file takes any name, answers the six
+// above itself, and hands anything else to the unit library. The six stay
+// core and unversioned — they need no marketplace, so a machine with none
+// registered reaches its own voice exactly as it always did.
 
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -353,7 +359,10 @@ function createNative({ kind, voice, shell = 'powershell.exe' }) {
 export function createEngine({
   engine = 'gemini', project, model, location, voice, dataDir, lang, format, stability, env = process.env,
 } = {}) {
-  if (!ENGINES.includes(engine)) throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')}`);
+  if (!ENGINES.includes(engine)) {
+    throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')},`
+      + ` or install one: decklight engine add ${engine}`);
+  }
 
   // `cost` is the human-facing price note — the bridge's startup line and the
   // setup wizard's test-synthesis report both quote it.
@@ -420,4 +429,27 @@ export function createEngine({
     voices: GEMINI_VOICES,
     synth: createGemini({ project, ttsModel: m, location }),
   };
+}
+
+/**
+ * The engine for `name`, whether decklight ships it or the machine installed
+ * it (SPEC `ENGINE_UNITS`).
+ *
+ * The six above are resolved first and synchronously — they are not units,
+ * they need no library and no catalog, and a machine with no marketplace
+ * registered must reach its own voice by exactly the path it always did.
+ * Only a name that is NOT one of them reaches the unit library, so the
+ * loader (and the `cli/` half of the tree it pulls in) is imported lazily:
+ * `decklight tts --engine piper` should not pay to read a registry it will
+ * not consult.
+ *
+ * Async because loading an installed engine means `import()`ing it. Callers
+ * that only ever speak with a built-in can keep calling `createEngine`
+ * directly; the bridge cannot know which it has been given, so it awaits this.
+ */
+export async function resolveEngine(opts = {}) {
+  const name = opts.engine ?? 'gemini';
+  if (ENGINES.includes(name)) return createEngine(opts);
+  const { loadEngine } = await import('../cli/loader.mjs');
+  return loadEngine(name, opts);
 }

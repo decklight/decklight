@@ -49,7 +49,7 @@ export const INSTALL_HINT = {
   template: 'decklight template add <name>',
   skill: 'decklight skills add <name>',
   importer: 'decklight importer add <name>',
-  engine: null,          // ENGINES#WIZARD installs one at the moment of need
+  engine: 'decklight engine add <name>',  // ENGINE_UNITS — the wizard then configures it
   transform: 'decklight transform add <name>',  // EXTENSIONS#LOADER — installs; bundle --transform <name> runs it
   voice: 'decklight voice add <name>',
   'publish-target': null,
@@ -238,6 +238,25 @@ export const TRANSFORM_API_VERSION = 1;
 export const IMPORTER_API_VERSION = 1;
 
 /**
+ * The speech-engine invocation contract's own version (SPEC `ENGINE_UNITS`,
+ * `ENGINES#TTS`).
+ *
+ * A third counter beside the two above, for the third reason they are
+ * separate: an engine's convention is not `input → string` at all. It is a
+ * FACTORY — `opts → {name, voices, stylable, synth}` — and `synth` returns
+ * audio plus a usage record rather than text, so the day either of the other
+ * two grows a field, an engine's contract is untouched and must not be
+ * invalidated along with them. Additive-only on the same terms: bumped only
+ * when the factory or `synth` convention itself would break an installed
+ * engine, never for an internal reorganisation of `tools/tts-engines.mjs`
+ * (whose six built-ins are not units and are not versioned by this at all).
+ */
+export const ENGINE_API_VERSION = 1;
+
+/** What an installed engine's `capability` may say, and this decklight runs. */
+export const ENGINE_CAPABILITIES = ['tts'];
+
+/**
  * The pin a code-carrying entry installs against (SPEC `UNIT_PINNING`): the
  * SHA-256 of the module file's bytes, lowercase hex, as `sha256sum` prints it
  * and `decklight extension check` emits it on success.
@@ -258,6 +277,24 @@ const sha256Shape = (v) => (typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)
 const ENTRY_SHAPES_OPTIONAL = {
   importer: { sha256: sha256Shape },
   transform: { sha256: sha256Shape },
+  // An engine entry wears one `type` for two jobs, and only one of them
+  // carries code. `{name, type: 'engine', source, wizard}` DECLARES a wizard
+  // for an engine decklight already ships (ENGINES#WIZARD) — it installs
+  // nothing, so it has no contract version and no capability to name. An
+  // engine UNIT (SPEC ENGINE_UNITS) is a module the loader runs, and needs
+  // both. Requiring them here would invalidate every catalog of the first
+  // kind, so they are shape-checked when present and their ABSENCE is
+  // refused at install (`cli/units.mjs`) — exactly where `sha256`'s is, for
+  // exactly the same blast-radius reason.
+  engine: {
+    sha256: sha256Shape,
+    apiVersion: (v) => (Number.isInteger(v) && v >= 1
+      ? null
+      : 'must be a positive integer — the ENGINE_UNITS contract version this engine needs, not a decklight version'),
+    capability: (v) => (typeof v === 'string' && /^[a-z][a-z0-9-]*$/.test(v)
+      ? null
+      : 'must name the affordance this engine answers for, e.g. "tts"'),
+  },
 };
 
 const ENTRY_SHAPES = {
@@ -319,9 +356,11 @@ const ENTRY_SHAPES = {
 export const REFERENCE_ONLY = new Set(['voice']);
 
 function shapeErrors(entry, p, err) {
-  const shape = ENTRY_SHAPES[entry.type];
-  if (!shape) return;
-  for (const [field, check] of Object.entries(shape)) {
+  // NOT an early return when a type declares no required fields: a kind can be
+  // all-optional (`engine`, whose two fields are enforced at install instead —
+  // ENTRY_SHAPES_OPTIONAL above), and bailing here would skip its shape checks
+  // entirely, silently accepting `capability: 42`.
+  for (const [field, check] of Object.entries(ENTRY_SHAPES[entry.type] ?? {})) {
     if (entry[field] === undefined) {
       err(`${p}.${field}`, `missing — ${entry.type} entries must declare it: ${check(undefined) ?? 'see UNITS'}`);
       continue;

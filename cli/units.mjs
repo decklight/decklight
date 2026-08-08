@@ -98,6 +98,22 @@ export const UNIT_TYPES = {
     required: ['apiVersion'],
     pinned: true,
   },
+  // Node code that runs at AUTHOR time like a transform, and pinned for the
+  // same reason — but it is the first unit whose module is a FACTORY rather
+  // than a `(input) → string` pass (SPEC ENGINE_UNITS). What it returns is
+  // spoken with, so a malformed one has to be caught on the way out of the
+  // import rather than at the first sentence, mid-talk. Like a transform,
+  // `apiVersion` is not persisted onto the installed .mjs — the loader
+  // re-reads it, and `capability`, from the catalog cache.
+  engine: {
+    dir: 'engines',
+    single: 'mjs',
+    label: 'speech engine',
+    use: 'decklight tts --engine <name>, then the N picker',
+    example: 'azure-tts',
+    required: ['apiVersion', 'capability'],
+    pinned: true,
+  },
   // The one kind that carries NOTHING. `reference: true` means the install is
   // the catalog entry itself, written to disk as a pointer — no source to
   // resolve, no bytes to fetch (SPEC VOICE_UNITS). Two consequences fall out
@@ -294,6 +310,21 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
       + ` runs unsandboxed, so it installs only pinned to the digest its catalog admitted`
       + ` (SPEC UNIT_PINNING). Ask the marketplace to pin the entry; decklight extension check`
       + ` prints the digest to use`);
+  }
+
+  // Same placement, same reason: an `engine` entry may legitimately carry
+  // neither field, because the type is also how a catalog declares a wizard
+  // for an engine decklight already SHIPS (ENGINES#WIZARD) — no module, no
+  // contract version, nothing installed. Only an entry actually being
+  // installed as a unit has to answer for both (SPEC ENGINE_UNITS).
+  for (const field of t.required ?? []) {
+    if (t.reference || hit.entry[field] !== undefined) continue;
+    throw new UnitError(`${hit.qualified} declares no ${field}, which installing a ${t.label} needs`
+      + (type === 'engine'
+        ? ' (SPEC ENGINE_UNITS). An entry that only declares a wizard for an engine decklight'
+          + ' already ships carries neither field, and is not installed this way — the wizard'
+          + ' reaches it through the palette instead'
+        : ''));
   }
 
   const { resolveSource } = await import('./theme.mjs');
