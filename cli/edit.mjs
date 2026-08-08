@@ -49,7 +49,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { resolve, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
-import { agentCommand, detectAgents } from './agents.mjs';
+import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
@@ -293,9 +293,19 @@ export async function editMain(args) {
   process.on('SIGTERM', () => { finalCommit(); process.exit(0); });
 
   // ── AI agents — one-shot editing tasks from the player (A) ─────────────
-  const agentPref = opt('--agent');
+  // Precedence, like every other saved choice: the flag wins, then what was
+  // remembered (#125), then the first detected agent.
+  let agentPref = opt('--agent') ?? preferredAgent();
   const agents = detectAgents();
-  if (agents.length) console.log(`  agents: ${agents.map((a) => a.name).join(', ')} — “Ask agent” (A) is live`);
+  if (agents.length) {
+    const mark = (a) => a.name + (a.name === agentPref ? ' (preferred)' : '') + (a.installed ? ' (installed)' : '');
+    console.log(`  agents: ${agents.map(mark).join(', ')} — “Ask agent” (A) is live`);
+  }
+  // A remembered agent that is not on this machine is said ONCE, at startup,
+  // rather than discovered at the moment someone presses A mid-talk.
+  if (agentPref && !agents.some((a) => a.name === agentPref)) {
+    console.log(`  agent: ${agentUnavailable(agentPref, agents)}`);
+  }
 
   // ── live reload: watch the deck, broadcast SSE (debounced — editors fire
   // multiple fs events per save) ─────────────────────────────────────────
@@ -500,6 +510,9 @@ export async function editMain(args) {
           ok: true, deck: deckUrl, name: basename(deckPath),
           ...history.counts(), git: gitOn,
           agents: agents.map((a) => ({ name: a.name, label: a.label })),
+          // which one A reaches for, so the picker opens on it rather than
+          // defaulting to the first detected agent every session (#125)
+          preferredAgent: agentPref ?? null,
           agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt },
           wizards: await configurableEngines(),
         });
@@ -750,12 +763,26 @@ export async function editMain(args) {
         if (changed) console.log(`  element effect saved: slide ${slide} #${index} → ${effect ?? '(removed)'}`);
         return json(200, { ok: true, changed, ...history.counts() });
       }
+      // Remember which agent A should reach for (#125, SPEC AGENT_UNITS). A
+      // preference is a choice about this machine, not about the deck, so it
+      // is written beside the unit library and never into the file.
+      if (req.method === 'POST' && url.pathname === '/edit/agent/prefer') {
+        const { agent } = JSON.parse(body);
+        if (agent !== null && typeof agent !== 'string') throw new Error('bad payload');
+        if (agent && !agents.some((a) => a.name === agent)) {
+          return json(400, { ok: false, error: agentUnavailable(agent, agents) });
+        }
+        setPreferredAgent(agent);
+        agentPref = agent ?? undefined;
+        console.log(`  agent: ${agent ? `${agent} remembered as preferred` : 'preference cleared'}`);
+        return json(200, { ok: true, preferredAgent: agent ?? null });
+      }
       if (req.method === 'POST' && url.pathname === '/edit/agent') {
         const { prompt, agent, message } = JSON.parse(body);
         if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
         if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
         const cmd = runAgent(prompt.trim(), agent, message);
-        if (!cmd) return json(400, { ok: false, error: agent ? `agent "${agent}" not detected` : 'no agent CLI detected (claude, codex, bob, …)' });
+        if (!cmd) return json(400, { ok: false, error: agentUnavailable(agent ?? agentPref, agents) });
         return json(200, { ok: true, agent: cmd.name, label: cmd.label });
       }
       // ── static files from the cwd (staticFiles, serve.mjs) ───────────

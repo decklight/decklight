@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `ENGINE_UNITS` · `UNIT_COMPAT` · `UNIT_PINNING` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; the speech-engine factory contract and installing one; compat for code-carrying units; the digest pin they install against; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `UNIT_COMPAT` · `UNIT_PINNING` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; agents as descriptors, and the remembered preference; the speech-engine factory contract and installing one; compat for code-carrying units; the digest pin they install against; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -959,6 +959,51 @@ export default function createEngine(opts) {
   author server; `present` registers nothing that could reach either, and a
   credential still comes from the wizard (`ENGINES#WIZARD`) and is still
   written `0600`, never into a deck.
+### AGENT_UNITS — AI agents: a descriptor, and a remembered preference
+
+`A` (PRESENTING) hands an installed coding agent one editing task. The roster
+of agents decklight knows how to invoke ships in core, and a marketplace can
+extend it — but an agent unit is a **descriptor, never code**:
+
+```json
+{ "name": "my-agent", "type": "agent",
+  "bin": "my-agent", "args": ["-p", "{prompt}", "--yes"] }
+```
+
+- **`bin` is a command you already installed**, the way its own documentation
+  says. `decklight agent add <name>` fetches nothing and runs nothing of the
+  catalog's — it only teaches decklight how to *call* something already on
+  your `PATH`. That is why `agent` is `REFERENCE_ONLY` beside `voice`, carries
+  no `sha256`, and is the second kind whose `add` works offline. The reason
+  differs from a voice's: not consent, but blast radius — an open roster that
+  required downloading a module would put every new agent in `UNIT_PINNING`'s
+  risk class for no gain, when the thing being described is a binary the user
+  chose and installed themselves.
+- **The whole template vocabulary is `{prompt}` and `{deck}`**, each
+  substituted into one argv element. The result is spawned as an **argv
+  array, never a shell string**, so a deck path containing a space or a
+  semicolon is an argument and can never become a command. A descriptor whose
+  `args` never mentions `{prompt}` is refused: an agent handed no instruction
+  is not a working entry. The three shapes the built-in roster already covers
+  (`-p …`, `exec --full-auto …`, `run -t …`) are the evidence this vocabulary
+  is closed enough to stay declarative.
+- **A unit may not shadow a built-in.** An installed descriptor whose name
+  collides with one of the core agents is dropped rather than replacing it —
+  silently changing how `claude` is invoked is not something a catalog should
+  be able to do to a machine. A malformed descriptor is skipped, not thrown
+  on: one broken third-party entry must not take `A` down for the agents
+  beside it.
+- **The preferred agent is remembered** (`~/.decklight/agent.json`), so `A`
+  opens on the agent you chose rather than on whichever was detected first.
+  Precedence matches every other saved choice: `--agent` > the remembered
+  preference > the first detected agent. Choosing one in the `A` dialog
+  persists it (`POST /edit/agent/prefer`); it is a fact about the machine, so
+  it is written beside the unit library and **never into the deck**.
+- **A remembered agent that is missing is named, never substituted.** Which
+  agent edits your deck is not an interchangeable detail, so an unavailable
+  preference does not quietly fall back to another one: the author server says
+  so once at startup, and `A` answers with a line naming what is missing, what
+  is available, and how to get it back.
 
 ### VOICE_UNITS — Voices: a reference, never a payload
 

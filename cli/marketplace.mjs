@@ -50,6 +50,7 @@ export const INSTALL_HINT = {
   skill: 'decklight skills add <name>',
   importer: 'decklight importer add <name>',
   engine: 'decklight engine add <name>',  // ENGINE_UNITS — the wizard then configures it
+  agent: 'decklight agent add <name>',    // AGENT_UNITS — a descriptor, never code
   transform: 'decklight transform add <name>',  // EXTENSIONS#LOADER — installs; bundle --transform <name> runs it
   voice: 'decklight voice add <name>',
   'publish-target': null,
@@ -323,6 +324,23 @@ const ENTRY_SHAPES = {
       ? null
       : 'must be a positive integer — the EXTENSIONS#TRANSFORMS contract version this transform needs, not a decklight version'),
   },
+  // An agent entry is a DESCRIPTOR (SPEC AGENT_UNITS): the binary you already
+  // installed, and the argv of its headless mode. Deliberately not code — the
+  // three shapes the built-in roster already covers (`-p …`, `exec
+  // --full-auto …`, `run -t …`) are a small closed vocabulary a template
+  // expresses completely, so teaching decklight a new agent never means
+  // downloading and running someone's module (which is why `agent` is in
+  // REFERENCE_ONLY below and carries no `sha256`).
+  agent: {
+    bin: (v) => (typeof v === 'string' && /^[A-Za-z0-9][\w.-]*$/.test(v)
+      ? null
+      : "must be the agent's executable name, e.g. \"claude\" — a bare command, never a path or a shell line"),
+    args: (v) => (Array.isArray(v) && v.length && v.every((x) => typeof x === 'string')
+      ? (v.some((x) => x.includes('{prompt}'))
+        ? null
+        : 'must include {prompt} in one of its arguments — otherwise the agent is handed no instruction')
+      : 'must be the argv of the agent\'s headless mode, as an array of strings, e.g. ["-p", "{prompt}"]'),
+  },
   // A voice entry is a POINTER (SPEC VOICE_UNITS): which engine, and which of
   // that engine's voices. Both are needed for the roster to be filtered to the
   // engine actually running — a reference to an ElevenLabs voice is not an
@@ -353,7 +371,7 @@ const ENTRY_SHAPES = {
  * where it can actually be enforced and revoked: the provider account whose
  * terms governed the cloning, and which can unshare the voice.
  */
-export const REFERENCE_ONLY = new Set(['voice']);
+export const REFERENCE_ONLY = new Set(['voice', 'agent']);
 
 function shapeErrors(entry, p, err) {
   // NOT an early return when a type declares no required fields: a kind can be
