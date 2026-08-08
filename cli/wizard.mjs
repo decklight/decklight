@@ -39,7 +39,8 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, chmodSync, statSync, existsSync } from 'node:fs';
-import path from 'node:path';
+import path, { delimiter } from 'node:path';
+import { homedir } from 'node:os';
 import { configHome } from './marketplace.mjs';
 
 /** Where credentials live. Beside `marketplaces.json`, same config home. */
@@ -73,7 +74,7 @@ export function validateSchema(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new SchemaError('a wizard schema must be a JSON object');
   }
-  const allowed = new Set(['engine', 'title', 'fields', 'validate', 'install']);
+  const allowed = new Set(['engine', 'title', 'fields', 'validate', 'install', 'requires']);
   for (const key of Object.keys(raw)) {
     if (!allowed.has(key)) {
       throw new SchemaError(`unknown key "${key}" — a schema may declare only: ${[...allowed].join(', ')}`);
@@ -134,6 +135,8 @@ export function validateSchema(raw) {
     };
   });
 
+  const requires = validateRequires(raw);
+
   for (const key of ['validate', 'install']) {
     if (raw[key] === undefined) continue;
     if (typeof raw[key] !== 'string' || !raw[key].startsWith('/')) {
@@ -147,8 +150,92 @@ export function validateSchema(raw) {
     fields,
     ...(raw.validate ? { validate: raw.validate } : {}),
     ...(raw.install ? { install: raw.install } : {}),
+    ...(requires.length ? { requires } : {}),
   };
 }
+
+/** What a prerequisite may BE — closed, like `FIELD_TYPES` and for the same reason. */
+export const REQUIRE_KINDS = Object.freeze(['binary', 'file']);
+
+/**
+ * Validate a schema's `requires` block — the NON-CREDENTIAL prerequisites an
+ * engine needs before it can run at all (SPEC `ENGINE_PREREQUISITES`,
+ * `ENGINES#LIPSYNC`). Lipsync is what forced this: rhubarb is a binary,
+ * Wav2Lip is a python checkout plus model weights, and only Veo is the
+ * paste-a-key shape TTS made look universal.
+ *
+ * Two kinds, and deliberately no third: `binary` (a command that must be on
+ * PATH) and `file` (a path that must exist — a checkout, a checkpoint, a
+ * model). Everything a talking-head engine needs is one of those two, and a
+ * vocabulary that grew past them would stop being a declaration and start
+ * being a build script.
+ *
+ * **`hint` is displayed, never executed.** It is the line a human would type,
+ * shown so they can copy it. Decklight does not run it, and that is the whole
+ * reason this can be catalog-supplied at all: a plugin able to get a shell
+ * command run at author privilege merely by declaring a "prerequisite" would
+ * make the wizard a remote-code-execution primitive with a config file for a
+ * delivery mechanism — the exact inversion MARKETPLACE.md `WHY` exists to
+ * refuse. The piper offer-to-fetch (#159) looks similar and is not: that
+ * command is chosen by decklight's own code (`tools/tts-engines.mjs`), against
+ * a package decklight names, and nobody else can put a string in it.
+ */
+function validateRequires(raw) {
+  if (raw.requires === undefined) return [];
+  if (!Array.isArray(raw.requires)) throw new SchemaError('requires must be an array');
+  if (raw.requires.length > 8) {
+    throw new SchemaError(`${raw.requires.length} prerequisites is more than a wizard should gate on; 8 is the ceiling`);
+  }
+  return raw.requires.map((r, i) => {
+    const at = `requires[${i}]`;
+    if (!r || typeof r !== 'object' || Array.isArray(r)) throw new SchemaError(`${at} must be an object`);
+    for (const key of Object.keys(r)) {
+      if (!['kind', 'name', 'hint'].includes(key)) {
+        throw new SchemaError(`${at}.${key} is not part of a prerequisite — only: kind, name, hint`);
+      }
+    }
+    if (!REQUIRE_KINDS.includes(r.kind)) {
+      throw new SchemaError(`${at}.kind "${r.kind}" is not a prerequisite core can check — pick one of: ${REQUIRE_KINDS.join(', ')}`);
+    }
+    if (typeof r.name !== 'string' || !r.name.trim()) {
+      throw new SchemaError(`${at}.name must be the command or path to look for`);
+    }
+    // A hint is prose shown to a human. It is never run, so it is not
+    // constrained to a command shape — but it IS length-capped, because a
+    // catalog should not be able to paste a wall of text into the player.
+    if (r.hint !== undefined && (typeof r.hint !== 'string' || r.hint.length > 200)) {
+      throw new SchemaError(`${at}.hint must be a short string (≤200 chars) — the line a human would type`);
+    }
+    return { kind: r.kind, name: r.name.trim(), ...(r.hint ? { hint: r.hint } : {}) };
+  });
+}
+
+/**
+ * Which of a schema's prerequisites are NOT satisfied on this machine.
+ *
+ * Pure and probe-injected (the `needsDevMode`/`detectAgents` idiom), so the
+ * whole gate is node-testable without a rhubarb on PATH. Returns the unmet
+ * entries in declaration order; an empty array means the engine can run.
+ */
+export function unmetRequirements(schema, { hasBin = binOnPath, exists = existsSync } = {}) {
+  return (schema?.requires ?? []).filter((r) => (r.kind === 'binary'
+    ? !hasBin(r.name)
+    : !exists(expandHome(r.name))));
+}
+
+/** `~/x` → `$HOME/x`; a model path is the one prerequisite people write that way. */
+const expandHome = (p) => (p.startsWith('~/') ? path.join(homedir(), p.slice(2)) : p);
+
+/** Is `bin` on $PATH? The wizard only ever probes bare command names. */
+function binOnPath(bin, env = process.env) {
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  return (env.PATH || '').split(delimiter)
+    .some((dir) => dir && exts.some((ext) => existsSync(path.join(dir, bin + ext))));
+}
+
+/** One unmet prerequisite as a line for a human, naming the fix when declared. */
+export const requirementLine = (r) => `${r.kind === 'binary' ? 'command' : 'file'} "${r.name}" is missing`
+  + (r.hint ? ` — ${r.hint}` : '');
 
 /**
  * Where a declared `validate`/`install` path actually resolves: the plugin's
@@ -281,6 +368,16 @@ export function redactAnswers(schema, answers) {
 export const UNREACHABLE = 'unreachable';
 export const REJECTED = 'rejected';
 export const CONFIGURED = 'configured';
+/**
+ * The THIRD failure (ENGINES#LIPSYNC): the answers may be perfect and every
+ * service reachable, and the engine still cannot run because something is not
+ * on this machine. TTS made two states look like enough — "could not reach
+ * it" and "that key was refused" — because a key is the only thing a TTS
+ * provider ever needs. Lipsync has a binary, a python checkout and model
+ * weights, and telling someone their rhubarb-shaped problem is a credential
+ * problem sends them to fix the one thing that was already right.
+ */
+export const PREREQUISITE = 'prerequisite';
 
 /**
  * Install-and-configure as one flow.
@@ -290,7 +387,7 @@ export const CONFIGURED = 'configured';
  * have no business needing a network or a real key to exercise the branching.
  */
 export async function configureEngine(engine, answers, {
-  home = configHome(), fetchSchema, validateAnswers, save = saveCredentials,
+  home = configHome(), fetchSchema, validateAnswers, save = saveCredentials, probes,
 } = {}) {
   let schema;
   try {
@@ -302,6 +399,19 @@ export async function configureEngine(engine, answers, {
       return { state: REJECTED, reason: `${engine} declares a wizard core cannot render: ${e.message}` };
     }
     return { state: UNREACHABLE, reason: `could not reach the marketplace for "${engine}": ${e.message}` };
+  }
+
+  // BEFORE the answers are checked, before the network is touched and before
+  // anything is written: an engine that cannot run here must not have a
+  // credential collected for it, and must not be told its key was the problem.
+  const unmet = unmetRequirements(schema, probes);
+  if (unmet.length) {
+    return {
+      state: PREREQUISITE,
+      schema,
+      unmet,
+      reason: `${schema.title} needs something this machine does not have: ${unmet.map(requirementLine).join('; ')}`,
+    };
   }
 
   const checked = checkAnswers(schema, answers);

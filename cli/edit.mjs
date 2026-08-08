@@ -55,7 +55,7 @@ import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
 import { deckHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
-import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE } from './wizard.mjs';
+import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
 // The `/edit/*` surface answers loopback only — but "loopback" is the wrong
 // boundary for the threat (#222). The dangerous caller is not off-machine: it
@@ -703,10 +703,13 @@ export async function editMain(args) {
           validateAnswers: wizardValidate,
         });
         if (r.state !== CONFIGURED) {
-          // The two failures stay two: 503 for "could not reach", 400 for "that
-          // was refused". A presenter whose key is wrong must not be told to
-          // check their network, and the status code says which it is too.
-          return json(r.state === UNREACHABLE ? 503 : 400, { ok: false, state: r.state, error: r.reason });
+          // The three failures stay three: 503 for "could not reach", 400 for
+          // "that was refused", and 412 for "this machine is missing something"
+          // (ENGINES#LIPSYNC). A presenter whose key is wrong must not be told
+          // to check their network, and one who is missing rhubarb must not be
+          // told to check their key — the status code says which it is too.
+          const code = r.state === UNREACHABLE ? 503 : r.state === PREREQUISITE ? 412 : 400;
+          return json(code, { ok: false, state: r.state, error: r.reason, ...(r.unmet ? { unmet: r.unmet } : {}) });
         }
         // Redacted on the way out, always — the response is the one place a key
         // could leak back into a page, a devtools log, or a screen recording.

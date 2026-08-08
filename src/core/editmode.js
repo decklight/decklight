@@ -798,9 +798,14 @@ export function createEditMode({
         if (!r.ok) {
           // The two failures stay two on screen as well as on the wire: one
           // says try again later, the other says fix what you typed.
+          // Three states on screen as well as on the wire (ENGINES#LIPSYNC):
+          // one says wait, one says fix what you typed, and one says this
+          // machine is missing something no answer here can supply.
           status.textContent = j.state === 'unreachable'
             ? `could not reach it — ${j.error ?? 'try again'}`
-            : `not accepted — ${j.error ?? 'check the answers'}`;
+            : j.state === 'prerequisite'
+              ? `not ready on this machine — ${j.error ?? 'something it needs is missing'}`
+              : `not accepted — ${j.error ?? 'check the answers'}`;
           save.disabled = false;
           return;
         }

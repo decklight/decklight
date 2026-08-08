@@ -21,6 +21,7 @@ import {
   FIELD_TYPES, SchemaError, validateSchema, checkAnswers, secretNames,
   credentialsPath, credentialsMode, loadCredentials, saveCredentials, forgetCredentials,
   redactAnswers, configureEngine, provenance, BRIDGE_ADDR, CONFIGURED, REJECTED, UNREACHABLE,
+  PREREQUISITE, REQUIRE_KINDS, unmetRequirements, requirementLine,
 } from '../cli/wizard.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -464,4 +465,115 @@ test('the player gate: the overlay refuses without an author server', () => {
   assert.match(fn, /dest\.textContent = prov\.sentTo/);
   assert.ok(fn.indexOf('wiz-src') < fn.indexOf('inputs.set'),
     'shown above the fields — read before anything can be typed');
+});
+
+// ── non-credential prerequisites (SPEC ENGINE_PREREQUISITES, #268) ─────────
+//
+// TTS made two failure states look like enough, because a key is the only
+// thing a TTS provider ever needs. Lipsync is the case that proves otherwise:
+// rhubarb is a BINARY, Wav2Lip is a python checkout plus model WEIGHTS, and
+// only Veo is the paste-a-key shape. An engine that cannot run on this
+// machine must not be told its key was the problem — and must not have a key
+// collected for it at all.
+
+const LIPSYNC_SCHEMA = {
+  engine: 'wav2lip',
+  title: 'Wav2Lip',
+  requires: [
+    { kind: 'binary', name: 'rhubarb', hint: 'brew install rhubarb-lip-sync' },
+    { kind: 'file', name: '/models/wav2lip.pth', hint: 'download the checkpoint' },
+  ],
+  fields: [{ name: 'device', label: 'Device', type: 'choice', options: ['cpu', 'cuda'] }],
+};
+
+test('a schema may declare binary and file prerequisites, and nothing else', () => {
+  const s = validateSchema(LIPSYNC_SCHEMA);
+  assert.deepEqual(s.requires.map((r) => r.kind), ['binary', 'file']);
+  assert.equal(s.requires[0].hint, 'brew install rhubarb-lip-sync');
+  assert.deepEqual([...REQUIRE_KINDS], ['binary', 'file']);
+
+  // the vocabulary is CLOSED, exactly like FIELD_TYPES — a prerequisite core
+  // cannot check is refused by name rather than ignored
+  for (const kind of ['script', 'shell', 'download', 'docker']) {
+    assert.throws(() => validateSchema({ ...LIPSYNC_SCHEMA, requires: [{ kind, name: 'x' }] }),
+      (e) => e instanceof SchemaError && /is not a prerequisite core can check/.test(e.message));
+  }
+  assert.throws(() => validateSchema({ ...LIPSYNC_SCHEMA, requires: [{ kind: 'binary', name: 'x', run: 'rm -rf /' }] }),
+    (e) => e instanceof SchemaError && /only: kind, name, hint/.test(e.message));
+});
+
+test('a hint is prose a human reads — capped, and never a thing core runs', () => {
+  assert.throws(() => validateSchema({ ...LIPSYNC_SCHEMA, requires: [{ kind: 'binary', name: 'x', hint: 'y'.repeat(201) }] }),
+    (e) => e instanceof SchemaError && /≤200 chars/.test(e.message));
+  // The design claim behind that cap: the schema carries no field naming
+  // something to EXECUTE. `install` is a bridge PATH (checked elsewhere), and
+  // a prerequisite's only free text is displayed. If this ever gains a
+  // "command core runs", the wizard becomes an RCE primitive with a config
+  // file for a delivery mechanism (MARKETPLACE.md WHY).
+  const s = validateSchema(LIPSYNC_SCHEMA);
+  for (const r of s.requires) assert.deepEqual(Object.keys(r).sort(), ['hint', 'kind', 'name']);
+});
+
+test('unmetRequirements probes the machine, and is pure enough to test without one', () => {
+  const all = validateSchema(LIPSYNC_SCHEMA);
+  // nothing present
+  assert.deepEqual(
+    unmetRequirements(all, { hasBin: () => false, exists: () => false }).map((r) => r.name),
+    ['rhubarb', '/models/wav2lip.pth']);
+  // the binary arrives, the weights have not
+  assert.deepEqual(
+    unmetRequirements(all, { hasBin: () => true, exists: () => false }).map((r) => r.name),
+    ['/models/wav2lip.pth']);
+  // everything present → the engine can run
+  assert.deepEqual(unmetRequirements(all, { hasBin: () => true, exists: () => true }), []);
+  // a schema with no requires is trivially satisfied
+  assert.deepEqual(unmetRequirements({ engine: 'x' }, {}), []);
+
+  assert.match(requirementLine(all.requires[0]), /command "rhubarb" is missing — brew install/);
+  assert.match(requirementLine({ kind: 'file', name: '/w.pth' }), /file "\/w\.pth" is missing/);
+});
+
+test('an unmet prerequisite is its OWN state — no key collected, nothing written', async () => {
+  const home = tmp();
+  let saved = false;
+  const r = await configureEngine('wav2lip', { device: 'cuda' }, {
+    home,
+    fetchSchema: async () => LIPSYNC_SCHEMA,
+    validateAnswers: async () => { throw new Error('must not be reached'); },
+    save: () => { saved = true; },
+    probes: { hasBin: () => false, exists: () => false },
+  });
+  assert.equal(r.state, PREREQUISITE);
+  assert.notEqual(r.state, REJECTED, 'not "your key is wrong"');
+  assert.notEqual(r.state, UNREACHABLE, 'and not "try again later"');
+  assert.match(r.reason, /rhubarb/);
+  assert.match(r.reason, /brew install rhubarb-lip-sync/, 'the fix is named');
+  assert.deepEqual(r.unmet.map((x) => x.name), ['rhubarb', '/models/wav2lip.pth']);
+  assert.equal(saved, false, 'nothing is stored for an engine that cannot run');
+});
+
+test('once the prerequisites are met, the same schema configures normally', async () => {
+  const home = tmp();
+  const r = await configureEngine('wav2lip', { device: 'cuda' }, {
+    home,
+    fetchSchema: async () => LIPSYNC_SCHEMA,
+    validateAnswers: async () => true,
+    probes: { hasBin: () => true, exists: () => true },
+  });
+  assert.equal(r.state, CONFIGURED);
+  assert.deepEqual(r.stored, { device: 'cuda' });
+});
+
+test('the prerequisite gate runs BEFORE the network — an outage cannot mask it', async () => {
+  const home = tmp();
+  let reached = false;
+  const r = await configureEngine('wav2lip', { device: 'cpu' }, {
+    home,
+    fetchSchema: async () => ({ ...LIPSYNC_SCHEMA, validate: '/check' }),
+    validateAnswers: async () => { reached = true; throw new Error('network down'); },
+    save: () => {},
+    probes: { hasBin: () => false, exists: () => true },
+  });
+  assert.equal(r.state, PREREQUISITE);
+  assert.equal(reached, false, 'the provider was never called');
 });
