@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
-| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `UNIT_COMPAT` · `UNIT_PINNING` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; compat for code-carrying units; the digest pin they install against; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
+| `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `ENGINE_UNITS` · `UNIT_COMPAT` · `UNIT_PINNING` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; the speech-engine factory contract and installing one; compat for code-carrying units; the digest pin they install against; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -904,6 +904,61 @@ export default async function importAdapter(bytes, opts) {
 when one is known but not installed (`decklight importer add <name>`); only
 an INSTALLED adapter's extension now actually runs, rather than reporting
 that it does not yet (`EXTENSIONS#ADAPTEREXEC`, MARKETPLACE.md).
+
+### ENGINE_UNITS — Speech engines: the v1 contract, and installing one
+
+Six engines ship in core (`PRESENTING`: gemini, chirp, piper, elevenlabs, say,
+sapi) and are **not units** — they need no marketplace, no library and no
+catalog, so a machine with nothing registered reaches its own voice exactly as
+it always did. A seventh is whatever you installed. An engine unit is a single
+file, `engine.mjs`, exporting a **factory** rather than the `(input, opts) →
+string` pass the other two code-carrying kinds export:
+
+```js
+export default function createEngine(opts) {
+  return {
+    name, voices,                       // the roster the N picker offers
+    stylable,                           // may the tone step be shown for it?
+    synth(text, { voice, style }) {},   // → { wav, usage }
+  };
+}
+```
+
+- **`decklight engine add <name>` installs one**, into `~/.decklight/engines/`
+  like any other unit; `decklight tts --engine <name>` then speaks with it and
+  the picker treats it exactly as it treats a built-in. An engine is Node code
+  at author privilege, so it is **pinned** by `sha256` on the same terms as a
+  transform or an adapter (`UNIT_PINNING`) — refused before any fetch without
+  one, refused before any write on a mismatch.
+- **An independent `apiVersion`, `ENGINE_API_VERSION`** — a third counter
+  beside `TRANSFORM_API_VERSION` and `IMPORTER_API_VERSION`, for the third
+  reason they are separate (`UNIT_COMPAT`): this convention is not `input →
+  string` at all, so the day either of the others grows a field, an engine's
+  contract is untouched and must not be invalidated alongside them. Additive
+  only, bumped only when the factory or `synth` convention itself would break
+  an installed engine — never for a reorganisation of `tools/tts-engines.mjs`,
+  whose six built-ins this number does not version.
+- **`capability` says which affordance it answers for** (`tts` today).
+  Validated for *shape* in the catalog and checked against what this decklight
+  runs only at LOAD time — a catalog declaring an engine for a capability this
+  version cannot run must stay addable, so the refusal names the one engine
+  rather than invalidating the catalog it arrived in and taking its themes
+  down with it. Same reasoning an unknown `type` already gets
+  (`MARKETPLACE_REGISTRY`).
+- **The returned object is checked once, at load, not at the first sentence.**
+  A missing `synth`, a factory that is not a function, one that throws while
+  starting, one whose roster is neither a `voices` array nor a `listVoices()`
+  — each is a `LoaderError` naming the engine, never a raw stack, and never a
+  crash mid-talk. `stylable` defaults to **false** when an engine does not say:
+  a plugin with no delivery-instruction channel that forgets to declare one
+  must not have the tone step offered for it, which is the same silent lie
+  `PRESENTING` refuses when it skips that step for chirp and piper.
+- **Loaded by dynamic `import()`, in the same process as the bridge** — no
+  subprocess, no VM sandbox, identical reasoning to `EXTENSIONS_TRANSFORMS`.
+- **Author-time only.** Installing and configuring both happen through the
+  author server; `present` registers nothing that could reach either, and a
+  credential still comes from the wizard (`ENGINES#WIZARD`) and is still
+  written `0600`, never into a deck.
 
 ### VOICE_UNITS — Voices: a reference, never a payload
 

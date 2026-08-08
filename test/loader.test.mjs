@@ -25,10 +25,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  resolveTransform, runTransform, resolveImporter, runImporter, LoaderError,
+  resolveTransform, runTransform, resolveImporter, runImporter,
+  resolveEngine, loadEngine, LoaderError,
 } from '../cli/loader.mjs';
 import { installUnit, unitPath, unitDir, findUnit } from '../cli/units.mjs';
-import { TRANSFORM_API_VERSION, IMPORTER_API_VERSION } from '../cli/marketplace.mjs';
+import { TRANSFORM_API_VERSION, IMPORTER_API_VERSION, ENGINE_API_VERSION } from '../cli/marketplace.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
@@ -404,6 +405,183 @@ test('resolveImporter surfaces the same install-command error without running an
     assert.throws(() => resolveImporter('nope', home), (e) => {
       assert.ok(e instanceof LoaderError);
       assert.match(e.message, /decklight importer add nope, decklight importer list/);
+      return true;
+    });
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+// ── installed speech engines (SPEC ENGINE_UNITS, #267) ─────────────────────
+//
+// The third code-carrying kind, and the one whose module is a FACTORY rather
+// than an (input) => string pass. What it returns is what the bridge speaks
+// with, so the shape is checked on the way out of the import — the failure
+// this prevents is a missing synth() surfacing as a crash on the first
+// sentence of a talk, not at load.
+
+/** Write an engine straight into the library, bypassing install. */
+function putEngine(home, name, source) {
+  mkdirSync(unitDir('engine', home), { recursive: true });
+  writeFileSync(unitPath('engine', name, home), source);
+}
+
+const GOOD_ENGINE = 'export default (opts) => ({ name: "azure-tts", model: opts.model ?? "neural",'
+  + ' stylable: true, voices: [["Aria", "neural"]],'
+  + ' synth: async (t) => ({ wav: Buffer.from("RIFF"), usage: { chars: t.length } }) });\n';
+
+/** A local marketplace with one engine entry, registered into `home`. */
+function engineMarket(home, {
+  apiVersion = ENGINE_API_VERSION, capability = 'tts',
+  name = 'azure-tts', source = 'azure.mjs', body,
+} = {}) {
+  const root = tmp('engine-market');
+  const module = body ?? GOOD_ENGINE;
+  mkdirSync(path.join(root, '.decklight'), { recursive: true });
+  writeFileSync(path.join(root, '.decklight/marketplace.json'), JSON.stringify({
+    name: 'cat',
+    entries: [{ name, type: 'engine', source, apiVersion, capability, sha256: sha256(module) }],
+  }, null, 2));
+  writeFileSync(path.join(root, source), module);
+  execFileSync(process.execPath, [CLI, 'marketplace', 'add', root],
+    { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
+  return root;
+}
+
+test('an engine installs, lists and removes through the same seam as every other unit', () => {
+  const home = tmp('engine-cli');
+  try {
+    engineMarket(home);
+    let { code, out } = run(['engine', 'add', 'azure-tts'], home);
+    assert.equal(code, 0, out);
+    assert.match(out, /installed azure-tts/);
+    assert.ok(existsSync(unitPath('engine', 'azure-tts', home)), 'lands in ~/.decklight/engines/');
+
+    ({ code, out } = run(['engine', 'list'], home));
+    assert.equal(code, 0, out);
+    assert.match(out, /azure-tts/);
+
+    ({ code, out } = run(['engine', 'remove', 'azure-tts'], home));
+    assert.equal(code, 0, out);
+    assert.equal(existsSync(unitPath('engine', 'azure-tts', home)), false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('an installed engine loads and speaks, and reports it was installed', async () => {
+  const home = tmp('engine-load');
+  try {
+    engineMarket(home);
+    assert.equal(run(['engine', 'add', 'azure-tts'], home).code, 0);
+    const engine = await loadEngine('azure-tts', { model: 'custom' }, home);
+    assert.equal(engine.name, 'azure-tts');
+    assert.equal(engine.model, 'custom', 'opts reach the factory untouched');
+    assert.equal(engine.stylable, true);
+    assert.deepEqual(engine.voices, [['Aria', 'neural']]);
+    assert.equal(engine.installed, true);
+    assert.equal(engine.checked, true, 'a cached catalog entry means apiVersion WAS checked');
+    const { usage } = await engine.synth('hello');
+    assert.equal(usage.chars, 5);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('an engine is PINNED like every other code-carrying unit (SPEC UNIT_PINNING)', () => {
+  const home = tmp('engine-pin');
+  try {
+    // the catalog's digest does not match the module it points at
+    const root = engineMarket(home);
+    writeFileSync(path.join(root, 'azure.mjs'), GOOD_ENGINE + '// tampered after publication\n');
+    const { code, out } = run(['engine', 'add', 'azure-tts'], home);
+    assert.notEqual(code, 0, out);
+    assert.match(out, /sha256|digest|pin/i);
+    assert.equal(existsSync(unitPath('engine', 'azure-tts', home)), false, 'refused BEFORE any write');
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('apiVersion is the loader\'s check, and capability is refused only at load', async () => {
+  const ahead = tmp('engine-ahead');
+  try {
+    engineMarket(ahead, { apiVersion: ENGINE_API_VERSION + 1 });
+    // installs fine — the catalog only ever validated the SHAPE
+    assert.equal(run(['engine', 'add', 'azure-tts'], ahead).code, 0);
+    await assert.rejects(() => loadEngine('azure-tts', {}, ahead), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, new RegExp(`needs apiVersion ${ENGINE_API_VERSION + 1}`));
+      assert.match(e.message, /upgrade decklight/);
+      return true;
+    });
+  } finally { rmSync(ahead, { recursive: true, force: true }); }
+
+  const other = tmp('engine-capability');
+  try {
+    // a capability this decklight does not run: addable (a catalog written for
+    // a newer decklight must not be invalidated), refused when actually loaded
+    engineMarket(other, { capability: 'lipsync' });
+    assert.equal(run(['engine', 'add', 'azure-tts'], other).code, 0, 'still installs');
+    assert.throws(() => resolveEngine('azure-tts', other), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, /is a lipsync engine.*only runs: tts/);
+      return true;
+    });
+  } finally { rmSync(other, { recursive: true, force: true }); }
+});
+
+test('every way an engine can be malformed is one clean, engine-naming error', async () => {
+  const home = tmp('engine-bad');
+  try {
+    const cases = [
+      ['no-default', 'export const nope = 1;\n', /has no default export function/],
+      ['no-synth', 'export default () => ({ name: "x", voices: [] });\n',
+        /returned no synth\(\) — there is nothing to speak with/],
+      ['no-roster', 'export default () => ({ name: "x", synth: async () => ({}) });\n',
+        /neither a voices array nor listVoices\(\)/],
+      ['throws', 'export default () => { throw new Error("no API key"); };\n',
+        /threw while starting: no API key/],
+      ['not-an-object', 'export default () => 42;\n', /must return an engine object \(returned number\)/],
+    ];
+    for (const [name, body, expected] of cases) {
+      putEngine(home, name, body);
+      await assert.rejects(() => loadEngine(name, {}, home), (e) => {
+        assert.ok(e instanceof LoaderError, `${name} threw ${e.constructor.name}`);
+        assert.match(e.message, expected);
+        assert.match(e.message, new RegExp(`"${name}"`), 'the refusal names the engine');
+        assert.doesNotMatch(e.message, /\n\s+at /, 'never a raw stack');
+        return true;
+      });
+    }
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('stylable defaults to FALSE — an engine that does not say gets no tone step', async () => {
+  const home = tmp('engine-stylable');
+  try {
+    // no `stylable` at all: the picker must not offer a delivery instruction
+    // to an engine that never claimed a channel for one (SPEC PRESENTING)
+    putEngine(home, 'quiet', 'export default () => ({ name: "quiet", voices: [["V", "x"]],'
+      + ' synth: async () => ({ wav: Buffer.alloc(0), usage: {} }) });\n');
+    const engine = await loadEngine('quiet', {}, home);
+    assert.equal(engine.stylable, false);
+
+    // and a truthy-but-not-true value is not enough either
+    putEngine(home, 'sloppy', 'export default () => ({ name: "s", stylable: "yes", voices: [],'
+      + ' listVoices: async () => [], synth: async () => ({ wav: Buffer.alloc(0), usage: {} }) });\n');
+    assert.equal((await loadEngine('sloppy', {}, home)).stylable, false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('an engine with no cached catalog entry still runs, and says it was unchecked', async () => {
+  const home = tmp('engine-uncatalogued');
+  try {
+    putEngine(home, 'handmade', GOOD_ENGINE);
+    const engine = await loadEngine('handmade', {}, home);
+    assert.equal(engine.checked, false);
+    assert.equal(engine.name, 'azure-tts', 'the factory names itself; the unit name is the fallback');
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('resolveEngine surfaces the install command without importing anything', () => {
+  const home = tmp('engine-resolve-only');
+  try {
+    assert.throws(() => resolveEngine('nope', home), (e) => {
+      assert.ok(e instanceof LoaderError);
+      assert.match(e.message, /decklight engine add nope, decklight engine list/);
       return true;
     });
   } finally { rmSync(home, { recursive: true, force: true }); }

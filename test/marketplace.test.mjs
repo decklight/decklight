@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   FIRST_PARTY, MANIFEST_PATH, MarketplaceError, TRANSFORM_API_VERSION, IMPORTER_API_VERSION,
+  ENGINE_API_VERSION, ENGINE_CAPABILITIES, INSTALL_HINT,
   classifySource, configHome, ensureFirstPartyRegistered, fetchManifestText,
   jsonLineMap, loadCatalog, loadRegistry, parseErrorLine, resolveEntry,
   validateManifest,
@@ -456,4 +457,61 @@ test('a bare name in two marketplaces is ambiguous, never silently resolved', ()
 test('DECKLIGHT_HOME overrides ~/.decklight', () => {
   assert.equal(configHome({ DECKLIGHT_HOME: '/x/y' }), '/x/y');
   assert.equal(configHome({}), path.join(os.homedir(), '.decklight'));
+});
+
+// ── an engine entry (SPEC ENGINE_UNITS, #267) ──────────────────────────────
+
+const ENGINE = `{
+  "name": "voices",
+  "entries": [
+    { "name": "azure-tts", "type": "engine", "source": "./azure.mjs", "apiVersion": 1, "capability": "tts" }
+  ]
+}
+`;
+
+test('an engine entry validates with an apiVersion and a capability', () => {
+  const v = validateManifest(ENGINE);
+  assert.equal(v.ok, true, JSON.stringify(v.errors));
+  assert.equal(v.manifest.entries[0].capability, 'tts');
+});
+
+test('an engine entry with NEITHER field still validates — that is the wizard-declaration shape', () => {
+  // `engine` wears one type for two jobs: a unit that carries a module, and a
+  // catalog declaring a wizard for an engine decklight already ships
+  // (ENGINES#WIZARD, `{name, type, source, wizard}`). The second has no
+  // contract version and no capability, and making them mandatory here would
+  // invalidate its whole catalog — so the absence is refused at INSTALL
+  // instead (test/units.test.mjs), where only a real unit reaches it.
+  for (const drop of [', "apiVersion": 1', ', "capability": "tts"']) {
+    assert.equal(validateManifest(ENGINE.replace(drop, '')).ok, true, `dropping ${drop} must still validate`);
+  }
+  const wizardOnly = `{ "name": "voices", "entries": [
+    { "name": "elevenlabs", "type": "engine", "source": "./e.mjs" } ] }`;
+  assert.equal(validateManifest(wizardOnly).ok, true);
+});
+
+test('an engine capability is checked for SHAPE only — a kind this decklight cannot run stays addable', () => {
+  // The refusal belongs at LOAD time (test/loader.test.mjs), where it can name
+  // the one engine; refusing here would invalidate the whole catalog and take
+  // its themes down with it.
+  const lipsync = ENGINE.replace('"capability": "tts"', '"capability": "lipsync"');
+  assert.equal(validateManifest(lipsync).ok, true);
+  assert.equal(ENGINE_CAPABILITIES.includes('lipsync'), false, 'and this decklight does NOT run it');
+
+  const ahead = ENGINE.replace('"apiVersion": 1', `"apiVersion": ${ENGINE_API_VERSION + 10}`);
+  assert.equal(validateManifest(ahead).ok, true);
+});
+
+test('a malformed capability is refused, not silently coerced', () => {
+  for (const bad of ['""', '"TTS"', '"9lives"', '42', 'null']) {
+    const v = validateManifest(ENGINE.replace('"capability": "tts"', `"capability": ${bad}`));
+    assert.equal(v.ok, false, `capability: ${bad} should not validate`);
+    assert.match(v.errors.find((x) => x.field === 'entries[0].capability').msg, /affordance/);
+  }
+});
+
+test('engine stopped being a kind nothing installs — the hint names a real command', () => {
+  // It was `null`, which marketplace.mjs documents as "real but nothing
+  // installs it here yet" (#267 is what changed that).
+  assert.match(INSTALL_HINT.engine, /decklight engine add/);
 });

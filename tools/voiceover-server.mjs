@@ -38,7 +38,7 @@
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
-import { createEngine, ENGINES } from './tts-engines.mjs';
+import { resolveEngine, ENGINES } from './tts-engines.mjs';
 import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
 import { argReader, isMain } from './args.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
@@ -46,7 +46,7 @@ import { installedVoices } from '../cli/units.mjs';
 
 export async function ttsMain(args) {
   if (args.includes('--help')) {
-    console.log(`usage: decklight tts [--port 8787] [--engine ${ENGINES.join('|')}] [--project <id>]
+    console.log(`usage: decklight tts [--port 8787] [--engine ${ENGINES.join('|')}|<installed>] [--project <id>]
                      [--tts-model id] [--location global] [--voice name] [--data-dir dir] [--lang en-US]
                      [--tts-format pcm|mp3] [--tts-stability creative|natural|robust] [--setup]
 
@@ -64,6 +64,9 @@ export async function ttsMain(args) {
           --tts-stability creative|natural|robust — how hard v3 follows a tag (v3 only;
           refused on any other model rather than silently doing nothing).
           --tts-format mp3 if your plan has no PCM output (costs you ⇧V and lip-sync).
+
+  <installed>  any engine from a marketplace (decklight engine add <name>) — --engine
+          takes its name like any of the six above, and the picker treats it the same.
 
   project also read from $GOOGLE_CLOUD_PROJECT (gemini and chirp only)
 
@@ -99,7 +102,10 @@ export async function ttsMain(args) {
     if (!engine) { process.exitCode = 1; return; }
   } else {
     try {
-      engine = createEngine({
+      // resolveEngine, not createEngine: a name that is not one of the six
+      // built-ins may still be an INSTALLED engine (SPEC ENGINE_UNITS), and
+      // the bridge cannot know which kind it was handed.
+      engine = await resolveEngine({
         engine: engineName,
         project: opt('--project') ?? process.env.GOOGLE_CLOUD_PROJECT ?? saved?.project,
         model: opt('--tts-model'),
@@ -194,7 +200,15 @@ export async function ttsMain(args) {
           const t0 = Date.now();
           cache.set(key, await engine.synth(text, { voice, style }));
           const u = cache.get(key).usage;
-          totalCost += u.cost;
+          // `cost` is OPTIONAL, and an installed engine is why (SPEC
+          // ENGINE_UNITS): the six built-ins all happen to report one, so
+          // reading it unguarded worked until a marketplace engine that
+          // meters differently — or not at all — returned usage without it
+          // and took the sentence down mid-talk with a TypeError. A missing
+          // price is not zero either; it is "no list price to quote", which
+          // is what `hasCost` below shows instead of inventing $0.0000.
+          const hasCost = typeof u.cost === 'number' && Number.isFinite(u.cost);
+          if (hasCost) totalCost += u.cost;
           totalChars += u.chars ?? text.length;
           // chirp's free tier is denominated in CHARACTERS, so show those too —
           // a dollar estimate alone would read as a bill for something free
@@ -205,16 +219,22 @@ export async function ttsMain(args) {
             ? `${(totalChars / 1000).toFixed(1)}k/1000k free chars this month · ~$${totalCost.toFixed(4)} list`
             : engine.name === 'elevenlabs'
               ? `${totalChars} chars this session · billed against your plan`
-              : `~$${u.cost.toFixed(4)} (session ~$${totalCost.toFixed(4)})`;
-          console.log(`${((Date.now() - t0) / 1000).toFixed(1)}s · ${u.note} · ${spend}`);
+              : hasCost
+                ? `~$${u.cost.toFixed(4)} (session ~$${totalCost.toFixed(4)})`
+                : `${totalChars} chars this session`;
+          console.log(`${((Date.now() - t0) / 1000).toFixed(1)}s · ${u.note ?? `${text.length} chars`} · ${spend}`);
         }
         const { wav, usage } = cache.get(key);
         res.writeHead(200, {
           ...CORS,
           // mp3 is an ElevenLabs opt-in; every other path is a real WAV
           'content-type': engine.synth.mimeType ?? 'audio/wav',
-          // cost is charged once, at synthesis — cache replays are free
-          'x-tts-cost': fresh ? usage.cost.toFixed(6) : '0',
+          // cost is charged once, at synthesis — cache replays are free.
+          // An engine that quotes no price sends no number rather than '0',
+          // which would read as "this was free" (SPEC ENGINE_UNITS).
+          'x-tts-cost': fresh && typeof usage.cost === 'number' && Number.isFinite(usage.cost)
+            ? usage.cost.toFixed(6)
+            : '0',
           'x-tts-tokens': usage.note ?? '',
           'x-tts-cached': fresh ? '0' : '1',
         });
@@ -230,7 +250,14 @@ export async function ttsMain(args) {
   });
 
   server.listen(port, '127.0.0.1', () => {
-    console.log(`decklight tts bridge on http://127.0.0.1:${port} — ${engine.name} · ${engine.model} (${engine.cost}) — Ctrl-C stops`);
+    // The BOUND port, not the requested one: `--port 0` legitimately means
+    // "pick a free one", and printing the 0 back made the one line telling a
+    // presenter where their bridge is into an unusable URL.
+    const bound = server.address()?.port ?? port;
+    // `cost` is optional (SPEC ENGINE_UNITS) — an installed engine that
+    // quotes no list price says nothing here rather than "(undefined)".
+    const price = engine.cost ? ` (${engine.cost})` : '';
+    console.log(`decklight tts bridge on http://127.0.0.1:${bound} — ${engine.name} · ${engine.model}${price} — Ctrl-C stops`);
     // Stated here, once, where the presenter is still choosing — not
     // discovered mid-talk when the delivery already varied more than expected.
     if (engine.caveat) console.log(`  ${engine.caveat}`);

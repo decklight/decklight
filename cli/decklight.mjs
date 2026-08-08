@@ -19,6 +19,7 @@
  *   decklight template install deck templates for `init --from`
  *   decklight importer install import adapters for formats decklight cannot read itself
  *   decklight transform install build-time transforms, run via `bundle --transform <name>`
+ *   decklight engine   install a speech engine beyond the six built in — the N picker then offers it
  *   decklight extension check a transform file — the marketplace admission gate, not a bundle step
  *   decklight voice    add a marketplace voice to the N picker — a reference, never a model
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
@@ -81,6 +82,9 @@ Commands:
   transform install a build-time transform — Node code that runs during bundle, never in the deck
            EXAMPLE: decklight transform add grammar-check
            EXAMPLE: decklight bundle deck.html --transform grammar-check   (runs it before signing)
+  engine   install a speech engine the six built-in ones do not cover — Node code that runs
+           at author time only, never in a deck; your own credential still comes from the wizard
+           EXAMPLE: decklight engine add azure-tts   (then: decklight tts --engine azure-tts)
   extension  the marketplace admission gate for a transform file — lint, then a headless load
            of its OUTPUT; not run by bundle/import/publish, which never re-check an installed unit
            EXAMPLE: decklight extension check grammar-check.mjs
@@ -219,6 +223,7 @@ switch (cmd) {
   case 'template':
   case 'voice':
   case 'importer':
+  case 'engine':
   case 'transform': {
     const { unitMain } = await import('./units.mjs');
     process.exitCode = await unitMain(cmd, rest);

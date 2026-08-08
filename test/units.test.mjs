@@ -661,3 +661,63 @@ test('unknown subcommands and missing names are refused, not crashed', () => {
   assert.match(run(['template', 'frobnicate'], home).out, /unknown subcommand/);
   rmSync(home, { recursive: true, force: true });
 });
+
+// ── an engine unit's install-time gate (SPEC ENGINE_UNITS, #267) ───────────
+//
+// `engine` is the one type that wears two hats: a UNIT carrying a module, and
+// a catalog's wizard DECLARATION for an engine decklight already ships. Only
+// the first can be installed, so the fields the first needs are optional in
+// the manifest (test/marketplace.test.mjs) and refused here instead.
+
+const ENGINE_MJS = 'export default () => ({ name: "azure-tts", voices: [["Aria", "neural"]],'
+  + ' synth: async () => ({ wav: Buffer.alloc(0), usage: {} }) });\n';
+
+test('an engine unit installs with its contract version and capability declared', async () => {
+  const m = market({
+    entries: [{
+      name: 'azure-tts', type: 'engine', source: 'engines/azure.mjs',
+      apiVersion: 1, capability: 'tts', sha256: sha256(ENGINE_MJS),
+    }],
+  });
+  try {
+    mkdirSync(path.join(m.root, 'engines'), { recursive: true });
+    writeFileSync(path.join(m.root, 'engines/azure.mjs'), ENGINE_MJS);
+    const done = await installUnit('engine', 'azure-tts', m.home);
+    assert.equal(done.name, 'azure-tts');
+    assert.ok(existsSync(unitPath('engine', 'azure-tts', m.home)));
+  } finally { m.cleanup(); }
+});
+
+test('an engine entry that declares no apiVersion/capability is refused AT INSTALL, not at add', async () => {
+  for (const missing of ['apiVersion', 'capability']) {
+    const entry = {
+      name: 'azure-tts', type: 'engine', source: 'engines/azure.mjs',
+      apiVersion: 1, capability: 'tts', sha256: sha256(ENGINE_MJS),
+    };
+    delete entry[missing];
+    const m = market({ entries: [entry] });
+    try {
+      // the catalog itself is fine — that is the whole point of the split
+      assert.equal(validateManifest(JSON.stringify({ name: 'cat', entries: [entry] })).ok, true);
+      await assert.rejects(() => installUnit('engine', 'azure-tts', m.home), (e) => {
+        assert.ok(e instanceof UnitError);
+        assert.match(e.message, new RegExp(`declares no ${missing}`));
+        assert.match(e.message, /ENGINE_UNITS/);
+        assert.match(e.message, /wizard/, 'and says why an entry might legitimately lack it');
+        return true;
+      });
+      assert.equal(listUnits('engine', m.home).length, 0, 'nothing was written');
+    } finally { m.cleanup(); }
+  }
+});
+
+test('an unpinned engine is refused like every other code-carrying kind', async () => {
+  const m = market({
+    entries: [{ name: 'azure-tts', type: 'engine', source: 'engines/azure.mjs', apiVersion: 1, capability: 'tts' }],
+  });
+  try {
+    await assert.rejects(() => installUnit('engine', 'azure-tts', m.home),
+      (e) => e instanceof UnitError && /carries no sha256/.test(e.message));
+    assert.ok(!existsSync(unitPath('engine', 'azure-tts', m.home)));
+  } finally { m.cleanup(); }
+});
