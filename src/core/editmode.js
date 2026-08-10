@@ -368,7 +368,7 @@ export function createEditMode({
     // parsed) — same reason a removed-markdown slide has nothing for the
     // notes editor to key off either.
     if (sec.hasAttribute('data-markdown-removed')) {
-      toast('this slide has no per-element source mapping (data-markdown, removed in 0.4.0) — edit the file directly', 3400);
+      toast('this slide has no per-element source mapping (data-markdown, removed in 0.3.0) — edit the file directly', 3400);
       return;
     }
     const child = topLevelChild(sec, e.target);

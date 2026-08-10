@@ -41,7 +41,7 @@ test('every init* pipeline function src mentions is defined somewhere in src', (
 });
 
 test('no src file still describes slides as markdown-or-HTML authored', () => {
-  // Markdown slides were removed in 0.4.0 (SPEC DECK_ANATOMY): HTML is the one
+  // Markdown slides were removed in 0.3.0 (SPEC DECK_ANATOMY): HTML is the one
   // authoring surface, and a comment still offering both keeps the removed one
   // alive for whoever reads it. reportMarkdownSlides may talk ABOUT the
   // removal; nothing may present markdown as a live alternative.
