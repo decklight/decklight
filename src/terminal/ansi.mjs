@@ -35,9 +35,13 @@ export function xterm256ToRgb(n) {
   return [gray, gray, gray];
 }
 
-export function escapeHtml(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+// Re-exported for player.mjs, which renders the same screen text: the escape
+// is src/core/escape.js's, which also covers quotes. Imported first, because
+// this module escapes its own output below and a bare `export … from` would
+// create no local binding.
+import { escapeHtml } from '../core/escape.js';
+
+export { escapeHtml };
 
 export class AnsiScreen {
   constructor() {

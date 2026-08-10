@@ -32,12 +32,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe } from './util.mjs';
 import { inlineRuntime } from './pkg.mjs';
+import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
 
 const fail = makeFail('bundle');
 
-const escAttr = (s) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
 // Unescape a single-quoted JS string body ('·', '’', \' …).
 function unescapeJs(raw) {
@@ -116,7 +116,7 @@ function mergeDecks(jobs, baseDir, notices) {
   if (!baseBounds) fail(`no .decklight container in ${jobs[0].path}`);
 
   const markSections = (inner, title) =>
-    inner.replace(/<section\b/, `<section data-module="${escAttr(title)}"`);
+    inner.replace(/<section\b/, `<section data-module="${escapeHtml(title)}"`);
 
   const castScriptRe = /<script\b[^>]*type=["']application\/json["'][^>]*id=["']([^"']+)["'][^>]*>[\s\S]*?<\/script>/gi;
 
@@ -275,7 +275,7 @@ if (jobs) {
   html = mergeDecks(jobs, deckDir, notices);
   const t = mergedTitle ||
     (jobs[0].title || '').replace(/^\d+\s*[·.:-]\s*/, '') || 'Presentation';
-  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${escAttr(t)}</title>`);
+  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${escapeHtml(t)}</title>`);
   outPath = path.resolve(outPath ||
     path.join(deckDir, path.basename(firstPath, '.html') + '-course.html'));
 } else {

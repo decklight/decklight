@@ -119,8 +119,13 @@ test('init HTML-escapes the title where it lands (<title> and the h1)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
   execFileSync('node', [CLI, 'init', 'Q3 <Review> & "Friends"', '--dir', dir, '--no-skill'], { encoding: 'utf8' });
   const deck = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
-  assert.match(deck, /<title>Q3 &lt;Review&gt; &amp; "Friends"<\/title>/);
-  assert.match(deck, /<h1>Q3 &lt;Review&gt; &amp; "Friends"<\/h1>/);
+  // Quotes escape too, since the shared escape (tools/escape.mjs) is the one
+  // that is correct in an attribute as well — `&quot;` renders as `"` in text,
+  // so this is the same title, spelled so that the same function stays safe
+  // when a title eventually lands in `title="…"`. It used to leave them raw,
+  // under the comment "a prompt invites &, < and quotes".
+  assert.match(deck, /<title>Q3 &lt;Review&gt; &amp; &quot;Friends&quot;<\/title>/);
+  assert.match(deck, /<h1>Q3 &lt;Review&gt; &amp; &quot;Friends&quot;<\/h1>/);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

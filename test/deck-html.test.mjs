@@ -91,3 +91,27 @@ test('ranges are directly spliceable: slice(0,start)+repl+slice(end) round-trips
 test('malformed <section> tag throws, like locateSlide throwing on a bad index', () => {
   assert.throws(() => sectionChildRanges('no angle bracket here'), /malformed <section> tag/);
 });
+
+test('the Node and runtime escapes are the same function, spelled twice', async () => {
+  // src/ bundles into a zero-dependency artifact, so it cannot import
+  // tools/escape.mjs and keeps its own copy. Two copies is the layering's
+  // price; two BEHAVIOURS is how this area got into trouble in the first
+  // place — four escapes existed, two of them named escapeHtml, escaping
+  // three different sets. This fails the moment one side grows a character
+  // the other does not.
+  const { escapeHtml: node } = await import('../tools/escape.mjs');
+  const { escapeHtml: runtime } = await import('../src/core/escape.js');
+
+  const corpus = [
+    'plain text', 'a & b', '<script>alert(1)</script>', 'say "hi"',
+    "it's fine", '<a href="x">', 'a&amp;b already escaped', '&<>"\'',
+    '', '1 < 2 && 3 > 2', 'ünïcødé — em dash', '</style><img onerror=x>',
+  ];
+  for (const s of corpus) {
+    assert.equal(runtime(s), node(s), `escapes disagree on ${JSON.stringify(s)}`);
+  }
+
+  // and the contract itself: safe in text and in a double-quoted attribute
+  assert.equal(node('<a href="x">&'), '&lt;a href=&quot;x&quot;&gt;&amp;');
+  assert.equal(node('&lt;'), '&amp;lt;', 'ampersand first, or escapes double-escape');
+});

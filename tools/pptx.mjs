@@ -15,9 +15,7 @@
 
 import { parseXml, find, findAll, children, textOf } from './ooxml.mjs';
 
-const escapeHtml = (s) => String(s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;');
+import { escapeHtml } from './escape.mjs';
 
 /** OOXML relationship parts map an rId to a part path, relative to the owner. */
 export function parseRels(xml) {
