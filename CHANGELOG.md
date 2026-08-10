@@ -7,7 +7,7 @@ carrying the same notes in prose.
 
 ## 0.3.0
 
-186 commits since 0.2.0. The release where a deck stops being something you
+194 commits since 0.2.0. The release where a deck stops being something you
 have to trust blindly: you can play someone else's deck safely, verify who
 signed it, and install themes, engines and extensions from marketplaces anyone
 can host — without third-party code ever executing in front of an audience.
@@ -137,6 +137,30 @@ audited bytes served instead of re-read from disk (#248), a hostile
 `shot`/`video` rendering over loopback under the present CSP instead of
 `file://` (#258).
 
+### Fixed in the pre-release review
+
+The tree was reviewed before tagging; two of the findings were live bugs rather
+than untidiness.
+
+- **`decklight import` could not run at all from an install path containing a
+  space** — a URL `.pathname` is percent-encoded, so it read its own `themes/`
+  as `…/My%20Name/…` and died on a raw ENOENT. Every Windows profile with a
+  space in it. Two more of the same shape in `tools/video.mjs`, one of which
+  made `node tools/video.mjs` silently do nothing (#275)
+- **An imported deck reported its own runtime as untrustworthy.** `decklight
+  present` printed `runtime 0.3.0 — DIFFERS from this install's build of 0.3.0`
+  on a deck decklight had just written, because `import` inlined the runtime
+  through a private copy of the transform that escaped `</script` but not
+  `<!--`. The auditor now calls the same function the producers call, rather
+  than reproducing it (#276)
+- One HTML escape per side, correct in element text and in a double-quoted
+  attribute, replacing four that escaped three different character sets under
+  two names. `decklight init` now writes `&quot;` in a title containing quotes
+  (#277)
+- A command that fails prints `decklight <cmd>: <message>`, never a raw Node
+  stack; the stack moves behind `DECKLIGHT_DEBUG` with a line saying it is a
+  bug worth reporting (#278)
+
 ### Project
 
 - SPEC sections are named and cited by mnemonic, never by chapter number (#166)
@@ -146,6 +170,15 @@ audited bytes served instead of re-read from disk (#248), a hostile
 - The agent loops — triage routing, spec-refine, bug-repro, pr-fix, the PR
   babysitter, greenlight, groom and rebase — with a merge queue gating
   `merge_group` and DCO enforced on every commit
+- `engine.js`'s `init()` — 1,618 lines in one function — gave up six clusters
+  to modules that can be tested without a browser: the overflow watch, module
+  navigation, the finder's index, the debug ring buffer, layout cycling and the
+  palette's query handling. Both of the overflow guardrail's shipped bugs were
+  about *when* a slide gets measured, and both had reached a release because
+  the only way to reach that code was to drive Chrome (#280)
+- One package root and one runtime-inlining transform (#276); one failure
+  convention, so a command main can be called in-process instead of taking the
+  test runner down with it (#278). The suite went 843 → 897 tests
 
 ## 0.2.0 — 2026-07-14
 
