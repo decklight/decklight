@@ -21,6 +21,8 @@ import { createEditMode } from './editmode.js';
 import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
+import { buildIndex, rankMatches } from './finder.js';
+import { createDebugLog } from './debuglog.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -296,22 +298,14 @@ export function init(userConfig = {}) {
   const printVariant = params.get('print') || ''; // '' (plain) | 'handout' | 'notes'
 
   // ----- debug log (D) -------------------------------------------------------
-  // Ring buffer lives from init so events are captured even while the panel
-  // is closed; D pops the window over the deck. Declared this early because
-  // theme restoration logs during init, before the chrome exists.
-  const debugT0 = Date.now();
-  const debugBuf = [];
+  // The ring buffer (debuglog.js) records from init, whether or not the window
+  // is open — by the time a presenter notices something went wrong, the reason
+  // is already in the past. Built this early because theme restoration logs
+  // during init, before there is any chrome to log into. D pops the window,
+  // which then attaches itself as the buffer's sink.
+  const debug = createDebugLog();
   let debugEl = null;
-  function debugLog(kind, msg) {
-    debugBuf.push({ t: ((Date.now() - debugT0) / 1000).toFixed(3), kind, msg });
-    if (debugBuf.length > 200) debugBuf.shift();
-    if (debugEl) {
-      appendDebugRow(debugBuf[debugBuf.length - 1]);
-      updateDebugState();
-      const log = debugEl.querySelector('.dbg-log');
-      log.scrollTop = log.scrollHeight;
-    }
-  }
+  const debugLog = (kind, msg) => debug.log(kind, msg);
 
   const root = document.querySelector('.decklight');
   if (!root) throw new Error('Decklight: no .decklight element found');
@@ -400,34 +394,15 @@ export function init(userConfig = {}) {
   let finderEl = null, finderSel = 0, finderQuery = '', finderMatches = [], finderDebounce;
   let finderFrameReady = false, finderPending = null;
   function finderIndex() {
-    const slides = instance._sections.map((sec, i) => {
-      const contentEls = [...sec.children].filter((el) => !el.matches('aside, script, style'));
-      const heading = sec.querySelector('h1, h2, h3');
-      const body = contentEls.map((el) => el.textContent).join(' ').replace(/\s+/g, ' ').trim();
-      const title = (heading?.textContent || '').replace(/\s+/g, ' ').trim()
-        || (body.slice(0, 60) || `slide ${i + 1}`);
-      return { slide: i + 1, title, haystack: body.toLowerCase() };
+    return buildIndex({
+      sections: instance._sections,
+      modules: playlist?.modules ?? [],
+      skipModule: playlistIndex,
     });
-    // A playlist's other modules are separate FILES — the one thing the old
-    // module menu could do that this finder could not, since the index only ever
-    // saw the current document's sections. They belong here: "go somewhere" is
-    // one question, and it should have one answer. (In-file data-module markers
-    // need nothing: they are ordinary slides, already indexed above.)
-    const modules = (playlist?.modules ?? [])
-      .map((m, i) => ({ module: i, title: m.title, href: m.href, haystack: (m.title || '').toLowerCase() }))
-      .filter((m) => m.module !== playlistIndex);
-    return [...slides, ...modules];
   }
   function renderFinderList() {
     const listBox = finderEl.querySelector('.tp-list');
-    const words = finderQuery.split(/\s+/).filter(Boolean);
-    const titleHits = [], bodyHits = [];
-    for (const entry of finderEl.__index) {
-      const tl = entry.title.toLowerCase();
-      if (words.every((w) => tl.includes(w))) titleHits.push(entry);
-      else if (words.every((w) => entry.haystack.includes(w))) bodyHits.push(entry);
-    }
-    finderMatches = [...titleHits, ...bodyHits];
+    finderMatches = rankMatches(finderEl.__index, finderQuery);
     listBox.textContent = '';
     finderMatches.forEach((m, i) => {
       const row = document.createElement('div');
@@ -1289,15 +1264,22 @@ export function init(userConfig = {}) {
     if (el) el.textContent = debugStateLine();
   }
   function toggleDebug() {
-    if (debugEl) { debugEl.remove(); debugEl = null; return; }
+    if (debugEl) { debugEl.remove(); debugEl = null; debug.onEntry(null); return; }
     debugEl = document.createElement('div');
     debugEl.className = 'decklight-debug';
     debugEl.innerHTML = '<div class="dbg-head">debug log — D closes</div><div class="dbg-state"></div><div class="dbg-log"></div>';
     root.appendChild(debugEl);
-    debugBuf.forEach(appendDebugRow);
+    debug.entries.forEach(appendDebugRow);
     updateDebugState();
     const log = debugEl.querySelector('.dbg-log');
     log.scrollTop = log.scrollHeight;
+    // From here the buffer feeds the window directly; closing detaches it.
+    debug.onEntry((entry) => {
+      appendDebugRow(entry);
+      updateDebugState();
+      const box = debugEl.querySelector('.dbg-log');
+      box.scrollTop = box.scrollHeight;
+    });
   }
   // The message LOG (I). Messages fade after a few seconds — which is exactly
   // when you were looking at the slide, not the corner — so every one is kept
