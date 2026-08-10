@@ -11,7 +11,7 @@ import { runAutoAnimate } from './autoanimate.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
-import { closeOnBackdrop, selectInList, createOverlays } from './overlay.js';
+import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
 import { createThemes } from './themes.js';
 import { createNarration } from './narration.js';
 import { buildPrintPages } from './print.js';
@@ -19,6 +19,12 @@ import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
 import { needsDevMode } from './devmode.js';
+import { createOverflowWatch } from './overflow.js';
+import { createPlaylist } from './playlist.js';
+import { buildIndex, rankMatches } from './finder.js';
+import { createDebugLog } from './debuglog.js';
+import { createLayoutCycler } from './layout.js';
+import { paletteRows } from './palette.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -294,22 +300,14 @@ export function init(userConfig = {}) {
   const printVariant = params.get('print') || ''; // '' (plain) | 'handout' | 'notes'
 
   // ----- debug log (D) -------------------------------------------------------
-  // Ring buffer lives from init so events are captured even while the panel
-  // is closed; D pops the window over the deck. Declared this early because
-  // theme restoration logs during init, before the chrome exists.
-  const debugT0 = Date.now();
-  const debugBuf = [];
+  // The ring buffer (debuglog.js) records from init, whether or not the window
+  // is open — by the time a presenter notices something went wrong, the reason
+  // is already in the past. Built this early because theme restoration logs
+  // during init, before there is any chrome to log into. D pops the window,
+  // which then attaches itself as the buffer's sink.
+  const debug = createDebugLog();
   let debugEl = null;
-  function debugLog(kind, msg) {
-    debugBuf.push({ t: ((Date.now() - debugT0) / 1000).toFixed(3), kind, msg });
-    if (debugBuf.length > 200) debugBuf.shift();
-    if (debugEl) {
-      appendDebugRow(debugBuf[debugBuf.length - 1]);
-      updateDebugState();
-      const log = debugEl.querySelector('.dbg-log');
-      log.scrollTop = log.scrollHeight;
-    }
-  }
+  const debugLog = (kind, msg) => debug.log(kind, msg);
 
   const root = document.querySelector('.decklight');
   if (!root) throw new Error('Decklight: no .decklight element found');
@@ -319,42 +317,21 @@ export function init(userConfig = {}) {
   const overlays = createOverlays();
 
   // ----- playlist (multi-deck navigation) ------------------------------------
-  // config.playlist = { modules: [{title, href}…], index: n }. Advancing past
-  // the deck's end chains to the next module; reversing before the start goes
-  // to the previous module's last slide (the oversized hash clamps there).
-  // Embedded instances (previews) never chain.
-  const playlist = (!params.has('embedded') && config.playlist?.modules?.length)
-    ? config.playlist : null;
-  const playlistIndex = playlist ? (playlist.index ?? 0) : 0;
-  function gotoModule(delta) {
-    if (!playlist) return false;
-    const mod = playlist.modules[playlistIndex + delta];
-    if (!mod) return false;
-    location.href = mod.href + (delta > 0 ? '#/1/0' : '#/999/999');
-    return true;
-  }
-  function navigateToModule(i) {
-    const mod = playlist?.modules[i];
-    if (mod) location.href = mod.href + '#/1/0';
-  }
-
-  // In-file module markers (merged single-file decks, SPEC PRESENTING): sections
-  // carrying data-module mark chapter starts. When markers exist they take
-  // precedence over config.playlist — module navigation becomes goto(), no
-  // page loads.
-  const hasMarkersDOM = !!root.querySelector('section[data-module]');
-  function inFileMarkers() {
-    const out = [];
-    (instance._sections || []).forEach((s, i) => {
-      if (s.hasAttribute('data-module')) out.push({ title: s.getAttribute('data-module'), slide: i + 1 });
-    });
-    return out;
-  }
-  function currentMarkerIndex(markers) {
-    let idx = -1;
-    markers.forEach((m, i) => { if (m.slide <= instance.state.slide) idx = i; });
-    return idx;
-  }
+  // Two shapes, one vocabulary: chained FILES (config.playlist) and one merged
+  // file's data-module chapters. playlist.js holds the difference so that the
+  // finder, the chrome and the palette can just ask.
+  const moduleNav = createPlaylist({
+    config, root,
+    embedded: params.has('embedded'),
+    sectionsOf: () => instance._sections,
+    slideOf: () => instance.state.slide,
+    navigate: (href) => { location.href = href; },
+  });
+  const playlist = moduleNav.playlist;
+  const playlistIndex = moduleNav.index;
+  const hasMarkersDOM = moduleNav.hasMarkers;
+  const gotoModule = (delta) => moduleNav.gotoModule(delta);
+  const navigateToModule = (i) => moduleNav.navigateToModule(i);
 
   // Messages (SPEC PRESENTING): the deck talks back in the top-left corner — big enough
   // to read from the back of a room, gone a few seconds later. Every one is also
@@ -419,34 +396,15 @@ export function init(userConfig = {}) {
   let finderEl = null, finderSel = 0, finderQuery = '', finderMatches = [], finderDebounce;
   let finderFrameReady = false, finderPending = null;
   function finderIndex() {
-    const slides = instance._sections.map((sec, i) => {
-      const contentEls = [...sec.children].filter((el) => !el.matches('aside, script, style'));
-      const heading = sec.querySelector('h1, h2, h3');
-      const body = contentEls.map((el) => el.textContent).join(' ').replace(/\s+/g, ' ').trim();
-      const title = (heading?.textContent || '').replace(/\s+/g, ' ').trim()
-        || (body.slice(0, 60) || `slide ${i + 1}`);
-      return { slide: i + 1, title, haystack: body.toLowerCase() };
+    return buildIndex({
+      sections: instance._sections,
+      modules: playlist?.modules ?? [],
+      skipModule: playlistIndex,
     });
-    // A playlist's other modules are separate FILES — the one thing the old
-    // module menu could do that this finder could not, since the index only ever
-    // saw the current document's sections. They belong here: "go somewhere" is
-    // one question, and it should have one answer. (In-file data-module markers
-    // need nothing: they are ordinary slides, already indexed above.)
-    const modules = (playlist?.modules ?? [])
-      .map((m, i) => ({ module: i, title: m.title, href: m.href, haystack: (m.title || '').toLowerCase() }))
-      .filter((m) => m.module !== playlistIndex);
-    return [...slides, ...modules];
   }
   function renderFinderList() {
     const listBox = finderEl.querySelector('.tp-list');
-    const words = finderQuery.split(/\s+/).filter(Boolean);
-    const titleHits = [], bodyHits = [];
-    for (const entry of finderEl.__index) {
-      const tl = entry.title.toLowerCase();
-      if (words.every((w) => tl.includes(w))) titleHits.push(entry);
-      else if (words.every((w) => entry.haystack.includes(w))) bodyHits.push(entry);
-    }
-    finderMatches = [...titleHits, ...bodyHits];
+    finderMatches = rankMatches(finderEl.__index, finderQuery);
     listBox.textContent = '';
     finderMatches.forEach((m, i) => {
       const row = document.createElement('div');
@@ -613,18 +571,21 @@ export function init(userConfig = {}) {
   function renderPalette() {
     const card = palEl.querySelector('.narr-card');
     card.textContent = '';
-    const q = palQuery.toLowerCase();
-    palRows = paletteCommands().filter((c) => !q || (c.label + ' ' + (c.alias ?? '')).toLowerCase().includes(q));
-    // /goto with an inline argument: "goto 27" — or just "27" — jumps there
-    const g = palQuery.trim().match(/^(?:goto\s*)?(\d+)$/i);
-    if (g) {
-      const n = Math.max(1, Math.min(parseInt(g[1], 10), instance.state.totalSlides));
-      palRows.unshift({ label: `Go to slide ${n} / ${instance.state.totalSlides}`, hint: '⏎', run: () => instance.goto(n, 0) });
-    }
-    if (q && !g && !palRows.some((c) => c.label.toLowerCase().startsWith(q))) {
-      // fallback: treat the text as a slide search
-      palRows.push({ label: `Search slides for “${palQuery}”`, hint: '', run: () => { openSlideFinder(); setFinderQuery(palQuery); } });
-    }
+    // Which rows a query leaves, the inline "goto 27" argument and the
+    // search fallback all live in palette.js; the commands themselves stay
+    // here, where each one closes over what it runs.
+    palRows = paletteRows({
+      commands: paletteCommands(),
+      query: palQuery,
+      totalSlides: instance.state.totalSlides,
+      makeGotoRow: (n, total) => ({
+        label: `Go to slide ${n} / ${total}`, hint: '⏎', run: () => instance.goto(n, 0),
+      }),
+      makeSearchRow: (text) => ({
+        label: `Search slides for “${text}”`, hint: '',
+        run: () => { openSlideFinder(); setFinderQuery(text); },
+      }),
+    });
     const bar = document.createElement('div');
     bar.className = 'pal-input' + (palQuery ? ' tp-active' : '');
     bar.textContent = palQuery || 'type a command…';
@@ -847,73 +808,40 @@ export function init(userConfig = {}) {
   initCode(stage, registerBuildProvider);
 
   // ----- slide layout cycling (L / ⇧L) — SPEC PRESENTING -----------------------------
-  // Walk the CURRENT slide through the layout ring. Dev-mode ONLY: the pick
-  // is a persisted deck edit — it lands on the section as data-layout AND is
-  // written back into the file through the edit server (the same attribute
-  // an author writes by hand; 'auto' removes it). It wins over data-pin:
-  // 'pinned' forces the pin, 'centered'/'top' lay out in flow ('top'
-  // additionally top-aligns via CSS), the split pair lays the content out
-  // in two sides. Without the server the key explains itself and changes
-  // nothing — a presenter can't silently fork the deck from what's on disk.
-  const LAYOUTS = ['auto', 'centered', 'pinned', 'top', 'split', 'split-flip'];
-  // Write-through is debounced: the pick applies to the DOM instantly, and
-  // the FINAL pick of a cycling burst goes to the server (each write makes
-  // the watcher reload every browser — one reload per decision, not per L).
-  let layoutPending = null; // { slide, name }
-  let layoutTimer = null;
-  function saveLayout() {
-    clearTimeout(layoutTimer);
-    const p = layoutPending;
-    layoutPending = null;
-    if (!p) return;
-    fetch(editmode.base() + '/edit/layout', {
+  // The ring, the skip rules and the debounced write-through live in layout.js;
+  // what stays here is the deck's answers to its questions. Author mode only:
+  // the pick is a persisted deck edit (data-layout, written back through the
+  // edit server), so without that server the key explains itself and changes
+  // nothing rather than forking the deck from what is on disk.
+  const layout = createLayoutCycler({
+    slideOf: () => instance.state.slide,
+    sectionAt: (idx) => instance._sections[idx - 1],
+    describe: (sec) => ({
+      autoPins: autoPinY(sec, config) !== null,
+      hasSplitPair: splitContent(sec).length > 1,
+    }),
+    available: () => editmode.available(),
+    unavailableMessage: () => needsDevMode('layout', location),
+    apply: (sec, name) => {
+      if (name === 'auto') sec.removeAttribute('data-layout');
+      else sec.setAttribute('data-layout', name);
+    },
+    relayout: (sec, idx) => {
+      setupPinnedTitles(instance._sections, config);
+      setupSplit(instance._sections);
+      checkOverflow(sec, idx);
+      return sec.hasAttribute('data-split-conflict');
+    },
+    post: (body) => fetch(editmode.base() + '/edit/layout', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ slide: p.slide, layout: p.name }),
-    }).then((r) => { if (!r.ok) throw new Error(r.status); debugLog('layout', `slide ${p.slide}: ${p.name} → saved to file`); })
-      .catch(() => toast('layout save failed — is the dev server still up?', 2200));
-  }
-  // The ring for one slide, entries that cannot change its look SKIPPED so
-  // every press shows something new: 'pinned' when auto already pins,
-  // 'split-flip' when there aren't two content blocks to swap sides.
-  // Public (instance.layoutRing) so headless verification can assert the
-  // skip logic without a dev server to cycle through.
-  function layoutRing(idx = instance.state.slide) {
-    const sec = instance._sections[idx - 1];
-    if (!sec) return [];
-    return LAYOUTS.filter((n) =>
-      (n !== 'pinned' || autoPinY(sec, config) === null) &&
-      (n !== 'split-flip' || splitContent(sec).length > 1));
-  }
-  function cycleLayout(dir) {
-    if (!editmode.available()) {
-      toast(needsDevMode('layout', location), 3200);
-      return;
-    }
-    const idx = instance.state.slide;
-    const sec = instance._sections[idx - 1];
-    if (!sec) return;
-    const ring = layoutRing(idx);
-    const cur = sec.getAttribute('data-layout') || 'auto';
-    const at = Math.max(0, ring.indexOf(cur));
-    const name = ring[(at + dir + ring.length) % ring.length];
-    if (name === 'auto') sec.removeAttribute('data-layout');
-    else sec.setAttribute('data-layout', name);
-    if (layoutPending && layoutPending.slide !== idx) saveLayout(); // a different slide's pick must not be dropped
-    layoutPending = { slide: idx, name };
-    clearTimeout(layoutTimer);
-    layoutTimer = setTimeout(saveLayout, 600);
-    // geometry changed: pinned titles and the overflow guardrail re-derive
-    setupPinnedTitles(instance._sections, config);
-    setupSplit(instance._sections);
-    checkOverflow(sec, idx);
-    // the pick can land split on a slide that hand-rolls its own columns —
-    // say so at the keypress, not only in a console nobody has open
-    toast(sec.hasAttribute('data-split-conflict')
-      ? `layout: ${name} — fights this slide's own column flexbox; pick one`
-      : `layout: ${name}`);
-    debugLog('layout', `slide ${idx}: ${name}`);
-  }
+      body: JSON.stringify(body),
+    }).then((r) => { if (!r.ok) throw new Error(r.status); }),
+    toast,
+    debugLog,
+  });
+  const cycleLayout = (dir) => layout.cycle(dir);
+  const layoutRing = (idx) => layout.ring(idx);
 
   const instance = {
     root, stage, config,
@@ -1091,11 +1019,8 @@ export function init(userConfig = {}) {
           : this.config.slideNumber === 'n/N'
             ? `${this.state.slide} / ${this.state.totalSlides}` : String(this.state.slide);
         slideNumEl.textContent = num;
-        if (hasMarkersDOM || playlist) {
-          const markers = hasMarkersDOM ? inFileMarkers() : null;
-          const title = markers
-            ? (markers[currentMarkerIndex(markers)]?.title || '')
-            : (playlist.modules[playlistIndex]?.title || '');
+        if (moduleNav.any) {
+          const title = moduleNav.title();
           const mod = document.createElement('span');
           mod.className = 'mod';
           mod.textContent = title;
@@ -1311,15 +1236,22 @@ export function init(userConfig = {}) {
     if (el) el.textContent = debugStateLine();
   }
   function toggleDebug() {
-    if (debugEl) { debugEl.remove(); debugEl = null; return; }
+    if (debugEl) { debugEl.remove(); debugEl = null; debug.onEntry(null); return; }
     debugEl = document.createElement('div');
     debugEl.className = 'decklight-debug';
     debugEl.innerHTML = '<div class="dbg-head">debug log — D closes</div><div class="dbg-state"></div><div class="dbg-log"></div>';
     root.appendChild(debugEl);
-    debugBuf.forEach(appendDebugRow);
+    debug.entries.forEach(appendDebugRow);
     updateDebugState();
     const log = debugEl.querySelector('.dbg-log');
     log.scrollTop = log.scrollHeight;
+    // From here the buffer feeds the window directly; closing detaches it.
+    debug.onEntry((entry) => {
+      appendDebugRow(entry);
+      updateDebugState();
+      const box = debugEl.querySelector('.dbg-log');
+      box.scrollTop = box.scrollHeight;
+    });
   }
   // The message LOG (I). Messages fade after a few seconds — which is exactly
   // when you were looking at the slide, not the corner — so every one is kept
@@ -1423,50 +1355,37 @@ export function init(userConfig = {}) {
   overlays.register({
     isOpen: () => !!palEl,
     close: closePalette,
-    keydown(e) {
-      switch (e.key) {
-        case 'ArrowDown': selectPalRow(palSel + 1); break;
-        case 'ArrowUp': selectPalRow(palSel - 1); break;
-        case 'Enter': commitPalRow(); break;
-        case 'Backspace': palQuery = palQuery.slice(0, -1); renderPalette(); break;
-        case 'Escape': if (palQuery) { palQuery = ''; renderPalette(); } else closePalette(); break;
-        default:
-          if (e.key.length === 1) { palQuery += e.key; renderPalette(); break; }
-          return false;
-      }
-      return true;
-    },
+    keydown: (e) => typeaheadKeydown(e, {
+      query: palQuery,
+      onMove: (d) => selectPalRow(palSel + d),
+      onCommit: commitPalRow,
+      onType: (ch) => { palQuery += ch; renderPalette(); },
+      onBackspace: () => { palQuery = palQuery.slice(0, -1); renderPalette(); },
+      onClear: () => { palQuery = ''; renderPalette(); },
+      onClose: closePalette,
+    }),
   });
   overlays.register({
     isOpen: () => !!fontPickEl,
     close: closeFontPicker,
-    keydown(e) {
-      switch (e.key) {
-        case 'ArrowDown': selectFontRow(fontPickSel + 1); break;
-        case 'ArrowUp': selectFontRow(fontPickSel - 1); break;
-        case 'Enter': applyFont(fontPickSel); closeFontPicker(); break;
-        case 'Escape': closeFontPicker(); break;
-        default: return false;
-      }
-      return true;
-    },
+    keydown: (e) => typeaheadKeydown(e, {
+      onMove: (d) => selectFontRow(fontPickSel + d),
+      onCommit: () => { applyFont(fontPickSel); closeFontPicker(); },
+      onClose: closeFontPicker,
+    }),
   });
   overlays.register({
     isOpen: () => !!finderEl,
     close: closeSlideFinder,
-    keydown(e) {
-      switch (e.key) {
-        case 'ArrowDown': selectFinderRow(finderSel + 1, false); break;
-        case 'ArrowUp': selectFinderRow(finderSel - 1, false); break;
-        case 'Enter': commitFinder(); break;
-        case 'Backspace': setFinderQuery(finderQuery.slice(0, -1)); break;
-        case 'Escape': if (finderQuery) setFinderQuery(''); else closeSlideFinder(); break;
-        default:
-          if (e.key.length === 1) { setFinderQuery(finderQuery + e.key); break; }
-          return false;
-      }
-      return true;
-    },
+    keydown: (e) => typeaheadKeydown(e, {
+      query: finderQuery,
+      onMove: (d) => selectFinderRow(finderSel + d, false),
+      onCommit: commitFinder,
+      onType: (ch) => setFinderQuery(finderQuery + ch),
+      onBackspace: () => setFinderQuery(finderQuery.slice(0, -1)),
+      onClear: () => setFinderQuery(''),
+      onClose: closeSlideFinder,
+    }),
   });
   overlays.register({
     isOpen: () => !!overviewEl,
@@ -1604,118 +1523,15 @@ export function init(userConfig = {}) {
   }
 
   // ----- overflow watch ----------------------------------------------------
-  /**
-   * The guardrail measures layout, and layout is not final one frame after a
-   * slide activates: fonts resolve, images decode, charts and terminals mount.
-   * A single post-goto measurement latches whatever happened to be true at that
-   * instant and never revisits it — and on a deep link `goto` runs exactly once,
-   * so that instant is the only one there will ever be.
-   *
-   * A MISSED flag is the dangerous direction. The authoring contract (SPEC
-   * PRESENTING) has agents assert `[data-overflow]` is absent, so a slide that
-   * settles into clipping after that frame does not fail the check — it passes
-   * it, quietly, forever.
-   *
-   * So the check follows the content instead of a moment: whatever is on stage
-   * is watched, and anything that could have changed its height re-runs it.
-   *
-   * It takes both observers, because the two ways a slide starts overflowing
-   * look nothing alike to the DOM. Boxes changing size (a webfont resolving, an
-   * image decoding) are what ResizeObserver is for. Content arriving is NOT —
-   * an overfull child is flex-shrunk to the space available, so its box height
-   * does not move while its scrollHeight runs away, and a resize watch sees
-   * exactly nothing. That one needs MutationObserver.
-   *
-   * And a third ear, for the same reason as the timer below: ResizeObserver
-   * DELIVERY rides the rendering pipeline, and once a headless render goes
-   * idle there are no more frames to ride — an image that finishes decoding
-   * after that point resizes in a frame that never comes, and the recruit
-   * into the resize watch reports nothing. Subresources finishing is not
-   * frame-bound, though: `load`/`error` are plain tasks, and a capturing
-   * listener on the section hears every descendant's. So the one late-growth
-   * cause that needs no JS to happen — media landing — re-runs the check in
-   * every environment, frames or not.
-   *
-   * And the check is scheduled on a TIMER, not a frame. It used to ride a
-   * requestAnimationFrame, which quietly made the guardrail conditional on the
-   * page painting again — and under `--virtual-time-budget`, the flag every
-   * render harness and `decklight pdf` drive Chrome with, frame production stops
-   * once the page goes idle, so a callback booked after that point is never
-   * called at all. The slide was not measured late; it was never measured, and
-   * an unmeasured slide reads exactly like a clean one. Reading scrollHeight
-   * forces the layout it needs anyway, so waiting for a frame bought nothing.
-   */
-  let watched = [];
-  let overflowTimer = 0;
-  function recheckOverflow() {
-    if (overflowTimer) return; // coalesce: a mount moves several nodes at once
-    overflowTimer = setTimeout(() => {
-      overflowTimer = 0;
-      for (const s of watched) checkOverflow(s, instance._sections.indexOf(s) + 1);
-    });
-  }
-
-  const overflowResize = typeof ResizeObserver === 'function'
-    ? new ResizeObserver(recheckOverflow) : null;
-
-  /**
-   * Recruit `el` and everything inside it into the resize watch. The section
-   * box is a fixed design-resolution rectangle, so content growing inside it
-   * never resizes it — only the content can report that. And ALL of the
-   * content, not just the direct children: a grandchild can grow on its own
-   * (an image decoding long after mount) while every box between it and the
-   * section sits clamped at its flex minimum, moving nothing a shallower
-   * watch observes. Terminal internals are skipped for the same reason the
-   * mutation filter below skips them: a playing cast redraws constantly, and
-   * terminals are excluded from the clip test anyway.
-   */
-  function watchResizes(el) {
-    if (!overflowResize) return;
-    for (const n of [el, ...el.querySelectorAll('*')]) {
-      if (!n.parentElement?.closest('.terminal')) overflowResize.observe(n);
-    }
-  }
-
-  const overflowMutate = typeof MutationObserver === 'function'
-    ? new MutationObserver((records) => {
-      // A playing terminal rewrites its screen every frame, and terminals are
-      // excluded from the clip test anyway (SPEC TERMINAL_PLAYER: they scroll
-      // by design). Re-measuring the slide 60 times a second to reach the same
-      // answer is the one cost this watch must not have.
-      const outside = (n) => !(n.nodeType === 1 ? n : n.parentElement)?.closest('.terminal');
-      let relevant = false;
-      for (const r of records) {
-        if (!outside(r.target)) continue;
-        relevant = true;
-        // Measuring an arriving subtree once is not enough: its later growth
-        // (an image inside it decoding a second on) fires no further mutation,
-        // and once every box above it is clamped, no resize of anything armed
-        // earlier. Nodes that arrive after arming join the watch the same way
-        // arming recruited what was already on stage.
-        for (const n of r.addedNodes) if (n.nodeType === 1 && n.isConnected) watchResizes(n);
-      }
-      if (relevant) recheckOverflow();
-    }) : null;
-
-  // `load`/`error` do not bubble, but a capturing listener still hears every
-  // descendant's — including on media that mounts after arming.
-  const onLateMedia = (e) => {
-    if (!e.target.closest?.('.terminal')) recheckOverflow();
-  };
-
-  /** Re-aim the watch at `sections` (the active slide, or the whole deck in print). */
-  function watchOverflow(sections) {
-    overflowResize?.disconnect();
-    overflowMutate?.disconnect();
-    for (const s of watched) for (const t of ['load', 'error']) s.removeEventListener(t, onLateMedia, true);
-    watched = sections.filter(Boolean);
-    for (const s of watched) {
-      watchResizes(s);
-      overflowMutate?.observe(s, { childList: true, subtree: true, characterData: true });
-      for (const t of ['load', 'error']) s.addEventListener(t, onLateMedia, true);
-    }
-    recheckOverflow(); // arming is also the first measurement
-  }
+  // The ears live in overflow.js (createOverflowWatch); what "overflowing"
+  // means is checkOverflow above. Three observers, a timer rather than a
+  // frame, and re-recruitment of nodes that arrive after arming — that file's
+  // header carries the reasoning for each.
+  const overflowWatch = createOverflowWatch({
+    sectionsOf: () => instance._sections,
+    checkOverflow,
+  });
+  const watchOverflow = (sections) => overflowWatch.watch(sections);
 
   // ----- hash --------------------------------------------------------------
   let suppressHashChange = false;
