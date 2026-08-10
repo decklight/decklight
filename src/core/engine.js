@@ -23,6 +23,7 @@ import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
 import { buildIndex, rankMatches } from './finder.js';
 import { createDebugLog } from './debuglog.js';
+import { createLayoutCycler } from './layout.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -803,73 +804,40 @@ export function init(userConfig = {}) {
   initCode(stage, registerBuildProvider);
 
   // ----- slide layout cycling (L / ⇧L) — SPEC PRESENTING -----------------------------
-  // Walk the CURRENT slide through the layout ring. Dev-mode ONLY: the pick
-  // is a persisted deck edit — it lands on the section as data-layout AND is
-  // written back into the file through the edit server (the same attribute
-  // an author writes by hand; 'auto' removes it). It wins over data-pin:
-  // 'pinned' forces the pin, 'centered'/'top' lay out in flow ('top'
-  // additionally top-aligns via CSS), the split pair lays the content out
-  // in two sides. Without the server the key explains itself and changes
-  // nothing — a presenter can't silently fork the deck from what's on disk.
-  const LAYOUTS = ['auto', 'centered', 'pinned', 'top', 'split', 'split-flip'];
-  // Write-through is debounced: the pick applies to the DOM instantly, and
-  // the FINAL pick of a cycling burst goes to the server (each write makes
-  // the watcher reload every browser — one reload per decision, not per L).
-  let layoutPending = null; // { slide, name }
-  let layoutTimer = null;
-  function saveLayout() {
-    clearTimeout(layoutTimer);
-    const p = layoutPending;
-    layoutPending = null;
-    if (!p) return;
-    fetch(editmode.base() + '/edit/layout', {
+  // The ring, the skip rules and the debounced write-through live in layout.js;
+  // what stays here is the deck's answers to its questions. Author mode only:
+  // the pick is a persisted deck edit (data-layout, written back through the
+  // edit server), so without that server the key explains itself and changes
+  // nothing rather than forking the deck from what is on disk.
+  const layout = createLayoutCycler({
+    slideOf: () => instance.state.slide,
+    sectionAt: (idx) => instance._sections[idx - 1],
+    describe: (sec) => ({
+      autoPins: autoPinY(sec, config) !== null,
+      hasSplitPair: splitContent(sec).length > 1,
+    }),
+    available: () => editmode.available(),
+    unavailableMessage: () => needsDevMode('layout', location),
+    apply: (sec, name) => {
+      if (name === 'auto') sec.removeAttribute('data-layout');
+      else sec.setAttribute('data-layout', name);
+    },
+    relayout: (sec, idx) => {
+      setupPinnedTitles(instance._sections, config);
+      setupSplit(instance._sections);
+      checkOverflow(sec, idx);
+      return sec.hasAttribute('data-split-conflict');
+    },
+    post: (body) => fetch(editmode.base() + '/edit/layout', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ slide: p.slide, layout: p.name }),
-    }).then((r) => { if (!r.ok) throw new Error(r.status); debugLog('layout', `slide ${p.slide}: ${p.name} → saved to file`); })
-      .catch(() => toast('layout save failed — is the dev server still up?', 2200));
-  }
-  // The ring for one slide, entries that cannot change its look SKIPPED so
-  // every press shows something new: 'pinned' when auto already pins,
-  // 'split-flip' when there aren't two content blocks to swap sides.
-  // Public (instance.layoutRing) so headless verification can assert the
-  // skip logic without a dev server to cycle through.
-  function layoutRing(idx = instance.state.slide) {
-    const sec = instance._sections[idx - 1];
-    if (!sec) return [];
-    return LAYOUTS.filter((n) =>
-      (n !== 'pinned' || autoPinY(sec, config) === null) &&
-      (n !== 'split-flip' || splitContent(sec).length > 1));
-  }
-  function cycleLayout(dir) {
-    if (!editmode.available()) {
-      toast(needsDevMode('layout', location), 3200);
-      return;
-    }
-    const idx = instance.state.slide;
-    const sec = instance._sections[idx - 1];
-    if (!sec) return;
-    const ring = layoutRing(idx);
-    const cur = sec.getAttribute('data-layout') || 'auto';
-    const at = Math.max(0, ring.indexOf(cur));
-    const name = ring[(at + dir + ring.length) % ring.length];
-    if (name === 'auto') sec.removeAttribute('data-layout');
-    else sec.setAttribute('data-layout', name);
-    if (layoutPending && layoutPending.slide !== idx) saveLayout(); // a different slide's pick must not be dropped
-    layoutPending = { slide: idx, name };
-    clearTimeout(layoutTimer);
-    layoutTimer = setTimeout(saveLayout, 600);
-    // geometry changed: pinned titles and the overflow guardrail re-derive
-    setupPinnedTitles(instance._sections, config);
-    setupSplit(instance._sections);
-    checkOverflow(sec, idx);
-    // the pick can land split on a slide that hand-rolls its own columns —
-    // say so at the keypress, not only in a console nobody has open
-    toast(sec.hasAttribute('data-split-conflict')
-      ? `layout: ${name} — fights this slide's own column flexbox; pick one`
-      : `layout: ${name}`);
-    debugLog('layout', `slide ${idx}: ${name}`);
-  }
+      body: JSON.stringify(body),
+    }).then((r) => { if (!r.ok) throw new Error(r.status); }),
+    toast,
+    debugLog,
+  });
+  const cycleLayout = (dir) => layout.cycle(dir);
+  const layoutRing = (idx) => layout.ring(idx);
 
   const instance = {
     root, stage, config,
