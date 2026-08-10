@@ -281,7 +281,14 @@ test('a failed test synthesis shows the engine error and saves nothing', async (
 
 // ---- the entry points, end to end -----------------------------------------
 
-const ptySkip = fs.existsSync('/usr/bin/script') ? false : 'needs util-linux script(1) for a pty';
+// These two drive the CLI through util-linux script(1) (`-qec`) for a pty.
+// Existence is not the test: macOS ships BSD script, which takes a different
+// argv AND calls tcgetattr on its own stdin — a pipe here, since the test types
+// the answers — so it cannot be driven from a test at all, and the run failed
+// on an illegal option instead of skipping. `--version` tells them apart; BSD
+// refuses it.
+const ptySkip = spawnSync('/usr/bin/script', ['--version'], { stdio: 'ignore' }).status === 0
+  ? false : 'needs util-linux script(1) for a pty (BSD script cannot be driven from a pipe)';
 
 // a fresh "machine": stub piper + voice model under a temp HOME, no
 // GOOGLE_CLOUD_PROJECT, nothing saved
