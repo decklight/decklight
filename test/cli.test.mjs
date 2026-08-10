@@ -1301,3 +1301,38 @@ test('the dispatcher refuses a bad deck with one line, and --help still exits 0'
   assert.equal(help.status, 0, 'help is not a failure');
   assert.match(help.stdout, /decklight bundle — flatten deck\(s\)/);
 });
+
+test('bundling an already-inlined deck says so, instead of blaming a missing <link>', async () => {
+  // `decklight init` scaffolds a self-contained deck, and the README's own
+  // quick start goes straight from init to bundle — so this refusal is one of
+  // the first things a new user meets. It used to read "no theme <link>
+  // (href matching themes/<name>.css) found in the deck", sending them to look
+  // for markup they were never supposed to have.
+  const { bundleMain } = await import('../cli/bundle.mjs');
+  const { CommandError } = await import('../cli/util.mjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-bundle-'));
+
+  const inlined = path.join(dir, 'inlined.html');
+  fs.writeFileSync(inlined, '<!doctype html><html><head><style data-theme="midnight">.x{}</style></head>'
+    + '<body><div class="decklight"><section><h2>One</h2></section></div>'
+    + '<script data-decklight-runtime="js">/* runtime */</script>'
+    + '<script>Decklight.init({});</script></body></html>');
+  await assert.rejects(() => bundleMain([inlined]), (e) => {
+    assert.ok(e instanceof CommandError);
+    assert.match(e.message, /already self-contained/);
+    assert.match(e.message, /decklight upgrade/, 'and names the command that DOES refresh it');
+    return true;
+  });
+
+  // a deck with no theme in either form keeps the original message — it is
+  // accurate there, and it is the one that tells an author what to add
+  const bare = path.join(dir, 'bare.html');
+  fs.writeFileSync(bare, '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div>'
+    + '<script>Decklight.init({});</script></body></html>');
+  await assert.rejects(() => bundleMain([bare]), (e) => {
+    assert.match(e.message, /no theme <link>/);
+    return true;
+  });
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});

@@ -317,7 +317,19 @@ if (transformNames.length) {
 
 const themeLinkRe = /<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']*themes\/([\w-]+)\.css)["'][^>]*>/i;
 const themeLinkM = html.match(themeLinkRe);
-if (!themeLinkM) fail('no theme <link> (href matching themes/<name>.css) found in the deck');
+if (!themeLinkM) {
+  // A deck with its themes already INLINE is the common way to arrive here —
+  // `decklight init` scaffolds one, and the README's own quick start goes
+  // straight from init to bundle. Blaming a missing <link> sends that reader
+  // looking for markup they were never supposed to have, when the honest
+  // answer is that there is nothing left to flatten.
+  const inlined = /<style\b[^>]*\bdata-theme\b/i.test(html);
+  fail(inlined
+    ? 'this deck is already self-contained — its themes are inline <style data-theme> blocks.\n'
+      + '  bundle is for a deck that REFERENCES dist/ and themes/ by URL; there is nothing here to flatten.\n'
+      + '  to refresh its inlined runtime and themes instead: decklight upgrade <deck.html>'
+    : 'no theme <link> (href matching themes/<name>.css) found in the deck');
+}
 const [themeLinkTag, themeHref, linkedTheme] = themeLinkM;
 const themesDir = path.resolve(deckDir, path.dirname(themeHref));
 
