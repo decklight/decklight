@@ -31,6 +31,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe } from './util.mjs';
+import { inlineRuntime } from './pkg.mjs';
 import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
 
@@ -399,8 +400,7 @@ html = html.replace(
   /<script\b[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi,
   (tag, src) => {
     if (/^(https?:)?\/\//.test(src)) { notices.push(`external script kept as src: ${src}`); return tag; }
-    const js = read(src).replace(/\/\/# sourceMappingURL=.*$/m, '');
-    return `<script>\n${scriptSafe(js)}\n</script>`;
+    return `<script>\n${inlineRuntime(read(src))}\n</script>`;
   });
 
 // ------------------------------------------------------------------- casts

@@ -24,18 +24,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { argReader, isMain } from '../tools/args.mjs';
+import { THEMES_DIR, themeCss as shippedThemeCss, runtimeCss, runtimeJs } from './pkg.mjs';
 import { unzip } from '../tools/zip.mjs';
 import { decodeEntities } from '../tools/ooxml.mjs';
 import { parseRels, resolvePart, slideOrder, parseSlide, notesText, slideSection, mimeOf } from '../tools/pptx.mjs';
 
-// fileURLToPath, never `.pathname` — a URL path is percent-encoded, so an
-// install under `/Users/First Last/…` (or any Windows profile with a space)
-// came back as `/Users/First%20Last/…` and every read of themes/ and dist/
-// failed. Every other command in the tree already resolves it this way.
-const PKG_ROOT = fileURLToPath(new URL('..', import.meta.url));
-const THEMES_DIR = join(PKG_ROOT, 'themes');
 
 const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url> [options]
   convert an existing presentation into a self-contained decklight deck
@@ -207,9 +201,12 @@ export function convert(zip, { build = 'auto' } = {}) {
 
 /** The self-contained deck, runtime and theme inlined — the `init` output shape. */
 export function deckHtml(sections, { title, theme }) {
-  const css = readFileSync(join(PKG_ROOT, 'dist/decklight.css'), 'utf8');
-  const themeCss = readFileSync(join(THEMES_DIR, `${theme}.css`), 'utf8');
-  const js = readFileSync(join(PKG_ROOT, 'dist/decklight.js'), 'utf8').replace(/\/\/# sourceMappingURL=.*$/m, '');
+  const css = runtimeCss();
+  const theme_ = shippedThemeCss(theme);
+  // runtimeJs() applies the SAME transform init/upgrade/bundle use and audit
+  // recomputes. This used to be a local escape that missed `<!--`, which made
+  // every imported deck audit as "runtime DIFFERS from this install's build".
+  const js = runtimeJs();
   const safe = (s) => s.replace(/<\/(script|style)/gi, '<\\/$1');
   return `<!doctype html>
 <html lang="en">
@@ -220,7 +217,7 @@ export function deckHtml(sections, { title, theme }) {
 ${safe(css)}
   </style>
   <style data-theme="${theme}">
-${safe(themeCss)}
+${safe(theme_)}
   </style>
 </head>
 <body>
@@ -229,7 +226,7 @@ ${safe(themeCss)}
 ${sections.join('\n\n')}
 
   </div>
-  <script data-decklight-runtime="js">${safe(js)}</script>
+  <script data-decklight-runtime="js">${js}</script>
   <script>Decklight.init({});</script>
 </body>
 </html>

@@ -28,13 +28,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { makeFail, scriptSafe } from './util.mjs';
+import { makeFail } from './util.mjs';
+import { PKG, PKG_ROOT, runtimeCss, runtimeJs } from './pkg.mjs';
 import { isMain } from '../tools/args.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const PKG_ROOT = path.resolve(here, '..');
-const PKG = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
 
 const fail = makeFail('upgrade');
 
@@ -163,10 +160,8 @@ Options:
 
   // ------------------------------------------------------------ new blocks
 
-  const distCss = fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.css'), 'utf8');
-  const distJs = scriptSafe(
-    fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.js'), 'utf8')
-      .replace(/\/\/# sourceMappingURL=.*$/m, ''));
+  const distCss = runtimeCss();
+  const distJs = runtimeJs();
 
   const edits = [];   // { start, end, text }
   const changed = [];

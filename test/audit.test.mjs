@@ -352,3 +352,37 @@ test('--check on a real bundled deck is quiet, and loud once tampered with', () 
   assert.equal(after.code, 1);
   assert.match(after.out, /alert\(1\)/);
 });
+
+test('every command that inlines the runtime produces bytes this install recognises', () => {
+  // The label's whole job is to say whether the runtime in a file is this
+  // install's build (PRESENT#AUDIT), so a decklight command whose own output
+  // audits as DIFFERS is the alarm going off on decklight itself. `import`
+  // did exactly that: its local escape covered `</script` and `</style` but
+  // not `<!--`, so every imported deck disagreed with the auditor by one
+  // sequence — invisible in a render harness, and stated in the terminal to
+  // anyone who ran `decklight present` on the result.
+  //
+  // Pinned as a property of the SHARED transform rather than of one command:
+  // whatever `inlineRuntime` does, the auditor's model of it and the bytes a
+  // producer writes are the same function, and this fails the moment a
+  // command grows a private copy again.
+  const installed = installedRuntime();
+  assert.ok(installed, 'dist/ must be built for this test — run npm run build');
+
+  const deck = (js) => `<!doctype html><html><head></head><body>`
+    + `<div class="decklight"><section><h2>One</h2></section></div>`
+    + `<script data-decklight-runtime="js">${js}</script>`
+    + `<script>Decklight.init({});</script></body></html>`;
+
+  const audited = auditDeck(deck(installed.text));
+  assert.equal(audited.runtime.state, 'matches',
+    'the shared inlineRuntime output must audit as this install\'s build');
+
+  // and the specific divergence that shipped: the same bytes with `<!--` left
+  // raw are a different runtime as far as the label is concerned
+  const raw = installed.text.replace(/<\\u0021--/g, '<!--');
+  if (raw !== installed.text) {
+    assert.equal(auditDeck(deck(raw)).runtime.state, 'differs',
+      'the escape is load-bearing — if this stops mattering, the comment above is stale');
+  }
+});

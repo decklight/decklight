@@ -32,11 +32,8 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { scripts, headStyles } from './upgrade.mjs';
-import { scriptSafe } from './util.mjs';
-
-const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { PKG_ROOT, inlineRuntime } from './pkg.mjs';
 
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 
@@ -55,15 +52,17 @@ export function runtimeVersion(html) {
 /**
  * The byte-exact inlined runtime the installed package would produce.
  *
- * `bundle`, `init` and `upgrade` all inline `dist/decklight.js` the same way —
- * sourceMappingURL stripped, then scriptSafe-escaped — so reproducing that
- * transform here is what lets a hash comparison mean anything. They differ only
- * in the whitespace around the payload, which is why the comparison trims.
+ * `bundle`, `init`, `import` and `upgrade` all inline `dist/decklight.js`
+ * through `inlineRuntime` — the same function called here, rather than a
+ * reproduction of it, because a reproduction is what drifted: `import` once
+ * escaped it slightly differently and every imported deck audited as DIFFERS.
+ * They vary only in the whitespace around the payload, which is why the
+ * comparison trims.
  */
 export function installedRuntime(root = PKG_ROOT) {
   const file = path.join(root, 'dist/decklight.js');
   if (!existsSync(file)) return null;
-  const js = scriptSafe(readFileSync(file, 'utf8').replace(/\/\/# sourceMappingURL=.*$/m, ''));
+  const js = inlineRuntime(readFileSync(file, 'utf8'));
   return { text: js, hash: sha256(js.trim()), version: runtimeVersion(js) };
 }
 

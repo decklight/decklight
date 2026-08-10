@@ -15,11 +15,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-export const PKG_ROOT = path.resolve(here, '..');
-export const PKG = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
+// Imported and re-exported, not redefined: the package root has one
+// definition (pkg.mjs), and every bug in this area came from a second one.
+// `import` then `export`, not `export … from`, because this module reads
+// PKG.version itself and a bare re-export creates no local binding.
+import { PKG_ROOT, PKG } from './pkg.mjs';
+
+export { PKG_ROOT, PKG };
 
 /**
  * The authoring contract, sliced from SPEC.md through JS_API (everything an
