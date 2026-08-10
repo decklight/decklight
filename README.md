@@ -22,10 +22,12 @@ But the real reason this project exists is the second half: I wanted a codebase 
 - **One file, zero build** — author a single HTML file, double-click it, present. No toolchain, no server, no framework.
 - **Diagrams & graphics** — native, theme-aware inline SVG, not just bullet lists.
 - **Animation** — progressive builds, Magic Move between slides, and diagrams that draw themselves in.
-- **62 built-in themes** — every one passes WCAG contrast gates and codified palette rules; generate your own with a keystroke.
+- **46 built-in themes** — every one passes WCAG contrast gates and codified palette rules; generate your own with a keystroke.
 - **Truthful terminals** — real PTY recordings replayed truthfully, never a video.
 - **Live narration** — text-to-speech presents the deck by itself, in sync, captions included.
 - **Everything is text** — no binary formats, so decks diff cleanly in git and agents can read, review, and edit every byte.
+- **Safe to receive** — `decklight present` plays a deck you did not author read-only under a CSP, prints what the file will execute, and strips what it cannot account for. `publish` signs; a `.decklight` container is verified before it renders.
+- **Extensible without shipping code to the audience** — themes, templates, engines, importers and presenter chrome install from git-repo marketplaces anyone can host; build-time transforms run on your machine during `bundle`, so nothing executable travels with the deck.
 
 ## Quick start
 
@@ -84,27 +86,42 @@ The whole loop is agent-friendly and stays in one file end to end:
 | **Builds** | `data-build` on a container — each child is a step; the layout never jumps | [SPEC BUILDS](SPEC.md#builds--builds-keynote-style-reveal-calls-these-fragments) |
 | **SVG diagrams** | inline SVG authored with `var(--d-*)` tokens; recolors with every theme, strokes draw in | [SPEC SVG_DIAGRAMS](SPEC.md#svg_diagrams--svg-diagrams-first-class) |
 | **Motion** | slide transitions, Magic Move auto-animate, looping element effects — all respect reduced-motion | [SPEC MOTION](SPEC.md#motion--motion) |
-| **Theming** | 62 themes in 5 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC THEMING](SPEC.md#theming--the-token-contract) |
+| **Theming** | 46 themes in 2 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC THEMING](SPEC.md#theming--the-token-contract) |
 | **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
 | **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
 | **Terminals** | `decklight rec` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Narration** | TTS reads your notes in sync with builds; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
+| **Integrity** | read-only `present` under a real CSP header, an ingredients label of what a deck executes, Sigstore signing, the `.decklight` container | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
+| **Marketplaces** | git-repo catalogs, registered not fetched; themes, templates, skills, voices, engines, importers, transforms and presenter plugins | [SPEC MARKETPLACE_REGISTRY](SPEC.md#marketplace_registry--marketplaces-registered-not-fetched) |
 
 ## CLI
 
 | Command | Purpose |
 |---|---|
-| `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title and offers a git repo; `--open` launches the deck, and it can hand straight off to `dev`) |
+| `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title and offers a git repo; `--open` launches the deck, `--from <template>` starts from a marketplace template) |
 | `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project; `--pack` zips it for upload) |
 | `decklight author deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
-| `decklight rec script.term.yaml` | record a terminal cast in a real PTY |
-| `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML |
+| `decklight present deck.html` | **play a deck you did not author** — read-only over localhost under a CSP header, with an ingredients label and `--strict` |
+| `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across (`.key` needs macOS; a Slides URL must be link-shared) |
+| `decklight rec script.term.yaml` | record a terminal cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
+| `decklight restore deck.html` | list the commits that touched a deck, and put it back to any of them |
 | `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
+| `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML (`--sign` attests it, `--deck` wraps it as `.decklight`) |
+| `decklight publish deck.html` | bundle and push to GitHub Pages — signed by default; Netlify and Vercel install as targets |
+| `decklight pdf deck.html` | one slide per page, at its own size, in its theme — no print dialog |
+| `decklight video deck.html` | render to one narrated mp4 (`--voiceover` synthesizes the narration first) |
+| `decklight theme check\|add` | validate a theme against the token contract, or install one into a deck |
+| `decklight marketplace add owner/repo` | register a catalog — registered, never fetched until you browse |
+| `decklight plugin add timer` | presenter chrome into **your** library: `present` loads it, `bundle` never does |
+| `decklight template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library — deck templates, import adapters, build-time transforms, speech engines, voices, agent descriptors |
+| `decklight extension check t.mjs` | the marketplace admission gate for a transform: lint, then a headless load of its output |
+| `decklight associate` | wire double-clicking a `.decklight` file to `decklight present` (per-user, no admin rights) |
 | `decklight tts` | live voice bridge — the player synthesizes narration through it |
-| `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait so the narrator moves, not just its mouth |
+| `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait |
+| `decklight report-bug` | gather the version + environment facts a bug report needs, and print the issue URL |
 
-`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings), `edit` and `lipsync` in [SPEC PRESENTING](SPEC.md#presenting--presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#js_api--public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
+`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings), `present` and `lipsync` in [SPEC PRESENTING](SPEC.md#presenting--presenting--output). (`decklight dev` still works as a hidden alias for `author`; `decklight edit` was folded into it and refuses out loud.) Drive a deck programmatically with the [JS API](SPEC.md#js_api--public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
 ## Keys
 

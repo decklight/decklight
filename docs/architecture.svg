@@ -40,7 +40,7 @@
 
   <!-- ── local servers ────────────────────────────────────────────── -->
   <rect x="710" y="70" width="180" height="76" rx="10" fill="#274035" stroke="#43695a" stroke-width="1.5"/>
-  <text x="800" y="96" text-anchor="middle" font-size="13" font-weight="700" fill="#e8eaf2">decklight edit</text>
+  <text x="800" y="96" text-anchor="middle" font-size="13" font-weight="700" fill="#e8eaf2">decklight author</text>
   <text x="800" y="114" text-anchor="middle" font-size="10.5" fill="#aeb4c6">watches the file · SSE reload</text>
   <text x="800" y="130" text-anchor="middle" font-size="10.5" fill="#aeb4c6">E saves notes back to disk</text>
 

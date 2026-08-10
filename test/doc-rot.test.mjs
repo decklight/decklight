@@ -85,3 +85,65 @@ test('no cli or tools comment still describes EXTENSIONS#ADAPTEREXEC as pending'
   assert.deepEqual(stale, [],
     'a comment still describes EXTENSIONS#ADAPTEREXEC as unbuilt or its contract as unfrozen — both landed (SPEC EXTENSIONS_ADAPTERS)');
 });
+
+test('no doc or deck claims a theme count the repo does not have', () => {
+  // The theme count is the single most-repeated fact in this project — README,
+  // the site, four decks, and the AGENT SKILL's indexed description, which is
+  // the string agents match on and is baked into every installed copy. It has
+  // now gone stale twice: #162 fixed 61 → 62 in that description, and #216
+  // moved the homage packs to the marketplace and made it 46 everywhere except
+  // where nobody looked. A showcase quiz was still grading the audience
+  // against "62 themes in 5 packs".
+  //
+  // So it is checked rather than remembered. Any "<n> themes" in a shipped
+  // doc, deck or the skill must be the number of themes actually in themes/,
+  // and any pack count the number of packs in packs.json.
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const themes = fs.readdirSync(path.join(root, 'themes')).filter((f) => f.endsWith('.css')).length;
+  const packs = Object.keys(JSON.parse(
+    fs.readFileSync(path.join(root, 'themes/packs.json'), 'utf8')).packs).length;
+
+  // CHANGELOG.md is exempt: its older entries describe what WAS true at 0.2.0,
+  // which is the one place a superseded number is the correct one.
+  const files = ['README.md', 'SPEC.md', 'site/index.html', 'cli/skill-content.mjs',
+    'demo/intro.html', 'demo/showcase.html', 'demo/features.html', 'demo/pitch.html'];
+
+  const wrong = [];
+  for (const rel of files) {
+    const text = fs.readFileSync(path.join(root, rel), 'utf8');
+    text.split('\n').forEach((line, i) => {
+      // a quiz's WRONG answers are deliberately wrong numbers — skip the rows
+      // that are not the marked one (they carry value="n" with n != answer)
+      if (/<label><input type="radio"/.test(line) && !/value="2"/.test(line)) return;
+      for (const m of line.matchAll(/(\d+)\s+(?:built-in\s+|shipped\s+)?themes\b/g)) {
+        if (Number(m[1]) !== themes) wrong.push(`${rel}:${i + 1} says ${m[1]} themes (${themes})`);
+      }
+      for (const m of line.matchAll(/(\d+)\s+packs\b/g)) {
+        if (Number(m[1]) !== packs) wrong.push(`${rel}:${i + 1} says ${m[1]} packs (${packs})`);
+      }
+    });
+  }
+  assert.deepEqual(wrong, [], 'a shipped file states a theme/pack count the repo does not have');
+});
+
+test('no doc or deck still tells anyone to run a command that was removed', () => {
+  // `decklight edit` was folded into `author` (#182) and now refuses out loud.
+  // The public site was still demonstrating it in its terminal cast, and
+  // docs/architecture.svg still labelled a box with it — both of which a
+  // reader would reasonably copy.
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const files = ['README.md', 'SPEC.md', 'site/index.html', 'docs/architecture.svg',
+    'cli/skill-content.mjs', 'demo/intro.html', 'demo/showcase.html', 'demo/features.html', 'demo/pitch.html'];
+  const hits = [];
+  for (const rel of files) {
+    const text = fs.readFileSync(path.join(root, rel), 'utf8');
+    text.split('\n').forEach((line, i) => {
+      // the README names it once, to say it is gone — that mention is the fix,
+      // not the rot, so only an INVOCATION counts
+      if (/(decklight|npx decklight)\s+edit\b/.test(line) && !/refuses|folded|removed|was\s+/.test(line)) {
+        hits.push(`${rel}:${i + 1}`);
+      }
+    });
+  }
+  assert.deepEqual(hits, [], 'a shipped file invokes `decklight edit`, which refuses');
+});

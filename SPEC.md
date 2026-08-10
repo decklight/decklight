@@ -179,7 +179,7 @@ The engine interleaves provider steps into the slide's sequence at the element's
 - Inline SVG is the canonical diagram format. `data-build` on `<svg>` or a `<g>` makes direct-child groups progressive (exactly the pattern from BUILD_AUTHORING).
 - **Theme-aware diagrams**: themes define diagram tokens (THEMING). Diagrams authored with
   `var(--d-stroke)`, `var(--d-fill-1)`…`var(--d-fill-6)`, `var(--d-text)`, `var(--d-muted)`,
-  `var(--d-accent)` re-color automatically across all 30 themes.
+  `var(--d-accent)` re-color automatically across all 46 shipped themes.
   Hardcoded-color SVGs still work; they just don't adapt.
 - `data-build="draw"` on groups animates strokes (paths, lines, polylines) via dash-offset.
 - The runtime namespaces `id` attributes inside each inline `<svg>` at init (prefix `svg{n}-`, rewriting `url(#…)` and `href="#…"` refs) — the defs-collision bug class is eliminated at the engine level.
@@ -1112,24 +1112,48 @@ decklight/
   SPEC.md  README.md  package.json
   src/core/      engine.js (init, nav, builds, transitions, stage, chrome, input) + the features that own their own
                  state and keyboard: themes.js (switching, packs, generator, picker), narration.js (voice, captions,
-                 character, ⇧V recorder), editmode.js (live reload, notes editor, agents, undo/redo, restore),
-                 hud.js (clock, progress, ink, transcript), plus auto-animate, notes, print, svg-ns, charts
+                 character, ⇧V recorder), editmode.js (live reload, notes editor, element edit mode, agents,
+                 undo/redo, restore), hud.js (clock, progress, ink, transcript), onboarding.js (the first-open card
+                 and tips) + the decidable pieces engine.js's init() no longer holds, each unit-tested without a
+                 browser: overflow.js (the guardrail's watch), playlist.js (module navigation), finder.js (the
+                 finder's index + ranking), layout.js (the L ring + its write-through), palette.js (what a typed
+                 string means), debuglog.js (the D ring buffer), overlay.js (backdrop, list selection, the
+                 typeahead keyboard), escape.js — plus autoanimate, builds, print, svg, charts, media, speaker,
+                 annotate, character, devmode, themegen, voicetrack
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
-  cli/           decklight.mjs (dispatcher: init/rec/refresh/export/bundle/upgrade/pdf/theme/import/publish/tts/lipsync/video/edit/dev) + init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides → deck, JS_API), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), units.mjs (install templates/skills/importers/voices into the unit library), plugin.mjs (presenter chrome, PRESENT#PLUGINS), edit.mjs, dev.mjs, agents.mjs (AI-agent roster)
+  cli/           decklight.mjs (dispatcher: init/skills/rec/refresh/export/bundle/restore/upgrade/pdf/import/theme/
+                 publish/marketplace/plugin/template/importer/transform/engine/extension/voice/agent/tts/lipsync/
+                 video/author/present/associate/report-bug; `dev` is a hidden alias for `author`, `edit` refuses out
+                 loud) + pkg.mjs (the package root and the one runtime-inlining transform) and util.mjs (CommandError
+                 + runMain: every command fails one way), init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, restore.mjs,
+                 theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides →
+                 deck, JS_API), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), units.mjs
+                 (templates/skills/importers/voices/engines/agents), plugin.mjs (presenter chrome, PRESENT#PLUGINS),
+                 loader.mjs + extension.mjs (build-time transforms and their admission gate), wizard.mjs (the
+                 credential wizard, ENGINES#WIZARD), sign.mjs + deckfile.mjs + associate.mjs (signing, the
+                 .decklight container, the double-click), audit.mjs (the ingredients label), serve.mjs (the server
+                 core), present.mjs, edit.mjs, dev.mjs, remote.mjs, agents.mjs (AI-agent roster)
   tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
-  themes/        30 × <name>.css + gallery.html
+  themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the
+                 marketplace, THEME_DISTRIBUTION) + packs.json + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
-  demo/          kitchen-sink.html + casts/
-  test/          node:test units (ansi, md, builds math, cast format) + render.mjs (headless Chrome assertions) + contrast.mjs (every shipped theme through tools/theme-check.mjs)
+  demo/          smoke.html (the render harnesses' deck — every feature, including deliberate regression
+                 fixtures) + intro.html, features.html, pitch.html, showcase.html + assets/
+  test/          node:test units (ansi, builds, math, cast format, the CLI, the marketplace, the pieces lifted out
+                 of engine.js) + 15 headless-Chrome harnesses (render, player, narration, character, engine, pin,
+                 overflow, split, strict, shot, plugin, extension-check, deckfile, pdf, import) + contrast.mjs and
+                 palette-rules.mjs (every shipped theme through tools/theme-check.mjs, and the house palette bar)
 ```
 
 - Build: `npm run build` = esbuild bundle (`src/index.js` → `dist/decklight.js`, minified + sourcemap) + CSS copy. Node ≥ 20. Runtime has **zero** runtime dependencies (highlight.js + temml are bundled at build time; Temml's stylesheet is appended to `decklight.css` with its optional woff2 `@font-face` stripped); `node-pty`, `js-yaml` are CLI-only deps.
-- Verification culture: `npm test` runs units; `npm run verify` builds, launches headless Chrome against `demo/kitchen-sink.html`, and asserts: slide count, build counts per slide, provider steps, ANSI render output, theme token presence, no console errors.
+- Verification culture: `npm test` runs the units; `npm run verify` builds and then runs **all 17 harnesses** — the 15 headless-Chrome ones against `demo/smoke.html` and the decks each covers, plus the two theme graders — reporting every harness rather than stopping at the first failure. A feature is verified against a real render, not only unit-tested.
 
 ## NON_GOALS — Non-goals (v1)
 
-Vertical slide nesting · full terminal emulation (vim/htop) · multiplex/follow-along · plugin system (providers + events cover extension) · PPTX export · mobile authoring.
+Vertical slide nesting · full terminal emulation (vim/htop) · multiplex/follow-along · **in-deck runtime extensions** · PPTX export · mobile authoring.
+
+**On that third-from-last one.** "No plugin system" was the v1 non-goal, and 0.3.0 shipped marketplaces — so the line is narrowed rather than deleted, because what it was protecting is still protected. A deck travels, so code inlined into it runs in front of an audience that installed nothing and consented to nothing (MARKETPLACE.md `WHY`). Everything a marketplace distributes therefore runs somewhere else: a build-time transform runs in Node during `bundle` and returns HTML (`EXTENSIONS_TRANSFORMS`), a presenter plugin runs on the presenter's own machine in a sandboxed frame and may not touch slide content (PRESENT#PLUGINS), an engine or import adapter runs at author time, and a theme or template is data. The runtime still has no plugin API, no `<script>` a catalog can put in a deck, and no execution surface for a recipient to be surprised by — providers + events remain the only extension inside the deck.
 
 The phone remote (PRESENTING) is not an exception to multiplex/follow-along: it is a **controller**, not a second screen. The phone renders no slides — two buttons and a position readout — and nothing in it broadcasts a deck to an audience's own devices.

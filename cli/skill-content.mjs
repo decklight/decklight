@@ -43,7 +43,7 @@ export function referenceDoc() {
 export function claudeSkillMd(referenceHref = 'reference.md') {
   return `---
 name: decklight
-description: Author and edit Decklight presentations — single-file HTML decks with Keynote-style builds, theme-aware SVG diagrams, 62 built-in themes, truthful terminal recordings, and live TTS narration. Use whenever creating or editing a Decklight deck (a .html file with a <div class="decklight"> of <section> slides) in this project.
+description: Author and edit Decklight presentations — single-file HTML decks with Keynote-style builds, theme-aware SVG diagrams, 46 built-in themes, truthful terminal recordings, and live TTS narration. Use whenever creating or editing a Decklight deck (a .html file with a <div class="decklight"> of <section> slides) in this project.
 ---
 
 Decklight decks are one HTML file: no build step, no bundler, no server to
