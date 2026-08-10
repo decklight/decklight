@@ -13,3 +13,7 @@ dist/
 # Screenshots produced by tools/shot.mjs. Evidence, not source: CI publishes
 # them to the orphan `shots` branch so a PR can show them inline.
 .shots/
+
+# Personal Claude Code config (permissions, model). The project hook and its
+# settings ARE versioned — see .claude/settings.json.
+.claude/settings.local.json
