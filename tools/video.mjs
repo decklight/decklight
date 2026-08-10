@@ -33,8 +33,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { chromeBin, chromeArgs } from './chrome.mjs';
-import { argReader } from './args.mjs';
+import { argReader, isMain } from './args.mjs';
 import { sectionBodies } from './deck-html.mjs';
 import { serveForRender } from '../cli/present.mjs';
 
@@ -228,7 +229,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     const range = parseSlideRange(opt('--slides'), holds.length);
 
     if (argv.includes('--voiceover')) {
-      const vo = [new URL('./voiceover.mjs', import.meta.url).pathname, deck];
+      const vo = [fileURLToPath(new URL('./voiceover.mjs', import.meta.url)), deck];
       const nd = opt('--narration');
       if (nd) vo.push('-o', resolve(nd));
       const r = spawnSync(process.execPath, vo, { stdio: 'inherit' });
@@ -310,6 +311,6 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
 }
 
 // direct execution still works: node tools/video.mjs deck.html -o deck.mp4
-if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (isMain(import.meta.url)) {
   await videoMain(process.argv.slice(2));
 }
