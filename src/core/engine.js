@@ -24,6 +24,7 @@ import { createPlaylist } from './playlist.js';
 import { buildIndex, rankMatches } from './finder.js';
 import { createDebugLog } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
+import { paletteRows } from './palette.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -570,18 +571,21 @@ export function init(userConfig = {}) {
   function renderPalette() {
     const card = palEl.querySelector('.narr-card');
     card.textContent = '';
-    const q = palQuery.toLowerCase();
-    palRows = paletteCommands().filter((c) => !q || (c.label + ' ' + (c.alias ?? '')).toLowerCase().includes(q));
-    // /goto with an inline argument: "goto 27" — or just "27" — jumps there
-    const g = palQuery.trim().match(/^(?:goto\s*)?(\d+)$/i);
-    if (g) {
-      const n = Math.max(1, Math.min(parseInt(g[1], 10), instance.state.totalSlides));
-      palRows.unshift({ label: `Go to slide ${n} / ${instance.state.totalSlides}`, hint: '⏎', run: () => instance.goto(n, 0) });
-    }
-    if (q && !g && !palRows.some((c) => c.label.toLowerCase().startsWith(q))) {
-      // fallback: treat the text as a slide search
-      palRows.push({ label: `Search slides for “${palQuery}”`, hint: '', run: () => { openSlideFinder(); setFinderQuery(palQuery); } });
-    }
+    // Which rows a query leaves, the inline "goto 27" argument and the
+    // search fallback all live in palette.js; the commands themselves stay
+    // here, where each one closes over what it runs.
+    palRows = paletteRows({
+      commands: paletteCommands(),
+      query: palQuery,
+      totalSlides: instance.state.totalSlides,
+      makeGotoRow: (n, total) => ({
+        label: `Go to slide ${n} / ${total}`, hint: '⏎', run: () => instance.goto(n, 0),
+      }),
+      makeSearchRow: (text) => ({
+        label: `Search slides for “${text}”`, hint: '',
+        run: () => { openSlideFinder(); setFinderQuery(text); },
+      }),
+    });
     const bar = document.createElement('div');
     bar.className = 'pal-input' + (palQuery ? ' tp-active' : '');
     bar.textContent = palQuery || 'type a command…';
