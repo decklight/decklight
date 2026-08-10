@@ -280,7 +280,7 @@ function reportMarkdownSlides(root) {
   root.querySelectorAll('section[data-markdown]').forEach((section, i) => {
     section.setAttribute('data-markdown-removed', '');
     const n = [...root.children].indexOf(section) + 1 || i + 1;
-    console.warn(`Decklight: slide ${n} uses data-markdown, which was removed in 0.4.0 — `
+    console.warn(`Decklight: slide ${n} uses data-markdown, which was removed in 0.3.0 — `
       + 'its content is in a <script type="text/template"> the browser will not render. '
       + 'Author the slide in HTML (SPEC DECK_ANATOMY).');
   });
