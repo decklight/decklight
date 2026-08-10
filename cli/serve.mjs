@@ -121,7 +121,10 @@ export const MIME = {
   '.woff': 'font/woff', '.woff2': 'font/woff2', '.map': 'application/json',
 };
 
-export const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Re-exported so the server's callers keep one import: the escape itself is
+// tools/escape.mjs's, which also covers quotes — this one did not, under a
+// name that reads like it covers everything.
+export { escapeHtml } from '../tools/escape.mjs';
 
 /**
  * Wrap a request handler so EVERY response it writes carries `headers` —

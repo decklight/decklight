@@ -23,13 +23,11 @@
 // carry .draw-fade so they materialize on the existing fade channel instead
 // of appearing before their step.
 
+import { escapeHtml as esc } from './escape.js';
+
 const VB_W = 640;
 const VB_H = 360;
 const TYPES = ['bar', 'line', 'area', 'pie', 'donut'];
-
-const esc = (s) => String(s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 // coordinate formatting: 2 decimals, no FP noise, no "-0"
 const f = (n) => {
