@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
-import { makeFail } from './util.mjs';
+import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 
 const require = createRequire(import.meta.url);
@@ -539,4 +539,4 @@ export async function recMain(argv = process.argv.slice(2)) {
 
 // Import-safe: only run the CLI when executed directly (recordScript and
 // exportAsciicast are importable for tests/tooling).
-if (isMain(import.meta.url)) recMain().catch(e => fail(e.message));
+if (isMain(import.meta.url)) process.exitCode = await runMain('rec', recMain);

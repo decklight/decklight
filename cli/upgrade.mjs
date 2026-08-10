@@ -28,7 +28,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeFail } from './util.mjs';
+import { makeFail, runMain } from './util.mjs';
 import { PKG, PKG_ROOT, runtimeCss, runtimeJs } from './pkg.mjs';
 import { isMain } from '../tools/args.mjs';
 
@@ -100,7 +100,7 @@ tool (and init) writes and older unmarked init/bundle output are recognized.
 Options:
   --dry-run   print what would change; write nothing
 `);
-    process.exit(0);
+    return 0;
   }
 
   let file = null, dryRun = false;
@@ -247,4 +247,4 @@ Options:
   process.stdout.write(`upgraded ${rel} to decklight ${PKG.version} (${changed.join(', ')}; backup: ${rel}.bak)\n`);
 }
 
-if (isMain(import.meta.url)) await upgradeMain();
+if (isMain(import.meta.url)) process.exitCode = await runMain('upgrade', upgradeMain);

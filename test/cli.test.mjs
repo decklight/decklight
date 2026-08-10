@@ -1241,3 +1241,63 @@ test('no command resolves a filesystem path through a URL pathname', () => {
   assert.deepEqual(hits, [],
     'use fileURLToPath(new URL(…)) — .pathname is percent-encoded and breaks on a path with a space');
 });
+
+// ── the failure convention (CommandError / runMain / reportFailure) ─────────
+// These call the mains IN-PROCESS, which is the point: `fail()` used to be
+// `process.exit(1)`, so a test that touched a refusal path took the runner
+// down with it and the only way to test these six commands was to spawn a
+// subprocess for every case.
+
+test('a refusal from a main is a thrown CommandError, not a dead process', async () => {
+  const { bundleMain } = await import('../cli/bundle.mjs');
+  const { CommandError } = await import('../cli/util.mjs');
+  await assert.rejects(
+    () => bundleMain(['/nonexistent-deck.html']),
+    (e) => {
+      assert.ok(e instanceof CommandError, 'refusals carry the type the boundary keys on');
+      assert.equal(e.command, 'bundle', 'and the command that refused');
+      assert.match(e.message, /deck not found/);
+      return true;
+    });
+  // the test runner is still here, which it would not have been before
+});
+
+test('runMain turns a refusal into exit 1 and the line commands have always printed', async () => {
+  const { runMain, CommandError } = await import('../cli/util.mjs');
+  const seen = [];
+  const write = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (s) => { seen.push(String(s)); return true; };
+  try {
+    assert.equal(await runMain('bundle', () => { throw new CommandError('no theme <link>', 'bundle'); }), 1);
+    assert.equal(await runMain('bundle', () => 0), 0, 'a clean run passes its code through');
+    assert.equal(await runMain('bundle', () => undefined), 0, 'and no return means success');
+  } finally { process.stderr.write = write; }
+  assert.deepEqual(seen, ['decklight bundle: no theme <link>\n']);
+});
+
+test('an unexpected throw prints a message and hides the stack behind DECKLIGHT_DEBUG', async () => {
+  const { runMain } = await import('../cli/util.mjs');
+  const seen = [];
+  const write = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (s) => { seen.push(String(s)); return true; };
+  const boom = () => { throw new TypeError('x is not a function'); };
+  try {
+    await runMain('import', boom);
+    assert.equal(await runMain('import', boom), 1);
+  } finally { process.stderr.write = write; }
+  const out = seen.join('');
+  assert.match(out, /decklight import: x is not a function/, 'the message leads');
+  assert.match(out, /DECKLIGHT_DEBUG=1 for the stack/, 'and names how to get the stack');
+  assert.doesNotMatch(out, /at Object|at Test/, 'no raw stack in the default output');
+});
+
+test('the dispatcher refuses a bad deck with one line, and --help still exits 0', () => {
+  const bad = spawnSync('node', [CLI, 'bundle', '/nonexistent-deck.html'], { encoding: 'utf8' });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /^decklight bundle: deck not found/m);
+  assert.doesNotMatch(bad.stderr, /at \w+ \(/, 'a refusal never shows a stack');
+
+  const help = spawnSync('node', [CLI, 'bundle', '--help'], { encoding: 'utf8' });
+  assert.equal(help.status, 0, 'help is not a failure');
+  assert.match(help.stdout, /decklight bundle — flatten deck\(s\)/);
+});
