@@ -19,6 +19,8 @@ import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
 import { needsDevMode } from './devmode.js';
+import { createOverflowWatch } from './overflow.js';
+import { createPlaylist } from './playlist.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -319,42 +321,21 @@ export function init(userConfig = {}) {
   const overlays = createOverlays();
 
   // ----- playlist (multi-deck navigation) ------------------------------------
-  // config.playlist = { modules: [{title, href}…], index: n }. Advancing past
-  // the deck's end chains to the next module; reversing before the start goes
-  // to the previous module's last slide (the oversized hash clamps there).
-  // Embedded instances (previews) never chain.
-  const playlist = (!params.has('embedded') && config.playlist?.modules?.length)
-    ? config.playlist : null;
-  const playlistIndex = playlist ? (playlist.index ?? 0) : 0;
-  function gotoModule(delta) {
-    if (!playlist) return false;
-    const mod = playlist.modules[playlistIndex + delta];
-    if (!mod) return false;
-    location.href = mod.href + (delta > 0 ? '#/1/0' : '#/999/999');
-    return true;
-  }
-  function navigateToModule(i) {
-    const mod = playlist?.modules[i];
-    if (mod) location.href = mod.href + '#/1/0';
-  }
-
-  // In-file module markers (merged single-file decks, SPEC PRESENTING): sections
-  // carrying data-module mark chapter starts. When markers exist they take
-  // precedence over config.playlist — module navigation becomes goto(), no
-  // page loads.
-  const hasMarkersDOM = !!root.querySelector('section[data-module]');
-  function inFileMarkers() {
-    const out = [];
-    (instance._sections || []).forEach((s, i) => {
-      if (s.hasAttribute('data-module')) out.push({ title: s.getAttribute('data-module'), slide: i + 1 });
-    });
-    return out;
-  }
-  function currentMarkerIndex(markers) {
-    let idx = -1;
-    markers.forEach((m, i) => { if (m.slide <= instance.state.slide) idx = i; });
-    return idx;
-  }
+  // Two shapes, one vocabulary: chained FILES (config.playlist) and one merged
+  // file's data-module chapters. playlist.js holds the difference so that the
+  // finder, the chrome and the palette can just ask.
+  const moduleNav = createPlaylist({
+    config, root,
+    embedded: params.has('embedded'),
+    sectionsOf: () => instance._sections,
+    slideOf: () => instance.state.slide,
+    navigate: (href) => { location.href = href; },
+  });
+  const playlist = moduleNav.playlist;
+  const playlistIndex = moduleNav.index;
+  const hasMarkersDOM = moduleNav.hasMarkers;
+  const gotoModule = (delta) => moduleNav.gotoModule(delta);
+  const navigateToModule = (i) => moduleNav.navigateToModule(i);
 
   // Messages (SPEC PRESENTING): the deck talks back in the top-left corner — big enough
   // to read from the back of a room, gone a few seconds later. Every one is also
@@ -1091,11 +1072,8 @@ export function init(userConfig = {}) {
           : this.config.slideNumber === 'n/N'
             ? `${this.state.slide} / ${this.state.totalSlides}` : String(this.state.slide);
         slideNumEl.textContent = num;
-        if (hasMarkersDOM || playlist) {
-          const markers = hasMarkersDOM ? inFileMarkers() : null;
-          const title = markers
-            ? (markers[currentMarkerIndex(markers)]?.title || '')
-            : (playlist.modules[playlistIndex]?.title || '');
+        if (moduleNav.any) {
+          const title = moduleNav.title();
           const mod = document.createElement('span');
           mod.className = 'mod';
           mod.textContent = title;
@@ -1604,118 +1582,15 @@ export function init(userConfig = {}) {
   }
 
   // ----- overflow watch ----------------------------------------------------
-  /**
-   * The guardrail measures layout, and layout is not final one frame after a
-   * slide activates: fonts resolve, images decode, charts and terminals mount.
-   * A single post-goto measurement latches whatever happened to be true at that
-   * instant and never revisits it — and on a deep link `goto` runs exactly once,
-   * so that instant is the only one there will ever be.
-   *
-   * A MISSED flag is the dangerous direction. The authoring contract (SPEC
-   * PRESENTING) has agents assert `[data-overflow]` is absent, so a slide that
-   * settles into clipping after that frame does not fail the check — it passes
-   * it, quietly, forever.
-   *
-   * So the check follows the content instead of a moment: whatever is on stage
-   * is watched, and anything that could have changed its height re-runs it.
-   *
-   * It takes both observers, because the two ways a slide starts overflowing
-   * look nothing alike to the DOM. Boxes changing size (a webfont resolving, an
-   * image decoding) are what ResizeObserver is for. Content arriving is NOT —
-   * an overfull child is flex-shrunk to the space available, so its box height
-   * does not move while its scrollHeight runs away, and a resize watch sees
-   * exactly nothing. That one needs MutationObserver.
-   *
-   * And a third ear, for the same reason as the timer below: ResizeObserver
-   * DELIVERY rides the rendering pipeline, and once a headless render goes
-   * idle there are no more frames to ride — an image that finishes decoding
-   * after that point resizes in a frame that never comes, and the recruit
-   * into the resize watch reports nothing. Subresources finishing is not
-   * frame-bound, though: `load`/`error` are plain tasks, and a capturing
-   * listener on the section hears every descendant's. So the one late-growth
-   * cause that needs no JS to happen — media landing — re-runs the check in
-   * every environment, frames or not.
-   *
-   * And the check is scheduled on a TIMER, not a frame. It used to ride a
-   * requestAnimationFrame, which quietly made the guardrail conditional on the
-   * page painting again — and under `--virtual-time-budget`, the flag every
-   * render harness and `decklight pdf` drive Chrome with, frame production stops
-   * once the page goes idle, so a callback booked after that point is never
-   * called at all. The slide was not measured late; it was never measured, and
-   * an unmeasured slide reads exactly like a clean one. Reading scrollHeight
-   * forces the layout it needs anyway, so waiting for a frame bought nothing.
-   */
-  let watched = [];
-  let overflowTimer = 0;
-  function recheckOverflow() {
-    if (overflowTimer) return; // coalesce: a mount moves several nodes at once
-    overflowTimer = setTimeout(() => {
-      overflowTimer = 0;
-      for (const s of watched) checkOverflow(s, instance._sections.indexOf(s) + 1);
-    });
-  }
-
-  const overflowResize = typeof ResizeObserver === 'function'
-    ? new ResizeObserver(recheckOverflow) : null;
-
-  /**
-   * Recruit `el` and everything inside it into the resize watch. The section
-   * box is a fixed design-resolution rectangle, so content growing inside it
-   * never resizes it — only the content can report that. And ALL of the
-   * content, not just the direct children: a grandchild can grow on its own
-   * (an image decoding long after mount) while every box between it and the
-   * section sits clamped at its flex minimum, moving nothing a shallower
-   * watch observes. Terminal internals are skipped for the same reason the
-   * mutation filter below skips them: a playing cast redraws constantly, and
-   * terminals are excluded from the clip test anyway.
-   */
-  function watchResizes(el) {
-    if (!overflowResize) return;
-    for (const n of [el, ...el.querySelectorAll('*')]) {
-      if (!n.parentElement?.closest('.terminal')) overflowResize.observe(n);
-    }
-  }
-
-  const overflowMutate = typeof MutationObserver === 'function'
-    ? new MutationObserver((records) => {
-      // A playing terminal rewrites its screen every frame, and terminals are
-      // excluded from the clip test anyway (SPEC TERMINAL_PLAYER: they scroll
-      // by design). Re-measuring the slide 60 times a second to reach the same
-      // answer is the one cost this watch must not have.
-      const outside = (n) => !(n.nodeType === 1 ? n : n.parentElement)?.closest('.terminal');
-      let relevant = false;
-      for (const r of records) {
-        if (!outside(r.target)) continue;
-        relevant = true;
-        // Measuring an arriving subtree once is not enough: its later growth
-        // (an image inside it decoding a second on) fires no further mutation,
-        // and once every box above it is clamped, no resize of anything armed
-        // earlier. Nodes that arrive after arming join the watch the same way
-        // arming recruited what was already on stage.
-        for (const n of r.addedNodes) if (n.nodeType === 1 && n.isConnected) watchResizes(n);
-      }
-      if (relevant) recheckOverflow();
-    }) : null;
-
-  // `load`/`error` do not bubble, but a capturing listener still hears every
-  // descendant's — including on media that mounts after arming.
-  const onLateMedia = (e) => {
-    if (!e.target.closest?.('.terminal')) recheckOverflow();
-  };
-
-  /** Re-aim the watch at `sections` (the active slide, or the whole deck in print). */
-  function watchOverflow(sections) {
-    overflowResize?.disconnect();
-    overflowMutate?.disconnect();
-    for (const s of watched) for (const t of ['load', 'error']) s.removeEventListener(t, onLateMedia, true);
-    watched = sections.filter(Boolean);
-    for (const s of watched) {
-      watchResizes(s);
-      overflowMutate?.observe(s, { childList: true, subtree: true, characterData: true });
-      for (const t of ['load', 'error']) s.addEventListener(t, onLateMedia, true);
-    }
-    recheckOverflow(); // arming is also the first measurement
-  }
+  // The ears live in overflow.js (createOverflowWatch); what "overflowing"
+  // means is checkOverflow above. Three observers, a timer rather than a
+  // frame, and re-recruitment of nodes that arrive after arming — that file's
+  // header carries the reasoning for each.
+  const overflowWatch = createOverflowWatch({
+    sectionsOf: () => instance._sections,
+    checkOverflow,
+  });
+  const watchOverflow = (sections) => overflowWatch.watch(sections);
 
   // ----- hash --------------------------------------------------------------
   let suppressHashChange = false;
