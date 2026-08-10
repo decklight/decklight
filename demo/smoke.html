@@ -276,7 +276,15 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
   try {
     localStorage.removeItem('decklight-clock:' + location.pathname);
     localStorage.removeItem('decklight-progress:' + location.pathname);
+    // …and the GLOBAL onboarding flags, so every dump is a first run: the
+    // welcome card shows, and the tip rotation starts from its first entry.
+    localStorage.removeItem('decklight-onboarded');
+    localStorage.removeItem('decklight-tips-seen');
+    localStorage.removeItem('decklight-tips-off');
   } catch { /* ignore */ }
+  // Read BEFORE init: the engine writes #/1/0 on load, so by the time the
+  // assertions run every load looks deep-linked.
+  const deepLinked = !!location.hash;
   const deck = Decklight.init({ transition: 'fade', slideNumber: 'n/N' });
   // Error/status sink for the headless harness: dump-dom can't read the
   // console, so results are written into the DOM.
@@ -390,6 +398,42 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
     if (!new URLSearchParams(location.search).has('print')) {
       const press = (k, opts = {}) => document.body.dispatchEvent(
         new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+      // First-run welcome (SPEC PRESENTING) — auto-shown because the flags were
+      // scrubbed above. It MUST be cleared before the key-driven tests below,
+      // or it would swallow their first keystroke, which is exactly what it
+      // does for a newcomer's first →. Left alone under ?embedded so that dump
+      // proves the guard: a preview never welcomes anyone.
+      // Only on a plain load: under ?embedded and on a #/1/2 deep link the card
+      // is guarded off by design, and the key this block presses would then
+      // reach the deck and advance it — corrupting the very dumps that prove
+      // the guards.
+      if (!new URLSearchParams(location.search).has('embedded') && !deepLinked) {
+        const card = () => document.querySelector('.decklight-welcome');
+        recs.push(rec('welcomeauto', !!card()));
+        const at = deck.state.slide;
+        press('ArrowRight');                    // any key dismisses — and does nothing else
+        recs.push(rec('welcomekeydismissed', !card()));
+        recs.push(rec('welcomedidnotadvance', deck.state.slide === at));
+        recs.push(rec('welcomeflag', localStorage.getItem('decklight-onboarded')));
+        deck.showWelcome();                     // reopen on demand (palette / API)…
+        recs.push(rec('welcomereopen', !!card()));
+        card().click();                         // …and a click closes it without advancing
+        recs.push(rec('welcomeclickclosed', !card() && deck.state.slide === at));
+        // Tips (SPEC PRESENTING): the drip that follows the card. First one
+        // first, each at most once ever, silence once they are all read.
+        const tipText = () => deck.messages()[deck.messages().length - 1]?.text ?? '';
+        recs.push(rec('tipfirst', (deck.tips.show(), tipText())));
+        recs.push(rec('tipsecond', (deck.tips.show(), tipText())));
+        const left = deck.tips.status().tipsLeft;
+        while (deck.tips.show()) { /* read the rotation to its end */ }
+        recs.push(rec('tipsexhausted', deck.tips.show() === null));
+        recs.push(rec('tipsleftshrinks', deck.tips.status().tipsLeft === 0 && left > 0));
+        deck.tips.reset();
+        recs.push(rec('tipsreset', (deck.tips.show(), tipText())));
+        deck.tips.set(false);
+        recs.push(rec('tipsoff', localStorage.getItem('decklight-tips-off') === '1' && !deck.tips.status().tipsOn));
+        deck.tips.set(true);
+      }
       recs.push(rec('clockdefault', !document.querySelector('.decklight-clock')));
       press('k');
       const clock = document.querySelector('.decklight-clock');

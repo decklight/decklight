@@ -149,6 +149,14 @@
     const params = new URLSearchParams(location.search);
     const mode = params.get('mode') ?? 'themepicker';
 
+    // This harness drives overlays and keys, not onboarding: mark the welcome
+    // seen so the card never intercepts the first keystroke below (SPEC
+    // PRESENTING), and tips off so no toast lands in the middle of a dump.
+    try {
+      localStorage.setItem('decklight-onboarded', '1');
+      localStorage.setItem('decklight-tips-off', '1');
+    } catch { /* ignore */ }
+
     const deck = Decklight.init({});
 
     const press = (k, opts = {}) => document.body.dispatchEvent(
@@ -368,8 +376,27 @@
         // Escape clears the query first, then closes
         r.escapeCloses = escapeUntilClosed(Q);
 
+        // Onboarding's settings surface is palette rows, not an overlay of its
+        // own (SPEC PRESENTING): the welcome reopens from here, and tips are
+        // turned off from here. "Reset tips" is contextual — this harness has
+        // read no tip, so there is nothing to reset back to.
+        press('/');
+        const labels = (q) => {
+          for (const ch of q) press(ch);
+          const out = [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+          escapeUntilClosed(Q);
+          press('/');
+          return out;
+        };
+        r.paletteReopensWelcome = labels('welcome').some((t) => /Welcome to Decklight/.test(t));
+        const tipRows = labels('tips');
+        r.paletteTogglesTips = tipRows.some((t) => /Tips on/.test(t));
+        r.paletteHidesEmptyReset = !tipRows.some((t) => /Reset tips/.test(t));
+        escapeUntilClosed(Q);
+
         r.PASS = r.opens && r.hasRows && r.hasSelection && r.downMoves
-          && r.typingFilters && r.escapeCloses;
+          && r.typingFilters && r.escapeCloses
+          && r.paletteReopensWelcome && r.paletteTogglesTips && r.paletteHidesEmptyReset;
       }
 
       if (mode === 'exclusive') {

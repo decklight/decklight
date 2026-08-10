@@ -18,6 +18,7 @@ import { buildPrintPages } from './print.js';
 import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
+import { createOnboarding, TIPS } from './onboarding.js';
 import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
@@ -372,6 +373,15 @@ export function init(userConfig = {}) {
     setTimeout(drop, ms);
   }
 
+  // ----- onboarding (onboarding.js) -----------------------------------------
+  // The first-run welcome card and the tip rotation that follows it. Built
+  // before every other overlay so the welcome is first in the registry —
+  // registration order is priority — which is why it takes the instance as an
+  // accessor, exactly as the theme picker below does.
+  const onboarding = createOnboarding({
+    root, printMode, params, toast, debugLog, overlays, deck: () => instance,
+  });
+
   // ----- theme switching (themes.js) ----------------------------------------
   // What the deck looks like, and every way of changing it — stock, inlined,
   // generated, saved-custom, the packs, the picker. Constructed here, before
@@ -565,6 +575,12 @@ export function init(userConfig = {}) {
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
       { label: 'Last slide', hint: 'End', run: () => instance.goto(instance.state.totalSlides, 0) },
       { label: 'Keyboard help', hint: '?', run: toggleHelp },
+      { label: 'Welcome to Decklight', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
+      { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
+      // Contextual: with every tip read there is nothing to reset to, and a row
+      // that does nothing visible is a row that reads as broken.
+      onboarding.status().tipsLeft < TIPS.length
+        && { label: 'Reset tips', alias: 'hints again start over show all unsee replay', run: onboarding.resetTips },
     ].filter(Boolean).filter((c) => has(c.run));
     return all;
   }
@@ -1335,7 +1351,8 @@ export function init(userConfig = {}) {
       <tr><td>A</td><td>ask an AI agent to edit the deck (author mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
-      <tr><td>?</td><td>this help</td></tr></table></div>`;
+      <tr><td>?</td><td>this help</td></tr>
+      <tr><td>/</td><td>command palette — “Welcome to Decklight” reopens the intro</td></tr></table></div>`;
     helpEl.addEventListener('click', toggleHelp);
     root.appendChild(helpEl);
   }
@@ -1588,6 +1605,13 @@ export function init(userConfig = {}) {
   instance.layoutRing = layoutRing;                         // the ring a slide would cycle (skips applied)
   instance.toggleMessages = toggleMessages;                 // I, programmatic
   instance.messages = messages;                             // [{ at, text }] — every message shown
+  instance.showWelcome = onboarding.showWelcome;            // first-run card, palette / programmatic
+  instance.tips = {                                         // the rotation the palette drives
+    show: onboarding.showTip,
+    reset: onboarding.resetTips,
+    set: onboarding.setTips,
+    status: onboarding.status,
+  };
 
   // ── narration (narration.js) ─────────────────────────────────────────────
   // The deck's voice and everything that hangs off it: recorded and live
@@ -1719,5 +1743,9 @@ export function init(userConfig = {}) {
   root.__decklight = instance;
   activeInstance = instance;
   instance._emit('ready', { slides: instance.state.totalSlides });
+  // Last, and after `ready`: the welcome card and the tips are the only chrome
+  // that reads where the hash SENT the deck, and a load that landed on slide 12
+  // is a talk in progress, not a first run.
+  onboarding.start(target);
   return instance;
 }
