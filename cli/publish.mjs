@@ -31,7 +31,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { makeFail } from './util.mjs';
+import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 import { TARGETS, schemaFor, envVarsFor, envAnswers, deploy } from '../tools/publish-targets.mjs';
 import { checkAnswers } from './wizard.mjs';
@@ -103,7 +103,7 @@ The commit is built with git plumbing, so your working tree, index, and
 current branch are untouched. The first publish creates the branch as an
 orphan; later publishes append to its history.
 `);
-  process.exit(0);
+  return 0;
 }
 
 let deck = null, branch = 'gh-pages', remote = 'origin', bundle = true, subdir = '', sign = true, deckFile = false,
@@ -339,4 +339,4 @@ if (!parent) {
 return { commit, parent, tree, branch, remote, url };
 }
 
-if (isMain(import.meta.url)) publishMain().catch((e) => fail(e.message));
+if (isMain(import.meta.url)) process.exitCode = await runMain('publish', publishMain);

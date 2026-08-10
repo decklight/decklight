@@ -29,7 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { onPath } from './agents.mjs';
-import { makeFail } from './util.mjs';
+import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 import { zipSync } from './zip.mjs';
 import {
@@ -271,7 +271,7 @@ export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath
   }
   if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(HELP);
-    process.exit(0);
+    return 0;
   }
 
   let dir = null, all = false, force = false, global = false, pack = false, outFile = null;
@@ -335,4 +335,4 @@ export async function skillsMain(argv = process.argv.slice(2), { hasBin = onPath
   for (const w of written) process.stdout.write(`  ${w}\n`);
 }
 
-if (isMain(import.meta.url)) await skillsMain();
+if (isMain(import.meta.url)) process.exitCode = await runMain('skills', skillsMain);

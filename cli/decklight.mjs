@@ -157,6 +157,14 @@ try {
   ensureFirstPartyRegistered();
 } catch { /* registration is a courtesy, not a dependency */ }
 
+// ONE ERROR BOUNDARY FOR EVERY COMMAND. A command refuses by throwing a
+// CommandError (cli/util.mjs) and it is printed here, once, in the shape
+// commands have always printed: `decklight <cmd>: <message>`. Anything else
+// reaching this point is a bug rather than a refusal, and prints as a message
+// with the stack behind DECKLIGHT_DEBUG — never as the raw Node stack a user
+// used to get (`decklight import` did exactly that on any install path with a
+// space in it, #275).
+try {
 switch (cmd) {
   case 'init': {
     const { initMain } = await import('./init.mjs');
@@ -290,4 +298,9 @@ switch (cmd) {
   default:
     process.stderr.write(`decklight: unknown command "${cmd}"\n\n`);
     globalHelp(1);
+}
+} catch (e) {
+  const { reportFailure } = await import('./util.mjs');
+  reportFailure(e, cmd);
+  process.exitCode = 1;
 }

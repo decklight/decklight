@@ -50,7 +50,7 @@ import { TARGETS, detectedTargets, installGlobalSkill, display } from './skills.
 import { onPath } from './agents.mjs';
 import { escapeHtml } from './edit.mjs';
 import { inGitRepo, createRepo, isIdentityError, oneline } from './git.mjs';
-import { makeFail } from './util.mjs';
+import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 
 const fail = makeFail('init');
@@ -379,7 +379,7 @@ Always writes/refreshes the skill files (they're generated from the
 installed version's SPEC.md, so re-running after an upgrade updates them)
 unless --no-skill is given. The deck file is only touched with --force.
 `);
-    process.exit(0);
+    return 0;
   }
 
   let title = null, outFile = 'deck.html', dir = '.', force = false, themesSel = 'all', openAfter = false;
@@ -556,4 +556,4 @@ unless --no-skill is given. The deck file is only touched with --force.
   rl?.close();
 }
 
-if (isMain(import.meta.url)) await initMain();
+if (isMain(import.meta.url)) process.exitCode = await runMain('init', initMain);

@@ -30,7 +30,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeFail, scriptSafe } from './util.mjs';
+import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime } from './pkg.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
@@ -222,7 +222,7 @@ Options:
                      name,name,…   an explicit list (the deck's linked theme
                                    stays active when included, else the first)
 `);
-  process.exit(0);
+  return 0;
 }
 
 const inputs = [];
@@ -538,4 +538,4 @@ if (bundleSig) {
 for (const n of notices) process.stdout.write(`note: ${n}\n`);
 }
 
-if (isMain(import.meta.url)) bundleMain().catch((e) => fail(e.message));
+if (isMain(import.meta.url)) process.exitCode = await runMain('bundle', bundleMain);
