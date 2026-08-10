@@ -41,7 +41,7 @@
 //   "build-time transforms produce output, not code; nothing executable
 //   travels" (MARKETPLACE.md EXTENSIONS) exists to refuse.
 
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, realpathSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -52,6 +52,16 @@ import { chromeBin, chromeArgs } from './chrome.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.resolve(here, '..');
 const RUNNER = path.join(here, 'extension-check-runner.mjs');
+
+/** Node's permission model grants on REAL paths — it resolves a symlink before
+ *  it checks, so `--allow-fs-read` on a path that crosses one grants nothing.
+ *  macOS makes that the common case, not the exotic one (`/tmp` is a symlink to
+ *  `/private/tmp`, and `os.tmpdir()` is `/var/folders/…` → `/private/var/…`), so
+ *  a submission checked from a temp directory was refused for the checker's own
+ *  path handling — reported as the submission failing to load. Resolve before
+ *  granting; fall back to the path as given when it does not exist yet, which
+ *  `checkExtension` has already refused by name. */
+const real = (p) => { try { return realpathSync(p); } catch { return p; } };
 
 /** Extension kinds `extension check` knows how to validate. The import-adapter
  *  contract this would grow to is frozen (SPEC EXTENSIONS_ADAPTERS); an
@@ -148,11 +158,12 @@ export function runTransformIsolated(file, fixture, { timeoutMs = CHECK_TIMEOUT_
   }
   const cwd = mkdtempSync(path.join(tmpdir(), 'decklight-extension-run-'));
   try {
+    const realAbs = real(abs);
     const res = spawnSync(process.execPath, [
       flag,
-      `--allow-fs-read=${PKG_ROOT}${path.sep}`,
-      `--allow-fs-read=${path.dirname(abs)}${path.sep}`,
-      RUNNER, abs,
+      `--allow-fs-read=${real(PKG_ROOT)}${path.sep}`,
+      `--allow-fs-read=${path.dirname(realAbs)}${path.sep}`,
+      RUNNER, realAbs,
     ], {
       cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
       timeout: timeoutMs, killSignal: 'SIGKILL',
