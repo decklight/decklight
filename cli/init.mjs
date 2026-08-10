@@ -45,11 +45,12 @@ import { createInterface } from 'node:readline/promises';
 import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
+import { THEMES_DIR, themeCss, runtimeCss, runtimeJs } from './pkg.mjs';
 import { TARGETS, detectedTargets, installGlobalSkill, display } from './skills.mjs';
 import { onPath } from './agents.mjs';
 import { escapeHtml } from './edit.mjs';
 import { inGitRepo, createRepo, isIdentityError, oneline } from './git.mjs';
-import { makeFail, scriptSafe } from './util.mjs';
+import { makeFail } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 
 const fail = makeFail('init');
@@ -75,7 +76,6 @@ export function deckRuntimeVersion(html) {
 // aurora is the deck's starting look; init ships every theme by default so the
 // in-deck picker (/ → themes) is fully stocked, unless --themes narrows it.
 const STARTER_THEME = 'aurora';
-const THEMES_DIR = path.join(PKG_ROOT, 'themes');
 
 // 'all' → every shipped theme; otherwise a comma list of names (validated).
 function resolveThemes(sel) {
@@ -277,11 +277,11 @@ export async function openDeck(deckPath, { platform = process.platform, spawnFn 
 
 function starterDeck(title, themeNames, activeTheme) {
   title = escapeHtml(title); // a prompt invites &, < and quotes
-  const css = fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.css'), 'utf8');
+  const css = runtimeCss();
   // one <style data-theme> per theme; only the active one applies (the rest
   // carry media="not all", which the runtime's inline-theme mode toggles).
   const themeBlocks = themeNames.map((name) => {
-    const theme = fs.readFileSync(path.join(THEMES_DIR, `${name}.css`), 'utf8');
+    const theme = themeCss(name);
     const media = name === activeTheme ? '' : ' media="not all"';
     return `  <style data-theme="${name}"${media}>\n${theme}\n  </style>`;
   }).join('\n');
@@ -323,7 +323,7 @@ ${themeBlocks}
     </section>
 
   </div>
-  <script data-decklight-runtime="js">${scriptSafe(fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.js'), 'utf8').replace(/\/\/# sourceMappingURL=.*$/m, ''))}</script>
+  <script data-decklight-runtime="js">${runtimeJs()}</script>
   <script>Decklight.init({});</script>
 </body>
 </html>
