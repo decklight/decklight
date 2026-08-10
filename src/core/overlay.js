@@ -35,6 +35,42 @@ export function selectInList(rows, i, selClass, { scroll = true } = {}) {
 }
 
 /**
+ * The keyboard every typeahead list in the deck has: ↑/↓ to move, Enter to
+ * commit, Escape to clear the query and then to close, and printable
+ * characters appending to it.
+ *
+ * The palette, the slide finder and the font picker each wrote this out, and
+ * the interesting rule is the one easiest to get subtly different between
+ * copies: Escape with a query CLEARS it, and only closes on the second press.
+ * Someone who typed four characters into the wrong list wants those four
+ * characters gone, not the list gone — and once it is gone they press Escape
+ * again without thinking about it.
+ *
+ * A list with no query (the font picker) leaves `onType`/`onBackspace` out and
+ * gets the movement half; a printable key then falls through as unconsumed.
+ *
+ * Returns true when the key was consumed, matching the overlay contract.
+ */
+export function typeaheadKeydown(e, { query = '', onMove, onCommit, onType, onBackspace, onClear, onClose }) {
+  switch (e.key) {
+    case 'ArrowDown': onMove?.(1); return true;
+    case 'ArrowUp': onMove?.(-1); return true;
+    case 'Enter': onCommit?.(); return true;
+    case 'Backspace':
+      if (!onBackspace) return false;
+      onBackspace();
+      return true;
+    case 'Escape':
+      if (query && onClear) onClear();
+      else onClose?.();
+      return true;
+    default:
+      if (e.key.length === 1 && onType) { onType(e.key); return true; }
+      return false;
+  }
+}
+
+/**
  * The registry the deck's keydown handler consults before its own table.
  *
  * Register in PRIORITY ORDER: when overlays somehow overlap, the one

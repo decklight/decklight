@@ -11,7 +11,7 @@ import { runAutoAnimate } from './autoanimate.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
-import { closeOnBackdrop, selectInList, createOverlays } from './overlay.js';
+import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
 import { createThemes } from './themes.js';
 import { createNarration } from './narration.js';
 import { buildPrintPages } from './print.js';
@@ -1355,50 +1355,37 @@ export function init(userConfig = {}) {
   overlays.register({
     isOpen: () => !!palEl,
     close: closePalette,
-    keydown(e) {
-      switch (e.key) {
-        case 'ArrowDown': selectPalRow(palSel + 1); break;
-        case 'ArrowUp': selectPalRow(palSel - 1); break;
-        case 'Enter': commitPalRow(); break;
-        case 'Backspace': palQuery = palQuery.slice(0, -1); renderPalette(); break;
-        case 'Escape': if (palQuery) { palQuery = ''; renderPalette(); } else closePalette(); break;
-        default:
-          if (e.key.length === 1) { palQuery += e.key; renderPalette(); break; }
-          return false;
-      }
-      return true;
-    },
+    keydown: (e) => typeaheadKeydown(e, {
+      query: palQuery,
+      onMove: (d) => selectPalRow(palSel + d),
+      onCommit: commitPalRow,
+      onType: (ch) => { palQuery += ch; renderPalette(); },
+      onBackspace: () => { palQuery = palQuery.slice(0, -1); renderPalette(); },
+      onClear: () => { palQuery = ''; renderPalette(); },
+      onClose: closePalette,
+    }),
   });
   overlays.register({
     isOpen: () => !!fontPickEl,
     close: closeFontPicker,
-    keydown(e) {
-      switch (e.key) {
-        case 'ArrowDown': selectFontRow(fontPickSel + 1); break;
-        case 'ArrowUp': selectFontRow(fontPickSel - 1); break;
-        case 'Enter': applyFont(fontPickSel); closeFontPicker(); break;
-        case 'Escape': closeFontPicker(); break;
-        default: return false;
-      }
-      return true;
-    },
+    keydown: (e) => typeaheadKeydown(e, {
+      onMove: (d) => selectFontRow(fontPickSel + d),
+      onCommit: () => { applyFont(fontPickSel); closeFontPicker(); },
+      onClose: closeFontPicker,
+    }),
   });
   overlays.register({
     isOpen: () => !!finderEl,
     close: closeSlideFinder,
-    keydown(e) {
-      switch (e.key) {
-        case 'ArrowDown': selectFinderRow(finderSel + 1, false); break;
-        case 'ArrowUp': selectFinderRow(finderSel - 1, false); break;
-        case 'Enter': commitFinder(); break;
-        case 'Backspace': setFinderQuery(finderQuery.slice(0, -1)); break;
-        case 'Escape': if (finderQuery) setFinderQuery(''); else closeSlideFinder(); break;
-        default:
-          if (e.key.length === 1) { setFinderQuery(finderQuery + e.key); break; }
-          return false;
-      }
-      return true;
-    },
+    keydown: (e) => typeaheadKeydown(e, {
+      query: finderQuery,
+      onMove: (d) => selectFinderRow(finderSel + d, false),
+      onCommit: commitFinder,
+      onType: (ch) => setFinderQuery(finderQuery + ch),
+      onBackspace: () => setFinderQuery(finderQuery.slice(0, -1)),
+      onClear: () => setFinderQuery(''),
+      onClose: closeSlideFinder,
+    }),
   });
   overlays.register({
     isOpen: () => !!overviewEl,
