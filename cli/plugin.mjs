@@ -53,6 +53,7 @@ import {
 } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { isMain } from '../tools/args.mjs';
+import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
 // Cache reads only. `loadCatalog` and `resolveEntry` read JSON already on
 // disk; the fetching half of marketplace.mjs is deliberately not imported
 // here, because `present` imports this file and a presenting path that COULD
@@ -435,8 +436,12 @@ export function chromeMarkup(plugins) {
 export function injectChrome(html, plugins) {
   const markup = chromeMarkup(plugins);
   if (!markup) return html;
-  const i = html.lastIndexOf('</body>');
-  return i < 0 ? html + markup : html.slice(0, i) + markup + html.slice(i);
+  // The shared injector, not a second `lastIndexOf('</body>')`: it matches
+  // case-insensitively (a deck may close `</BODY>`) and its docblock carries
+  // the reason the search runs from the END — a bundled deck inlines the
+  // runtime, whose speaker-view template holds a literal `</body>` that a
+  // first-match search would splice the chrome into the middle of.
+  return injectBeforeBodyEnd(html, markup) ?? html + markup;
 }
 
 // ── the command ────────────────────────────────────────────────────────────

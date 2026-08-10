@@ -1207,3 +1207,32 @@ test('init states the commit policy when it creates a repository', (t) => {
     { cwd: plain, encoding: 'utf8' });
   assert.doesNotMatch(noGit.stdout, /commits land one per agent edit/);
 });
+
+test('no command resolves a filesystem path through a URL pathname', () => {
+  // `new URL('..', import.meta.url).pathname` looks equivalent to
+  // fileURLToPath and is not: a URL path is percent-encoded, so an install
+  // under `/Users/First Last/…` — every Windows profile with a space in it —
+  // came back as `/Users/First%20Last/…`, and `decklight import` died on a raw
+  // ENOENT reading its own themes/ (#273 found it during the 0.3.0 release
+  // check). The other four package roots in the tree already used
+  // fileURLToPath, which is what made this one a lone survivor rather than a
+  // convention. Swept rather than fixed in place, because the next one would
+  // read just as plausibly.
+  const dirs = ['cli', 'tools'].map((d) => path.resolve(here, '..', d));
+  const hits = [];
+  for (const dir of dirs) {
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith('.mjs')) continue;
+      const text = fs.readFileSync(path.join(dir, name), 'utf8');
+      text.split('\n').forEach((line, i) => {
+        // `.pathname` on a URL built from import.meta.url, assigned or joined
+        // — the filesystem uses, not the URL-parsing ones (a served request's
+        // pathname is genuinely a URL path and stays).
+        if (/new URL\([^)]*import\.meta\.url[^)]*\)\.pathname/.test(line))
+          hits.push(`${path.basename(dir)}/${name}:${i + 1}`);
+      });
+    }
+  }
+  assert.deepEqual(hits, [],
+    'use fileURLToPath(new URL(…)) — .pathname is percent-encoded and breaks on a path with a space');
+});

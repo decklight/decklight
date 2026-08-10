@@ -24,12 +24,17 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { argReader, isMain } from '../tools/args.mjs';
 import { unzip } from '../tools/zip.mjs';
 import { decodeEntities } from '../tools/ooxml.mjs';
 import { parseRels, resolvePart, slideOrder, parseSlide, notesText, slideSection, mimeOf } from '../tools/pptx.mjs';
 
-const PKG_ROOT = new URL('..', import.meta.url).pathname;
+// fileURLToPath, never `.pathname` — a URL path is percent-encoded, so an
+// install under `/Users/First Last/…` (or any Windows profile with a space)
+// came back as `/Users/First%20Last/…` and every read of themes/ and dist/
+// failed. Every other command in the tree already resolves it this way.
+const PKG_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const THEMES_DIR = join(PKG_ROOT, 'themes');
 
 const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url> [options]
