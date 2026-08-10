@@ -7,7 +7,7 @@ carrying the same notes in prose.
 
 ## 0.3.0
 
-194 commits since 0.2.0. The release where a deck stops being something you
+197 commits since 0.2.0. The release where a deck stops being something you
 have to trust blindly: you can play someone else's deck safely, verify who
 signed it, and install themes, engines and extensions from marketplaces anyone
 can host — without third-party code ever executing in front of an audience.
@@ -100,6 +100,13 @@ can host — without third-party code ever executing in front of an audience.
 - `decklight init` offers a git repo, colored next steps, `--open`, and asks
   where the agent skill should go (#120)
 
+### First run
+
+- **A welcome card the first time a browser ever opens a deck, and one tip on
+  every load after** — never both in the same load, because a card that has
+  just explained `/` should not be followed by a toast explaining `/` (#282,
+  closing #149 and #124)
+
 ### Narration
 
 - Your own ElevenLabs voices (#148), with eleven_v3 audio tags directing the
@@ -178,7 +185,15 @@ than untidiness.
   the only way to reach that code was to drive Chrome (#280)
 - One package root and one runtime-inlining transform (#276); one failure
   convention, so a command main can be called in-process instead of taking the
-  test runner down with it (#278). The suite went 843 → 897 tests
+  test runner down with it (#278). The suite went 843 → 909 tests
+- The docs, the site and the decks were checked against the code and brought
+  back in sync (#283). The agent skill's indexed description — the string
+  agents match on — had gone stale at "62 built-in themes" for the second time
+  in two releases, the site's terminal cast still demonstrated the removed
+  `decklight edit`, and a showcase quiz was grading its audience against "62
+  themes in 5 packs". Two doc-rot tests now compare every theme and pack count
+  in a shipped file against `themes/` and `packs.json`, and refuse any file
+  that invokes a removed command
 
 ## 0.2.0 — 2026-07-14
 
