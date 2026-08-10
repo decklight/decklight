@@ -1057,6 +1057,30 @@
 .decklight-help td { padding: 3px 14px 3px 0; }
 .decklight-help td:first-child { font-family: var(--font-mono, monospace); color: var(--accent, #6af); }
 
+/* first-run welcome — the help card's anatomy, on the theme's own tokens so it
+   reads on all 46 built-in themes and anything a marketplace adds. z-index sits
+   one above help: on the load it appears, nothing else is up anyway. */
+.decklight-welcome { position: absolute; inset: 0; z-index: 96; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; }
+.decklight-welcome .wel-card {
+  background: var(--bg, #222); color: var(--fg, #eee);
+  border-radius: 14px; padding: 30px 38px; max-width: min(620px, 86%);
+  box-shadow: var(--shadow, 0 10px 40px rgba(0,0,0,.5));
+  font-size: 16px; line-height: 1.5;
+}
+.decklight-welcome h3 { margin: 0 0 6px; color: var(--heading-color, inherit); font-family: var(--font-heading, inherit); }
+.decklight-welcome .wel-lead { margin: 0 0 18px; color: var(--muted, #aaa); font-size: 15px; }
+.decklight-welcome table { border-collapse: collapse; }
+.decklight-welcome td { padding: 5px 16px 5px 0; vertical-align: top; }
+.decklight-welcome td:first-child { font-family: var(--font-mono, monospace); color: var(--accent, #6af); white-space: nowrap; }
+.decklight-welcome code { font-family: var(--font-mono, monospace); background: var(--code-bg, rgba(128,128,128,.2)); border-radius: 4px; padding: 1px 5px; font-size: .9em; }
+.decklight-welcome .wel-foot { margin-top: 22px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.decklight-welcome .wel-foot span { color: var(--muted, #aaa); font-size: 13px; }
+.decklight-welcome .wel-go {
+  font: inherit; font-size: 15px; cursor: pointer;
+  background: var(--accent, #6af); color: var(--accent-contrast, #fff);
+  border: 0; border-radius: 8px; padding: 8px 20px;
+}
+
 /* debug log window (D) — passive chrome: keys keep driving the deck.
    Hardcoded dark like the picker/narr cards: readable over every theme. */
 .decklight-debug {

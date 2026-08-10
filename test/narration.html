@@ -164,6 +164,14 @@
         ],
       };
     }
+    // This harness drives keys and narration, not onboarding: mark the welcome
+    // seen so it never intercepts the first keystroke below, and tips off so a
+    // tip never lands in the message log these assertions read (SPEC PRESENTING).
+    try {
+      localStorage.setItem('decklight-onboarded', '1');
+      localStorage.setItem('decklight-tips-off', '1');
+    } catch { /* ignore */ }
+
     const deck = Decklight.init(cfg);
 
     // The message shortcut has to reach the presenter WHEREVER they are: mid-talk,

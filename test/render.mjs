@@ -86,6 +86,18 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('progress bar: H shows it', s.progressshown, 'true');
   check('progress bar: width tracks the position (slide 1 ≠ last, last = full)', s.progresstracks, 'true');
   check('progress bar: H again removes it', s.progressoff, 'true');
+  check('welcome: auto-shows on a first, unseen load', s.welcomeauto, 'true');
+  check('welcome: any key dismisses it', s.welcomekeydismissed, 'true');
+  check('welcome: the dismissing key does nothing else', s.welcomedidnotadvance, 'true');
+  check('welcome: dismissal persists the once-per-browser flag', s.welcomeflag, '1');
+  check('welcome: reopens on demand (palette / showWelcome)', s.welcomereopen, 'true');
+  check('welcome: a click closes it without advancing', s.welcomeclickclosed, 'true');
+  check('tips: the rotation starts with the palette', s.tipfirst, 'tip \u00b7 press / for the command palette \u2014 every command, type to filter');
+  check('tips: the next load gets the next tip, never a repeat', s.tipsecond, 'tip \u00b7 press ? for the keyboard shortcuts');
+  check('tips: silence once every tip has been read', s.tipsexhausted, 'true');
+  check('tips: nothing left to teach once they are all read', s.tipsleftshrinks, 'true');
+  check('tips: reset starts the rotation over', s.tipsreset, 'tip \u00b7 press / for the command palette \u2014 every command, type to filter');
+  check('tips: off persists globally', s.tipsoff, 'true');
   check('chart: svg generated from JSON', s.chartsvg, 'true');
   check('chart: one <g> per series', s.chartseries, '2');
   check('chart: series colored from --d-fill-1', s.chartfill, 'true');
@@ -118,6 +130,14 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
     /data-slide-index="1"[\s\S]*?data-build-state="pending"/.test(html), true);
 }
 
+// --- embedded mode: previews (theme picker, slide finder) stay clean --------
+// smoke.html scrubs the onboarding flags on every load, so an unseen embedded
+// deck would auto-show the welcome were it not guarded — this proves the guard.
+{
+  const html = dump(deckUrl + '?embedded');
+  check('embedded: no first-run welcome', /decklight-welcome"/.test(html), false);
+}
+
 // --- deep link: slide 1, step 2 -------------------------------------------
 {
   const html = dump(deckUrl + '#/1/2');
@@ -126,6 +146,9 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   const pending = (section.match(/data-build-state="pending"/g) || []).length;
   check('deep link: 2 steps built', done, 2);
   check('deep link: 2 steps pending', pending, 2);
+  // Landing past slide 1 / step 0 is somebody presenting from a link, not a
+  // first run — the card must never sit over a talk already in progress.
+  check('deep link: no first-run welcome', /decklight-welcome"/.test(html), false);
 }
 
 // --- print mode ------------------------------------------------------------
@@ -137,6 +160,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('print: no presenter clock', /decklight-clock"/.test(html), false);
   check('print: no progress bar', /decklight-progress"/.test(html), false);
   check('print: no annotation canvas', /decklight-annotate"/.test(html), false);
+  check('print: no first-run welcome', /decklight-welcome"/.test(html), false);
   check('print: math renders in ?print output', /<math[^>]*display="block"/.test(html), true);
   check('print: plain mode has no variant pages', /print-page/.test(html), false);
   // background media (SPEC PRESENTING): print shows a still, never a <video> — the
