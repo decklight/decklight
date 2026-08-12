@@ -11,8 +11,9 @@
 // A still per FRAME — a narrated slide is one still, fully built, held for its
 // audio; a silent slide builds as it goes, one still per step — muxed with the
 // audio into one mp4, so a deck becomes a watchable, shareable video in one
-// command. A silent slide's builds split its hold by default (the deck's length
-// does not change when you add a build), or take --build-hold seconds each. Narration resolves --narration <dir> → <deckdir>/voiceover/
+// command. Every frame of a silent slide holds --hold, builds included, so a
+// build lands at the pace the deck moves at; --build-hold paces the build-up
+// frames alone. Narration resolves --narration <dir> → <deckdir>/voiceover/
 // (the manifest tools/voiceover.mjs writes) → a fully silent deck where every
 // slide holds --hold seconds (per-slide override: data-video-hold="8" on the
 // section). Silent slides still carry a silent audio segment (anullsrc) so the
@@ -57,7 +58,8 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --hold <s>           seconds a slide without narration holds (default 5;
                        per-slide override: data-video-hold="8" on the section)
   --build-hold <s>     seconds each build-up frame holds on a silent slide
-                       (default: the slide's hold, split across its steps)
+                       (default: the slide's own hold, so builds move at the
+                       pace the deck does)
   --theme <name>       render with themes/<name>.css instead of the deck's theme
   --slides <a-b>       only this slide range (1-based, inclusive)
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first
@@ -119,12 +121,14 @@ const round = (s) => Math.round(s * 1000) / 1000;
  * needs the ⟨CLICK⟩ markers to map to real timestamps, which is its own
  * feature, and guessing at it would put words under the wrong build.
  *
- * Timing, for a silent slide with `b` build steps (so `b + 1` frames):
- * - by default the slide's hold is SPLIT across them, so adding builds changes
- *   the pacing of a deck without changing its length;
- * - `buildHold` instead gives every build-up frame that many seconds and leaves
- *   the finished slide holding the full hold, so the deck gets longer the more
- *   it builds.
+ * Timing, for a silent slide with `b` build steps (so `b + 1` frames): EVERY
+ * frame holds for the slide's hold, so a build lands at the pace the rest of
+ * the deck moves at and the deck gets longer the more it builds. Splitting the
+ * hold across the frames instead — keeping the deck's length fixed — was tried
+ * first and reads far too fast: the more a slide has to say, the less time each
+ * beat of it got, which is exactly backwards. `buildHold` overrides the
+ * build-up frames alone, for a deck that wants its builds quicker (or slower)
+ * than its slides.
  *
  * @param {Array|null} manifest   manifest.slides from tools/voiceover.mjs
  *                                ({ file } per slide, null for silent slides) —
@@ -134,7 +138,7 @@ const round = (s) => Math.round(s * 1000) / 1000;
  * @param {{from,to}} [range]     1-based inclusive slide range
  * @param {object} [opts]         steps: per-slide build-step counts (null ⇒ one
  *                                frame per slide); buildHold: seconds per
- *                                build-up frame (null ⇒ split the hold)
+ *                                build-up frame (null ⇒ the slide's own hold)
  * @returns {Array<{slide, step, audio, duration}>}  audio null ⇒ silent hold
  */
 export function planTimeline(manifest, durations, holds, range = null, { steps = null, buildHold = null } = {}) {
@@ -151,9 +155,9 @@ export function planTimeline(manifest, durations, holds, range = null, { steps =
     const hold = holds[n - 1];
     const builds = steps?.[n - 1] ?? 0;
     if (!builds) { plan.push({ slide: n, step: LAST_STEP, audio: null, duration: hold }); continue; }
-    const each = buildHold ?? round(hold / (builds + 1));
+    const each = buildHold ?? hold;
     for (let k = 0; k < builds; k++) plan.push({ slide: n, step: k, audio: null, duration: each });
-    plan.push({ slide: n, step: LAST_STEP, audio: null, duration: buildHold ? hold : each });
+    plan.push({ slide: n, step: LAST_STEP, audio: null, duration: hold });
   }
   return plan;
 }

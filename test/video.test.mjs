@@ -189,21 +189,28 @@ test('--help is an answer, not a failure — like every other command', () => {
 
 // --- builds get frames of their own (silent slides only) ----------------------
 
-test('a silent slide with builds becomes one frame per step, splitting its hold', () => {
-  // The default keeps a deck's LENGTH fixed and changes its pacing: 4 frames
-  // out of a 2s hold is 0.5s each, so adding builds never silently makes a
-  // video longer than the author asked for.
+test('a silent slide with builds becomes one frame per step, each holding --hold', () => {
+  // Every frame gets the slide's hold, so a build lands at the pace the rest of
+  // the deck moves at. Splitting the hold across the frames instead was tried
+  // and reads far too fast — the more a slide has to say, the less time each
+  // beat of it got.
   const plan = planTimeline(null, {}, [2, 2], null, { steps: [0, 3] });
   assert.deepEqual(plan.map((p) => [p.slide, p.step, p.duration]), [
     [1, LAST_STEP, 2],
-    [2, 0, 0.5], [2, 1, 0.5], [2, 2, 0.5], [2, LAST_STEP, 0.5],
+    [2, 0, 2], [2, 1, 2], [2, 2, 2], [2, LAST_STEP, 2],
   ]);
-  assert.equal(plan.reduce((t, p) => t + p.duration, 0), 4, 'the deck is exactly as long as its holds');
 });
 
-test('--build-hold gives every build-up frame its own time, and the finished slide the full hold', () => {
-  const plan = planTimeline(null, {}, [2, 2], null, { steps: [0, 3], buildHold: 1 });
-  assert.deepEqual(plan.map((p) => p.duration), [2, 1, 1, 1, 2]);
+test('--build-hold paces the build-up frames alone; the finished slide keeps its hold', () => {
+  const plan = planTimeline(null, {}, [2, 2], null, { steps: [0, 3], buildHold: 0.5 });
+  assert.deepEqual(plan.map((p) => p.duration), [2, 0.5, 0.5, 0.5, 2]);
+});
+
+test("a per-slide data-video-hold paces that slide's builds too", () => {
+  // extractHolds already gives each slide its own hold; builds inherit it, so
+  // `data-video-hold="8"` slows a slide's build-up as well as its final state.
+  const plan = planTimeline(null, {}, [1, 8], null, { steps: [0, 2] });
+  assert.deepEqual(plan.map((p) => p.duration), [1, 8, 8, 8]);
 });
 
 test('the final frame of a slide is always LAST_STEP, never a counted step', () => {
