@@ -4,8 +4,8 @@
 
 // decklight, end to end: pack this repo, install the tarball into an empty
 // project, and drive the INSTALLED `decklight` bin through one full user
-// journey — create, marketplace, author, edit, git, present, bundle, validate,
-// open. Runnable manually — `npm run soak` — and deliberately NOT part of
+// journey — create, import, marketplace, author, edit, git, present, bundle,
+// validate, open. Runnable manually — `npm run soak` — and NOT part of
 // `npm test` (the *.test.mjs glob) or `npm run verify`: it runs a real npm
 // install and takes minutes, and skipping inside the blessed suites would let
 // "green" mean "not actually run" (the video-e2e rule).
@@ -15,29 +15,36 @@
 // invisible from inside the repo, because every test runs `node
 // cli/decklight.mjs` from the working tree:
 //
-//   · `import` crashed with a raw ENOENT on any install path containing a
-//     SPACE (every Windows profile with one). This repo lives at a space-free
-//     path — hence the space in the temp dirs below, which is load-bearing.
+//   · `import` crashed with a raw ENOENT on any path containing a SPACE (every
+//     Windows profile with one). This repo lives at a space-free path — hence
+//     the space in both the temp dirs and the imported fixture's name below,
+//     which is load-bearing rather than decorative.
 //   · `present` reported `runtime — DIFFERS from this install's build` on a
-//     deck decklight had written seconds earlier. Every render harness passed,
-//     because the deck renders perfectly: the divergence is a hash, not a
-//     behaviour — hence the ingredients-label assertion, repeated on every deck
-//     this journey produces. It is the highest-value line in this file.
+//     deck decklight had written seconds earlier — an IMPORTED one. Every
+//     render harness passed, because the deck renders perfectly: the
+//     divergence is a hash, not a behaviour. Hence the ingredients-label
+//     assertion, repeated on every deck this journey produces. It is the
+//     highest-value line in this file.
 //   · The README's own quick start (init then bundle) failed, because init
-//     scaffolds an already-self-contained deck — hence step 20, which asserts
+//     scaffolds an already-self-contained deck — hence the step that asserts
 //     that refusal rather than tripping over it.
 //
+// Two of those three lived in `import`, which is why it is a leg here and not
+// left to test/import-render.mjs: that harness renders an imported deck from
+// the working tree, and neither bug was about rendering or reachable from
+// inside the repo.
+//
 // SKIPS. git/npm missing → the whole run skips and exits 0. No Chrome, no
-// network → those steps skip by name and the other 22 still run. A skip is
-// always printed with its reason, so a green soak can never quietly mean
-// "nothing ran".
+// network → those steps skip by name and the rest still run. A skip is always
+// printed with its reason, so a green soak can never quietly mean "nothing
+// ran".
 //
 // macOS/Linux for now: it drives node_modules/.bin/decklight, which needs the
 // .cmd shim on Windows.
 
 import { spawn, spawnSync } from 'node:child_process';
 import {
-  existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
+  copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
   rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -51,7 +58,7 @@ import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-h
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
-const TOTAL = 27;
+const TOTAL = 30;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -385,6 +392,51 @@ try {
       'the label does not say the runtime is identical to this install (the 0.3.0 near-miss)');
     must(/0 unaccounted script blocks/.test(r.all), 'the deck carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the deck carries inline handlers');
+  });
+
+  // ── the other way in: an existing deck ───────────────────────────────────
+  // This leg is where TWO of the three 0.3.0 bugs actually lived, and neither
+  // was reachable from inside the repo: `import` crashed with a raw ENOENT
+  // whenever the path had a space in it, and the deck it wrote reported its
+  // runtime as DIFFERING from the install that had just written it — a hash
+  // divergence, invisible to a render harness because the deck renders fine.
+  await step('an existing deck is brought across', () => {
+    // The fixture is copied in under a name WITH A SPACE: the input path is the
+    // other half of the space problem, beside the install path everything here
+    // already runs from.
+    copyFileSync(join(root, 'test', 'fixtures', 'sample.pptx'), join(PROJECT, 'Q3 review.pptx'));
+    const r = dl(['import', 'Q3 review.pptx']);
+    // The output name is SLUGGED from the source, not copied from it: a deck
+    // called "Q3 review.pptx" lands as q3-review.html. Pinned rather than
+    // worked around — it is what a user will look for on disk.
+    const out = join(PROJECT, 'q3-review.html');
+    must(existsSync(out), `import wrote no deck at ${out} — it said: ${r.all}`);
+    must(!existsSync(join(PROJECT, 'Q3 review.html')), 'import stopped slugging the output name');
+    const html = readFileSync(out, 'utf8');
+    must(sectionBodies(html).length >= 3, `expected the fixture's slides, got ${sectionBodies(html).length}`);
+    must(/<h1[^>]*>/.test(html), 'the title slide did not come across as an h1');
+    must(/<aside class="notes">/.test(html), 'speaker notes did not come across');
+    must(/src="data:image\//.test(html), 'the image was not inlined — the deck is not self-contained');
+  });
+
+  await step("the imported deck's runtime is this install's", () => {
+    // THE assertion this leg exists for. 0.3.0 shipped an `import` that inlined
+    // the runtime through its own copy of a transform which escaped `</script`
+    // but not `<!--`, so every imported deck rendered perfectly and hashed
+    // differently. Only the label can see that.
+    const r = dl(['present', 'q3-review.html', '--check']);
+    must(r.all.includes('identical to this install'),
+      'an imported deck reports a runtime that is not this install — the 0.3.0 bug, exactly');
+    must(/0 unaccounted script blocks/.test(r.all), 'the imported deck carries unaccounted script');
+    must(/0 inline handlers/.test(r.all), 'the imported deck carries inline handlers');
+  });
+
+  await step('the imported deck renders', () => {
+    if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
+    const dom = dumpDom(pathToFileURL(join(PROJECT, 'q3-review.html')).href,
+      { budget: 8000, quietStderr: true, who: 'soak', timeout: 60000 });
+    mounted(dom, 3);
+    return undefined;
   });
 
   // ── marketplace ──────────────────────────────────────────────────────────

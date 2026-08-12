@@ -27,11 +27,15 @@ failed because `init` scaffolds an already-self-contained deck.
 
 `npm run soak` is the missing shape. It runs `npm pack`, installs the tarball
 into an empty project **whose path contains a space**, and drives the installed
-`decklight` bin through one full journey — init, marketplace, author (adding and
-editing slides over the HTTP API, and watching the commits land), present,
-bundle, `--check`, and opening the result in a real browser — asserting at each
-step, most importantly that every deck it produces reads `identical to this
-install`.
+`decklight` bin through one full journey — init, import, marketplace, author
+(adding and editing slides over the HTTP API, and watching the commits land),
+present, bundle, `--check`, and opening the result in a real browser — asserting
+at each step, most importantly that every deck it produces reads `identical to
+this install`.
+
+`import` is a leg of its own because two of those three bugs lived there, and
+`test/import-render.mjs` could not see either: it renders an imported deck from
+the working tree, and neither bug was about rendering.
 
 It is manual and deliberately in neither blessed suite: it takes a real `npm
 install`, and skipping inside `npm test` would let "green" mean "not actually
