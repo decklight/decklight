@@ -149,4 +149,18 @@ export function writeFakeBin(dir, name, js) {
  * that far. `maxRetries`/`retryDelay` is Node's own answer, and costs nothing
  * where the first attempt already works.
  */
-export const rmTemp = (dir) => rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+export function rmTemp(dir) {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    return true;
+  } catch {
+    // Give up quietly. A cleanup hook is registered before the server it has to
+    // outlive — `tmp(t)` runs first, so its hook runs first — and no amount of
+    // retrying beats a process that is killed in the NEXT hook. On POSIX this
+    // never happens (a directory unlinks out from under a live process), so a
+    // swallowed failure here is Windows holding a lock on a directory in %TEMP%
+    // that the runner discards anyway. The assertion is the test; the
+    // housekeeping is not, and a passing test must not fail on it.
+    return false;
+  }
+}

@@ -23,7 +23,7 @@ import { claudeSkillMd, referenceDoc, reportBugSkillMd, agentsSection } from '..
 import { probe, environmentBlock, issuesUrl } from '../cli/report-bug.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
-import { optionalDepSkip as recSkip, childEnv, homeEnv } from './helpers.mjs';
+import { optionalDepSkip as recSkip, childEnv, homeEnv, rmTemp } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -59,7 +59,7 @@ test('a tiny rec runs through the dispatcher end-to-end', { skip: recSkip }, () 
   assert.equal(cast.decklightCast, 1);
   assert.equal(cast.steps[0].cmd, 'echo dispatcher-ok');
   assert.match(cast.steps[0].output.map((o) => o[1]).join(''), /dispatcher-ok/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init scaffolds a self-contained deck and the agent skill', () => {
@@ -97,7 +97,7 @@ test('init scaffolds a self-contained deck and the agent skill', () => {
   assert.match(agents, /decklight:skill/);
   assert.match(agents, /\.claude\/skills\/decklight\/reference\.md/);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init title: an argument skips the prompt, a TTY asks, headless never does', async () => {
@@ -126,7 +126,7 @@ test('init HTML-escapes the title where it lands (<title> and the h1)', () => {
   // under the comment "a prompt invites &, < and quotes".
   assert.match(deck, /<title>Q3 &lt;Review&gt; &amp; &quot;Friends&quot;<\/title>/);
   assert.match(deck, /<h1>Q3 &lt;Review&gt; &amp; &quot;Friends&quot;<\/h1>/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init without a title never prompts when stdio is not a TTY', () => {
@@ -135,7 +135,7 @@ test('init without a title never prompts when stdio is not a TTY', () => {
   assert.equal(r.status, 0);
   assert.doesNotMatch(r.stdout + r.stderr, /deck title/);
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>My Deck<\/title>/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 // script(1) lends the run a real pty, so this covers the actual isTTY gate +
@@ -153,7 +153,7 @@ test('init on a real TTY prompts and takes the typed title', { skip: ptySkip }, 
   assert.match(r.stdout, /deck title \[My Deck\]:/);
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Ship &amp; Tell<\/title>/);
   assert.equal(fs.existsSync(path.join(dir, '.git')), false, '"n" declines the repo');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 // what the collision message compares: the version inlined in dist (the deck's
@@ -193,7 +193,7 @@ test('init refusal on a decklight deck leads with upgrade, names both versions',
   assert.match(r.stderr, /--force to replace it with a fresh starter deck/);
   execFileSync('node', [CLI, 'init', 'Renamed', '--dir', dir, '--force'], { encoding: 'utf8' });
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Renamed<\/title>/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init refusal on a deck of unknown runtime version still suggests upgrade, versionless', () => {
@@ -206,7 +206,7 @@ test('init refusal on a deck of unknown runtime version still suggests upgrade, 
   assert.match(r.stderr, /is already a decklight deck\n/, 'no version parenthetical');
   assert.doesNotMatch(r.stderr, /deck has runtime/);
   assert.match(r.stderr, /decklight upgrade deck\.html/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init refusal on a non-decklight file keeps the plain --force message', () => {
@@ -216,7 +216,7 @@ test('init refusal on a non-decklight file keeps the plain --force message', () 
   assert.equal(r.status, 1);
   assert.match(r.stderr, /already exists — pass --force to overwrite/);
   assert.doesNotMatch(r.stderr, /upgrade/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('deckRuntimeVersion: version for a scaffold, null when mangled, undefined for a non-deck', async () => {
@@ -224,7 +224,7 @@ test('deckRuntimeVersion: version for a scaffold, null when mangled, undefined f
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
   execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--themes', 'aurora'], { encoding: 'utf8' });
   const scaffold = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
   assert.equal(deckRuntimeVersion(scaffold), runtimeVersion);
 
   // hand-mangled: still a deck (stage div + init call intact), banner gone
@@ -252,7 +252,7 @@ test('init --themes ships only the named set; missing theme fails cleanly', () =
   const bad = spawnSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--force', '--themes', 'nope123'], { encoding: 'utf8' });
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /theme not found: nope123/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init --no-skill writes only the deck', () => {
@@ -261,7 +261,7 @@ test('init --no-skill writes only the deck', () => {
   assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
   assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init appends a marked section to an existing AGENTS.md, and refresh is idempotent', () => {
@@ -275,7 +275,7 @@ test('init appends a marked section to an existing AGENTS.md, and refresh is ide
   execFileSync('node', [CLI, 'init', '--dir', dir, '--force'], { encoding: 'utf8' });
   const second = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.equal(first, second, 're-running must not duplicate or drift the marked section');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 // --- init: git offer + epilogue (issue #50), starter .gitignore (#53) --------
@@ -351,7 +351,7 @@ test('init --git creates a repo whose first commit carries everything + the star
   }
   // the seeded file is the shared starter — #53's contract, wired into init
   assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), STARTER_GITIGNORE);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init --git never clobbers an existing .gitignore', () => {
@@ -363,7 +363,7 @@ test('init --git never clobbers an existing .gitignore', () => {
   assert.match(out, /git: repository created, everything committed/, 'no starter parenthetical');
   assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), theirs,
     'byte-identical — no appending, no merging');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init headless without a flag prints the authoring hint and touches no git', () => {
@@ -375,7 +375,7 @@ test('init headless without a flag prints the authoring hint and touches no git'
   assert.ok(out.includes(pathToFileURL(path.join(dir, 'deck.html')).href));
   assert.match(out, /decklight author /);
   assert.doesNotMatch(out, /\x1b/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init --no-git skips silently; an existing repo is left alone', () => {
@@ -392,8 +392,8 @@ test('init --no-git skips silently; an existing repo is left alone', () => {
   assert.match(status, /\?\? deck\.html/, 'init never commits into a pre-existing repo');
   assert.equal(fs.existsSync(path.join(repo, '.gitignore')), false,
     'a repository decklight didn\'t create never gets a .gitignore');
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.rmSync(repo, { recursive: true, force: true });
+  rmTemp(dir);
+  rmTemp(repo);
 });
 
 test('init --git still succeeds when git is missing from PATH', () => {
@@ -405,8 +405,8 @@ test('init --git still succeeds when git is missing from PATH', () => {
   assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
   assert.match(r.stdout, /git: init failed/);
   assert.match(r.stdout, /decklight author /, 'the epilogue still prints');
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.rmSync(empty, { recursive: true, force: true });
+  rmTemp(dir);
+  rmTemp(empty);
 });
 
 test('init on a real TTY asks the git question; Y creates the repo and commits', { skip: ptySkip }, () => {
@@ -423,7 +423,7 @@ test('init on a real TTY asks the git question; Y creates the repo and commits',
   const log = execFileSync('git', ['-C', dir, 'log', '--format=%s'], { encoding: 'utf8', env: gitIdEnv });
   assert.equal(log.trim(), 'decklight init');
   assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), STARTER_GITIGNORE);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init --help documents --git/--no-git/--open', () => {
@@ -496,8 +496,8 @@ test('init --open launches the platform launcher on the deck actually written', 
   assert.equal(fs.readFileSync(log, 'utf8'), pathToFileURL(path.join(dir, 'talk.html')).href,
     '--open must honor -o and --dir: it opens the deck that was written');
 
-  fs.rmSync(bin, { recursive: true, force: true });
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(bin);
+  rmTemp(dir);
 });
 
 test('init --open with no launcher on PATH: deck still created, exit 0, skip line', () => {
@@ -509,8 +509,8 @@ test('init --open with no launcher on PATH: deck still created, exit 0, skip lin
   assert.match(r.stdout, /created .*deck\.html/);
   assert.match(r.stdout, /--open: could not launch a browser/);
   assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
-  fs.rmSync(emptyBin, { recursive: true, force: true });
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(emptyBin);
+  rmTemp(dir);
 });
 
 // --- the repo-creation seam (author --git today; init's git offer, #50) ----
@@ -529,7 +529,7 @@ test('createRepo seeds a fresh repository with the starter .gitignore', () => {
   // voices cost money to regenerate, and that deleting the line versions it
   assert.match(ignore, /^# .*costs money to regenerate.*\nvoiceover\/$/m);
   assert.match(ignore, /delete this line/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('the starter entries really ignore the artifacts — git add -A stays clean', () => {
@@ -547,7 +547,7 @@ test('the starter entries really ignore the artifacts — git add -A stays clean
     .trim().split('\n').sort();
   assert.deepEqual(staged, ['.gitignore', 'deck.html'],
     'a hasty git add -A picks up the deck and the ignore file, none of the artifacts');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('createRepo never touches an existing .gitignore', () => {
@@ -558,7 +558,7 @@ test('createRepo never touches an existing .gitignore', () => {
   assert.equal(inGitRepo(dir), true, 'the repository is still created');
   assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), theirs,
     'byte-identical — no appending, no merging');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 // --- decklight skills --------------------------------------------------------
@@ -579,7 +579,7 @@ test('skills claude writes only the Claude skill, no AGENTS.md', () => {
   // claude-only: no AGENTS.md and no standalone reference copy
   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
   assert.equal(fs.existsSync(path.join(dir, '.decklight')), false);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('skills for AGENTS.md agents writes the shared reference + a marked section', () => {
@@ -593,7 +593,7 @@ test('skills for AGENTS.md agents writes the shared reference + a marked section
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.match(agents, /decklight:skill/);
   assert.match(agents, /\.decklight\/reference\.md/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('skills claude + an AGENTS.md agent keeps one reference, pointed at the skill copy', () => {
@@ -605,7 +605,7 @@ test('skills claude + an AGENTS.md agent keeps one reference, pointed at the ski
   const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.match(agents, /\.claude\/skills\/decklight\/reference\.md/);
   assert.doesNotMatch(agents, /\.decklight\/reference\.md/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('skills --all installs every supported agent', () => {
@@ -616,7 +616,7 @@ test('skills --all installs every supported agent', () => {
   }
   assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), true);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('skills refuses an existing skill file without --force, overwrites with it', () => {
@@ -629,7 +629,7 @@ test('skills refuses an existing skill file without --force, overwrites with it'
   assert.match(r.stderr, /already exists.*--force/);
   execFileSync('node', [CLI, 'skills', 'claude', '--dir', dir, '--force'], { encoding: 'utf8' });
   assert.match(fs.readFileSync(skillFile, 'utf8'), /^---\nname: decklight\n/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('skills re-run is idempotent — the AGENTS.md section never duplicates', () => {
@@ -639,7 +639,7 @@ test('skills re-run is idempotent — the AGENTS.md section never duplicates', (
   execFileSync('node', [CLI, 'skills', 'codex', '--dir', dir, '--force'], { encoding: 'utf8' });
   const second = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
   assert.equal(first, second, 're-running must not duplicate or drift the marked section');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 // a HOME the agents' global config dirs derive from, with any inherited
@@ -669,8 +669,8 @@ test('skills --global installs into each agent config home, not the project', ()
   // global must not scribble in the working directory
   assert.equal(fs.existsSync(path.join(cwd, '.claude')), false);
   assert.equal(fs.existsSync(path.join(cwd, 'AGENTS.md')), false);
-  fs.rmSync(home, { recursive: true, force: true });
-  fs.rmSync(cwd, { recursive: true, force: true });
+  rmTemp(home);
+  rmTemp(cwd);
 });
 
 test('skills --global for one agent touches only that agent home', () => {
@@ -679,7 +679,7 @@ test('skills --global for one agent touches only that agent home', () => {
   assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
   assert.equal(fs.existsSync(path.join(home, '.codex')), false);
   assert.equal(fs.existsSync(path.join(home, '.bob')), false);
-  fs.rmSync(home, { recursive: true, force: true });
+  rmTemp(home);
 });
 
 test('skills --global and --dir are mutually exclusive', () => {
@@ -726,7 +726,7 @@ test('init without a TTY never asks the skill question — the project install i
   assert.match(r.stdout, /wrote \.claude\/skills\/decklight\/\{SKILL\.md,reference\.md\}/);
   assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
   assert.match(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /decklight:skill/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('init --global-skill with no agent on PATH falls back to Claude Code; the project stays skill-free', () => {
@@ -743,7 +743,7 @@ test('init --global-skill with no agent on PATH falls back to Claude Code; the p
   assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
   assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
-  for (const d of [home, dir, empty]) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of [home, dir, empty]) rmTemp(d);
 });
 
 test('init --global-skill targets the PATH-detected agents, like bare `decklight skills`', () => {
@@ -758,7 +758,7 @@ test('init --global-skill targets the PATH-detected agents, like bare `decklight
   assert.equal(fs.existsSync(path.join(home, '.codex', 'AGENTS.md')), true);
   assert.equal(fs.existsSync(path.join(home, '.codex', '.decklight', 'reference.md')), true);
   assert.equal(fs.existsSync(path.join(home, '.claude')), false, 'undetected agents are not targeted');
-  for (const d of [home, dir, bin]) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of [home, dir, bin]) rmTemp(d);
 });
 
 test('init --global-skill refreshes an existing global skill without demanding --force', () => {
@@ -772,7 +772,7 @@ test('init --global-skill refreshes an existing global skill without demanding -
   const out = execFileSync(process.execPath, [CLI, 'init', '--dir', dirs[1], '--global-skill'], { encoding: 'utf8', env });
   assert.match(out, /globally for Claude Code/);
   assert.match(fs.readFileSync(skillFile, 'utf8'), /^---\nname: decklight\n/, 'the stale copy was refreshed');
-  for (const d of [home, empty, ...dirs]) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of [home, empty, ...dirs]) rmTemp(d);
 });
 
 test('init on a real TTY asks the skill scope, naming both paths; g installs globally', { skip: ptySkip }, () => {
@@ -788,7 +788,7 @@ test('init on a real TTY asks the skill scope, naming both paths; g installs glo
   assert.equal(fs.existsSync(path.join(home, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
   assert.equal(fs.existsSync(path.join(dir, '.claude')), false);
   assert.equal(fs.existsSync(path.join(dir, 'AGENTS.md')), false);
-  for (const d of [home, dir, empty]) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of [home, dir, empty]) rmTemp(d);
 });
 
 test('init on a real TTY: Enter keeps the project install, byte-for-byte', { skip: ptySkip }, () => {
@@ -802,7 +802,7 @@ test('init on a real TTY: Enter keeps the project install, byte-for-byte', { ski
   assert.equal(fs.existsSync(path.join(dir, '.claude', 'skills', 'decklight', 'SKILL.md')), true);
   assert.match(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), /decklight:skill/);
   assert.equal(fs.existsSync(path.join(home, '.claude')), false, 'Enter never installs globally');
-  for (const d of [home, dir, empty]) fs.rmSync(d, { recursive: true, force: true });
+  for (const d of [home, dir, empty]) rmTemp(d);
 });
 
 test('skills rejects an unknown agent, and errors when none is detected', () => {
@@ -817,8 +817,8 @@ test('skills rejects an unknown agent, and errors when none is detected', () => 
   const none = spawnSync(process.execPath, [CLI, 'skills', '--dir', dir], { encoding: 'utf8', env: { ...process.env, PATH: empty } });
   assert.equal(none.status, 1);
   assert.match(none.stderr, /no supported agent detected/);
-  fs.rmSync(empty, { recursive: true, force: true });
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(empty);
+  rmTemp(dir);
 });
 
 // ── decklight restore (#127): a deck's durable history ─────────────────────
@@ -862,7 +862,7 @@ test('deckHistory: a file git has never seen has no history', () => {
 
 test('restore rides ON TOP — the version you left is still reachable', (t) => {
   const { dir, deck, g } = restoreRepo();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const before = g(['log', '--oneline']).trim().split('\n').length;
   const first = g(['log', '--format=%h', '--reverse']).trim().split('\n')[0];
@@ -880,7 +880,7 @@ test('restore rides ON TOP — the version you left is still reachable', (t) => 
 
 test('restore never silently discards uncommitted work', (t) => {
   const { dir, deck, g } = restoreRepo();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   fs.writeFileSync(deck, '<p>UNSAVED</p>\n');
   const first = g(['log', '--format=%h', '--reverse']).trim().split('\n')[0];
@@ -894,7 +894,7 @@ test('restore never silently discards uncommitted work', (t) => {
 
 test('restore preserves the file byte for byte, trailing newline included', (t) => {
   const { dir, deck, g } = restoreRepo();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const exact = '<p>trailing</p>\n\n\n';
   fs.writeFileSync(deck, exact);
@@ -908,7 +908,7 @@ test('restore preserves the file byte for byte, trailing newline included', (t) 
 
 test('an unknown ref fails before anything is written', (t) => {
   const { dir, deck } = restoreRepo();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const before = fs.readFileSync(deck, 'utf8');
   assert.throws(() => restoreDeck(deck, 'nosuchref', dir));
@@ -917,7 +917,7 @@ test('an unknown ref fails before anything is written', (t) => {
 
 test('restoring where the deck already is changes nothing', (t) => {
   const { dir, deck, g } = restoreRepo();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const n = g(['log', '--oneline']).trim().split('\n').length;
   const res = restoreDeck(deck, 'HEAD', dir);
@@ -927,7 +927,7 @@ test('restoring where the deck already is changes nothing', (t) => {
 
 test('the CLI lists history and refuses a deck with none', (t) => {
   const { dir, deck } = restoreRepo();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const list = spawnSync(process.execPath, [CLI, 'restore', deck], { encoding: 'utf8' });
   assert.equal(list.status, 0);
@@ -935,7 +935,7 @@ test('the CLI lists history and refuses a deck with none', (t) => {
   assert.match(list.stdout, /three/);
 
   const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-norepo-'));
-  t.after(() => fs.rmSync(plain, { recursive: true, force: true }));
+  t.after(() => rmTemp(plain));
   fs.writeFileSync(path.join(plain, 'deck.html'), 'x');
   const no = spawnSync(process.execPath, [CLI, 'restore', path.join(plain, 'deck.html')], { encoding: 'utf8' });
   assert.equal(no.status, 1);
@@ -965,7 +965,7 @@ test('withBaseHref survives decks that have no head — head is optional in HTML
 
 test('--pack writes a real archive holding exactly the two skill files', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-pack-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const res = spawnSync(process.execPath, [CLI, 'skills', 'claude', '--pack'], { cwd: dir, encoding: 'utf8' });
   assert.equal(res.status ?? 0, 0, res.stderr);
@@ -991,7 +991,7 @@ test('--pack writes a real archive holding exactly the two skill files', (t) => 
 
 test('--pack honors -o, and refuses to clobber without --force', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-pack-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const named = spawnSync(process.execPath, [CLI, 'skills', 'claude', '--pack', '-o', 'mine.zip'], { cwd: dir, encoding: 'utf8' });
   assert.equal(named.status ?? 0, 0, named.stderr);
@@ -1007,7 +1007,7 @@ test('--pack honors -o, and refuses to clobber without --force', (t) => {
 
 test('--pack rejects the flag combinations that would quietly do nothing', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-pack-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const bad = [
     [['skills', 'claude', '--pack', '--global'], /--global/],
@@ -1029,7 +1029,7 @@ test('the packed archive is byte-stable — the same content packs the same', ()
 
 test('zipSync round-trips through a real unzip, and stores what deflate would grow', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-zip-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   // the canonical CRC-32 check value — the one number the whole format hangs on
   assert.equal(crc32(Buffer.from('123456789')), 0xcbf43926);
@@ -1101,7 +1101,7 @@ test('decklight help lists report-bug, and the command documents itself', () => 
 
 test('skills installs the bug-reporting skill beside the authoring one', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-rb-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const res = spawnSync(process.execPath, [CLI, 'skills', 'claude'], { cwd: dir, encoding: 'utf8' });
   assert.equal(res.status ?? 0, 0, res.stderr);
@@ -1131,7 +1131,7 @@ test('the report-bug skill gates both consent moments in order', () => {
 
 test('the AGENTS.md section points its readers at the bug flow too, idempotently', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-rb-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   spawnSync(process.execPath, [CLI, 'skills', 'codex'], { cwd: dir, encoding: 'utf8' });
   const agents = path.join(dir, 'AGENTS.md');
@@ -1200,7 +1200,7 @@ test('the skill names the comparison recipe and its one trap', () => {
 
 test('init states the commit policy when it creates a repository', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitmode-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
 
   const res = spawnSync(process.execPath, [CLI, 'init', 'My Deck', '--git', '--no-skill'],
     { cwd: dir, encoding: 'utf8' });
@@ -1210,7 +1210,7 @@ test('init states the commit policy when it creates a repository', (t) => {
 
   // and says nothing about it when it did not create a repo
   const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-gitmode-'));
-  t.after(() => fs.rmSync(plain, { recursive: true, force: true }));
+  t.after(() => rmTemp(plain));
   const noGit = spawnSync(process.execPath, [CLI, 'init', 'My Deck', '--no-git', '--no-skill'],
     { cwd: plain, encoding: 'utf8' });
   assert.doesNotMatch(noGit.stdout, /commits land one per agent edit/);
@@ -1337,5 +1337,5 @@ test('bundling an already-inlined deck says so, instead of blaming a missing <li
     return true;
   });
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });

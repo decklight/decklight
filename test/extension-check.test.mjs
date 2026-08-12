@@ -17,6 +17,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,7 +82,7 @@ test('an unimplemented --type is refused by name, before anything is read', asyn
     assert.equal(result.phase, 'type');
     assert.match(result.error, /--type importer is not implemented/);
     assert.match(result.error, new RegExp(TYPES.join(', ')));
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a lint hit refuses before the transform is ever run', async () => {
@@ -93,7 +94,7 @@ test('a lint hit refuses before the transform is ever run', async () => {
     assert.equal(result.phase, 'lint');
     assert.equal(result.lint.length, 1);
     assert.match(result.lint[0].why, /fetch/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a transform with no default export function fails at the load phase, naming it cleanly', async () => {
@@ -104,7 +105,7 @@ test('a transform with no default export function fails at the load phase, namin
     assert.equal(result.ok, false);
     assert.equal(result.phase, 'load');
     assert.match(result.error, /no default export function/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a throwing transform fails at the load phase, never a raw stack', async () => {
@@ -116,7 +117,7 @@ test('a throwing transform fails at the load phase, never a raw stack', async ()
     assert.equal(result.phase, 'load');
     assert.match(result.error, /threw: bad regex/);
     assert.doesNotMatch(result.error, /at Object|at async|\.mjs:\d+:\d+/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a transform returning a non-string fails at the load phase', async () => {
@@ -127,7 +128,7 @@ test('a transform returning a non-string fails at the load phase', async () => {
     assert.equal(result.ok, false);
     assert.equal(result.phase, 'load');
     assert.match(result.error, /must return a string \(returned number\)/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('the fixture is small HTML, not a full deck — and randomised, so a submission cannot recognise it', () => {
@@ -155,7 +156,7 @@ test('a static child_process import passes the lint but is stopped by the bounda
     assert.equal(result.ok, false);
     assert.equal(result.phase, 'load');
     assert.match(result.error, /threw: .*restricted/i);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a transform that writes to the filesystem is refused, and the write never lands', async () => {
@@ -168,7 +169,7 @@ test('a transform that writes to the filesystem is refused, and the write never 
     assert.equal(result.ok, false);
     assert.equal(result.phase, 'load');
     assert.equal(existsSync(target), false, 'the boundary must deny the write, not merely report it');
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('the submission runs with a scrubbed environment and away from the checker cwd', async () => {
@@ -184,7 +185,7 @@ test('the submission runs with a scrubbed environment and away from the checker 
     assert.ok(!result.html.includes(`|cwd=${process.cwd()}`), 'the child must run from a temp cwd, not ours');
   } finally {
     delete process.env.DECKLIGHT_TEST_SECRET;
-    rmSync(dir, { recursive: true, force: true });
+    rmTemp(dir);
   }
 });
 
@@ -196,7 +197,7 @@ test('a transform that never returns is killed, becoming a refusal rather than a
     assert.equal(result.ok, false);
     assert.equal(result.phase, 'load');
     assert.match(result.error, /did not finish within 3s/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a transform that exits the process instead of returning is a refusal, not a pass', async () => {
@@ -207,7 +208,7 @@ test('a transform that exits the process instead of returning is a refusal, not 
     assert.equal(result.ok, false);
     assert.equal(result.phase, 'load');
     assert.match(result.error, /exited without returning/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a transform printing to stdout cannot forge a verdict — the real one is read, noise and all', async () => {
@@ -220,7 +221,7 @@ test('a transform printing to stdout cannot forge a verdict — the real one is 
     const result = runTransformIsolated(file, makeFixture());
     assert.equal(result.ok, true);
     assert.match(result.html, /really ran/, 'the verdict must be the runner\'s, not the submission\'s');
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 // ── the pin the gate emits (SPEC UNIT_PINNING) ────────────────────────────
@@ -234,7 +235,7 @@ test('artifactSha256 hashes the file BYTES, exactly as sha256sum prints it', () 
     const file = transform(dir, 'x.mjs', 'abc');
     assert.equal(artifactSha256(file),
       'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a passing report carries the digest the catalog entry pins — the gate emits the pin', () => {
@@ -272,7 +273,7 @@ test('decklight extension check --type <unimplemented> is refused by name', () =
     const { code, out } = run(['extension', 'check', file, '--type', 'importer']);
     assert.equal(code, 1);
     assert.match(out, /--type importer is not implemented/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('decklight extension check reports every lint hit, with its line and reason', () => {
@@ -288,7 +289,7 @@ test('decklight extension check reports every lint hit, with its line and reason
     assert.equal(code, 1);
     assert.match(out, /✘/);
     assert.match(out, /line 2: calls eval\(\)/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('decklight extension: an unknown subcommand is refused, not swallowed', () => {

@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -79,7 +80,7 @@ test('upgrade swaps the unmarked runtime blocks and preserves everything the aut
 
   // backup written first, holding the pre-upgrade bytes
   assert.equal(fs.readFileSync(`${p}.bak`, 'utf8'), before);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('upgrade --dry-run prints the plan and touches nothing', () => {
@@ -92,7 +93,7 @@ test('upgrade --dry-run prints the plan and touches nothing', () => {
   assert.match(out, /would update runtime css/);
   assert.equal(fs.readFileSync(p, 'utf8'), before, '--dry-run must not modify the deck');
   assert.equal(fs.existsSync(`${p}.bak`), false, '--dry-run must not write a backup');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('upgrade is idempotent: a second run reports already current and changes nothing', () => {
@@ -106,7 +107,7 @@ test('upgrade is idempotent: a second run reports already current and changes no
   assert.match(out, /already current/);
   assert.equal(fs.readFileSync(p, 'utf8'), upgraded, 'second run must be a byte-level no-op');
   assert.equal(fs.existsSync(`${p}.bak`), false, 'a no-op run must not write a backup');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('a freshly scaffolded deck is marked and already current', () => {
@@ -121,7 +122,7 @@ test('a freshly scaffolded deck is marked and already current', () => {
   const out = execFileSync('node', [CLI, 'upgrade', p], { encoding: 'utf8' });
   assert.match(out, /already current/);
   assert.equal(fs.readFileSync(p, 'utf8'), deck);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('theme blocks refresh from the installed themes/, active one stays active, orphans kept with a warning', () => {
@@ -147,7 +148,7 @@ test('theme blocks refresh from the installed themes/, active one stays active, 
     'graphite refreshed, still inactive');
   assert.equal(after.includes('.decklight.theme-retired-theme{--bg:#222}'), true,
     'a theme that no longer ships is kept as-is');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('a theme added from outside decklight (data-theme-added) gets its own warning — never a fetch (MARKETPLACE.md OPEN 1)', () => {
@@ -167,7 +168,7 @@ test('a theme added from outside decklight (data-theme-added) gets its own warni
   assert.doesNotMatch(out, /no longer ships upstream/, 'an added theme was never "upstream" to begin with');
   const after = fs.readFileSync(p, 'utf8');
   assert.equal(after.includes('.decklight.theme-nord-deep{--bg:#000}'), true, 'kept as-is, byte for byte');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('a file with no Decklight.init is refused: exit 1, clear message, file untouched', () => {
@@ -180,7 +181,7 @@ test('a file with no Decklight.init is refused: exit 1, clear message, file unto
   assert.match(r.stderr, /not a Decklight deck/);
   assert.equal(fs.readFileSync(p, 'utf8'), src);
   assert.equal(fs.existsSync(`${p}.bak`), false);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('a merged multi-module bundle is refused politely', () => {
@@ -193,7 +194,7 @@ test('a merged multi-module bundle is refused politely', () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /merged multi-module bundle/);
   assert.equal(fs.readFileSync(p, 'utf8'), before);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('a deck that references the runtime by src= is refused with a pointer to bundle', () => {
@@ -208,5 +209,5 @@ test('a deck that references the runtime by src= is refused with a pointer to bu
   const r = spawnSync('node', [CLI, 'upgrade', p], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /not self-contained/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });

@@ -16,6 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 
 import { unzip, MAX_ENTRY_BYTES, MAX_TOTAL_BYTES } from '../tools/zip.mjs';
@@ -88,7 +89,7 @@ test('a bomb inside a .decklight is refused by readContainer — ahead of any tr
   const bytes = declareSize(Buffer.concat([body, Buffer.from(OPEN, 'utf8'), zip]), 'boom.bin', 16);
 
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-zip-bomb-'));
-  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  process.on('exit', () => rmTemp(dir));
   const file = path.join(dir, `bomb${DECK_EXT}`);
   writeFileSync(file, bytes);
   assert.throws(() => readContainer(file), /boom\.bin: inflates past/);

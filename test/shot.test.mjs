@@ -97,8 +97,8 @@ test('a deck outside the current directory is refused, not served', async () => 
   } catch { /* the stubbed exit throws to stop shotMain */ } finally {
     process.exit = origExit;
     process.chdir(cwd);
-    rmSync(outside, { recursive: true, force: true });
-    rmSync(here, { recursive: true, force: true });
+    rmTemp(outside);
+    rmTemp(here);
   }
   assert.equal(exitCode, 1, 'shot exits non-zero rather than serving a deck outside the served root');
 });

@@ -21,6 +21,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -117,7 +118,7 @@ test('a transform installs, lists and removes through the same seam as every oth
     ({ code, out } = run(['transform', 'remove', 'grammar-check'], home));
     assert.equal(code, 0, out);
     assert.equal(findUnit('transform', 'grammar-check', home), null);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('installing does not check apiVersion currency — that is the loader\'s job', async () => {
@@ -126,7 +127,7 @@ test('installing does not check apiVersion currency — that is the loader\'s jo
     market(home, { apiVersion: TRANSFORM_API_VERSION + 10 });
     const done = await installUnit('transform', 'grammar-check', home);
     assert.equal(done.name, 'grammar-check', 'a catalog written against a newer contract still installs');
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 // ── the loader itself ───────────────────────────────────────────────────────
@@ -138,7 +139,7 @@ test('runTransform applies the installed transform and reports it unchecked with
     const { html, checked } = await runTransform('shout', '<p>hi</p>', home);
     assert.equal(html, '<P>HI</P>');
     assert.equal(checked, false, 'no cached catalog entry names this transform');
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a matching catalog entry at or under TRANSFORM_API_VERSION runs, and is reported checked', async () => {
@@ -148,7 +149,7 @@ test('a matching catalog entry at or under TRANSFORM_API_VERSION runs, and is re
     await installUnit('transform', 'grammar-check', home);
     const { checked } = await runTransform('grammar-check', '<p>hi</p>', home);
     assert.equal(checked, true);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an apiVersion ahead of TRANSFORM_API_VERSION refuses to run, naming both numbers', async () => {
@@ -162,7 +163,7 @@ test('an apiVersion ahead of TRANSFORM_API_VERSION refuses to run, naming both n
       assert.match(e.message, new RegExp(`up to ${TRANSFORM_API_VERSION}`));
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an uninstalled transform names the install command, not a file-not-found error', async () => {
@@ -174,7 +175,7 @@ test('an uninstalled transform names the install command, not a file-not-found e
       assert.match(e.message, /decklight transform add nope/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a transform with no default export function is refused', async () => {
@@ -186,7 +187,7 @@ test('a transform with no default export function is refused', async () => {
       assert.match(e.message, /no default export function/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a throwing transform is reported cleanly, naming it — never a raw stack', async () => {
@@ -199,7 +200,7 @@ test('a throwing transform is reported cleanly, naming it — never a raw stack'
       assert.doesNotMatch(e.message, /at Object|at async|\.mjs:\d+:\d+/, 'no stack frame leaks through');
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a transform that returns a non-string is refused', async () => {
@@ -211,7 +212,7 @@ test('a transform that returns a non-string is refused', async () => {
       assert.match(e.message, /must return a string \(returned object\)/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('resolveTransform surfaces the same install-command error without running anything', () => {
@@ -222,7 +223,7 @@ test('resolveTransform surfaces the same install-command error without running a
       assert.match(e.message, /decklight transform add nope, decklight transform list/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 // ── bundle --transform, end to end ──────────────────────────────────────────
@@ -241,8 +242,8 @@ test('bundle --transform runs the transform on the deck\'s OWN source, before an
     assert.match(html, /<title>\[XFORM\] Decklight/, 'the transform\'s edit survived into the bundle');
     assert.match(log, /note: transform mark-title applied/);
   } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(path.dirname(out), { recursive: true, force: true });
+    rmTemp(home);
+    rmTemp(path.dirname(out));
   }
 });
 
@@ -257,8 +258,8 @@ test('several --transform flags apply in the order given', () => {
     const html = readFileSync(out, 'utf8');
     assert.match(html, /<title>\[B\]\[A\]Decklight/, 'add-a ran first, so add-b\'s replace lands closer to <title>');
   } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(path.dirname(out), { recursive: true, force: true });
+    rmTemp(home);
+    rmTemp(path.dirname(out));
   }
 });
 
@@ -272,8 +273,8 @@ test('bundle --transform names an uninstalled transform rather than crashing', (
     assert.match(log, /decklight transform add nope/);
     assert.ok(!existsSync(out), 'nothing was written');
   } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(path.dirname(out), { recursive: true, force: true });
+    rmTemp(home);
+    rmTemp(path.dirname(out));
   }
 });
 
@@ -287,8 +288,8 @@ test('bundle --transform surfaces a throw cleanly and writes nothing', () => {
     assert.match(log, /decklight bundle: transform "boom" threw: nope/);
     assert.ok(!existsSync(out), 'nothing was written');
   } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(path.dirname(out), { recursive: true, force: true });
+    rmTemp(home);
+    rmTemp(path.dirname(out));
   }
 });
 
@@ -304,8 +305,8 @@ test('bundle --transform refuses an apiVersion this decklight does not implement
     assert.match(log, new RegExp(`needs apiVersion ${TRANSFORM_API_VERSION + 7}`));
     assert.ok(!existsSync(out), 'nothing was written');
   } finally {
-    rmSync(home, { recursive: true, force: true });
-    rmSync(path.dirname(out), { recursive: true, force: true });
+    rmTemp(home);
+    rmTemp(path.dirname(out));
   }
 });
 
@@ -322,7 +323,7 @@ test('runImporter applies the installed adapter to bytes and reports it unchecke
     const { html, checked } = await runImporter('shout', Buffer.from('<p>hi</p>'), home);
     assert.equal(html, '<P>HI</P>');
     assert.equal(checked, false, 'no cached catalog entry names this importer');
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a matching catalog entry at or under IMPORTER_API_VERSION runs, and is reported checked', async () => {
@@ -332,7 +333,7 @@ test('a matching catalog entry at or under IMPORTER_API_VERSION runs, and is rep
     await installUnit('importer', 'marp-import', home);
     const { checked } = await runImporter('marp-import', Buffer.from('hi'), home);
     assert.equal(checked, true);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an apiVersion ahead of IMPORTER_API_VERSION refuses to run, naming both numbers', async () => {
@@ -346,7 +347,7 @@ test('an apiVersion ahead of IMPORTER_API_VERSION refuses to run, naming both nu
       assert.match(e.message, new RegExp(`up to ${IMPORTER_API_VERSION}`));
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an uninstalled importer names the install command, not a file-not-found error', async () => {
@@ -358,7 +359,7 @@ test('an uninstalled importer names the install command, not a file-not-found er
       assert.match(e.message, /decklight importer add nope, decklight importer list/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an importer with no default export function is refused, citing EXTENSIONS_ADAPTERS', async () => {
@@ -371,7 +372,7 @@ test('an importer with no default export function is refused, citing EXTENSIONS_
       assert.match(e.message, /EXTENSIONS_ADAPTERS/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a throwing importer is reported cleanly, naming it — never a raw stack', async () => {
@@ -384,7 +385,7 @@ test('a throwing importer is reported cleanly, naming it — never a raw stack',
       assert.doesNotMatch(e.message, /at Object|at async|\.mjs:\d+:\d+/, 'no stack frame leaks through');
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an importer that returns a non-string is refused', async () => {
@@ -396,7 +397,7 @@ test('an importer that returns a non-string is refused', async () => {
       assert.match(e.message, /must return a string \(returned object\)/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('resolveImporter surfaces the same install-command error without running anything', () => {
@@ -407,7 +408,7 @@ test('resolveImporter surfaces the same install-command error without running an
       assert.match(e.message, /decklight importer add nope, decklight importer list/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 // ── installed speech engines (SPEC ENGINE_UNITS, #267) ─────────────────────
@@ -462,7 +463,7 @@ test('an engine installs, lists and removes through the same seam as every other
     ({ code, out } = run(['engine', 'remove', 'azure-tts'], home));
     assert.equal(code, 0, out);
     assert.equal(existsSync(unitPath('engine', 'azure-tts', home)), false);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an installed engine loads and speaks, and reports it was installed', async () => {
@@ -479,7 +480,7 @@ test('an installed engine loads and speaks, and reports it was installed', async
     assert.equal(engine.checked, true, 'a cached catalog entry means apiVersion WAS checked');
     const { usage } = await engine.synth('hello');
     assert.equal(usage.chars, 5);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an engine is PINNED like every other code-carrying unit (SPEC UNIT_PINNING)', () => {
@@ -492,7 +493,7 @@ test('an engine is PINNED like every other code-carrying unit (SPEC UNIT_PINNING
     assert.notEqual(code, 0, out);
     assert.match(out, /sha256|digest|pin/i);
     assert.equal(existsSync(unitPath('engine', 'azure-tts', home)), false, 'refused BEFORE any write');
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('apiVersion is the loader\'s check, and capability is refused only at load', async () => {
@@ -507,7 +508,7 @@ test('apiVersion is the loader\'s check, and capability is refused only at load'
       assert.match(e.message, /upgrade decklight/);
       return true;
     });
-  } finally { rmSync(ahead, { recursive: true, force: true }); }
+  } finally { rmTemp(ahead); }
 
   const other = tmp('engine-capability');
   try {
@@ -522,7 +523,7 @@ test('apiVersion is the loader\'s check, and capability is refused only at load'
       assert.match(e.message, /is a transcription engine.*only runs: tts, lipsync/);
       return true;
     });
-  } finally { rmSync(other, { recursive: true, force: true }); }
+  } finally { rmTemp(other); }
 });
 
 test('every way an engine can be malformed is one clean, engine-naming error', async () => {
@@ -548,7 +549,7 @@ test('every way an engine can be malformed is one clean, engine-naming error', a
         return true;
       });
     }
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('stylable defaults to FALSE — an engine that does not say gets no tone step', async () => {
@@ -565,7 +566,7 @@ test('stylable defaults to FALSE — an engine that does not say gets no tone st
     putEngine(home, 'sloppy', 'export default () => ({ name: "s", stylable: "yes", voices: [],'
       + ' listVoices: async () => [], synth: async () => ({ wav: Buffer.alloc(0), usage: {} }) });\n');
     assert.equal((await loadEngine('sloppy', {}, home)).stylable, false);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an engine with no cached catalog entry still runs, and says it was unchecked', async () => {
@@ -575,7 +576,7 @@ test('an engine with no cached catalog entry still runs, and says it was uncheck
     const engine = await loadEngine('handmade', {}, home);
     assert.equal(engine.checked, false);
     assert.equal(engine.name, 'azure-tts', 'the factory names itself; the unit name is the fallback');
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('resolveEngine surfaces the install command without importing anything', () => {
@@ -586,5 +587,5 @@ test('resolveEngine surfaces the install command without importing anything', ()
       assert.match(e.message, /decklight engine add nope, decklight engine list/);
       return true;
     });
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });

@@ -22,6 +22,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -80,7 +81,7 @@ function market({ entries = ENTRIES, home = tmp('units-home') } = {}) {
 
   execFileSync(process.execPath, [CLI, 'marketplace', 'add', root],
     { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
-  return { home, root, cleanup: () => { rmSync(home, { recursive: true, force: true }); rmSync(root, { recursive: true, force: true }); } };
+  return { home, root, cleanup: () => { rmTemp(home); rmTemp(root); } };
 }
 
 const run = (args, home, cwd) => {
@@ -227,7 +228,7 @@ test('installed voices are offered only on the engine they name', () => {
     assert.deepEqual(installedVoices('gemini', home).map((v) => v.label), ['bob'],
       'a voice with no label falls back to its name');
     assert.deepEqual(installedVoices('', home), []);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('voice add refuses a catalog entry of another kind, like every other unit', async () => {
@@ -321,7 +322,7 @@ test('installing needs a FETCHED catalog, and says registering is not that', asy
     assert.match(e.message, /registering is not fetching/);
     return true;
   });
-  rmSync(home, { recursive: true, force: true });
+  rmTemp(home);
 });
 
 // ── offline: the lookups never reach the network ───────────────────────────
@@ -415,7 +416,7 @@ test('init --from scaffolds the installed template, end to end', async () => {
   const deck = readFileSync(path.join(work, 'deck.html'), 'utf8');
   assert.match(deck, /<h1>Acme Seed Round<\/h1>/);
   assert.match(deck, /from template startup-pitch/.test(out) ? /.*/ : /never/, 'the note says where it came from');
-  rmSync(work, { recursive: true, force: true });
+  rmTemp(work);
   m.cleanup();
 });
 
@@ -426,7 +427,7 @@ test('init --from names the install command when the template is only offered', 
   assert.equal(code, 1);
   assert.match(out, /decklight template add startup-pitch@cat/);
   assert.ok(!existsSync(path.join(work, 'deck.html')), 'nothing was scaffolded');
-  rmSync(work, { recursive: true, force: true });
+  rmTemp(work);
   m.cleanup();
 });
 
@@ -436,7 +437,7 @@ test('init --from and --themes are mutually exclusive', () => {
   const { code, out } = run(['init', 'X', '--from', 'p', '--themes', 'aurora', '--no-skill', '--no-git'], m.home, work);
   assert.equal(code, 1);
   assert.match(out, /mutually exclusive/);
-  rmSync(work, { recursive: true, force: true });
+  rmTemp(work);
   m.cleanup();
 });
 
@@ -448,7 +449,7 @@ test('init without --from is exactly what it was', () => {
   const deck = readFileSync(path.join(work, 'deck.html'), 'utf8');
   assert.match(deck, /data-decklight-runtime="js"/, 'the starter deck still inlines the runtime');
   assert.match(deck, /<h1>Plain<\/h1>/);
-  rmSync(work, { recursive: true, force: true });
+  rmTemp(work);
   m.cleanup();
 });
 
@@ -478,7 +479,7 @@ test('an installed adapter actually runs — decklight import produces a deck (E
     assert.match(deck, /<section><h2>Slide one<\/h2>first body<\/section>/);
     assert.match(deck, /<section><h2>Slide two<\/h2>second body<\/section>/);
     assert.match(deck, /data-decklight-runtime="js"/, 'still the standard init output shape');
-  } finally { rmSync(work, { recursive: true, force: true }); m.cleanup(); }
+  } finally { rmTemp(work); m.cleanup(); }
 });
 
 test('an installed adapter that fails its own contract is refused cleanly, not left half-written', async () => {
@@ -497,7 +498,7 @@ test('an installed adapter that fails its own contract is refused cleanly, not l
     assert.equal(code, 1, out);
     assert.match(out, /importer "broken-import" threw: bad markup/);
     assert.ok(!existsSync(path.join(work, 'talk.html')), 'nothing was written');
-  } finally { rmSync(work, { recursive: true, force: true }); m.cleanup(); }
+  } finally { rmTemp(work); m.cleanup(); }
 });
 
 test('with nothing cached, import says exactly what it always said', async () => {
@@ -511,7 +512,7 @@ test('with nothing cached, import says exactly what it always said', async () =>
       '  supported: .pptx, .key (macOS), or a Google Slides URL',
     ], 'no command that worked offline starts needing the network');
   } finally { globalThis.fetch = saved; }
-  rmSync(home, { recursive: true, force: true });
+  rmTemp(home);
 });
 
 test('a file with no extension gets no adapter talk', async () => {
@@ -614,7 +615,7 @@ test('a marketplace skill installs without touching the authoring skill', () => 
   // And re-running the authoring install does not disturb the other one.
   assert.equal(run(['skills', 'claude', '--dir', '.', '--force'], m.home, work).code, 0);
   assert.ok(existsSync(path.join(m.home, 'skills/note-taking/SKILL.md')));
-  rmSync(work, { recursive: true, force: true });
+  rmTemp(work);
   m.cleanup();
 });
 
@@ -625,7 +626,7 @@ test('skills still installs for a named agent, and add/list/remove do not shadow
   const bad = run(['skills', 'nosuchagent'], m.home, work);
   assert.equal(bad.code, 1);
   assert.match(bad.out, /unknown agent/, 'a non-verb positional is still an agent name');
-  rmSync(work, { recursive: true, force: true });
+  rmTemp(work);
   m.cleanup();
 });
 
@@ -659,7 +660,7 @@ test('unknown subcommands and missing names are refused, not crashed', () => {
   assert.equal(run(['template', 'add'], home).code, 1);
   assert.equal(run(['importer', 'remove'], home).code, 1);
   assert.match(run(['template', 'frobnicate'], home).out, /unknown subcommand/);
-  rmSync(home, { recursive: true, force: true });
+  rmTemp(home);
 });
 
 // ── an engine unit's install-time gate (SPEC ENGINE_UNITS, #267) ───────────

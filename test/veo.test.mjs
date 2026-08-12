@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import { join } from 'node:path';
 import { createVeo, VEO_MODELS, VEO_SECONDS } from '../tools/veo.mjs';
 
@@ -35,7 +36,7 @@ function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'veo-test-'));
   const portrait = join(dir, 'face.jpg');
   writeFileSync(portrait, 'JPEGDATA');
-  return { dir, portrait, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return { dir, portrait, cleanup: () => rmTemp(dir) };
 }
 
 test('asks Vertex for video with NO audio — the deck owns the voice, and it is cheaper', async () => {

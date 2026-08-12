@@ -49,7 +49,7 @@ function deckDir() {
  */
 async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs = [] } = {}) {
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-present-home-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.after(() => rmTemp(home));
   const child = spawn(process.execPath, [CLI, 'present', deck, '--port', '0', ...extraArgs],
     { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(() => { child.kill('SIGKILL'); rmTemp(dir); });
@@ -184,8 +184,8 @@ test('a deck outside the chosen --root is refused, not silently rooted elsewhere
     execFileSync(process.execPath, [CLI, 'present', path.join(outer, 'talk.html'), '--port', '0', '--root', '.'],
       { cwd, encoding: 'utf8', stdio: 'pipe', timeout: 8000 });
   } catch (e) { code = e.status; out = String(e.stderr); }
-  rmSync(outer, { recursive: true, force: true });
-  rmSync(cwd, { recursive: true, force: true });
+  rmTemp(outer);
+  rmTemp(cwd);
   assert.equal(code, 1);
   // Named, like every other command's refusals: a bare message in a terminal
   // running several tools cannot be traced back to what printed it.
@@ -197,7 +197,7 @@ test('a deck presents from any cwd — the root travels with the deck, not the s
   // wherever the OS pleases; the served root must not depend on that.
   const dir = deckDir();
   const cwd = mkdtempSync(path.join(tmpdir(), 'decklight-elsewhere-'));
-  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  t.after(() => rmTemp(cwd));
   const { base } = await startPresent(t, dir, { deck: path.join(dir, 'talk.html'), cwd });
 
   assert.equal((await fetch(base + '/')).status, 200);

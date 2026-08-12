@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,7 +31,7 @@ const CLI = path.join(ROOT, 'cli/decklight.mjs');
 
 const tmp = () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-wizard-'));
-  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  process.on('exit', () => rmTemp(dir));
   return dir;
 };
 

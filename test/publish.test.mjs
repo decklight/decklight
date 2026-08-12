@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -125,7 +126,7 @@ test('publish bundles to index.html + .nojekyll on an orphan gh-pages, then appe
   assert.equal(bareGit('rev-parse', 'gh-pages^'), r1.commit);
   assert.deepEqual(snapshot(git), before);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('publish --no-bundle pushes the file as-is; --path nests it and keeps siblings', async () => {
@@ -144,7 +145,7 @@ test('publish --no-bundle pushes the file as-is; --path nests it and keeps sibli
   bareGit('cat-file', '-e', 'gh-pages:.nojekyll');
   assert.equal(bareGit('rev-list', '--count', 'gh-pages'), '2');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('publish honors --branch and --remote', async () => {
@@ -160,7 +161,7 @@ test('publish honors --branch and --remote', async () => {
   assert.throws(() => bareGit('rev-parse', 'refs/heads/gh-pages'), /./,
     'origin untouched when another remote is named');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('the printed URL comes from the remote URL — GitHub remotes get a Pages link', async () => {
@@ -179,7 +180,7 @@ test('the printed URL comes from the remote URL — GitHub remotes get a Pages l
   const r2 = await publishMain([deck, '--no-sign', '--no-bundle', '--path', 'talks']);
   assert.equal(r2.url, 'https://acme.github.io/rocket/talks/');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('first publish points at the Pages setting; the second does not repeat it', () => {
@@ -198,7 +199,7 @@ test('first publish points at the Pages setting; the second does not repeat it',
   assert.match(second.stdout, /\(parent [0-9a-f]{7}\)/);
   assert.doesNotMatch(second.stdout, /Settings → Pages/);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('publish is routed and documented by the dispatcher, and fails usefully', () => {
@@ -229,7 +230,7 @@ test('publish is routed and documented by the dispatcher, and fails usefully', (
   const escape = spawnSync('node', [CLI, 'publish', 'deck.html', '--path', '../evil'], { encoding: 'utf8' });
   assert.equal(escape.status, 1);
   assert.match(escape.stderr, /--path must stay inside the site/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 // --- signing (INTEGRITY#SIGNING) ---------------------------------------------
@@ -255,7 +256,7 @@ test('publish signs by DEFAULT, and the sidecar lands beside the page it covers'
   await publishMain([deck, '--path', 'talks'], { client: stubClient });
   assert.deepEqual(JSON.parse(bareGit('show', 'gh-pages:talks/index.html.sig')), BUNDLE);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('--no-sign publishes the page alone — an opt-out, not a silent skip', async () => {
@@ -263,7 +264,7 @@ test('--no-sign publishes the page alone — an opt-out, not a silent skip', asy
   const { publishMain } = await import('../cli/publish.mjs');
   await publishMain([deck, '--no-sign'], { client: stubClient });
   assert.throws(() => bareGit('cat-file', '-e', 'gh-pages:index.html.sig'));
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('a signing failure pushes NOTHING and names the way past it', () => {
@@ -281,7 +282,7 @@ test('a signing failure pushes NOTHING and names the way past it', () => {
   assert.throws(() => bareGit('rev-parse', 'refs/heads/gh-pages'),
     'nothing was pushed — the branch does not exist');
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 // --- --target: netlify/vercel beside gh-pages (MARKETPLACE.md ENGINES) ------
@@ -302,7 +303,7 @@ test('an unknown --target is refused, and gh-pages plus the real ones are named'
   assert.match(r.stderr, /"heroku" is not a publish target/);
   assert.match(r.stderr, /gh-pages/);
   assert.match(r.stderr, /netlify/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('--branch/--remote are refused alongside a non-gh-pages target — they would silently do nothing', () => {
@@ -312,7 +313,7 @@ test('--branch/--remote are refused alongside a non-gh-pages target — they wou
     { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /--branch\/--remote are gh-pages options/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('a token target with no credentials in the environment refuses and names the real env vars', () => {
@@ -325,7 +326,7 @@ test('a token target with no credentials in the environment refuses and names th
   assert.match(r.stderr, /netlify needs/);
   assert.match(r.stderr, /NETLIFY_AUTH_TOKEN/);
   assert.match(r.stderr, /NETLIFY_SITE_ID/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('publish --target netlify needs no git repo at all, and deploys the bundled page', async () => {
@@ -347,7 +348,7 @@ test('publish --target netlify needs no git repo at all, and deploys the bundled
   assert.equal(result.url, 'https://my-site.netlify.app');
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://api.netlify.com/api/v1/sites/my-site/deploys');
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('publish --target vercel honors --path in the uploaded file name, same as gh-pages', async () => {
@@ -369,5 +370,5 @@ test('publish --target vercel honors --path in the uploaded file name, same as g
 
   assert.equal(result.url, 'https://talks-abc.vercel.app');
   assert.deepEqual(sentFiles.map((f) => f.file), ['talks/index.html']);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });

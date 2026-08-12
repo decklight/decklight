@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { winShellSkip as winSkip, writeRhubarbStub } from './helpers.mjs';
+import { winShellSkip as winSkip, writeRhubarbStub, rmTemp } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TOOL = path.resolve(here, '../tools/lipsync.mjs');
@@ -47,5 +47,5 @@ test('batch visemes: generates sidecars, second run keeps them, edits invalidate
   assert.match(third, /slide 01: visemes unchanged — kept/);
   assert.match(third, /1 generated, 1 unchanged/);
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });

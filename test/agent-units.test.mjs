@@ -22,6 +22,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -105,7 +106,7 @@ test('an agent installs with no network, no source and no sha256 — it is a des
     assert.equal(listUnits('agent', home).length, 1);
 
     assert.match(run(['agent', 'list'], home).out, /my-agent/);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an installed agent joins the roster and builds a real spawn', () => {
@@ -131,7 +132,7 @@ test('an installed agent joins the roster and builds a real spawn', () => {
     assert.match(cmd.args[1], /centre slide 2/, 'the instruction reaches the prompt');
     assert.match(cmd.args[1], /deck\.html/, 'and the prompt names the file');
     assert.deepEqual(cmd.args.slice(2), ['--file', 'deck.html', '--yes']);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a unit may not shadow a built-in, and a malformed one does not take the roster down', () => {
@@ -152,7 +153,7 @@ test('a unit may not shadow a built-in, and a malformed one does not take the ro
     assert.ok(names.includes('claude'), 'the built-ins survive a broken entry');
     assert.equal(names.includes('broken'), false);
     assert.equal(names.includes('shapeless'), false);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 // ── the remembered preference (#125) ───────────────────────────────────────
@@ -176,7 +177,7 @@ test('a preferred agent is remembered, and survives a restart', () => {
     setPreferredAgent(null, home);
     assert.equal(preferredAgent(home), null);
     assert.equal(agentCommand(undefined, 'x', 'd.html', { hasBin: () => true, home }).name, AGENTS[0].name);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a remembered agent that is GONE is named, never silently swapped', () => {
@@ -196,5 +197,5 @@ test('a remembered agent that is GONE is named, never silently swapped', () => {
 
     // a name nothing has ever heard of says how to teach decklight about it
     assert.match(agentUnavailable('nope', roster, home), /decklight agent add nope/);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });

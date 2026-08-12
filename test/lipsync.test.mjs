@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lipsyncMain } from '../tools/lipsync-server.mjs';
-import { winShellSkip as winSkip, writeRhubarbStub } from './helpers.mjs';
+import { winShellSkip as winSkip, writeRhubarbStub, rmTemp } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -23,7 +23,7 @@ if (!winSkip) {
   server = await lipsyncMain(['--port', '0', '--rhubarb', stub, '--cache-dir', path.join(dir, 'cache')]);
   await new Promise((r) => server.on('listening', r));
   base = `http://127.0.0.1:${server.address().port}`;
-  after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+  after(() => { server.close(); rmTemp(dir); });
 }
 
 // 1 KB of fake WAV — the bridge only checks it's plausibly audio (>44 bytes)
