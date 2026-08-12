@@ -5,6 +5,87 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.4.0
+
+20 commits since 0.3.0. The release that stopped taking its own word for it.
+0.3.0 shipped marketplaces anyone could host — and a private one could be
+registered and then never installed from, because the catalog was read with your
+git credentials and its contents were fetched with none. Fixing that turned into
+the theme: a journey test that installs the published package and walks it, a
+platform that had never run the tests at all, and a video export that had been
+throwing away the builds it was asked to show.
+
+### Breaking
+
+- **A marketplace is CLONED, not fetched a file at a time** (`MARKETPLACES#CLONE`,
+  SPEC `MARKETPLACE_REGISTRY`). `owner/repo` is shorthand for a clone rather than
+  for `raw.githubusercontent.com`, so it uses **your** git credentials and a
+  private marketplace works the way `git clone` does in your terminal. The clone
+  is kept at `~/.decklight/marketplaces/<name>/` and entries install from it, so
+  installing touches no network and the manifest and the artifacts provably share
+  one commit — printed by `marketplace list` as `@d19d7e8`. **A catalog cached by
+  0.3.0 has no checkout until its next `marketplace update`**, and an install
+  before that is a named refusal naming that command, never a silent fetch that
+  would only have worked for a public repo (#288, #289, #290)
+- **A silent slide builds as it goes** when filmed. Every capture used to be
+  `#/<n>/999` — the last build — so a deck's builds never appeared in its video
+  at all; the slide arrived finished. Each build step is now its own frame, held
+  for `--hold`, so a filmed deck gets longer the more it builds. `--build-hold
+  <s>` paces the build-up frames alone (#299, #301)
+
+### Added
+
+- **`npm run soak`** — the release gate this project did not have. It runs `npm
+  pack`, installs the tarball into an empty project **whose path contains a
+  space**, and drives the installed `decklight` through one user journey: create,
+  import, marketplace (clone, pin, install), author (slides added by writing the
+  file the way an agent does, edited over the HTTP API, commits watched as they
+  land), present, bundle, transform, pdf, publish, validate, record, film, open.
+  42 steps, ~70s. Everything it cannot do on a given machine skips **by name**
+  (#291, #293, #296, #297, #298, #302)
+- **Windows is tested.** `npm test` runs there on every PR — 948 tests, 64
+  seconds. `tools/chrome.mjs` can find a browser there at all, which `pdf`,
+  `video` and `shot` all needed (#303, #304, #305)
+- `--build-hold <s>` for `decklight video` (#301)
+- A clone failure names what is actually missing: `git credential fill` decides
+  whether this machine has a credential for the host, so the setup instructions
+  print when they apply and stay quiet when they do not (#290)
+
+### Fixed
+
+- **`npm test` ran zero tests on Windows** — `node --test test/*.test.mjs` needs a
+  shell to expand that glob, and npm runs scripts through `cmd`/`pwsh`. It exited
+  1 before the suite started, for as long as the script has existed, so any claim
+  that decklight had been tested there was wrong (#306)
+- A private catalog's 404 no longer asserts the manifest is missing — the two
+  cases are indistinguishable to an unauthenticated fetch, and it now says so
+  (#288)
+- `decklight video --help` printed to stderr and exited 1, alone among 26
+  commands (#294)
+- `decklight present`'s refusals did not name themselves — a bare `deck not
+  found:` in a terminal running several tools cannot be traced to what printed it
+  (#295)
+- `themeNameFrom()` split a path on `/` alone, so `theme check C:\themes\aurora.css`
+  reported the whole path as the theme's name — and `theme add` would then have
+  refused a perfectly good file (#305)
+- `linuxFiles()`/`darwinFiles()` built Linux and macOS paths with the host's
+  separator, describing a `.app` bundle at `C:\Users\…`; `onPath()` sent a
+  backslash path looking down `$PATH` (#305)
+- `resolveSource`'s `<url>/raw/HEAD/<rel>` was GitHub-shaped and wrong for GitLab,
+  independent of auth — gone with the fetch it belonged to (#289)
+
+### Testing
+
+- `test/video-e2e.mjs` had been filming a **403 error page** since the render
+  moved onto the loopback server: its fixture lived in a dot-prefixed directory,
+  which the serving core refuses. Every assertion it made — file exists, ~2s
+  long, h264 and aac streams — was true of that page, because none looked at the
+  picture. It looks now (#300)
+- The suite is portable: `PATH` is spelled `Path` on Windows, a `#!/bin/sh` stub
+  is not executable there, `os.homedir()` does not read `$HOME`, and a directory
+  cannot be removed while a process holds it. A `.gitattributes` keeps text LF on
+  every platform (#305)
+
 ## 0.3.0
 
 197 commits since 0.2.0. The release where a deck stops being something you
