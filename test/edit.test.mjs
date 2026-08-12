@@ -9,10 +9,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { childEnv, writeFakeBin } from './helpers.mjs';
 
 import http from 'node:http';
 
@@ -214,7 +215,9 @@ test('inGitRepo tells a work tree from a plain directory', (t) => {
 async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
   const child = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', ...extraArgs], {
     cwd: dir,
-    env: { ...process.env, ...env },
+    // childEnv, not a spread: Windows spells it `Path`, so `{...process.env,
+    // PATH: dir}` hands the child BOTH and the narrowing silently does nothing.
+    env: childEnv(env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   t.after(() => child.kill('SIGKILL'));
@@ -383,9 +386,10 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   // a fake `claude` on PATH: appends to the deck like a real edit would
   const bin = path.join(dir, 'bin');
   mkdirSync(bin);
-  writeFileSync(path.join(bin, 'claude'),
-    '#!/bin/sh\nprintf \'<!-- agent-was-here -->\' >> deck.html\n');
-  chmodSync(path.join(bin, 'claude'), 0o755);
+  // A .mjs with a per-OS shim, so the same fake agent runs on Windows too
+  // (a `#!/bin/sh` script is not something Windows executes).
+  writeFakeBin(bin, 'claude',
+    "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
 
   const ping = await (await fetch(base + '/edit/ping')).json();
@@ -750,12 +754,13 @@ test('an agent commit contains the agent\'s work only, not what you left uncommi
 
   const bin = path.join(dir, 'bin');
   mkdirSync(bin);
-  writeFileSync(path.join(bin, 'claude'),
-    '#!/bin/sh\nprintf \'<!-- agent-was-here -->\' >> deck.html\n');
-  chmodSync(path.join(bin, 'claude'), 0o755);
+  // A .mjs with a per-OS shim, so the same fake agent runs on Windows too
+  // (a `#!/bin/sh` script is not something Windows executes).
+  writeFakeBin(bin, 'claude',
+    "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
   // the real PATH too, so git is reachable from the server
   const { base } = await startEdit(t, dir, {
-    env: { PATH: `${bin}:${process.env.PATH}` },
+    env: { PATH: `${bin}${path.delimiter}${process.env.PATH}` },
     extraArgs: ['--git', '--git-mode', 'agent'],
   });
 

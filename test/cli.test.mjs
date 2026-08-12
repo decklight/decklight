@@ -23,7 +23,7 @@ import { claudeSkillMd, referenceDoc, reportBugSkillMd, agentsSection } from '..
 import { probe, environmentBlock, issuesUrl } from '../cli/report-bug.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
-import { optionalDepSkip as recSkip } from './helpers.mjs';
+import { optionalDepSkip as recSkip, childEnv, homeEnv } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -643,9 +643,12 @@ test('skills re-run is idempotent — the AGENTS.md section never duplicates', (
 });
 
 // a HOME the agents' global config dirs derive from, with any inherited
-// per-agent overrides cleared so the run resolves under this HOME alone
+// per-agent overrides cleared so the run resolves under this HOME alone.
+// homeEnv sets USERPROFILE beside HOME: os.homedir() reads the first on POSIX
+// and the second on Windows, so setting only HOME redirected nothing there —
+// the run wrote into the real user profile while asserting about a temp one.
 const fakeHomeEnv = (home) => {
-  const env = { ...process.env, HOME: home };
+  const env = childEnv(homeEnv(home));
   delete env.CLAUDE_CONFIG_DIR; delete env.CODEX_HOME;
   delete env.XDG_CONFIG_HOME; delete env.BOB_HOME;
   return env;

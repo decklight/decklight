@@ -120,7 +120,9 @@ export function installedAgents(home = configHome()) {
 /** Is `bin` runnable — an explicit path that exists, or a name on $PATH? */
 export function onPath(bin, env = process.env) {
   if (!bin) return false;
-  if (bin.includes('/')) return existsSync(bin);
+  // An explicit path, spelled either way — a Windows one carries backslashes,
+  // and treating it as a bare name would send it looking down $PATH instead.
+  if (bin.includes('/') || bin.includes('\\')) return existsSync(bin);
   const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
   for (const dir of (env.PATH || '').split(delimiter)) {
     if (!dir) continue;
