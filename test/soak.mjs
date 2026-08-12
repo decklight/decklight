@@ -5,7 +5,8 @@
 // decklight, end to end: pack this repo, install the tarball into an empty
 // project, and drive the INSTALLED `decklight` bin through one full user
 // journey — create, import, marketplace, author, edit, git, present, bundle,
-// validate, open. Runnable manually — `npm run soak` — and NOT part of
+// transform, pdf, publish, validate, open — plus a sweep of the whole command
+// roster. Runnable manually — `npm run soak` — and NOT part of
 // `npm test` (the *.test.mjs glob) or `npm run verify`: it runs a real npm
 // install and takes minutes, and skipping inside the blessed suites would let
 // "green" mean "not actually run" (the video-e2e rule).
@@ -43,6 +44,7 @@
 // .cmd shim on Windows.
 
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
   rmSync, statSync, writeFileSync,
@@ -58,7 +60,7 @@ import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-h
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
-const TOTAL = 30;
+const TOTAL = 37;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -263,10 +265,24 @@ const linkedDeck = (h1) => `<!doctype html>
 </html>
 `;
 
+/**
+ * A build-time transform (SPEC EXTENSIONS_TRANSFORMS): HTML in, HTML out. It
+ * leaves a marker rather than transforming anything real, because what is under
+ * test is that decklight fetched, pinned, installed and RAN somebody else's
+ * Node code — not what the code did.
+ */
+const TRANSFORM_MJS = 'export default async function transform(html) {\n'
+  + '  return html.replace("</body>", "<!-- soak-transform ran -->\\n</body>");\n'
+  + '}\n';
+
+const sha256 = (text) => createHash('sha256').update(text).digest('hex');
+
 /** The marketplace fixture: a real git repo, cloned over file:// like any remote. */
 function buildMarket() {
   mkdirSync(join(MARKET, '.decklight'), { recursive: true });
   mkdirSync(join(MARKET, 'templates'), { recursive: true });
+  mkdirSync(join(MARKET, 'transforms'), { recursive: true });
+  writeFileSync(join(MARKET, 'transforms', 'marker.mjs'), TRANSFORM_MJS);
   writeFileSync(join(MARKET, '.decklight', 'marketplace.json'), `${JSON.stringify({
     name: 'soak-market',
     description: "the soak's own catalog",
@@ -275,6 +291,39 @@ function buildMarket() {
       type: 'template',
       source: './templates/soak-pitch.html',
       description: 'a two-slide pitch',
+    }, {
+      // Node code, so it carries the digest of the module's bytes and installs
+      // only against it (SPEC UNIT_PINNING).
+      name: 'soak-transform',
+      type: 'transform',
+      source: './transforms/marker.mjs',
+      apiVersion: 1,
+      sha256: sha256(TRANSFORM_MJS),
+      description: 'leaves a marker in the bundle',
+    }, {
+      // The same module with NO pin, and with a WRONG one. Both must be
+      // refused, and at different moments: no pin before anything is read, a
+      // bad pin after the read and before any write.
+      name: 'soak-unpinned',
+      type: 'transform',
+      source: './transforms/marker.mjs',
+      apiVersion: 1,
+      description: 'must never install',
+    }, {
+      name: 'soak-badpin',
+      type: 'transform',
+      source: './transforms/marker.mjs',
+      apiVersion: 1,
+      sha256: 'b'.repeat(64),
+      description: 'must never install',
+    }, {
+      // A reference, not a payload (SPEC VOICE_UNITS): no `source` at all, so
+      // installing it fetches nothing. The one add that works offline.
+      name: 'soak-voice',
+      type: 'voice',
+      engine: 'elevenlabs',
+      voiceId: 'soak-voice-id',
+      description: 'a pointer, never a model',
     }],
   }, null, 2)}\n`);
   writeFileSync(join(MARKET, 'templates', 'soak-pitch.html'), `<!doctype html>
@@ -465,6 +514,43 @@ try {
     must(existsSync(installed), 'the template did not land in the library');
     must(readFileSync(installed, 'utf8') === readFileSync(join(MARKET, 'templates', 'soak-pitch.html'), 'utf8'),
       'the installed bytes differ from the marketplace');
+  });
+
+  await step('a voice installs offline, as a pointer', () => {
+    // The one add that fetches nothing: a voice entry carries no `source`, so
+    // there is no code path by which a model could arrive (SPEC VOICE_UNITS).
+    dl(['voice', 'add', 'soak-voice@soak-market']);
+    const ref = JSON.parse(readFileSync(join(HOME, 'voices', 'soak-voice.json'), 'utf8'));
+    must(ref.engine === 'elevenlabs' && ref.voiceId === 'soak-voice-id', `the pointer says ${JSON.stringify(ref)}`);
+    must(!('source' in ref), 'something that looks like a payload survived into the library');
+  });
+
+  await step('code installs only against its digest', () => {
+    // SPEC UNIT_PINNING, both refusals — and they land at different moments: no
+    // pin is refused before anything is read, a wrong pin after the read and
+    // before any write, so neither can leave a half-installed unit behind.
+    const unpinned = dl(['transform', 'add', 'soak-unpinned@soak-market'], { allowFail: true });
+    must(unpinned.code !== 0, 'an unpinned transform installed');
+    must(/carries no sha256/.test(unpinned.all), `the refusal does not name the pin: ${unpinned.all}`);
+
+    const bad = dl(['transform', 'add', 'soak-badpin@soak-market'], { allowFail: true });
+    must(bad.code !== 0, 'a transform whose bytes miss its pin installed');
+    must(/does not match the catalog's pin/.test(bad.all), `the refusal does not name the mismatch: ${bad.all}`);
+    must(!existsSync(join(HOME, 'transforms', 'soak-badpin.mjs')), 'a refused install still wrote a file');
+
+    dl(['transform', 'add', 'soak-transform@soak-market']);
+    must(existsSync(join(HOME, 'transforms', 'soak-transform.mjs')), 'the pinned transform did not install');
+  });
+
+  await step('a second add refreshes rather than duplicating', () => {
+    // Every run so far has had a fresh DECKLIGHT_HOME; a real one accumulates.
+    const again = dl(['marketplace', 'add', `file://${MARKET}`]);
+    must(/refreshed soak-market/.test(again.all), `re-adding said: ${again.stdout}`);
+    dl(['template', 'add', 'soak-pitch@soak-market']);   // re-installing a unit is the update path
+    // And init will not quietly clobber the deck this journey has been editing.
+    const clobber = dl(['init', 'Second Deck', '-o', 'deck.html'], { allowFail: true });
+    must(clobber.code !== 0, 'init overwrote an existing deck');
+    must(/decklight upgrade/.test(clobber.all), 'the refusal does not name what to do instead');
   });
 
   await step('the first-party catalog fetches', () => {
@@ -710,6 +796,82 @@ try {
     must(!/<link\s+rel="stylesheet"/i.test(out), 'the bundle still links a stylesheet');
     must(!/<script\s+src=/i.test(out), 'the bundle still loads an external script');
     must(out.length > 100_000, 'the bundle is suspiciously small');
+  });
+
+  await step('an installed transform runs at bundle time', () => {
+    // The one place decklight runs somebody else's Node code, unsandboxed, at
+    // author privilege (EXTENSIONS#LOADER). Installing it was an earlier step's
+    // business; this is whether it actually RAN.
+    const r = dl(['bundle', 'linked.html', '--transform', 'soak-transform', '-o', 'transformed.html']);
+    must(readFileSync(join(PROJECT, 'transformed.html'), 'utf8').includes('<!-- soak-transform ran -->'),
+      'the transform did not touch the output');
+    must(/soak-transform/.test(r.all), 'the summary does not say which transform ran');
+    const ghost = dl(['bundle', 'linked.html', '--transform', 'not-installed', '-o', 'x.html'], { allowFail: true });
+    must(ghost.code !== 0, 'bundle accepted a transform that is not installed');
+  });
+
+  await step('a deck prints to PDF', () => {
+    if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
+    // Chrome again, but reached the way a user reaches it — and handed paths
+    // with spaces on both sides, which is the shape the #275 crash had.
+    dl(['pdf', 'linked bundle.html', '-o', 'slides out.pdf'], { timeout: 180000 });
+    const pdf = readFileSync(join(PROJECT, 'slides out.pdf'));
+    must(pdf.subarray(0, 5).toString() === '%PDF-', 'the output is not a PDF');
+    must(pdf.length > 10_000, `the PDF is suspiciously small (${pdf.length} B)`);
+    return undefined;
+  });
+
+  await step('publish pushes a site without touching the tree', () => {
+    // A bare repo IS a git remote, so the whole plumbing — hash-object, mktree,
+    // commit-tree, push — runs with no network and no GitHub. What is asserted
+    // is the promise that makes publish safe to run mid-talk: your working
+    // tree, your index and your checked-out branch are never touched.
+    const bare = join(SPACE, 'pages.git');
+    sh(['git', 'init', '--bare', '-q', bare], { cwd: SPACE });
+    sh(['git', 'remote', 'add', 'pages', bare]);
+    const branchBefore = git(['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+    const headBefore = git(['rev-parse', 'HEAD']).trim();
+    const statusBefore = git(['status', '--porcelain']);
+
+    const r = dl(['publish', 'deck.html', '--remote', 'pages', '--no-sign', '--no-bundle']);
+    must(/pushed \w+ → pages refs\/heads\/gh-pages/.test(r.all), `publish said: ${r.all}`);
+    // A remote that is not GitHub must not have a Pages URL invented for it.
+    must(/remote is not GitHub/.test(r.all), 'publish guessed a Pages URL for a remote that has none');
+
+    const landed = sh(['git', `--git-dir=${bare}`, 'ls-tree', '-r', '--name-only', 'gh-pages'])
+      .stdout.split('\n').filter(Boolean);
+    must(landed.includes('index.html') && landed.includes('.nojekyll'),
+      `the published branch holds ${JSON.stringify(landed)}`);
+
+    must(git(['rev-parse', '--abbrev-ref', 'HEAD']).trim() === branchBefore, 'publish moved the checked-out branch');
+    must(git(['rev-parse', 'HEAD']).trim() === headBefore, 'publish committed on the current branch');
+    must(git(['status', '--porcelain']) === statusBefore, 'publish touched the working tree or the index');
+  });
+
+  await step('every command answers --help, and refuses by name', () => {
+    // The journey exercises a dozen commands; this sweeps the roster. `--help`
+    // must exit 0 everywhere, and a bad input must be a NAMED refusal rather
+    // than a stack — the one failure convention (#278), across the whole
+    // surface rather than the few paths this journey happens to walk. It found
+    // `video` answering --help on stderr with exit 1 on its first run (#294).
+    for (const cmd of ['init', 'import', 'bundle', 'upgrade', 'pdf', 'present', 'author', 'publish',
+      'theme', 'marketplace', 'plugin', 'template', 'skills', 'importer', 'transform', 'engine',
+      'voice', 'agent', 'extension', 'restore', 'rec', 'tts', 'lipsync', 'video', 'report-bug', 'associate']) {
+      const r = dl([cmd, '--help']);
+      must(r.stdout.length > 40, `${cmd} --help printed almost nothing to stdout`);
+    }
+    for (const [args, want] of [
+      [['present', 'nope.html'], /present:/],
+      [['import', 'deck.html'], /import:/],
+      [['marketplace', 'add', SPACE], /marketplace add:/],
+      [['theme', 'check', 'nope.css'], /theme check:/],
+      [['template', 'add', 'ghost-unit'], /template add:/],
+      [['upgrade', 'nope.html'], /upgrade:/],
+    ]) {
+      const r = dl(args, { allowFail: true });
+      must(r.code !== 0, `decklight ${args.join(' ')} exited 0`);
+      must(want.test(r.all), `the refusal for "${args.join(' ')}" is not named: ${r.all.slice(0, 200)}`);
+    }
   });
 
   await step('present --check validates the bundle', () => {
