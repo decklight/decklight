@@ -69,6 +69,12 @@ scaffolds a deck with it, and upgrades that deck with the build under test — t
 only check that `upgrade` does what it exists for, since everything else in the
 repo tests one version against itself.
 
+It runs on macOS, Linux and — **written but never executed** — Windows: the
+platform decisions live in `test/soak-platform.mjs`, pure over an injected
+`platform` and covered by `npm test`, so the Windows branches are checked from
+any machine even though no Windows machine has run them. A run on Windows says
+so on its own banner rather than implying it is proven.
+
 A full-fat run needs: Chrome, network, ffmpeg + ffprobe, and a C toolchain. It
 takes about 70s with all of them, ~12s without Chrome and ffmpeg (the two video
 legs are 60% of a full run — one Chrome launch per frame, and builds have frames

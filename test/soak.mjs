@@ -40,8 +40,17 @@
 // the rest still run. A skip is always printed with its reason, so a green soak
 // can never quietly mean "nothing ran".
 //
-// macOS/Linux for now: it drives node_modules/.bin/decklight, which needs the
-// .cmd shim on Windows.
+// PLATFORMS. Every decision about the operating system lives in
+// test/soak-platform.mjs, pure over an injected `platform` and covered by
+// test/soak-platform.test.mjs — the .cmd shims Windows needs, the file:// URL a
+// drive letter needs, and which synthesiser can make narration. That module
+// exists because this one is a SCRIPT (importing it runs the journey), so its
+// own branches are unreachable to a test, and the Windows ones are unreachable
+// to this machine besides.
+//
+// Windows support here is WRITTEN AND UNIT-TESTED, NEVER EXECUTED. The run says
+// so on its own banner. A green soak that quietly implied a platform had been
+// proven would be worse than not supporting it.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -58,6 +67,9 @@ import { findChrome } from '../tools/chrome.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-html.mjs';
 import { ffprobeArgs, TAIL_SECONDS } from '../tools/video.mjs';
+import {
+  cliCommand, npmCommand, gitFileUrl, narrator, narrateArgs, unverifiedPlatform,
+} from './soak-platform.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
@@ -150,8 +162,8 @@ const env = () => ({ ...process.env, DECKLIGHT_HOME: HOME });
  */
 const RAW = /\bENOENT\b|\n\s+at .*\(node:internal/;
 
-function sh(argv, { cwd = PROJECT, timeout = 120000, allowFail = false } = {}) {
-  const r = spawnSync(argv[0], argv.slice(1), { cwd, env: env(), encoding: 'utf8', timeout });
+function sh(argv, { cwd = PROJECT, timeout = 120000, allowFail = false, shell = false } = {}) {
+  const r = spawnSync(argv[0], argv.slice(1), { cwd, env: env(), encoding: 'utf8', timeout, shell });
   const out = { kind: 'cmd', argv, cwd, code: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
   out.all = out.stdout + out.stderr;
   ctx = out;
@@ -161,7 +173,8 @@ function sh(argv, { cwd = PROJECT, timeout = 120000, allowFail = false } = {}) {
   return out;
 }
 
-const dl = (args, opts) => sh([DL, ...args], opts);
+/** The installed CLI — the `.cmd` shim on Windows, which needs a shell. */
+const dl = (args, opts) => sh([DL.bin, ...args], { ...opts, shell: DL.shell });
 
 // ── servers ────────────────────────────────────────────────────────────────
 
@@ -174,8 +187,9 @@ const ports = new Set();
  * the caller passes the SPECIFIC line to match rather than a bare 127.0.0.1:N.
  */
 function startServer(args, re, { timeoutMs = 20000 } = {}) {
-  const argv = [DL, ...args];
-  const child = spawn(argv[0], argv.slice(1), { cwd: PROJECT, env: env(), stdio: ['pipe', 'pipe', 'pipe'] });
+  const argv = [DL.bin, ...args];
+  const child = spawn(argv[0], argv.slice(1),
+    { cwd: PROJECT, env: env(), stdio: ['pipe', 'pipe', 'pipe'], shell: DL.shell });
   kids.add(child);
   let log = '';
   child.stdout.on('data', (c) => { log += c; });
@@ -386,8 +400,12 @@ const HAVE_FFMPEG = have('ffmpeg', '-version') && have('ffprobe', '-version');
 // An offline speech synthesiser to MAKE narration with — not decklight's own
 // TTS, which needs an engine and a key. macOS ships `say`; where there is none,
 // the narrated leg skips rather than pretending silence is a voice.
-const NARRATOR = spawnSync('say', ['-o', join(tmpdir(), 'decklight-soak-probe.aiff'), 'probe'],
-  { stdio: 'ignore' }).status === 0 ? 'say' : null;
+const VOICE = (() => {
+  const n = narrator();
+  if (!n) return null;
+  const [bin, args] = narrateArgs(process.platform, join(tmpdir(), `decklight-soak-probe.${n.ext}`), 'probe');
+  return spawnSync(bin, args, { stdio: 'ignore', timeout: 30000 }).status === 0 ? n : null;
+})();
 const HAVE_NET = spawnSync('git',
   ['ls-remote', '--exit-code', 'https://github.com/decklight/decklight-plugins-official', 'HEAD'],
   { stdio: 'ignore', timeout: 8000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).status === 0;
@@ -404,19 +422,28 @@ MARKET = mkdtempSync(join(tmpdir(), 'decklight-soak-market-'));
 for (const d of [HOME, PROJECT, PACK]) mkdirSync(d, { recursive: true });
 
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+const NPM = npmCommand();
 let tarball;
 let installedThemes = 0;
 let authorSrv = null;
 let failed = false;
 
 console.log(`decklight soak — ${version}, into "${PROJECT}"`);
-console.log(`  chrome ${HAVE_CHROME ? 'yes' : 'no'} · network ${HAVE_NET ? 'yes' : 'no'}\n`);
+console.log(`  ${process.platform} · chrome ${HAVE_CHROME ? 'yes' : 'no'} · network ${HAVE_NET ? 'yes' : 'no'}`
+  + ` · ffmpeg ${HAVE_FFMPEG ? 'yes' : 'no'} · voice ${VOICE ? VOICE.kind : 'no'}`);
+// Windows support here was written and unit-tested (test/soak-platform.test.mjs)
+// and has never been EXECUTED — there is no Windows machine behind it. A green
+// run that quietly implied otherwise would be worse than no run at all.
+if (unverifiedPlatform()) {
+  console.log('  NOTE: this platform\'s support has never been run — a failure here may be the soak, not decklight');
+}
+console.log('');
 
 try {
   // ── install ──────────────────────────────────────────────────────────────
   await step('the repo packs into a tarball', () => {
-    sh(['npm', 'run', 'build'], { cwd: root, timeout: 300000 });
-    const out = sh(['npm', 'pack', '--pack-destination', PACK], { cwd: root, timeout: 300000 });
+    sh([NPM.bin, 'run', 'build'], { cwd: root, timeout: 300000, shell: NPM.shell });
+    const out = sh([NPM.bin, 'pack', '--pack-destination', PACK], { cwd: root, timeout: 300000, shell: NPM.shell });
     tarball = join(PACK, `decklight-${version}.tgz`);
     must(existsSync(tarball), `npm pack did not produce ${tarball}\n${out.all}`);
     must(statSync(tarball).size > 100_000, 'the tarball is suspiciously small');
@@ -429,10 +456,10 @@ try {
     // A real user's .gitignore. `init` runs `git add -A`, so this is what keeps
     // node_modules out of their very first commit — asserted in step 5.
     writeFileSync(join(PROJECT, '.gitignore'), 'node_modules/\n');
-    sh(['npm', 'install', tarball, '--omit=optional', '--no-audit', '--no-fund', '--no-package-lock'],
-      { timeout: 300000 });
-    DL = join(PROJECT, 'node_modules', '.bin', 'decklight');
-    must(existsSync(DL), 'node_modules/.bin/decklight is missing — the bin field or files: regressed');
+    sh([NPM.bin, 'install', tarball, '--omit=optional', '--no-audit', '--no-fund', '--no-package-lock'],
+      { timeout: 300000, shell: NPM.shell });
+    DL = cliCommand(PROJECT);
+    must(existsSync(DL.bin), `${DL.bin} is missing — the bin field or files: regressed`);
     installedThemes = readdirSync(join(PROJECT, 'node_modules', 'decklight', 'themes'))
       .filter((f) => f.endsWith('.css')).length;
     for (const f of ['dist/decklight.js', 'dist/decklight.css', 'themes/aurora.css', 'SPEC.md']) {
@@ -441,7 +468,7 @@ try {
   });
 
   await step('the installed bin reports its version', () => {
-    const r = sh([DL, '--version']);
+    const r = dl(['--version']);
     must(r.stdout.trim() === `decklight ${version}`, `stdout was ${JSON.stringify(r.stdout)}`);
     // --version returns before the `decklight <v>` stderr banner every other
     // command prints; a regression that moved the banner up shows here.
@@ -534,7 +561,7 @@ try {
 
   await step('a marketplace is cloned and kept', () => {
     buildMarket();
-    const r = dl(['marketplace', 'add', `file://${MARKET}`]);
+    const r = dl(['marketplace', 'add', gitFileUrl(MARKET)]);
     must(/registered soak-market/.test(r.all), 'the catalog was not registered');
     must(/cloned to .*marketplaces[/\\]soak-market/.test(r.all), 'no checkout was reported');
     const checkout = join(HOME, 'marketplaces', 'soak-market');
@@ -580,7 +607,7 @@ try {
 
   await step('a second add refreshes rather than duplicating', () => {
     // Every run so far has had a fresh DECKLIGHT_HOME; a real one accumulates.
-    const again = dl(['marketplace', 'add', `file://${MARKET}`]);
+    const again = dl(['marketplace', 'add', gitFileUrl(MARKET)]);
     must(/refreshed soak-market/.test(again.all), `re-adding said: ${again.stdout}`);
     dl(['template', 'add', 'soak-pitch@soak-market']);   // re-installing a unit is the update path
     // And init will not quietly clobber the deck this journey has been editing.
@@ -839,13 +866,14 @@ try {
     // A REAL published release, pinned rather than `@latest`: latest is often
     // the version in this working tree, and a deck that is already current
     // proves nothing. Bump it when 0.2.0 stops being an interesting ancestor.
-    const dep = sh(['npm', 'install', `decklight@${OLDER_RELEASE}`, '--omit=optional',
-      '--no-audit', '--no-fund', '--no-package-lock'], { cwd: oldProject, timeout: 300000, allowFail: true });
+    const dep = sh([NPM.bin, 'install', `decklight@${OLDER_RELEASE}`, '--omit=optional',
+      '--no-audit', '--no-fund', '--no-package-lock'],
+    { cwd: oldProject, timeout: 300000, allowFail: true, shell: NPM.shell });
     if (dep.code !== 0) return { skip: `decklight@${OLDER_RELEASE} would not install` };
 
-    const oldBin = join(oldProject, 'node_modules', '.bin', 'decklight');
-    must(existsSync(oldBin), `decklight@${OLDER_RELEASE} installed no bin`);
-    sh([oldBin, 'init', 'Old Deck'], { cwd: oldProject });
+    const oldCli = cliCommand(oldProject);
+    must(existsSync(oldCli.bin), `decklight@${OLDER_RELEASE} installed no bin`);
+    sh([oldCli.bin, 'init', 'Old Deck'], { cwd: oldProject, shell: oldCli.shell });
     const scaffolded = join(oldProject, 'deck.html');
     must(existsSync(scaffolded), `decklight@${OLDER_RELEASE} scaffolded no deck`);
 
@@ -1002,8 +1030,8 @@ try {
     // skip, not a failure — but where it DOES install, the cast is recorded by
     // running the commands for real, so the output in a deck is captured rather
     // than typed (SPEC TERMINAL_RECORDINGS).
-    const dep = sh(['npm', 'install', 'node-pty', 'js-yaml', '--no-audit', '--no-fund', '--no-package-lock'],
-      { timeout: 300000, allowFail: true });
+    const dep = sh([NPM.bin, 'install', 'node-pty', 'js-yaml', '--no-audit', '--no-fund', '--no-package-lock'],
+      { timeout: 300000, allowFail: true, shell: NPM.shell });
     if (dep.code !== 0) return { skip: 'node-pty would not install (no build toolchain?)' };
 
     dl(['rec', 'smoke.term.yaml', '-o', 'demo cast.json'], { timeout: 180000 });
@@ -1066,7 +1094,7 @@ try {
   await step('a narrated deck follows its voice', () => {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
     if (!HAVE_FFMPEG) return { skip: 'no ffmpeg/ffprobe (apt install ffmpeg / brew install ffmpeg)' };
-    if (!NARRATOR) return { skip: 'no offline voice to narrate with (macOS `say`)' };
+    if (!VOICE) return { skip: 'no offline voice to narrate with (macOS `say`, Windows SAPI)' };
 
     // Narration decklight did not synthesise: a `voiceover/` directory beside
     // the deck with a manifest, which is exactly what `video --voiceover` (or
@@ -1075,11 +1103,13 @@ try {
     // capability, and this step is about what VIDEO does with the audio.
     const vo = join(PROJECT, 'voiceover');
     mkdirSync(vo, { recursive: true });
-    const aiff = join(vo, 'slide-01.aiff');
+    const raw = join(vo, `slide-01.${VOICE.ext}`);
     const m4a = join(vo, 'slide-01.m4a');
-    sh([NARRATOR, '-o', aiff, 'Welcome to the soak test. This slide is narrated by a real voice.']);
-    sh(['ffmpeg', '-y', '-loglevel', 'error', '-i', aiff, '-c:a', 'aac', '-b:a', '96k', m4a]);
-    rmSync(aiff, { force: true });
+    const [vbin, vargs] = narrateArgs(process.platform, raw,
+      'Welcome to the soak test. This slide is narrated by a real voice.');
+    sh([vbin, ...vargs], { timeout: 120000 });
+    sh(['ffmpeg', '-y', '-loglevel', 'error', '-i', raw, '-c:a', 'aac', '-b:a', '96k', m4a]);
+    rmSync(raw, { force: true });
     // Slide 1 speaks, slide 2 is null — a deck is usually part narrated, and
     // the timeline has to handle both in one pass.
     writeFileSync(join(vo, 'manifest.json'), `${JSON.stringify({
