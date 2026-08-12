@@ -80,19 +80,30 @@ try {
   assert.ok(existsSync(out), 'the mp4 exists');
   assert.ok(statSync(out).size > 1000, 'and is not an empty shell');
 
+  // Slide one's `data-build` list steps twice, and a silent slide gives every
+  // build its own frame at the slide's hold — so 3 frames of 1s, then slide
+  // two's own 1s: ~4s, not the ~2s this asserted when a whole slide was one
+  // still. The build-up is the point; the arithmetic moving is the proof.
   const duration = Number(execFileSync('ffprobe', ffprobeArgs(out), { encoding: 'utf8' }).trim());
-  assert.ok(Math.abs(duration - 2) < 0.5, `2 slides × 1s hold ≈ 2s, got ${duration}s`);
+  assert.ok(Math.abs(duration - 4) < 0.5,
+    `slide 1 builds twice (3 × 1s) + slide 2's 1s ≈ 4s, got ${duration}s`);
 
   // The PICTURE, not just the container: average one frame down to a single
-  // pixel and require the deck's own background. An error page (near-black) and
-  // a rendered slide both produce a playable 2s mp4 with the right streams —
-  // only the colour tells them apart, and for four releases nothing looked.
+  // pixel. An error page and a rendered slide both produce a playable mp4 with
+  // the right streams — only the colour tells them apart, and for four releases
+  // nothing looked (this harness filmed the word `forbidden` on black).
+  //
+  // The test is the HUE, not a tolerance around the exact background: which
+  // frame lands at 0.3s depends on how the slide builds, and each one averages
+  // its own mix of background, heading and body text (#1d4ed8 flat vs #15358d
+  // with content over it). What no refusal page can fake is being blue.
   const px = execFileSync('ffmpeg', ['-v', 'error', '-ss', '0.3', '-i', out, '-frames:v', '1',
     '-vf', 'scale=1:1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { encoding: 'buffer' });
   const [r, g, b] = px;
-  assert.ok(Math.abs(r - 0x1d) < 40 && Math.abs(g - 0x4e) < 40 && Math.abs(b - 0xd8) < 40,
-    `the frame should be the deck's background #1d4ed8, got #${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`
-    + ' — a black frame here means the deck was never served (403) and this filmed the error page');
+  const hex = `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+  assert.ok(b > 80 && b > r + 40 && b > g + 40,
+    `the frame should be the deck's blue (#1d4ed8 under its content), got ${hex}`
+    + ' — a grey or black frame here means the deck was never served (403) and this filmed the error page');
 
   // one video stream, one CONTINUOUS audio stream — silent slides still carry audio
   const streams = execFileSync('ffprobe', ['-v', 'error', '-show_entries',

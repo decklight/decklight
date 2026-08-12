@@ -965,8 +965,10 @@ try {
     // ffprobe, not decklight, is what vouches for the result — and the duration
     // question is asked with decklight's own arg builder, so the soak cannot
     // drift from what the product asks.
+    // Slide 2 carries a two-item build, and a silent slide gives every build its
+    // own frame at the slide's hold: 1s + (2 builds + the finished slide) × 1s.
     const seconds = Number(sh(['ffprobe', ...ffprobeArgs(mp4)]).stdout.trim());
-    must(seconds > 1.4 && seconds < 3.2, `expected ~2s of video, got ${seconds}s`);
+    must(seconds > 3.4 && seconds < 4.8, `expected ~4s of video, got ${seconds}s`);
     const streams = sh(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_name,codec_type',
       '-of', 'csv=p=0', mp4]).stdout.trim().split('\n');
     must(streams.some((s) => s.startsWith('h264,video')), `no h264 video stream: ${streams}`);
@@ -982,13 +984,13 @@ try {
     // hold is SPLIT across them, leaving the film exactly as long as its holds.
     must(/frames/.test(r.all), `the render did not step the builds: ${r.all}`);
 
-    // --build-hold buys time for each build-up instead of splitting: same deck,
-    // same --hold, longer film.
-    dl(['video', 'film.html', '-o', 'slower.mp4', '--hold', '1', '--fps', '10', '--build-hold', '0.5'],
+    // --build-hold paces the build-up frames alone — here, quicker than the
+    // slides, which is what it exists for.
+    dl(['video', 'film.html', '-o', 'quicker.mp4', '--hold', '1', '--fps', '10', '--build-hold', '0.25'],
       { timeout: 300000 });
-    const slower = Number(sh(['ffprobe', ...ffprobeArgs(join(PROJECT, 'slower.mp4'))]).stdout.trim());
-    must(slower > seconds + 0.5,
-      `--build-hold did not lengthen the film (${seconds}s split vs ${slower}s held)`);
+    const quicker = Number(sh(['ffprobe', ...ffprobeArgs(join(PROJECT, 'quicker.mp4'))]).stdout.trim());
+    must(quicker < seconds - 0.5,
+      `--build-hold did not change the build pace (${seconds}s default vs ${quicker}s)`);
     return undefined;
   });
 
@@ -1028,9 +1030,14 @@ try {
     // asserting that against a measured `spoken` means this cannot be satisfied
     // by a fixed guess.
     const seconds = Number(sh(['ffprobe', ...ffprobeArgs(out)]).stdout.trim());
-    const expected = spoken + TAIL_SECONDS + 1;   // slide 2 holds --hold over silence
+    // Slide 1 is narrated: one still, its audio + the tail. Slide 2 is silent
+    // and carries a two-item build, so it is three frames of --hold — narrated
+    // slides are timed by their voice, silent ones by the knob, in one film.
+    const silent = 1 * 3;
+    const expected = spoken + TAIL_SECONDS + silent;
     must(Math.abs(seconds - expected) < 0.75,
-      `expected ~${expected.toFixed(2)}s (${spoken.toFixed(2)}s of voice + ${TAIL_SECONDS}s tail + 1s hold), got ${seconds}s`);
+      `expected ~${expected.toFixed(2)}s (${spoken.toFixed(2)}s of voice + ${TAIL_SECONDS}s tail`
+      + ` + ${silent}s of built slide), got ${seconds}s`);
     // And the track is audible. The silent render above measures below -60 dB;
     // if this one did too, the voice never reached the mux.
     const db = meanVolumeDb(out);
