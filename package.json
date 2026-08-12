@@ -36,7 +36,7 @@
   "scripts": {
     "build": "node build.mjs",
     "prepare": "npm run build",
-    "test": "node --test test/*.test.mjs",
+    "test": "node test/run.mjs",
     "verify": "npm run build && node test/verify.mjs",
     "soak": "node test/soak.mjs"
   },
