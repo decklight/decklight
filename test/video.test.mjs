@@ -16,8 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  TAIL_SECONDS, parseSize, parseSlideRange, extractHolds, planTimeline,
-  segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration,
+  TAIL_SECONDS, LAST_STEP, parseSize, parseSlideRange, extractHolds, planTimeline,
+  segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps,
 } from '../tools/video.mjs';
 
 // --- planTimeline -------------------------------------------------------------
@@ -31,13 +31,13 @@ const durations = { 'slide-01.m4a': 3.2, 'slide-03.m4a': 7.05 };
 
 test('a narrated slide holds for its REAL audio duration plus the tail', () => {
   const plan = planTimeline(manifest, durations, [5, 5, 5]);
-  assert.deepEqual(plan[0], { slide: 1, audio: 'slide-01.m4a', duration: 3.2 + TAIL_SECONDS });
-  assert.deepEqual(plan[2], { slide: 3, audio: 'slide-03.m4a', duration: 7.45 });
+  assert.deepEqual(plan[0], { slide: 1, step: LAST_STEP, audio: 'slide-01.m4a', duration: 3.2 + TAIL_SECONDS });
+  assert.deepEqual(plan[2], { slide: 3, step: LAST_STEP, audio: 'slide-03.m4a', duration: 7.45 });
 });
 
 test('a slide without narration holds --hold seconds, per-slide override included', () => {
   const plan = planTimeline(manifest, durations, [5, 8, 5]);   // slide 2: data-video-hold="8"
-  assert.deepEqual(plan[1], { slide: 2, audio: null, duration: 8 });
+  assert.deepEqual(plan[1], { slide: 2, step: LAST_STEP, audio: null, duration: 8 });
 });
 
 test('a fully silent deck (no manifest) is all holds — and still one entry per slide', () => {
@@ -48,7 +48,7 @@ test('a fully silent deck (no manifest) is all holds — and still one entry per
 
 test('a manifest entry whose audio has no measured duration falls back to the hold', () => {
   const plan = planTimeline(manifest, { 'slide-01.m4a': 3.2 }, [5, 5, 6]);
-  assert.deepEqual(plan[2], { slide: 3, audio: null, duration: 6 });
+  assert.deepEqual(plan[2], { slide: 3, step: LAST_STEP, audio: null, duration: 6 });
 });
 
 test('--slides a-b keeps absolute slide numbers and manifest alignment', () => {
@@ -185,4 +185,53 @@ test('--help is an answer, not a failure — like every other command', () => {
   assert.equal(bare.status, 1);
   assert.equal(bare.stdout, '');
   assert.match(bare.stderr, /decklight video/);
+});
+
+// --- builds get frames of their own (silent slides only) ----------------------
+
+test('a silent slide with builds becomes one frame per step, splitting its hold', () => {
+  // The default keeps a deck's LENGTH fixed and changes its pacing: 4 frames
+  // out of a 2s hold is 0.5s each, so adding builds never silently makes a
+  // video longer than the author asked for.
+  const plan = planTimeline(null, {}, [2, 2], null, { steps: [0, 3] });
+  assert.deepEqual(plan.map((p) => [p.slide, p.step, p.duration]), [
+    [1, LAST_STEP, 2],
+    [2, 0, 0.5], [2, 1, 0.5], [2, 2, 0.5], [2, LAST_STEP, 0.5],
+  ]);
+  assert.equal(plan.reduce((t, p) => t + p.duration, 0), 4, 'the deck is exactly as long as its holds');
+});
+
+test('--build-hold gives every build-up frame its own time, and the finished slide the full hold', () => {
+  const plan = planTimeline(null, {}, [2, 2], null, { steps: [0, 3], buildHold: 1 });
+  assert.deepEqual(plan.map((p) => p.duration), [2, 1, 1, 1, 2]);
+});
+
+test('the final frame of a slide is always LAST_STEP, never a counted step', () => {
+  // A miscount can shorten a build-up; it must never leave the slide unfinished,
+  // so the last frame is the same oversized step this command always used.
+  const plan = planTimeline(null, {}, [3], null, { steps: [2] });
+  assert.equal(plan.at(-1).step, LAST_STEP);
+});
+
+test('a narrated slide stays one fully-built still, builds or not', () => {
+  // Splitting narration across builds needs ⟨CLICK⟩ markers mapped to real
+  // timestamps; until that exists, guessing would put words under the wrong
+  // build.
+  const plan = planTimeline(manifest, durations, [5, 5, 5], null, { steps: [4, 4, 4] });
+  assert.equal(plan.filter((p) => p.slide === 1).length, 1);
+  assert.equal(plan[0].step, LAST_STEP);
+  assert.equal(plan.filter((p) => p.slide === 2).length, 5, 'the silent slide still steps');
+});
+
+test('no step counts at all ⇒ exactly the old plan, one still per slide', () => {
+  const plan = planTimeline(null, {}, [5, 5, 5]);
+  assert.deepEqual(plan.map((p) => p.step), [LAST_STEP, LAST_STEP, LAST_STEP]);
+});
+
+test('the build-step probe is read strictly, or not at all', () => {
+  assert.deepEqual(parseBuildSteps('x DECKLIGHT-BUILD-STEPS [0,3,1] y', 3), [0, 3, 1]);
+  assert.equal(parseBuildSteps('nothing here', 3), null, 'a deck that did not report');
+  assert.equal(parseBuildSteps('DECKLIGHT-BUILD-STEPS [0,3]', 3), null, 'a count for the wrong slide count');
+  assert.equal(parseBuildSteps('DECKLIGHT-BUILD-STEPS ["err","boom"]', 2), null, 'the probe reporting a failure');
+  assert.equal(parseBuildSteps('DECKLIGHT-BUILD-STEPS [1,-2]', 2), null, 'a negative count');
 });

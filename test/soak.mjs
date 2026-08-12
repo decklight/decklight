@@ -958,7 +958,7 @@ try {
     // so a 2-slide deck at --hold 1 is ~2s — and ffprobe, not decklight, is
     // what vouches for the result.
     writeFileSync(join(PROJECT, 'film.html'), linkedDeck('Filmed'));
-    dl(['video', 'film.html', '-o', 'talk out.mp4', '--hold', '1', '--fps', '10'], { timeout: 300000 });
+    const r = dl(['video', 'film.html', '-o', 'talk out.mp4', '--hold', '1', '--fps', '10'], { timeout: 300000 });
     const mp4 = join(PROJECT, 'talk out.mp4');
     must(existsSync(mp4), 'no mp4 was written');
 
@@ -976,6 +976,19 @@ try {
     // …and that track is SILENT, which is the whole point of this step: the
     // next one is the same deck with a voice on it.
     must(meanVolumeDb(mp4) < -60, 'a deck with no narration produced audible sound');
+
+    // The deck's second slide has a two-item build, and a silent render gives
+    // every step its own frame — so there are more frames than slides, and the
+    // hold is SPLIT across them, leaving the film exactly as long as its holds.
+    must(/frames/.test(r.all), `the render did not step the builds: ${r.all}`);
+
+    // --build-hold buys time for each build-up instead of splitting: same deck,
+    // same --hold, longer film.
+    dl(['video', 'film.html', '-o', 'slower.mp4', '--hold', '1', '--fps', '10', '--build-hold', '0.5'],
+      { timeout: 300000 });
+    const slower = Number(sh(['ffprobe', ...ffprobeArgs(join(PROJECT, 'slower.mp4'))]).stdout.trim());
+    must(slower > seconds + 0.5,
+      `--build-hold did not lengthen the film (${seconds}s split vs ${slower}s held)`);
     return undefined;
   });
 

@@ -6,12 +6,13 @@
 //
 //   decklight video deck.html -o deck.mp4
 //                   [--narration <dir>] [--size 1280x720] [--fps 30] [--hold 5]
-//                   [--theme <name>] [--slides a-b] [--voiceover]
+//                   [--build-hold <s>] [--theme <name>] [--slides a-b] [--voiceover]
 //
-// One still per slide (final build state), each held for the duration of its
-// narration audio plus a short tail, muxed with that audio into one mp4 — a
-// deck with generated narration becomes a watchable, shareable video in one
-// command. Narration resolves --narration <dir> → <deckdir>/voiceover/
+// A still per FRAME — a narrated slide is one still, fully built, held for its
+// audio; a silent slide builds as it goes, one still per step — muxed with the
+// audio into one mp4, so a deck becomes a watchable, shareable video in one
+// command. A silent slide's builds split its hold by default (the deck's length
+// does not change when you add a build), or take --build-hold seconds each. Narration resolves --narration <dir> → <deckdir>/voiceover/
 // (the manifest tools/voiceover.mjs writes) → a fully silent deck where every
 // slide holds --hold seconds (per-slide override: data-video-hold="8" on the
 // section). Silent slides still carry a silent audio segment (anullsrc) so the
@@ -24,9 +25,11 @@
 // --allow-file-access-from-files (#229): that flag let a deck's own JS read any
 // local file and exfiltrate it, and video renders decks you may not have
 // vetted. No puppeteer, no CDP, no new deps — which is also the honest limit:
-// frames are stills, so the character overlay appears but frozen, and timing is
-// per-slide, not per-build-step (animated lipsync needs a CDP screencast — a
-// Node ≥22 follow-up).
+// frames are stills, so the character overlay appears but frozen and a build
+// CUTS rather than animating (animated capture needs a CDP screencast — a
+// Node ≥22 follow-up). How far each slide builds is asked of the deck itself,
+// in one extra load, because the grouping is the runtime's and a second counter
+// written here would be a copy that drifts.
 
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -36,7 +39,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader, isMain } from './args.mjs';
-import { sectionBodies } from './deck-html.mjs';
+import { injectBeforeBodyEnd, sectionBodies } from './deck-html.mjs';
 import { serveForRender } from '../cli/present.mjs';
 
 const run = promisify(execFile);
@@ -53,12 +56,15 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --fps <n>            video frame rate (default 30)
   --hold <s>           seconds a slide without narration holds (default 5;
                        per-slide override: data-video-hold="8" on the section)
+  --build-hold <s>     seconds each build-up frame holds on a silent slide
+                       (default: the slide's hold, split across its steps)
   --theme <name>       render with themes/<name>.css instead of the deck's theme
   --slides <a-b>       only this slide range (1-based, inclusive)
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first
 
-Slides with narration hold for the audio's real duration + ${TAIL_SECONDS}s; slides
-without hold --hold seconds over silence, so the audio track stays continuous.
+Slides with narration hold for the audio's real duration + ${TAIL_SECONDS}s and show
+fully built; slides without hold --hold seconds over silence and BUILD as they
+go, one frame per step, so the audio track stays continuous either way.
 Needs ffmpeg + ffprobe on PATH, and a Chrome ($CHROME or an installed one).
 `;
 
@@ -93,7 +99,32 @@ export function extractHolds(html, defaultHold) {
 }
 
 /**
- * The per-slide schedule: which audio plays under slide n, and for how long.
+ * An oversized step: the engine clamps it to the slide's last build, so this
+ * always renders a slide fully built however many steps it turns out to have.
+ * Every slide's FINAL frame is captured here rather than at a counted step, so
+ * a miscount can shorten the build-up but can never lose the finished slide.
+ */
+export const LAST_STEP = 999;
+
+const round = (s) => Math.round(s * 1000) / 1000;
+
+/**
+ * The schedule: which frame of which slide is on screen, under what audio, for
+ * how long.
+ *
+ * ONE ENTRY PER FRAME, not per slide. A silent slide with builds is a sequence
+ * — the slide bare, then each build revealed — because a video of a built slide
+ * that opens fully built has thrown away the thing the builds were for. A
+ * NARRATED slide stays one fully-built still: splitting its audio across builds
+ * needs the ⟨CLICK⟩ markers to map to real timestamps, which is its own
+ * feature, and guessing at it would put words under the wrong build.
+ *
+ * Timing, for a silent slide with `b` build steps (so `b + 1` frames):
+ * - by default the slide's hold is SPLIT across them, so adding builds changes
+ *   the pacing of a deck without changing its length;
+ * - `buildHold` instead gives every build-up frame that many seconds and leaves
+ *   the finished slide holding the full hold, so the deck gets longer the more
+ *   it builds.
  *
  * @param {Array|null} manifest   manifest.slides from tools/voiceover.mjs
  *                                ({ file } per slide, null for silent slides) —
@@ -101,18 +132,28 @@ export function extractHolds(html, defaultHold) {
  * @param {object} durations      audio file → real (ffprobe) seconds
  * @param {number[]} holds        per-slide hold seconds (one per section)
  * @param {{from,to}} [range]     1-based inclusive slide range
- * @returns {Array<{slide, audio, duration}>}  audio null ⇒ silent hold
+ * @param {object} [opts]         steps: per-slide build-step counts (null ⇒ one
+ *                                frame per slide); buildHold: seconds per
+ *                                build-up frame (null ⇒ split the hold)
+ * @returns {Array<{slide, step, audio, duration}>}  audio null ⇒ silent hold
  */
-export function planTimeline(manifest, durations, holds, range = null) {
+export function planTimeline(manifest, durations, holds, range = null, { steps = null, buildHold = null } = {}) {
   const from = range?.from ?? 1;
   const to = range?.to ?? holds.length;
   const plan = [];
   for (let n = from; n <= to; n++) {
     const file = manifest?.[n - 1]?.file ?? null;
     const dur = file ? durations?.[file] : null;
-    plan.push(Number.isFinite(dur)
-      ? { slide: n, audio: file, duration: Math.round((dur + TAIL_SECONDS) * 1000) / 1000 }
-      : { slide: n, audio: null, duration: holds[n - 1] });
+    if (Number.isFinite(dur)) {
+      plan.push({ slide: n, step: LAST_STEP, audio: file, duration: round(dur + TAIL_SECONDS) });
+      continue;
+    }
+    const hold = holds[n - 1];
+    const builds = steps?.[n - 1] ?? 0;
+    if (!builds) { plan.push({ slide: n, step: LAST_STEP, audio: null, duration: hold }); continue; }
+    const each = buildHold ?? round(hold / (builds + 1));
+    for (let k = 0; k < builds; k++) plan.push({ slide: n, step: k, audio: null, duration: each });
+    plan.push({ slide: n, step: LAST_STEP, audio: null, duration: buildHold ? hold : each });
   }
   return plan;
 }
@@ -184,6 +225,48 @@ const have = (bin) => {
   catch (e) { return e?.code !== 'ENOENT'; }
 };
 
+/**
+ * The probe that answers "how many build steps does each slide have?".
+ *
+ * Asked of the DECK, in a browser, because that is the only place the answer
+ * exists: grouping is the runtime's (`src/core/builds.js` — `data-build-stay`,
+ * `data-build-self`, nesting, ⟨CLICK⟩ markers), and a second counter written in
+ * Node would be a copy that drifts. It reads the count the same way the capture
+ * URLs do: `goto(n, LAST_STEP)` clamps, so the resulting `state.step` IS the
+ * slide's last step.
+ *
+ * Injected only for this one load, never for the frame captures — a probe that
+ * called `goto` during a screenshot would photograph the wrong slide.
+ */
+const STEP_PROBE = `<script>
+(function () {
+  function report() {
+    var d = window.__decklightProbe, out = [];
+    try {
+      for (var i = 1; i <= d.state.totalSlides; i++) { d.goto(i, ${LAST_STEP}); out.push(d.state.step); }
+    } catch (e) { out = ['err', String(e && e.message)]; }
+    var pre = document.createElement('pre');
+    pre.textContent = 'DECKLIGHT-BUILD-STEPS ' + JSON.stringify(out);
+    document.body.appendChild(pre);
+  }
+  if (document.readyState === 'complete') setTimeout(report, 30);
+  else window.addEventListener('load', function () { setTimeout(report, 30); });
+})();
+</script>`;
+
+/** Make the deck's instance reachable, the way test/import-render.mjs does. */
+const exposeInstance = (html) => html.replace(/\bDecklight\s*\.\s*init\s*\(/, 'window.__decklightProbe = Decklight.init(');
+
+/** Parse the probe's answer out of a dumped DOM; null when it did not report. */
+export function parseBuildSteps(dom, slides) {
+  const m = /DECKLIGHT-BUILD-STEPS (\[[^\]]*\])/.exec(dom);
+  if (!m) return null;
+  let counts;
+  try { counts = JSON.parse(m[1]); } catch { return null; }
+  if (!Array.isArray(counts) || counts.some((c) => !Number.isInteger(c) || c < 0)) return null;
+  return counts.length === slides ? counts : null;
+}
+
 export async function videoMain(argv, { exec = run, log = console.log } = {}) {
   const { opt } = argReader(argv);
   const deckArg = argv.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
@@ -224,8 +307,13 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     const { w, h } = parseSize(opt('--size', '1280x720'));
     const fps = Number(opt('--fps', '30'));
     const hold = Number(opt('--hold', '5'));
+    const buildHoldArg = opt('--build-hold');
+    const buildHold = buildHoldArg === undefined ? null : Number(buildHoldArg);
     if (!Number.isFinite(fps) || fps <= 0) throw new Error(`--fps must be a positive number`);
     if (!Number.isFinite(hold) || hold <= 0) throw new Error(`--hold must be positive seconds`);
+    if (buildHold !== null && (!Number.isFinite(buildHold) || buildHold <= 0)) {
+      throw new Error(`--build-hold must be positive seconds`);
+    }
     const theme = opt('--theme');
 
     const html = readFileSync(deck, 'utf8');
@@ -256,47 +344,74 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       durations[file] = Number((await exec('ffprobe', ffprobeArgs(path))).stdout.trim());
     }
 
-    plan = planTimeline(narration?.slides ?? null, durations, holds, range);
-    log(`${basename(deck)}: ${plan.length} slide${plan.length === 1 ? '' : 's'}, `
-      + `${plan.filter((p) => p.audio).length} narrated`
-      + (narration ? ` (${narration.dir})` : ' (silent)'));
 
     // --theme rides on the deck's response in memory (no temp file): only the
     // deck itself gets the injected link; every other html asset under the root
     // is served untouched. Over the loopback origin `themes/…` resolves exactly
     // as the sibling-copy path used to, so a themed render is unchanged.
-    const inject = theme
-      ? (text, file) => (resolve(file) === deck
+    let probing = false;
+    const inject = (text, file) => {
+      if (resolve(file) !== deck) return text;
+      let out = theme
         ? text.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`)
-        : text)
-      : null;
+        : text;
+      if (probing) out = injectBeforeBodyEnd(exposeInstance(out), STEP_PROBE) ?? out;
+      return out;
+    };
     const deckPath = '/' + relative(root, deck).split(sep).join('/');
 
     const work = mkdtempSync(join(tmpdir(), 'decklight-video-'));
     const server = await serveForRender(root, { html: inject });
     try {
       const chrome = chromeBin('video');
+
+      // Ask the deck how far each slide builds, in one extra load, before any
+      // frame is captured. A deck that will not answer is not an error: the
+      // plan falls back to one fully-built still per slide, which is what this
+      // command did before builds had frames of their own.
+      probing = true;
+      let steps = null;
+      try {
+        const dom = await exec(chrome, chromeArgs(
+          '--hide-scrollbars', `--window-size=${w},${h}`,
+          '--virtual-time-budget=2500', '--dump-dom', `${server.origin}${deckPath}`,
+        ), { maxBuffer: 64 * 1024 * 1024 });
+        steps = parseBuildSteps(dom.stdout, holds.length);
+      } catch { /* fall through to one frame per slide */ }
+      probing = false;
+      if (!steps) console.warn('  builds: the deck did not report its build steps — one still per slide');
+
+      plan = planTimeline(narration?.slides ?? null, durations, holds, range, { steps, buildHold });
+      const slideCount = new Set(plan.map((p) => p.slide)).size;
+      log(`${basename(deck)}: ${slideCount} slide${slideCount === 1 ? '' : 's'}, `
+        + `${plan.filter((p) => p.audio).length} narrated`
+        + (plan.length > slideCount ? `, ${plan.length} frames` : '')
+        + (narration ? ` (${narration.dir})` : ' (silent)'));
+
       const segments = [];
+      let f = 0;
       for (const p of plan) {
         const nn = String(p.slide).padStart(2, '0');
-        const frame = join(work, `frame-${nn}.png`);
-        // one one-shot Chrome per frame; #/n/999 clamps to the last build step
+        const id = `${nn}-${String(f++).padStart(3, '0')}`;
+        const frame = join(work, `frame-${id}.png`);
+        // one one-shot Chrome per frame; LAST_STEP clamps to the last build
         await exec(chrome, chromeArgs(
           '--hide-scrollbars',
           '--autoplay-policy=no-user-gesture-required',
           `--window-size=${w},${h}`,
           '--virtual-time-budget=1500',
           `--screenshot=${frame}`,
-          `${server.origin}${deckPath}#/${p.slide}/999`,
+          `${server.origin}${deckPath}#/${p.slide}/${p.step}`,
         ));
         if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
-        const seg = join(work, `seg-${nn}.mp4`);
+        const seg = join(work, `seg-${id}.mp4`);
         await exec('ffmpeg', segmentArgs({
           frame, duration: p.duration, fps, out: seg,
           audio: p.audio ? join(narration.dir, p.audio) : null,
         }));
         segments.push(seg);
-        log(`  slide ${nn}: ${p.duration.toFixed(1)}s ${p.audio ?? '(silence)'}`);
+        const where = p.step === LAST_STEP ? '' : ` · build ${p.step}`;
+        log(`  slide ${nn}${where}: ${p.duration.toFixed(1)}s ${p.audio ?? '(silence)'}`);
       }
 
       const list = join(work, 'concat.txt');
