@@ -17,14 +17,25 @@ import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
  */
 export function dumpDom(url, {
   budget = 5000, fileAccess = false, maxBuffer = 32 * 1024 * 1024,
-  quietStderr = false, extraFlags = [], who = 'render',
+  quietStderr = false, extraFlags = [], who = 'render', timeout = 0,
 } = {}) {
   return execFileSync(chromeBin(who), chromeArgs(
     ...(fileAccess ? ['--allow-file-access-from-files'] : []),
     ...extraFlags,
     `--virtual-time-budget=${budget}`,
     '--dump-dom', url,
-  ), { encoding: 'utf8', maxBuffer, ...(quietStderr ? { stdio: ['ignore', 'pipe', 'ignore'] } : {}) });
+  ), {
+    encoding: 'utf8',
+    maxBuffer,
+    // `--virtual-time-budget` bounds Chrome's own clock, not the real one: a
+    // page whose virtual time never drains hangs the dump forever, with no
+    // output and no exit. Callers that cannot afford that pass a wall-clock
+    // `timeout` and get a killed child instead of a stuck one — the same
+    // belt-and-braces tools/extension-check.mjs already wears. Off by default,
+    // so no existing harness changes behaviour.
+    ...(timeout ? { timeout, killSignal: 'SIGKILL' } : {}),
+    ...(quietStderr ? { stdio: ['ignore', 'pipe', 'ignore'] } : {}),
+  });
 }
 
 /** Pull the `DECKLIGHT-<NAME>-RESULTS {json}` object a harness page emits. */
