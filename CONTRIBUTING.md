@@ -37,6 +37,16 @@ this install`.
 `test/import-render.mjs` could not see either: it renders an imported deck from
 the working tree, and neither bug was about rendering.
 
+Beyond the journey it also covers the paths that are hard to reach any other
+way: a **pinned transform** installed from a `file://` marketplace and actually
+run by `bundle --transform` — with `UNIT_PINNING`'s two refusals (no pin, wrong
+pin) asserted either side of it — **`publish`** against a local bare repo, which
+exercises the whole git plumbing offline and proves your working tree, index and
+checked-out branch are untouched, and a **roster sweep**: every command answers
+`--help` with exit 0, and a bad input is a refusal that names itself. That sweep
+found two bugs on its first run (#294, #295), both of them one command sitting
+quietly outside a convention everything else follows.
+
 It is manual and deliberately in neither blessed suite: it takes a real `npm
 install`, and skipping inside `npm test` would let "green" mean "not actually
 run". With no Chrome or no network it skips those steps **by name** and runs the
