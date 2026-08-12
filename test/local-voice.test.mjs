@@ -214,7 +214,10 @@ test('piper with no voice model is caught before the bridge starts', () => {
   assert.match(offer.why, /~120 MB, one time/, 'the size is stated before anything is downloaded');
   assert.equal(offer.download.bin, 'uvx');
   assert.deepEqual(offer.download.args.slice(-4),
-    ['piper.download_voices', 'en_US-ryan-high', '--data-dir', '/home/x/.local/share/piper']);
+    // join(): the default data-dir is built from $HOME with the host's
+    // separator, and on Windows `\home\x\.local\share\piper` is what piper
+    // would actually be handed.
+    ['piper.download_voices', 'en_US-ryan-high', '--data-dir', join('/home/x', '.local/share/piper')]);
 });
 
 test('a present model just starts the bridge, and --voice/--data-dir are honored', () => {

@@ -72,7 +72,17 @@ function runLauncher(dir, args) {
   };
 }
 
-test('a hostile deck filename reaches osascript as an argument, never as code', () => {
+/**
+ * The hostile filename this asserts about cannot EXIST on Windows: `"` is one
+ * of the characters the filesystem refuses outright, so the fixture cannot be
+ * created and there is nothing to escape. What it checks — AppleScript quoting
+ * — only ever runs on macOS anyway.
+ */
+const noHostileNames = process.platform === 'win32'
+  ? 'a filename containing a quote cannot exist on Windows, and osascript is macOS-only'
+  : false;
+
+test('a hostile deck filename reaches osascript as an argument, never as code', { skip: noHostileNames }, () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'decklight-assoc-'));
   const deck = path.join(dir, HOSTILE);
   writeFileSync(deck, '<!doctype html>');
