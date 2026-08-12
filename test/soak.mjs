@@ -61,7 +61,17 @@ import { ffprobeArgs, TAIL_SECONDS } from '../tools/video.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
-const TOTAL = 41;
+/**
+ * A decklight that actually shipped, for the cross-version upgrade leg.
+ *
+ * Pinned rather than `@latest` on purpose: `latest` is usually the version in
+ * this working tree, and upgrading a deck that is already current proves
+ * nothing. Bump it when this stops being an interesting ancestor — 0.2.0 is
+ * one THEME_BROWSE#SPLIT ago, so its decks carry themes this build no longer
+ * ships, which is the harder half of the upgrade.
+ */
+const OLDER_RELEASE = '0.2.0';
+const TOTAL = 42;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -395,6 +405,7 @@ for (const d of [HOME, PROJECT, PACK]) mkdirSync(d, { recursive: true });
 
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
 let tarball;
+let installedThemes = 0;
 let authorSrv = null;
 let failed = false;
 
@@ -422,6 +433,8 @@ try {
       { timeout: 300000 });
     DL = join(PROJECT, 'node_modules', '.bin', 'decklight');
     must(existsSync(DL), 'node_modules/.bin/decklight is missing — the bin field or files: regressed');
+    installedThemes = readdirSync(join(PROJECT, 'node_modules', 'decklight', 'themes'))
+      .filter((f) => f.endsWith('.css')).length;
     for (const f of ['dist/decklight.js', 'dist/decklight.css', 'themes/aurora.css', 'SPEC.md']) {
       must(existsSync(join(PROJECT, 'node_modules', 'decklight', f)), `the tarball is missing ${f}`);
     }
@@ -809,6 +822,62 @@ try {
     locateSlide(deck(), 3);   // throws if the added slide did not survive
     must(deck().includes('edited by the soak'), 'the element edit did not survive the upgrade');
     must(deck().includes('typed just before quitting'), 'the last edit did not survive the upgrade');
+  });
+
+  await step('a deck from an older decklight upgrades', () => {
+    if (!HAVE_NET) return { skip: 'no network — the older release could not be installed' };
+    // The step above makes a deck stale by editing its runtime block, which
+    // proves the label NOTICES. This is the real thing: a deck scaffolded by a
+    // decklight that shipped, upgraded by the one in this tarball. Nothing
+    // else in the repo tests across versions, and `upgrade` exists for exactly
+    // this — a deck written months ago, opened today.
+    const oldProject = join(SPACE, 'old project');   // a space here too
+    mkdirSync(oldProject, { recursive: true });
+    writeFileSync(join(oldProject, 'package.json'), `${JSON.stringify({
+      name: 'decklight-soak-old', private: true, version: '0.0.0',
+    }, null, 2)}\n`);
+    // A REAL published release, pinned rather than `@latest`: latest is often
+    // the version in this working tree, and a deck that is already current
+    // proves nothing. Bump it when 0.2.0 stops being an interesting ancestor.
+    const dep = sh(['npm', 'install', `decklight@${OLDER_RELEASE}`, '--omit=optional',
+      '--no-audit', '--no-fund', '--no-package-lock'], { cwd: oldProject, timeout: 300000, allowFail: true });
+    if (dep.code !== 0) return { skip: `decklight@${OLDER_RELEASE} would not install` };
+
+    const oldBin = join(oldProject, 'node_modules', '.bin', 'decklight');
+    must(existsSync(oldBin), `decklight@${OLDER_RELEASE} installed no bin`);
+    sh([oldBin, 'init', 'Old Deck'], { cwd: oldProject });
+    const scaffolded = join(oldProject, 'deck.html');
+    must(existsSync(scaffolded), `decklight@${OLDER_RELEASE} scaffolded no deck`);
+
+    const aged = join(PROJECT, 'from-an-older-decklight.html');
+    copyFileSync(scaffolded, aged);
+    const themesThen = (readFileSync(aged, 'utf8').match(/<style data-theme="/g) ?? []).length;
+    must(themesThen > 0, 'the older deck inlined no themes');
+
+    // This install must SEE that the deck is not its own.
+    const before = dl(['present', 'from-an-older-decklight.html', '--check'], { allowFail: true });
+    must(/DIFFERS from this install/.test(before.all),
+      `a deck from ${OLDER_RELEASE} was not reported as differing from this build: ${before.all}`);
+
+    const up = dl(['upgrade', 'from-an-older-decklight.html']);
+    const after = dl(['present', 'from-an-older-decklight.html', '--check']);
+    must(after.all.includes('identical to this install'),
+      `upgrade did not bring a ${OLDER_RELEASE} deck up to this build: ${after.all}`);
+
+    // What the author wrote survives, and so does every theme they had — even
+    // the ones this decklight no longer ships. 0.2.0 inlined 62; the packs
+    // THEME_BROWSE#SPLIT moved to the marketplace are kept as they were, with a
+    // warning naming them, rather than silently dropped (SPEC PRESENTING).
+    const now = readFileSync(aged, 'utf8');
+    must(/<title>Old Deck<\/title>/.test(now), 'the deck lost its title');
+    const themesNow = (now.match(/<style data-theme="/g) ?? []).length;
+    must(themesNow === themesThen,
+      `upgrade changed the theme count (${themesThen} → ${themesNow}) — a theme it no longer ships must be kept, not dropped`);
+    if (themesThen > installedThemes) {
+      must(/not in this install|no longer|kept/i.test(up.all),
+        `upgrade kept ${themesThen - installedThemes} theme(s) this build does not ship without saying so: ${up.all}`);
+    }
+    return undefined;
   });
 
   await step('a linked deck bundles to one file', () => {
