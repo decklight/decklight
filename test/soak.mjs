@@ -57,11 +57,11 @@ import { dumpDom } from './harness.mjs';
 import { findChrome } from '../tools/chrome.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-html.mjs';
-import { ffprobeArgs } from '../tools/video.mjs';
+import { ffprobeArgs, TAIL_SECONDS } from '../tools/video.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
-const TOTAL = 40;
+const TOTAL = 41;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -234,6 +234,22 @@ function mounted(dom, slides) {
   must(!sections.some((s) => /\sdata-overflow\b/.test(s)), 'a slide overflows its frame');
 }
 
+/**
+ * How loud a file actually is, in dB — ffmpeg's own measurement.
+ *
+ * The difference between "there is an audio stream" and "there is a voice on
+ * it" is the whole question here: a silent render still carries a track, by
+ * design, so a stream count can never tell the two apart. Digital silence
+ * measures around -91 dB (or -inf); speech lands tens of dB above that.
+ */
+function meanVolumeDb(file) {
+  const r = sh(['ffmpeg', '-hide_banner', '-i', file, '-af', 'volumedetect', '-f', 'null', '-'],
+    { allowFail: true });
+  const m = /mean_volume:\s*(-?[\d.]+|-inf) dB/.exec(r.all);
+  must(m, `ffmpeg reported no mean_volume for ${file}`);
+  return m[1] === '-inf' ? -Infinity : Number(m[1]);
+}
+
 const git = (args) => spawnSync('git', args, { cwd: PROJECT, encoding: 'utf8' }).stdout ?? '';
 const deckPath = () => join(PROJECT, 'deck.html');
 const deck = () => readFileSync(deckPath(), 'utf8');
@@ -357,6 +373,11 @@ if (!have('git') || !have('npm')) {
 // findChrome() is the NON-fatal probe; chromeBin() would exit the process.
 const HAVE_CHROME = Boolean(findChrome());
 const HAVE_FFMPEG = have('ffmpeg', '-version') && have('ffprobe', '-version');
+// An offline speech synthesiser to MAKE narration with — not decklight's own
+// TTS, which needs an engine and a key. macOS ships `say`; where there is none,
+// the narrated leg skips rather than pretending silence is a voice.
+const NARRATOR = spawnSync('say', ['-o', join(tmpdir(), 'decklight-soak-probe.aiff'), 'probe'],
+  { stdio: 'ignore' }).status === 0 ? 'say' : null;
 const HAVE_NET = spawnSync('git',
   ['ls-remote', '--exit-code', 'https://github.com/decklight/decklight-plugins-official', 'HEAD'],
   { stdio: 'ignore', timeout: 8000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).status === 0;
@@ -928,7 +949,7 @@ try {
     return undefined;
   });
 
-  await step('a deck renders to a narrated mp4', () => {
+  await step('a silent deck still films, and still carries audio', () => {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
     if (!HAVE_FFMPEG) return { skip: 'no ffmpeg/ffprobe (apt install ffmpeg / brew install ffmpeg)' };
     // Chrome AND ffmpeg, driven by the installed bin: the deck is served over
@@ -952,6 +973,55 @@ try {
     // A silent deck still carries an audio track, so the timeline stays
     // continuous when a narrated slide is added later.
     must(streams.some((s) => s.endsWith(',audio')), `no audio stream: ${streams}`);
+    // …and that track is SILENT, which is the whole point of this step: the
+    // next one is the same deck with a voice on it.
+    must(meanVolumeDb(mp4) < -60, 'a deck with no narration produced audible sound');
+    return undefined;
+  });
+
+  await step('a narrated deck follows its voice', () => {
+    if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
+    if (!HAVE_FFMPEG) return { skip: 'no ffmpeg/ffprobe (apt install ffmpeg / brew install ffmpeg)' };
+    if (!NARRATOR) return { skip: 'no offline voice to narrate with (macOS `say`)' };
+
+    // Narration decklight did not synthesise: a `voiceover/` directory beside
+    // the deck with a manifest, which is exactly what `video --voiceover` (or
+    // tools/voiceover.mjs) leaves behind. That seam is what lets this run with
+    // no TTS engine, no key and no network — the synthesis is a different
+    // capability, and this step is about what VIDEO does with the audio.
+    const vo = join(PROJECT, 'voiceover');
+    mkdirSync(vo, { recursive: true });
+    const aiff = join(vo, 'slide-01.aiff');
+    const m4a = join(vo, 'slide-01.m4a');
+    sh([NARRATOR, '-o', aiff, 'Welcome to the soak test. This slide is narrated by a real voice.']);
+    sh(['ffmpeg', '-y', '-loglevel', 'error', '-i', aiff, '-c:a', 'aac', '-b:a', '96k', m4a]);
+    rmSync(aiff, { force: true });
+    // Slide 1 speaks, slide 2 is null — a deck is usually part narrated, and
+    // the timeline has to handle both in one pass.
+    writeFileSync(join(vo, 'manifest.json'), `${JSON.stringify({
+      slides: [{ file: 'slide-01.m4a', hash: 'soak' }, null],
+    }, null, 2)}\n`);
+
+    const spoken = Number(sh(['ffprobe', ...ffprobeArgs(m4a)]).stdout.trim());
+    must(spoken > 1, `the narration is only ${spoken}s — too short to tell anything from`);
+
+    const out = join(PROJECT, 'narrated talk.mp4');
+    const r = dl(['video', 'film.html', '-o', 'narrated talk.mp4', '--hold', '1', '--fps', '10'],
+      { timeout: 300000 });
+    must(/1 narrated/.test(r.all), `video did not report the narration it found: ${r.all}`);
+
+    // THE assertion: a narrated slide holds for the audio's REAL duration plus
+    // the tail, not for --hold. So the film is as long as the voice is, and
+    // asserting that against a measured `spoken` means this cannot be satisfied
+    // by a fixed guess.
+    const seconds = Number(sh(['ffprobe', ...ffprobeArgs(out)]).stdout.trim());
+    const expected = spoken + TAIL_SECONDS + 1;   // slide 2 holds --hold over silence
+    must(Math.abs(seconds - expected) < 0.75,
+      `expected ~${expected.toFixed(2)}s (${spoken.toFixed(2)}s of voice + ${TAIL_SECONDS}s tail + 1s hold), got ${seconds}s`);
+    // And the track is audible. The silent render above measures below -60 dB;
+    // if this one did too, the voice never reached the mux.
+    const db = meanVolumeDb(out);
+    must(db > -50, `the narrated mp4 is silent (mean volume ${db} dB) — the voice never reached the mux`);
     return undefined;
   });
 
