@@ -324,18 +324,26 @@ export async function editMain(args) {
   };
   /** Every theme entry a registered marketplace offers, qualified. */
   const browsableThemes = async () => {
-    const { loadRegistry, loadCatalog } = await import('./marketplace.mjs');
-    const registered = Object.keys(loadRegistry().marketplaces ?? {});
+    const { loadRegistry, loadCatalog, checkoutPath, classifySource, configHome } = await import('./marketplace.mjs');
+    const registry = loadRegistry().marketplaces ?? {};
     const themes = [];
     // Registered-but-never-fetched is the FIRST-RUN state, not an error — the
     // first-party marketplace is deliberately in it — so it is reported as
     // something the presenter can act on (`marketplace update <name>`) rather
     // than as an empty list that looks like an empty marketplace.
     const stale = [];
-    for (const market of registered) {
+    for (const [market, m] of Object.entries(registry)) {
       const loaded = loadCatalog(market);
       if (!loaded) { stale.push(market); continue; }
       if (!loaded.ok) { stale.push(market); continue; }
+      // A cached catalog whose FILES are not on disk is the same actionable
+      // state wearing a different face: since MARKETPLACES#CLONE an entry
+      // installs from the marketplace's checkout, so listing its themes would
+      // be offering rows that can only fail. `marketplace update` fixes both.
+      if (classifySource(m.source ?? '').kind !== 'local' && !existsSync(checkoutPath(configHome(), market))) {
+        stale.push(market);
+        continue;
+      }
       for (const e of loaded.manifest.entries ?? []) {
         if (e.type !== 'theme') continue;
         themes.push({
@@ -645,7 +653,12 @@ export async function editMain(args) {
         // different permissions on this path.
         const { loadRegistry } = await import('./marketplace.mjs');
         const market = loadRegistry().marketplaces?.[hit.marketplace];
-        const src = resolveSource(hit.entry.source, market?.source);
+        let src;
+        try { src = resolveSource(hit.entry.source, { name: hit.marketplace, source: market?.source }); }
+        catch (e) {
+          if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
+          throw e;
+        }
         let css;
         try { css = await fetchTheme(src); }
         catch (e) { return json(502, { ok: false, error: `could not read ${src}: ${oneline(e)}` }); }

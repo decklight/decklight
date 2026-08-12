@@ -589,8 +589,27 @@ reads as "not yet" rather than as a typo — the two must never look alike.
 the source's root and registers the catalog; `list`, `update <name>` and
 `remove <name>` complete the roster. State lives under `~/.decklight/`
 (`DECKLIGHT_HOME` overrides): one registry file, `marketplaces.json`, plus a
-`marketplaces/` directory of cached manifests — the config home the engine
-wizard (MARKETPLACE.md ENGINES) shares.
+`marketplaces/` directory holding, per marketplace, its cached manifest
+(`<name>.json`) and the checkout that manifest came with (`<name>/`) — the
+config home the engine wizard (MARKETPLACE.md ENGINES) shares.
+
+**A remote marketplace is read by cloning it** (MARKETPLACE.md
+`MARKETPLACES#CLONE`), never by fetching one file at a time off a raw-content
+host, and `owner/repo` is shorthand for that clone rather than for a URL. Three
+things follow, and each was a bug before it did. A clone uses **the caller's own
+git credentials**, so a marketplace in a private repo works exactly as `git
+clone` does in that terminal — a credential helper for HTTPS (`gh auth
+setup-git`, the macOS Keychain), or the SSH form of the URL; an anonymous fetch
+had none, so a private catalog could register and then 404 on every install.
+The manifest and every entry's bytes come from **one commit**, recorded in the
+registry and printed by `list`, where fetching each artifact separately at
+`HEAD` could produce an install matching no single commit of the marketplace.
+And because the clone is kept — `~/.decklight/marketplaces/<name>/`, its `.git`
+dropped, replaced wholesale by the next `update` and removed by `remove` —
+**installing an entry reads the disk**, not the network. A local-path
+marketplace keeps no checkout: its own directory already is one. An entry whose
+`source` is an absolute `https://` URL (a gist, a release asset) is still
+fetched as written.
 
 **The invariant everything above serves: registering is not fetching.** The
 network is touched only by an explicit `add` or `update` of a remote source —
@@ -673,10 +692,13 @@ bytes — lowercase hex, exactly as `sha256sum` prints it:
 ```
 
 **Why the pin exists.** An entry's relative `source` resolves against the
-marketplace's default branch (`resolveSource` fetches `HEAD` deliberately — no
-branch name is guessed at), so the bytes an install fetches are whatever the
-file says *now*, not whatever it said when the marketplace admitted the entry
-(`EXTENSIONS_CHECK`). For a theme that gap is closed by `theme add` re-running
+marketplace's checkout, cloned at whatever the default branch pointed to when
+`add`/`update` ran (`resolveSource`; no branch name is guessed at) — so the
+bytes an install writes are whatever the file said at that moment, not
+whatever it said when the marketplace admitted the entry (`EXTENSIONS_CHECK`).
+Cloning closed the narrower gap of manifest and artifact disagreeing with each
+other; it cannot close this one, which is between the admission and the
+install. For a theme that gap is closed by `theme add` re-running
 the entire THEMING contract at install; for Node code the loader runs
 unsandboxed at author privilege (`EXTENSIONS_TRANSFORMS`,
 `EXTENSIONS_ADAPTERS`) there is no equivalent re-check — the digest is what

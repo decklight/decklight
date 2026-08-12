@@ -20,10 +20,11 @@ import { fileURLToPath } from 'node:url';
 import {
   FIRST_PARTY, MANIFEST_PATH, MarketplaceError, TRANSFORM_API_VERSION, IMPORTER_API_VERSION,
   ENGINE_API_VERSION, ENGINE_CAPABILITIES, INSTALL_HINT,
-  classifySource, configHome, ensureFirstPartyRegistered, fetchManifestText,
+  checkoutPath, classifySource, cloneUrl, configHome, ensureFirstPartyRegistered, fetchManifest,
   jsonLineMap, loadCatalog, loadRegistry, parseErrorLine, resolveEntry,
   validateManifest,
 } from '../cli/marketplace.mjs';
+import { resolveSource } from '../cli/theme.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -254,46 +255,70 @@ test('a source spec is read the way a human meant it', () => {
   assert.equal(classifySource('https://github.com/a/b.git', never).repo, 'b');
   assert.equal(classifySource('git@example.com:a/b.git', never).kind, 'git');
   assert.equal(classifySource('https://gitlab.com/a/b.git', never).kind, 'git');
+  assert.equal(classifySource('file:///srv/mirrors/nord.git', never).kind, 'git');
   assert.equal(classifySource('./local/dir', never).kind, 'local');
   // a path that EXISTS wins over the owner/repo reading — you meant the dir
   assert.equal(classifySource('a/b', { exists: () => true }).kind, 'local');
 });
 
-test('a fetch failure is fast and says which marketplace and why', async () => {
-  const src = classifySource('ghost/catalog', { exists: () => false });
-  await assert.rejects(
-    fetchManifestText(src, { fetchImpl: () => Promise.reject(Object.assign(new Error('x'), { cause: { code: 'ENOTFOUND' } })) }),
-    (e) => e instanceof MarketplaceError && /ghost\/catalog/.test(e.message) && /ENOTFOUND/.test(e.message),
-  );
-  await assert.rejects(
-    fetchManifestText(src, { fetchImpl: async () => ({ ok: false, status: 404 }) }),
-    (e) => e instanceof MarketplaceError && /ghost\/catalog/.test(e.message)
-      && /HTTP 404/.test(e.message) && new RegExp(MANIFEST_PATH.replace('.', '\\.')).test(e.message),
-  );
+test('every remote spec is a CLONE — owner/repo is shorthand for one, not for a raw host', () => {
+  // The private-marketplace bug started here: `owner/repo` used to mean an
+  // unauthenticated fetch of raw.githubusercontent.com, which cannot see a
+  // private repo at all. A clone uses the caller's own git credentials, so
+  // the shorthand and the git URL now reach the same place the same way.
+  const never = { exists: () => false };
+  assert.equal(cloneUrl(classifySource('acme/catalog', never)), 'https://github.com/acme/catalog.git');
+  assert.equal(cloneUrl(classifySource('https://github.com/acme/catalog', never)), 'https://github.com/acme/catalog.git');
+  assert.equal(cloneUrl(classifySource('git@github.com:acme/catalog.git', never)), 'git@github.com:acme/catalog.git');
+  const src = fs.readFileSync(path.join(root, 'cli', 'marketplace.mjs'), 'utf8');
+  assert.doesNotMatch(src, /raw\.githubusercontent\.com\/\$\{/, 'no raw-content URL is built anywhere');
 });
 
-test('a 404 on the raw path names BOTH things it can mean — it cannot tell them apart', async () => {
-  // raw.githubusercontent.com answers 404 for a public repo missing the
-  // manifest AND for a private repo it will not admit exists. The message used
-  // to assert the first, which is the wrong half for anyone pointing at their
-  // own org's catalog. It may not pick one, and it may not claim the escape
-  // hatch is complete: the SSH form clones with the caller's credentials and
-  // registers, but installing an entry from it still fetches unauthenticated.
+test('a clone failure is fast, says why, and names what a private repo needs', async () => {
+  // The failure a private GitHub marketplace actually hits now. It may not
+  // read as "you got the repo wrong": what is missing is a credential helper,
+  // and the SSH form is the route that needs none.
   const src = classifySource('acme/private-catalog', { exists: () => false });
-  const e = await fetchManifestText(src, { fetchImpl: async () => ({ ok: false, status: 404 }) })
-    .then(() => null, (err) => err);
+  const boom = () => { throw Object.assign(new Error('exit 128'), { stderr: 'remote: Repository not found.\n' }); };
+  const e = await fetchManifest(src, { exec: boom, stagingIn: tmp() }).then(() => null, (err) => err);
   assert.ok(e instanceof MarketplaceError);
-  assert.doesNotMatch(e.message, /^acme\/private-catalog has no/, 'no longer asserts the missing-file case as fact');
-  assert.match(e.message, /has no manifest, or it is private/);
-  assert.match(e.message, /unauthenticated/);
-  assert.match(e.message, /git@github\.com:acme\/private-catalog\.git/, 'and names the form that does clone');
-  assert.match(e.message, /only REGISTERS/, 'without implying SSH fixes installing too');
+  assert.match(e.message, /git clone https:\/\/github\.com\/acme\/private-catalog\.git failed/);
+  assert.match(e.message, /Repository not found/, 'git gets to say what happened');
+  assert.match(e.message, /your own git credentials/);
+  assert.match(e.message, /gh auth setup-git/);
+  assert.match(e.message, /decklight marketplace add git@github\.com:acme\/private-catalog\.git/);
+});
+
+test('offline is answered as offline, never as a credentials problem', async () => {
+  const src = classifySource('acme/catalog', { exists: () => false });
+  const offline = () => {
+    throw Object.assign(new Error('exit 128'),
+      { stderr: "fatal: unable to access 'https://github.com/acme/catalog.git/': Could not resolve host: github.com" });
+  };
+  const e = await fetchManifest(src, { exec: offline, stagingIn: tmp() }).then(() => null, (err) => err);
+  assert.match(e.message, /offline\?/);
+  assert.doesNotMatch(e.message, /credential helper/, 'a plane is not a missing credential');
+});
+
+test('a failed clone leaves no staging directory behind', async () => {
+  const staging = tmp();
+  const boom = () => { throw Object.assign(new Error('exit 128'), { stderr: 'fatal: could not read Username' }); };
+  await assert.rejects(fetchManifest(classifySource('acme/x', { exists: () => false }),
+    { exec: boom, stagingIn: staging }));
+  assert.deepEqual(fs.readdirSync(staging), [], 'nothing half-cloned survives a failure');
 });
 
 test('a local source that is not a marketplace repo says so', async () => {
   const dir = tmp();
-  await assert.rejects(fetchManifestText(classifySource(dir)),
+  await assert.rejects(fetchManifest(classifySource(dir)),
     (e) => e instanceof MarketplaceError && /is it a marketplace repo\?/.test(e.message));
+});
+
+test('a local marketplace is read in place — no clone, no checkout', async () => {
+  const got = await fetchManifest(classifySource(marketRepo(GOOD)));
+  assert.equal(got.checkout, null, "somebody's working tree is not copied into the config home");
+  assert.equal(got.commit, null);
+  assert.equal(validateManifest(got.raw).ok, true);
 });
 
 // ── registered, not fetched ────────────────────────────────────────────────
@@ -339,7 +364,7 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
   // So: fetching is forbidden, and the fetching functions are named. The
   // registered-not-fetched invariant is intact; `marketplace update` is still
   // the only thing that reaches the network, and it is not on this path.
-  const FETCHERS = /fetchManifestText|raw\.githubusercontent|marketplaceMain/;
+  const FETCHERS = /fetchManifest|cloneMarketplace|raw\.githubusercontent|marketplaceMain/;
   const files = [
     ...fs.readdirSync(path.join(root, 'src'), { recursive: true })
       .filter((f) => /\.(js|mjs)$/.test(f)).map((f) => path.join('src', f)),
@@ -453,6 +478,124 @@ test('two marketplaces may not silently share a registry name', () => {
   const named = run(home, 'add', marketRepo(GOOD), '--name', 'nord-pack-2');
   assert.equal(named.status, 0, named.stderr);
   assert.match(run(home, 'list').stdout, /nord-deep@nord-pack-2/);
+});
+
+// ── the checkout: entries come from the clone, not from a second fetch ─────
+// (MARKETPLACES#CLONE, #286)
+
+/** A marketplace as a REAL git repo, clonable over file:// like any remote. */
+function gitMarketRepo(manifestText, files = {}) {
+  const dir = marketRepo(manifestText);
+  for (const [rel, text] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), text);
+  }
+  const g = (...args) => execFileSync('git', args, { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+  g('init', '-q');
+  g('add', '-A');
+  g('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'catalog');
+  return { dir, url: `file://${dir}`, commit: () => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim() };
+}
+
+const TEMPLATES = `{
+  "name": "nord-pack",
+  "entries": [
+    { "name": "pitch", "type": "template", "source": "./templates/pitch.html" }
+  ]
+}
+`;
+const PITCH = '<!doctype html><html><head><title>Pitch</title></head>'
+  + '<body><div class="decklight"><section><h1>Pitch</h1></section></div></body></html>';
+
+test('adding a remote marketplace keeps the clone its entries install from', () => {
+  const home = tmp();
+  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  const add = run(home, 'add', repo.url);
+  assert.equal(add.status, 0, add.stderr);
+  assert.ok(fs.existsSync(path.join(home, 'marketplaces', 'nord-pack.json')), 'the cached manifest');
+  const checkout = checkoutPath(home, 'nord-pack');
+  assert.ok(fs.existsSync(path.join(checkout, 'templates/pitch.html')), "and the entry's own files");
+  assert.equal(fs.existsSync(path.join(checkout, '.git')), false,
+    'a checkout, not a repository — nothing ever pulls into it');
+  assert.match(add.stdout, new RegExp(`cloned to ${checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(add.stdout, new RegExp(repo.commit().slice(0, 7)), 'and says which commit this catalog is');
+  assert.equal(loadRegistry(home).marketplaces['nord-pack'].commit, repo.commit());
+  assert.deepEqual(fs.readdirSync(path.join(home, 'marketplaces')).filter((f) => f.startsWith('.staging')), [],
+    'staging is a moment, not a directory that accumulates');
+});
+
+test('installing an entry from a remote marketplace reads the checkout — no second fetch', () => {
+  // The bug this closes: the manifest was read one way (a clone, with the
+  // caller's credentials) and every artifact another (an anonymous URL), so a
+  // private catalog listed correctly and 404'd on every install. A file:// remote
+  // makes that impossible to fake — there is no host to fetch the entry from.
+  const home = tmp();
+  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  assert.equal(run(home, 'add', repo.url).status, 0);
+  const r = spawnSync('node', [CLI, 'template', 'add', 'pitch@nord-pack'],
+    { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home } });
+  assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+  assert.equal(fs.readFileSync(path.join(home, 'templates', 'pitch.html'), 'utf8'), PITCH);
+});
+
+test('update re-clones: the catalog and the files move together', () => {
+  const home = tmp();
+  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  assert.equal(run(home, 'add', repo.url).status, 0);
+
+  const next = PITCH.replace('Pitch', 'Pitch v2');
+  fs.writeFileSync(path.join(repo.dir, 'templates/pitch.html'), next);
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qam', 'v2'],
+    { cwd: repo.dir, stdio: ['ignore', 'pipe', 'pipe'] });
+
+  const up = run(home, 'update', 'nord-pack');
+  assert.equal(up.status, 0, up.stderr);
+  assert.equal(fs.readFileSync(path.join(checkoutPath(home, 'nord-pack'), 'templates/pitch.html'), 'utf8'), next);
+  assert.equal(loadRegistry(home).marketplaces['nord-pack'].commit, repo.commit(), 'the registry follows');
+  assert.match(run(home, 'list').stdout, new RegExp(`@${repo.commit().slice(0, 7)}`));
+});
+
+test('a failed update keeps BOTH halves of what is on disk — manifest and checkout', () => {
+  const home = tmp();
+  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  assert.equal(run(home, 'add', repo.url).status, 0);
+  fs.rmSync(repo.dir, { recursive: true, force: true });   // the source is gone
+
+  const r = run(home, 'update', 'nord-pack');
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /cached copy is untouched/);
+  assert.equal(fs.readFileSync(path.join(checkoutPath(home, 'nord-pack'), 'templates/pitch.html'), 'utf8'), PITCH,
+    'a clone is adopted only once it validates, so an install still works after a failed update');
+  assert.match(run(home, 'list').stdout, /pitch@nord-pack/);
+});
+
+test('remove drops the checkout too — unregistering leaves nothing behind', () => {
+  const home = tmp();
+  const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
+  run(home, 'add', repo.url);
+  assert.equal(run(home, 'remove', 'nord-pack').status, 0);
+  assert.equal(fs.existsSync(checkoutPath(home, 'nord-pack')), false);
+  assert.equal(fs.existsSync(path.join(home, 'marketplaces', 'nord-pack.json')), false);
+});
+
+test("an entry's source resolves against the checkout, the local dir, or nothing at all", () => {
+  const home = tmp();
+  fs.mkdirSync(checkoutPath(home, 'nord-pack'), { recursive: true });
+  const at = (source, market) => resolveSource(source, market, home);
+
+  assert.equal(at('./themes/x.css', { name: 'nord-pack', source: 'acme/catalog' }),
+    path.join(checkoutPath(home, 'nord-pack'), 'themes/x.css'));
+  // an absolute URL entry is still its own address — a gist, a release asset
+  assert.equal(at('https://gist.github.com/x.css', { name: 'nord-pack', source: 'acme/catalog' }),
+    'https://gist.github.com/x.css');
+  // a local marketplace has no checkout: its own directory is the checkout
+  const dir = marketRepo(GOOD);
+  assert.equal(at('./themes/x.css', { name: 'local-pack', source: dir }), path.join(dir, 'themes/x.css'));
+  // registered from a remote source with nothing cloned yet — a named refusal,
+  // never a fetch that would only have worked for a public repo
+  assert.throws(() => at('./themes/x.css', { name: 'ghost', source: 'acme/catalog' }),
+    (e) => e instanceof MarketplaceError && /no local checkout/.test(e.message)
+      && /decklight marketplace update ghost/.test(e.message));
 });
 
 // ── qualified names ────────────────────────────────────────────────────────
