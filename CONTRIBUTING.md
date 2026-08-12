@@ -50,7 +50,12 @@ quietly outside a convention everything else follows.
 It also covers the two capabilities that need more than Node: **`rec`** records a
 cast in a real PTY (after asserting that, without the optional deps, the refusal
 names the package *and* the command that installs it), and **`video`** renders a
-deck to an mp4 that `ffprobe` — not decklight — vouches for.
+deck to an mp4 that `ffprobe` — not decklight — vouches for, **twice**: once
+silent, once narrated. The narrated pass supplies its own `voiceover/` directory
+(the seam `video --voiceover` leaves behind) so it needs no TTS engine, no key
+and no network, and it asserts the thing that distinguishes the two — a narrated
+slide holds for the audio's *real* duration plus the tail, and the film measures
+around -23 dB where the silent one measures -91.
 
 It is manual and deliberately in neither blessed suite: it takes a real `npm
 install`, and skipping inside `npm test` would let "green" mean "not actually
