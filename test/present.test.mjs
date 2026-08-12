@@ -19,6 +19,17 @@ import { CSP } from '../cli/present.mjs';
 import { allowRemote } from '../cli/serve.mjs';
 import { createRemoteRelay } from '../cli/remote.mjs';
 
+/**
+ * Windows has no POSIX signals: `child.kill('SIGINT')` there is
+ * TerminateProcess, so the process cannot run its handler and cannot exit 0 —
+ * it reports `signalCode: 'SIGINT'` and there is nothing decklight could do
+ * about it. The graceful-shutdown path is real and POSIX-testable; the
+ * equivalent on Windows is a console control event Node does not expose.
+ */
+const noSignals = process.platform === 'win32'
+  ? 'SIGINT is not deliverable on Windows — kill() there is TerminateProcess'
+  : false;
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 const SRC = path.resolve(here, '../cli/present.mjs');
@@ -383,7 +394,7 @@ async function freePort() {
   return port;
 }
 
-test('--port binds the port asked for, and Ctrl-C exits clean', async (t) => {
+test('--port binds the port asked for, and Ctrl-C exits clean', { skip: noSignals }, async (t) => {
   const dir = deckDir();
   t.after(() => rmTemp(dir));
   const port = await freePort();

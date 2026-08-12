@@ -125,7 +125,12 @@ export function validateTheme(css) {
 
 /** A theme name from a path or URL: the basename, minus .css. */
 export function themeNameFrom(source) {
-  const last = String(source ?? '').split(/[?#]/)[0].split('/').filter(Boolean).pop() ?? '';
+  // Both separators, because `source` is either a URL (always `/`) or a local
+  // path (`\` on Windows). Splitting on `/` alone made the whole path the
+  // name there — `decklight theme check C:\themes\aurora.css` reported
+  // `✔ C:\themes\aurora`, and `theme add` would then have tried to install
+  // under a name validThemeName refuses, from a file that was perfectly fine.
+  const last = String(source ?? '').split(/[?#]/)[0].split(/[/\\]/).filter(Boolean).pop() ?? '';
   return last.replace(/\.css$/i, '');
 }
 

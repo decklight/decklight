@@ -7,6 +7,7 @@
 // the page-count-equals-slide-count proof lives in test/pdf-render.mjs.
 
 import { test } from 'node:test';
+import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -20,8 +21,8 @@ const CLI = path.resolve(here, '../cli/decklight.mjs');
 test('the PDF lands beside the deck, named after it, unless -o says otherwise', () => {
   assert.equal(pdfOut('/talks/q3.html'), '/talks/q3.pdf');
   assert.equal(pdfOut('/talks/q3.HTM'), '/talks/q3.pdf', 'the extension is matched case-insensitively');
-  assert.equal(pdfOut('/talks/q3.html', '/tmp/handout.pdf'), '/tmp/handout.pdf');
-  assert.match(pdfOut('/talks/q3.html', 'rel.pdf'), /^\/.*rel\.pdf$/, '-o resolves against cwd');
+  assert.equal(pdfOut('/talks/q3.html', '/tmp/handout.pdf'), resolve('/tmp/handout.pdf'));
+  assert.equal(pdfOut('/talks/q3.html', 'rel.pdf'), resolve('rel.pdf'), '-o resolves against cwd');
   // a deck whose name merely CONTAINS .html must not be truncated mid-word
   assert.equal(pdfOut('/talks/about-html-parsing.html'), '/talks/about-html-parsing.pdf');
 });

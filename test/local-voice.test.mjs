@@ -8,6 +8,7 @@
 // the command output are all injected, and every OS is tested on every OS.
 
 import { test } from 'node:test';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 
 import {
@@ -225,7 +226,9 @@ test('a present model just starts the bridge, and --voice/--data-dir are honored
   });
   assert.ok(plan.run.find((r) => r.name === 'tts'), 'the bridge runs');
   assert.equal(voiceModelOffer(plan), null, 'and there is nothing to offer');
-  assert.ok(seen.includes('/models/en_GB-alba-medium.onnx'), `looked in the right place: ${seen}`);
+  // join(), not a literal: the product builds this with the host's separator,
+  // and on Windows `\models\en_GB-alba-medium.onnx` is the RIGHT answer.
+  assert.ok(seen.includes(join('/models', 'en_GB-alba-medium.onnx')), `looked in the right place: ${seen}`);
 });
 
 test('a voice given as a path needs no data dir', () => {

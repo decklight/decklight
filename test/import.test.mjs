@@ -218,7 +218,10 @@ test('the keynote export is scripted against Keynote, with the paths quoted', ()
 test('the output lands beside the source, named after it', () => {
   assert.equal(outPath('/talks/Q3 Business Review.pptx'), path.resolve('q3-business-review.html'));
   assert.equal(outPath('deck.key'), path.resolve('deck.html'));
-  assert.equal(outPath('x.pptx', '/tmp/out.html'), '/tmp/out.html');
+  // resolve(), not the literal: `-o` is resolved against cwd, and on Windows
+  // '/tmp/out.html' resolves onto the current drive as 'D:\\tmp\\out.html'.
+  // What the test means is "-o is honoured verbatim", not "POSIX paths".
+  assert.equal(outPath('x.pptx', '/tmp/out.html'), path.resolve('/tmp/out.html'));
   assert.equal(slug('  Q3 — Business Review!  '), 'q3-business-review');
   assert.equal(slug('***'), 'deck', 'a name with nothing usable still yields a file name');
 });

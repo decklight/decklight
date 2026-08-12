@@ -17,11 +17,13 @@ test('the installed CLI is the .cmd shim on Windows, and needs a shell', () => {
   // npm writes decklight, decklight.cmd and decklight.ps1 there; the
   // extensionless one is a shell script Windows itself will not execute.
   const win = cliCommand('C:\\p', 'win32');
-  assert.match(win.bin, /node_modules[\\/]\.bin[\\/]decklight\.cmd$/);
+  assert.equal(win.bin, 'C:\\p\\node_modules\\.bin\\decklight.cmd',
+    'a Windows answer, spelled in backslashes — whatever host is asking');
   assert.equal(win.shell, true, 'Node refuses to spawn a .cmd without a shell (CVE-2024-27980)');
 
   const nix = cliCommand('/p', 'darwin');
-  assert.match(nix.bin, /node_modules\/\.bin\/decklight$/);
+  assert.equal(nix.bin, '/p/node_modules/.bin/decklight',
+    'a POSIX answer, spelled in POSIX — whatever host is asking');
   assert.equal(nix.shell, false, 'a shell on POSIX would only add a quoting hazard');
 });
 
