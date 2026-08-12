@@ -37,6 +37,11 @@ if (!files.length) {
   process.exit(1);
 }
 
-const r = spawnSync(process.execPath, ['--test', ...files.map((f) => join('test', f)), ...process.argv.slice(2)],
+// Forwarded flags go BEFORE the file list. Node reads what follows `--test` as
+// test files, and only some versions still recognise an option among them:
+// `npm test -- --test-timeout=120000` worked on Node 26 and became
+// `Could not find 'D:\a\decklight\decklight\--test-timeout=120000'` on the
+// Node 20 this project promises in `engines`.
+const r = spawnSync(process.execPath, ['--test', ...process.argv.slice(2), ...files.map((f) => join('test', f))],
   { stdio: 'inherit', cwd: join(here, '..') });
 process.exit(r.status ?? 1);
