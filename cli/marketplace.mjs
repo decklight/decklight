@@ -500,7 +500,23 @@ export async function fetchManifestText(src, { fetchImpl = fetch, exec = execFil
       throw new MarketplaceError(`could not fetch ${src.spec} — ${fetchWhy(e, timeoutMs)}`
         + ' (offline? the cached copy, if any, still serves `marketplace list`)');
     }
-    if (r.status === 404) throw new MarketplaceError(`${src.spec} has no ${MANIFEST_PATH} (HTTP 404)`);
+    // A 404 here is TWO situations wearing one status code, and this path
+    // cannot tell them apart: raw.githubusercontent.com answers 404 for a
+    // public repo with no manifest AND for a private repo it will not admit
+    // exists. Asserting the first was wrong for anyone pointing at their own
+    // org's catalog — it read as "you got the repo wrong" when the truth was
+    // "you cannot see it from here" — so the message names both and says what
+    // each one's way out is, including that the private one is not a full one.
+    if (r.status === 404) {
+      throw new MarketplaceError(`${src.spec} — HTTP 404 fetching ${MANIFEST_PATH}.`
+        + '\n  Either the repo has no manifest, or it is private: this is an unauthenticated'
+        + '\n  fetch of raw.githubusercontent.com, which answers 404 to both.'
+        + '\n  If it is private, the SSH form clones with your own git credentials:'
+        + `\n    decklight marketplace add git@github.com:${src.owner}/${src.repo}.git`
+        + '\n  — that only REGISTERS the catalog: installing an entry from it fetches the'
+        + "\n  entry's own bytes unauthenticated too, and fails the same way. A local clone"
+        + '\n  added by path is the only form that works end to end today.');
+    }
     if (!r.ok) throw new MarketplaceError(`could not fetch ${src.spec} — HTTP ${r.status}`);
     return await r.text();
   }

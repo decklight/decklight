@@ -267,8 +267,27 @@ test('a fetch failure is fast and says which marketplace and why', async () => {
   );
   await assert.rejects(
     fetchManifestText(src, { fetchImpl: async () => ({ ok: false, status: 404 }) }),
-    (e) => /ghost\/catalog has no \.decklight\/marketplace\.json \(HTTP 404\)/.test(e.message),
+    (e) => e instanceof MarketplaceError && /ghost\/catalog/.test(e.message)
+      && /HTTP 404/.test(e.message) && new RegExp(MANIFEST_PATH.replace('.', '\\.')).test(e.message),
   );
+});
+
+test('a 404 on the raw path names BOTH things it can mean — it cannot tell them apart', async () => {
+  // raw.githubusercontent.com answers 404 for a public repo missing the
+  // manifest AND for a private repo it will not admit exists. The message used
+  // to assert the first, which is the wrong half for anyone pointing at their
+  // own org's catalog. It may not pick one, and it may not claim the escape
+  // hatch is complete: the SSH form clones with the caller's credentials and
+  // registers, but installing an entry from it still fetches unauthenticated.
+  const src = classifySource('acme/private-catalog', { exists: () => false });
+  const e = await fetchManifestText(src, { fetchImpl: async () => ({ ok: false, status: 404 }) })
+    .then(() => null, (err) => err);
+  assert.ok(e instanceof MarketplaceError);
+  assert.doesNotMatch(e.message, /^acme\/private-catalog has no/, 'no longer asserts the missing-file case as fact');
+  assert.match(e.message, /has no manifest, or it is private/);
+  assert.match(e.message, /unauthenticated/);
+  assert.match(e.message, /git@github\.com:acme\/private-catalog\.git/, 'and names the form that does clone');
+  assert.match(e.message, /only REGISTERS/, 'without implying SSH fixes installing too');
 });
 
 test('a local source that is not a marketplace repo says so', async () => {
