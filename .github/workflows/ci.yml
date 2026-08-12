@@ -103,5 +103,10 @@ jobs:
       # what it gates (test/helpers.mjs optionalDepSkip) rather than failing
       - run: npm ci --omit=optional
 
+      # --test-timeout turns a HANG into a named failure. Both runs here died to
+      # the job timeout after 29 minutes of SILENCE with no clue which file was
+      # stuck: node --test reports a file only when it finishes, so a file that
+      # never finishes reports nothing at all. 120s is far above the slowest
+      # legitimate test (~12s) and far below this job's own limit.
       - name: unit tests
-        run: npm test
+        run: npm test -- --test-timeout=120000

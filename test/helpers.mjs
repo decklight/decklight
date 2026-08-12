@@ -6,7 +6,7 @@
 // real binary.
 
 import { createRequire } from 'node:module';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 // node-pty and js-yaml are optional (CLI recording only); a checkout without
@@ -137,3 +137,16 @@ export function writeFakeBin(dir, name, js) {
   writeFileSync(sh, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`, { mode: 0o755 });
   return sh;
 }
+
+/**
+ * Remove a temp directory a child process may still be holding.
+ *
+ * POSIX unlinks a directory out from under a running process without
+ * complaint; Windows locks it while any process has it open — as a cwd, or
+ * with a file handle — and `rmSync` fails `EBUSY`. A test that spawns a server
+ * in a temp dir and kills it a moment before cleanup therefore fails in its
+ * TEARDOWN, having passed: 26 of them did on the first Windows run that got
+ * that far. `maxRetries`/`retryDelay` is Node's own answer, and costs nothing
+ * where the first attempt already works.
+ */
+export const rmTemp = (dir) => rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });

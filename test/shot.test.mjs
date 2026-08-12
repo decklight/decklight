@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { rmTemp } from './helpers.mjs';
 import { shotMain } from '../tools/shot.mjs';
 import { CSP } from '../cli/present.mjs';
 
@@ -50,7 +51,7 @@ async function runShot(extraArgs = [], deckBody = '<div class="decklight"><secti
   } finally {
     process.chdir(cwd);
     if (chrome === undefined) delete process.env.CHROME; else process.env.CHROME = chrome;
-    rmSync(dir, { recursive: true, force: true });
+    rmTemp(dir);
   }
   return seen;
 }
@@ -79,7 +80,7 @@ test('--drive and --theme are injected into the deck response in memory', async 
   assert.match(seen.body, /window\.__DROVE__ = 1;/, 'the driver snippet is in the served deck');
   assert.match(seen.body, /themes\/aurora\.css/, 'the --theme link is injected');
   assert.match(seen.body, /window\.__deck/, 'the boot shim (press/sleep/__deck) is present');
-  rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });
 
 test('a deck outside the current directory is refused, not served', async () => {

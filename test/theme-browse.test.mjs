@@ -21,6 +21,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { rmTemp } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -30,7 +31,7 @@ const EDIT = path.join(ROOT, 'cli/edit.mjs');
 
 const tmp = () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-browse-'));
-  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  process.on('exit', () => rmTemp(dir));
   return dir;
 };
 

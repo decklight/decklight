@@ -21,6 +21,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { rmTemp } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -241,7 +242,7 @@ function deckDir() {
 async function startPresent(t, dir, home, extraArgs = []) {
   const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', '0', ...extraArgs],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
-  t.after(() => { child.kill('SIGKILL'); rmSync(dir, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true }); });
+  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); rmSync(home, { recursive: true, force: true }); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
@@ -310,7 +311,7 @@ test('the ingredients label does not count a plugin', async (t) => {
   // installing one must not move a single number in it.
   assert.equal(withPlugin, bare);
   assert.doesNotMatch(withPlugin, /timer/);
-  rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
   t.diagnostic('label unchanged by an installed plugin');
 });
 
@@ -320,7 +321,7 @@ test('strict mode does not strip the chrome it was handed', async (t) => {
   const home = homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } });
   const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', '0'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
-  t.after(() => { child.kill('SIGKILL'); rmSync(dir, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true }); });
+  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); rmSync(home, { recursive: true, force: true }); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {

@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { rmTemp } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { CSP } from '../cli/present.mjs';
@@ -51,7 +52,7 @@ async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs =
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const child = spawn(process.execPath, [CLI, 'present', deck, '--port', '0', ...extraArgs],
     { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
-  t.after(() => { child.kill('SIGKILL'); rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
@@ -384,7 +385,7 @@ async function freePort() {
 
 test('--port binds the port asked for, and Ctrl-C exits clean', async (t) => {
   const dir = deckDir();
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
   const port = await freePort();
 
   const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', String(port)],

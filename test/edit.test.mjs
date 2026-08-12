@@ -13,7 +13,7 @@ import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { childEnv, writeFakeBin } from './helpers.mjs';
+import { childEnv, rmTemp, writeFakeBin } from './helpers.mjs';
 
 import http from 'node:http';
 
@@ -182,9 +182,31 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
 
 // ── git: the durable record ────────────────────────────────────────────────
 
+/**
+ * A temp directory, and the children living in it, cleaned up in that order.
+ *
+ * The order is the point. `tmp(t)` runs before `startEdit`, so its cleanup hook
+ * is registered first and runs first — removing the directory while the server
+ * still has it as a cwd. POSIX unlinks it anyway; Windows locks it and the
+ * teardown fails EBUSY on a test that passed (26 of them, on the first Windows
+ * run to get this far). So the servers are tracked and killed HERE, before the
+ * directory goes, and rmTemp retries what a lingering handle still holds.
+ */
+const kids = new Set();
+const gone = (child) => new Promise((done) => {
+  if (child.exitCode !== null || child.signalCode !== null) return done();
+  const t = setTimeout(done, 5000);
+  child.on('exit', () => { clearTimeout(t); done(); });
+});
+
 const tmp = (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-edit-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(async () => {
+    for (const c of kids) { try { c.kill('SIGKILL'); } catch { /* already gone */ } }
+    await Promise.all([...kids].map(gone));
+    kids.clear();
+    rmTemp(dir);
+  });
   return dir;
 };
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -220,7 +242,9 @@ async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
     env: childEnv(env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => child.kill('SIGKILL'));
+  kids.add(child);
+  child.on('exit', () => kids.delete(child));
+  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
