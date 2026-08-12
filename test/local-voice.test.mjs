@@ -8,6 +8,7 @@
 // the command output are all injected, and every OS is tested on every OS.
 
 import { test } from 'node:test';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 
 import {
@@ -213,7 +214,10 @@ test('piper with no voice model is caught before the bridge starts', () => {
   assert.match(offer.why, /~120 MB, one time/, 'the size is stated before anything is downloaded');
   assert.equal(offer.download.bin, 'uvx');
   assert.deepEqual(offer.download.args.slice(-4),
-    ['piper.download_voices', 'en_US-ryan-high', '--data-dir', '/home/x/.local/share/piper']);
+    // join(): the default data-dir is built from $HOME with the host's
+    // separator, and on Windows `\home\x\.local\share\piper` is what piper
+    // would actually be handed.
+    ['piper.download_voices', 'en_US-ryan-high', '--data-dir', join('/home/x', '.local/share/piper')]);
 });
 
 test('a present model just starts the bridge, and --voice/--data-dir are honored', () => {
@@ -225,7 +229,9 @@ test('a present model just starts the bridge, and --voice/--data-dir are honored
   });
   assert.ok(plan.run.find((r) => r.name === 'tts'), 'the bridge runs');
   assert.equal(voiceModelOffer(plan), null, 'and there is nothing to offer');
-  assert.ok(seen.includes('/models/en_GB-alba-medium.onnx'), `looked in the right place: ${seen}`);
+  // join(), not a literal: the product builds this with the host's separator,
+  // and on Windows `\models\en_GB-alba-medium.onnx` is the RIGHT answer.
+  assert.ok(seen.includes(join('/models', 'en_GB-alba-medium.onnx')), `looked in the right place: ${seen}`);
 });
 
 test('a voice given as a path needs no data dir', () => {

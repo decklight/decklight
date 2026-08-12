@@ -16,8 +16,19 @@
 // it from any machine, and the soak keeps only the parts that need a real
 // filesystem and a real process.
 
-import { join } from 'node:path';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+/**
+ * The path grammar of the platform being DESCRIBED, not the one running.
+ *
+ * `join()` is the host's, so `cliCommand(project, 'darwin')` on Windows
+ * produced `\p\node_modules\.bin\decklight` — a POSIX answer spelled in
+ * backslashes, from a function whose whole contract is to be pure over its
+ * `platform` argument. The first Windows CI run failed this module's own test,
+ * which is exactly the branch-nobody-can-check problem it was written to avoid.
+ */
+const joiner = (platform) => (platform === 'win32' ? path.win32.join : path.posix.join);
 
 /**
  * The installed CLI, as a spawnable command.
@@ -34,7 +45,8 @@ import { pathToFileURL } from 'node:url';
  * it is the half a `bin` field regression breaks.
  */
 export function cliCommand(project, platform = process.platform) {
-  const bin = join(project, 'node_modules', '.bin', platform === 'win32' ? 'decklight.cmd' : 'decklight');
+  const bin = joiner(platform)(project, 'node_modules', '.bin',
+    platform === 'win32' ? 'decklight.cmd' : 'decklight');
   return { bin, shell: platform === 'win32' };
 }
 

@@ -19,6 +19,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -102,7 +103,7 @@ test('the bridge speaks with an INSTALLED engine — /ping reports it like any b
     // installed engine reaches that affordance exactly as a built-in does
     assert.equal(ping.stylable, true);
     assert.deepEqual(ping.voices, [['Aria', 'neural'], ['Guy', 'neural']]);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('an engine that quotes no price synthesizes fine, and no $0.0000 is invented', async (t) => {
@@ -125,7 +126,7 @@ test('an engine that quotes no price synthesizes fine, and no $0.0000 is invente
     // ElevenLabs path already keeps (SPEC PRESENTING)
     assert.match(log(), /32 chars this session/);
     assert.doesNotMatch(log(), /\$0\.0000/);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });
 
 test('a name that is neither built in nor installed names both ways out', async () => {
@@ -140,5 +141,5 @@ test('a name that is neither built in nor installed names both ways out', async 
     const out = `${e.stdout ?? ''}${e.stderr ?? ''}`;
     assert.match(out, /no engine "nope" installed/);
     assert.match(out, /decklight engine add nope/);
-  } finally { rmSync(home, { recursive: true, force: true }); }
+  } finally { rmTemp(home); }
 });

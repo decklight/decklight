@@ -6,7 +6,7 @@
 // real binary.
 
 import { createRequire } from 'node:module';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 // node-pty and js-yaml are optional (CLI recording only); a checkout without
@@ -80,4 +80,87 @@ for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done
 cp "${fixture}" "$out"
 `, { mode: 0o755 });
   return stub;
+}
+
+// ── running a child on somebody else's operating system ────────────────────
+// Three things every test that spawns a process gets wrong on Windows, in one
+// place. They were found by the first Windows CI run, where 15 of the 25
+// failures came from the first of them alone.
+
+/**
+ * A child environment with `overrides` applied — case-INSENSITIVELY.
+ *
+ * Windows spells it `Path`. `{ ...process.env, PATH: dir }` therefore produces
+ * an object carrying BOTH keys, the real one and the override, and which one
+ * the child sees is anybody's guess. Every test that narrows PATH to say "no
+ * git and no agents here" was quietly still handing the child the whole real
+ * PATH, so the thing it was proving absent was present.
+ */
+export function childEnv(overrides = {}, base = process.env) {
+  const env = { ...base };
+  for (const key of Object.keys(overrides)) {
+    for (const existing of Object.keys(env)) {
+      if (existing !== key && existing.toLowerCase() === key.toLowerCase()) delete env[existing];
+    }
+    env[key] = overrides[key];
+  }
+  return env;
+}
+
+/**
+ * A home directory every platform agrees on.
+ *
+ * `os.homedir()` reads `$HOME` on POSIX and `%USERPROFILE%` on Windows, so a
+ * test that sets only HOME redirects nothing there — and then writes into the
+ * real user profile while asserting about a temp one.
+ */
+export const homeEnv = (home) => ({ HOME: home, USERPROFILE: home });
+
+/**
+ * A fake executable on PATH, in whatever shape this OS will actually run.
+ *
+ * The logic goes in a `.mjs` and the shim only forwards to it, because the
+ * alternative is maintaining the same behaviour twice — once in `sh` and once
+ * in batch, whose quoting rules are their own adventure. Windows gets a `.cmd`
+ * (which `onPath` already looks for); everything else gets a `#!/bin/sh` stub
+ * with the executable bit.
+ */
+export function writeFakeBin(dir, name, js) {
+  const script = join(dir, `${name}.mjs`);
+  writeFileSync(script, js);
+  if (process.platform === 'win32') {
+    const cmd = join(dir, `${name}.cmd`);
+    writeFileSync(cmd, `@"${process.execPath}" "%~dp0${name}.mjs" %*\r\n`);
+    return cmd;
+  }
+  const sh = join(dir, name);
+  writeFileSync(sh, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`, { mode: 0o755 });
+  return sh;
+}
+
+/**
+ * Remove a temp directory a child process may still be holding.
+ *
+ * POSIX unlinks a directory out from under a running process without
+ * complaint; Windows locks it while any process has it open — as a cwd, or
+ * with a file handle — and `rmSync` fails `EBUSY`. A test that spawns a server
+ * in a temp dir and kills it a moment before cleanup therefore fails in its
+ * TEARDOWN, having passed: 26 of them did on the first Windows run that got
+ * that far. `maxRetries`/`retryDelay` is Node's own answer, and costs nothing
+ * where the first attempt already works.
+ */
+export function rmTemp(dir) {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+    return true;
+  } catch {
+    // Give up quietly. A cleanup hook is registered before the server it has to
+    // outlive — `tmp(t)` runs first, so its hook runs first — and no amount of
+    // retrying beats a process that is killed in the NEXT hook. On POSIX this
+    // never happens (a directory unlinks out from under a live process), so a
+    // swallowed failure here is Windows holding a lock on a directory in %TEMP%
+    // that the runner discards anyway. The assertion is the test; the
+    // housekeeping is not, and a passing test must not fail on it.
+    return false;
+  }
 }

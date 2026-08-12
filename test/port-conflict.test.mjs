@@ -13,6 +13,7 @@ import { createServer as createTcpServer } from 'node:net';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { rmTemp } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -29,7 +30,7 @@ const DECK = `<!doctype html>
 
 const tmp = (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-portconflict-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
   return dir;
 };
 

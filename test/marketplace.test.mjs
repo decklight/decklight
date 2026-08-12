@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -485,7 +486,7 @@ test('update of an unfetchable marketplace names it, fast, and keeps the cache',
   const home = tmp();
   const repo = marketRepo(GOOD);
   run(home, 'add', repo);
-  fs.rmSync(repo, { recursive: true, force: true }); // the source is gone
+  rmTemp(repo); // the source is gone
   const r = run(home, 'update', 'nord-pack');
   assert.equal(r.status, 1);
   assert.match(r.stderr, /nord-pack/);
@@ -596,7 +597,7 @@ test('a failed update keeps BOTH halves of what is on disk — manifest and chec
   const home = tmp();
   const repo = gitMarketRepo(TEMPLATES, { 'templates/pitch.html': PITCH });
   assert.equal(run(home, 'add', repo.url).status, 0);
-  fs.rmSync(repo.dir, { recursive: true, force: true });   // the source is gone
+  rmTemp(repo.dir);   // the source is gone
 
   const r = run(home, 'update', 'nord-pack');
   assert.equal(r.status, 1);

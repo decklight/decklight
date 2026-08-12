@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseBackground } from '../src/core/media.js';
@@ -84,5 +85,5 @@ test('bundle inlines background image/poster as data URIs; video stays external'
   // the video reference is untouched, and the CLI says so
   assert.match(bundled, /data-background-video="clip\.mp4"/);
   assert.match(out, /background video: 1 file\(s\) stay external/);
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
 });

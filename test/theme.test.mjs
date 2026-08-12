@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -147,7 +148,7 @@ test('theme check passes a shipped theme and fails a broken one', () => {
     assert.equal(bad.status, 1);
     assert.match(bad.stdout, /✘ broken/);
     assert.match(bad.stdout, /missing token/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a theme that fails the gates is not installed, and the deck is untouched', () => {
@@ -163,7 +164,7 @@ test('a theme that fails the gates is not installed, and the deck is untouched',
     assert.equal(r.status, 1);
     assert.match(r.stderr, /was NOT installed/);
     assert.equal(readFileSync(deckPath, 'utf8'), original, 'the deck is byte-for-byte what it was');
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('theme add installs a good theme, and --dry-run installs nothing', () => {
@@ -189,7 +190,7 @@ test('theme add installs a good theme, and --dry-run installs nothing', () => {
     const named = spawnSync('node', [CLI, 'theme', 'add', AURORA, deckPath, '--name', 'house-style'], { encoding: 'utf8' });
     assert.equal(named.status, 0, named.stderr);
     assert.match(readFileSync(deckPath, 'utf8'), /data-theme="house-style"/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('theme is routed and documented by the dispatcher', () => {

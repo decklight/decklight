@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -160,7 +161,7 @@ test('narration resolves --narration → deck voiceover/ → silent, in that ord
     writeFileSync(join(other, 'manifest.json'), JSON.stringify({ files: [] }));
     assert.throws(() => resolveNarration(deck, other), /not a voiceover manifest/);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmTemp(dir);
   }
 });
 

@@ -1,0 +1,17 @@
+# Line endings are LF in the working tree on EVERY platform.
+#
+# Without this, Git on Windows checks text files out as CRLF, and every test
+# that compares a fixture's bytes to what the code produces fails on an
+# invisible \r: three precomputed QR matrices and three theme files did, on the
+# first Windows run that got far enough to compare anything. The code writes LF
+# and the fixtures are recorded as LF, so the working tree should hold LF too.
+* text=auto eol=lf
+
+# Recorded bytes, not text — never touched, never normalised.
+*.pptx binary
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.m4a binary
+*.wav binary
+*.woff2 binary

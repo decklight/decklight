@@ -9,10 +9,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { childEnv, rmTemp, writeFakeBin } from './helpers.mjs';
 
 import http from 'node:http';
 
@@ -181,9 +182,47 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
 
 // ── git: the durable record ────────────────────────────────────────────────
 
+/**
+ * A temp directory, and the children living in it, cleaned up in that order.
+ *
+ * The order is the point. `tmp(t)` runs before `startEdit`, so its cleanup hook
+ * is registered first and runs first — removing the directory while the server
+ * still has it as a cwd. POSIX unlinks it anyway; Windows locks it and the
+ * teardown fails EBUSY on a test that passed (26 of them, on the first Windows
+ * run to get this far). So the servers are tracked and killed HERE, before the
+ * directory goes, and rmTemp retries what a lingering handle still holds.
+ */
+/**
+ * decklight cannot run a `.cmd` agent on Windows, and that is the PRODUCT, not
+ * the test.
+ *
+ * `claude` installs from npm as `claude.cmd` there, and cli/edit.mjs spawns the
+ * agent with `spawn(cmd.bin, cmd.args)` — which Node has refused for `.cmd`
+ * since CVE-2024-27980 unless `shell: true`. Turning that on is not a one-line
+ * fix: with a shell the ARGUMENTS stop being argv and become a command line,
+ * and one of them is an untrusted prompt. Quoting that safely is a decision
+ * worth making deliberately rather than inside a porting sweep, so these two
+ * skip here and say why.
+ */
+const noCmdAgents = process.platform === 'win32'
+  ? 'decklight cannot spawn a .cmd agent — that needs a shell, and the prompt is untrusted'
+  : false;
+
+const kids = new Set();
+const gone = (child) => new Promise((done) => {
+  if (child.exitCode !== null || child.signalCode !== null) return done();
+  const t = setTimeout(done, 5000);
+  child.on('exit', () => { clearTimeout(t); done(); });
+});
+
 const tmp = (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-edit-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(async () => {
+    for (const c of kids) { try { c.kill('SIGKILL'); } catch { /* already gone */ } }
+    await Promise.all([...kids].map(gone));
+    kids.clear();
+    rmTemp(dir);
+  });
   return dir;
 };
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
@@ -214,10 +253,14 @@ test('inGitRepo tells a work tree from a plain directory', (t) => {
 async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
   const child = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', ...extraArgs], {
     cwd: dir,
-    env: { ...process.env, ...env },
+    // childEnv, not a spread: Windows spells it `Path`, so `{...process.env,
+    // PATH: dir}` hands the child BOTH and the narrowing silently does nothing.
+    env: childEnv(env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => child.kill('SIGKILL'));
+  kids.add(child);
+  child.on('exit', () => kids.delete(child));
+  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
@@ -375,7 +418,7 @@ test('a repository decklight did not create never gets ignore rules', async (t) 
     'the repo-creation moment is the only time decklight touches ignore rules');
 });
 
-test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) => {
+test('an agent ask runs the detected CLI, and Z takes its edit back', { skip: noCmdAgents }, async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
@@ -383,9 +426,10 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   // a fake `claude` on PATH: appends to the deck like a real edit would
   const bin = path.join(dir, 'bin');
   mkdirSync(bin);
-  writeFileSync(path.join(bin, 'claude'),
-    '#!/bin/sh\nprintf \'<!-- agent-was-here -->\' >> deck.html\n');
-  chmodSync(path.join(bin, 'claude'), 0o755);
+  // A .mjs with a per-OS shim, so the same fake agent runs on Windows too
+  // (a `#!/bin/sh` script is not something Windows executes).
+  writeFakeBin(bin, 'claude',
+    "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
 
   const ping = await (await fetch(base + '/edit/ping')).json();
@@ -738,7 +782,7 @@ test('the history endpoints refuse when git is off, rather than pretending', asy
   assert.equal((await post(base, '/edit/restore', { ref: 'HEAD' })).status, 409);
 });
 
-test('an agent commit contains the agent\'s work only, not what you left uncommitted', async (t) => {
+test('an agent commit contains the agent\'s work only, not what you left uncommitted', { skip: noCmdAgents }, async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
@@ -750,12 +794,13 @@ test('an agent commit contains the agent\'s work only, not what you left uncommi
 
   const bin = path.join(dir, 'bin');
   mkdirSync(bin);
-  writeFileSync(path.join(bin, 'claude'),
-    '#!/bin/sh\nprintf \'<!-- agent-was-here -->\' >> deck.html\n');
-  chmodSync(path.join(bin, 'claude'), 0o755);
+  // A .mjs with a per-OS shim, so the same fake agent runs on Windows too
+  // (a `#!/bin/sh` script is not something Windows executes).
+  writeFakeBin(bin, 'claude',
+    "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
   // the real PATH too, so git is reachable from the server
   const { base } = await startEdit(t, dir, {
-    env: { PATH: `${bin}:${process.env.PATH}` },
+    env: { PATH: `${bin}${path.delimiter}${process.env.PATH}` },
     extraArgs: ['--git', '--git-mode', 'agent'],
   });
 

@@ -73,3 +73,40 @@ jobs:
           # still goes green
           include-hidden-files: true
           retention-days: 14
+
+  # Windows is where the bug that started the soak came from — a raw ENOENT on
+  # any path with a space in it, on every profile named "Firstname Lastname" —
+  # and until now nothing here ever ran on it. `decklight` is published to npm
+  # for every platform Node runs on; testing one of them is a claim about the
+  # other two.
+  #
+  # UNIT TESTS ONLY, deliberately. `npm run verify` drives a headless browser
+  # through fifteen render harnesses, and a rendering difference on another OS is
+  # a different investigation from "does the code run there at all" — one worth
+  # having, but not worth blocking every PR on before the first question is
+  # answered. This job answers the first question, including the platform module
+  # test/soak.mjs branches on (test/soak-platform.test.mjs), which is otherwise
+  # only ever checked by pretending.
+  windows:
+    name: test · windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20 # the floor in package.json engines — test what we promise
+          cache: npm
+
+      # node-pty needs a C++ toolchain and is CLI-recording only; the suite skips
+      # what it gates (test/helpers.mjs optionalDepSkip) rather than failing
+      - run: npm ci --omit=optional
+
+      # --test-timeout turns a HANG into a named failure. Both runs here died to
+      # the job timeout after 29 minutes of SILENCE with no clue which file was
+      # stuck: node --test reports a file only when it finishes, so a file that
+      # never finishes reports nothing at all. 120s is far above the slowest
+      # legitimate test (~12s) and far below this job's own limit.
+      - name: unit tests
+        run: npm test -- --test-timeout=120000

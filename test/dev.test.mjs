@@ -12,6 +12,7 @@ import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { rmTemp } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { planServices, inGitRepo, voiceSetupOffer } from '../cli/dev.mjs';
@@ -341,7 +342,7 @@ test('a real child on a real pipe exits when the pipe closes, and lets go of its
   // the same on an idle laptop and on a box running twenty test files at once,
   // which is precisely what the SIGKILL test below cannot promise.
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-leash-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
   writeFileSync(path.join(dir, 'deck.html'),
     '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div></body></html>\n');
 
@@ -368,7 +369,7 @@ test('a real child on a real pipe exits when the pipe closes, and lets go of its
 
 test('SIGKILL to author takes the deck server with it — no orphan holding the port', async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-leash-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  t.after(() => rmTemp(dir));
   writeFileSync(path.join(dir, 'deck.html'),
     '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div></body></html>\n');
 

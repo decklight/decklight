@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -217,7 +218,10 @@ test('the keynote export is scripted against Keynote, with the paths quoted', ()
 test('the output lands beside the source, named after it', () => {
   assert.equal(outPath('/talks/Q3 Business Review.pptx'), path.resolve('q3-business-review.html'));
   assert.equal(outPath('deck.key'), path.resolve('deck.html'));
-  assert.equal(outPath('x.pptx', '/tmp/out.html'), '/tmp/out.html');
+  // resolve(), not the literal: `-o` is resolved against cwd, and on Windows
+  // '/tmp/out.html' resolves onto the current drive as 'D:\\tmp\\out.html'.
+  // What the test means is "-o is honoured verbatim", not "POSIX paths".
+  assert.equal(outPath('x.pptx', '/tmp/out.html'), path.resolve('/tmp/out.html'));
   assert.equal(slug('  Q3 — Business Review!  '), 'q3-business-review');
   assert.equal(slug('***'), 'deck', 'a name with nothing usable still yields a file name');
 });
@@ -243,7 +247,7 @@ test('import writes a self-contained deck that needs no sibling files', () => {
     assert.match(r.stderr, /chart dropped/);
     assert.match(r.stderr, /⊘ hidden slide skipped/);
     assert.match(r.stderr, /3 slides · theme midnight/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('a drop is a warning, not a failure — only an unreadable deck fails', () => {
@@ -259,7 +263,7 @@ test('a drop is a warning, not a failure — only an unreadable deck fails', () 
     assert.equal(bad.status, 1);
     assert.match(bad.stderr, /not a zip file/);
     assert.doesNotMatch(bad.stderr, /at .*\.mjs:\d+/, 'no stack trace');
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('import refuses to overwrite without --force, and refuses an unknown theme', () => {
@@ -279,7 +283,7 @@ test('import refuses to overwrite without --force, and refuses an unknown theme'
     assert.equal(theme.status, 1);
     assert.match(theme.stderr, /no theme "nope"/);
     assert.match(theme.stderr, /available: .*midnight/, 'and it lists what there is');
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('the doors that cannot open here say what to do instead', () => {
@@ -299,7 +303,7 @@ test('the doors that cannot open here say what to do instead', () => {
     const odd = spawnSync('node', [CLI, 'import', path.join(dir, 'notes.md')], { encoding: 'utf8' });
     assert.equal(odd.status, 1);
     assert.match(odd.stderr, /supported: \.pptx, \.key \(macOS\), or a Google Slides URL/);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmTemp(dir); }
 });
 
 test('import is routed and documented by the dispatcher', () => {

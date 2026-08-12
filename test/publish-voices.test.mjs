@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -148,7 +149,7 @@ test('the tool refuses a signature longer than V4 allows, and says whose rule it
     assert.match(noManifest.stderr, /manifest\.json not found/);
     assert.match(noManifest.stderr, /voiceover\.mjs/, 'and it names the tool that makes one');
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmTemp(dir);
   }
 });
 
@@ -171,7 +172,7 @@ test('--dry-run reaches gcloud for nothing and writes nothing', () => {
     const wrote = spawnSync('node', ['-e', `process.exit(require('fs').existsSync(${JSON.stringify(path.join(dir, 'manifest.signed.json'))}) ? 1 : 0)`]);
     assert.equal(wrote.status, 0, 'a dry run leaves no manifest behind');
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    rmTemp(dir);
   }
 });
 

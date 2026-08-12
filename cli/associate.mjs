@@ -74,9 +74,15 @@ const USAGE = `usage: decklight associate [--uninstall] [--print]
  * opens two windows.
  */
 export function linuxFiles(home = homedir(), node = process.execPath, cli = CLI) {
+  // posix.join, not join: these are LINUX filesystem paths. Built with the
+  // host's separator they come out as `C:\Users\x\.local\share\…` when the
+  // host is Windows — a path no Linux desktop would ever read, produced by a
+  // function whose whole job is to describe one. The same argument as
+  // `darwinFiles` below; both are pure text about somebody else's OS.
+  const join = path.posix.join;
   return [
     {
-      path: path.join(home, '.local/share/applications/decklight.desktop'),
+      path: join(home, '.local/share/applications/decklight.desktop'),
       text: `[Desktop Entry]
 Type=Application
 Name=Decklight
@@ -89,7 +95,7 @@ Categories=Office;Presentation;
 `,
     },
     {
-      path: path.join(home, '.local/share/mime/packages/decklight.xml'),
+      path: join(home, '.local/share/mime/packages/decklight.xml'),
       text: `<?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="${MIME_TYPE}">
@@ -108,10 +114,11 @@ Categories=Office;Presentation;
 // ── macOS ──────────────────────────────────────────────────────────────────
 
 export function darwinFiles(home = homedir(), node = process.execPath, cli = CLI) {
-  const app = path.join(home, 'Applications/Decklight.app');
+  const join = path.posix.join;   // macOS paths, whatever host is spelling them
+  const app = join(home, 'Applications/Decklight.app');
   return [
     {
-      path: path.join(app, 'Contents/Info.plist'),
+      path: join(app, 'Contents/Info.plist'),
       text: `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -144,7 +151,7 @@ export function darwinFiles(home = homedir(), node = process.execPath, cli = CLI
 `,
     },
     {
-      path: path.join(app, 'Contents/MacOS/decklight'),
+      path: join(app, 'Contents/MacOS/decklight'),
       mode: 0o755,
       // Through Terminal, because present is a server that prints the label and
       // then keeps running: launching it with no visible output would leave

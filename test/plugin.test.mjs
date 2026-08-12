@@ -21,6 +21,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { rmTemp } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -148,7 +149,7 @@ test('loadPlugin refuses a reaching plugin and explains where it actually runs',
     assert.match(e.message, /needs: \["position", "notes"\]/);
     return true;
   });
-  rmSync(home, { recursive: true, force: true });
+  rmTemp(home);
 });
 
 // ── the library ────────────────────────────────────────────────────────────
@@ -164,7 +165,7 @@ test('a broken plugin is skipped with a reason, never fatal', () => {
   const { plugins, refused } = loadLibrary(home);
   assert.deepEqual(plugins.map((p) => p.name), ['timer']);
   assert.deepEqual(refused.map((r) => r.name).sort(), ['bogus', 'grabby']);
-  rmSync(home, { recursive: true, force: true });
+  rmTemp(home);
 });
 
 test('an empty or absent library is empty, not an error', () => {
@@ -241,7 +242,7 @@ function deckDir() {
 async function startPresent(t, dir, home, extraArgs = []) {
   const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', '0', ...extraArgs],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
-  t.after(() => { child.kill('SIGKILL'); rmSync(dir, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true }); });
+  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); rmTemp(home); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
@@ -310,7 +311,7 @@ test('the ingredients label does not count a plugin', async (t) => {
   // installing one must not move a single number in it.
   assert.equal(withPlugin, bare);
   assert.doesNotMatch(withPlugin, /timer/);
-  rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
   t.diagnostic('label unchanged by an installed plugin');
 });
 
@@ -320,7 +321,7 @@ test('strict mode does not strip the chrome it was handed', async (t) => {
   const home = homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } });
   const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', '0'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
-  t.after(() => { child.kill('SIGKILL'); rmSync(dir, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true }); });
+  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); rmTemp(home); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {
@@ -358,7 +359,7 @@ test('plugin list says which plugins read your speaker notes', () => {
   const { out } = run(['list'], home);
   assert.match(out, /prompter.*your speaker notes/s);
   assert.doesNotMatch(out.split('\n').find((l) => l.startsWith('timer')) ?? '', /speaker notes/);
-  rmSync(home, { recursive: true, force: true });
+  rmTemp(home);
 });
 
 test('plugin check passes good chrome and refuses a reaching plugin', () => {
@@ -373,7 +374,7 @@ test('plugin check passes good chrome and refuses a reaching plugin', () => {
   const bad = run(['check', 'grabby'], home);
   assert.equal(bad.code, 1, 'a plugin CI can gate on this');
   assert.match(bad.out, /reaches outside its frame/);
-  rmSync(home, { recursive: true, force: true });
+  rmTemp(home);
 });
 
 test('plugin add installs from a registered marketplace, and remove takes it away', () => {
@@ -407,8 +408,8 @@ test('plugin add installs from a registered marketplace, and remove takes it awa
 
   assert.equal(run(['remove', 'timer'], home).code, 0);
   assert.ok(!existsSync(path.join(pluginsDir(home), 'timer')));
-  rmSync(home, { recursive: true, force: true });
-  rmSync(market, { recursive: true, force: true });
+  rmTemp(home);
+  rmTemp(market);
 });
 
 test('plugin add refuses a content-touching plugin and installs nothing', () => {
@@ -431,6 +432,6 @@ test('plugin add refuses a content-touching plugin and installs nothing', () => 
   assert.match(out, /chrome only/);
   assert.match(out, /was NOT installed/);
   assert.ok(!existsSync(path.join(pluginsDir(home), 'grabby')), 'nothing was written on the refusing path');
-  rmSync(home, { recursive: true, force: true });
-  rmSync(market, { recursive: true, force: true });
+  rmTemp(home);
+  rmTemp(market);
 });

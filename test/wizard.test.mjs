@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,7 +31,7 @@ const CLI = path.join(ROOT, 'cli/decklight.mjs');
 
 const tmp = () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-wizard-'));
-  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  process.on('exit', () => rmTemp(dir));
   return dir;
 };
 
@@ -156,7 +157,21 @@ test('answers are checked against the schema, and every problem is reported at o
 
 // ── where a credential goes, and where it must not ─────────────────────────
 
-test('credentials are written 0600, and stay 0600 on rewrite', () => {
+/**
+ * Whether this OS has the permission bits the credential file relies on.
+ *
+ * It does not on Windows, and that is a fact about the PRODUCT, not a quirk of
+ * the test: `0600` is decklight's whole answer to "who else can read your
+ * ElevenLabs key", and on Windows the file is protected by whatever ACL the
+ * user profile hands it — which is usually enough, and is not something
+ * decklight does. Skipping the assertion says so out loud; asserting a mode
+ * Windows invents would be worse than not asking.
+ */
+const posixModes = process.platform === 'win32'
+  ? 'file modes are POSIX — on Windows the credential file carries the profile ACL, which decklight does not set'
+  : false;
+
+test('credentials are written 0600, and stay 0600 on rewrite', { skip: posixModes }, () => {
   const home = tmp();
   const file = saveCredentials('elevenlabs', ANSWERS, home);
   assert.equal(file, credentialsPath(home));
@@ -382,7 +397,7 @@ test('a catalog declaring a field core cannot render is refused on the way OUT',
   assert.match((await r.json()).error, /cannot render/);
 });
 
-test('a configured engine is stored 0600, and the response is redacted', async (t) => {
+test('a configured engine is stored 0600, and the response is redacted', { skip: posixModes }, async (t) => {
   const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
   const { base, log } = await startAuthor(t, home);
 

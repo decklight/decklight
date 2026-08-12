@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,7 +39,7 @@ const stubClient = {
 
 const tmp = () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-deckfile-'));
-  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  process.on('exit', () => rmTemp(dir));
   return dir;
 };
 
