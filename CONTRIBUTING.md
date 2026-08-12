@@ -13,6 +13,31 @@ Decklight is plain JavaScript (ESM) with no runtime dependencies.
   it builds `dist/` for you via the `prepare` script
 - `npm test` — run the test suite (`node --test`)
 - `npm run build` — bundle `src/index.js` → `dist/decklight.js`
+- `npm run verify` — build, then the render/lint harnesses (needs Chrome)
+- `npm run soak` — one end-to-end pass as a *user*, before a release (below)
+
+### `npm run soak` — the release gate
+
+`npm test` and `npm run verify` both drive `cli/decklight.mjs` out of the working
+tree, so neither can see a bug in the **package**. 0.3.0 shipped three that were
+invisible from inside the repo: a raw `ENOENT` on any install path containing a
+space, an ingredients label reporting `runtime … DIFFERS from this install's
+build` on a deck decklight had just written, and a README quick start that
+failed because `init` scaffolds an already-self-contained deck.
+
+`npm run soak` is the missing shape. It runs `npm pack`, installs the tarball
+into an empty project **whose path contains a space**, and drives the installed
+`decklight` bin through one full journey — init, marketplace, author (adding and
+editing slides over the HTTP API, and watching the commits land), present,
+bundle, `--check`, and opening the result in a real browser — asserting at each
+step, most importantly that every deck it produces reads `identical to this
+install`.
+
+It is manual and deliberately in neither blessed suite: it takes a real `npm
+install`, and skipping inside `npm test` would let "green" mean "not actually
+run". With no Chrome or no network it skips those steps **by name** and runs the
+rest; with no `git`/`npm` it skips entirely and exits 0. `DECKLIGHT_SOAK_KEEP=1`
+leaves its temp dirs for a post-mortem.
 
 `dist/` is build output and is **not** in git — it is derived from `src/`, so
 versioning it would only buy unreviewable minified diffs and source/dist drift.
