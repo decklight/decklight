@@ -12,21 +12,31 @@
 // A marketplace is a git repo (or a local directory) with
 // `.decklight/marketplace.json` at its root, mirroring Claude Code's layout
 // (MARKETPLACE.md MARKETPLACES). Registration lives under `~/.decklight/`:
-// one registry file (`marketplaces.json`) plus a `marketplaces/` directory of
-// cached manifests — the boring layout the engine wizard will share.
+// one registry file (`marketplaces.json`) plus a `marketplaces/` directory
+// holding, per marketplace, its cached manifest (`<name>.json`) and the
+// CHECKOUT that manifest came with (`<name>/`) — the boring layout the engine
+// wizard shares.
+//
+// A remote marketplace is read by CLONING it (MARKETPLACES#CLONE), never by
+// fetching one file at a time off a raw-content host. That is what lets a
+// private marketplace work at all — a clone uses the caller's own git
+// credentials, an anonymous fetch has none — and it is also what makes an
+// entry's files provably come from the same commit as the manifest that
+// offered them.
 //
 // The invariant this module exists to keep (SPEC MARKETPLACE_REGISTRY): the
 // network is touched ONLY by an explicit `add` or `update` of a remote
 // source. Registering is a filesystem write; `list` reads only the cache;
-// nothing on the deck-load or presenting path imports this module at all. A
-// deck on conference wifi, on a plane, or air-gapped behaves identically to
-// one at a desk, marketplace or no marketplace.
+// installing an entry reads the checkout; nothing on the deck-load or
+// presenting path imports this module at all. A deck on conference wifi, on a
+// plane, or air-gapped behaves identically to one at a desk, marketplace or
+// no marketplace.
 
 import {
-  existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { homedir, tmpdir } from 'node:os';
+import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { oneline } from './git.mjs';
@@ -72,6 +82,25 @@ export const configHome = (env = process.env) =>
 
 const registryPath = (home) => join(home, 'marketplaces.json');
 const cachePath = (home, name) => join(home, 'marketplaces', `${name}.json`);
+
+/**
+ * The CHECKOUT a remote marketplace keeps beside its cached manifest
+ * (MARKETPLACES#CLONE): `~/.decklight/marketplaces/<name>/`, the working tree
+ * of the shallow clone `add`/`update` made, with its `.git` removed.
+ *
+ * It exists because an entry's `source` is repo-relative, and the two ways to
+ * turn that into bytes are not equivalent. A second unauthenticated fetch of
+ * `raw.githubusercontent.com` cannot see a private repo at all, and reads a
+ * ref that may have moved since the manifest was read; a file in the checkout
+ * came from the same clone as the manifest, over the caller's own git
+ * credentials. So the clone is what an install reads, and the network is not
+ * on the install path at all.
+ *
+ * A LOCAL marketplace has none — its directory already is the checkout, and
+ * copying somebody's working tree into the config home would give them a stale
+ * second copy of files they are editing.
+ */
+export const checkoutPath = (home, name) => join(home, 'marketplaces', name);
 
 export function loadRegistry(home = configHome()) {
   const p = registryPath(home);
@@ -461,11 +490,20 @@ export function validateManifest(raw) {
 
 // ── sources: owner/repo, git URL, local path ───────────────────────────────
 
-/** What kind of source a spec names. A path that exists always wins. */
+/**
+ * What kind of source a spec names. A path that exists always wins.
+ *
+ * `github` is a shorthand for a CLONE, not for a raw-content host: it carries
+ * the owner and repo so a message can name the SSH form, and `cloneUrl` below
+ * is what it is actually read through.
+ */
 export function classifySource(spec, { exists = existsSync } = {}) {
   const gh = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/.exec(spec);
   if (gh) return { kind: 'github', owner: gh[1], repo: gh[2], spec };
-  if (/^(git@|ssh:\/\/|git:\/\/|https?:\/\/)/.test(spec)) return { kind: 'git', url: spec, spec };
+  // `file://` is a git transport like any other (a bare mirror on a share, a
+  // fixture in a test) — and unlike a bare path, writing it means "clone this",
+  // not "read this directory in place".
+  if (/^(git@|ssh:\/\/|git:\/\/|file:\/\/|https?:\/\/)/.test(spec)) return { kind: 'git', url: spec, spec };
   if (/^[\w.-]+\/[\w.-]+$/.test(spec) && !spec.startsWith('.') && !exists(spec)) {
     const [owner, repo] = spec.split('/');
     return { kind: 'github', owner, repo, spec };
@@ -473,69 +511,112 @@ export function classifySource(spec, { exists = existsSync } = {}) {
   return { kind: 'local', root: resolve(spec), spec };
 }
 
-const fetchWhy = (e, timeoutMs) =>
-  e.name === 'TimeoutError' || e.code === 'ABORT_ERR'
-    ? `no response after ${timeoutMs / 1000}s`
-    : String(e.cause?.code ?? e.cause?.message ?? e.message);
+/** The URL git is handed for a remote source. */
+export const cloneUrl = (src) =>
+  (src.kind === 'github' ? `https://github.com/${src.owner}/${src.repo}.git` : src.url);
 
 /**
- * The manifest text at a source's root. The only network in the subsystem —
- * and it fails FAST and says why: the fetch carries a timeout, git is told
- * never to prompt, and offline is an answer, not a hang (a plane is a
- * first-class place to run decklight).
+ * What to say when git could not clone a marketplace.
+ *
+ * The HTTPS form of a private repo fails here rather than 404ing somewhere
+ * unauthenticated, which is already the improvement — but "Repository not
+ * found" from a repo the user can see in their browser needs the missing half
+ * spelled out: decklight clones with the CALLER's git credentials, so what is
+ * missing is a helper, and the SSH form is the route that needs no helper at
+ * all. Named for GitHub only, because that is the only host whose SSH URL we
+ * can derive rather than guess.
  */
-export async function fetchManifestText(src, { fetchImpl = fetch, exec = execFileSync, timeoutMs = 8000 } = {}) {
+function cloneFailure(src, e) {
+  const why = `git clone ${cloneUrl(src)} failed — ${oneline(e)}`;
+  // Offline is not an auth problem, and must not be answered as one: a plane
+  // is a first-class place to run decklight, and the cache is still there.
+  if (/could not resolve host|unable to access|connection (refused|timed out)|network is unreachable|SIGTERM/i.test(oneline(e))) {
+    return `${why}\n  offline? the cached copy, if any, still serves \`marketplace list\``
+      + ' — and an already-cloned marketplace still installs.';
+  }
+  if (src.kind !== 'github') {
+    return `${why}\n  decklight clones a marketplace with your own git credentials`
+      + ' — the same ones `git clone` uses in your terminal.';
+  }
+  return `${why}\n  decklight clones a marketplace with your own git credentials, so a private`
+    + '\n  repo needs a credential helper configured (`gh auth setup-git`, the macOS'
+    + '\n  Keychain, git-credential-store) — or add it by its SSH URL instead:'
+    + `\n    decklight marketplace add git@github.com:${src.owner}/${src.repo}.git`;
+}
+
+/**
+ * Clone a remote marketplace into a fresh directory under `stagingIn` and read
+ * its manifest. Returns the working tree for the caller to ADOPT (see
+ * `adoptCheckout`) or discard — it is never left behind on a failure.
+ *
+ * `.git` is dropped once the commit is recorded: what decklight keeps is a
+ * checkout, not a repository. Nothing ever pulls into it — `update` re-clones
+ * — which is what keeps decklight out of the credential-helper trap a
+ * background `git pull` walks into, and keeps `~/.decklight/` from filling up
+ * with nested repositories.
+ */
+function cloneMarketplace(src, { exec, timeoutMs, stagingIn }) {
+  mkdirSync(stagingIn, { recursive: true });
+  const dir = mkdtempSync(join(stagingIn, '.staging-'));
+  const opts = { stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs * 4, encoding: 'utf8' };
+  try {
+    exec('git', ['clone', '--quiet', '--depth', '1', cloneUrl(src), dir], {
+      ...opts,
+      // never a password prompt: an unreachable private repo is an answer, not a hang
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    throw new MarketplaceError(cloneFailure(src, e));
+  }
+  try {
+    const p = join(dir, MANIFEST_PATH);
+    if (!existsSync(p)) throw new MarketplaceError(`${src.spec} has no ${MANIFEST_PATH} — is it a marketplace repo?`);
+    const raw = readFileSync(p, 'utf8');
+    let commit = null;
+    try { commit = String(exec('git', ['rev-parse', 'HEAD'], { ...opts, cwd: dir })).trim(); } catch { /* not fatal */ }
+    rmSync(join(dir, '.git'), { recursive: true, force: true });
+    return { raw, checkout: dir, commit };
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    throw e;
+  }
+}
+
+/**
+ * A source's manifest, and the files it came with — the only network in the
+ * subsystem, reached only by an explicit `add` or `update`.
+ *
+ * Returns `{ raw, checkout, commit }`. `checkout` is a directory the caller
+ * must adopt or remove, and is null for a local source (whose own directory
+ * serves that role). It fails FAST and says why: git is told never to prompt,
+ * the clone carries a timeout, and offline is an answer, not a hang (a plane
+ * is a first-class place to run decklight).
+ */
+export async function fetchManifest(src, { exec = execFileSync, timeoutMs = 8000, stagingIn } = {}) {
   if (src.kind === 'local') {
     if (!existsSync(src.root)) throw new MarketplaceError(`no such directory: ${src.spec}`);
     const p = join(src.root, MANIFEST_PATH);
     if (!existsSync(p)) throw new MarketplaceError(`${src.spec} has no ${MANIFEST_PATH} — is it a marketplace repo?`);
-    return readFileSync(p, 'utf8');
+    return { raw: readFileSync(p, 'utf8'), checkout: null, commit: null };
   }
-  if (src.kind === 'github') {
-    const url = `https://raw.githubusercontent.com/${src.owner}/${src.repo}/HEAD/${MANIFEST_PATH}`;
-    let r;
-    try {
-      r = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
-    } catch (e) {
-      throw new MarketplaceError(`could not fetch ${src.spec} — ${fetchWhy(e, timeoutMs)}`
-        + ' (offline? the cached copy, if any, still serves `marketplace list`)');
-    }
-    // A 404 here is TWO situations wearing one status code, and this path
-    // cannot tell them apart: raw.githubusercontent.com answers 404 for a
-    // public repo with no manifest AND for a private repo it will not admit
-    // exists. Asserting the first was wrong for anyone pointing at their own
-    // org's catalog — it read as "you got the repo wrong" when the truth was
-    // "you cannot see it from here" — so the message names both and says what
-    // each one's way out is, including that the private one is not a full one.
-    if (r.status === 404) {
-      throw new MarketplaceError(`${src.spec} — HTTP 404 fetching ${MANIFEST_PATH}.`
-        + '\n  Either the repo has no manifest, or it is private: this is an unauthenticated'
-        + '\n  fetch of raw.githubusercontent.com, which answers 404 to both.'
-        + '\n  If it is private, the SSH form clones with your own git credentials:'
-        + `\n    decklight marketplace add git@github.com:${src.owner}/${src.repo}.git`
-        + '\n  — that only REGISTERS the catalog: installing an entry from it fetches the'
-        + "\n  entry's own bytes unauthenticated too, and fails the same way. A local clone"
-        + '\n  added by path is the only form that works end to end today.');
-    }
-    if (!r.ok) throw new MarketplaceError(`could not fetch ${src.spec} — HTTP ${r.status}`);
-    return await r.text();
-  }
-  // an arbitrary git URL: shallow-clone somewhere disposable, read one file
-  const tmp = mkdtempSync(join(tmpdir(), 'decklight-marketplace-'));
-  try {
-    exec('git', ['clone', '--quiet', '--depth', '1', src.url, tmp], {
-      stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs * 4,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    });
-    const p = join(tmp, MANIFEST_PATH);
-    if (!existsSync(p)) throw new MarketplaceError(`${src.spec} has no ${MANIFEST_PATH} — is it a marketplace repo?`);
-    return readFileSync(p, 'utf8');
-  } catch (e) {
-    if (e instanceof MarketplaceError) throw e;
-    throw new MarketplaceError(`git clone ${src.spec} failed — ${oneline(e)}`);
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
-  }
+  // staged beside the destination by default, so adopting it is a rename
+  return cloneMarketplace(src, { exec, timeoutMs, stagingIn: stagingIn ?? join(configHome(), 'marketplaces') });
+}
+
+/**
+ * Put a freshly cloned working tree in place as `name`'s checkout, replacing
+ * whatever was there. A rename, not a copy, and the staging directory is a
+ * sibling of the destination — so the swap is one filesystem operation on one
+ * filesystem, and a half-written checkout is not a state that exists.
+ */
+export function adoptCheckout(home, name, checkout) {
+  const dest = checkoutPath(home, name);
+  mkdirSync(join(home, 'marketplaces'), { recursive: true });
+  rmSync(dest, { recursive: true, force: true });
+  if (checkout === null) return null;   // a local marketplace keeps none
+  renameSync(checkout, dest);
+  return dest;
 }
 
 // ── the cache, and names ───────────────────────────────────────────────────
@@ -584,21 +665,26 @@ export function resolveEntry(ref, catalogs) {
 const USAGE = `usage: decklight marketplace <add|list|update|remove> …
 
   decklight marketplace add <owner/repo | git url | path> [--name <name>]
-    read ${MANIFEST_PATH} at the source's root and register the catalog
-    under ~/.decklight/ — a local path never touches the network
+    clone the source, read ${MANIFEST_PATH} at its root, and register
+    the catalog under ~/.decklight/ — a local path never touches the network
     EXAMPLE: decklight marketplace add decklight/decklight-plugins-official
     EXAMPLE: decklight marketplace add ../my-marketplace
+
+    the clone uses YOUR git credentials, so a private marketplace works the
+    way git clone does in your terminal — and its entries install from that
+    clone, at the commit the manifest came from
 
   decklight marketplace list
     every registered marketplace and its cached entries (as name@marketplace),
     read from the cache alone — list works on a plane
 
   decklight marketplace update <name>
-    re-fetch a marketplace's manifest and refresh the cached copy; for a
-    registered-not-fetched marketplace this is the FIRST fetch it ever gets
+    re-clone a marketplace, refreshing the cached manifest and the checkout
+    its entries install from; for a registered-not-fetched marketplace this is
+    the FIRST fetch it ever gets
 
   decklight marketplace remove <name>
-    unregister a marketplace and drop its cached manifest
+    unregister a marketplace and drop its cached manifest and checkout
 
   registering is not fetching: the network is touched only by an explicit add
   or update, never when a deck loads or presents (SPEC MARKETPLACE_REGISTRY).
@@ -621,29 +707,38 @@ async function addMain(args, home) {
   if (!spec) { console.error(`decklight marketplace add: needs an owner/repo, a git url, or a path\n\n${USAGE}`); return 1; }
 
   const src = classifySource(spec);
-  let raw;
-  try { raw = await fetchManifestText(src); } catch (e) {
+  let got;
+  try { got = await fetchManifest(src, { stagingIn: join(home, 'marketplaces') }); } catch (e) {
     console.error(`decklight marketplace add: ${e.message}`);
     return 1;
   }
-  const v = validateManifest(raw);
-  if (!v.ok) { printManifestErrors('add', spec, v.errors); return 1; }
+  // Everything below either adopts the clone or drops it — a staging directory
+  // must not survive a refusal, so every early return passes through here.
+  try {
+    const v = validateManifest(got.raw);
+    if (!v.ok) { printManifestErrors('add', spec, v.errors); return 1; }
 
-  const name = opt('--name') ?? v.manifest.name;
-  if (!NAME_RE.test(name)) { console.error(`decklight marketplace add: "${name}" is not a usable marketplace name`); return 1; }
+    const name = opt('--name') ?? v.manifest.name;
+    if (!NAME_RE.test(name)) { console.error(`decklight marketplace add: "${name}" is not a usable marketplace name`); return 1; }
 
-  const reg = loadRegistry(home);
-  const existing = reg.marketplaces[name];
-  if (existing && existing.source !== spec) {
-    console.error(`decklight marketplace add: "${name}" is already registered from ${existing.source}`);
-    console.error(`  remove it first, or register this one under another name with --name`);
-    return 1;
+    const reg = loadRegistry(home);
+    const existing = reg.marketplaces[name];
+    if (existing && existing.source !== spec) {
+      console.error(`decklight marketplace add: "${name}" is already registered from ${existing.source}`);
+      console.error(`  remove it first, or register this one under another name with --name`);
+      return 1;
+    }
+    reg.marketplaces[name] = { ...(existing ?? {}), source: spec, commit: got.commit ?? undefined };
+    writeCache(home, name, got.raw);
+    const at = adoptCheckout(home, name, got.checkout);
+    got.checkout = null;
+    saveRegistry(reg, home);
+    console.log(`${existing ? 'refreshed' : 'registered'} ${name} from ${spec} — ${entriesSummary(name, v.manifest.entries)}`);
+    if (at) console.log(`  cloned to ${at}${got.commit ? ` (${got.commit.slice(0, 7)})` : ''} — installing an entry reads it, not the network`);
+    return 0;
+  } finally {
+    if (got.checkout) rmSync(got.checkout, { recursive: true, force: true });
   }
-  reg.marketplaces[name] = { ...(existing ?? {}), source: spec };
-  writeCache(home, name, raw);
-  saveRegistry(reg, home);
-  console.log(`${existing ? 'refreshed' : 'registered'} ${name} from ${spec} — ${entriesSummary(name, v.manifest.entries)}`);
-  return 0;
 }
 
 function writeCache(home, name, raw) {
@@ -660,7 +755,11 @@ function listMain(home) {
   }
   for (const name of names) {
     const m = reg.marketplaces[name];
-    const head = `${name}${m.firstParty ? ' (first-party)' : ''}  ${m.source}`;
+    // The commit is what the manifest AND every entry's files came from — one
+    // clone, so there is a single answer to "which version of this catalog is
+    // installed", and it is worth printing.
+    const head = `${name}${m.firstParty ? ' (first-party)' : ''}  ${m.source}`
+      + `${m.commit ? `  @${m.commit.slice(0, 7)}` : ''}`;
     const cached = loadCatalog(name, home);
     if (cached === null) {
       console.log(`${head} — registered, not fetched (decklight marketplace update ${name})`);
@@ -698,17 +797,32 @@ async function updateMain(args, home) {
   if (!m) { console.error(`decklight marketplace update: no marketplace "${name}" (decklight marketplace list)`); return 1; }
 
   const first = loadCatalog(name, home) === null;
-  let raw;
-  try { raw = await fetchManifestText(classifySource(m.source)); } catch (e) {
+  let got;
+  try { got = await fetchManifest(classifySource(m.source), { stagingIn: join(home, 'marketplaces') }); } catch (e) {
     console.error(`decklight marketplace update: ${name}: ${e.message}`);
+    // The clone lands in staging and is adopted only once it validates, so a
+    // failed update leaves BOTH halves of what is on disk untouched — the
+    // cached manifest and the checkout its entries install from.
     if (!first) console.error(`  the cached copy is untouched — list still works`);
     return 1;
   }
-  const v = validateManifest(raw);
-  if (!v.ok) { printManifestErrors('update', m.source, v.errors); return 1; }
-  writeCache(home, name, raw);
-  console.log(`${first ? 'fetched' : 'updated'} ${name} — ${entriesSummary(name, v.manifest.entries)}`);
-  return 0;
+  try {
+    const v = validateManifest(got.raw);
+    if (!v.ok) { printManifestErrors('update', m.source, v.errors); return 1; }
+    writeCache(home, name, got.raw);
+    const at = adoptCheckout(home, name, got.checkout);
+    got.checkout = null;
+    const reg2 = loadRegistry(home);
+    if (reg2.marketplaces[name]) {
+      reg2.marketplaces[name] = { ...reg2.marketplaces[name], commit: got.commit ?? undefined };
+      saveRegistry(reg2, home);
+    }
+    console.log(`${first ? 'fetched' : 'updated'} ${name} — ${entriesSummary(name, v.manifest.entries)}`);
+    if (at) console.log(`  cloned to ${at}${got.commit ? ` (${got.commit.slice(0, 7)})` : ''}`);
+    return 0;
+  } finally {
+    if (got.checkout) rmSync(got.checkout, { recursive: true, force: true });
+  }
 }
 
 function removeMain(args, home) {
@@ -720,6 +834,7 @@ function removeMain(args, home) {
   delete reg.marketplaces[name];
   saveRegistry(reg, home);
   rmSync(cachePath(home, name), { force: true });
+  rmSync(checkoutPath(home, name), { recursive: true, force: true });
   console.log(`removed ${name} — re-add any time with: decklight marketplace add ${m.source}`);
   return 0;
 }

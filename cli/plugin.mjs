@@ -555,7 +555,15 @@ async function addMain(args, home) {
   }
 
   const { resolveSource } = await import('./theme.mjs');
-  const src = resolveSource(hit.entry.source, reg.marketplaces[hit.marketplace]?.source);
+  let src;
+  try {
+    src = resolveSource(hit.entry.source,
+      { name: hit.marketplace, source: reg.marketplaces[hit.marketplace]?.source }, home);
+  } catch (e) {
+    if (!(e instanceof MarketplaceError)) throw e;
+    console.error(`decklight plugin add: ${e.message}`);
+    return 1;
+  }
   let manifest;
   let files;
   try {

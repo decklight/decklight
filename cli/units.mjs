@@ -68,12 +68,14 @@ export const UNIT_TYPES = {
     required: [],
   },
   // `pinned` marks the kinds that are Node code the loader runs unsandboxed
-  // at author privilege (EXTENSIONS#LOADER): their `source` resolves against
-  // a moving ref (`resolveSource` deliberately fetches HEAD), so an entry
-  // installs only against the `sha256` its catalog admitted — refused before
-  // any fetch without one, refused before any write on a mismatch (SPEC
-  // UNIT_PINNING). Data kinds stay unpinned: a theme re-passes its whole
-  // contract at `theme add`, and nothing in a template or skill executes.
+  // at author privilege (EXTENSIONS#LOADER): their `source` resolves into a
+  // checkout cloned at whatever the marketplace's default branch pointed to
+  // when it was last added or updated — later than the admission that screened
+  // the code — so an entry installs only against the `sha256` its catalog
+  // admitted: refused before any read without one, refused before any write on
+  // a mismatch (SPEC UNIT_PINNING). Data kinds stay unpinned: a theme
+  // re-passes its whole contract at `theme add`, and nothing in a template or
+  // skill executes.
   importer: {
     dir: 'importers',
     files: ['importer.mjs'],
@@ -343,8 +345,18 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
         : ''));
   }
 
+  // An entry's `source` is relative to its marketplace, which by now is a
+  // CHECKOUT on disk (MARKETPLACES#CLONE) — so for everything but an absolute
+  // URL, installing a unit reads files rather than reaching the network.
   const { resolveSource } = await import('./theme.mjs');
-  const base = resolveSource(hit.entry.source, reg.marketplaces[hit.marketplace]?.source);
+  let base;
+  try {
+    base = resolveSource(hit.entry.source,
+      { name: hit.marketplace, source: reg.marketplaces[hit.marketplace]?.source }, home);
+  } catch (e) {
+    if (e instanceof MarketplaceError) throw new UnitError(e.message);
+    throw e;
+  }
 
   // Fetch first, write second.
   const fetched = [];

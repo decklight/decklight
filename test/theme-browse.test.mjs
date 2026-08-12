@@ -118,6 +118,33 @@ test('a registered-but-never-fetched marketplace is named, not silently empty', 
   assert.equal(j.cacheOnly, true, 'and listing never fetched anything to find out');
 });
 
+test('a cached catalog whose FILES are not on disk is stale too — not an offer that can only fail', async (t) => {
+  // The state an upgrade leaves behind: a manifest cached by a decklight that
+  // fetched entries one URL at a time, and no checkout. Since MARKETPLACES#CLONE
+  // an entry installs from its marketplace's clone, so listing these themes
+  // would put rows in the picker that cannot install. `marketplace update`
+  // fixes both halves at once, and that is what `stale` already means.
+  const h = home(marketplace());
+  const regPath = path.join(h, 'marketplaces.json');
+  const reg = JSON.parse(readFileSync(regPath, 'utf8'));
+  reg.marketplaces['nord-pack'].source = 'acme/catalog';   // re-registered from a remote
+  writeFileSync(regPath, JSON.stringify(reg, null, 2));
+
+  const { base, deck } = await startAuthor(t, h);
+  const j = await (await fetch(`${base}/edit/theme/browse`)).json();
+  assert.ok(j.stale.includes('nord-pack'), 'reported as needing an update, honestly');
+  assert.ok(!j.themes.some((x) => x.marketplace === 'nord-pack'), 'and offered as nothing');
+
+  const before = readFileSync(deck, 'utf8');
+  const r = await fetch(`${base}/edit/theme/add`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ref: 'nord-deep@nord-pack' }),
+  });
+  assert.equal(r.status, 409, 'and asking for one anyway is refused by name');
+  assert.match((await r.json()).error, /marketplace update nord-pack/);
+  assert.equal(readFileSync(deck, 'utf8'), before, 'byte-for-byte unchanged');
+});
+
 // ── what installing does ───────────────────────────────────────────────────
 
 test('installing goes through theme add\'s own path, and lands as an Added block', async (t) => {

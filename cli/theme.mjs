@@ -22,6 +22,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path, { resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools/theme-check.mjs';
+import { checkoutPath, classifySource, configHome, MarketplaceError } from './marketplace.mjs';
 
 const USAGE = `usage: decklight theme <check|add> …
 
@@ -82,29 +83,46 @@ export function installTheme(html, name, css) {
  *
  * A manifest says `./themes/nord-deep.css`, which is relative to the
  * MARKETPLACE — and by the time the catalog is a cached JSON file, the repo it
- * came from is not the cwd of whoever is installing. The registry records each
- * marketplace's source, so that is what a relative entry resolves against:
- * a local path joins, `owner/repo` becomes a raw URL on the default branch.
+ * came from is not the cwd of whoever is installing. So a relative entry
+ * resolves against what `marketplace add`/`update` left on disk for that
+ * marketplace: the CHECKOUT it cloned (MARKETPLACES#CLONE), or, for a local
+ * marketplace, the directory it was registered from.
  *
- * This lives in theme.mjs rather than in the author server on purpose. Fetching
+ * It used to build a `raw.githubusercontent.com` URL instead, and that was the
+ * private-marketplace bug in one line: the manifest could be read with the
+ * caller's git credentials while every entry's bytes were fetched with none,
+ * so a private catalog listed correctly and then 404'd on every install. It
+ * also read a moving ref — the manifest at one HEAD, each artifact at another
+ * — so an install could match no single commit of the marketplace. Resolving
+ * into the checkout closes both: same commit, same credentials, no network.
+ *
+ * An ABSOLUTE `https://` source is still fetched as written: an entry may
+ * legitimately point at a gist or a release asset outside its own repo.
+ *
+ * This lives in theme.mjs rather than in the author server on purpose. Reading
  * an ARTIFACT on an explicit install is fine anywhere; fetching a CATALOG is
  * what `registered, not fetched` forbids on a deck-serving path, and keeping the
  * two in different files is what keeps the sweep in test/marketplace.test.mjs
  * able to tell them apart.
+ *
+ * @param {string} source        the entry's `source`, as the manifest wrote it
+ * @param {{name?: string, source?: string}} marketplace  registry name + registered source
  */
-export function resolveSource(source, marketplaceSource) {
+export function resolveSource(source, marketplace, home = configHome()) {
   if (/^https?:\/\//i.test(source)) return source;                 // absolute already
   const rel = source.replace(/^\.\//, '');
-  if (!marketplaceSource) return source;                           // nothing to resolve against
-  if (/^https?:\/\//i.test(marketplaceSource)) {
-    return `${marketplaceSource.replace(/\.git$/, '').replace(/\/$/, '')}/raw/HEAD/${rel}`;
+  const { name, source: from } = marketplace ?? {};
+  if (name) {
+    const checkout = checkoutPath(home, name);
+    if (existsSync(checkout)) return path.join(checkout, rel);
   }
-  if (/^[\w.-]+\/[\w.-]+$/.test(marketplaceSource)) {
-    // owner/repo — GitHub's raw host, HEAD so a marketplace is not pinned to a
-    // branch name we guessed at.
-    return `https://raw.githubusercontent.com/${marketplaceSource}/HEAD/${rel}`;
-  }
-  return path.resolve(marketplaceSource, rel);                     // a local marketplace
+  if (!from) return source;                                        // nothing to resolve against
+  if (classifySource(from).kind === 'local') return path.resolve(from, rel);
+  // Registered from a remote source with nothing cloned: the entry is real and
+  // its bytes are simply not here yet. Naming the one command that fixes it
+  // beats a fetch that would only work for a public repo (SPEC MARKETPLACE_REGISTRY).
+  throw new MarketplaceError(`${name ?? from} has no local checkout, so "${source}" cannot be read`
+    + `\n  its files arrive with the marketplace itself: decklight marketplace update ${name ?? ''}`.trimEnd());
 }
 
 /** Read a theme from disk or over https. */

@@ -52,6 +52,56 @@ that inversion.
   refuses to install without it or past a mismatch (`EXTENSIONS#PIN`, SPEC
   `UNIT_PINNING`).
 
+**`MARKETPLACES#CLONE` — a marketplace is cloned, and `owner/repo` is
+shorthand for the clone.** The layout above mirrors Claude Code's; this is the
+fork where the implementation had quietly stopped mirroring it, and #286 is
+what that cost. `owner/repo` used to mean an unauthenticated fetch of
+`raw.githubusercontent.com` — one URL for the manifest, another per entry —
+while only a non-GitHub git URL or the SSH form reached `git clone`. Three
+things were wrong with that, and one change fixes all three:
+
+- **A private marketplace could not work.** An anonymous fetch has no
+  credentials to offer, so a private repo answered 404 — indistinguishable
+  from a public repo with no manifest, which is what the message asserted
+  (#287). Worse, the two halves disagreed: a catalog registered through the
+  SSH form (which *does* clone) then failed at every install, because the
+  artifact path had no credentialed branch at all. A team publishing an
+  internal catalog to their own org — the case the decentralised design
+  invites — had no working route but a hand-managed local clone.
+- **An install could match no commit.** The manifest was read at `HEAD` and
+  each artifact fetched at `HEAD` separately, so a push between the two
+  produced an install matching no single state of the marketplace.
+- **The URL was GitHub-shaped anyway.** `resolveSource` built
+  `<url>/raw/HEAD/<rel>` for any https marketplace, which is not how GitLab
+  serves raw files — a bug independent of auth.
+
+So `add`/`update` shallow-clone the source into
+`~/.decklight/marketplaces/<name>/`, drop its `.git` (what is kept is a
+checkout, not a repository — nothing pulls into it, `update` re-clones), record
+the commit in the registry, and every entry resolves into that checkout. The
+credentials are the caller's own, exactly as `git clone` in their terminal;
+installing reads the disk; manifest and artifact provably share a commit.
+A local-path marketplace keeps no checkout — its directory already is one, and
+copying somebody's working tree would hand them a stale second copy of files
+they are editing.
+
+**What this does NOT change is the invariant** (SPEC `MARKETPLACE_REGISTRY`):
+`add` and `update` were already the only two moments that touch the network,
+and they still are — the clone replaces a fetch at the same moment rather than
+adding one, and it takes network *off* the install path. The trap Claude Code
+documents around this — a background auto-update whose `git pull` disables
+credential helpers, so private HTTPS marketplaces fail to refresh — cannot
+arise here, and not by luck: registered-not-fetched means there is no
+background refresh to authenticate.
+
+Two costs, taken deliberately. A clone is bigger than one JSON file (the
+first-party catalog: 92K at `--depth 1`), and a catalog already cached by an
+older decklight has no checkout until its next `update` — which the install
+error names rather than silently falling back to a fetch that would only work
+for a public repo. Sparse checkout is available if a monorepo catalog ever
+makes the size real: a manifest names every entry's `source` up front, so the
+paths are computable from the catalog with no new field.
+
 ### EXTENSIONS — Build-time by default
 
 The decision that resolves the safety problem.
@@ -214,10 +264,10 @@ refusal too, not an unbounded hang in whatever is running the check.
 **`EXTENSIONS#PIN` — landed (full contract text: SPEC `UNIT_PINNING`).** The
 pin the tiering above reasons about, made real where the risk lands rather
 than left as a property a good marketplace merely has. What `extension
-check` admits and what `transform add`/`importer add` later fetch were two
-reads of a moving ref (`resolveSource` resolves a relative `source` against
-`HEAD`, deliberately — no branch name guessed at), with nothing holding them
-equal: a repo edited after admission would install and then run, unsandboxed,
+check` admits and what `transform add`/`importer add` later install were two
+reads of a moving ref (a relative `source` resolves against the marketplace's
+default branch — no branch name guessed at, then or now that the resolution
+lands in a clone, `MARKETPLACES#CLONE`), with nothing holding them equal: a repo edited after admission would install and then run, unsandboxed,
 in the installer's own Node process. Now a code-carrying entry carries the
 module file's `sha256` — a content digest, not a commit SHA, so it holds for
 raw URLs, git URLs and local directories alike, against the math rather than
