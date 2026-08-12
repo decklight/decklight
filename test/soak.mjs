@@ -36,9 +36,9 @@
 // inside the repo.
 //
 // SKIPS. git/npm missing → the whole run skips and exits 0. No Chrome, no
-// network → those steps skip by name and the rest still run. A skip is always
-// printed with its reason, so a green soak can never quietly mean "nothing
-// ran".
+// network, no ffmpeg, no toolchain for node-pty → those steps skip by name and
+// the rest still run. A skip is always printed with its reason, so a green soak
+// can never quietly mean "nothing ran".
 //
 // macOS/Linux for now: it drives node_modules/.bin/decklight, which needs the
 // .cmd shim on Windows.
@@ -57,10 +57,11 @@ import { dumpDom } from './harness.mjs';
 import { findChrome } from '../tools/chrome.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-html.mjs';
+import { ffprobeArgs } from '../tools/video.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
-const TOTAL = 37;
+const TOTAL = 40;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -355,6 +356,7 @@ if (!have('git') || !have('npm')) {
 }
 // findChrome() is the NON-fatal probe; chromeBin() would exit the process.
 const HAVE_CHROME = Boolean(findChrome());
+const HAVE_FFMPEG = have('ffmpeg', '-version') && have('ffprobe', '-version');
 const HAVE_NET = spawnSync('git',
   ['ls-remote', '--exit-code', 'https://github.com/decklight/decklight-plugins-official', 'HEAD'],
   { stdio: 'ignore', timeout: 8000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).status === 0;
@@ -889,6 +891,68 @@ try {
     const r = dl(['present', 'tampered.html', '--check'], { allowFail: true });
     must(r.code === 1, `--check passed a tampered deck (exit ${r.code}) — the gate is decoration`);
     must(/1 unaccounted script block/.test(r.all), 'the report does not name the spliced script');
+  });
+
+  // ── the two capabilities that need more than Node ────────────────────────
+  await step('recording says what it needs, before it needs it', () => {
+    // The install above is `--omit=optional`, which is what CI does and what
+    // most users get — so this is the state a real machine is in the first time
+    // it tries to record. The refusal must NAME the missing package and the
+    // command that installs it (the ENGINES pattern: offer at the point of
+    // failure, not a setup step nobody performs in advance).
+    copyFileSync(join(root, 'test', 'fixtures', 'smoke.term.yaml'), join(PROJECT, 'smoke.term.yaml'));
+    const r = dl(['rec', 'smoke.term.yaml'], { allowFail: true });
+    must(r.code !== 0, 'rec ran without its optional dependencies');
+    must(/js-yaml|node-pty/.test(r.all), `the refusal does not name what is missing: ${r.all}`);
+    must(/npm install/.test(r.all), 'the refusal does not name the command that fixes it');
+  });
+
+  await step('a terminal cast records in a real PTY', () => {
+    // node-pty is a native module: on a machine without a toolchain this is a
+    // skip, not a failure — but where it DOES install, the cast is recorded by
+    // running the commands for real, so the output in a deck is captured rather
+    // than typed (SPEC TERMINAL_RECORDINGS).
+    const dep = sh(['npm', 'install', 'node-pty', 'js-yaml', '--no-audit', '--no-fund', '--no-package-lock'],
+      { timeout: 300000, allowFail: true });
+    if (dep.code !== 0) return { skip: 'node-pty would not install (no build toolchain?)' };
+
+    dl(['rec', 'smoke.term.yaml', '-o', 'demo cast.json'], { timeout: 180000 });
+    const cast = JSON.parse(readFileSync(join(PROJECT, 'demo cast.json'), 'utf8'));
+    must(Array.isArray(cast.steps) && cast.steps.length === 3, `the cast has ${cast.steps?.length} steps`);
+    must(cast.steps[0].cmd.includes('echo "hello decklight"'), 'the first command is not the one scripted');
+    // Recorded, not transcribed: the OUTPUT has to be what the shell actually said.
+    const out = JSON.stringify(cast.steps[0].out ?? cast.steps[0]);
+    must(/hello decklight/.test(out), `the recorded output does not carry the command's real output: ${out.slice(0, 200)}`);
+    // And the ANSI colours of step 2 survive as data rather than being stripped.
+    must(/\[|\\u001b\[|31m/.test(JSON.stringify(cast.steps[1])), 'the colour escapes did not survive');
+    return undefined;
+  });
+
+  await step('a deck renders to a narrated mp4', () => {
+    if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
+    if (!HAVE_FFMPEG) return { skip: 'no ffmpeg/ffprobe (apt install ffmpeg / brew install ffmpeg)' };
+    // Chrome AND ffmpeg, driven by the installed bin: the deck is served over
+    // loopback rooted at the cwd (never file://), captured frame by frame, and
+    // muxed. With no narration every slide holds --hold seconds over silence,
+    // so a 2-slide deck at --hold 1 is ~2s — and ffprobe, not decklight, is
+    // what vouches for the result.
+    writeFileSync(join(PROJECT, 'film.html'), linkedDeck('Filmed'));
+    dl(['video', 'film.html', '-o', 'talk out.mp4', '--hold', '1', '--fps', '10'], { timeout: 300000 });
+    const mp4 = join(PROJECT, 'talk out.mp4');
+    must(existsSync(mp4), 'no mp4 was written');
+
+    // ffprobe, not decklight, is what vouches for the result — and the duration
+    // question is asked with decklight's own arg builder, so the soak cannot
+    // drift from what the product asks.
+    const seconds = Number(sh(['ffprobe', ...ffprobeArgs(mp4)]).stdout.trim());
+    must(seconds > 1.4 && seconds < 3.2, `expected ~2s of video, got ${seconds}s`);
+    const streams = sh(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_name,codec_type',
+      '-of', 'csv=p=0', mp4]).stdout.trim().split('\n');
+    must(streams.some((s) => s.startsWith('h264,video')), `no h264 video stream: ${streams}`);
+    // A silent deck still carries an audio track, so the timeline stays
+    // continuous when a narrated slide is added later.
+    must(streams.some((s) => s.endsWith(',audio')), `no audio stream: ${streams}`);
+    return undefined;
   });
 
   await step('the bundle opens by double-click', () => {

@@ -47,11 +47,19 @@ checked-out branch are untouched, and a **roster sweep**: every command answers
 found two bugs on its first run (#294, #295), both of them one command sitting
 quietly outside a convention everything else follows.
 
+It also covers the two capabilities that need more than Node: **`rec`** records a
+cast in a real PTY (after asserting that, without the optional deps, the refusal
+names the package *and* the command that installs it), and **`video`** renders a
+deck to an mp4 that `ffprobe` — not decklight — vouches for.
+
 It is manual and deliberately in neither blessed suite: it takes a real `npm
 install`, and skipping inside `npm test` would let "green" mean "not actually
-run". With no Chrome or no network it skips those steps **by name** and runs the
-rest; with no `git`/`npm` it skips entirely and exits 0. `DECKLIGHT_SOAK_KEEP=1`
-leaves its temp dirs for a post-mortem.
+run". With no Chrome, no network, no ffmpeg or no build toolchain for `node-pty`
+it skips those steps **by name** and runs the rest; with no `git`/`npm` it skips
+entirely and exits 0. `DECKLIGHT_SOAK_KEEP=1` leaves its temp dirs for a
+post-mortem.
+
+A full-fat run needs: Chrome, network, ffmpeg + ffprobe, and a C toolchain.
 
 `dist/` is build output and is **not** in git — it is derived from `src/`, so
 versioning it would only buy unreviewable minified diffs and source/dist drift.
