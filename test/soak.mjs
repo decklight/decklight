@@ -577,12 +577,18 @@ try {
 
   await step('the deck renders', () => {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
-    // Rendered from FILE, not from the running present server: an init deck
-    // served by present never drains Chrome's virtual clock and `--dump-dom`
-    // hangs (the same deck dumps in ~2s over file:// and over a plain static
-    // server, and a minimal deck dumps fine under present — so it is that
-    // combination, reported separately). file:// is also the stronger claim:
-    // it is what "double-click it and it presents" means.
+    // Rendered from FILE, not from the running present server — and that is a
+    // constraint, not a preference: a deck SERVED BY PRESENT can never be
+    // dumped under `--virtual-time-budget`, by design. `/present/ping` answers
+    // `{present:true}`, so the runtime opens an EventSource on
+    // `/present/events` for the phone remote (PRESENT#REMOTE, `editmode.js`
+    // wirePresentRemote), that stream never ends, and Chrome's virtual clock
+    // does not advance while a fetch is pending — so the dump never returns.
+    // Over file:// the ping finds nothing and the stream is never opened.
+    //
+    // file:// is the stronger claim anyway: it is what "double-click it and it
+    // presents" means. The wall-clock `timeout` below is the backstop, since a
+    // hang is the one failure a soak must never have.
     //
     // No probe splice either — present strips unaccounted script, so a spliced
     // probe would be removed and report nothing. Assert on the dumped DOM.
