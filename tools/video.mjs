@@ -187,9 +187,14 @@ const have = (bin) => {
 export async function videoMain(argv, { exec = run, log = console.log } = {}) {
   const { opt } = argReader(argv);
   const deckArg = argv.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
-  if (argv.includes('--help') || !deckArg) {
-    (deckArg ? process.stdout : process.stderr).write(HELP);
-    process.exit(deckArg ? 0 : 1);
+  // Two different situations, and the stream and the exit code follow WHICH
+  // one happened rather than whether a deck was named. Asking for help is not
+  // a failure: it goes to stdout and exits 0, the way every other command
+  // answers `--help`. Naming no deck IS a failure: stderr, exit 1.
+  const wantsHelp = argv.includes('--help') || argv.includes('-h');
+  if (wantsHelp || !deckArg) {
+    (wantsHelp ? process.stdout : process.stderr).write(HELP);
+    process.exit(wantsHelp ? 0 : 1);
   }
   const deck = resolve(deckArg);
   if (!existsSync(deck)) { console.error(`decklight video: no such deck: ${deck}`); process.exit(1); }
