@@ -521,12 +521,17 @@ export const cloneUrl = (src) =>
  * The HTTPS form of a private repo fails here rather than 404ing somewhere
  * unauthenticated, which is already the improvement — but "Repository not
  * found" from a repo the user can see in their browser needs the missing half
- * spelled out: decklight clones with the CALLER's git credentials, so what is
- * missing is a helper, and the SSH form is the route that needs no helper at
- * all. Named for GitHub only, because that is the only host whose SSH URL we
- * can derive rather than guess.
+ * spelled out: decklight clones with the CALLER's git credentials, so the
+ * usual answer is that git has none for that host.
+ *
+ * Which it does not GUESS at. The setup instructions are printed when the
+ * machine actually needs them and withheld when it does not (`hasGitCredential`
+ * below), because advice that is wrong half the time is what teaches people to
+ * skim past the last line of an error. When git does have a credential, saying
+ * so is the more useful sentence: it means the name or the access is the
+ * problem, not the setup.
  */
-function cloneFailure(src, e) {
+function cloneFailure(src, e, exec) {
   const why = `git clone ${cloneUrl(src)} failed — ${oneline(e)}`;
   // Offline is not an auth problem, and must not be answered as one: a plane
   // is a first-class place to run decklight, and the cache is still there.
@@ -534,14 +539,59 @@ function cloneFailure(src, e) {
     return `${why}\n  offline? the cached copy, if any, still serves \`marketplace list\``
       + ' — and an already-cloned marketplace still installs.';
   }
-  if (src.kind !== 'github') {
-    return `${why}\n  decklight clones a marketplace with your own git credentials`
-      + ' — the same ones `git clone` uses in your terminal.';
+  // Named for GitHub only, because that is the only host whose SSH URL can be
+  // derived rather than guessed at.
+  const ssh = src.kind === 'github'
+    ? `\n  Or add it by its SSH URL, which uses your keys instead of a helper:`
+      + `\n    decklight marketplace add git@github.com:${src.owner}/${src.repo}.git`
+    : '';
+  const url = cloneUrl(src);
+  if (!/^https?:\/\//i.test(url)) {
+    // An SSH or git:// URL never consults a credential helper — the key is the
+    // credential, so pointing at helper setup here would be a wrong turn.
+    return `${why}\n  decklight clones with your own git credentials; for an SSH URL that means`
+      + ' your key — `ssh -T git@github.com` says whether GitHub accepts it.';
   }
-  return `${why}\n  decklight clones a marketplace with your own git credentials, so a private`
-    + '\n  repo needs a credential helper configured (`gh auth setup-git`, the macOS'
-    + '\n  Keychain, git-credential-store) — or add it by its SSH URL instead:'
-    + `\n    decklight marketplace add git@github.com:${src.owner}/${src.repo}.git`;
+  const host = new URL(url).host;
+  if (hasGitCredential(url, exec)) {
+    return `${why}\n  git does have a credential for ${host}, so this is not a setup problem:`
+      + '\n  check the spelling, and that the account that credential belongs to can see'
+      + ` the repo.${ssh}`;
+  }
+  return `${why}\n  git has no credential for ${host}, so this clone was anonymous — and a`
+    + '\n  private repo answers an anonymous clone exactly as a missing one does.'
+    + '\n  Configure a credential helper, then try again:'
+    + '\n    gh auth setup-git            (or the macOS Keychain, or git-credential-store)'
+    + ssh;
+}
+
+/**
+ * Does git already have a usable credential for this URL's host?
+ *
+ * `git credential fill` is the only honest way to ask. Reading
+ * `credential.helper` out of the config answers a different question and gets
+ * it wrong exactly where it matters: macOS ships a global `osxkeychain`
+ * helper, so "a helper is configured" is true on a machine that has never
+ * stored a GitHub credential in its life — the precise state that fails.
+ *
+ * Prompts are disabled on every axis (terminal, askpass), so this cannot hang
+ * or pop a dialog, and it is bounded by its own timeout. The credential it
+ * fills is DISCARDED unread: only the exit status is used, nothing is logged,
+ * nothing is returned. This runs only after a clone has already failed.
+ */
+export function hasGitCredential(url, exec = execFileSync) {
+  const { GIT_ASKPASS, SSH_ASKPASS, ...env } = process.env;
+  try {
+    const u = new URL(url);
+    exec('git', ['credential', 'fill'], {
+      input: `protocol=${u.protocol.replace(':', '')}\nhost=${u.host}\n\n`,
+      stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf8', timeout: 5000,
+      env: { ...env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -567,7 +617,7 @@ function cloneMarketplace(src, { exec, timeoutMs, stagingIn }) {
     });
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
-    throw new MarketplaceError(cloneFailure(src, e));
+    throw new MarketplaceError(cloneFailure(src, e, exec));
   }
   try {
     const p = join(dir, MANIFEST_PATH);
