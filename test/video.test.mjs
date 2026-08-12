@@ -10,9 +10,11 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   TAIL_SECONDS, parseSize, parseSlideRange, extractHolds, planTimeline,
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration,
@@ -160,4 +162,27 @@ test('narration resolves --narration → deck voiceover/ → silent, in that ord
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- the help convention ------------------------------------------------------
+
+test('--help is an answer, not a failure — like every other command', () => {
+  // `video` was the one command in the roster that answered `--help` on stderr
+  // with exit 1, because one branch served two situations and took its stream
+  // and its exit code from whether a deck was named rather than from which
+  // situation it was in. Asking for help is not a failure; naming no deck is.
+  // (Found by the `npm run soak` help sweep across all 26 commands.)
+  const CLI = fileURLToPath(new URL('../cli/decklight.mjs', import.meta.url));
+  const run = (...args) => spawnSync(process.execPath, [CLI, 'video', ...args], { encoding: 'utf8' });
+
+  for (const flag of ['--help', '-h']) {
+    const r = run(flag);
+    assert.equal(r.status, 0, `video ${flag} exited ${r.status}`);
+    assert.match(r.stdout, /decklight video/, `video ${flag} wrote nothing to stdout`);
+  }
+  // No deck is still a refusal, and still on stderr.
+  const bare = run();
+  assert.equal(bare.status, 1);
+  assert.equal(bare.stdout, '');
+  assert.match(bare.stderr, /decklight video/);
 });
