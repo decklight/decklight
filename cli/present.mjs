@@ -246,6 +246,14 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
 // `client` is the sigstore client — injectable for the same reason as
 // `bundleMain`'s: `undefined` means "go load the real one", an explicit stub
 // lets a test drive the verification states without the network.
+/**
+ * A refusal that says which command refused. Every other command names itself
+ * — `decklight bundle: deck not found: …` — and present's three refusals did
+ * not, so a bare `deck not found:` in a terminal running several tools was the
+ * one message that could not be traced back to what printed it.
+ */
+const fail = (msg) => { console.error(`decklight present: ${msg}`); return 1; };
+
 export async function presentMain(args, { client } = {}) {
   const positional = args.filter((a) => !a.startsWith('-'));
   if (args.includes('--help') || args.includes('-h') || !positional.length) {
@@ -267,17 +275,14 @@ export async function presentMain(args, { client } = {}) {
   const token = remote ? randomBytes(16).toString('base64url') : null;
 
   const deckPath = resolve(process.cwd(), positional[0]);
-  if (!existsSync(deckPath)) {
-    console.error(`deck not found: ${deckPath}`);
-    return 1;
-  }
+  if (!existsSync(deckPath)) return fail(`deck not found: ${deckPath}`);
   // A .decklight is the same deck with its signature and manifest stapled on
   // (DECK_FILE), so it is unwrapped here and everything below treats it exactly
   // like the HTML it wraps — same audit, same CSP, same strict rule. Nothing is
   // written to unwrap it: the payload is a slice of the bytes already read.
   let container = null;
   if (isContainer(deckPath)) {
-    try { container = readContainer(deckPath); } catch (e) { console.error(e.message); return 1; }
+    try { container = readContainer(deckPath); } catch (e) { return fail(e.message); }
   }
   const payload = container ? container.payload : readFileSync(deckPath);
 
@@ -335,8 +340,7 @@ export async function presentMain(args, { client } = {}) {
   const rootArg = opt('--root');
   const root = rootArg ? resolve(process.cwd(), rootArg) : dirname(deckPath);
   if (!deckPath.startsWith(root + sep)) {
-    console.error('deck must live under --root');
-    return 1;
+    return fail('deck must live under --root');
   }
   const deckUrl = '/' + deckPath.slice(root.length + 1).split(sep).join('/');
 
