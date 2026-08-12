@@ -64,7 +64,15 @@ it skips those steps **by name** and runs the rest; with no `git`/`npm` it skips
 entirely and exits 0. `DECKLIGHT_SOAK_KEEP=1` leaves its temp dirs for a
 post-mortem.
 
-A full-fat run needs: Chrome, network, ffmpeg + ffprobe, and a C toolchain.
+One leg reaches across releases: it installs a **published** decklight from npm,
+scaffolds a deck with it, and upgrades that deck with the build under test — the
+only check that `upgrade` does what it exists for, since everything else in the
+repo tests one version against itself.
+
+A full-fat run needs: Chrome, network, ffmpeg + ffprobe, and a C toolchain. It
+takes about 70s with all of them, ~12s without Chrome and ffmpeg (the two video
+legs are 60% of a full run — one Chrome launch per frame, and builds have frames
+now).
 
 `dist/` is build output and is **not** in git — it is derived from `src/`, so
 versioning it would only buy unreviewable minified diffs and source/dist drift.
