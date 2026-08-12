@@ -1164,13 +1164,17 @@ decklight/
   demo/          smoke.html (the render harnesses' deck — every feature, including deliberate regression
                  fixtures) + intro.html, features.html, pitch.html, showcase.html + assets/
   test/          node:test units (ansi, builds, math, cast format, the CLI, the marketplace, the pieces lifted out
-                 of engine.js) + 15 headless-Chrome harnesses (render, player, narration, character, engine, pin,
-                 overflow, split, strict, shot, plugin, extension-check, deckfile, pdf, import) + contrast.mjs and
-                 palette-rules.mjs (every shipped theme through tools/theme-check.mjs, and the house palette bar)
+                 of engine.js), found by run.mjs rather than a shell glob + 15 headless-Chrome harnesses (render,
+                 player, narration, character, engine, pin, overflow, split, strict, shot, plugin, extension-check,
+                 deckfile, pdf, import) + contrast.mjs and palette-rules.mjs (every shipped theme through
+                 tools/theme-check.mjs, and the house palette bar) + the two manual end-to-end scripts neither
+                 blessed suite runs: soak.mjs (pack, install, walk the journey — the release gate) with its
+                 soak-platform.mjs, and video-e2e.mjs (a real ffmpeg render)
 ```
 
 - Build: `npm run build` = esbuild bundle (`src/index.js` → `dist/decklight.js`, minified + sourcemap) + CSS copy. Node ≥ 20. Runtime has **zero** runtime dependencies (highlight.js + temml are bundled at build time; Temml's stylesheet is appended to `decklight.css` with its optional woff2 `@font-face` stripped); `node-pty`, `js-yaml` are CLI-only deps.
 - Verification culture: `npm test` runs the units; `npm run verify` builds and then runs **all 17 harnesses** — the 15 headless-Chrome ones against `demo/smoke.html` and the decks each covers, plus the two theme graders — reporting every harness rather than stopping at the first failure. A feature is verified against a real render, not only unit-tested.
+- Release gate: **`npm run soak`** packs this repo, installs the tarball into an empty project whose path contains a space, and drives the INSTALLED `decklight` through one user journey — create, import, marketplace, author, present, bundle, transform, pdf, publish, validate, open, record, film — plus a cross-version `upgrade` of a deck scaffolded by a decklight that actually shipped. Manual, in neither blessed suite (it runs a real `npm install`, and skipping inside them would let "green" mean "not actually run"); anything it cannot do here — no Chrome, no network, no ffmpeg, no toolchain — skips **by name**, so a green run with skips is never mistaken for a complete one.
 
 ## NON_GOALS — Non-goals (v1)
 
