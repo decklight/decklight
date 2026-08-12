@@ -186,7 +186,9 @@ test('a deck outside the chosen --root is refused, not silently rooted elsewhere
   rmSync(outer, { recursive: true, force: true });
   rmSync(cwd, { recursive: true, force: true });
   assert.equal(code, 1);
-  assert.match(out, /deck must live under --root/);
+  // Named, like every other command's refusals: a bare message in a terminal
+  // running several tools cannot be traced back to what printed it.
+  assert.match(out, /^decklight present: deck must live under --root/m);
 });
 
 test('a deck presents from any cwd — the root travels with the deck, not the shell', async (t) => {
@@ -411,7 +413,7 @@ test('a deck that is not there is named, not stack-traced', async () => {
     execFileSync(process.execPath, [CLI, 'present', 'nope.html'], { encoding: 'utf8', stdio: 'pipe' });
   } catch (e) { code = e.status; out = String(e.stderr); }
   assert.equal(code, 1);
-  assert.match(out, /deck not found: .*nope\.html/);
+  assert.match(out, /^decklight present: deck not found: .*nope\.html/m);
 });
 
 // ── the phone remote lives here now (PRESENT#REMOTE) ───────────────────────
