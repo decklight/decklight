@@ -274,19 +274,56 @@ test('every remote spec is a CLONE — owner/repo is shorthand for one, not for 
   assert.doesNotMatch(src, /raw\.githubusercontent\.com\/\$\{/, 'no raw-content URL is built anywhere');
 });
 
+/** An exec that fails `git clone` and answers `git credential fill` as told. */
+const gitStub = ({ credential, stderr = 'remote: Repository not found.\n' }) => (cmd, args) => {
+  if (args[0] === 'credential') {
+    if (!credential) throw Object.assign(new Error('exit 128'), { stderr: 'could not read Username' });
+    return 'protocol=https\nhost=github.com\nusername=x\npassword=SECRET\n';
+  }
+  throw Object.assign(new Error('exit 128'), { stderr });
+};
+
 test('a clone failure is fast, says why, and names what a private repo needs', async () => {
   // The failure a private GitHub marketplace actually hits now. It may not
-  // read as "you got the repo wrong": what is missing is a credential helper,
-  // and the SSH form is the route that needs none.
+  // read as "you got the repo wrong": on a machine with no credential for the
+  // host, the clone went out anonymous, and that is the sentence to say.
   const src = classifySource('acme/private-catalog', { exists: () => false });
-  const boom = () => { throw Object.assign(new Error('exit 128'), { stderr: 'remote: Repository not found.\n' }); };
-  const e = await fetchManifest(src, { exec: boom, stagingIn: tmp() }).then(() => null, (err) => err);
+  const e = await fetchManifest(src, { exec: gitStub({ credential: false }), stagingIn: tmp() })
+    .then(() => null, (err) => err);
   assert.ok(e instanceof MarketplaceError);
   assert.match(e.message, /git clone https:\/\/github\.com\/acme\/private-catalog\.git failed/);
   assert.match(e.message, /Repository not found/, 'git gets to say what happened');
-  assert.match(e.message, /your own git credentials/);
-  assert.match(e.message, /gh auth setup-git/);
+  assert.match(e.message, /git has no credential for github\.com/);
+  assert.match(e.message, /gh auth setup-git/, 'the setup instructions, where they apply');
   assert.match(e.message, /decklight marketplace add git@github\.com:acme\/private-catalog\.git/);
+});
+
+test('the setup instructions are withheld from a machine that is already set up', async () => {
+  // Advice that is wrong half the time teaches people to skim the last line of
+  // an error. Reading `credential.helper` out of the config would be wrong
+  // exactly here: macOS ships a global osxkeychain helper, so "configured" is
+  // true on a machine that has never stored a GitHub credential. `git
+  // credential fill` answers the question that was actually asked.
+  const src = classifySource('acme/typo-catalog', { exists: () => false });
+  const e = await fetchManifest(src, { exec: gitStub({ credential: true }), stagingIn: tmp() })
+    .then(() => null, (err) => err);
+  assert.match(e.message, /git does have a credential for github\.com/);
+  assert.match(e.message, /not a setup problem/);
+  assert.doesNotMatch(e.message, /gh auth setup-git/, 'no instructions for a step already taken');
+  assert.doesNotMatch(e.message, /SECRET/, 'and the credential itself is never read back out');
+  assert.match(e.message, /git@github\.com:acme\/typo-catalog\.git/, 'the SSH route is still offered');
+});
+
+test('an SSH URL is answered with the key, never with helper setup', async () => {
+  // A helper is not in the picture for SSH — the key is the credential, so
+  // pointing at `gh auth setup-git` would send someone down the wrong path.
+  const src = classifySource('git@github.com:acme/private-catalog.git');
+  const e = await fetchManifest(src, {
+    exec: gitStub({ credential: false, stderr: 'Permission denied (publickey).' }), stagingIn: tmp(),
+  }).then(() => null, (err) => err);
+  assert.match(e.message, /Permission denied \(publickey\)/);
+  assert.match(e.message, /ssh -T git@github\.com/);
+  assert.doesNotMatch(e.message, /gh auth setup-git/);
 });
 
 test('offline is answered as offline, never as a credentials problem', async () => {

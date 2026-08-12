@@ -85,6 +85,19 @@ A local-path marketplace keeps no checkout — its directory already is one, and
 copying somebody's working tree would hand them a stale second copy of files
 they are editing.
 
+**The failure teaches setup only when setup is what is missing.** A clone that
+fails asks git whether it actually has a credential for that host — `git
+credential fill`, prompts disabled, the credential discarded unread — and says
+one of two different things: how to configure a helper (`gh auth setup-git`),
+or that a credential exists and therefore the name or the access is the
+problem. Reading `credential.helper` out of the config would answer a different
+question and get it wrong exactly where it matters, since macOS ships a global
+`osxkeychain` helper: "configured" is true on a machine that has never stored a
+GitHub credential in its life, which is the precise state that fails. Advice
+that is wrong half the time is what teaches people to skim past the last line
+of an error. An SSH URL is answered with the key (`ssh -T git@github.com`),
+never with helper setup, because a helper is not in that path at all.
+
 **What this does NOT change is the invariant** (SPEC `MARKETPLACE_REGISTRY`):
 `add` and `update` were already the only two moments that touch the network,
 and they still are — the clone replaces a fetch at the same moment rather than
