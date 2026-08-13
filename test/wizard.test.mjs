@@ -213,9 +213,12 @@ test('credentials are restricted to this account, and re-restricted on rewrite',
 
 test('the Windows restriction is applied to a real file, and shown either way', { skip: !WINDOWS }, () => {
   // restrictFile on its own, against a real file on a real Windows filesystem,
-  // with the ACL captured on both sides of it. Two rounds of CI went into
-  // hypotheses about what icacls does here; this is the test that answers it
-  // instead, and its failure output is the answer.
+  // with the ACL captured on both sides of it — the only assertion here that
+  // can tell "icacls exited 0" from "the file is restricted", which is exactly
+  // the gap the one-line recipe falls into. Its failure message carries the
+  // before and after, because the machine that can answer this is one nobody
+  // can attach to: three CI rounds went into hypotheses before this test
+  // replaced them with the DACL itself.
   const home = tmp();
   const file = path.join(home, 'credentials.json');
   writeFileSync(file, '{}\n');
