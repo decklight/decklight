@@ -726,8 +726,15 @@ export async function editMain(args) {
         }
         // Redacted on the way out, always — the response is the one place a key
         // could leak back into a page, a devtools log, or a screen recording.
-        console.log(`  wizard: ${engine} configured (${r.file})`);
-        return json(200, { ok: true, state: r.state, engine, stored: r.stored });
+        console.log(`  wizard: ${engine} configured (${r.file} — ${r.protection.label})`);
+        // A key that could not be restricted is worth an extra line, at the
+        // moment it is stored rather than in a doc nobody reads (#308): what
+        // decklight says about a credential and what is true of it on disk
+        // have to be the same sentence.
+        if (r.protection.state !== 'private') {
+          console.log(`  wizard: decklight could NOT restrict that file to your account — ${r.protection.label}`);
+        }
+        return json(200, { ok: true, state: r.state, engine, stored: r.stored, protection: r.protection.label });
       }
       if (req.method === 'POST' && url.pathname === '/edit/wizard/forget') {
         const { engine } = JSON.parse(body);

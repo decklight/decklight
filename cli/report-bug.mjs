@@ -25,6 +25,7 @@ import { createRequire } from 'node:module';
 import { isMain } from '../tools/args.mjs';
 import { findChrome } from '../tools/chrome.mjs';
 import { PKG } from './skill-content.mjs';
+import { credentialsPath, protectionOf } from './wizard.mjs';
 
 /** Is an optional dependency actually installed? Resolution only — never loaded. */
 export function resolves(name, req = createRequire(import.meta.url)) {
@@ -38,13 +39,19 @@ export function resolves(name, req = createRequire(import.meta.url)) {
  */
 export function probe({ platform = os.platform(), release = os.release(), arch = os.arch(),
   node = process.version, chrome = findChrome(), pty = resolves('node-pty'),
-  version = PKG.version } = {}) {
+  version = PKG.version, credentials = protectionOf(credentialsPath()) } = {}) {
   return {
     decklight: version,
     node,
     os: `${platform} ${release} (${arch})`,
     chrome: chrome ? `yes (${chrome})` : 'not found',
     pty: pty ? 'installed' : 'not installed (terminal recording unavailable)',
+    // What is actually protecting any stored API key, read off the file rather
+    // than assumed from the platform (#308). Someone debugging a leaked key
+    // looks here first, and the value is a description of the protection —
+    // never a key, never an engine's answers, never even which engines are
+    // configured, since that is a list of what the user pays for.
+    credentials: credentials.label,
   };
 }
 
@@ -58,6 +65,7 @@ export function environmentBlock(facts) {
     `- os: ${facts.os}`,
     `- headless Chrome: ${facts.chrome}`,
     `- node-pty: ${facts.pty}`,
+    `- stored credentials: ${facts.credentials}`,
   ].join('\n');
 }
 
