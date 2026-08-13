@@ -1117,7 +1117,7 @@ test('skills installs the bug-reporting skill beside the authoring one', (t) => 
 test('the report-bug skill gates both consent moments in order', () => {
   const md = reportBugSkillMd();
   // it drives the CLI rather than retyping facts
-  assert.match(md, /npx decklight report-bug/);
+  assert.match(md, /npx decklight@latest report-bug/, 'pinned to @latest — npx keeps whatever it first unpacked (#314)');
   // a screenshot is a headless render of a named deck, never the user's screen
   assert.match(md, /never a capture of their screen/i);
   assert.match(md, /publishes that\s*\n?slide's content/i);
@@ -1136,7 +1136,7 @@ test('the AGENTS.md section points its readers at the bug flow too, idempotently
   spawnSync(process.execPath, [CLI, 'skills', 'codex'], { cwd: dir, encoding: 'utf8' });
   const agents = path.join(dir, 'AGENTS.md');
   const first = fs.readFileSync(agents, 'utf8');
-  assert.match(first, /npx decklight report-bug/);
+  assert.match(first, /npx decklight@latest report-bug/);
 
   // a refresh rewrites the marked block in place — never a second copy
   spawnSync(process.execPath, [CLI, 'skills', 'codex', '--force'], { cwd: dir, encoding: 'utf8' });
@@ -1168,7 +1168,7 @@ test('the always-loaded skill tells agents to render and check for clipped slide
   // of the rule is being in the file that is always loaded, so that is what is
   // pinned here: if it drifts back into the reference, this fails.
   const md = claudeSkillMd();
-  assert.match(md, /decklight pdf/, 'the command that audits every slide');
+  assert.match(md, /decklight@latest pdf/, 'the command that audits every slide');
   assert.match(md, /overflows/, 'and what its output means');
   assert.match(md, /data-overflow/, 'named, so an agent can also assert it directly');
   // overflow is the LATE failure — a slide can fit and still be unpresentable
@@ -1176,7 +1176,7 @@ test('the always-loaded skill tells agents to render and check for clipped slide
 
   // and the same for agents that never read SKILL.md
   const agents = agentsSection();
-  assert.match(agents, /decklight pdf/);
+  assert.match(agents, /decklight@latest pdf/);
   assert.match(agents, /overflows/);
 });
 
