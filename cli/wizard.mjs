@@ -358,14 +358,24 @@ export function restrictFile(file, {
   // separately: if the explicit grant lands and dropping inheritance does not,
   // the file is no worse than the profile left it. The other order can leave a
   // file with an empty DACL — nobody at all, decklight included.
-  const who = qualifiedUser(user, env);
-  try {
-    exec('icacls', [file, '/grant:r', `${who}:F`], { stdio: 'ignore' });
-  } catch (e) {
-    return { how: 'inherited', who: null, why: reason(e) };
+  // Two spellings of the same account, because icacls fails the whole call on a
+  // principal it cannot look up and WHICH spelling resolves is a property of
+  // the machine: `MACHINE\\jo` is what Windows itself prints and what a
+  // domain-joined box wants, a bare `jo` is what a local account often wants.
+  // Both name one person, so trying the second costs nothing and the read-back
+  // cannot tell them apart anyway.
+  let who = null;
+  let last = null;
+  for (const candidate of new Set([qualifiedUser(user, env), user()])) {
+    if (who) break;
+    try {
+      exec('icacls', [file, '/grant:r', `${candidate}:F`], { stdio: 'pipe' });
+      who = candidate;
+    } catch (e) { last = e; }
   }
+  if (!who) return { how: 'inherited', who: null, why: reason(last) };
   try {
-    exec('icacls', [file, '/inheritance:r'], { stdio: 'ignore' });
+    exec('icacls', [file, '/inheritance:r'], { stdio: 'pipe' });
   } catch (e) {
     return { how: 'partial', who, why: reason(e) };
   }

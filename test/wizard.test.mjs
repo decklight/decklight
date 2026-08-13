@@ -193,7 +193,9 @@ test('credentials are restricted to this account, and re-restricted on rewrite',
     // here. It carries the ACL itself, because a bare "expected private, got
     // open" from a machine nobody can attach to is not a fixable failure.
     assert.equal(protection.state, 'private',
-      `only this account may read a pasted key — ${protection.label}\n${acl(file)}`);
+      `only this account may read a pasted key — ${protection.label}`
+      + `${protection.why ? `\nicacls said: ${protection.why}` : ''}`
+      + `\nrunning as ${process.env.USERDOMAIN}\\${process.env.USERNAME}\n${acl(file)}`);
   } else {
     assert.deepEqual(protection, { state: 'private', label: '0600', why: null });
     assert.equal(credentialsMode(home), 0o600);
@@ -217,6 +219,7 @@ test('what decklight says about the file is read BACK off the file', () => {
   if (WINDOWS) {
     const p = protectionOf(file);
     assert.equal(p.state, 'private', `${p.label}\n${acl(file)}`);
+    assert.equal(restrictFile(file).how, 'acl', 'and the restriction itself reports success');
   } else {
     chmodSync(file, 0o644);
     const p = protectionOf(file);
