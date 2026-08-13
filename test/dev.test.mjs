@@ -27,8 +27,14 @@ const ALL_BINS = () => true;
 // `exists` defaults to true so a plan never depends on whether THIS machine
 // happens to have a piper voice model on disk — the tests that care about the
 // model being absent say so explicitly (see test/local-voice.test.mjs)
-const plan = (args, { env = {}, hasBin = NO_BINS, saved = null, exists = () => true } = {}) =>
-  planServices({ args, env, hasBin, saved, exists });
+// `detect` is injected too, and has to be: it is what the machine can SAY out
+// loud, and a test that leaves it out asks the host. That was invisible until
+// detectLocalVoice's probe started working — before, its default answered "no
+// synthesizer" everywhere, so "a bare machine" was bare by accident on every
+// machine, including one listing 184 voices.
+const NO_VOICE = () => ({ engine: null, why: 'no system speech synthesizer here', suggest: 'install piper' });
+const plan = (args, { env = {}, hasBin = NO_BINS, saved = null, exists = () => true, detect = NO_VOICE } = {}) =>
+  planServices({ args, env, hasBin, saved, exists, detect });
 
 const names = (p) => p.run.map((s) => s.name);
 const svc = (p, name) => p.run.find((s) => s.name === name);

@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 
 import {
   parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs,
-  detectLocalVoice, ollamaRunning, OLLAMA_NOTE,
+  detectLocalVoice, ollamaRunning, OLLAMA_NOTE, onPath, probe,
 } from '../tools/local-voice.mjs';
 import { planServices, voiceModelOffer } from '../cli/dev.mjs';
 import { ENGINES, NATIVE_ENGINES } from '../tools/tts-engines.mjs';
@@ -241,4 +241,29 @@ test('a voice given as a path needs no data dir', () => {
     env: {}, hasBin: () => true, exists: (p) => { seen.push(p); return true; },
   });
   assert.ok(seen.includes('/opt/voices/custom.onnx'), `the path is the model: ${seen}`);
+});
+
+// ── the defaults, which are the production path ───────────────────────────
+
+test('the probe defaults are real answers, not "no"', () => {
+  // `hasBin` defaulted to () => false and `exec` to () => '', so every caller
+  // that did not inject — tools/tts-engines.mjs building a say/sapi engine,
+  // which is the one that matters — was told the machine had no synthesizer.
+  // On a Mac listing 184 voices. Every test passed the whole time, because
+  // every test injects; the seam that made this module testable had made its
+  // production path a stub that always refuses.
+  assert.equal(onPath(process.platform === 'win32' ? 'cmd' : 'sh'), true,
+    'a binary every machine has must be found');
+  assert.equal(onPath('decklight-definitely-not-a-real-binary'), false);
+  assert.match(probe(process.execPath, ['-e', 'process.stdout.write("ok")']), /ok/);
+  assert.equal(probe('decklight-definitely-not-a-real-binary', []), '',
+    'a missing binary is an empty answer, never a throw');
+});
+
+test('a real detection runs on the machine it is running on', { skip: process.platform === 'linux' && 'no system synthesizer on Linux to find' }, () => {
+  // Deliberately NOT injected: this is the call tts-engines.mjs makes.
+  const d = detectLocalVoice();
+  assert.ok(d.engine === 'say' || d.engine === 'sapi' || d.why,
+    'either a voice was found, or there is a reason — never a silent null');
+  if (d.engine) assert.ok(d.voices.length > 0, 'an engine with no voices is not an engine');
 });
