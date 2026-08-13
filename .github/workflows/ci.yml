@@ -125,7 +125,11 @@ jobs:
   verify-elsewhere:
     name: verify · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # 45, not 30: the first macOS attempt died to a 30-minute limit and a
+    # cancelled job's logs cannot be fetched afterwards, so it reported nothing
+    # at all. test/verify.mjs now kills any single harness at 10 minutes and
+    # names it, which is the failure this limit should never be the one to catch.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
