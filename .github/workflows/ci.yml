@@ -156,9 +156,10 @@ jobs:
       # variant is bounded at 60s and reports what it did, so the answer arrives
       # in one minute instead of one 30-minute round per hypothesis.
       - name: probe the browser before driving it (#309)
+        timeout-minutes: 5
         shell: bash
         run: |
-          node - <<'PROBE'
+          node - <<'PROBE' 2>&1 | tee "probe-${{ matrix.os }}.log"
           const { execFileSync } = require('child_process');
           const { mkdtempSync } = require('fs');
           const { tmpdir } = require('os');
@@ -223,14 +224,26 @@ jobs:
         if: always()
         with:
           name: verify-log-${{ matrix.os }}
-          path: verify-*.log
+          # The probe's answer rides in the ARTIFACT, not only in the job log:
+          # a job that gets cancelled — by its own cap, or by the next push —
+          # discards its log, and this one has now eaten three rounds' evidence.
+          path: |
+            verify-*.log
+            probe-*.log
           retention-days: 14
 
       # Beside the Ubuntu job's shots, so a difference is VISIBLE rather than
       # described. This runs even when verify failed — a render that went wrong
       # is exactly the one worth looking at.
+      # Bounded like everything else here, and for the reason this job keeps
+      # relearning: tools/shot.mjs hands Chrome to execFile with no timeout of
+      # its own, so on a machine where the browser never returns this step is
+      # the one that runs out the JOB's clock — and a cancelled job uploads
+      # nothing and keeps no log. No step here may be the step that cancels it.
       - name: screenshot the demo deck
         if: always()
+        timeout-minutes: 5
+        continue-on-error: true
         run: |
           mkdir -p .shots
           node tools/shot.mjs demo/showcase.html -o .shots/showcase.png --wait 2500
