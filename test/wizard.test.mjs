@@ -211,6 +211,24 @@ test('credentials are restricted to this account, and re-restricted on rewrite',
     'and one engine does not clobber another');
 });
 
+test('the Windows restriction is applied to a real file, and shown either way', { skip: !WINDOWS }, () => {
+  // restrictFile on its own, against a real file on a real Windows filesystem,
+  // with the ACL captured on both sides of it. Two rounds of CI went into
+  // hypotheses about what icacls does here; this is the test that answers it
+  // instead, and its failure output is the answer.
+  const home = tmp();
+  const file = path.join(home, 'credentials.json');
+  writeFileSync(file, '{}\n');
+  const before = acl(file);
+  const r = restrictFile(file);
+  const after = acl(file);
+  const evidence = `\nrunning as ${process.env.USERDOMAIN}\\${process.env.USERNAME}`
+    + `\nrestrictFile → ${JSON.stringify(r)}`
+    + `\n── before ──\n${before}\n── after ──\n${after}`;
+  assert.equal(r.how, 'acl', `the restriction reports success${evidence}`);
+  assert.equal(protectionOf(file).state, 'private', `and it istrue on disk${evidence}`);
+});
+
 test('what decklight says about the file is read BACK off the file', () => {
   // The #308 defect in one assertion: the claim used to be a constant, so it
   // could not be wrong on the platform where it was.
