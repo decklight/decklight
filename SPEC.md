@@ -1078,6 +1078,17 @@ extend it — but an agent unit is a **descriptor, never code**:
   preference does not quietly fall back to another one: the author server says
   so once at startup, and `A` answers with a line naming what is missing, what
   is available, and how to get it back.
+- **An agent is offered only if it can be RUN, and it is run as argv.** On
+  Windows every agent that installs from npm lands as a `.cmd` batch shim, and
+  Node refuses to spawn one without a shell. decklight does not turn one on:
+  with a shell the arguments stop being arguments and become a command line for
+  `cmd.exe` to re-split, and one of them is the user's prompt — `%VAR%` there
+  is expanded before any escaping the caller could apply, so no quoting makes
+  it safe. Instead the shim is resolved back to the script it runs and node is
+  spawned on that, which keeps the guarantee above (argv is argv) identical on
+  both platforms. A batch file that names no such script is **not offered at
+  all** — detected-but-unrunnable is a worse answer than absent, and the
+  refusal names the file rather than claiming the command is missing.
 
 ### VOICE_UNITS — Voices: a reference, never a payload
 

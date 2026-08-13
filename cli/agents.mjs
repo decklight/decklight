@@ -22,7 +22,7 @@
 // small, closed vocabulary, and a template expresses all of them.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, join } from 'node:path';
+import path, { dirname, join } from 'node:path';
 import { configHome } from './marketplace.mjs';
 import { listUnits } from './units.mjs';
 
@@ -117,19 +117,107 @@ export function installedAgents(home = configHome()) {
   return out;
 }
 
-/** Is `bin` runnable — an explicit path that exists, or a name on $PATH? */
-export function onPath(bin, env = process.env) {
-  if (!bin) return false;
+/**
+ * Where `bin` resolves — the file $PATH would find, or null.
+ *
+ * The Windows extension list is the one Windows itself searches, in its order,
+ * and the empty string is in it because a unit descriptor may name a file that
+ * genuinely has no extension. WHICH one matched is the thing this returns and
+ * `onPath` throws away, and it is exactly what `spawnSpec` below needs.
+ */
+export function whichBin(bin, env = process.env, platform = process.platform, exists = existsSync) {
+  if (!bin) return null;
   // An explicit path, spelled either way — a Windows one carries backslashes,
   // and treating it as a bare name would send it looking down $PATH instead.
-  if (bin.includes('/') || bin.includes('\\')) return existsSync(bin);
-  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
-  for (const dir of (env.PATH || '').split(delimiter)) {
+  if (bin.includes('/') || bin.includes('\\')) return exists(bin) ? bin : null;
+  // PATH, whatever the case of the variable: Windows spells it `Path`, and a
+  // child env built by hand may carry either.
+  const list = env.PATH ?? env.Path ?? env.path ?? '';
+  // The path grammar of the platform being DESCRIBED, not the one running —
+  // test/soak-platform.mjs learned this the hard way. The host's `join` and
+  // `delimiter` would split a Windows PATH on `:` (cutting `C:` off the drive)
+  // and answer in the wrong separator, from a function whose whole contract is
+  // to be pure over its `platform` argument.
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const exts = platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  for (const dir of list.split(p.delimiter)) {
     if (!dir) continue;
-    for (const ext of exts) if (existsSync(join(dir, bin + ext))) return true;
+    for (const ext of exts) {
+      const file = p.join(dir, bin + ext);
+      if (exists(file)) return file;
+    }
   }
-  return false;
+  return null;
 }
+
+/** Is `bin` on this machine at all? Detection, not runnability — see `canRun`. */
+export function onPath(bin, env = process.env) {
+  return whichBin(bin, env) !== null;
+}
+
+/**
+ * The JS file a `.cmd`/`.bat` shim runs, or null if it does not run one.
+ *
+ * npm installs every JS CLI on Windows as a generated batch shim whose last
+ * line hands a script to node; `npx`, `pnpm` and this repo's own test stubs
+ * write the same shape with different spelling. So rather than pattern-match
+ * one vendor's template, this takes every JS-looking token in the file, expands
+ * whichever "the directory I am in" spelling it uses (`%~dp0`, `%dp0%`,
+ * `$basedir`), and returns the first that is really there. A batch file that
+ * names no such script is not a shim, and gets null.
+ */
+export function shimTarget(text, dir, { exists = existsSync, platform = process.platform } = {}) {
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  for (const m of String(text).matchAll(/(?:"([^"\r\n]+?\.[cm]?js)"|(\S+?\.[cm]?js))(?=["\s]|$)/gi)) {
+    const token = (m[1] ?? m[2])
+      .replaceAll(/%~dp0\\?|%dp0%\\?|\$basedir\//gi, `${dir}${p.sep}`)
+      .replaceAll('"', '');
+    const file = p.resolve(dir, token);
+    // The existence check is what makes the loose match safe: npm's own
+    // template mentions `.JS` in a PATHEXT edit several lines above the one
+    // that matters, and no such file is ever on disk.
+    if (exists(file)) return file;
+  }
+  return null;
+}
+
+/**
+ * How to spawn `bin` AS ARGV — `{ bin, prefix }` — or null when this machine
+ * cannot run it that way.
+ *
+ * The whole point is that `shell` is never part of the answer. Since
+ * CVE-2024-27980 Node refuses to spawn a `.cmd` or `.bat` without `shell:
+ * true`, and turning that on would stop the arguments being arguments: they
+ * become one command line for `cmd.exe` to re-split, and one of them is the
+ * user's PROMPT — untrusted text that may hold `"`, `&`, `|`, `^` or `%VAR%`.
+ * `cmd.exe` quoting cannot make that safe (percent expansion happens before
+ * any escaping the caller can do), so decklight does not try: it resolves the
+ * shim to the script it would have run and spawns node on it directly. argv
+ * stays argv, on both platforms, and a prompt is never anything but one
+ * argument.
+ *
+ * A `.cmd` that is a real batch program rather than a shim resolves to null —
+ * DETECTED BUT NOT RUNNABLE is the state #307 is about, and reporting it as
+ * available is what made it a bug rather than a gap.
+ */
+export function spawnSpec(bin, {
+  env = process.env, platform = process.platform, node = process.execPath,
+  read = (f) => readFileSync(f, 'utf8'), exists = existsSync,
+} = {}) {
+  const found = whichBin(bin, env, platform, exists);
+  if (!found) return null;
+  // POSIX is untouched: the name goes to spawn exactly as it always did, so
+  // $PATH resolution, shebangs and argv all behave as before.
+  if (platform !== 'win32') return { bin, prefix: [] };
+  const p = path.win32;
+  if (!/\.(cmd|bat)$/i.test(found)) return { bin: found, prefix: [] };
+  let target = null;
+  try { target = shimTarget(read(found), p.dirname(found), { exists, platform }); } catch { /* unreadable */ }
+  return target ? { bin: node, prefix: [target] } : null;
+}
+
+/** Can an agent whose command is `bin` actually be run here? */
+export const canRun = (bin, env = process.env) => spawnSpec(bin, { env }) !== null;
 
 /**
  * Every agent this machine can actually run, in preference order.
@@ -139,7 +227,7 @@ export function onPath(bin, env = process.env) {
  * silently replacing how `claude` is invoked is not something a catalog
  * should be able to do to a machine.
  */
-export function detectAgents({ env = process.env, hasBin = onPath, home } = {}) {
+export function detectAgents({ env = process.env, hasBin = canRun, home } = {}) {
   const builtIn = AGENTS.filter((a) => hasBin(a.bin, env));
   const known = new Set(AGENTS.map((a) => a.name));
   const extra = installedAgents(home).filter((a) => !known.has(a.name) && hasBin(a.bin, env));
@@ -174,15 +262,25 @@ export function setPreferredAgent(name, home = configHome()) {
  * is not a substitutable detail, and one that quietly changed under a
  * remembered preference would be the worst version of this feature.
  */
-export function agentUnavailable(name, roster, home = configHome()) {
+export function agentUnavailable(name, roster, home = configHome(),
+  { env = process.env, spec = spawnSpec, platform = process.platform, exists = existsSync } = {}) {
   const have = roster.length
     ? `available here: ${roster.map((a) => a.name).join(', ')}`
     : 'no agent CLI is detected on this machine';
   if (!name) return `${have} — install one (claude, codex, bob, …), or: decklight agent add <name>`;
-  const known = AGENTS.some((a) => a.name === name) || installedAgents(home).some((a) => a.name === name);
-  return known
-    ? `"${name}" is known but its command is not on PATH — install it, or pick another (${have})`
-    : `no agent named "${name}" — ${have}; a marketplace can teach decklight a new one: decklight agent add ${name}`;
+  const entry = AGENTS.find((a) => a.name === name) ?? installedAgents(home).find((a) => a.name === name);
+  if (!entry) return `no agent named "${name}" — ${have}; a marketplace can teach decklight a new one: decklight agent add ${name}`;
+  // Found but not runnable is its own answer, and it names the reason rather
+  // than the symptom: telling someone their agent "is not on PATH" while
+  // `where claude` prints a path is how #307 stayed invisible.
+  const where = whichBin(entry.bin, env, platform, exists);
+  if (where && !spec(entry.bin, { env, platform, exists })) {
+    return `"${name}" is installed at ${where}, but decklight cannot run it as a program: `
+      + 'that file is a batch shim and the script it runs cannot be found. '
+      + 'decklight will not hand your prompt to cmd.exe instead — reinstall the agent, '
+      + `or point one at its real entry point: decklight agent add ${name}`;
+  }
+  return `"${name}" is known but its command is not on PATH — install it, or pick another (${have})`;
 }
 
 /**
@@ -191,7 +289,7 @@ export function agentUnavailable(name, roster, home = configHome()) {
  * file it should edit. Returns { bin, args, label } or null when the agent
  * isn't available.
  */
-export function agentCommand(name, instruction, deck, { env = process.env, hasBin = onPath, home } = {}) {
+export function agentCommand(name, instruction, deck, { env = process.env, hasBin = canRun, home, spec = spawnSpec } = {}) {
   const roster = detectAgents({ env, hasBin, home });
   // Precedence, matching how every other saved choice resolves (PRESENTING):
   // an explicit name > the remembered preference > the first detected agent.
@@ -204,5 +302,15 @@ export function agentCommand(name, instruction, deck, { env = process.env, hasBi
   const prompt = `Edit the Decklight deck file "${deck}" — a single-file HTML presentation ` +
     '(one top-level <section> per slide; see SPEC.md or the decklight skill if present). ' +
     `Apply this change, editing the file in place: ${instruction}`;
-  return { bin: agent.bin, args: agent.args(prompt, deck), label: agent.label, name: agent.name };
+  // The spawn spec, not the bare name: on Windows an npm-installed agent is a
+  // batch shim, and `prefix` is the script node has to be handed for the
+  // arguments below to stay arguments (#307). On POSIX it is empty and this is
+  // the same command it always was.
+  const how = spec(agent.bin, { env }) ?? { bin: agent.bin, prefix: [] };
+  return {
+    bin: how.bin,
+    args: [...how.prefix, ...agent.args(prompt, deck)],
+    label: agent.label,
+    name: agent.name,
+  };
 }

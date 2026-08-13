@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENTS, agentCommand, detectAgents, installedAgents, expandArgs,
   preferredAgent, setPreferredAgent, agentUnavailable, agentConfigPath,
+  shimTarget, spawnSpec, whichBin,
 } from '../cli/agents.mjs';
 import { validateManifest, REFERENCE_ONLY, INSTALL_HINT } from '../cli/marketplace.mjs';
 import { listUnits, unitPath } from '../cli/units.mjs';
@@ -197,5 +198,148 @@ test('a remembered agent that is GONE is named, never silently swapped', () => {
 
     // a name nothing has ever heard of says how to teach decklight about it
     assert.match(agentUnavailable('nope', roster, home), /decklight agent add nope/);
+  } finally { rmTemp(home); }
+});
+
+// ── running an npm-installed agent on Windows (#307) ───────────────────────
+//
+// Every agent in the roster installs from npm, and on Windows npm installs a
+// JS CLI as a BATCH SHIM. Node has refused to spawn one without `shell: true`
+// since CVE-2024-27980, so `A` detected the agent, offered it, and then did
+// nothing — the worst of the three available outcomes.
+//
+// The fix is not a shell. With one, the arguments stop being arguments and
+// become a command line for cmd.exe to re-split, and one of them is the user's
+// prompt. So decklight resolves the shim to the script it would have run and
+// spawns node on it: argv stays argv, on both platforms. These tests reach the
+// Windows half from any machine, because it is precisely the branch this
+// repo's CI could not execute until #305 and still cannot execute here.
+
+const winFs = (files) => ({
+  exists: (f) => Object.hasOwn(files, f),
+  read: (f) => files[f],
+  platform: 'win32',
+  // Spelled `Path`, which is how Windows spells it — and separated by `;`,
+  // which is why none of this may use the host's own path grammar.
+  env: { Path: 'C:\\other;C:\\bin' },
+});
+
+// What npm actually writes to node_modules/.bin/claude.cmd, verbatim template.
+const NPM_SHIM = [
+  '@ECHO off', 'SETLOCAL', 'CALL :find_dp0', '',
+  'IF EXIST "%dp0%\\node.exe" (', '  SET "_prog=%dp0%\\node.exe"', ') ELSE (',
+  '  SET "_prog=node"', '  SET PATHEXT=%PATHEXT:;.JS;=;%', ')', '',
+  'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & '
+  + '"%_prog%"  "%dp0%\\..\\@anthropic-ai\\claude-code\\cli.js" %*',
+].join('\r\n');
+
+test('an npm shim resolves to the script it runs, not to cmd.exe', () => {
+  const files = {
+    'C:\\bin\\claude.cmd': NPM_SHIM,
+    // where `%dp0%\..\@anthropic-ai\…` actually lands once resolved
+    'C:\\@anthropic-ai\\claude-code\\cli.js': '// the agent',
+  };
+  const spec = spawnSpec('claude', winFs(files));
+  assert.equal(spec.bin, process.execPath, 'node runs it — no shell, ever');
+  assert.deepEqual(spec.prefix, ['C:\\@anthropic-ai\\claude-code\\cli.js'],
+    'the .. is resolved, so the path handed to node is the real one');
+});
+
+test("the PATHEXT line in npm's own template is not mistaken for the script", () => {
+  // `SET PATHEXT=%PATHEXT:;.JS;=;%` appears ABOVE the line that matters and
+  // ends in `.JS`. Nothing by that name is ever on disk, which is exactly why
+  // the resolver checks rather than trusts its own regex.
+  assert.equal(shimTarget(NPM_SHIM, 'C:\\bin', { platform: 'win32', exists: () => false }), null);
+});
+
+test('the shim spellings all mean the same directory', () => {
+  // npm writes `%dp0%\`, a hand-written wrapper writes `%~dp0`, and the POSIX
+  // sibling npm installs alongside writes `$basedir/`. All three name the
+  // folder the shim is in.
+  const exists = (f) => f === 'C:\\bin\\agent.mjs';
+  for (const text of [
+    '@"%~dp0node.exe" "%~dp0agent.mjs" %*',
+    '"%_prog%"  "%dp0%\\agent.mjs" %*',
+    '"$basedir/node"  "$basedir/agent.mjs" "$@"',
+  ]) {
+    assert.equal(shimTarget(text, 'C:\\bin', { platform: 'win32', exists }),
+      'C:\\bin\\agent.mjs', text);
+  }
+});
+
+test('a .cmd that is a real batch program is NOT offered as an agent', () => {
+  // Detected-but-unrunnable is the state #307 is about. Reporting it as
+  // available is what made it a bug rather than a gap, so the roster drops it.
+  const opts = winFs({ 'C:\\bin\\claude.cmd': '@echo off\r\ncall :something\r\n' });
+  assert.equal(spawnSpec('claude', opts), null);
+  assert.equal(whichBin('claude', opts.env, 'win32', opts.exists), 'C:\\bin\\claude.cmd',
+    'it IS on PATH — detection was never the broken half');
+});
+
+test('an agent found but unrunnable says so, naming the file and the refusal', () => {
+  const home = tmp('agent-unrunnable');
+  try {
+    const why = agentUnavailable('claude', [], home, {
+      env: { Path: 'C:\\bin' }, platform: 'win32', spec: () => null,
+      exists: (f) => f === 'C:\\bin\\claude.cmd',
+    });
+    assert.match(why, /claude/);
+    assert.match(why, /cmd\.exe/, 'and why decklight will not simply use a shell');
+    assert.doesNotMatch(why, /not on PATH/,
+      'telling someone their agent is not on PATH while `where claude` prints one is how this stayed invisible');
+  } finally { rmTemp(home); }
+});
+
+test('a .exe agent is spawned by its resolved path, with nothing in front of it', () => {
+  const spec = spawnSpec('codex', winFs({ 'C:\\bin\\codex.exe': 'MZ' }));
+  assert.deepEqual(spec, { bin: 'C:\\bin\\codex.exe', prefix: [] });
+});
+
+test('POSIX is untouched: the bare name, no prefix, no shell', () => {
+  const spec = spawnSpec('claude', {
+    platform: 'linux', env: { PATH: '/usr/bin' }, exists: () => true,
+    read: () => { throw new Error('a POSIX spawn must not read the binary'); },
+  });
+  assert.deepEqual(spec, { bin: 'claude', prefix: [] });
+});
+
+test('a hostile prompt reaches the agent as ONE argument, verbatim, on both platforms', () => {
+  // The reason a shell is out of the question. `%PATH%` is the sharp one:
+  // cmd.exe expands it BEFORE any quoting the caller could apply, so there is
+  // no escaping that makes this safe — only not doing it.
+  const nasty = 'add a slide " & calc | echo ^ %PATH% $(id) `id` \'x\'';
+  const home = tmp('agent-argv');
+  try {
+    for (const platform of ['linux', 'win32']) {
+      const cmd = agentCommand('claude', nasty, 'deck.html', {
+        hasBin: () => true,
+        home,
+        spec: () => (platform === 'win32'
+          ? { bin: process.execPath, prefix: ['C:\\bin\\cli.js'] }
+          : { bin: 'claude', prefix: [] }),
+      });
+      const carrying = cmd.args.filter((a) => a.includes(nasty));
+      assert.equal(carrying.length, 1, `${platform}: exactly one argument carries the prompt`);
+      assert.ok(carrying[0].endsWith(nasty), `${platform}: verbatim, nothing escaped away`);
+      assert.equal(cmd.shell, undefined, `${platform}: there is no shell to quote for`);
+      assert.ok(!cmd.args.some((a) => /^\/[cC]$/.test(a)), `${platform}: nothing is being handed to cmd.exe`);
+    }
+  } finally { rmTemp(home); }
+});
+
+test('the Windows spawn is node + the script + the agent\'s own argv, in that order', () => {
+  const home = tmp('agent-winargv');
+  try {
+    const cmd = agentCommand('claude', 'centre slide 2', 'deck.html', {
+      hasBin: () => true,
+      home,
+      spec: () => ({ bin: process.execPath, prefix: ['C:\\bin\\cli.js'] }),
+    });
+    assert.equal(cmd.bin, process.execPath);
+    assert.equal(cmd.args[0], 'C:\\bin\\cli.js');
+    assert.equal(cmd.args[1], '-p', "the agent's own flags follow, unchanged");
+    assert.match(cmd.args[2], /centre slide 2/);
+    assert.deepEqual(cmd.args.slice(3), ['--permission-mode', 'acceptEdits']);
+    assert.equal(cmd.name, 'claude');
   } finally { rmTemp(home); }
 });

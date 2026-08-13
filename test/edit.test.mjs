@@ -192,21 +192,6 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
  * run to get this far). So the servers are tracked and killed HERE, before the
  * directory goes, and rmTemp retries what a lingering handle still holds.
  */
-/**
- * decklight cannot run a `.cmd` agent on Windows, and that is the PRODUCT, not
- * the test.
- *
- * `claude` installs from npm as `claude.cmd` there, and cli/edit.mjs spawns the
- * agent with `spawn(cmd.bin, cmd.args)` — which Node has refused for `.cmd`
- * since CVE-2024-27980 unless `shell: true`. Turning that on is not a one-line
- * fix: with a shell the ARGUMENTS stop being argv and become a command line,
- * and one of them is an untrusted prompt. Quoting that safely is a decision
- * worth making deliberately rather than inside a porting sweep, so these two
- * skip here and say why.
- */
-const noCmdAgents = process.platform === 'win32'
-  ? 'decklight cannot spawn a .cmd agent — that needs a shell, and the prompt is untrusted'
-  : false;
 
 const kids = new Set();
 const gone = (child) => new Promise((done) => {
@@ -418,7 +403,7 @@ test('a repository decklight did not create never gets ignore rules', async (t) 
     'the repo-creation moment is the only time decklight touches ignore rules');
 });
 
-test('an agent ask runs the detected CLI, and Z takes its edit back', { skip: noCmdAgents }, async (t) => {
+test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
@@ -427,7 +412,10 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', { skip: no
   const bin = path.join(dir, 'bin');
   mkdirSync(bin);
   // A .mjs with a per-OS shim, so the same fake agent runs on Windows too
-  // (a `#!/bin/sh` script is not something Windows executes).
+  // (a `#!/bin/sh` script is not something Windows executes) — and on Windows
+  // that shim is a .cmd, which is the whole of #307: decklight has to resolve
+  // it back to the .mjs and spawn node, because handing an untrusted prompt to
+  // cmd.exe is not an option.
   writeFakeBin(bin, 'claude',
     "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
@@ -782,7 +770,7 @@ test('the history endpoints refuse when git is off, rather than pretending', asy
   assert.equal((await post(base, '/edit/restore', { ref: 'HEAD' })).status, 409);
 });
 
-test('an agent commit contains the agent\'s work only, not what you left uncommitted', { skip: noCmdAgents }, async (t) => {
+test('an agent commit contains the agent\'s work only, not what you left uncommitted', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
@@ -795,7 +783,10 @@ test('an agent commit contains the agent\'s work only, not what you left uncommi
   const bin = path.join(dir, 'bin');
   mkdirSync(bin);
   // A .mjs with a per-OS shim, so the same fake agent runs on Windows too
-  // (a `#!/bin/sh` script is not something Windows executes).
+  // (a `#!/bin/sh` script is not something Windows executes) — and on Windows
+  // that shim is a .cmd, which is the whole of #307: decklight has to resolve
+  // it back to the .mjs and spawn node, because handing an untrusted prompt to
+  // cmd.exe is not an option.
   writeFakeBin(bin, 'claude',
     "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
   // the real PATH too, so git is reachable from the server
