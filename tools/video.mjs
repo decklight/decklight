@@ -64,9 +64,12 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --slides <a-b>       only this slide range (1-based, inclusive)
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first
 
-Slides with narration hold for the audio's real duration + ${TAIL_SECONDS}s and show
-fully built; slides without hold --hold seconds over silence and BUILD as they
-go, one frame per step, so the audio track stays continuous either way.
+Every slide BUILDS, one frame per step. A narrated slide takes its timing from
+its own audio: ⟨CLICK⟩ in the speaker notes splits the narration, and segment k
+is spoken over build step k — the same rule the live player follows. Without
+markers it holds fully built for the audio's real duration. A silent slide holds
+--hold seconds, --build-hold per step. Either way the audio track is continuous
+and the finished slide gets a ${TAIL_SECONDS}s breath before the cut.
 Needs ffmpeg + ffprobe on PATH, and a Chrome ($CHROME or an installed one).
 `;
 
@@ -117,9 +120,13 @@ const round = (s) => Math.round(s * 1000) / 1000;
  * ONE ENTRY PER FRAME, not per slide. A silent slide with builds is a sequence
  * — the slide bare, then each build revealed — because a video of a built slide
  * that opens fully built has thrown away the thing the builds were for. A
- * NARRATED slide stays one fully-built still: splitting its audio across builds
- * needs the ⟨CLICK⟩ markers to map to real timestamps, which is its own
- * feature, and guessing at it would put words under the wrong build.
+ * A NARRATED slide follows its own notes: where those notes are segmented by
+ * ⟨CLICK⟩ and the segment count matches the build count, segment k narrates
+ * build step k and holds for that segment's REAL audio. Nothing is inferred —
+ * the markers are the author's, tools/voiceover.mjs synthesises one file per
+ * segment, and this reads their ffprobe'd durations. A narrated slide with no
+ * markers, or a count that does not line up, is one fully-built still for the
+ * length of its audio, as it always was.
  *
  * Timing, for a silent slide with `b` build steps (so `b + 1` frames): EVERY
  * frame holds for the slide's hold, so a build lands at the pace the rest of
@@ -141,19 +148,53 @@ const round = (s) => Math.round(s * 1000) / 1000;
  *                                build-up frame (null ⇒ the slide's own hold)
  * @returns {Array<{slide, step, audio, duration}>}  audio null ⇒ silent hold
  */
-export function planTimeline(manifest, durations, holds, range = null, { steps = null, buildHold = null } = {}) {
+export function planTimeline(manifest, durations, holds, range = null, { steps = null, buildHold = null, onWarn = null } = {}) {
   const from = range?.from ?? 1;
   const to = range?.to ?? holds.length;
   const plan = [];
   for (let n = from; n <= to; n++) {
-    const file = manifest?.[n - 1]?.file ?? null;
+    const entry = manifest?.[n - 1] ?? null;
+    const file = entry?.file ?? null;
     const dur = file ? durations?.[file] : null;
+
+    // A narrated slide whose notes are segmented by ⟨CLICK⟩ builds AS IT
+    // SPEAKS: segment k narrates build step k. That rule is not invented here —
+    // src/core/narration.js already speaks live narration that way ("exactly
+    // like a presenter reading the notes and clicking between segments"), and
+    // captions, rehearse mode and the notes editor all run on the same
+    // segmentation. This makes the recorded render the mirror of it.
+    const segs = entry?.segments ?? null;
+    const builds = steps?.[n - 1] ?? 0;
+    if (Number.isFinite(dur) && segs?.length && builds) {
+      const times = segs.map((sg) => durations?.[sg.file]);
+      if (segs.length === builds + 1 && times.every((t) => Number.isFinite(t))) {
+        segs.forEach((sg, k) => {
+          const last = k === segs.length - 1;
+          plan.push({
+            slide: n,
+            step: last ? LAST_STEP : k,
+            audio: sg.file,
+            // Only the finished slide gets the breath. A build that paused for
+            // it would read as hesitation rather than as a beat.
+            duration: round(times[k] + (last ? TAIL_SECONDS : 0)),
+          });
+        });
+        continue;
+      }
+      // A marker count that does not match the build count is the author's to
+      // fix, and guessing which build a segment belongs to would bake a wrong
+      // sync into an mp4 — worse than no sync. Say which slide, and render it
+      // the way an unsegmented one renders.
+      onWarn?.(`slide ${n}: ${segs.length} narration segment${segs.length === 1 ? '' : 's'}`
+        + ` but ${builds + 1} frames (${builds} build${builds === 1 ? '' : 's'} + the finished slide)`
+        + ' — narrating the whole slide over one still instead');
+    }
+
     if (Number.isFinite(dur)) {
       plan.push({ slide: n, step: LAST_STEP, audio: file, duration: round(dur + TAIL_SECONDS) });
       continue;
     }
     const hold = holds[n - 1];
-    const builds = steps?.[n - 1] ?? 0;
     if (!builds) { plan.push({ slide: n, step: LAST_STEP, audio: null, duration: hold }); continue; }
     const each = buildHold ?? hold;
     for (let k = 0; k < builds; k++) plan.push({ slide: n, step: k, audio: null, duration: each });
@@ -338,14 +379,21 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     // real durations, not the manifest's word count: ffprobe each audio file
     const durations = {};
     for (let n = range.from; n <= range.to; n++) {
-      const file = narration?.slides?.[n - 1]?.file;
-      if (!file || durations[file] != null) continue;
-      const path = join(narration.dir, file);
-      if (!existsSync(path)) {
-        console.warn(`  slide ${String(n).padStart(2, '0')}: ${file} is in the manifest but not on disk — holding ${holds[n - 1]}s of silence`);
-        continue;
+      const entry = narration?.slides?.[n - 1];
+      // The slide's own audio AND its ⟨CLICK⟩ segments. Measured here rather
+      // than trusted from the manifest, for the reason the per-slide durations
+      // already are: what a file says it is worth is not what ffprobe says.
+      const files = [entry?.file, ...(entry?.segments ?? []).map((sg) => sg.file)].filter(Boolean);
+      for (const file of files) {
+        if (durations[file] != null) continue;
+        const path = join(narration.dir, file);
+        if (!existsSync(path)) {
+          console.warn(`  slide ${String(n).padStart(2, '0')}: ${file} is in the manifest but not on disk`
+            + `${file === entry?.file ? ` — holding ${holds[n - 1]}s of silence` : ' — narrating the whole slide instead'}`);
+          continue;
+        }
+        durations[file] = Number((await exec('ffprobe', ffprobeArgs(path))).stdout.trim());
       }
-      durations[file] = Number((await exec('ffprobe', ffprobeArgs(path))).stdout.trim());
     }
 
 
@@ -385,7 +433,8 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       probing = false;
       if (!steps) console.warn('  builds: the deck did not report its build steps — one still per slide');
 
-      plan = planTimeline(narration?.slides ?? null, durations, holds, range, { steps, buildHold });
+      plan = planTimeline(narration?.slides ?? null, durations, holds, range,
+        { steps, buildHold, onWarn: (w) => console.warn(`  ${w}`) });
       const slideCount = new Set(plan.map((p) => p.slide)).size;
       log(`${basename(deck)}: ${slideCount} slide${slideCount === 1 ? '' : 's'}, `
         + `${plan.filter((p) => p.audio).length} narrated`

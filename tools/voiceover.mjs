@@ -108,13 +108,36 @@ const clean = (s) => s
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
   .replace(/\s+/g, ' ')
   .trim();
-const slides = sections.map((sec, i) => {
+const raw = sections.map((sec) => {
   const aside = sec.match(NOTES_ASIDE);
-  if (aside) return clean(aside[1]);
+  if (aside) return aside[1];
   const md = sec.match(/^Note:\s*$([\s\S]*?)(?=^Rehearse:\s*$|<\/script>)/m);
-  if (md) return clean(md[1]);
-  return '';
+  return md ? md[1] : '';
 });
+const slides = raw.map(clean);
+/**
+ * A slide's ⟨CLICK⟩ segments, or null when there is only one.
+ *
+ * These are the author's own build cues, and the sync rule they carry already
+ * ships: src/core/narration.js speaks segment k over build step k in live
+ * playback, and captions, rehearse mode and the notes editor all read the same
+ * segmentation. Recording them separately is what lets a rendered mp4 mirror
+ * that (SPEC PRESENTING). An empty segment is dropped rather than synthesised
+ * as silence — a ⟨CLICK⟩ at the very start or end of a note is punctuation,
+ * not a beat.
+ */
+export const notesSegments = (notes) => {
+  const parts = String(notes ?? '').split('⟨CLICK⟩').map(clean).filter(Boolean);
+  return parts.length > 1 ? parts : null;
+};
+// Segmenting needs ffmpeg specifically: the per-slide file is CONCATENATED from
+// the segments, and afconvert (Core Audio, macOS-only) has no concat demuxer.
+// Without it the slide is synthesised whole, exactly as before.
+const canSegment = encoder === 'ffmpeg';
+const segmented = raw.map((r) => (canSegment ? notesSegments(r) : null));
+if (!canSegment && raw.some((r) => notesSegments(r))) {
+  console.log('  note: ⟨CLICK⟩ segments need ffmpeg to concatenate — narrating each slide whole');
+}
 console.log(`${basename(deckPath)}: ${slides.length} slides, ${slides.filter(Boolean).length} with notes`);
 
 // ── optional narration pass through a local model ────────────────────────────
@@ -164,17 +187,52 @@ for (let i = 0; i < slides.length; i++) {
   const hash = slideHash(text);
   manifest.push({ file: `slide-${n}.m4a`, hash });
   if (prev?.slides?.[i]?.hash === hash && existsSync(m4a)) {
+    // Carry the segments across, or an unchanged slide loses its build sync on
+    // the next rerun: the audio is still on disk and the manifest is the only
+    // thing that knows it is there.
+    const kept = prev.slides[i].segments;
+    if (kept?.every((sg) => existsSync(join(outDir, sg.file)))) manifest[i].segments = kept;
     skipped++;
-    console.log(`  slide ${n}: unchanged — kept`);
+    console.log(`  slide ${n}: unchanged — kept${manifest[i].segments ? ` (${manifest[i].segments.length} segments)` : ''}`);
     continue;
   }
-  const { wav: buf, usage } = await tts.synth(text, { voice, style });
-  writeFileSync(wav, buf);
-  totalCost += usage.cost;
+  // A segmented slide is synthesised segment by segment, and the per-slide file
+  // is CONCATENATED from those — one synthesis, both shapes. TTS is billed per
+  // character; asking for the same words twice to get the same audio cut two
+  // ways would be a bill nobody agreed to. --reuse-text takes the whole-slide
+  // path, since its prior text is one script rather than segments.
+  const segs = prior ? null : segmented[i];
+  let usage = { cost: 0 };
+  if (segs) {
+    const parts = [];
+    for (let k = 0; k < segs.length; k++) {
+      const kk = String(k + 1).padStart(2, '0');
+      const sWav = join(outDir, `slide-${n}-${kk}.wav`);
+      const sM4a = join(outDir, `slide-${n}-${kk}.m4a`);
+      const out = await tts.synth(segs[k], { voice, style });
+      writeFileSync(sWav, out.wav);
+      usage = { cost: usage.cost + (out.usage?.cost ?? 0) };
+      toAac(sWav, sM4a);
+      if (!keepWav) rmSync(sWav);
+      parts.push({ file: `slide-${n}-${kk}.m4a`, path: sM4a });
+    }
+    const list = join(outDir, `slide-${n}.concat`);
+    writeFileSync(list, `${parts.map((p) => `file '${p.path.replaceAll("'", "'\\''")}'`).join('\n')}\n`);
+    execFileSync('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', m4a],
+      { stdio: 'ignore' });
+    rmSync(list, { force: true });
+    manifest[i].segments = parts.map((p) => ({ file: p.file }));
+  } else {
+    const out = await tts.synth(text, { voice, style });
+    writeFileSync(wav, out.wav);
+    usage = out.usage ?? { cost: 0 };
+    toAac(wav, m4a);
+    if (!keepWav) rmSync(wav);
+  }
+  totalCost += usage.cost ?? 0;
   const costNote = usage.cost ? ` · ~$${usage.cost.toFixed(4)}` : '';
-  toAac(wav, m4a);
-  if (!keepWav) rmSync(wav);
-  console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}${costNote}`);
+  console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}`
+    + `${segs ? ` (${segs.length} ⟨CLICK⟩ segments)` : ''}${costNote}`);
   // crash-safe: persist progress after every slide so an interrupted run
   // resumes incrementally instead of re-synthesizing everything
   writeFileSync(join(outDir, 'manifest.json'),

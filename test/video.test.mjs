@@ -243,3 +243,63 @@ test('the build-step probe is read strictly, or not at all', () => {
   assert.equal(parseBuildSteps('DECKLIGHT-BUILD-STEPS ["err","boom"]', 2), null, 'the probe reporting a failure');
   assert.equal(parseBuildSteps('DECKLIGHT-BUILD-STEPS [1,-2]', 2), null, 'a negative count');
 });
+
+// ── narrated slides build too, when their notes say where (#310) ───────────
+
+const segManifest = [{
+  file: 'slide-01.m4a',
+  segments: [{ file: 's1.m4a' }, { file: 's2.m4a' }, { file: 's3.m4a' }],
+}];
+const segDurations = { 'slide-01.m4a': 9, 's1.m4a': 2, 's2.m4a': 3, 's3.m4a': 4 };
+
+test('segment k narrates build step k, each holding its own real audio', () => {
+  // Not invented here: src/core/narration.js already does this in live
+  // playback, "exactly like a presenter reading the notes and clicking between
+  // segments". This is the recorded render mirroring a rule that ships.
+  const plan = planTimeline(segManifest, segDurations, [5], null, { steps: [2] });
+  assert.deepEqual(plan.map((p) => [p.step, p.audio, p.duration]), [
+    [0, 's1.m4a', 2],
+    [1, 's2.m4a', 3],
+    [LAST_STEP, 's3.m4a', 4 + TAIL_SECONDS],
+  ]);
+});
+
+test('only the finished slide gets the breath', () => {
+  // A build that paused for the tail would read as hesitation rather than as a
+  // beat; the pause belongs at the end of the slide, where it always was.
+  const plan = planTimeline(segManifest, segDurations, [5], null, { steps: [2] });
+  assert.deepEqual(plan.slice(0, -1).map((p) => p.duration), [2, 3], 'no tail mid-slide');
+});
+
+test('a marker count that does not match the builds is refused, by name', () => {
+  // A wrong sync baked into an mp4 is worse than no sync.
+  const warns = [];
+  const plan = planTimeline(segManifest, segDurations, [5], null,
+    { steps: [3], onWarn: (w) => warns.push(w) });
+  assert.equal(plan.length, 1, 'one still, the whole slide');
+  assert.equal(plan[0].audio, 'slide-01.m4a');
+  assert.match(warns[0], /slide 1: 3 narration segments but 4 frames/);
+  assert.match(warns[0], /narrating the whole slide over one still/);
+});
+
+test('a segment whose audio was never measured falls back rather than guessing', () => {
+  const plan = planTimeline(segManifest, { 'slide-01.m4a': 9, 's1.m4a': 2 }, [5], null, { steps: [2] });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].audio, 'slide-01.m4a');
+});
+
+test('a slide with segments but no builds is still one still', () => {
+  // Markers in the notes of a slide that never builds are the speaker's own
+  // pacing, not cues — there is nothing to sync them to.
+  const plan = planTimeline(segManifest, segDurations, [5], null, { steps: [0] });
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].step, LAST_STEP);
+});
+
+test('a manifest from before all this renders exactly as it did', () => {
+  // The field is additive: an entry with no `segments` is the old shape, and
+  // the old shape is one fully-built still for the length of its audio.
+  const old = [{ file: 'slide-01.m4a', hash: 'x' }];
+  const plan = planTimeline(old, { 'slide-01.m4a': 9 }, [5], null, { steps: [4] });
+  assert.deepEqual(plan.map((p) => [p.step, p.audio]), [[LAST_STEP, 'slide-01.m4a']]);
+});
