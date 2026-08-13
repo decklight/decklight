@@ -1,6 +1,10 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
+import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
+
 // What can this machine say out loud, without a credential and without a
 // download?
 //
@@ -120,10 +124,37 @@ export function sapiArgs(text, voice, file) {
  * reason THIS machine has none, which differs enough between an Android
  * device, a bare Linux box and a Mac with a broken `say` to be worth saying.
  */
+/**
+ * Is `bin` runnable? The default for the probe below.
+ *
+ * This has to be a REAL answer, and that is the whole point of it existing:
+ * `hasBin` defaulted to `() => false`, so every caller that did not inject one
+ * — `tools/tts-engines.mjs` creating a `say`/`sapi` engine is the only one, and
+ * it is the one that matters — was told the machine had no synthesizer, on a
+ * Mac where `say -v '?'` lists forty voices. The seams here exist so the tests
+ * can drive every OS from one OS; a seam whose DEFAULT is "no" turns the
+ * production path into a stub that always refuses, and every test still passes
+ * because every test injects.
+ */
+export function onPath(bin, env = process.env) {
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  for (const dir of String(env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    for (const ext of exts) if (existsSync(join(dir, bin + ext))) return true;
+  }
+  return false;
+}
+
+/** Run a probe and return its stdout; anything at all going wrong is ''. */
+export const probe = (bin, args) => {
+  try { return execFileSync(bin, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+  catch { return ''; }
+};
+
 export function detectLocalVoice({
   platform = process.platform,
-  hasBin = () => false,
-  exec = () => '',
+  hasBin = onPath,
+  exec = probe,
   lang,
 } = {}) {
   if (platform === 'android') {

@@ -347,7 +347,16 @@ function createNative({ kind, voice, shell = 'powershell.exe' }) {
       execFileSync(bin, build(line, voice, file), { stdio: ['ignore', 'ignore', 'pipe'] });
       const wav = readFileSync(file);
       if (!wav.length) throw new Error(`${kind} produced no audio`);
-      return wav;
+      // `{ wav, usage }`, like every other engine and like this file's own
+      // contract at the top. It returned a bare Buffer, so a caller that
+      // destructured `{ wav }` — tools/voiceover.mjs does — got undefined and
+      // wrote it to disk. Nobody had ever reached this line: detectLocalVoice's
+      // default probe answered "no synthesizer" first, so the shape was wrong
+      // behind a door that never opened.
+      return {
+        wav,
+        usage: { model: voice ?? kind, chars: line.length, cost: 0, note: `${line.length} chars · local` },
+      };
     } catch (e) {
       throw new Error(`${kind}: ${String(e.stderr ?? e.message).trim().split('\n')[0] || 'synthesis failed'}`);
     } finally {
