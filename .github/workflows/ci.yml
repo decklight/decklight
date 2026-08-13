@@ -149,6 +149,51 @@ jobs:
         with:
           chrome-version: stable
 
+      # Before seventeen harnesses drive it: does this machine's Chrome answer at
+      # ALL? On macOS every harness was killed at its 600s limit having produced
+      # nothing, which is a browser that never returns rather than a rendering
+      # difference — and telling those apart is what this whole job is for. Each
+      # variant is bounded at 60s and reports what it did, so the answer arrives
+      # in one minute instead of one 30-minute round per hypothesis.
+      - name: probe the browser before driving it (#309)
+        shell: bash
+        run: |
+          node - <<'PROBE'
+          const { execFileSync } = require('child_process');
+          const { mkdtempSync } = require('fs');
+          const { tmpdir } = require('os');
+          const { join } = require('path');
+          const chrome = process.env.CHROME;
+          const fresh = () => mkdtempSync(join(tmpdir(), 'chrome-probe-'));
+          try {
+            console.log('version:', execFileSync(chrome, ['--version'], { timeout: 30000, encoding: 'utf8' }).trim());
+          } catch (e) { console.log('version: FAILED —', e.message); }
+          const probe = (label, args) => {
+            const at = Date.now();
+            const secs = () => ((Date.now() - at) / 1000).toFixed(1);
+            try {
+              const out = execFileSync(chrome, [...args, '--dump-dom', 'about:blank'],
+                { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+              console.log(`${label}: OK in ${secs()}s — ${out.length} bytes`);
+            } catch (e) {
+              const why = String(e.stderr || e.message).trim().split('\n').slice(-3).join(' | ');
+              console.log(`${label}: ${e.code ?? 'FAILED'} after ${secs()}s — ${why}`);
+            }
+          };
+          // What the harnesses pass today.
+          probe('as we call it', ['--headless', '--disable-gpu', '--no-sandbox']);
+          // A profile of its own: without one Chrome uses the real user profile,
+          // which on a macOS runner can block on a keychain prompt nobody answers.
+          probe('own profile   ', ['--headless', '--disable-gpu', '--no-sandbox',
+            `--user-data-dir=${fresh()}`, '--no-first-run', '--no-default-browser-check']);
+          // The pre-132 headless implementation, in case the full-browser one is
+          // what stalls here.
+          probe('old headless  ', ['--headless=old', '--disable-gpu', '--no-sandbox',
+            `--user-data-dir=${fresh()}`, '--no-first-run']);
+          PROBE
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
       # THE TIMEOUT IS ON THE STEP, NOT THE JOB, and the output is teed to a
       # file. Three macOS attempts reported nothing at all: a job cancelled by
       # its own `timeout-minutes` discards its logs, and the `if: always()`
@@ -167,6 +212,10 @@ jobs:
           npm run verify 2>&1 | tee "verify-${{ matrix.os }}.log"
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          # A hung harness names itself in three minutes rather than ten, so a
+          # broken browser costs one round and not seventeen. Three minutes is
+          # ~8x the slowest harness on a healthy machine.
+          VERIFY_TIMEOUT_MS: 180000
 
       # The per-harness timings, which are the whole point on a machine nobody
       # can attach to — and the one artifact that survives the step failing.
