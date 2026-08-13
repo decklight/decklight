@@ -149,10 +149,33 @@ jobs:
         with:
           chrome-version: stable
 
+      # THE TIMEOUT IS ON THE STEP, NOT THE JOB, and the output is teed to a
+      # file. Three macOS attempts reported nothing at all: a job cancelled by
+      # its own `timeout-minutes` discards its logs, and the `if: always()`
+      # steps below never ran either, so there was no way to tell a slow
+      # harness from a stuck one. A step that times out FAILS instead — the
+      # later steps run, and the log is uploaded with whatever it got to.
+      #
+      # pipefail because a pipeline reports the LAST command's status, and
+      # `tee` always succeeds: without it a failing verify would upload its own
+      # failure and go green.
       - name: build, render, contrast, palette (npm run verify)
-        run: npm run verify
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run verify 2>&1 | tee "verify-${{ matrix.os }}.log"
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      # The per-harness timings, which are the whole point on a machine nobody
+      # can attach to — and the one artifact that survives the step failing.
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: verify-log-${{ matrix.os }}
+          path: verify-*.log
+          retention-days: 14
 
       # Beside the Ubuntu job's shots, so a difference is VISIBLE rather than
       # described. This runs even when verify failed — a render that went wrong
