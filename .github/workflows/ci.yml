@@ -110,3 +110,62 @@ jobs:
       # legitimate test (~12s) and far below this job's own limit.
       - name: unit tests
         run: npm test -- --test-timeout=120000
+
+  # `npm test` answers "does the code run there". This asks the other question
+  # (#309): does it LOOK right there. They are different investigations, and the
+  # second one is where platforms actually differ — font stacks, subpixel
+  # metrics, DPI, and Chrome's own per-platform defaults. The overflow guardrail
+  # (SPEC PRESENTING) asserts about text metrics directly, so a font present on
+  # Ubuntu and absent elsewhere is a real way for this to fail.
+  #
+  # fail-fast is OFF on purpose: the point is to learn about BOTH platforms in
+  # one run, and a Windows failure that cancels the macOS job answers half a
+  # question. Same reasoning as test/verify.mjs itself, which runs all seventeen
+  # harnesses rather than stopping at the first.
+  verify-elsewhere:
+    name: verify · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20 # the floor in package.json engines — test what we promise
+          cache: npm
+
+      - run: npm ci --omit=optional
+
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+
+      - name: build, render, contrast, palette (npm run verify)
+        run: npm run verify
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      # Beside the Ubuntu job's shots, so a difference is VISIBLE rather than
+      # described. This runs even when verify failed — a render that went wrong
+      # is exactly the one worth looking at.
+      - name: screenshot the demo deck
+        if: always()
+        run: |
+          mkdir -p .shots
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase.png --wait 2500
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase-slide-3.png --slide 3 --wait 2500
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shots-${{ matrix.os }}
+          path: .shots/
+          include-hidden-files: true
+          retention-days: 14
