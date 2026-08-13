@@ -354,42 +354,59 @@ export function restrictFile(file, {
     chmod(file, 0o600);
     return { how: 'posix', who: null };
   }
-  // Two calls, and DROPPING INHERITANCE COMES FIRST. This is the whole of what
-  // the Windows runner taught this function: granting first quietly CONVERTS
-  // the inherited entries into explicit ones (Windows copies the DACL to add an
-  // ACE to it), after which `/inheritance:r` finds nothing inherited to remove
-  // and every principal the profile handed down keeps its access — with both
-  // calls exiting 0 and the file looking restricted from the outside. Combining
-  // the two options in a single icacls call fails the same way.
+  // Three steps, because `/inheritance:r` is not the blunt instrument the usual
+  // one-line recipe assumes. It removes INHERITED entries only, and the Windows
+  // runner showed a freshly written file carrying SYSTEM and Administrators as
+  // EXPLICIT ones (no `(I)` marker): `/inheritance:r` then had nothing to do,
+  // `/grant:r` replaced only this account's own entry, both calls exited 0, and
+  // the file looked restricted while everyone it started with could still read
+  // it. An explicit entry has to be removed explicitly.
+  const run = (args) => exec('icacls', [file, ...args], { stdio: 'pipe' });
   try {
-    exec('icacls', [file, '/inheritance:r'], { stdio: 'pipe' });
+    run(['/inheritance:r']);
   } catch (e) {
     return { how: 'inherited', who: null, why: reason(e) };
   }
-  // The DACL is empty at this instant — that is what makes the grant below
-  // load-bearing rather than tidy, and why its failure is repaired rather than
-  // reported. Two spellings, because icacls fails the whole call on a principal
-  // it cannot look up and WHICH one resolves is a property of the machine:
-  // `MACHINE\\jo` is what Windows itself prints and what a domain-joined box
-  // wants, a bare `jo` is what a local account often wants. Both name one
-  // person, and the read-back cannot tell them apart.
+  // Two spellings of one account, because icacls fails the whole call on a
+  // principal it cannot look up and WHICH one resolves is a property of the
+  // machine: `MACHINE\\jo` is what Windows prints and what a domain-joined box
+  // wants, a bare `jo` is what a local account often wants.
   let who = null;
   let last = null;
   for (const candidate of new Set([qualifiedUser(user, env), user()])) {
     if (who) break;
-    try {
-      exec('icacls', [file, '/grant:r', `${candidate}:F`], { stdio: 'pipe' });
-      who = candidate;
-    } catch (e) { last = e; }
+    try { run(['/grant:r', `${candidate}:F`]); who = candidate; } catch (e) { last = e; }
   }
-  if (who) return { how: 'acl', who, why: null };
-  // Nobody is on the file now, decklight included. Put the profile's own
-  // permissions back rather than leaving a credential file that cannot be read:
-  // the state we came from is a poor protection, and unreadable is not a
-  // protection at all.
-  try { exec('icacls', [file, '/inheritance:e'], { stdio: 'pipe' }); } catch { /* said below */ }
-  return { how: 'inherited', who: null, why: reason(last) };
+  if (!who) {
+    // The grant is load-bearing: without it, an inheritance drop that DID
+    // remove something leaves a file nobody can read. Put the profile's own
+    // permissions back — a weak protection beats an unreadable credential file.
+    try { run(['/inheritance:e']); } catch { /* reported below anyway */ }
+    return { how: 'inherited', who: null, why: reason(last) };
+  }
+  // Then everyone else, by name, from the file's own DACL. SYSTEM and the
+  // Administrators group go too: an administrator can take ownership whatever
+  // this says, so leaving them on buys nothing, and "restricted to the account
+  // that pasted it" has to mean that or it is not worth printing. Best effort —
+  // an entry that will not come off is not an error here, because the caller
+  // reads the file back and reports what is actually on it.
+  try {
+    const me = bareName(who);
+    for (const g of aclGrantees(exec('icacls', [file], { encoding: 'utf8' }), file)) {
+      if (bareName(g) === me) continue;
+      try { run(['/remove:g', g]); } catch { /* named by the read-back */ }
+    }
+  } catch { /* likewise */ }
+  return { how: 'acl', who, why: null };
 }
+
+/**
+ * An account name without its domain, lowercased.
+ *
+ * icacls answers with the fully qualified `MACHINE\\jo` whatever spelling it was
+ * granted in, so comparing anything else compares a spelling, not an identity.
+ */
+export const bareName = (s) => String(s).toLowerCase().split('\\').pop();
 
 /** What icacls said, short enough for a log line. */
 const reason = (e) => String(e?.stderr || e?.message || e).trim().split('\n')[0].slice(0, 200);
@@ -434,11 +451,8 @@ export function protectionOf(file, {
   } catch {
     return { state: 'unknown', label: 'Windows ACL (icacls could not read it)' };
   }
-  // Compare on the bare account name: icacls answers with the fully qualified
-  // `MACHINE\\jo` whatever form it was granted in, so anything else compares a
-  // spelling rather than an identity.
-  const me = user().toLowerCase().split('\\').pop();
-  const others = grantees.filter((g) => g.toLowerCase().split('\\').pop() !== me);
+  const me = bareName(user());
+  const others = grantees.filter((g) => bareName(g) !== me);
   return others.length
     ? { state: 'open', label: `Windows ACL — also readable by ${others.join(', ')}` }
     : { state: 'private', label: `Windows ACL — restricted to ${user()}` };

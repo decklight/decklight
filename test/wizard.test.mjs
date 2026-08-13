@@ -266,15 +266,53 @@ test('on Windows the restriction is an explicit ACL, not a mode', () => {
   // /inheritance:r to remove, both calls exit 0, and every principal the
   // profile handed down keeps its access. That is what shipped for one
   // afternoon, and only a real Windows runner could tell.
-  assert.deepEqual(calls, [
+  assert.deepEqual(calls.slice(0, 2), [
     ['icacls', ['C:\\home\\credentials.json', '/inheritance:r']],
     ['icacls', ['C:\\home\\credentials.json', '/grant:r', 'DESKTOP\\jo:F']],
   ]);
+  assert.deepEqual(calls.at(-1), ['icacls', ['C:\\home\\credentials.json']],
+    'and then it reads the DACL back, to find who else is still on it');
   // The account is named the way Windows names it, because icacls fails the
   // whole call on a principal it cannot resolve.
   assert.equal(qualifiedUser(() => 'jo', {}), 'jo', 'with no domain, the bare name');
   assert.equal(qualifiedUser(() => 'DOM\\jo', { USERDOMAIN: 'OTHER' }), 'DOM\\jo',
     'an already-qualified name is left alone');
+});
+
+test('an explicit entry is removed explicitly — /inheritance:r never touches one', () => {
+  // The defect the Windows runner found, and the reason this function is three
+  // steps rather than the usual one-liner: a file whose SYSTEM and
+  // Administrators entries are EXPLICIT (no `(I)` marker) survives
+  // /inheritance:r untouched, and /grant:r only ever replaces its own account's
+  // entry. Both calls exit 0 and the file looks restricted from the outside.
+  const calls = [];
+  const dacl = 'C:\\x NT AUTHORITY\\SYSTEM:(F)\r\n'
+    + '   BUILTIN\\Administrators:(F)\r\n'
+    + '   DESKTOP\\jo:(F)\r\n';
+  const r = restrictFile('C:\\x', {
+    platform: 'win32', user: () => 'jo', env: { USERDOMAIN: 'DESKTOP' },
+    exec: (bin, args) => { calls.push(args.slice(1)); return args.length === 1 ? dacl : ''; },
+  });
+  assert.equal(r.how, 'acl');
+  assert.deepEqual(calls.filter((a) => a[0] === '/remove:g'), [
+    ['/remove:g', 'NT AUTHORITY\\SYSTEM'],
+    ['/remove:g', 'BUILTIN\\Administrators'],
+  ], 'everyone but this account comes off, by name, from the file\'s own DACL');
+  // Not DESKTOP\jo: that is the same identity as `jo`, spelled the way icacls
+  // spells it, and removing it would leave the file readable by nobody.
+});
+
+test('an entry that will not come off is left to the read-back, not thrown', () => {
+  // The caller reports what is ACTUALLY on the file, so a failed removal shows
+  // up as "also readable by …" rather than as an exception here.
+  const r = restrictFile('C:\\x', {
+    platform: 'win32', user: () => 'jo', env: {},
+    exec: (bin, args) => {
+      if (args.includes('/remove:g')) throw new Error('Access is denied.');
+      return args.length === 1 ? 'C:\\x NT AUTHORITY\\SYSTEM:(F)\r\njo:(F)\r\n' : '';
+    },
+  });
+  assert.deepEqual(r, { how: 'acl', who: 'jo', why: null });
 });
 
 test('a grant that cannot land puts the old permissions BACK', () => {
