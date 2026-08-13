@@ -296,7 +296,7 @@ An installed theme becomes a `<style data-theme="<name>" data-theme-added media=
 
 ### RECORDER_CLI — Recorder CLI (authoring-time; the only part with native deps)
 
-`cli/rec.mjs`, invoked as `npx decklight rec <script.term.yaml> [-o out.cast.json]`
+`cli/rec.mjs`, invoked as `npx decklight@latest rec <script.term.yaml> [-o out.cast.json]`
 (the `decklight` dispatcher in `cli/decklight.mjs` also provides `refresh`, `export`, `bundle`,
 and a global `--help`; the per-file entry points still run directly, undocumented).
 

@@ -129,8 +129,16 @@ const { version } = JSON.parse(
 );
 
 if (!cmd || cmd === '--help' || cmd === '-h') globalHelp();
+// A newer decklight than the one npx pinned (#314). Read from a cache the last
+// run left behind — never a fetch on this path — and written to stderr like the
+// banner below, for the same reason: piped output stays clean.
+const { updateNotice, refreshInBackground } = await import('./update-check.mjs');
+const notice = updateNotice(version);
+refreshInBackground();
+
 if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
   process.stdout.write(`decklight ${version}\n`);
+  if (notice) process.stderr.write(`${notice}\n`);
   process.exit(0);
 }
 if (cmd === 'help') {
@@ -142,6 +150,7 @@ if (cmd === 'help') {
 // every real command announces the version it runs as — on stderr, so piped
 // output (export, bundle) stays clean
 process.stderr.write(`decklight ${version}\n`);
+if (notice) process.stderr.write(`${notice}\n`);
 
 // When a parent supervises us (author runs the deck server and the bridges), go when it
 // goes — a SIGKILLed parent never gets to reap its children. No-op otherwise.

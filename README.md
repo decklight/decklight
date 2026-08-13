@@ -32,8 +32,14 @@ But the real reason this project exists is the second half: I wanted a codebase 
 ## Quick start
 
 ```
-npx decklight init "My Deck"
+npx decklight@latest init "My Deck"
 ```
+
+The `@latest` is load-bearing: `npx decklight` with no version reuses whatever
+`npx` already unpacked into `~/.npm/_npx/`, so the first version you run is the
+one you keep. If you have been running a bare `npx decklight` and it prints an
+old number, clear that cache with `npx clear-npx-cache` (or `rm -rf ~/.npm/_npx`)
+— or install it properly with `npm i -g decklight`.
 
 This scaffolds a self-contained `deck.html` (double-click it — no server) **and** a `.claude/skills/decklight/` skill + `AGENTS.md`, so Claude Code (or anything that reads `AGENTS.md`) has the full authoring contract on hand instead of guessing from Reveal.js memory. The skill is sliced straight from `SPEC.md`, so it never drifts from the runtime you actually installed.
 

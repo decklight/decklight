@@ -70,7 +70,7 @@ with a build and notes already wired):
 </div>
 \`\`\`
 
-**CLI** (\`npx decklight <command>\`, no install needed):
+**CLI** (\`npx decklight@latest <command>\`, no install needed):
 - \`decklight author deck.html\` — the whole authoring loop: serve with live reload; **E** in the browser edits speaker notes back into the file
 - \`decklight rec script.term.yaml\` — record a truthful terminal cast in a real PTY, for \`<div class="terminal">\`
 - \`decklight bundle deck.html --themes all\` — flatten into one self-contained file to hand off or publish
@@ -84,7 +84,7 @@ browser. An agent authoring twenty slides in one pass never sees it, and ships
 decks whose bottom lines are simply missing. One command checks all of them:
 
 \`\`\`sh
-npx decklight pdf deck.html -o /tmp/check.pdf
+npx decklight@latest pdf deck.html -o /tmp/check.pdf
 \`\`\`
 
 Every \`⚠ slide N overflows\` line is a slide losing content: split it, cut it,
@@ -148,7 +148,7 @@ contract: builds, notes, SVG diagrams, themes, terminals, narration).
 Read that file before adding or editing slides.
 
 After editing slides, render the deck and check nothing is clipped:
-\`npx decklight pdf deck.html -o /tmp/check.pdf\` — every \`⚠ slide N overflows\`
+\`npx decklight@latest pdf deck.html -o /tmp/check.pdf\` — every \`⚠ slide N overflows\`
 line is a slide losing content. Overflow is the late failure, though: a slide
 that fits can still be too crowded, so keep to one idea and ~3–4 bullets per
 column rather than to whatever renders.
@@ -159,7 +159,7 @@ change you finish rather than leaving it to the timer's generic \`autosave\`:
 -d '{"message":"what this change did"}'\`. No server listening means no
 authoring session — skip it and carry on.
 
-Hit a Decklight bug? Run \`npx decklight report-bug\` for the environment
+Hit a Decklight bug? Run \`npx decklight@latest report-bug\` for the environment
 facts, then ask the user what happened, what they expected, and the smallest
 repro — and show them the whole issue before filing anything.
 ${AGENTS_MARKER}
@@ -186,7 +186,7 @@ description: File a Decklight bug report — gather version and environment fact
 Help the user file a bug report against Decklight that a triager can act on
 without a round trip. Work in this order.
 
-**1. Collect the machine facts.** Run \`npx decklight report-bug\`. It prints a
+**1. Collect the machine facts.** Run \`npx decklight@latest report-bug\`. It prints a
 markdown environment block and the issues URL and does nothing else — no
 network, nothing sent. Use its output verbatim; do not retype it from memory.
 
