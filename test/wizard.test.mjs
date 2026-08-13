@@ -240,13 +240,17 @@ test('on Windows the restriction is an explicit ACL, not a mode', () => {
     chmod: () => { throw new Error('chmod means nothing on Windows'); },
   });
   assert.deepEqual(r, { how: 'acl', who: 'DESKTOP\\jo', why: null });
-  // /grant:r puts back exactly one principal, /inheritance:r drops what the
-  // profile handed down — together that is "only the person who pasted it".
-  // Two calls, GRANT FIRST: they fail separately, and the other order can leave
-  // a file with an empty DACL that decklight itself cannot read.
+  // /inheritance:r drops what the profile handed down, /grant:r puts back
+  // exactly one principal — together that is "only the person who pasted it".
+  //
+  // THE ORDER IS THE FIX, not a detail of it: granting first CONVERTS the
+  // inherited entries into explicit ones, after which nothing is left for
+  // /inheritance:r to remove, both calls exit 0, and every principal the
+  // profile handed down keeps its access. That is what shipped for one
+  // afternoon, and only a real Windows runner could tell.
   assert.deepEqual(calls, [
-    ['icacls', ['C:\\home\\credentials.json', '/grant:r', 'DESKTOP\\jo:F']],
     ['icacls', ['C:\\home\\credentials.json', '/inheritance:r']],
+    ['icacls', ['C:\\home\\credentials.json', '/grant:r', 'DESKTOP\\jo:F']],
   ]);
   // The account is named the way Windows names it, because icacls fails the
   // whole call on a principal it cannot resolve.
@@ -255,15 +259,30 @@ test('on Windows the restriction is an explicit ACL, not a mode', () => {
     'an already-qualified name is left alone');
 });
 
-test('a grant that lands but an inheritance drop that does not is PARTIAL, not silent', () => {
-  // The file is then no worse than the profile left it, and decklight can still
-  // read it — which is exactly why the grant goes first.
+test('a grant that cannot land puts the old permissions BACK', () => {
+  // Between the two calls the file has an empty DACL — nobody at all, decklight
+  // included. If the grant then fails, leaving it there would trade a weak
+  // protection for an unreadable credential file, so inheritance is restored
+  // and the outcome is reported as what it is.
+  const calls = [];
+  const r = restrictFile('C:\\x', {
+    platform: 'win32', user: () => 'jo', env: {},
+    exec: (bin, args) => {
+      calls.push(args.at(-1));
+      if (args.some((a) => a.endsWith(':F'))) throw new Error('No mapping between account names');
+    },
+  });
+  assert.equal(r.how, 'inherited');
+  assert.match(r.why, /No mapping between account names/, 'and it keeps what the system said');
+  assert.equal(calls.at(-1), '/inheritance:e', 'the profile\'s own permissions are put back');
+});
+
+test('an inheritance drop that is refused changes nothing at all', () => {
   const r = restrictFile('C:\\x', {
     platform: 'win32', user: () => 'jo', env: {},
     exec: (bin, args) => { if (args.includes('/inheritance:r')) throw new Error('Access is denied.'); },
   });
-  assert.equal(r.how, 'partial');
-  assert.match(r.why, /Access is denied/, 'and it keeps what the system said');
+  assert.deepEqual(r, { how: 'inherited', who: null, why: 'Access is denied.' });
 });
 
 test('a machine that cannot set an ACL is told so, not told 0600', () => {

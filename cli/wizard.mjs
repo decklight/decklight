@@ -354,16 +354,25 @@ export function restrictFile(file, {
     chmod(file, 0o600);
     return { how: 'posix', who: null };
   }
-  // Two calls, and the GRANT first. Together they are one intent, but they fail
-  // separately: if the explicit grant lands and dropping inheritance does not,
-  // the file is no worse than the profile left it. The other order can leave a
-  // file with an empty DACL — nobody at all, decklight included.
-  // Two spellings of the same account, because icacls fails the whole call on a
-  // principal it cannot look up and WHICH spelling resolves is a property of
-  // the machine: `MACHINE\\jo` is what Windows itself prints and what a
-  // domain-joined box wants, a bare `jo` is what a local account often wants.
-  // Both name one person, so trying the second costs nothing and the read-back
-  // cannot tell them apart anyway.
+  // Two calls, and DROPPING INHERITANCE COMES FIRST. This is the whole of what
+  // the Windows runner taught this function: granting first quietly CONVERTS
+  // the inherited entries into explicit ones (Windows copies the DACL to add an
+  // ACE to it), after which `/inheritance:r` finds nothing inherited to remove
+  // and every principal the profile handed down keeps its access — with both
+  // calls exiting 0 and the file looking restricted from the outside. Combining
+  // the two options in a single icacls call fails the same way.
+  try {
+    exec('icacls', [file, '/inheritance:r'], { stdio: 'pipe' });
+  } catch (e) {
+    return { how: 'inherited', who: null, why: reason(e) };
+  }
+  // The DACL is empty at this instant — that is what makes the grant below
+  // load-bearing rather than tidy, and why its failure is repaired rather than
+  // reported. Two spellings, because icacls fails the whole call on a principal
+  // it cannot look up and WHICH one resolves is a property of the machine:
+  // `MACHINE\\jo` is what Windows itself prints and what a domain-joined box
+  // wants, a bare `jo` is what a local account often wants. Both name one
+  // person, and the read-back cannot tell them apart.
   let who = null;
   let last = null;
   for (const candidate of new Set([qualifiedUser(user, env), user()])) {
@@ -373,13 +382,13 @@ export function restrictFile(file, {
       who = candidate;
     } catch (e) { last = e; }
   }
-  if (!who) return { how: 'inherited', who: null, why: reason(last) };
-  try {
-    exec('icacls', [file, '/inheritance:r'], { stdio: 'pipe' });
-  } catch (e) {
-    return { how: 'partial', who, why: reason(e) };
-  }
-  return { how: 'acl', who, why: null };
+  if (who) return { how: 'acl', who, why: null };
+  // Nobody is on the file now, decklight included. Put the profile's own
+  // permissions back rather than leaving a credential file that cannot be read:
+  // the state we came from is a poor protection, and unreadable is not a
+  // protection at all.
+  try { exec('icacls', [file, '/inheritance:e'], { stdio: 'pipe' }); } catch { /* said below */ }
+  return { how: 'inherited', who: null, why: reason(last) };
 }
 
 /** What icacls said, short enough for a log line. */
