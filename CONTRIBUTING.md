@@ -29,7 +29,8 @@ failed because `init` scaffolds an already-self-contained deck.
 into an empty project **whose path contains a space**, and drives the installed
 `decklight` bin through one full journey — init, import, marketplace, author
 (adding and editing slides over the HTTP API, and watching the commits land),
-present, bundle, `--check`, and opening the result in a real browser — asserting
+present, bundle, `--check`, and opening the result in a real browser — 50 steps,
+asserting
 at each step, most importantly that every deck it produces reads `identical to
 this install`.
 
@@ -46,6 +47,25 @@ checked-out branch are untouched, and a **roster sweep**: every command answers
 `--help` with exit 0, and a bad input is a refusal that names itself. That sweep
 found two bugs on its first run (#294, #295), both of them one command sitting
 quietly outside a convention everything else follows.
+
+The **library** is walked end to end (#311): all six unit kinds install from
+that same `file://` catalog, and each is then `list`ed and `remove`d — the two
+verbs a user reaches for when something is wrong, and the ones only `add`
+covered before. `extension check` runs as the marketplace's own admission gate,
+asserting that the digest it prints is the same `sha256` the catalog entry pins,
+and that a transform calling `fetch()` is refused by name. A **presenter
+plugin** proves the boundary that has no package-level test anywhere else: it
+installs into `~/.decklight/plugins/`, `present` layers it onto what it SERVES
+while the file on disk keeps its mtime, and a bundle made a moment later carries
+no byte of it. A **theme** is installed through the author server's Browse route
+(`POST /edit/theme/add`) — the one marketplace consumer the rest of the journey
+skips — and then taken back off with `Z`, which is both the route's own claim
+and how the leg leaves the deck as the twenty steps after it expect it.
+**`restore`** finally uses the history the author leg spent six steps building:
+back to what `init` wrote, then forward again, asserting the old commit is still
+there, since restoring writes a new commit rather than rewriting. And the
+**agent skill** installed into the project has its front matter checked against
+the installed package — its theme count has gone stale twice.
 
 It also covers the two capabilities that need more than Node: **`rec`** records a
 cast in a real PTY (after asserting that, without the optional deps, the refusal
@@ -76,8 +96,8 @@ any machine even though no Windows machine has run them. A run on Windows says
 so on its own banner rather than implying it is proven.
 
 A full-fat run needs: Chrome, network, ffmpeg + ffprobe, and a C toolchain. It
-takes about 70s with all of them, ~12s without Chrome and ffmpeg (the two video
-legs are 60% of a full run — one Chrome launch per frame, and builds have frames
+takes about 77s with all of them, ~12s without Chrome and ffmpeg (the two video
+legs are 55% of a full run — one Chrome launch per frame, and builds have frames
 now).
 
 `dist/` is build output and is **not** in git — it is derived from `src/`, so

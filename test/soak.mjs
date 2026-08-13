@@ -83,7 +83,7 @@ const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
  * ships, which is the harder half of the upgrade.
  */
 const OLDER_RELEASE = '0.2.0';
-const TOTAL = 42;
+const TOTAL = 50;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -316,6 +316,35 @@ const TRANSFORM_MJS = 'export default async function transform(html) {\n'
   + '  return html.replace("</body>", "<!-- soak-transform ran -->\\n</body>");\n'
   + '}\n';
 
+/**
+ * A presenter plugin (SPEC PRESENT#PLUGINS): two files, and the whole point is
+ * where they do NOT go. It is chrome — it renders in a sandboxed frame with an
+ * opaque origin, `present` layers it on at serve time, and `bundle` cannot see
+ * it, so a deck someone else opens is the same deck whatever this machine has
+ * installed.
+ */
+const PLUGIN_JSON = `${JSON.stringify({
+  name: 'soak-timer',
+  title: 'Soak Timer',
+  slot: 'corner-br',
+  needs: ['position', 'notes'],
+  version: '1.0.0',
+  description: 'counts slides; chrome, never in the deck',
+}, null, 2)}\n`;
+// Nothing here reaches for the stage or the notes DOM — `needs: ["notes"]` is
+// how a plugin asks, and the lint refuses the other route.
+const PLUGIN_JS = 'decklight.on(function (state) {\n'
+  + "  document.body.textContent = 'soak-timer ' + state.index + '/' + state.total;\n"
+  + '});\n';
+
+/** An import adapter and a speech engine: the two pinned kinds nothing else covers. */
+const IMPORTER_MJS = 'export default async function importDeck() {\n'
+  + "  return { slides: [{ html: '<h1>Soak</h1>' }] };\n"
+  + '}\n';
+const ENGINE_MJS = 'export default function createEngine() {\n'
+  + "  return { async synth() { throw new Error('the soak never speaks'); } };\n"
+  + '}\n';
+
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
 /** The marketplace fixture: a real git repo, cloned over file:// like any remote. */
@@ -323,7 +352,20 @@ function buildMarket() {
   mkdirSync(join(MARKET, '.decklight'), { recursive: true });
   mkdirSync(join(MARKET, 'templates'), { recursive: true });
   mkdirSync(join(MARKET, 'transforms'), { recursive: true });
+  mkdirSync(join(MARKET, 'plugins', 'soak-timer'), { recursive: true });
+  mkdirSync(join(MARKET, 'themes'), { recursive: true });
+  mkdirSync(join(MARKET, 'importers', 'soak-importer'), { recursive: true });
+  mkdirSync(join(MARKET, 'engines'), { recursive: true });
   writeFileSync(join(MARKET, 'transforms', 'marker.mjs'), TRANSFORM_MJS);
+  writeFileSync(join(MARKET, 'plugins', 'soak-timer', 'plugin.json'), PLUGIN_JSON);
+  writeFileSync(join(MARKET, 'plugins', 'soak-timer', 'plugin.js'), PLUGIN_JS);
+  writeFileSync(join(MARKET, 'importers', 'soak-importer', 'importer.mjs'), IMPORTER_MJS);
+  writeFileSync(join(MARKET, 'engines', 'soak-engine.mjs'), ENGINE_MJS);
+  // A real theme, not a hand-written one: the token contract is 57 required
+  // tokens and a set of contrast gates, and a fixture that drifts out of it
+  // would fail the theme step for a reason that has nothing to do with the
+  // marketplace path being tested.
+  copyFileSync(join(root, 'themes', 'aurora.css'), join(MARKET, 'themes', 'soak-theme.css'));
   writeFileSync(join(MARKET, '.decklight', 'marketplace.json'), `${JSON.stringify({
     name: 'soak-market',
     description: "the soak's own catalog",
@@ -365,6 +407,45 @@ function buildMarket() {
       engine: 'elevenlabs',
       voiceId: 'soak-voice-id',
       description: 'a pointer, never a model',
+    }, {
+      // Presenter chrome — a directory of two files, and the one unit kind
+      // whose whole contract is about where it does NOT end up.
+      name: 'soak-timer',
+      type: 'plugin',
+      source: './plugins/soak-timer',
+      description: 'a timer in the corner',
+    }, {
+      // The kind the author server installs into a DECK rather than into the
+      // library, and the one marketplace consumer #289 left untested.
+      name: 'soak-theme',
+      type: 'theme',
+      source: './themes/soak-theme.css',
+      description: 'a theme that passes the contract',
+    }, {
+      // The remaining three kinds, so `list` and `remove` are exercised across
+      // all six rather than across the three this journey happened to install.
+      // An agent is a DESCRIPTOR (SPEC AGENT_UNITS) — no source, so no code.
+      name: 'soak-agent',
+      type: 'agent',
+      bin: 'soak-agent',
+      args: ['-p', '{prompt}'],
+      description: 'a descriptor, never code',
+    }, {
+      name: 'soak-importer',
+      type: 'importer',
+      source: './importers/soak-importer',
+      extensions: ['.soak'],
+      apiVersion: 1,
+      sha256: sha256(IMPORTER_MJS),
+      description: 'an adapter for a format decklight cannot read',
+    }, {
+      name: 'soak-engine',
+      type: 'engine',
+      source: './engines/soak-engine.mjs',
+      apiVersion: 1,
+      capability: 'tts',
+      sha256: sha256(ENGINE_MJS),
+      description: 'a speech engine that never speaks',
     }],
   }, null, 2)}\n`);
   writeFileSync(join(MARKET, 'templates', 'soak-pitch.html'), `<!doctype html>
@@ -498,6 +579,30 @@ try {
     }
   });
 
+  await step('the authoring skill installs into the project', () => {
+    // `init --no-skill` skipped it, so this is the command on its own. The
+    // skill ships inside every scaffolded deck and is the first thing an agent
+    // reads, which makes its front matter a claim about the package — and one
+    // that has gone stale twice (test/doc-rot.test.mjs). Here it is checked
+    // against the INSTALLED tree rather than against the working copy.
+    const r = dl(['skills', 'claude']);
+    must(/installed the Decklight skill/.test(r.all), `skills said: ${r.all}`);
+    const skill = join(PROJECT, '.claude', 'skills', 'decklight', 'SKILL.md');
+    must(existsSync(skill), 'no SKILL.md landed in the project');
+    must(existsSync(join(PROJECT, '.claude', 'skills', 'decklight', 'reference.md')),
+      'the skill lost the reference it points at');
+    const text = readFileSync(skill, 'utf8');
+    const front = /^---\n([\s\S]*?)\n---/.exec(text);
+    must(front, 'the skill has no front matter — an agent indexes it by that');
+    must(/^name: decklight$/m.test(front[1]), 'the skill does not name itself');
+    const claimed = /(\d+) built-in themes/.exec(front[1]);
+    must(claimed, "the skill's description no longer counts the themes");
+    const shipped = readdirSync(join(PROJECT, 'node_modules', 'decklight', 'themes'))
+      .filter((f) => f.endsWith('.css')).length;
+    must(Number(claimed[1]) === shipped,
+      `the skill advertises ${claimed[1]} themes and the package ships ${shipped}`);
+  });
+
   await step('the ingredients label vouches for the runtime', () => {
     const r = dl(['present', 'deck.html', '--check']);
     must(r.all.includes('identical to this install'),
@@ -586,6 +691,50 @@ try {
     const ref = JSON.parse(readFileSync(join(HOME, 'voices', 'soak-voice.json'), 'utf8'));
     must(ref.engine === 'elevenlabs' && ref.voiceId === 'soak-voice-id', `the pointer says ${JSON.stringify(ref)}`);
     must(!('source' in ref), 'something that looks like a payload survived into the library');
+  });
+
+  await step('the admission gate lints, loads, and prints the pin', () => {
+    // `extension check` is what a marketplace runs before admitting a
+    // transform, and the digest it prints is the `sha256` the catalog entry
+    // carries — so this asserts the gate and the pin are the SAME number. If
+    // they ever drift, every install below is pinned to something the gate
+    // never saw.
+    const src = join(MARKET, 'transforms', 'marker.mjs');
+    // The lint half needs no browser: a module that fetches is refused before
+    // anything is rendered, which is why this assertion runs everywhere.
+    const hostile = join(SPACE, 'hostile.mjs');
+    writeFileSync(hostile, 'export default async (h) => (await fetch("http://x")).text();\n');
+    const no = dl(['extension', 'check', hostile], { allowFail: true });
+    must(no.code !== 0, 'a transform that calls fetch() was admitted');
+    must(/fetch/.test(no.all), `the refusal does not name what it found: ${no.all}`);
+
+    if (!HAVE_CHROME) return { skip: 'no Chrome — the load half of the gate cannot run' };
+    const r = dl(['extension', 'check', src]);
+    must(/lints clean/.test(r.all), `the gate did not pass a clean transform: ${r.all}`);
+    const printed = /sha256: ([0-9a-f]{64})/.exec(r.all);
+    must(printed, 'the gate printed no digest — there is nothing for a catalog to pin to');
+    must(printed[1] === sha256(TRANSFORM_MJS),
+      'the digest the gate prints is not the one the catalog pins');
+    return undefined;
+  });
+
+  await step('every unit kind installs from the catalog', () => {
+    // The three the journey does not otherwise reach. An agent is a descriptor
+    // and installs offline; an importer and an engine are Node code and install
+    // only against their pins — the same UNIT_PINNING gate the step below
+    // proves the refusals of.
+    dl(['agent', 'add', 'soak-agent@soak-market']);
+    dl(['importer', 'add', 'soak-importer@soak-market']);
+    dl(['engine', 'add', 'soak-engine@soak-market']);
+    for (const [dir, file] of [['agents', 'soak-agent.json'], ['importers', join('soak-importer', 'importer.mjs')],
+      ['engines', 'soak-engine.mjs']]) {
+      must(existsSync(join(HOME, dir, file)), `${dir}/${file} did not land in the library`);
+    }
+    const descriptor = JSON.parse(readFileSync(join(HOME, 'agents', 'soak-agent.json'), 'utf8'));
+    must(descriptor.bin === 'soak-agent' && descriptor.args.includes('{prompt}'),
+      `the agent descriptor says ${JSON.stringify(descriptor)}`);
+    must(readFileSync(join(HOME, 'engines', 'soak-engine.mjs'), 'utf8') === ENGINE_MJS,
+      'the installed engine differs from the bytes its pin covered');
   });
 
   await step('code installs only against its digest', () => {
@@ -718,6 +867,33 @@ try {
     must(deck().includes('data-build="zoom"'), 'redo did not step forward again');
   });
 
+  await step('a theme installs into the deck through the author server', async () => {
+    // The Browse path (`POST /edit/theme/add`) — the one marketplace consumer
+    // the rest of this journey skips, and exactly what #289 rewrote when it
+    // moved entry resolution into a checkout. A theme is the only kind that
+    // installs into the DECK rather than into the library.
+    const before = deck();
+    const wrong = await postJson(authorSrv.base, '/edit/theme/add', { ref: 'soak-pitch@soak-market' });
+    must(wrong.status === 400, `a template was accepted as a theme (${wrong.status})`);
+    must(/not a theme/.test(wrong.body?.error ?? ''), `the refusal says: ${wrong.body?.error}`);
+    must(deck() === before, 'a refused theme install touched the deck');
+
+    const ok = await postJson(authorSrv.base, '/edit/theme/add', { ref: 'soak-theme@soak-market' });
+    must(ok.status === 200, `theme add returned ${ok.status}: ${JSON.stringify(ok.body)}`);
+    must(ok.body?.name === 'soak-theme' && ok.body?.from === 'soak-theme@soak-market',
+      `the response says ${JSON.stringify(ok.body)}`);
+    must(/<style data-theme="soak-theme"/.test(deck()), 'the theme did not land in the deck');
+    must(/theme: installed soak-theme from soak-theme@soak-market/.test(authorSrv.log()),
+      'the server did not say where the theme came from');
+
+    // And back out again: an install goes on the same undo stack as any other
+    // edit, which is both the claim in the route and how this step leaves the
+    // deck exactly as the twenty steps after it expect to find it.
+    const undo = await postJson(authorSrv.base, '/edit/undo', {});
+    must(undo.status === 200, `undo returned ${undo.status}`);
+    must(deck() === before, 'Z did not take the theme install back');
+  });
+
   await step('an explicit commit lands, and repeats as a no-op', async () => {
     const first = await postJson(authorSrv.base, '/edit/commit', { message: 'soak: three slides, edited' });
     must(first.status === 200 && first.body.committed === true, `commit returned ${JSON.stringify(first.body)}`);
@@ -752,6 +928,35 @@ try {
       'the closing commit does not contain the last edit');
     must((await isPortOpen(authorSrv.port)) === false, 'the edit port is still bound — an orphan survived');
     authorSrv = null;
+  });
+
+  await step('restore walks the history back, and forward again', () => {
+    // The author leg built real history and nothing has used it. `restore` is
+    // the way back to any of it, and its promise is that going back is not
+    // destructive: the version is written as a NEW commit on top, so
+    // overshooting costs nothing — which is also what lets this step put the
+    // deck back exactly as it found it.
+    const list = dl(['restore', 'deck.html']);
+    const commits = git(['rev-list', 'HEAD']).trim().split('\n').filter(Boolean);
+    must(commits.length >= 3, `only ${commits.length} commits to walk back through`);
+    must(list.all.includes(commits[0].slice(0, 7)), 'the listing does not name the tip');
+    const first = commits.at(-1);
+
+    const tip = deck();
+    dl(['restore', 'deck.html', first]);
+    must(sectionBodies(deck()).length === 2, 'the deck did not go back to what init wrote');
+    must(!deck().includes('Soak slide'), 'the slide added during the session survived the restore');
+    const back = git(['rev-list', 'HEAD']).trim().split('\n').filter(Boolean);
+    must(back.length === commits.length + 1, 'restoring did not commit — history was rewritten');
+    must(back.includes(commits[0]), 'the commit restored away from is gone from the history');
+
+    dl(['restore', 'deck.html', commits[0]]);
+    must(deck() === tip, 'restoring forward did not put the deck back');
+    // Scoped to the deck: restore touches that file and nothing else, and by
+    // now the project also holds an installed skill and an imported deck that
+    // were never meant to be committed.
+    must(git(['status', '--porcelain', '--', 'deck.html']).trim() === '',
+      'restore left the deck uncommitted');
   });
 
   // ── present ──────────────────────────────────────────────────────────────
@@ -916,6 +1121,61 @@ try {
     must(!/<link\s+rel="stylesheet"/i.test(out), 'the bundle still links a stylesheet');
     must(!/<script\s+src=/i.test(out), 'the bundle still loads an external script');
     must(out.length > 100_000, 'the bundle is suspiciously small');
+  });
+
+  await step('a presenter plugin is yours, not the deck\'s', () => {
+    // A plugin is the one thing decklight installs that is deliberately NOT
+    // part of any deck: it is your chrome, layered on at serve time, and a deck
+    // you send someone plays the same whatever you have installed. The library
+    // is the whole boundary, so this step is about where the files land.
+    const check = dl(['plugin', 'check', join(MARKET, 'plugins', 'soak-timer')]);
+    must(/soak-timer — corner-br/.test(check.all), `plugin check said: ${check.all}`);
+    must(/bundle will not/.test(check.all), 'the check does not state the boundary it enforces');
+
+    const add = dl(['plugin', 'add', 'soak-timer@soak-market']);
+    must(/it is yours, not the deck's/.test(add.all), `plugin add said: ${add.all}`);
+    must(/reads your speaker notes/.test(add.all),
+      'a plugin that declared needs: ["notes"] was installed without saying so');
+    const dir = join(HOME, 'plugins', 'soak-timer');
+    must(existsSync(join(dir, 'plugin.json')) && existsSync(join(dir, 'plugin.js')),
+      'the plugin did not land in the library');
+    must(!deck().includes('soak-timer'), 'installing a plugin touched the deck');
+
+    const list = dl(['plugin', 'list']);
+    must(/soak-timer/.test(list.all) && /your speaker notes/.test(list.all),
+      `plugin list said: ${list.all}`);
+  });
+
+  await step('present layers the chrome on, and bundle never sees it', async () => {
+    // The asymmetry in one step. `present` injects the plugin into what it
+    // SERVES — the file on disk is untouched — and a bundle made a moment later
+    // does not carry a byte of it.
+    const before = statSync(join(PROJECT, 'linked.html'));
+    const srv = await startServer(['present', 'linked.html', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
+      { timeoutMs: 15000 });
+    await until('the chrome line', () => /chrome: soak-timer/.test(srv.log()), { ms: 5000 });
+    must(/chrome: soak-timer \(corner-br\) — yours, not in the deck/.test(srv.log()),
+      `present said: ${srv.log()}`);
+    must(/reads your speaker notes/.test(srv.log()),
+      'the plugin reading notes was not reported under the label');
+    must(!/ingredients[\s\S]*soak-timer/.test(srv.log().split('chrome:')[0]),
+      'a plugin was counted in the ingredients label — the label describes the FILE');
+
+    const served = await (await get(srv.base, '/')).text();
+    must(served.includes('soak-timer'), 'present did not layer the chrome on');
+    const onDisk = readFileSync(join(PROJECT, 'linked.html'), 'utf8');
+    must(!onDisk.includes('soak-timer'), 'present wrote the chrome into the deck');
+    const after = statSync(join(PROJECT, 'linked.html'));
+    must(before.size === after.size && before.mtimeMs === after.mtimeMs, 'present touched the deck');
+
+    srv.child.kill('SIGTERM');
+    must(await waitExit(srv.child, 5000), 'present did not exit on SIGTERM');
+    must((await isPortOpen(srv.port)) === false, 'the present port is still bound');
+
+    // And the half that would travel: bundle with the plugin installed.
+    dl(['bundle', 'linked.html', '-o', 'unplugged.html']);
+    must(!readFileSync(join(PROJECT, 'unplugged.html'), 'utf8').includes('soak-timer'),
+      'a bundle carried a presenter plugin — it would travel with the deck');
   });
 
   await step('an installed transform runs at bundle time', () => {
@@ -1142,6 +1402,30 @@ try {
     const db = meanVolumeDb(out);
     must(db > -50, `the narrated mp4 is silent (mean volume ${db} dB) — the voice never reached the mux`);
     return undefined;
+  });
+
+  await step('every kind lists what it installed, and removes it', () => {
+    // Only `add` was ever exercised. These are the two verbs a user reaches for
+    // when something is wrong, and the library is the one place decklight
+    // writes that a release could quietly break the shape of.
+    const units = [['template', 'soak-pitch'], ['transform', 'soak-transform'], ['voice', 'soak-voice'],
+      ['agent', 'soak-agent'], ['importer', 'soak-importer'], ['engine', 'soak-engine']];
+    for (const [kind, name] of units) {
+      const listed = dl([kind, 'list']);
+      must(listed.all.includes(name), `${kind} list does not name ${name}: ${listed.all}`);
+      must(listed.all.includes('soak-market'), `${kind} list forgot where ${name} came from`);
+    }
+    for (const [kind, name] of units) {
+      const gone = dl([kind, 'remove', name]);
+      must(new RegExp(`removed ${name}`).test(gone.all), `${kind} remove said: ${gone.all}`);
+      must(!dl([kind, 'list']).all.includes(`${name} `), `${name} is still listed after removal`);
+    }
+    // The plugin library is separate from the unit library, and has the same
+    // two verbs over it.
+    dl(['plugin', 'remove', 'soak-timer']);
+    must(!existsSync(join(HOME, 'plugins', 'soak-timer')), 'the plugin survived its removal');
+    must(/no presenter plugins installed/.test(dl(['plugin', 'list']).all),
+      'plugin list still reports chrome that is gone');
   });
 
   await step('the bundle opens by double-click', () => {
