@@ -345,7 +345,7 @@ export function loadCredentials(home = configHome()) {
  */
 export function restrictFile(file, {
   platform = process.platform, exec = execFileSync, chmod = chmodSync,
-  user = () => userInfo().username,
+  user = () => userInfo().username, env = process.env,
 } = {}) {
   if (platform !== 'win32') {
     // Set on every write, not only on create: a file left world-readable by
@@ -354,13 +354,77 @@ export function restrictFile(file, {
     chmod(file, 0o600);
     return { how: 'posix', who: null };
   }
+  // Three steps, because `/inheritance:r` is not the blunt instrument the usual
+  // one-line recipe assumes. It removes INHERITED entries only, and the Windows
+  // runner showed a freshly written file carrying SYSTEM and Administrators as
+  // EXPLICIT ones (no `(I)` marker): `/inheritance:r` then had nothing to do,
+  // `/grant:r` replaced only this account's own entry, both calls exited 0, and
+  // the file looked restricted while everyone it started with could still read
+  // it. An explicit entry has to be removed explicitly.
+  const run = (args) => exec('icacls', [file, ...args], { stdio: 'pipe' });
   try {
-    const who = user();
-    exec('icacls', [file, '/inheritance:r', '/grant:r', `${who}:F`], { stdio: 'ignore' });
-    return { how: 'acl', who };
-  } catch {
-    return { how: 'inherited', who: null };
+    run(['/inheritance:r']);
+  } catch (e) {
+    return { how: 'inherited', who: null, why: reason(e) };
   }
+  // Two spellings of one account, because icacls fails the whole call on a
+  // principal it cannot look up and WHICH one resolves is a property of the
+  // machine: `MACHINE\\jo` is what Windows prints and what a domain-joined box
+  // wants, a bare `jo` is what a local account often wants.
+  let who = null;
+  let last = null;
+  for (const candidate of new Set([qualifiedUser(user, env), user()])) {
+    if (who) break;
+    try { run(['/grant:r', `${candidate}:F`]); who = candidate; } catch (e) { last = e; }
+  }
+  if (!who) {
+    // The grant is load-bearing: without it, an inheritance drop that DID
+    // remove something leaves a file nobody can read. Put the profile's own
+    // permissions back — a weak protection beats an unreadable credential file.
+    try { run(['/inheritance:e']); } catch { /* reported below anyway */ }
+    return { how: 'inherited', who: null, why: reason(last) };
+  }
+  // Then everyone else, by name, from the file's own DACL. SYSTEM and the
+  // Administrators group go too: an administrator can take ownership whatever
+  // this says, so leaving them on buys nothing, and "restricted to the account
+  // that pasted it" has to mean that or it is not worth printing. Best effort —
+  // an entry that will not come off is not an error here, because the caller
+  // reads the file back and reports what is actually on it.
+  try {
+    const me = bareName(who);
+    for (const g of aclGrantees(exec('icacls', [file], { encoding: 'utf8' }), file)) {
+      if (bareName(g) === me) continue;
+      try { run(['/remove:g', g]); } catch { /* named by the read-back */ }
+    }
+  } catch { /* likewise */ }
+  return { how: 'acl', who, why: null };
+}
+
+/**
+ * An account name without its domain, lowercased.
+ *
+ * icacls answers with the fully qualified `MACHINE\\jo` whatever spelling it was
+ * granted in, so comparing anything else compares a spelling, not an identity.
+ */
+export const bareName = (s) => String(s).toLowerCase().split('\\').pop();
+
+/** What icacls said, short enough for a log line. */
+const reason = (e) => String(e?.stderr || e?.message || e).trim().split('\n')[0].slice(0, 200);
+
+/**
+ * The account name to hand icacls.
+ *
+ * A bare username is what `os.userInfo()` gives and is usually enough, but it
+ * has to RESOLVE — icacls fails the whole call on a principal it cannot look
+ * up, and a machine where the bare name is ambiguous would silently keep the
+ * profile's permissions. `USERDOMAIN\USERNAME` is the form Windows itself uses
+ * and the one that resolves on a domain-joined machine, so it is preferred
+ * when the environment supplies it.
+ */
+export function qualifiedUser(user = () => userInfo().username, env = process.env) {
+  const name = user();
+  const domain = env.USERDOMAIN;
+  return domain && !name.includes('\\') ? `${domain}\\${name}` : name;
 }
 
 /**
@@ -387,8 +451,8 @@ export function protectionOf(file, {
   } catch {
     return { state: 'unknown', label: 'Windows ACL (icacls could not read it)' };
   }
-  const me = user().toLowerCase();
-  const others = grantees.filter((g) => !g.toLowerCase().endsWith(`\\${me}`) && g.toLowerCase() !== me);
+  const me = bareName(user());
+  const others = grantees.filter((g) => bareName(g) !== me);
   return others.length
     ? { state: 'open', label: `Windows ACL — also readable by ${others.join(', ')}` }
     : { state: 'private', label: `Windows ACL — restricted to ${user()}` };
@@ -420,8 +484,10 @@ export function saveCredentials(engine, answers, home = configHome(), opts = {})
   const all = loadCredentials(home);
   all[engine] = { ...answers };
   writeFileSync(file, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
-  restrictFile(file, opts);
-  return { file, protection: protectionOf(file, opts) };
+  // What was attempted, then what is actually true. The second is the answer;
+  // the first is why, on a machine where the answer is disappointing.
+  const attempted = restrictFile(file, opts);
+  return { file, protection: { ...protectionOf(file, opts), why: attempted.why ?? null } };
 }
 
 /** Forget an engine's answers. Returns whether there was anything to forget. */

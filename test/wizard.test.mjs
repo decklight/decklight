@@ -23,7 +23,7 @@ import {
   credentialsPath, credentialsMode, loadCredentials, saveCredentials, forgetCredentials,
   redactAnswers, configureEngine, provenance, BRIDGE_ADDR, CONFIGURED, REJECTED, UNREACHABLE,
   PREREQUISITE, REQUIRE_KINDS, unmetRequirements, requirementLine,
-  restrictFile, protectionOf, aclGrantees,
+  restrictFile, protectionOf, aclGrantees, STORAGE_NOTE, qualifiedUser,
 } from '../cli/wizard.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +47,15 @@ const SCHEMA = {
 };
 
 const ANSWERS = { apiKey: 'sk-live-abcdef123456', voice: 'Rachel' };
+
+/** This machine, for the assertions that differ by platform rather than skip. */
+const WINDOWS = process.platform === 'win32';
+
+/** What icacls actually says about `file` — evidence for a failing assertion. */
+const acl = (file) => {
+  try { return execFileSync('icacls', [file], { encoding: 'utf8' }).trim(); }
+  catch (e) { return `icacls failed: ${e.message}`; }
+};
 
 // ── what a plugin may declare ──────────────────────────────────────────────
 
@@ -119,7 +128,8 @@ test('provenance names the asker and the destination in words the schema did not
   assert.equal(p.askedBy, 'asked by elevenlabs@voices');
   assert.match(p.sentTo, new RegExp(`${BRIDGE_ADDR.replaceAll('.', '\\.')}/validate`),
     'the declared endpoint is shown as the address answers actually go to');
-  assert.match(p.sentTo, /credentials\.json \(0600\)/, 'and where they land afterwards');
+  assert.match(p.sentTo, new RegExp(`credentials\\.json \\(${STORAGE_NOTE[WINDOWS ? 'win32' : 'posix']}\\)`),
+    'and where they land afterwards, named with the protection THIS platform has');
   assert.doesNotMatch(p.askedBy + p.sentTo, /ElevenLabs|API key/,
     'the plugin\'s own title and labels never leak into the trusted line');
 });
@@ -171,8 +181,6 @@ test('answers are checked against the schema, and every problem is reported at o
  * or a stripped image has none — so the Windows branch accepts `inherited` as
  * an outcome and insists only that decklight then SAYS so.
  */
-const WINDOWS = process.platform === 'win32';
-
 test('credentials are restricted to this account, and re-restricted on rewrite', () => {
   const home = tmp();
   const { file, protection } = saveCredentials('elevenlabs', ANSWERS, home);
@@ -181,8 +189,15 @@ test('credentials are restricted to this account, and re-restricted on rewrite',
   if (WINDOWS) {
     assert.match(protection.label, /Windows ACL|icacls/, 'never a POSIX mode on Windows');
     assert.doesNotMatch(protection.label, /0600/);
+    // The point of the restriction, and the assertion that could only ever run
+    // here. It carries the ACL itself, because a bare "expected private, got
+    // open" from a machine nobody can attach to is not a fixable failure.
+    assert.equal(protection.state, 'private',
+      `only this account may read a pasted key — ${protection.label}`
+      + `${protection.why ? `\nicacls said: ${protection.why}` : ''}`
+      + `\nrunning as ${process.env.USERDOMAIN}\\${process.env.USERNAME}\n${acl(file)}`);
   } else {
-    assert.deepEqual(protection, { state: 'private', label: '0600' });
+    assert.deepEqual(protection, { state: 'private', label: '0600', why: null });
     assert.equal(credentialsMode(home), 0o600);
     // A file left world-readable by anything else must not stay that way: the
     // mode argument to writeFileSync is ignored for a path that already exists,
@@ -196,13 +211,36 @@ test('credentials are restricted to this account, and re-restricted on rewrite',
     'and one engine does not clobber another');
 });
 
+test('the Windows restriction is applied to a real file, and shown either way', { skip: !WINDOWS }, () => {
+  // restrictFile on its own, against a real file on a real Windows filesystem,
+  // with the ACL captured on both sides of it — the only assertion here that
+  // can tell "icacls exited 0" from "the file is restricted", which is exactly
+  // the gap the one-line recipe falls into. Its failure message carries the
+  // before and after, because the machine that can answer this is one nobody
+  // can attach to: three CI rounds went into hypotheses before this test
+  // replaced them with the DACL itself.
+  const home = tmp();
+  const file = path.join(home, 'credentials.json');
+  writeFileSync(file, '{}\n');
+  const before = acl(file);
+  const r = restrictFile(file);
+  const after = acl(file);
+  const evidence = `\nrunning as ${process.env.USERDOMAIN}\\${process.env.USERNAME}`
+    + `\nrestrictFile → ${JSON.stringify(r)}`
+    + `\n── before ──\n${before}\n── after ──\n${after}`;
+  assert.equal(r.how, 'acl', `the restriction reports success${evidence}`);
+  assert.equal(protectionOf(file).state, 'private', `and it istrue on disk${evidence}`);
+});
+
 test('what decklight says about the file is read BACK off the file', () => {
   // The #308 defect in one assertion: the claim used to be a constant, so it
   // could not be wrong on the platform where it was.
   const home = tmp();
   const { file } = saveCredentials('elevenlabs', ANSWERS, home);
   if (WINDOWS) {
-    assert.equal(protectionOf(file).state, 'private');
+    const p = protectionOf(file);
+    assert.equal(p.state, 'private', `${p.label}\n${acl(file)}`);
+    assert.equal(restrictFile(file).how, 'acl', 'and the restriction itself reports success');
   } else {
     chmodSync(file, 0o644);
     const p = protectionOf(file);
@@ -218,24 +256,102 @@ test('on Windows the restriction is an explicit ACL, not a mode', () => {
   // repo's POSIX runners can never execute — the tools/local-voice.mjs rule.
   const calls = [];
   const r = restrictFile('C:\\home\\credentials.json', {
-    platform: 'win32', user: () => 'DESKTOP\\jo',
+    platform: 'win32', user: () => 'jo', env: { USERDOMAIN: 'DESKTOP' },
     exec: (bin, args) => { calls.push([bin, args]); },
     chmod: () => { throw new Error('chmod means nothing on Windows'); },
   });
-  assert.deepEqual(r, { how: 'acl', who: 'DESKTOP\\jo' });
-  assert.deepEqual(calls, [['icacls', ['C:\\home\\credentials.json',
-    '/inheritance:r', '/grant:r', 'DESKTOP\\jo:F']]]);
+  assert.deepEqual(r, { how: 'acl', who: 'DESKTOP\\jo', why: null });
   // /inheritance:r drops what the profile handed down, /grant:r puts back
   // exactly one principal — together that is "only the person who pasted it".
+  //
+  // THE ORDER IS THE FIX, not a detail of it: granting first CONVERTS the
+  // inherited entries into explicit ones, after which nothing is left for
+  // /inheritance:r to remove, both calls exit 0, and every principal the
+  // profile handed down keeps its access. That is what shipped for one
+  // afternoon, and only a real Windows runner could tell.
+  assert.deepEqual(calls.slice(0, 2), [
+    ['icacls', ['C:\\home\\credentials.json', '/inheritance:r']],
+    ['icacls', ['C:\\home\\credentials.json', '/grant:r', 'DESKTOP\\jo:F']],
+  ]);
+  assert.deepEqual(calls.at(-1), ['icacls', ['C:\\home\\credentials.json']],
+    'and then it reads the DACL back, to find who else is still on it');
+  // The account is named the way Windows names it, because icacls fails the
+  // whole call on a principal it cannot resolve.
+  assert.equal(qualifiedUser(() => 'jo', {}), 'jo', 'with no domain, the bare name');
+  assert.equal(qualifiedUser(() => 'DOM\\jo', { USERDOMAIN: 'OTHER' }), 'DOM\\jo',
+    'an already-qualified name is left alone');
+});
+
+test('an explicit entry is removed explicitly — /inheritance:r never touches one', () => {
+  // The defect the Windows runner found, and the reason this function is three
+  // steps rather than the usual one-liner: a file whose SYSTEM and
+  // Administrators entries are EXPLICIT (no `(I)` marker) survives
+  // /inheritance:r untouched, and /grant:r only ever replaces its own account's
+  // entry. Both calls exit 0 and the file looks restricted from the outside.
+  const calls = [];
+  const dacl = 'C:\\x NT AUTHORITY\\SYSTEM:(F)\r\n'
+    + '   BUILTIN\\Administrators:(F)\r\n'
+    + '   DESKTOP\\jo:(F)\r\n';
+  const r = restrictFile('C:\\x', {
+    platform: 'win32', user: () => 'jo', env: { USERDOMAIN: 'DESKTOP' },
+    exec: (bin, args) => { calls.push(args.slice(1)); return args.length === 1 ? dacl : ''; },
+  });
+  assert.equal(r.how, 'acl');
+  assert.deepEqual(calls.filter((a) => a[0] === '/remove:g'), [
+    ['/remove:g', 'NT AUTHORITY\\SYSTEM'],
+    ['/remove:g', 'BUILTIN\\Administrators'],
+  ], 'everyone but this account comes off, by name, from the file\'s own DACL');
+  // Not DESKTOP\jo: that is the same identity as `jo`, spelled the way icacls
+  // spells it, and removing it would leave the file readable by nobody.
+});
+
+test('an entry that will not come off is left to the read-back, not thrown', () => {
+  // The caller reports what is ACTUALLY on the file, so a failed removal shows
+  // up as "also readable by …" rather than as an exception here.
+  const r = restrictFile('C:\\x', {
+    platform: 'win32', user: () => 'jo', env: {},
+    exec: (bin, args) => {
+      if (args.includes('/remove:g')) throw new Error('Access is denied.');
+      return args.length === 1 ? 'C:\\x NT AUTHORITY\\SYSTEM:(F)\r\njo:(F)\r\n' : '';
+    },
+  });
+  assert.deepEqual(r, { how: 'acl', who: 'jo', why: null });
+});
+
+test('a grant that cannot land puts the old permissions BACK', () => {
+  // Between the two calls the file has an empty DACL — nobody at all, decklight
+  // included. If the grant then fails, leaving it there would trade a weak
+  // protection for an unreadable credential file, so inheritance is restored
+  // and the outcome is reported as what it is.
+  const calls = [];
+  const r = restrictFile('C:\\x', {
+    platform: 'win32', user: () => 'jo', env: {},
+    exec: (bin, args) => {
+      calls.push(args.at(-1));
+      if (args.some((a) => a.endsWith(':F'))) throw new Error('No mapping between account names');
+    },
+  });
+  assert.equal(r.how, 'inherited');
+  assert.match(r.why, /No mapping between account names/, 'and it keeps what the system said');
+  assert.equal(calls.at(-1), '/inheritance:e', 'the profile\'s own permissions are put back');
+});
+
+test('an inheritance drop that is refused changes nothing at all', () => {
+  const r = restrictFile('C:\\x', {
+    platform: 'win32', user: () => 'jo', env: {},
+    exec: (bin, args) => { if (args.includes('/inheritance:r')) throw new Error('Access is denied.'); },
+  });
+  assert.deepEqual(r, { how: 'inherited', who: null, why: 'Access is denied.' });
 });
 
 test('a machine that cannot set an ACL is told so, not told 0600', () => {
   // FAT volumes, network shares, a stripped image with no icacls: not an
   // error, but not a protection decklight may claim either.
   const r = restrictFile('C:\\x', {
-    platform: 'win32', exec: () => { throw new Error('ENOENT icacls'); },
+    platform: 'win32', env: {}, exec: () => { throw new Error('ENOENT icacls'); },
   });
-  assert.deepEqual(r, { how: 'inherited', who: null });
+  assert.equal(r.how, 'inherited');
+  assert.match(r.why, /ENOENT icacls/);
 });
 
 test('the ACL is read back, and anyone else on it is named', () => {
@@ -259,6 +375,8 @@ test('the ACL is read back, and anyone else on it is named', () => {
 
   const mine = protectionOf(file, opts(`${file} DESKTOP\\jo:(F)\r\n`));
   assert.deepEqual(mine, { state: 'private', label: 'Windows ACL — restricted to jo' });
+  // and a fully-qualified grantee is the same identity, not another principal
+  assert.equal(protectionOf(file, opts(`${file} DESKTOP\\jo:(F)\r\n`)).state, 'private');
 });
 
 test('an unreadable ACL is reported as unknown rather than as protected', () => {
@@ -505,7 +623,13 @@ test('a configured engine is stored restricted, and the response is redacted', a
   assert.doesNotMatch(log(), /sk-live/, 'and the terminal never sees it either');
 
   assert.equal(loadCredentials(home).elevenlabs.apiKey, 'sk-live-secret-value');
-  assert.equal(credentialsMode(home), 0o600);
+  const stored = protectionOf(credentialsPath(home));
+  assert.equal(stored.state, 'private',
+    `a key posted through the server lands restricted — ${stored.label}`
+    + `${WINDOWS ? `\n${acl(credentialsPath(home))}` : ''}`);
+  if (!WINDOWS) assert.equal(credentialsMode(home), 0o600);
+  assert.match(log(), new RegExp(`configured .*${stored.label.replaceAll(/[.*+?^${}()|[\]\\—]/g, '\\$&')}`),
+    'and the server logs what is actually protecting it, not what it hoped');
 
   // and forgetting works through the same surface
   const f = await fetch(`${base}/edit/wizard/forget`, {
