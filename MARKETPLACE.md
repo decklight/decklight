@@ -444,7 +444,9 @@ than this", never "you can't do anything yet".
    paint arbitrary UI into the deck; core owns the rendering, so "wizard only
    in author mode" stays enforceable.
 2. **Credentials:** pasted in the player → posted to the author server →
-   written `0600` under `~/.decklight/`. Loopback-only by construction
+   stored under `~/.decklight/` restricted to the account that pasted them
+   (`0600` on POSIX, an explicit ACL on Windows — decklight prints which, read
+   back off the file). Loopback-only by construction
    (`allowRemote` refuses `/edit/*` off-loopback unconditionally). Never
    logged, never written into the deck, never picked up by `bundle`.
 3. **Never outside author mode.** In `present` or a bundled deck, `V` with no
@@ -464,7 +466,8 @@ than this", never "you can't do anything yet".
    therefore shows the entry's **qualified registry name** (`name@marketplace`,
    resolved by the author server from the catalog, never read from the schema)
    and **where the answers go** (the declared bridge path(s) on this machine,
-   then the `0600` credentials file). The wording is derived once, in
+   then the credentials file, named with the protection this platform
+   actually has). The wording is derived once, in
    `cli/wizard.mjs` (`provenance`), from the same constant the server actually
    posts to; a schema that arrives without provenance is refused by the
    player, not rendered bare.
@@ -653,8 +656,9 @@ to play someone else's deck is a single command.
       first use opens the wizard, never a stack trace or a silent no-op
 - [ ] The wizard renders from a plugin's declarative schema — a plugin cannot
       inject its own UI into the deck
-- [ ] A pasted credential lands `0600` under `~/.decklight/`, is never logged,
-      and never appears in the deck or a `bundle` of it
+- [ ] A pasted credential lands under `~/.decklight/` restricted to the
+      account that pasted it — `0600` on POSIX, an explicit ACL on Windows —
+      is never logged, and never appears in the deck or a `bundle` of it
 - [ ] The wizard never triggers in `present` or in a deck opened from `file://`
       — `V` with no engine says so and stops
 - [ ] `decklight author` starts instantly with no engines installed — no bridge
@@ -745,7 +749,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `EXTENSIONS#CHECK` | `extension check` — lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
 | `EXTENSIONS#ADAPTEREXEC` | wire the same loader into `cli/import.mjs` — an installed import adapter finally runs | `EXTENSIONS#LOADER` |
 | `PRESENT#PLUGINS` | presenter-library plugins, chrome-only, enforced | `PRESENT_SERVER`, `MARKETPLACES#CORE` |
-| `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` `0600` writes, author-mode-only | `MARKETPLACES#CORE` |
+| `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` writes restricted to your account, author-mode-only | `MARKETPLACES#CORE` |
 | `ENGINES#TTS` | TTS engines as marketplace plugins — the proving case for the wizard | `ENGINES#WIZARD` |
 | `ENGINES#LIPSYNC` | proves the framework generalizes (binary + venv + key, all three shapes) | `ENGINES#WIZARD` |
 | `ENGINES#AGENTS` | agent-ask roster via marketplace — closes #125 | `ENGINES#WIZARD` |

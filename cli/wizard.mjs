@@ -23,8 +23,15 @@
  *
  * ## Credentials
  *
- * Pasted in the player, posted to the author server, written `0600` under the
- * config home. Loopback-only by construction rather than by check: the author
+ * Pasted in the player, posted to the author server, and stored under the
+ * config home RESTRICTED TO THE ACCOUNT THAT PASTED THEM — `0600` on POSIX,
+ * and on Windows an explicit ACL granting only that user, because `0600` there
+ * is a number with no meaning and inheriting whatever the profile hands out is
+ * not a decision decklight ever made deliberately (#308). Every sentence
+ * decklight prints about this comes from `protectionOf`, which READS THE FILE
+ * BACK rather than repeating what the write intended: the one thing worse than
+ * a key with weak permissions is a key with weak permissions and a CLI saying
+ * otherwise. Loopback-only by construction rather than by check: the author
  * server refuses every `/edit/*` mutation off-loopback unconditionally
  * (`allowRemote`), flag or no flag. Never logged, never written into the deck,
  * never picked up by `bundle` — a key that reached a deck would travel with it.
@@ -39,8 +46,9 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, chmodSync, statSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path, { delimiter } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { configHome } from './marketplace.mjs';
 
 /** Where credentials live. Beside `marketplaces.json`, same config home. */
@@ -257,18 +265,29 @@ export const BRIDGE_ADDR = '127.0.0.1:8787';
  * One function so the wording exists once; the player prints both strings
  * verbatim (as text, never markup) and refuses a schema that lacks them.
  */
-export function provenance(schema, qualified) {
+export function provenance(schema, qualified, { platform = process.platform } = {}) {
   if (typeof qualified !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(qualified)) {
     throw new SchemaError('provenance needs the entry\'s qualified registry name, like "elevenlabs@voices"');
   }
   const endpoints = [...new Set([schema.validate, schema.install].filter(Boolean))];
+  // The protection, named in the terms of the machine reading it. `0600` is
+  // the whole of the promise on POSIX and means nothing at all on Windows, and
+  // printing it there was decklight claiming a protection it was not providing
+  // (#308). `restrictFile` is what makes the Windows half true.
+  const where = `~/.decklight/credentials.json (${STORAGE_NOTE[platform === 'win32' ? 'win32' : 'posix']})`;
   return {
     askedBy: `asked by ${qualified}`,
     sentTo: endpoints.length
-      ? `answers go to its own bridge on this machine (${endpoints.map((p) => BRIDGE_ADDR + p).join(' and ')}), then ~/.decklight/credentials.json (0600)`
-      : 'answers stay on this machine: ~/.decklight/credentials.json (0600)',
+      ? `answers go to its own bridge on this machine (${endpoints.map((p) => BRIDGE_ADDR + p).join(' and ')}), then ${where}`
+      : `answers stay on this machine: ${where}`,
   };
 }
+
+/** How the credential file is protected, per platform, in one phrase. */
+export const STORAGE_NOTE = {
+  posix: '0600',
+  win32: 'locked to your Windows account',
+};
 
 /** Which of a schema's fields are secrets — the only ones that get hidden. */
 export const secretNames = (schema) =>
@@ -309,20 +328,100 @@ export function loadCredentials(home = configHome()) {
 }
 
 /**
- * Store one engine's answers, `0600`.
+ * Cut `file` down to the account that owns it, and say which way it was done.
  *
- * The mode is set on every write, not only on create: a file that was
- * world-readable before this call must not stay world-readable after it, and
- * `writeFileSync`'s mode argument is ignored for a path that already exists.
+ * POSIX has `0600` and that IS the protection. Windows does not: `chmodSync`
+ * there only toggles the read-only attribute, so a file written with mode
+ * `0o600` carries whatever ACL the user profile hands it — usually adequate,
+ * and not something decklight did. `icacls /inheritance:r` drops the inherited
+ * entries and `/grant:r <user>:F` puts back exactly one, so afterwards the only
+ * principal on the file is the person who pasted the key.
+ *
+ * Returns HOW, never a boolean: the caller's next job is to print a true
+ * sentence, and "it worked" is not enough to write one with. A machine where
+ * icacls is unavailable or the filesystem has no ACLs (a FAT volume, a network
+ * share) is not an error — it is `inherited`, which is what the profile would
+ * have given anyway and is said out loud rather than papered over.
  */
-export function saveCredentials(engine, answers, home = configHome()) {
+export function restrictFile(file, {
+  platform = process.platform, exec = execFileSync, chmod = chmodSync,
+  user = () => userInfo().username,
+} = {}) {
+  if (platform !== 'win32') {
+    // Set on every write, not only on create: a file left world-readable by
+    // something else must not stay that way, and `writeFileSync`'s mode
+    // argument is ignored for a path that already exists.
+    chmod(file, 0o600);
+    return { how: 'posix', who: null };
+  }
+  try {
+    const who = user();
+    exec('icacls', [file, '/inheritance:r', '/grant:r', `${who}:F`], { stdio: 'ignore' });
+    return { how: 'acl', who };
+  } catch {
+    return { how: 'inherited', who: null };
+  }
+}
+
+/**
+ * What the file on disk is ACTUALLY protected by — read back, never assumed.
+ *
+ * This is the function every user-facing sentence about credential storage
+ * comes from, including `report-bug`'s, so that what decklight says and what is
+ * true cannot drift apart the way they did in #308.
+ */
+export function protectionOf(file, {
+  platform = process.platform, exec = execFileSync, stat = statSync,
+  exists = existsSync, user = () => userInfo().username,
+} = {}) {
+  if (!exists(file)) return { state: 'absent', label: 'nothing stored' };
+  if (platform !== 'win32') {
+    const mode = stat(file).mode & 0o777;
+    return mode === 0o600
+      ? { state: 'private', label: '0600' }
+      : { state: 'open', label: `0${mode.toString(8)} — readable by more than you` };
+  }
+  let grantees;
+  try {
+    grantees = aclGrantees(exec('icacls', [file], { encoding: 'utf8' }), file);
+  } catch {
+    return { state: 'unknown', label: 'Windows ACL (icacls could not read it)' };
+  }
+  const me = user().toLowerCase();
+  const others = grantees.filter((g) => !g.toLowerCase().endsWith(`\\${me}`) && g.toLowerCase() !== me);
+  return others.length
+    ? { state: 'open', label: `Windows ACL — also readable by ${others.join(', ')}` }
+    : { state: 'private', label: `Windows ACL — restricted to ${user()}` };
+}
+
+/**
+ * The principals `icacls <file>` lists, from its output.
+ *
+ * The file's own path is on the first line ahead of the first principal and may
+ * contain spaces (`C:\Users\Jo Bloggs\…`), so it is removed by name before
+ * anything is parsed rather than guessed at with whitespace.
+ */
+export function aclGrantees(out, file) {
+  return String(out).replaceAll(file, '').split(/\r?\n/)
+    .map((line) => /^\s*(.+?):\(/.exec(line)?.[1]?.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Store one engine's answers, restricted to this account.
+ *
+ * Returns `{ file, protection }` — what was written and what it is really
+ * protected by, read back off the disk. A caller that wants to say where the
+ * key went has both halves and cannot accidentally say only the first.
+ */
+export function saveCredentials(engine, answers, home = configHome(), opts = {}) {
   const file = credentialsPath(home);
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const all = loadCredentials(home);
   all[engine] = { ...answers };
   writeFileSync(file, `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(file, 0o600);
-  return file;
+  restrictFile(file, opts);
+  return { file, protection: protectionOf(file, opts) };
 }
 
 /** Forget an engine's answers. Returns whether there was anything to forget. */
@@ -332,7 +431,7 @@ export function forgetCredentials(engine, home = configHome()) {
   if (!(engine in all)) return false;
   delete all[engine];
   writeFileSync(credentialsPath(home), `${JSON.stringify(all, null, 2)}\n`, { mode: 0o600 });
-  chmodSync(credentialsPath(home), 0o600);
+  restrictFile(credentialsPath(home));
   return true;
 }
 
@@ -427,6 +526,9 @@ export async function configureEngine(engine, answers, {
     if (!ok) return { state: REJECTED, schema, reason: `${schema.title} did not accept those answers` };
   }
 
-  const file = save(engine, answers, home);
-  return { state: CONFIGURED, schema, file, stored: redactAnswers(schema, answers) };
+  // Both halves: where the key went, and what is actually protecting it there.
+  // The second is read off the disk, so a caller reporting it cannot repeat an
+  // intention the filesystem did not honour (#308).
+  const { file, protection } = save(engine, answers, home);
+  return { state: CONFIGURED, schema, file, protection, stored: redactAnswers(schema, answers) };
 }

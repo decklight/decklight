@@ -23,6 +23,7 @@ import {
   credentialsPath, credentialsMode, loadCredentials, saveCredentials, forgetCredentials,
   redactAnswers, configureEngine, provenance, BRIDGE_ADDR, CONFIGURED, REJECTED, UNREACHABLE,
   PREREQUISITE, REQUIRE_KINDS, unmetRequirements, requirementLine,
+  restrictFile, protectionOf, aclGrantees,
 } from '../cli/wizard.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -158,33 +159,125 @@ test('answers are checked against the schema, and every problem is reported at o
 // ── where a credential goes, and where it must not ─────────────────────────
 
 /**
- * Whether this OS has the permission bits the credential file relies on.
+ * The credential file is restricted TO THIS ACCOUNT on whatever machine runs
+ * this, and the assertion is per-platform rather than skipped (#308).
  *
- * It does not on Windows, and that is a fact about the PRODUCT, not a quirk of
- * the test: `0600` is decklight's whole answer to "who else can read your
- * ElevenLabs key", and on Windows the file is protected by whatever ACL the
- * user profile hands it — which is usually enough, and is not something
- * decklight does. Skipping the assertion says so out loud; asserting a mode
- * Windows invents would be worse than not asking.
+ * `0600` was decklight's whole answer to "who else can read your ElevenLabs
+ * key", and on Windows it is a number with no meaning — the file used to carry
+ * whatever ACL the profile handed it, which is usually adequate and was not
+ * something decklight did, while the CLI printed `(0600)` anyway. Now an
+ * explicit ACL is set there, so both platforms have an answer and both can be
+ * asserted. What cannot be asserted is that a machine HAS ACLs — a FAT volume
+ * or a stripped image has none — so the Windows branch accepts `inherited` as
+ * an outcome and insists only that decklight then SAYS so.
  */
-const posixModes = process.platform === 'win32'
-  ? 'file modes are POSIX — on Windows the credential file carries the profile ACL, which decklight does not set'
-  : false;
+const WINDOWS = process.platform === 'win32';
 
-test('credentials are written 0600, and stay 0600 on rewrite', { skip: posixModes }, () => {
+test('credentials are restricted to this account, and re-restricted on rewrite', () => {
   const home = tmp();
-  const file = saveCredentials('elevenlabs', ANSWERS, home);
+  const { file, protection } = saveCredentials('elevenlabs', ANSWERS, home);
   assert.equal(file, credentialsPath(home));
-  assert.equal(credentialsMode(home), 0o600);
 
-  // A file left world-readable by anything else must not stay that way: the
-  // mode argument to writeFileSync is ignored for a path that already exists,
-  // which is exactly the trap this asserts against.
-  chmodSync(file, 0o644);
-  saveCredentials('piper', { model: 'en_US-ryan' }, home);
-  assert.equal(credentialsMode(home), 0o600, 'the write re-tightens it');
+  if (WINDOWS) {
+    assert.match(protection.label, /Windows ACL|icacls/, 'never a POSIX mode on Windows');
+    assert.doesNotMatch(protection.label, /0600/);
+  } else {
+    assert.deepEqual(protection, { state: 'private', label: '0600' });
+    assert.equal(credentialsMode(home), 0o600);
+    // A file left world-readable by anything else must not stay that way: the
+    // mode argument to writeFileSync is ignored for a path that already exists,
+    // which is exactly the trap this asserts against.
+    chmodSync(file, 0o644);
+  }
+
+  const again = saveCredentials('piper', { model: 'en_US-ryan' }, home);
+  assert.deepEqual(again.protection, protection, 'the write re-tightens it');
   assert.deepEqual(Object.keys(loadCredentials(home)).sort(), ['elevenlabs', 'piper'],
     'and one engine does not clobber another');
+});
+
+test('what decklight says about the file is read BACK off the file', () => {
+  // The #308 defect in one assertion: the claim used to be a constant, so it
+  // could not be wrong on the platform where it was.
+  const home = tmp();
+  const { file } = saveCredentials('elevenlabs', ANSWERS, home);
+  if (WINDOWS) {
+    assert.equal(protectionOf(file).state, 'private');
+  } else {
+    chmodSync(file, 0o644);
+    const p = protectionOf(file);
+    assert.equal(p.state, 'open', 'a loosened file reports as loosened');
+    assert.match(p.label, /0644/);
+    assert.match(p.label, /readable by more than you/);
+  }
+  assert.deepEqual(protectionOf(credentialsPath(tmp())), { state: 'absent', label: 'nothing stored' });
+});
+
+test('on Windows the restriction is an explicit ACL, not a mode', () => {
+  // Reachable from any machine, because the branch it covers is the one this
+  // repo's POSIX runners can never execute — the tools/local-voice.mjs rule.
+  const calls = [];
+  const r = restrictFile('C:\\home\\credentials.json', {
+    platform: 'win32', user: () => 'DESKTOP\\jo',
+    exec: (bin, args) => { calls.push([bin, args]); },
+    chmod: () => { throw new Error('chmod means nothing on Windows'); },
+  });
+  assert.deepEqual(r, { how: 'acl', who: 'DESKTOP\\jo' });
+  assert.deepEqual(calls, [['icacls', ['C:\\home\\credentials.json',
+    '/inheritance:r', '/grant:r', 'DESKTOP\\jo:F']]]);
+  // /inheritance:r drops what the profile handed down, /grant:r puts back
+  // exactly one principal — together that is "only the person who pasted it".
+});
+
+test('a machine that cannot set an ACL is told so, not told 0600', () => {
+  // FAT volumes, network shares, a stripped image with no icacls: not an
+  // error, but not a protection decklight may claim either.
+  const r = restrictFile('C:\\x', {
+    platform: 'win32', exec: () => { throw new Error('ENOENT icacls'); },
+  });
+  assert.deepEqual(r, { how: 'inherited', who: null });
+});
+
+test('the ACL is read back, and anyone else on it is named', () => {
+  const file = 'C:\\Users\\Jo Bloggs\\.decklight\\credentials.json';
+  // Real icacls output: the path is on the first line ahead of the first
+  // principal, and it has a SPACE in it — which is why the parser strips the
+  // path by name rather than splitting on whitespace.
+  const shared = `${file} NT AUTHORITY\\SYSTEM:(F)\r\n`
+    + '                                     BUILTIN\\Administrators:(F)\r\n'
+    + '                                     DESKTOP\\jo:(F)\r\n\r\n'
+    + 'Successfully processed 1 files; Failed processing 0 files\r\n';
+  assert.deepEqual(aclGrantees(shared, file),
+    ['NT AUTHORITY\\SYSTEM', 'BUILTIN\\Administrators', 'DESKTOP\\jo']);
+
+  const opts = (out) => ({
+    platform: 'win32', exists: () => true, user: () => 'jo', exec: () => out,
+  });
+  const open = protectionOf(file, opts(shared));
+  assert.equal(open.state, 'open');
+  assert.match(open.label, /BUILTIN\\Administrators/, 'whoever else can read it is named');
+
+  const mine = protectionOf(file, opts(`${file} DESKTOP\\jo:(F)\r\n`));
+  assert.deepEqual(mine, { state: 'private', label: 'Windows ACL — restricted to jo' });
+});
+
+test('an unreadable ACL is reported as unknown rather than as protected', () => {
+  const p = protectionOf('C:\\x', {
+    platform: 'win32', exists: () => true, user: () => 'jo',
+    exec: () => { throw new Error('access denied'); },
+  });
+  assert.equal(p.state, 'unknown');
+  assert.match(p.label, /icacls could not read it/);
+});
+
+test('the destination line names the protection THIS platform actually has', () => {
+  const schema = validateSchema(SCHEMA);
+  assert.match(provenance(schema, 'elevenlabs@voices', { platform: 'linux' }).sentTo,
+    /credentials\.json \(0600\)/);
+  const win = provenance(schema, 'elevenlabs@voices', { platform: 'win32' }).sentTo;
+  assert.match(win, /locked to your Windows account/);
+  assert.doesNotMatch(win, /0600/,
+    'printing a POSIX mode on a machine that has none is the whole of #308');
 });
 
 test('a missing credentials file is first run, not an error', () => {
@@ -397,7 +490,7 @@ test('a catalog declaring a field core cannot render is refused on the way OUT',
   assert.match((await r.json()).error, /cannot render/);
 });
 
-test('a configured engine is stored 0600, and the response is redacted', { skip: posixModes }, async (t) => {
+test('a configured engine is stored restricted, and the response is redacted', async (t) => {
   const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
   const { base, log } = await startAuthor(t, home);
 
@@ -555,7 +648,7 @@ test('an unmet prerequisite is its OWN state — no key collected, nothing writt
     home,
     fetchSchema: async () => LIPSYNC_SCHEMA,
     validateAnswers: async () => { throw new Error('must not be reached'); },
-    save: () => { saved = true; },
+    save: () => { saved = true; return { file: 'x', protection: { state: 'private', label: '0600' } }; },
     probes: { hasBin: () => false, exists: () => false },
   });
   assert.equal(r.state, PREREQUISITE);
@@ -586,7 +679,7 @@ test('the prerequisite gate runs BEFORE the network — an outage cannot mask it
     home,
     fetchSchema: async () => ({ ...LIPSYNC_SCHEMA, validate: '/check' }),
     validateAnswers: async () => { reached = true; throw new Error('network down'); },
-    save: () => {},
+    save: () => ({ file: 'x', protection: { state: 'private', label: '0600' } }),
     probes: { hasBin: () => false, exists: () => true },
   });
   assert.equal(r.state, PREREQUISITE);
