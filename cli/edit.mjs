@@ -733,6 +733,7 @@ export async function editMain(args) {
         // have to be the same sentence.
         if (r.protection.state !== 'private') {
           console.log(`  wizard: decklight could NOT restrict that file to your account — ${r.protection.label}`);
+          if (r.protection.why) console.log(`          the system said: ${r.protection.why}`);
         }
         return json(200, { ok: true, state: r.state, engine, stored: r.stored, protection: r.protection.label });
       }
