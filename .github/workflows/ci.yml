@@ -110,3 +110,131 @@ jobs:
       # legitimate test (~12s) and far below this job's own limit.
       - name: unit tests
         run: npm test -- --test-timeout=120000
+
+  # `npm test` answers "does the code run there". This asks the other question
+  # (#309): does it LOOK right there. They are different investigations, and the
+  # second is where platforms differ — font stacks, subpixel metrics, DPI, and
+  # Chrome's own defaults. The overflow guardrail (SPEC PRESENTING) asserts about
+  # text metrics directly, so a font present on Ubuntu and absent here would be a
+  # real way for this to fail.
+  #
+  # It did not fail that way. All fifteen rendering harnesses passed on Windows
+  # unchanged; the only two that failed were `contrast` and `palette-rules`,
+  # which render nothing — they resolved `themes/` through `new URL(…).pathname`
+  # and read `D:\D:\a\decklight\themes`. A path bug, fixed, and the sweep that
+  # guards against it now covers `test/` as well.
+  #
+  # MACOS IS DELIBERATELY NOT HERE, and this is the note that should stop the
+  # next person re-attempting it blind. A GitHub-hosted macOS runner cannot run
+  # headless Chrome at all: every variant tried — the flags below, a fresh
+  # --user-data-dir, and --headless=old — dies the same way, with
+  #
+  #   bootstrap_look_up com.google.chrome.for.testing.MachPortRendezvousServer.N
+  #
+  # so the browser never spawns a renderer and every harness hangs until it is
+  # killed. Chrome finds its children over a Mach port registered in the session
+  # bootstrap namespace, and the runner's non-GUI session has none. That is an
+  # environment limitation, not a rendering difference and not a decklight bug —
+  # `npm run verify` passes on real macOS in ~140s. Fixing it means a GUI session
+  # (launchctl asuser) or a self-hosted runner, which is a bigger question than
+  # this job.
+  verify-windows:
+    name: verify · windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20 # the floor in package.json engines — test what we promise
+          cache: npm
+
+      - run: npm ci --omit=optional
+
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+
+      # Before seventeen harnesses drive it: does this machine's Chrome answer at
+      # ALL? Eight seconds here, against seventeen harnesses each hanging for
+      # three minutes — which is exactly what a broken browser costs otherwise,
+      # and how the macOS answer above took four rounds to arrive.
+      #
+      # `--version` is NOT probed: on Windows it hangs for 30s and tells you
+      # nothing, which is its own small lesson about assuming a flag is cheap.
+      - name: probe the browser before driving it (#309)
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          node - <<'PROBE' 2>&1 | tee "probe-windows.log"
+          const { execFileSync } = require('child_process');
+          const at = Date.now();
+          try {
+            const out = execFileSync(process.env.CHROME,
+              ['--headless', '--disable-gpu', '--no-sandbox', '--dump-dom', 'about:blank'],
+              { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+            console.log(`chrome: OK in ${((Date.now() - at) / 1000).toFixed(1)}s — ${out.length} bytes`);
+          } catch (e) {
+            const why = String(e.stderr || e.message).trim().split('\n').slice(-3).join(' | ');
+            console.log(`chrome: ${e.code ?? 'FAILED'} after ${((Date.now() - at) / 1000).toFixed(1)}s — ${why}`);
+            process.exit(1);
+          }
+          PROBE
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      # THE TIMEOUT IS ON THE STEP, NOT THE JOB, and the output is teed to a
+      # file. Three rounds of this investigation reported nothing at all: a job
+      # cancelled by its own `timeout-minutes` discards its log AND skips the
+      # `if: always()` steps below. A step that times out fails instead, so the
+      # log is uploaded with whatever it got to.
+      #
+      # pipefail because a pipeline reports the LAST command's status, and `tee`
+      # always succeeds: without it a failing verify would upload its own
+      # failure and go green.
+      - name: build, render, contrast, palette (npm run verify)
+        timeout-minutes: 25
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run verify 2>&1 | tee "verify-windows.log"
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+          # A hung harness names itself in three minutes rather than ten, so a
+          # browser that stops working costs one round and not seventeen.
+          VERIFY_TIMEOUT_MS: 180000
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: verify-log-windows
+          path: |
+            verify-*.log
+            probe-*.log
+          retention-days: 14
+
+      # Beside the Ubuntu job's shots, so a rendering difference is VISIBLE
+      # rather than described. Bounded and non-fatal like everything else here:
+      # tools/shot.mjs hands Chrome to execFile with no timeout of its own, so on
+      # a machine where the browser never returns this is the step that runs out
+      # the JOB's clock — and a cancelled job uploads nothing and keeps no log.
+      - name: screenshot the demo deck
+        if: always()
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          mkdir -p .shots
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase.png --wait 2500
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase-slide-3.png --slide 3 --wait 2500
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shots-windows
+          path: .shots/
+          include-hidden-files: true
+          retention-days: 14

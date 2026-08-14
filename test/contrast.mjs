@@ -29,9 +29,14 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { validateTheme } from '../tools/theme-check.mjs';
 
-const DIR = process.argv[2] ?? new URL('../themes/', import.meta.url).pathname;
+// fileURLToPath, never `.pathname` — the same trap #273 found in `cli/`, with a
+// second face on Windows: a URL path is percent-encoded (`/Users/First%20Last/…`)
+// AND it keeps a leading slash before the drive letter, so `.pathname` here read
+// `D:\D:\a\decklight\themes` and this harness had never run anywhere it could.
+const DIR = process.argv[2] ?? fileURLToPath(new URL('../themes/', import.meta.url));
 
 const files = readdirSync(DIR).filter((f) => f.endsWith('.css')).sort();
 if (files.length === 0) { console.error(`no theme css found in ${DIR}`); process.exit(1); }

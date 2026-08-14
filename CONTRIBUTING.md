@@ -100,6 +100,31 @@ takes about 77s with all of them, ~12s without Chrome and ffmpeg (the two video
 legs are 55% of a full run — one Chrome launch per frame, and builds have frames
 now).
 
+### Which platforms `verify` is known to pass on
+
+| platform | `npm test` | `npm run verify` |
+|---|---|---|
+| Linux (CI) | ✅ every PR | ✅ every PR, ~140s |
+| Windows (CI) | ✅ every PR | ✅ every PR, ~5 min |
+| macOS (local) | ✅ | ✅ ~140s |
+| macOS (GitHub-hosted runner) | ✅ | ❌ **cannot run headless Chrome at all** |
+
+The last row is a fact about the runner, not about decklight (#309). Chrome finds
+its child processes over a Mach port registered in the session bootstrap
+namespace, and a GitHub macOS runner's non-GUI session has none — so every
+variant tried (our own flags, a fresh `--user-data-dir`, `--headless=old`) dies
+with `bootstrap_look_up com.google.chrome.for.testing.MachPortRendezvousServer`
+and the browser never spawns a renderer. Every harness then hangs until it is
+killed. Fixing it means a GUI session (`launchctl asuser`) or a self-hosted
+runner. Running `npm run verify` on a real Mac takes ~140s and passes, which is
+why this is recorded rather than chased.
+
+Attempting it was worth it anyway: Windows found `contrast` and `palette-rules`
+resolving `themes/` through `new URL(…).pathname` — the trap #273 swept out of
+`cli/` and `tools/`, wearing its Windows face (`D:\D:\a\decklight\themes`).
+Both had never run anywhere but Ubuntu. The sweep that guards against it now
+covers `test/` too.
+
 `dist/` is build output and is **not** in git — it is derived from `src/`, so
 versioning it would only buy unreviewable minified diffs and source/dist drift.
 `npm install` builds it, `npm publish`/`npm pack` rebuild it, and CI rebuilds it

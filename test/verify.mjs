@@ -42,16 +42,41 @@ const HARNESSES = [
   'palette-rules',
 ];
 
+/**
+ * A harness that HANGS must name itself.
+ *
+ * The first attempt to run this on a macOS runner (#309) died to the job's own
+ * 30-minute limit, and a cancelled job's logs are unrecoverable — so the run
+ * said only that `npm run verify` had not finished, with no way to tell a slow
+ * harness from a stuck one. That is the `--test-timeout` lesson from the
+ * Windows unit job, one directory over. Ten minutes is far above the slowest
+ * legitimate harness (pdf-render, ~9s here) and far below any job limit.
+ */
+const HARNESS_TIMEOUT_MS = Number(process.env.VERIFY_TIMEOUT_MS ?? 10 * 60 * 1000);
+
+const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
 const results = [];
 for (const name of HARNESSES) {
   process.stdout.write(`\n─── ${name} ${'─'.repeat(Math.max(0, 60 - name.length))}\n`);
-  const res = spawnSync(process.execPath, [path.join(here, `${name}.mjs`)], { stdio: 'inherit' });
-  results.push({ name, ok: res.status === 0 });
+  const at = Date.now();
+  const res = spawnSync(process.execPath, [path.join(here, `${name}.mjs`)],
+    { stdio: 'inherit', timeout: HARNESS_TIMEOUT_MS });
+  const ms = Date.now() - at;
+  const timedOut = res.error?.code === 'ETIMEDOUT';
+  if (timedOut) process.stdout.write(`\n${name}: KILLED after ${secs(ms)} — it never finished\n`);
+  results.push({ name, ok: res.status === 0 && !timedOut, ms, timedOut });
 }
 
 const failed = results.filter((r) => !r.ok);
 process.stdout.write(`\n─── verify ${'─'.repeat(56)}\n`);
-for (const { name, ok } of results) process.stdout.write(`${ok ? 'ok  ' : 'FAIL'} ${name}\n`);
+// The timings are the report, not decoration: this suite runs on machines
+// nobody can attach to, and "which harness costs the time" is otherwise a
+// question only a cancelled log could have answered.
+for (const { name, ok, ms, timedOut } of results) {
+  process.stdout.write(`${ok ? 'ok  ' : 'FAIL'} ${name.padEnd(22)} ${secs(ms).padStart(7)}`
+    + `${timedOut ? '  (timed out)' : ''}\n`);
+}
+process.stdout.write(`     ${'total'.padEnd(22)} ${secs(results.reduce((a, r) => a + r.ms, 0)).padStart(7)}\n`);
 
 if (failed.length) {
   process.stdout.write(`\nverify: ${failed.length} of ${results.length} harnesses FAILED — ${failed.map((f) => f.name).join(', ')}\n`);

@@ -1226,7 +1226,13 @@ test('no command resolves a filesystem path through a URL pathname', () => {
   // fileURLToPath, which is what made this one a lone survivor rather than a
   // convention. Swept rather than fixed in place, because the next one would
   // read just as plausibly.
-  const dirs = ['cli', 'tools'].map((d) => path.resolve(here, '..', d));
+  //
+  // `test/` is in the sweep because it was NOT, and that is how two harnesses
+  // kept the bug for another release: contrast and palette-rules resolved
+  // themes/ this way, and nothing noticed until `npm run verify` was attempted
+  // on Windows (#309), where the same expression reads `D:\D:\a\…`. A guard
+  // that covers where the bug was last seen is a guard for the last bug.
+  const dirs = ['cli', 'tools', 'test'].map((d) => path.resolve(here, '..', d));
   const hits = [];
   for (const dir of dirs) {
     for (const name of fs.readdirSync(dir)) {
@@ -1235,7 +1241,9 @@ test('no command resolves a filesystem path through a URL pathname', () => {
       text.split('\n').forEach((line, i) => {
         // `.pathname` on a URL built from import.meta.url, assigned or joined
         // — the filesystem uses, not the URL-parsing ones (a served request's
-        // pathname is genuinely a URL path and stays).
+        // pathname is genuinely a URL path and stays). A comment is not code,
+        // and this file's own explanation of the trap quotes the expression.
+        if (/^\s*(\/\/|\*)/.test(line)) return;
         if (/new URL\([^)]*import\.meta\.url[^)]*\)\.pathname/.test(line))
           hits.push(`${path.basename(dir)}/${name}:${i + 1}`);
       });
