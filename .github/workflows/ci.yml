@@ -375,3 +375,83 @@ jobs:
           path: .shots/
           include-hidden-files: true
           retention-days: 14
+
+  # macOS rendering on every PR, without anyone's laptop. The hosted runner
+  # cannot start Chrome or Chromium (see the note above `verify-windows`), but
+  # `chrome-headless-shell` — the OLD headless implementation, headless by
+  # construction rather than by flag — starts in 0.4s there, because it never
+  # goes through the multi-process Mach rendezvous the other two die in.
+  #
+  # It is a different headless implementation from the one a presenter's browser
+  # uses, so this job is a COMPLEMENT to `verify-macos` on the self-hosted Mac
+  # rather than a replacement: that one drives the real Chrome on demand, this
+  # one catches a macOS-only layout or font regression on the PR that causes it.
+  # The layout stack underneath is the same Blink and the same CoreText, which is
+  # what makes the overflow guardrail meaningful here.
+  #
+  # Two harnesses are SKIPPED BY NAME and the summary says so. Old headless
+  # refuses `fetch()` over `file://` whatever --allow-file-access-from-files
+  # says, and both are about exactly that: player-render loads its cast fixtures
+  # that way, and shot-render asserts that the danger it exists to contain is
+  # REAL — which on this binary it is not. Both run on Linux and Windows every
+  # PR, so nothing is uncovered; they are simply not askable here.
+  verify-macos-hosted:
+    name: verify · macos-hosted
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20 # the floor in package.json engines — test what we promise
+          cache: npm
+
+      - run: npm ci --omit=optional
+
+      - name: install chrome-headless-shell
+        id: shell
+        shell: bash
+        run: |
+          # Prints "chrome-headless-shell@version /path/to/binary" on the last line.
+          line=$(npx -y @puppeteer/browsers install chrome-headless-shell@stable \
+            --path "$RUNNER_TEMP/browsers" | tail -1)
+          echo "version=${line%% *}" >> "$GITHUB_OUTPUT"
+          echo "path=${line#* }" >> "$GITHUB_OUTPUT"
+          echo "installed $line"
+
+      - name: build, render, contrast, palette (npm run verify)
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run verify 2>&1 | tee "verify-macos-hosted.log"
+        env:
+          CHROME: ${{ steps.shell.outputs.path }}
+          VERIFY_SKIP: player-render,shot-render
+          VERIFY_TIMEOUT_MS: 180000
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: verify-log-macos-hosted
+          path: verify-*.log
+          retention-days: 14
+
+      - name: screenshot the demo deck
+        if: always()
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          mkdir -p .shots
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase.png --wait 2500
+        env:
+          CHROME: ${{ steps.shell.outputs.path }}
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shots-macos-hosted
+          path: .shots/
+          include-hidden-files: true
+          retention-days: 14
