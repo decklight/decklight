@@ -153,11 +153,24 @@ jobs:
   # as root and is unnecessary on macOS and Windows; narrowing it to Linux is a
   # separate, unforced change.)
   #
+  # It is not Chrome-specific either. Three builds were probed there:
+  #
+  #   chrome-for-testing     KILLED at 45s — Permission denied (1100)
+  #   chromium               KILLED at 45s — CVDisplayLinkCreateWithCGDisplay
+  #   chrome-headless-shell  OK — 40 bytes in 0.4s
+  #
+  # THE OLD HEADLESS BINARY WORKS. `chrome-headless-shell` is headless by
+  # construction rather than by flag, and it does not go through the
+  # multi-process rendezvous that the other two die in. So a hosted macOS render
+  # job IS buildable — pointing $CHROME at it — and the reason not to is a
+  # choice rather than a limit: it is a different headless implementation from
+  # the one a presenter's browser uses, and the self-hosted runner below already
+  # drives the real thing. Worth knowing before anyone concludes, as this
+  # comment nearly did, that macOS rendering cannot be checked without hardware.
+  #
   # This is an environment limitation, not a rendering difference and not a
   # decklight bug: `npm run verify` passes on a SELF-HOSTED Mac in ~155s and on a
-  # developer's own machine in ~135s — see the `verify-macos` job below. Making
-  # the hosted runner work would mean a GUI session (launchctl asuser), and
-  # nothing published suggests anyone has.
+  # developer's own machine in ~135s — see the `verify-macos` job below.
   verify-windows:
     name: verify · windows
     runs-on: windows-latest
@@ -361,87 +374,4 @@ jobs:
           name: shots-macos
           path: .shots/
           include-hidden-files: true
-          retention-days: 14
-
-  # Is it Chrome, or is it every Chromium? The Mach rendezvous lives in
-  # Chromium's own base/apple/mach_port_rendezvous_mac.cc, so the expectation is
-  # that a Chromium build fails identically with `org.chromium.Chromium.…` where
-  # Chrome for Testing said `com.google.chrome.for.testing.…`. Expectation is not
-  # measurement, and the last expectation about this runner was wrong, so: three
-  # builds, one probe.
-  #
-  # chrome-headless-shell earns its place — it is the OLD headless
-  # implementation shipped as its own binary rather than a flag, which is the
-  # one candidate with a plausible reason to behave differently.
-  probe-macos-chromium:
-    name: probe · macos chromium
-    if: github.head_ref == 'ci/macos-hosted-chromium-probe'
-    runs-on: macos-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 20
-      - uses: browser-actions/setup-chrome@v2
-        id: chrome
-        with:
-          chrome-version: stable
-      - name: chrome-for-testing vs chromium vs headless-shell
-        timeout-minutes: 15
-        shell: bash
-        run: |
-          node - <<'PROBE' 2>&1 | tee "probe-macos-chromium.log"
-          const { execFileSync, spawnSync } = require('child_process');
-          const { join } = require('path');
-          const install = (what) => {
-            try {
-              // Prints "browser@version /path/to/executable" on the last line.
-              const out = execFileSync('npx', ['-y', '@puppeteer/browsers', 'install', what,
-                '--path', `${process.env.RUNNER_TEMP}/browsers`], { encoding: 'utf8', timeout: 600000 });
-              const line = out.trim().split('\n').pop();
-              const path = line.slice(line.indexOf(' ') + 1).trim();
-              console.log(`installed ${line.split(' ')[0]}`);
-              return path;
-            } catch (e) {
-              console.log(`could not install ${what}: ${String(e.message).split('\n')[0]}`);
-              return null;
-            }
-          };
-          // Output goes to FILES, not pipes. A timeout kills the browser it
-          // spawned and not the helper processes that inherited its stdout, so
-          // with a pipe the read never ends and the 60s bound silently becomes
-          // the step's own 15-minute one — which is how the first attempt at
-          // this probe died with the answer still unprinted.
-          const { openSync, readFileSync, closeSync } = require('fs');
-          const probe = (label, bin, args) => {
-            if (!bin) return console.log(`${label}: skipped, not installed`);
-            const at = Date.now();
-            const outFile = join(process.env.RUNNER_TEMP, `${label.trim()}.out`);
-            const errFile = join(process.env.RUNNER_TEMP, `${label.trim()}.err`);
-            const o = openSync(outFile, 'w');
-            const e2 = openSync(errFile, 'w');
-            const r = spawnSync(bin, [...args, '--dump-dom', 'about:blank'],
-              { timeout: 45000, killSignal: 'SIGKILL', stdio: ['ignore', o, e2] });
-            closeSync(o); closeSync(e2);
-            const secs = ((Date.now() - at) / 1000).toFixed(1);
-            const dom = readFileSync(outFile, 'utf8');
-            const err = readFileSync(errFile, 'utf8').trim().split('\n').slice(-2).join(' | ');
-            const verdict = r.error?.code === 'ETIMEDOUT' ? 'KILLED at 45s'
-              : r.status === 0 && dom.length ? `OK — ${dom.length} bytes` : `exit ${r.status}`;
-            console.log(`${label}: ${verdict} in ${secs}s${verdict.startsWith('OK') ? '' : ` — ${err.slice(0, 240)}`}`);
-          };
-          // The control: the build every other probe in #309 used.
-          probe('chrome-for-testing ', process.env.CHROME, ['--headless', '--disable-gpu']);
-          probe('chromium           ', install('chromium@latest'), ['--headless', '--disable-gpu']);
-          // Already headless by construction — no --headless to pass.
-          probe('chrome-headless-shell', install('chrome-headless-shell@stable'), ['--disable-gpu']);
-          PROBE
-        env:
-          CHROME: ${{ steps.chrome.outputs.chrome-path }}
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: probe-macos-chromium
-          path: probe-*.log
           retention-days: 14

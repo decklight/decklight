@@ -124,8 +124,17 @@ lookup, so no renderer ever spawns and every harness hangs until it is killed.
 `--no-sandbox`, without it, bare `--headless`, `--headless=new`, and with a
 private `--user-data-dir` — so it is not a flag. `--version` answers fine, which
 is why it looks like a working browser until something asks it to render. Making
-it work would mean a GUI session (`launchctl asuser`); nothing published
-suggests anyone has.
+it work with a real Chrome would mean a GUI session (`launchctl asuser`).
+
+**One build does work there**, which is worth knowing before anyone concludes
+macOS rendering needs hardware: `chrome-headless-shell` — the old headless
+implementation, headless by construction rather than by flag — dumps a DOM on
+the hosted runner in **0.4s**, because it never goes through the multi-process
+rendezvous the other two die in. Chromium proper fails like Chrome does. So a
+hosted macOS render job is buildable by pointing `$CHROME` at that binary; the
+reason we do not is a choice, not a limit — it is a different headless
+implementation from the one a presenter's browser uses, and the self-hosted
+runner drives the real thing.
 
 Attempting it was worth it anyway: Windows found `contrast` and `palette-rules`
 resolving `themes/` through `new URL(…).pathname` — the trap #273 swept out of
