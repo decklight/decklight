@@ -146,7 +146,7 @@ async function drive(browser, origin) {
   let at = await where();
   // 120ms between presses: a presenter's pace, not a scrub. WebKit rate-limits
   // history writes to 100 per 10 seconds and the runtime writes one per step,
-  // so a faster walk measures Safari's limiter rather than this deck (#329).
+  // so a faster walk measures Safari's limiter rather than this deck (#328).
   for (let i = 0; i < total * 12; i++) {
     await page.keyboard.press('ArrowRight');
     await page.waitForTimeout(120);

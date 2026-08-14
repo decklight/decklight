@@ -100,6 +100,35 @@ takes about 77s with all of them, ~12s without Chrome and ffmpeg (the two video
 legs are 55% of a full run — one Chrome launch per frame, and builds have frames
 now).
 
+### `npm run cross-engine` — the browsers the audience has
+
+Every harness in `verify` drives Chrome, so for a long time nothing here checked
+that a deck works in **Gecko or WebKit** — a strange gap for a product whose
+promise is that you send someone one HTML file and they double-click it, in
+whichever browser is already open. Safari is the default on every Mac and iPad
+in the room.
+
+`test/cross-engine.mjs` loads `demo/showcase.html` in Playwright's Firefox and
+WebKit and makes eight assertions per engine, all about the deck being **usable**
+rather than about pixels: it mounts, the welcome card dismisses, one slide is
+active, `→` walks all 39 slides, slides build a step at a time, nothing clips its
+frame, the URL agrees with the slide on screen, nothing throws. Three engines
+will never agree pixel-for-pixel, and a diff that fails on antialiasing teaches
+nobody anything.
+
+Playwright is an **optional** dependency and its browsers are a separate
+download, so the harness skips by name without them:
+
+```sh
+npm install --include=optional
+npx playwright install firefox webkit
+npm run cross-engine
+```
+
+`CROSS_ENGINE_STRICT=1` turns those skips into failures — CI sets it, because a
+job that skipped silently would be a green tick for nothing at all. It runs on
+Ubuntu, because this is about the *engine* and not the platform.
+
 ### Which platforms `verify` is known to pass on
 
 | platform | `npm test` | `npm run verify` |
