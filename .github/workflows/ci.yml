@@ -153,11 +153,24 @@ jobs:
   # as root and is unnecessary on macOS and Windows; narrowing it to Linux is a
   # separate, unforced change.)
   #
+  # It is not Chrome-specific either. Three builds were probed there:
+  #
+  #   chrome-for-testing     KILLED at 45s — Permission denied (1100)
+  #   chromium               KILLED at 45s — CVDisplayLinkCreateWithCGDisplay
+  #   chrome-headless-shell  OK — 40 bytes in 0.4s
+  #
+  # THE OLD HEADLESS BINARY WORKS. `chrome-headless-shell` is headless by
+  # construction rather than by flag, and it does not go through the
+  # multi-process rendezvous that the other two die in. So a hosted macOS render
+  # job IS buildable — pointing $CHROME at it — and the reason not to is a
+  # choice rather than a limit: it is a different headless implementation from
+  # the one a presenter's browser uses, and the self-hosted runner below already
+  # drives the real thing. Worth knowing before anyone concludes, as this
+  # comment nearly did, that macOS rendering cannot be checked without hardware.
+  #
   # This is an environment limitation, not a rendering difference and not a
   # decklight bug: `npm run verify` passes on a SELF-HOSTED Mac in ~155s and on a
-  # developer's own machine in ~135s — see the `verify-macos` job below. Making
-  # the hosted runner work would mean a GUI session (launchctl asuser), and
-  # nothing published suggests anyone has.
+  # developer's own machine in ~135s — see the `verify-macos` job below.
   verify-windows:
     name: verify · windows
     runs-on: windows-latest
