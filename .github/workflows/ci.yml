@@ -346,3 +346,59 @@ jobs:
           path: .shots/
           include-hidden-files: true
           retention-days: 14
+
+  # A blind spot in #309, being closed. Every variant probed on the hosted macOS
+  # runner carried `--no-sandbox` — because chromeArgs() adds it whenever CI is
+  # set, on every platform — so "Chrome cannot run there" was really "Chrome
+  # cannot run there WITH --no-sandbox". The flag is a Linux-in-a-container
+  # answer to running as root; macOS never needed it, and on macOS it is exactly
+  # the kind of thing that would break the Mach port rendezvous the failure
+  # names. Probe only: no harnesses, three minutes, one question.
+  probe-macos-hosted:
+    name: probe · macos-hosted
+    if: github.head_ref == 'ci/macos-hosted-sandbox-probe'
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+      - name: which flags let Chrome spawn a renderer here
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          node - <<'PROBE' 2>&1 | tee "probe-macos-hosted.log"
+          const { execFileSync } = require('child_process');
+          const { mkdtempSync } = require('fs');
+          const { tmpdir } = require('os');
+          const { join } = require('path');
+          const chrome = process.env.CHROME;
+          const probe = (label, args) => {
+            const at = Date.now();
+            const secs = () => ((Date.now() - at) / 1000).toFixed(1);
+            try {
+              const out = execFileSync(chrome, [...args, '--dump-dom', 'about:blank'],
+                { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+              console.log(`${label}: OK in ${secs()}s — ${out.length} bytes`);
+            } catch (e) {
+              const why = String(e.stderr || e.message).trim().split('\n').slice(-2).join(' | ');
+              console.log(`${label}: ${e.code ?? 'FAILED'} after ${secs()}s — ${why.slice(0, 220)}`);
+            }
+          };
+          probe('with --no-sandbox   ', ['--headless', '--disable-gpu', '--no-sandbox']);
+          probe('WITHOUT it          ', ['--headless', '--disable-gpu']);
+          probe('bare --headless     ', ['--headless']);
+          probe('--headless=new      ', ['--headless=new', '--disable-gpu']);
+          probe('without, own profile', ['--headless', '--disable-gpu',
+            `--user-data-dir=${mkdtempSync(join(tmpdir(), 'cp-'))}`, '--no-first-run']);
+          PROBE
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: probe-macos-hosted
+          path: probe-*.log
+          retention-days: 14
