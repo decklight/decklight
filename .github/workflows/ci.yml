@@ -128,20 +128,36 @@ jobs:
   # and read `D:\D:\a\decklight\themes`. A path bug, fixed, and the sweep that
   # guards against it now covers `test/` as well.
   #
-  # MACOS IS DELIBERATELY NOT HERE, and this is the note that should stop the
-  # next person re-attempting it blind. A GitHub-hosted macOS runner cannot run
-  # headless Chrome at all: every variant tried — the flags below, a fresh
-  # --user-data-dir, and --headless=old — dies the same way, with
+  # HOSTED MACOS IS DELIBERATELY NOT HERE, and this is the note that should stop
+  # the next person re-attempting it blind. A GitHub-hosted macOS runner cannot
+  # run headless Chrome at all — not with our flags, not with any. Five variants
+  # were probed and all five failed the same way:
   #
-  #   bootstrap_look_up com.google.chrome.for.testing.MachPortRendezvousServer.N
+  #   with --no-sandbox        ENOBUFS   — bootstrap_look_up …MachPortRendezvous-
+  #   WITHOUT it               ETIMEDOUT     Server.N: Unknown service name (1102)
+  #   bare --headless          ENOBUFS       / Permission denied (1100), and
+  #   --headless=new           ENOBUFS       "No rendezvous client, terminating
+  #   without, own profile     ENOBUFS        process (parent died?)"
   #
-  # so the browser never spawns a renderer and every harness hangs until it is
-  # killed. Chrome finds its children over a Mach port registered in the session
-  # bootstrap namespace, and the runner's non-GUI session has none. That is an
-  # environment limitation, not a rendering difference and not a decklight bug —
-  # `npm run verify` passes on real macOS in ~140s. Fixing it means a GUI session
-  # (launchctl asuser) or a self-hosted runner, which is a bigger question than
-  # this job.
+  # Chrome finds its child processes over a Mach port registered in the session
+  # bootstrap namespace; that runner's session does not permit the lookup, so no
+  # renderer ever spawns and every harness hangs until it is killed. `--version`
+  # answers fine, which is why this looks like a working browser until something
+  # asks it to render.
+  #
+  # The `--no-sandbox` line is worth its own sentence: chromeArgs() adds that
+  # flag whenever CI is set, on every platform, and the first round of probes all
+  # carried it — so the finding was nearly recorded as "cannot run there" when
+  # what had been tested was "cannot run there with --no-sandbox". Removing it
+  # changes nothing here. (The flag is a Linux-in-a-container answer to running
+  # as root and is unnecessary on macOS and Windows; narrowing it to Linux is a
+  # separate, unforced change.)
+  #
+  # This is an environment limitation, not a rendering difference and not a
+  # decklight bug: `npm run verify` passes on a SELF-HOSTED Mac in ~155s and on a
+  # developer's own machine in ~135s — see the `verify-macos` job below. Making
+  # the hosted runner work would mean a GUI session (launchctl asuser), and
+  # nothing published suggests anyone has.
   verify-windows:
     name: verify · windows
     runs-on: windows-latest

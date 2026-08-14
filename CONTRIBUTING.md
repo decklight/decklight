@@ -116,15 +116,16 @@ against a sleeping one sits pending for hours and then fails. Ask for it before
 a release, or after a change that touches rendering.
 
 The last row is a fact about GitHub's runner, not about decklight or about macOS
-(#309) — the self-hosted row above it is the same operating system, passing. Chrome finds
-its child processes over a Mach port registered in the session bootstrap
-namespace, and a GitHub macOS runner's non-GUI session has none — so every
-variant tried (our own flags, a fresh `--user-data-dir`, `--headless=old`) dies
-with `bootstrap_look_up com.google.chrome.for.testing.MachPortRendezvousServer`
-and the browser never spawns a renderer. Every harness then hangs until it is
-killed. Fixing it means a GUI session (`launchctl asuser`) or a self-hosted
-runner. Running `npm run verify` on a real Mac takes ~140s and passes, which is
-why this is recorded rather than chased.
+(#309) — the self-hosted row above it is the same operating system, passing.
+Chrome finds its child processes over a Mach port registered in the session
+bootstrap namespace, and a hosted macOS runner's session does not permit the
+lookup, so no renderer ever spawns and every harness hangs until it is killed.
+**Five flag variants were probed and all five fail identically** — with
+`--no-sandbox`, without it, bare `--headless`, `--headless=new`, and with a
+private `--user-data-dir` — so it is not a flag. `--version` answers fine, which
+is why it looks like a working browser until something asks it to render. Making
+it work would mean a GUI session (`launchctl asuser`); nothing published
+suggests anyone has.
 
 Attempting it was worth it anyway: Windows found `contrast` and `palette-rules`
 resolving `themes/` through `new URL(…).pathname` — the trap #273 swept out of
