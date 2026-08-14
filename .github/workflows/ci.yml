@@ -362,3 +362,75 @@ jobs:
           path: .shots/
           include-hidden-files: true
           retention-days: 14
+
+  # Is it Chrome, or is it every Chromium? The Mach rendezvous lives in
+  # Chromium's own base/apple/mach_port_rendezvous_mac.cc, so the expectation is
+  # that a Chromium build fails identically with `org.chromium.Chromium.…` where
+  # Chrome for Testing said `com.google.chrome.for.testing.…`. Expectation is not
+  # measurement, and the last expectation about this runner was wrong, so: three
+  # builds, one probe.
+  #
+  # chrome-headless-shell earns its place — it is the OLD headless
+  # implementation shipped as its own binary rather than a flag, which is the
+  # one candidate with a plausible reason to behave differently.
+  probe-macos-chromium:
+    name: probe · macos chromium
+    if: github.head_ref == 'ci/macos-hosted-chromium-probe'
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - uses: browser-actions/setup-chrome@v2
+        id: chrome
+        with:
+          chrome-version: stable
+      - name: chrome-for-testing vs chromium vs headless-shell
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          node - <<'PROBE' 2>&1 | tee "probe-macos-chromium.log"
+          const { execFileSync } = require('child_process');
+          const install = (what) => {
+            try {
+              // Prints "browser@version /path/to/executable" on the last line.
+              const out = execFileSync('npx', ['-y', '@puppeteer/browsers', 'install', what,
+                '--path', `${process.env.RUNNER_TEMP}/browsers`], { encoding: 'utf8', timeout: 600000 });
+              const line = out.trim().split('\n').pop();
+              const path = line.slice(line.indexOf(' ') + 1).trim();
+              console.log(`installed ${line.split(' ')[0]}`);
+              return path;
+            } catch (e) {
+              console.log(`could not install ${what}: ${String(e.message).split('\n')[0]}`);
+              return null;
+            }
+          };
+          const probe = (label, bin, args) => {
+            if (!bin) return console.log(`${label}: skipped, not installed`);
+            const at = Date.now();
+            const secs = () => ((Date.now() - at) / 1000).toFixed(1);
+            try {
+              const out = execFileSync(bin, [...args, '--dump-dom', 'about:blank'],
+                { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+              console.log(`${label}: OK in ${secs()}s — ${out.length} bytes`);
+            } catch (e) {
+              const why = String(e.stderr || e.message).trim().split('\n').slice(-2).join(' | ');
+              console.log(`${label}: ${e.code ?? 'FAILED'} after ${secs()}s — ${why.slice(0, 240)}`);
+            }
+          };
+          // The control: the build every other probe in #309 used.
+          probe('chrome-for-testing ', process.env.CHROME, ['--headless', '--disable-gpu']);
+          probe('chromium           ', install('chromium@latest'), ['--headless', '--disable-gpu']);
+          // Already headless by construction — no --headless to pass.
+          probe('chrome-headless-shell', install('chrome-headless-shell@stable'), ['--disable-gpu']);
+          PROBE
+        env:
+          CHROME: ${{ steps.chrome.outputs.chrome-path }}
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: probe-macos-chromium
+          path: probe-*.log
+          retention-days: 14
