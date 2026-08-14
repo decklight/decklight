@@ -128,20 +128,36 @@ jobs:
   # and read `D:\D:\a\decklight\themes`. A path bug, fixed, and the sweep that
   # guards against it now covers `test/` as well.
   #
-  # MACOS IS DELIBERATELY NOT HERE, and this is the note that should stop the
-  # next person re-attempting it blind. A GitHub-hosted macOS runner cannot run
-  # headless Chrome at all: every variant tried — the flags below, a fresh
-  # --user-data-dir, and --headless=old — dies the same way, with
+  # HOSTED MACOS IS DELIBERATELY NOT HERE, and this is the note that should stop
+  # the next person re-attempting it blind. A GitHub-hosted macOS runner cannot
+  # run headless Chrome at all — not with our flags, not with any. Five variants
+  # were probed and all five failed the same way:
   #
-  #   bootstrap_look_up com.google.chrome.for.testing.MachPortRendezvousServer.N
+  #   with --no-sandbox        ENOBUFS   — bootstrap_look_up …MachPortRendezvous-
+  #   WITHOUT it               ETIMEDOUT     Server.N: Unknown service name (1102)
+  #   bare --headless          ENOBUFS       / Permission denied (1100), and
+  #   --headless=new           ENOBUFS       "No rendezvous client, terminating
+  #   without, own profile     ENOBUFS        process (parent died?)"
   #
-  # so the browser never spawns a renderer and every harness hangs until it is
-  # killed. Chrome finds its children over a Mach port registered in the session
-  # bootstrap namespace, and the runner's non-GUI session has none. That is an
-  # environment limitation, not a rendering difference and not a decklight bug —
-  # `npm run verify` passes on real macOS in ~140s. Fixing it means a GUI session
-  # (launchctl asuser) or a self-hosted runner, which is a bigger question than
-  # this job.
+  # Chrome finds its child processes over a Mach port registered in the session
+  # bootstrap namespace; that runner's session does not permit the lookup, so no
+  # renderer ever spawns and every harness hangs until it is killed. `--version`
+  # answers fine, which is why this looks like a working browser until something
+  # asks it to render.
+  #
+  # The `--no-sandbox` line is worth its own sentence: chromeArgs() adds that
+  # flag whenever CI is set, on every platform, and the first round of probes all
+  # carried it — so the finding was nearly recorded as "cannot run there" when
+  # what had been tested was "cannot run there with --no-sandbox". Removing it
+  # changes nothing here. (The flag is a Linux-in-a-container answer to running
+  # as root and is unnecessary on macOS and Windows; narrowing it to Linux is a
+  # separate, unforced change.)
+  #
+  # This is an environment limitation, not a rendering difference and not a
+  # decklight bug: `npm run verify` passes on a SELF-HOSTED Mac in ~155s and on a
+  # developer's own machine in ~135s — see the `verify-macos` job below. Making
+  # the hosted runner work would mean a GUI session (launchctl asuser), and
+  # nothing published suggests anyone has.
   verify-windows:
     name: verify · windows
     runs-on: windows-latest
@@ -345,60 +361,4 @@ jobs:
           name: shots-macos
           path: .shots/
           include-hidden-files: true
-          retention-days: 14
-
-  # A blind spot in #309, being closed. Every variant probed on the hosted macOS
-  # runner carried `--no-sandbox` — because chromeArgs() adds it whenever CI is
-  # set, on every platform — so "Chrome cannot run there" was really "Chrome
-  # cannot run there WITH --no-sandbox". The flag is a Linux-in-a-container
-  # answer to running as root; macOS never needed it, and on macOS it is exactly
-  # the kind of thing that would break the Mach port rendezvous the failure
-  # names. Probe only: no harnesses, three minutes, one question.
-  probe-macos-hosted:
-    name: probe · macos-hosted
-    if: github.head_ref == 'ci/macos-hosted-sandbox-probe'
-    runs-on: macos-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v5
-      - uses: browser-actions/setup-chrome@v2
-        id: chrome
-        with:
-          chrome-version: stable
-      - name: which flags let Chrome spawn a renderer here
-        timeout-minutes: 10
-        shell: bash
-        run: |
-          node - <<'PROBE' 2>&1 | tee "probe-macos-hosted.log"
-          const { execFileSync } = require('child_process');
-          const { mkdtempSync } = require('fs');
-          const { tmpdir } = require('os');
-          const { join } = require('path');
-          const chrome = process.env.CHROME;
-          const probe = (label, args) => {
-            const at = Date.now();
-            const secs = () => ((Date.now() - at) / 1000).toFixed(1);
-            try {
-              const out = execFileSync(chrome, [...args, '--dump-dom', 'about:blank'],
-                { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-              console.log(`${label}: OK in ${secs()}s — ${out.length} bytes`);
-            } catch (e) {
-              const why = String(e.stderr || e.message).trim().split('\n').slice(-2).join(' | ');
-              console.log(`${label}: ${e.code ?? 'FAILED'} after ${secs()}s — ${why.slice(0, 220)}`);
-            }
-          };
-          probe('with --no-sandbox   ', ['--headless', '--disable-gpu', '--no-sandbox']);
-          probe('WITHOUT it          ', ['--headless', '--disable-gpu']);
-          probe('bare --headless     ', ['--headless']);
-          probe('--headless=new      ', ['--headless=new', '--disable-gpu']);
-          probe('without, own profile', ['--headless', '--disable-gpu',
-            `--user-data-dir=${mkdtempSync(join(tmpdir(), 'cp-'))}`, '--no-first-run']);
-          PROBE
-        env:
-          CHROME: ${{ steps.chrome.outputs.chrome-path }}
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: probe-macos-hosted
-          path: probe-*.log
           retention-days: 14
