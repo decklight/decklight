@@ -73,9 +73,36 @@ const HARNESSES = [
  */
 const HARNESS_TIMEOUT_MS = Number(process.env.VERIFY_TIMEOUT_MS ?? 10 * 60 * 1000);
 
+/**
+ * Harnesses this run must NOT pretend to have run.
+ *
+ * One caller: the hosted-macOS job, which drives `chrome-headless-shell`
+ * because that is the only build a GitHub macOS runner can start (#309). Old
+ * headless refuses `fetch()` over `file://` whatever `--allow-file-access-from-
+ * files` says, and two harnesses are about exactly that — `player-render` loads
+ * its cast fixtures that way, and `shot-render` asserts that the danger it
+ * exists to contain IS REAL, which on this binary it is not.
+ *
+ * Named, never silent, and reported in the summary as skipped rather than
+ * passed: a run that quietly dropped a harness would make "all 17 passed" a
+ * sentence about the list rather than about the code.
+ */
+const SKIP = new Set((process.env.VERIFY_SKIP ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+for (const name of SKIP) {
+  if (!HARNESSES.includes(name)) {
+    process.stdout.write(`verify: VERIFY_SKIP names "${name}", which is not a harness\n`);
+    process.exit(2);
+  }
+}
+
 const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
 const results = [];
 for (const name of HARNESSES) {
+  if (SKIP.has(name)) {
+    results.push({ name, ok: true, skipped: true, ms: 0 });
+    process.stdout.write(`\n─── ${name} — SKIPPED by VERIFY_SKIP ${'─'.repeat(Math.max(0, 30 - name.length))}\n`);
+    continue;
+  }
   process.stdout.write(`\n─── ${name} ${'─'.repeat(Math.max(0, 60 - name.length))}\n`);
   const at = Date.now();
   const res = spawnSync(process.execPath, [path.join(here, `${name}.mjs`)],
@@ -93,9 +120,9 @@ process.stdout.write(`\n─── verify ${'─'.repeat(56)}\n`);
 // The timings are the report, not decoration: this suite runs on machines
 // nobody can attach to, and "which harness costs the time" is otherwise a
 // question only a cancelled log could have answered.
-for (const { name, ok, ms, timedOut } of results) {
-  process.stdout.write(`${ok ? 'ok  ' : 'FAIL'} ${name.padEnd(22)} ${secs(ms).padStart(7)}`
-    + `${timedOut ? '  (timed out)' : ''}\n`);
+for (const { name, ok, ms, timedOut, skipped } of results) {
+  process.stdout.write(`${skipped ? 'SKIP' : ok ? 'ok  ' : 'FAIL'} ${name.padEnd(22)} `
+    + `${skipped ? '      —' : secs(ms).padStart(7)}${timedOut ? '  (timed out)' : ''}\n`);
 }
 process.stdout.write(`     ${'total'.padEnd(22)} ${secs(results.reduce((a, r) => a + r.ms, 0)).padStart(7)}\n`);
 
@@ -103,4 +130,6 @@ if (failed.length) {
   process.stdout.write(`\nverify: ${failed.length} of ${results.length} harnesses FAILED — ${failed.map((f) => f.name).join(', ')}\n`);
   process.exit(1);
 }
-process.stdout.write(`\nverify: all ${results.length} harnesses passed\n`);
+const ran = results.filter((r) => !r.skipped).length;
+process.stdout.write(`\nverify: all ${ran} harnesses passed`
+  + `${ran < results.length ? ` · ${results.length - ran} skipped by VERIFY_SKIP: ${[...SKIP].join(', ')}` : ''}\n`);

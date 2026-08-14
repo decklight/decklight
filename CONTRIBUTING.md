@@ -106,7 +106,8 @@ now).
 |---|---|---|
 | Linux (CI) | ✅ every PR | ✅ every PR, ~140s |
 | Windows (CI) | ✅ every PR | ✅ every PR, ~5 min |
-| macOS (self-hosted runner) | ✅ | ✅ **on demand**, ~155s |
+| macOS (hosted, `chrome-headless-shell`) | ✅ every PR | ✅ **15 of 17**, ~30s |
+| macOS (self-hosted runner) | ✅ | ✅ **on demand**, all 17, ~155s |
 | macOS (local) | ✅ | ✅ ~135s |
 | macOS (GitHub-hosted runner) | ✅ | ❌ **cannot run headless Chrome at all** |
 
@@ -126,15 +127,23 @@ private `--user-data-dir` — so it is not a flag. `--version` answers fine, whi
 is why it looks like a working browser until something asks it to render. Making
 it work with a real Chrome would mean a GUI session (`launchctl asuser`).
 
-**One build does work there**, which is worth knowing before anyone concludes
-macOS rendering needs hardware: `chrome-headless-shell` — the old headless
+**One build does work there**: `chrome-headless-shell` — the old headless
 implementation, headless by construction rather than by flag — dumps a DOM on
 the hosted runner in **0.4s**, because it never goes through the multi-process
-rendezvous the other two die in. Chromium proper fails like Chrome does. So a
-hosted macOS render job is buildable by pointing `$CHROME` at that binary; the
-reason we do not is a choice, not a limit — it is a different headless
-implementation from the one a presenter's browser uses, and the self-hosted
-runner drives the real thing.
+rendezvous the other two die in. Chromium proper fails like Chrome does.
+
+That is what `verify · macos-hosted` drives, so macOS rendering is checked on
+every PR without anyone's laptop — in ~30s, because old headless is markedly
+faster than the full browser. **Two harnesses are skipped there, by name.** Old
+headless refuses `fetch()` over `file://` whatever `--allow-file-access-from-
+files` says, and both are about exactly that: `player-render` loads its cast
+fixtures that way, and `shot-render` asserts that the danger it exists to
+contain *is real*, which on this binary it is not. Both run on Linux and Windows
+every PR.
+
+The two macOS jobs are complements, not alternatives: the hosted one catches a
+layout or font regression on the PR that causes it, and the self-hosted one
+drives the browser a presenter actually uses, on demand.
 
 Attempting it was worth it anyway: Windows found `contrast` and `palette-rules`
 resolving `themes/` through `new URL(…).pathname` — the trap #273 swept out of
