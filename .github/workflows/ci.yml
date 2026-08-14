@@ -455,3 +455,70 @@ jobs:
           path: .shots/
           include-hidden-files: true
           retention-days: 14
+
+  # The browsers the AUDIENCE has. Every other job here renders in Blink, so
+  # until now nothing in this repo had ever checked that a deck works in Gecko
+  # or WebKit — a strange gap for a product whose whole promise is that you send
+  # someone one HTML file and they double-click it, in whichever browser is
+  # already open. Safari is the default on every Mac and iPad in the room.
+  #
+  # Ubuntu, because this is about the ENGINE and not the platform: Playwright's
+  # Firefox and WebKit builds are the same on every host, and the three
+  # platform-specific jobs above already cover platforms. Its browsers are a
+  # separate ~300MB download, which is why they are cached.
+  #
+  # CROSS_ENGINE_STRICT turns the harness's skips into failures. It skips by
+  # name on a developer's machine that has no Playwright; a CI job that skipped
+  # silently would be a green tick for nothing at all.
+  cross-engine:
+    name: cross-engine · firefox + webkit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20 # the floor in package.json engines — test what we promise
+          cache: npm
+
+      # WITH optional deps this time: playwright is one, and it is the point.
+      - run: npm ci
+
+      - name: playwright version
+        id: pw
+        run: echo "v=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        id: browsers
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.v }}
+
+      - name: install firefox + webkit
+        if: steps.browsers.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps firefox webkit
+
+      # --with-deps installs system libraries and is needed even on a cache hit,
+      # since the cache carries the browsers and not the apt packages they load.
+      - name: browser system dependencies
+        if: steps.browsers.outputs.cache-hit == 'true'
+        run: npx playwright install-deps firefox webkit
+
+      - run: npm run build
+
+      - name: the deck, in Gecko and WebKit
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run cross-engine 2>&1 | tee cross-engine.log
+        env:
+          CROSS_ENGINE_STRICT: '1'
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: cross-engine-log
+          path: cross-engine.log
+          retention-days: 14
