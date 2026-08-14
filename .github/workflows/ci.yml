@@ -5,6 +5,10 @@
 name: CI
 
 on:
+  # `verify · macos` runs on a self-hosted Mac, so it is dispatchable: a laptop
+  # is not always awake, and a job that queues against a sleeping runner should
+  # be asked for rather than assumed.
+  workflow_dispatch:
   pull_request:
   # a merge queue tests each PR against `main + everything ahead of it in the
   # queue` on a gh-readonly-queue/* ref, then merges in order. Without this
@@ -235,6 +239,110 @@ jobs:
         if: always()
         with:
           name: shots-windows
+          path: .shots/
+          include-hidden-files: true
+          retention-days: 14
+
+  # The macOS answer #309 could not get from a GitHub-hosted runner, which
+  # cannot run headless Chrome at all: Chrome finds its child processes over a
+  # Mach port registered in the session bootstrap namespace, and that runner's
+  # non-GUI session has none. A self-hosted Mac has a real session, so the
+  # question is finally askable.
+  #
+  # It is somebody's LAPTOP, and two things follow from that:
+  #
+  #   1. DECKLIGHT_HOME points at a scratch directory. Four harnesses spawn the
+  #      CLI, and `present` loads the plugin library from the config home — on an
+  #      ephemeral runner that home is empty and it never mattered; on a real
+  #      machine it is a person's own marketplaces, plugins and credentials. A
+  #      test suite must not read those, and must certainly not write them.
+  #   2. It uses the Chrome that is already installed rather than downloading
+  #      its own into somebody's tool cache. That is also the more useful claim:
+  #      "verify passes on a real Mac with a real Chrome" is what CONTRIBUTING
+  #      says, and this is the thing that would check it.
+  verify-macos:
+    name: verify · macos
+    # Dispatch, or this branch while it is open. `gh workflow run` needs the
+    # workflow_dispatch trigger to exist on the DEFAULT branch before it can
+    # target any other ref, and it does not yet — so the branch clause is how
+    # this gets its first run, and it comes out before the branch merges.
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == 'ci/verify-macos-selfhosted'
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20 # the floor in package.json engines — test what we promise
+
+      - run: npm ci --omit=optional
+
+      # Which browser, and does it answer — before seventeen harnesses drive it.
+      # No CHROME is set: tools/chrome.mjs finds the installed one, exactly as it
+      # does for a developer running `npm run verify` by hand.
+      - name: probe the browser before driving it (#309)
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          node - <<'PROBE' 2>&1 | tee "probe-macos.log"
+          const { execFileSync } = require('child_process');
+          // stdin is read as CJS, so the ESM probe is reached through a dynamic
+          // import inside an async IIFE — top-level await is not available here.
+          (async () => {
+            const { findChrome } = await import('./tools/chrome.mjs');
+            const chrome = process.env.CHROME || findChrome();
+            console.log('chrome path:', chrome ?? 'NONE FOUND');
+            if (!chrome) process.exit(1);
+            const at = Date.now();
+            try {
+              const out = execFileSync(chrome,
+                ['--headless', '--disable-gpu', '--dump-dom', 'about:blank'],
+                { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+              console.log(`chrome: OK in ${((Date.now() - at) / 1000).toFixed(1)}s — ${out.length} bytes`);
+            } catch (e) {
+              const why = String(e.stderr || e.message).trim().split('\n').slice(-3).join(' | ');
+              console.log(`chrome: ${e.code ?? 'FAILED'} after ${((Date.now() - at) / 1000).toFixed(1)}s — ${why}`);
+              process.exit(1);
+            }
+          })();
+          PROBE
+
+      # Same shape as the Windows job: the timeout is on the STEP so a failure
+      # keeps its log, and pipefail so `tee` cannot turn a red run green.
+      - name: build, render, contrast, palette (npm run verify)
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/decklight-home"
+          export DECKLIGHT_HOME="$RUNNER_TEMP/decklight-home"
+          npm run verify 2>&1 | tee "verify-macos.log"
+        env:
+          VERIFY_TIMEOUT_MS: 180000
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: verify-log-macos
+          path: |
+            verify-*.log
+            probe-*.log
+          retention-days: 14
+
+      - name: screenshot the demo deck
+        if: always()
+        timeout-minutes: 5
+        continue-on-error: true
+        run: |
+          mkdir -p .shots
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase.png --wait 2500
+          node tools/shot.mjs demo/showcase.html -o .shots/showcase-slide-3.png --slide 3 --wait 2500
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: shots-macos
           path: .shots/
           include-hidden-files: true
           retention-days: 14
