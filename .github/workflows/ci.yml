@@ -251,24 +251,24 @@ jobs:
   #
   # It is somebody's LAPTOP, and two things follow from that:
   #
-  #   1. DECKLIGHT_HOME points at a scratch directory. Four harnesses spawn the
-  #      CLI, and `present` loads the plugin library from the config home — on an
+  #   1. It must not touch the config home. test/verify.mjs now gives every
+  #      harness a scratch DECKLIGHT_HOME of its own, because four of them spawn
+  #      the CLI and a command reads the unit library from there — on an
   #      ephemeral runner that home is empty and it never mattered; on a real
-  #      machine it is a person's own marketplaces, plugins and credentials. A
-  #      test suite must not read those, and must certainly not write them.
+  #      machine it is a person's own marketplaces, plugins and credentials.
   #   2. It uses the Chrome that is already installed rather than downloading
   #      its own into somebody's tool cache. That is also the more useful claim:
   #      "verify passes on a real Mac with a real Chrome" is what CONTRIBUTING
   #      says, and this is the thing that would check it.
   verify-macos:
     name: verify · macos
-    # Dispatch, or this branch while it is open. `gh workflow run` needs the
-    # workflow_dispatch trigger to exist on the DEFAULT branch before it can
-    # target any other ref, and it does not yet — so the branch clause is how
-    # this gets its first run, and it comes out before the branch merges.
-    # head_ref, not ref_name: on a pull_request event the ref is the MERGE ref
-    # (`324/merge`), and only head_ref carries the branch someone pushed.
-    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'ci/verify-macos-selfhosted'
+    # ON DEMAND, not on every PR. The runner is a laptop: it is not always
+    # awake, and a job queued against a sleeping runner sits pending for hours
+    # before it fails — noise, not signal. Three minutes when you ask for it,
+    # before a release or after anything that touches rendering:
+    #
+    #   gh workflow run CI --ref <branch>
+    if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, macOS]
     timeout-minutes: 25
     steps:
@@ -317,8 +317,6 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          mkdir -p "$RUNNER_TEMP/decklight-home"
-          export DECKLIGHT_HOME="$RUNNER_TEMP/decklight-home"
           npm run verify 2>&1 | tee "verify-macos.log"
         env:
           VERIFY_TIMEOUT_MS: 180000
