@@ -266,7 +266,9 @@ jobs:
     # workflow_dispatch trigger to exist on the DEFAULT branch before it can
     # target any other ref, and it does not yet — so the branch clause is how
     # this gets its first run, and it comes out before the branch merges.
-    if: github.event_name == 'workflow_dispatch' || github.ref_name == 'ci/verify-macos-selfhosted'
+    # head_ref, not ref_name: on a pull_request event the ref is the MERGE ref
+    # (`324/merge`), and only head_ref carries the branch someone pushed.
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'ci/verify-macos-selfhosted'
     runs-on: [self-hosted, macOS]
     timeout-minutes: 25
     steps:
