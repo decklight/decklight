@@ -392,7 +392,8 @@ jobs:
         shell: bash
         run: |
           node - <<'PROBE' 2>&1 | tee "probe-macos-chromium.log"
-          const { execFileSync } = require('child_process');
+          const { execFileSync, spawnSync } = require('child_process');
+          const { join } = require('path');
           const install = (what) => {
             try {
               // Prints "browser@version /path/to/executable" on the last line.
@@ -407,18 +408,28 @@ jobs:
               return null;
             }
           };
+          // Output goes to FILES, not pipes. A timeout kills the browser it
+          // spawned and not the helper processes that inherited its stdout, so
+          // with a pipe the read never ends and the 60s bound silently becomes
+          // the step's own 15-minute one — which is how the first attempt at
+          // this probe died with the answer still unprinted.
+          const { openSync, readFileSync, closeSync } = require('fs');
           const probe = (label, bin, args) => {
             if (!bin) return console.log(`${label}: skipped, not installed`);
             const at = Date.now();
-            const secs = () => ((Date.now() - at) / 1000).toFixed(1);
-            try {
-              const out = execFileSync(bin, [...args, '--dump-dom', 'about:blank'],
-                { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-              console.log(`${label}: OK in ${secs()}s — ${out.length} bytes`);
-            } catch (e) {
-              const why = String(e.stderr || e.message).trim().split('\n').slice(-2).join(' | ');
-              console.log(`${label}: ${e.code ?? 'FAILED'} after ${secs()}s — ${why.slice(0, 240)}`);
-            }
+            const outFile = join(process.env.RUNNER_TEMP, `${label.trim()}.out`);
+            const errFile = join(process.env.RUNNER_TEMP, `${label.trim()}.err`);
+            const o = openSync(outFile, 'w');
+            const e2 = openSync(errFile, 'w');
+            const r = spawnSync(bin, [...args, '--dump-dom', 'about:blank'],
+              { timeout: 45000, killSignal: 'SIGKILL', stdio: ['ignore', o, e2] });
+            closeSync(o); closeSync(e2);
+            const secs = ((Date.now() - at) / 1000).toFixed(1);
+            const dom = readFileSync(outFile, 'utf8');
+            const err = readFileSync(errFile, 'utf8').trim().split('\n').slice(-2).join(' | ');
+            const verdict = r.error?.code === 'ETIMEDOUT' ? 'KILLED at 45s'
+              : r.status === 0 && dom.length ? `OK — ${dom.length} bytes` : `exit ${r.status}`;
+            console.log(`${label}: ${verdict} in ${secs}s${verdict.startsWith('OK') ? '' : ` — ${err.slice(0, 240)}`}`);
           };
           // The control: the build every other probe in #309 used.
           probe('chrome-for-testing ', process.env.CHROME, ['--headless', '--disable-gpu']);
