@@ -113,27 +113,35 @@ jobs:
 
   # `npm test` answers "does the code run there". This asks the other question
   # (#309): does it LOOK right there. They are different investigations, and the
-  # second one is where platforms actually differ — font stacks, subpixel
-  # metrics, DPI, and Chrome's own per-platform defaults. The overflow guardrail
-  # (SPEC PRESENTING) asserts about text metrics directly, so a font present on
-  # Ubuntu and absent elsewhere is a real way for this to fail.
+  # second is where platforms differ — font stacks, subpixel metrics, DPI, and
+  # Chrome's own defaults. The overflow guardrail (SPEC PRESENTING) asserts about
+  # text metrics directly, so a font present on Ubuntu and absent here would be a
+  # real way for this to fail.
   #
-  # fail-fast is OFF on purpose: the point is to learn about BOTH platforms in
-  # one run, and a Windows failure that cancels the macOS job answers half a
-  # question. Same reasoning as test/verify.mjs itself, which runs all seventeen
-  # harnesses rather than stopping at the first.
-  verify-elsewhere:
-    name: verify · ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    # 45, not 30: the first macOS attempt died to a 30-minute limit and a
-    # cancelled job's logs cannot be fetched afterwards, so it reported nothing
-    # at all. test/verify.mjs now kills any single harness at 10 minutes and
-    # names it, which is the failure this limit should never be the one to catch.
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
+  # It did not fail that way. All fifteen rendering harnesses passed on Windows
+  # unchanged; the only two that failed were `contrast` and `palette-rules`,
+  # which render nothing — they resolved `themes/` through `new URL(…).pathname`
+  # and read `D:\D:\a\decklight\themes`. A path bug, fixed, and the sweep that
+  # guards against it now covers `test/` as well.
+  #
+  # MACOS IS DELIBERATELY NOT HERE, and this is the note that should stop the
+  # next person re-attempting it blind. A GitHub-hosted macOS runner cannot run
+  # headless Chrome at all: every variant tried — the flags below, a fresh
+  # --user-data-dir, and --headless=old — dies the same way, with
+  #
+  #   bootstrap_look_up com.google.chrome.for.testing.MachPortRendezvousServer.N
+  #
+  # so the browser never spawns a renderer and every harness hangs until it is
+  # killed. Chrome finds its children over a Mach port registered in the session
+  # bootstrap namespace, and the runner's non-GUI session has none. That is an
+  # environment limitation, not a rendering difference and not a decklight bug —
+  # `npm run verify` passes on real macOS in ~140s. Fixing it means a GUI session
+  # (launchctl asuser) or a self-hosted runner, which is a bigger question than
+  # this job.
+  verify-windows:
+    name: verify · windows
+    runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -150,96 +158,68 @@ jobs:
           chrome-version: stable
 
       # Before seventeen harnesses drive it: does this machine's Chrome answer at
-      # ALL? On macOS every harness was killed at its 600s limit having produced
-      # nothing, which is a browser that never returns rather than a rendering
-      # difference — and telling those apart is what this whole job is for. Each
-      # variant is bounded at 60s and reports what it did, so the answer arrives
-      # in one minute instead of one 30-minute round per hypothesis.
+      # ALL? Eight seconds here, against seventeen harnesses each hanging for
+      # three minutes — which is exactly what a broken browser costs otherwise,
+      # and how the macOS answer above took four rounds to arrive.
+      #
+      # `--version` is NOT probed: on Windows it hangs for 30s and tells you
+      # nothing, which is its own small lesson about assuming a flag is cheap.
       - name: probe the browser before driving it (#309)
         timeout-minutes: 5
         shell: bash
         run: |
-          node - <<'PROBE' 2>&1 | tee "probe-${{ matrix.os }}.log"
+          node - <<'PROBE' 2>&1 | tee "probe-windows.log"
           const { execFileSync } = require('child_process');
-          const { mkdtempSync } = require('fs');
-          const { tmpdir } = require('os');
-          const { join } = require('path');
-          const chrome = process.env.CHROME;
-          const fresh = () => mkdtempSync(join(tmpdir(), 'chrome-probe-'));
+          const at = Date.now();
           try {
-            console.log('version:', execFileSync(chrome, ['--version'], { timeout: 30000, encoding: 'utf8' }).trim());
-          } catch (e) { console.log('version: FAILED —', e.message); }
-          const probe = (label, args) => {
-            const at = Date.now();
-            const secs = () => ((Date.now() - at) / 1000).toFixed(1);
-            try {
-              const out = execFileSync(chrome, [...args, '--dump-dom', 'about:blank'],
-                { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-              console.log(`${label}: OK in ${secs()}s — ${out.length} bytes`);
-            } catch (e) {
-              const why = String(e.stderr || e.message).trim().split('\n').slice(-3).join(' | ');
-              console.log(`${label}: ${e.code ?? 'FAILED'} after ${secs()}s — ${why}`);
-            }
-          };
-          // What the harnesses pass today.
-          probe('as we call it', ['--headless', '--disable-gpu', '--no-sandbox']);
-          // A profile of its own: without one Chrome uses the real user profile,
-          // which on a macOS runner can block on a keychain prompt nobody answers.
-          probe('own profile   ', ['--headless', '--disable-gpu', '--no-sandbox',
-            `--user-data-dir=${fresh()}`, '--no-first-run', '--no-default-browser-check']);
-          // The pre-132 headless implementation, in case the full-browser one is
-          // what stalls here.
-          probe('old headless  ', ['--headless=old', '--disable-gpu', '--no-sandbox',
-            `--user-data-dir=${fresh()}`, '--no-first-run']);
+            const out = execFileSync(process.env.CHROME,
+              ['--headless', '--disable-gpu', '--no-sandbox', '--dump-dom', 'about:blank'],
+              { timeout: 60000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+            console.log(`chrome: OK in ${((Date.now() - at) / 1000).toFixed(1)}s — ${out.length} bytes`);
+          } catch (e) {
+            const why = String(e.stderr || e.message).trim().split('\n').slice(-3).join(' | ');
+            console.log(`chrome: ${e.code ?? 'FAILED'} after ${((Date.now() - at) / 1000).toFixed(1)}s — ${why}`);
+            process.exit(1);
+          }
           PROBE
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
 
       # THE TIMEOUT IS ON THE STEP, NOT THE JOB, and the output is teed to a
-      # file. Three macOS attempts reported nothing at all: a job cancelled by
-      # its own `timeout-minutes` discards its logs, and the `if: always()`
-      # steps below never ran either, so there was no way to tell a slow
-      # harness from a stuck one. A step that times out FAILS instead — the
-      # later steps run, and the log is uploaded with whatever it got to.
+      # file. Three rounds of this investigation reported nothing at all: a job
+      # cancelled by its own `timeout-minutes` discards its log AND skips the
+      # `if: always()` steps below. A step that times out fails instead, so the
+      # log is uploaded with whatever it got to.
       #
-      # pipefail because a pipeline reports the LAST command's status, and
-      # `tee` always succeeds: without it a failing verify would upload its own
+      # pipefail because a pipeline reports the LAST command's status, and `tee`
+      # always succeeds: without it a failing verify would upload its own
       # failure and go green.
       - name: build, render, contrast, palette (npm run verify)
-        timeout-minutes: 30
+        timeout-minutes: 25
         shell: bash
         run: |
           set -o pipefail
-          npm run verify 2>&1 | tee "verify-${{ matrix.os }}.log"
+          npm run verify 2>&1 | tee "verify-windows.log"
         env:
           CHROME: ${{ steps.chrome.outputs.chrome-path }}
           # A hung harness names itself in three minutes rather than ten, so a
-          # broken browser costs one round and not seventeen. Three minutes is
-          # ~8x the slowest harness on a healthy machine.
+          # browser that stops working costs one round and not seventeen.
           VERIFY_TIMEOUT_MS: 180000
 
-      # The per-harness timings, which are the whole point on a machine nobody
-      # can attach to — and the one artifact that survives the step failing.
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: verify-log-${{ matrix.os }}
-          # The probe's answer rides in the ARTIFACT, not only in the job log:
-          # a job that gets cancelled — by its own cap, or by the next push —
-          # discards its log, and this one has now eaten three rounds' evidence.
+          name: verify-log-windows
           path: |
             verify-*.log
             probe-*.log
           retention-days: 14
 
-      # Beside the Ubuntu job's shots, so a difference is VISIBLE rather than
-      # described. This runs even when verify failed — a render that went wrong
-      # is exactly the one worth looking at.
-      # Bounded like everything else here, and for the reason this job keeps
-      # relearning: tools/shot.mjs hands Chrome to execFile with no timeout of
-      # its own, so on a machine where the browser never returns this step is
-      # the one that runs out the JOB's clock — and a cancelled job uploads
-      # nothing and keeps no log. No step here may be the step that cancels it.
+      # Beside the Ubuntu job's shots, so a rendering difference is VISIBLE
+      # rather than described. Bounded and non-fatal like everything else here:
+      # tools/shot.mjs hands Chrome to execFile with no timeout of its own, so on
+      # a machine where the browser never returns this is the step that runs out
+      # the JOB's clock — and a cancelled job uploads nothing and keeps no log.
       - name: screenshot the demo deck
         if: always()
         timeout-minutes: 5
@@ -254,7 +234,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: shots-${{ matrix.os }}
+          name: shots-windows
           path: .shots/
           include-hidden-files: true
           retention-days: 14
