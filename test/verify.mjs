@@ -17,10 +17,29 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Every harness runs against a config home of its OWN.
+ *
+ * Four of them spawn the CLI, and a command reads the unit library from the
+ * config home: `import` resolves its adapter for a `.pptx` from there, and
+ * `present` would load the plugin library. On an ephemeral CI runner that home
+ * is empty and none of this mattered — which is exactly why it went unnoticed
+ * until `verify` ran on a real Mac (#309), where the home belongs to a person
+ * and holds their marketplaces, plugins and credentials.
+ *
+ * A verification step whose result depends on what the developer running it
+ * happens to have installed is not verifying the thing it names. So: one
+ * scratch home for the run, inherited by every harness, removed afterwards.
+ */
+const HOME = mkdtempSync(path.join(tmpdir(), 'decklight-verify-home-'));
+const env = { ...process.env, DECKLIGHT_HOME: HOME };
 
 const HARNESSES = [
   'render',
@@ -60,12 +79,14 @@ for (const name of HARNESSES) {
   process.stdout.write(`\n─── ${name} ${'─'.repeat(Math.max(0, 60 - name.length))}\n`);
   const at = Date.now();
   const res = spawnSync(process.execPath, [path.join(here, `${name}.mjs`)],
-    { stdio: 'inherit', timeout: HARNESS_TIMEOUT_MS });
+    { stdio: 'inherit', timeout: HARNESS_TIMEOUT_MS, env });
   const ms = Date.now() - at;
   const timedOut = res.error?.code === 'ETIMEDOUT';
   if (timedOut) process.stdout.write(`\n${name}: KILLED after ${secs(ms)} — it never finished\n`);
   results.push({ name, ok: res.status === 0 && !timedOut, ms, timedOut });
 }
+
+rmSync(HOME, { recursive: true, force: true });
 
 const failed = results.filter((r) => !r.ok);
 process.stdout.write(`\n─── verify ${'─'.repeat(56)}\n`);

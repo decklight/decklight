@@ -106,10 +106,17 @@ now).
 |---|---|---|
 | Linux (CI) | ✅ every PR | ✅ every PR, ~140s |
 | Windows (CI) | ✅ every PR | ✅ every PR, ~5 min |
-| macOS (local) | ✅ | ✅ ~140s |
+| macOS (self-hosted runner) | ✅ | ✅ **on demand**, ~155s |
+| macOS (local) | ✅ | ✅ ~135s |
 | macOS (GitHub-hosted runner) | ✅ | ❌ **cannot run headless Chrome at all** |
 
-The last row is a fact about the runner, not about decklight (#309). Chrome finds
+`verify · macos` runs on a self-hosted Mac and is **dispatched, not automatic**
+(`gh workflow run CI --ref <branch>`): the runner is a laptop, and a job queued
+against a sleeping one sits pending for hours and then fails. Ask for it before
+a release, or after a change that touches rendering.
+
+The last row is a fact about GitHub's runner, not about decklight or about macOS
+(#309) — the self-hosted row above it is the same operating system, passing. Chrome finds
 its child processes over a Mach port registered in the session bootstrap
 namespace, and a GitHub macOS runner's non-GUI session has none — so every
 variant tried (our own flags, a fresh `--user-data-dir`, `--headless=old`) dies
