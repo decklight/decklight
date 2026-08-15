@@ -159,8 +159,74 @@ async function drive(browser, origin) {
   }
   const synced = at.slide === at.hashSlide;
 
+  // ── the things a walk does not touch ───────────────────────────────────
+
+  // A transition leaves marker classes on both sections while it runs and takes
+  // them off when it finishes. Both halves matter: without the first there is no
+  // animation, and without the second every slide a presenter leaves keeps them
+  // — which is precisely what `--transition-duration: 350ms` parsed as 350
+  // SECONDS did, on every deck, in every browser (SPEC MOTION).
+  await page.evaluate(() => window.location.hash = '#/1/0');
+  await page.waitForTimeout(400);
+  await page.keyboard.press('ArrowRight');
+  await page.waitForTimeout(80);
+  const midMove = await page.evaluate(() =>
+    document.querySelectorAll('.decklight-stage > section.entering, .decklight-stage > section.leaving').length);
+  await page.waitForTimeout(1200);
+  const afterMove = await page.evaluate(() =>
+    document.querySelectorAll('.decklight-stage > section[class*="entering"], '
+      + '.decklight-stage > section[class*="leaving"], .decklight-stage > section[class*="tr-"]').length);
+
+  // The theme is a stylesheet, and a stylesheet that did not load leaves a deck
+  // that renders as unstyled HTML — legible, and not a deck.
+  const themed = await page.evaluate(() => {
+    const bg = getComputedStyle(document.querySelector('.decklight')).backgroundColor;
+    const h = document.querySelector('.decklight-stage > section.active h1, .decklight-stage > section.active h2');
+    return {
+      bg,
+      headingPx: h ? parseFloat(getComputedStyle(h).fontSize) : 0,
+      transparent: bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)',
+    };
+  });
+
+  // Speaker notes are in the file and must never be on the screen. This is one
+  // CSS rule (`aside.notes { display: none }`) between a presenter's private
+  // notes and a room full of people.
+  const notes = await page.evaluate(() => {
+    const all = [...document.querySelectorAll('aside.notes')];
+    return { count: all.length, visible: all.filter((n) => n.offsetParent !== null).length };
+  });
+
+  // A deep link is how a deck is shared mid-talk, and the deck has to arrive
+  // where the URL says rather than at slide 1.
+  await page.evaluate(() => window.location.hash = '#/12/0');
+  await page.waitForTimeout(500);
+  const deepLinked = (await where()).slide;
+
+  // ← is not → reversed: it runs a different keyframe, and it is what a
+  // presenter reaches for the moment they say "sorry, go back one".
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForTimeout(400);
+  const wentBack = (await where()).slide;
+
+  // Overview, and out again. The one overlay every presenter uses.
+  await page.keyboard.press('o');
+  await page.waitForTimeout(400);
+  const overviewOpen = await page.evaluate(() => document.querySelectorAll('.decklight-overview').length);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  const overviewClosed = await page.evaluate(() => document.querySelectorAll('.decklight-overview').length);
+
+  // The stage is scaled to fit the viewport, so nothing should ever put a
+  // scrollbar on the page itself.
+  const scrolls = await page.evaluate(() => ({
+    x: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    y: document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
+  }));
+
   await page.close();
-  return { total, firstActive, seen, built, overflowed, errors, welcomed, synced, at };
+  return { total, firstActive, seen, built, overflowed, errors, welcomed, synced, at,
+    midMove, afterMove, themed, notes, deepLinked, wentBack, overviewOpen, overviewClosed, scrolls };
 }
 
 const server = await serveForRender(root);
@@ -194,6 +260,23 @@ try {
     // so it has to agree with the slide on screen.
     check(`${name}: the URL agrees with the slide on screen`, r.synced,
       `on slide ${r.at.slide}, URL says ${r.at.hashSlide}`);
+    check(`${name}: a transition marks both slides while it runs`, r.midMove === 2,
+      `${r.midMove} section(s) marked entering/leaving 80ms in`);
+    // The assertion that would have caught 350ms being read as 350 seconds.
+    check(`${name}: and clears every marker when it ends`, r.afterMove === 0,
+      `${r.afterMove} section(s) still marked a second later`);
+    check(`${name}: the theme is actually applied`, !r.themed.transparent && r.themed.headingPx > 20,
+      `background ${r.themed.bg}, heading ${r.themed.headingPx}px`);
+    check(`${name}: speaker notes are in the file and never on the screen`,
+      r.notes.count > 0 && r.notes.visible === 0,
+      `${r.notes.count} notes, ${r.notes.visible} visible`);
+    check(`${name}: a deep link arrives where it says`, r.deepLinked === 12,
+      `#/12/0 landed on ${r.deepLinked}`);
+    check(`${name}: ← goes back`, r.wentBack === 11, `landed on ${r.wentBack}`);
+    check(`${name}: overview opens and closes`, r.overviewOpen === 1 && r.overviewClosed === 0,
+      `open=${r.overviewOpen} closed=${r.overviewClosed}`);
+    check(`${name}: the page itself never scrolls`, !r.scrolls.x && !r.scrolls.y,
+      `x=${r.scrolls.x} y=${r.scrolls.y}`);
     check(`${name}: nothing throws`, r.errors.length === 0, r.errors.slice(0, 3).join(' | '));
   }
 } finally {
