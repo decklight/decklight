@@ -4,13 +4,11 @@
 // Auto-animate (Magic Move) — SPEC AUTO_ANIMATE. FLIP on data-id matches between two
 // adjacent sections, plus opacity/color/background/border-radius/font-size.
 
-const VISUAL_PROPS = ['opacity', 'color', 'backgroundColor', 'borderRadius', 'fontSize'];
+import { VISUAL_PROPS, cssDurationMs, flipCss, flipTransform, transitionProps } from './motion.js';
 
-// The transition list is DERIVED from VISUAL_PROPS (plus transform) so a prop
-// added above can't silently fail to animate because someone forgot to edit a
-// hand-written string. camelCase → kebab-case for the CSS property names.
-const TRANSITION_PROPS = ['transform',
-  ...VISUAL_PROPS.map((p) => p.replace(/[A-Z]/g, (m) => '-' + m.toLowerCase()))];
+// Derived from VISUAL_PROPS so a prop added there can't silently fail to
+// animate because someone forgot to edit a hand-written string.
+const TRANSITION_PROPS = transitionProps();
 
 function snapshot(el) {
   const cs = getComputedStyle(el);
@@ -35,12 +33,12 @@ function localFactor(el, stageScale) {
  * Returns the animation duration in ms.
  */
 export function runAutoAnimate(fromSection, toSection, stageScale) {
-  // --auto-animate-duration may be authored in ms or s — parse the unit
-  // (blind `* 1000` turned "500ms" into 500 seconds: a crawl, not a move)
-  const raw = getComputedStyle(toSection).getPropertyValue('--auto-animate-duration').trim();
-  const duration = (raw.endsWith('ms') ? parseFloat(raw)
-    : raw.endsWith('s') ? parseFloat(raw) * 1000
-    : parseFloat(raw)) || 500;
+  // --auto-animate-duration may be authored in ms or s, and the unit has to be
+  // read: blind `* 1000` turned "500ms" into 500 seconds, a crawl rather than a
+  // move. cssDurationMs is that reading, shared with slide transitions, which
+  // had the same bug for longer (SPEC MOTION).
+  const duration = cssDurationMs(
+    getComputedStyle(toSection).getPropertyValue('--auto-animate-duration'), 500);
 
   const olds = new Map();
   fromSection.querySelectorAll('[data-id]').forEach((el) => {
@@ -56,11 +54,8 @@ export function runAutoAnimate(fromSection, toSection, stageScale) {
   for (const { el, o } of matched) {
     const n = snapshot(el);
     const f = localFactor(el, stageScale);
-    const dx = (o.rect.left - n.rect.left) / f.x;
-    const dy = (o.rect.top - n.rect.top) / f.y;
     const textOnly = el.children.length === 0 && o.fontSize !== n.fontSize;
-    const sx = textOnly ? 1 : (n.rect.width ? o.rect.width / n.rect.width : 1);
-    const sy = textOnly ? 1 : (n.rect.height ? o.rect.height / n.rect.height : 1);
+    const flip = flipTransform(o, n, f, textOnly);
 
     // Authored inline styles must survive the move — and per-property capture
     // can't do it: `background: var(--accent)` is a pending-substitution
@@ -77,7 +72,7 @@ export function runAutoAnimate(fromSection, toSection, stageScale) {
     } else {
       el.style.transformOrigin = '0 0';
     }
-    el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    el.style.transform = flipCss(flip);
     for (const p of VISUAL_PROPS) el.style[p] = o[p];
 
     void el.offsetWidth; // commit "from" state

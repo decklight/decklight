@@ -8,6 +8,7 @@ import { scanSlide, applyBuildState, stepLabels, registerProvider } from './buil
 import { namespaceSvgIds, applyConcepts } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
+import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
@@ -1009,15 +1010,20 @@ export function init(userConfig = {}) {
         return;
       }
 
-      const name = to.getAttribute('data-transition') || this.config.transition;
-      if (name === 'none') return;
-      const dir = 'dir-' + direction;
-      to.classList.add('entering', 'tr-' + name, dir);
-      from.classList.add('leaving', 'tr-' + name, dir, 'active-out');
-      const ms = parseFloat(getComputedStyle(to).getPropertyValue('--transition-duration')) * 1000 || 350;
+      const name = transitionName(to.getAttribute('data-transition'), this.config.transition);
+      const cls = transitionClasses(name, direction);
+      if (!cls) return;
+      to.classList.add(...cls.entering);
+      from.classList.add(...cls.leaving);
+      // cssDurationMs, not `parseFloat(…) * 1000`: the shipped default is
+      // `350ms`, and multiplying that gave 350 SECONDS — so every section kept
+      // its `entering`/`leaving` classes for five minutes and fifty seconds
+      // instead of clearing at 410ms, and the deck spent a talk believing it
+      // was mid-move (SPEC MOTION).
+      const ms = cssDurationMs(getComputedStyle(to).getPropertyValue('--transition-duration'), 350);
       setTimeout(() => {
-        from.classList.remove('leaving', 'tr-' + name, dir, 'active-out');
-        to.classList.remove('entering', 'tr-' + name, dir);
+        from.classList.remove(...cls.leaving);
+        to.classList.remove(...cls.entering);
       }, ms + 60);
     },
 
