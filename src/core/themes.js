@@ -42,6 +42,23 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   const themeStyles = [...document.querySelectorAll('style[data-theme]:not([data-theme-added])')];
   const addedStyles = [...document.querySelectorAll('style[data-theme][data-theme-added]')];
   const addedThemes = new Set(addedStyles.map((s) => s.dataset.theme).filter(Boolean));
+  // Where each installed theme came from, read off the deck's own blocks —
+  // never looked up. A bundled deck opened on another machine has no registry
+  // to consult, so provenance either travelled in the file or is not available
+  // at all (SPEC THEME_DISTRIBUTION).
+  //
+  // `pack` is the marketplace's kebab name, which is the identity; `label` is
+  // the catalog's own title when it supplied one, and the kebab name when it
+  // did not. Nothing is derived: guessing "Confluent" out of
+  // "decklight-confluent" breaks for `acme-themes` and puts decklight in the
+  // business of naming other people's catalogs.
+  const themeSource = new Map();
+  for (const st of addedStyles) {
+    const mkt = st.dataset.themeMarketplace;
+    if (st.dataset.theme && mkt) {
+      themeSource.set(st.dataset.theme, { pack: `mkt:${mkt}`, label: st.dataset.themeSource || mkt });
+    }
+  }
   const inlineThemes = themeStyles.length > 0;
   const themeLink = inlineThemes ? null
     : document.querySelector('link[rel="stylesheet"][href*="themes/"]');
@@ -158,10 +175,17 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // the dynamic packs are not in packs.json — they exist only when a deck has
   // something in them, so they carry their labels here
   const DYNAMIC_LABELS = { added: 'Added', custom: 'Custom', generated: 'Generated' };
-  const packLabel = (p) => PACKS?.labels?.[p] ?? DYNAMIC_LABELS[p] ?? p;
+  // A marketplace pack's label comes from the deck, so it is looked up by pack
+  // id rather than living in a constant.
+  const MKT_LABELS = new Map([...themeSource.values()].map((v) => [v.pack, v.label]));
+  const packLabel = (p) => MKT_LABELS.get(p) ?? PACKS?.labels?.[p] ?? DYNAMIC_LABELS[p] ?? p;
   function packOf(name) {
     if (customThemes[name]) return 'custom';
     if (genTheme && name === genTheme.name) return 'generated';
+    // Provenance first: `Added` stops being the catch-all and becomes what it
+    // was always meant to be — the fallback for a theme that came from a raw
+    // URL, a local file, or a hand-authored block.
+    if (themeSource.has(name)) return themeSource.get(name).pack;
     if (addedThemes.has(name)) return 'added';
     if (PACKS) {
       for (const [p, names] of Object.entries(PACKS.packs)) {
@@ -200,6 +224,13 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     for (const p of PACKS.order) {
       const names = (PACKS.packs[p] ?? []).filter((n) => list.includes(n));
       if (names.length) out.push([p, names]);
+    }
+    // Marketplace packs are discovered from the deck rather than declared, so
+    // they are listed before the fallbacks: a theme that knows where it came
+    // from should not sit under a heading that means "we do not know".
+    for (const pack of new Set([...themeSource.values()].map((v) => v.pack))) {
+      const names = list.filter((n) => packOf(n) === pack);
+      if (names.length) out.push([pack, names]);
     }
     for (const extra of ['added', 'custom', 'generated']) {
       const names = list.filter((n) => packOf(n) === extra);
@@ -515,6 +546,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         row.textContent = name;
         const extra = customThemes[name] ? 'custom'
           : (genTheme && name === genTheme.name) ? 'generated'
+          : themeSource.has(name) ? themeSource.get(name).label
           : addedThemes.has(name) ? 'added'
           : pickerFilter && PACKS ? packLabel(packOf(name)) : null;
         if (extra) tag(row, extra);

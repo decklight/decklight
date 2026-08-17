@@ -42,6 +42,9 @@ import { argReader, isMain } from '../tools/args.mjs';
 import { oneline } from './git.mjs';
 
 export const MANIFEST_PATH = '.decklight/marketplace.json';
+/** A group heading, not a description. */
+const MAX_TITLE = 60;
+
 export const NAME_RE = /^[A-Za-z0-9_-]+$/;
 
 /**
@@ -451,6 +454,22 @@ export function validateManifest(raw) {
   if (data.name === undefined) err('name', 'missing — the marketplace needs a name');
   else if (typeof data.name !== 'string' || !NAME_RE.test(data.name)) {
     err('name', `${JSON.stringify(data.name)} — letters, digits, - and _ only (it names every entry: entry@${typeof data.name === 'string' ? data.name : 'name'})`);
+  }
+  // `title` is the catalog's human name — what a theme picker draws as a group
+  // heading, since `name` is kebab by construction and `decklight-confluent` is
+  // an identifier rather than a word anyone says. Optional, and OLD DECKLIGHTS
+  // IGNORE IT: unknown top-level keys already validate, so a catalog can add
+  // one without waiting for anybody to upgrade.
+  //
+  // Loose on purpose — it is a display string, not an identifier — but not
+  // unbounded: 60 characters is generous for a heading, and an empty one is a
+  // refusal rather than a silently-empty attribute in somebody's deck.
+  if (data.title !== undefined) {
+    if (typeof data.title !== 'string' || !data.title.trim()) {
+      err('title', 'must be the catalog\'s human name, e.g. "Confluent" — or left out entirely');
+    } else if (data.title.trim().length > MAX_TITLE) {
+      err('title', `${data.title.trim().length} characters — a group heading, not a description (max ${MAX_TITLE})`);
+    }
   }
   if (data.entries === undefined) err('entries', 'missing — an array of { name, type, source, description? }');
   else if (!Array.isArray(data.entries)) err('entries', 'must be an array');
