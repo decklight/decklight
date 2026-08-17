@@ -264,6 +264,28 @@ The **shipped themes conform to the same rules**, graded by `test/palette-rules.
 
 ### THEME_DISTRIBUTION — Distributing a theme
 
+**Where an installed theme came from travels with the deck.** A theme installed
+from a marketplace carries `data-theme-marketplace` (the catalog's kebab `name`
+— the identity a later dedup or upgrade would key on) and, when the catalog
+supplied an optional manifest `title`, `data-theme-source` (what a human reads).
+The theme picker groups by the first, labels by the second, and falls back to
+the kebab name and then to **Added** — which stops being the catch-all every
+runtime install fell into and becomes what it always meant: a theme from a raw
+URL, a local file, or a hand-authored block. **Nothing is derived**: guessing
+"Confluent" out of `decklight-confluent` breaks for `acme-themes` and would put
+decklight in the business of naming other people's catalogs. Both values are
+escaped on the way in — a manifest is somebody else's file and the attributes
+are double-quoted.
+
+The reason this is written into the deck rather than looked up is that **a deck
+travels**: opened on a machine where that marketplace was never registered there
+is nothing to consult, and a group heading that disappears when you send someone
+the file would be worse than none. The consequence is a disclosure and it is
+deliberate — a deck installed from `acme-internal` names that catalog to whoever
+opens it. A catalog whose *name* is sensitive should not be named in a deck: omit
+`title`, or do not use this. `data-theme-added` stays on every installed block,
+so decks written before this keep working and keep showing under **Added**.
+
 A theme travels as what it already is: **one CSS file**. There is no registry and no version number — the distribution unit is the file (a repo, a gist, the `.css` that `⌃⇧T` downloads), and compatibility with a runtime *is* passing that runtime's check. When the contract grows a token, the check names exactly what an older theme is missing.
 
 - **`decklight theme check <file|url>`** runs the token contract and the WCAG gates (`tools/theme-check.mjs` — the same function `test/contrast.mjs` runs over the shipped themes, so the two can never drift) on any file, so a theme author outside this repo can prove their file is contract-complete before sharing it.

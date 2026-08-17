@@ -209,3 +209,62 @@ test('theme is routed and documented by the dispatcher', () => {
   assert.equal(noArgs.status, 1);
   assert.match(noArgs.stderr, /needs a theme file or url/);
 });
+
+// ── provenance: where an installed theme came from (#339) ─────────────────
+//
+// The picker used to group every runtime install under one "Added" bucket,
+// whatever catalog it came from. The fix has to survive the deck TRAVELLING: a
+// bundled deck opened on another machine has no ~/.decklight/marketplaces.json
+// to look a catalog up in, so whatever the picker shows is written into the
+// block at install time or is not available at all.
+
+test('a theme from nowhere in particular writes exactly what it always did', () => {
+  // The compatibility floor: a raw URL or a local file must produce a block
+  // byte-identical to the one shipped before this feature existed.
+  const plain = themeStyleBlock('nord', 'body{color:red}');
+  assert.match(plain, /^<style data-theme="nord" data-theme-added media="not all">/);
+  assert.ok(!plain.includes('data-theme-marketplace'));
+  assert.ok(!plain.includes('data-theme-source'));
+});
+
+test('a theme from a catalog carries its identity AND its label', () => {
+  // Two attributes because they are two different things: the kebab name is
+  // what a later dedup or upgrade keys on, the title is what a human reads.
+  const block = themeStyleBlock('confluent', 'body{}', {
+    marketplace: 'decklight-confluent', title: 'Confluent',
+  });
+  assert.match(block, /data-theme-marketplace="decklight-confluent"/);
+  assert.match(block, /data-theme-source="Confluent"/);
+  assert.match(block, /data-theme-added/, 'and it is still an added theme');
+});
+
+test('a catalog with no title carries only its name — nothing is invented', () => {
+  // Deriving "Acme" from "acme-themes" breaks on `confluent-decklight` and puts
+  // decklight in the business of naming other people's catalogs.
+  const block = themeStyleBlock('x', 'body{}', { marketplace: 'acme-themes' });
+  assert.match(block, /data-theme-marketplace="acme-themes"/);
+  assert.ok(!block.includes('data-theme-source'), 'no label rather than a guessed one');
+});
+
+test('a hostile title cannot escape its attribute', () => {
+  // The title is free text out of a manifest somebody else wrote, and it lands
+  // in a double-quoted attribute in somebody's deck.
+  const block = themeStyleBlock('x', 'body{}', {
+    marketplace: 'm', title: '"><script>alert(1)</script>',
+  });
+  assert.ok(!block.includes('<script>'), 'the tag did not survive');
+  assert.ok(!/data-theme-source="[^"]*"[^ >]/.test(block), 'the attribute did not break out');
+  assert.match(block, /&quot;&gt;&lt;script&gt;/);
+});
+
+test('installTheme carries provenance into the deck, and replacing keeps it', () => {
+  const deck = '<html><head></head><body></body></html>';
+  const first = installTheme(deck, 'c', 'body{}', { marketplace: 'm', title: 'M' });
+  assert.match(first.html, /data-theme-marketplace="m"/);
+  // Re-adding IS the update path, so the second install's provenance is the one
+  // that survives — a theme moved between catalogs must not keep the old name.
+  const second = installTheme(first.html, 'c', 'body{}', { marketplace: 'n', title: 'N' });
+  assert.equal(second.replaced, true);
+  assert.match(second.html, /data-theme-marketplace="n"/);
+  assert.ok(!second.html.includes('data-theme-marketplace="m"'));
+});

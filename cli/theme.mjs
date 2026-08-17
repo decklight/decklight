@@ -19,10 +19,11 @@
 // exactly what an older theme is missing.
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { escapeHtml } from '../tools/escape.mjs';
 import path, { resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools/theme-check.mjs';
-import { checkoutPath, classifySource, configHome, MarketplaceError } from './marketplace.mjs';
+import { checkoutPath, classifySource, configHome, MarketplaceError, loadRegistry, loadCatalog, resolveEntry} from './marketplace.mjs';
 
 const USAGE = `usage: decklight theme <check|add> …
 
@@ -42,13 +43,37 @@ const USAGE = `usage: decklight theme <check|add> …
   a theme that does not pass is not installed — a deck cannot be made to carry
   something the shipped set would not be allowed to contain`;
 
-/** The <style> block an installed theme becomes, marked so the runtime groups it. */
-export function themeStyleBlock(name, css) {
+/**
+ * The <style> block an installed theme becomes, marked so the runtime groups it.
+ *
+ * PROVENANCE TRAVELS WITH THE DECK, and it has to: a bundled deck opened on
+ * another machine has no `~/.decklight/marketplaces.json` to look a catalog up
+ * in, and the theme picker still has to draw a heading. So whatever the picker
+ * shows is written here, at install time, or it is not available at all.
+ *
+ * Two attributes, because identity and label are different things.
+ * `data-theme-marketplace` is the manifest's own kebab `name` — stable, and
+ * what a later dedup or upgrade would key on. `data-theme-source` is the
+ * catalog's human title, written only when it supplied one, and never derived
+ * from the name: stripping a prefix off `decklight-confluent` to guess
+ * "Confluent" breaks the moment a catalog is called `acme-themes`, and it puts
+ * decklight in the business of inventing names for other people's catalogs.
+ *
+ * `data-theme-added` stays on every installed block. Old decks keep working,
+ * and it remains what the runtime falls back to — the "never decklight's to
+ * begin with" distinction it was added for is untouched.
+ */
+export function themeStyleBlock(name, css, { marketplace = null, title = null } = {}) {
   // </style> inside a theme's own comment would end the block early. Themes
   // are CSS and have no business containing one, but a downloaded file is
   // somebody else's, and "somebody else's" is exactly when to check.
   const safe = css.replace(/<\/(style)/gi, '<\\/$1');
-  return `<style data-theme="${name}" data-theme-added media="not all">\n${safe.trim()}\n</style>`;
+  // Both values come out of a manifest somebody else wrote, and they land in a
+  // double-quoted attribute — so they are escaped, not trusted. A title of
+  // `"><script>` is the whole reason this is not a template hole.
+  const from = marketplace ? ` data-theme-marketplace="${escapeHtml(marketplace)}"` : '';
+  const label = title ? ` data-theme-source="${escapeHtml(title)}"` : '';
+  return `<style data-theme="${escapeHtml(name)}" data-theme-added${from}${label} media="not all">\n${safe.trim()}\n</style>`;
 }
 
 /** Where an existing block for this name starts and ends, or null. */
@@ -64,8 +89,8 @@ export function findThemeBlock(html, name) {
  * last in <head> so an active added theme wins the cascade over the deck's
  * link or inline base theme.
  */
-export function installTheme(html, name, css) {
-  const block = themeStyleBlock(name, css);
+export function installTheme(html, name, css, provenance = {}) {
+  const block = themeStyleBlock(name, css, provenance);
   const existing = findThemeBlock(html, name);
   if (existing) {
     return { html: html.slice(0, existing.start) + block + html.slice(existing.end), replaced: true };
@@ -172,17 +197,59 @@ async function addMain(args) {
   const [source, deck] = positional;
   if (!source || !deck) { console.error(`decklight theme add: needs a theme and a deck\n\n${USAGE}`); return 1; }
 
-  const name = opt('--name') ?? themeNameFrom(source);
+  const deckPath = resolve(deck);
+  if (!existsSync(deckPath)) { console.error(`decklight theme add: no such deck: ${deck}`); return 1; }
+
+  // A marketplace ref (`confluent@decklight-confluent`, or a bare entry name)
+  // resolves through the registry; a file or a URL is taken as it was typed.
+  // Without this the CLI could not install from a catalog at all — Browse was
+  // the only door — and provenance would only ever reach half the decks.
+  let src = source;
+  let provenance = {};
+  let entryName = null;
+  if (!/^https?:\/\//i.test(source) && !existsSync(resolve(source))) {
+    const reg = loadRegistry();
+    const catalogs = {};
+    for (const mkt of Object.keys(reg.marketplaces ?? {})) {
+      const c = loadCatalog(mkt);
+      if (c?.ok) catalogs[mkt] = c.manifest;
+    }
+    let hit;
+    try { hit = resolveEntry(source, catalogs); }
+    catch (e) {
+      console.error(`decklight theme add: ${e.message}`);
+      return 1;
+    }
+    if (hit.entry.type !== 'theme') {
+      console.error(`decklight theme add: ${hit.qualified} is a ${hit.entry.type}, not a theme`);
+      return 1;
+    }
+    try {
+      src = resolveSource(hit.entry.source, {
+        name: hit.marketplace, source: reg.marketplaces[hit.marketplace]?.source,
+      });
+    } catch (e) {
+      console.error(`decklight theme add: ${e.message}`);
+      return 1;
+    }
+    // The catalog's own title, captured HERE because the deck may be opened on
+    // a machine where this marketplace was never registered.
+    provenance = { marketplace: hit.marketplace, title: catalogs[hit.marketplace]?.title?.trim() || null };
+    entryName = hit.entry.name;
+  }
+
+  // The name is settled AFTER resolution: `confluent@decklight-confluent` is a
+  // reference, not a filename, and deriving a theme name from it would refuse
+  // every marketplace install for containing an `@`.
+  const name = opt('--name') ?? entryName ?? themeNameFrom(source);
   if (!validThemeName(name)) {
     console.error(`decklight theme add: "${name}" is not a usable theme name`);
     console.error('  the runtime only resolves names matching [A-Za-z0-9_-]+ — pass --name to choose one');
     return 1;
   }
-  const deckPath = resolve(deck);
-  if (!existsSync(deckPath)) { console.error(`decklight theme add: no such deck: ${deck}`); return 1; }
 
   let css;
-  try { css = await fetchTheme(source); } catch (e) { console.error(`decklight theme add: ${e.message}`); return 1; }
+  try { css = await fetchTheme(src); } catch (e) { console.error(`decklight theme add: ${e.message}`); return 1; }
 
   const result = validateTheme(css);
   for (const line of reportLines(name, result)) console.log(line);
@@ -192,7 +259,7 @@ async function addMain(args) {
   }
 
   const html = readFileSync(deckPath, 'utf8');
-  const { html: next, replaced } = installTheme(html, name, css);
+  const { html: next, replaced } = installTheme(html, name, css, provenance);
   if (next === null) { console.error(`decklight theme add: ${deck} has no </head> to install into`); return 1; }
 
   if (args.includes('--dry-run')) {
