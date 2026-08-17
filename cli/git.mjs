@@ -403,3 +403,72 @@ export function remoteLine(s) {
     }
   }
 }
+
+// ── what else rides along ──────────────────────────────────────────────────
+//
+// A fast-forward updates the WHOLE working tree. If the deck shares a
+// repository with anything else, "update the deck" quietly means "update the
+// source tree, the CI config and the scripts too" — and the person clicking is
+// thinking about a slide.
+//
+// The measure is deliberately what a given change WOULD touch rather than what
+// the repository contains, because that is the number worth interrupting for:
+// a repo that holds only a deck stays silent, and one that holds a product says
+// so with the file names.
+
+/**
+ * Split a list of paths into the deck's own and everything else.
+ *
+ * Pure, and the definition of "the deck's own" is the interesting part: the
+ * deck file plus anything under the directory it lives in. Themes, images and
+ * narration travel WITH a deck and are not a surprise; `src/server.js` is.
+ * Paths arrive relative to the repository root, which is how git reports them.
+ */
+export function splitDeckPaths(paths = [], deckRelPath = '') {
+  const deck = String(deckRelPath).replace(/^\.\//, '');
+  const dir = deck.includes('/') ? `${deck.slice(0, deck.lastIndexOf('/'))}/` : '';
+  const own = [];
+  const foreign = [];
+  for (const p of paths) {
+    const rel = String(p).replace(/^\.\//, '');
+    if (!rel) continue;
+    (rel === deck || (dir && rel.startsWith(dir)) ? own : foreign).push(rel);
+  }
+  return { own, foreign };
+}
+
+/**
+ * What pulling `range` would change, and how much of it is not the deck.
+ *
+ * `range` is `HEAD..@{u}` for a pull; the same shape answers "what would be
+ * pushed" for a range the other way round. Unreadable is `null` — a warning
+ * nobody can compute must not become a warning nobody can dismiss.
+ */
+export function foreignChanges(cwd, deckRelPath, range = 'HEAD..@{u}', run = git) {
+  let paths;
+  try { paths = run(['diff', '--name-only', range], cwd).split('\n').filter(Boolean); }
+  catch { return null; }
+  const { own, foreign } = splitDeckPaths(paths, deckRelPath);
+  return { total: paths.length, own, foreign };
+}
+
+/**
+ * The warning itself, or null when there is nothing surprising to say.
+ *
+ * Names three files and counts the rest: a wall of paths is skimmed, and three
+ * is enough to recognise what kind of repository this is. The recommendation is
+ * the last line because it is the fix, not the finding.
+ */
+export function foreignWarning(changes, { verb = 'pull', scope = 'the whole working tree' } = {}) {
+  if (!changes || !changes.foreign.length) return null;
+  const { total, foreign } = changes;
+  const shown = foreign.slice(0, 3).join(' · ');
+  const more = foreign.length > 3 ? ` · … ${foreign.length - 3} more` : '';
+  return [
+    `this ${verb} would change ${total} file${total === 1 ? '' : 's'}, `
+      + `${foreign.length} of them not the deck:`,
+    `  ${shown}${more}`,
+    `a ${verb} updates ${scope} — if that is not what you want here, keep the deck`
+      + ' in a repository of its own',
+  ];
+}
