@@ -45,3 +45,41 @@ export function needsDevMode(action, loc = {}) {
   const where = protocol === 'file:' && dir ? `from ${dir}, ` : '';
   return `${action} needs author mode: ${where}run ${CMD} ${deck}, then reopen the URL it prints`;
 }
+
+// ── "the agent is still working" ───────────────────────────────────────────
+//
+// An agent ask used to report itself twice — a toast when it started and a
+// toast when it finished — and both expired in a couple of seconds. In between,
+// for a run that can last minutes, the deck said nothing at all, and the only
+// way to find out it was still going was to press A again and read the refusal.
+// A one-shot notification is the wrong shape for a job with a duration.
+//
+// So the chip is PERSISTENT while the job is, and what makes it worth looking
+// at is the elapsed time: a name alone cannot tell you the difference between
+// "working" and "wedged", and a clock that is still moving can.
+
+/** mm:ss for a duration, counting past an hour rather than wrapping to zero. */
+export function elapsedLabel(ms) {
+  const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+  const s = String(total % 60).padStart(2, '0');
+  const m = Math.floor(total / 60);
+  if (m < 60) return `${m}:${s}`;
+  return `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}:${s}`;
+}
+
+/**
+ * What the chip says for a running job, or null when nothing is running.
+ *
+ * `startedAt` comes from the SERVER (it is in the `agent` start event and in
+ * `/edit/ping`), so a reload mid-run shows the true elapsed time rather than
+ * restarting the clock — the job outlives the page, and the chip should say so.
+ * A missing or unreadable `startedAt` still gets a chip: knowing an agent is
+ * running matters more than knowing for how long, and dropping the whole
+ * indicator over a bad timestamp would be the tail wagging the dog.
+ */
+export function agentChipText(job, now = Date.now()) {
+  if (!job || !job.agent) return null;
+  const started = Number(job.startedAt);
+  if (!Number.isFinite(started) || started <= 0 || started > now) return job.agent;
+  return `${job.agent} · ${elapsedLabel(now - started)}`;
+}

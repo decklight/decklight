@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { needsDevMode } from '../src/core/devmode.js';
+import { agentChipText, elapsedLabel, needsDevMode } from '../src/core/devmode.js';
 
 const FILE = { protocol: 'file:', pathname: '/Users/gp/decks/talk.html' };
 const HTTP = { protocol: 'https:', pathname: '/talks/talk.html' };
@@ -58,4 +58,66 @@ test('an unreadable location still gives the command, with a placeholder deck', 
     assert.ok(!msg.includes('undefined'), msg);
   }
   assert.match(needsDevMode('layout', {}), /<deck\.html>/);
+});
+
+// ── "the agent is still working" ──────────────────────────────────────────
+//
+// An agent ask reported itself twice — a toast at the start, a toast at the end
+// — and both expired in seconds. In between, for a run that can last minutes,
+// the deck said nothing, and the only way to learn it was still going was to
+// press A again and read the refusal. These cover the part of the fix that is
+// decidable without a browser: what the chip says, and when it says nothing.
+
+test('elapsed reads as a clock, and keeps counting past an hour', () => {
+  assert.equal(elapsedLabel(0), '0:00');
+  assert.equal(elapsedLabel(1_000), '0:01');
+  assert.equal(elapsedLabel(61_000), '1:01');
+  assert.equal(elapsedLabel(599_000), '9:59');
+  // Not 0:00 again: an agent that has been going for an hour is the single
+  // most important thing this chip can tell you, and a wrapped clock would
+  // say the opposite of the truth.
+  assert.equal(elapsedLabel(3_600_000), '1:00:00');
+  assert.equal(elapsedLabel(3_661_000), '1:01:01');
+});
+
+test('seconds are always two digits, so the chip cannot jitter', () => {
+  // Paired with font-variant-numeric: tabular-nums in the CSS. A width that
+  // changes every second in the corner of a slide is a distraction.
+  for (const s of [1, 9, 10, 59]) assert.match(elapsedLabel(s * 1000), /:\d\d$/);
+});
+
+test('a fraction of a second rounds down, never up to a second that has not passed', () => {
+  assert.equal(elapsedLabel(999), '0:00');
+  assert.equal(elapsedLabel(1_999), '0:01');
+});
+
+test('nothing running is no chip at all', () => {
+  // Removed outright rather than hidden: a deck that never asks an agent never
+  // grows the node.
+  assert.equal(agentChipText(null), null);
+  assert.equal(agentChipText(undefined), null);
+  assert.equal(agentChipText({}), null, 'a job with no agent is not a job');
+  assert.equal(agentChipText({ startedAt: Date.now() }), null);
+});
+
+test('a running job says who, and for how long', () => {
+  const now = 1_000_000;
+  assert.equal(agentChipText({ agent: 'claude', startedAt: now - 83_000 }, now), 'claude · 1:23');
+});
+
+test('the clock comes from the SERVER, so a reload does not restart it', () => {
+  // startedAt rides in the `agent` start event and in /edit/ping. A page that
+  // reloaded mid-run must show the true elapsed time — a job outlives the page,
+  // and a chip that reset to 0:00 would claim otherwise.
+  const now = 2_000_000;
+  assert.equal(agentChipText({ agent: 'codex', startedAt: now - 305_000 }, now), 'codex · 5:05');
+});
+
+test('an unreadable timestamp still gets a chip, without a clock', () => {
+  // Knowing an agent is running matters more than knowing for how long, so a
+  // bad startedAt drops the duration and never the indicator.
+  const now = 1_000_000;
+  for (const bad of [undefined, null, 'soon', NaN, 0, -1, now + 5_000]) {
+    assert.equal(agentChipText({ agent: 'bob', startedAt: bad }, now), 'bob', String(bad));
+  }
 });

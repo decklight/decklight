@@ -1146,8 +1146,8 @@ decklight/
   SPEC.md  README.md  package.json
   src/core/      engine.js (init, nav, builds, transitions, stage, chrome, input) + the features that own their own
                  state and keyboard: themes.js (switching, packs, generator, picker), narration.js (voice, captions,
-                 character, ⇧V recorder), editmode.js (live reload, notes editor, element edit mode, agents,
-                 undo/redo, restore), hud.js (clock, progress, ink, transcript), onboarding.js (the first-open card
+                 character, ⇧V recorder), editmode.js (live reload, notes editor, element edit mode, agents
+                 and the chip that says one is still working, undo/redo, restore), hud.js (clock, progress, ink, transcript), onboarding.js (the first-open card
                  and tips) + the decidable pieces engine.js's init() no longer holds, each unit-tested without a
                  browser: overflow.js (the guardrail's watch), playlist.js (module navigation), finder.js (the
                  finder's index + ranking), layout.js (the L ring + its write-through), palette.js (what a typed
