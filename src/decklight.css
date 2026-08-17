@@ -824,6 +824,63 @@
   user-select: none;
 }
 .decklight-clock .clk-elapsed { color: var(--accent, #6af); }
+/* The element content editor's highlighted layers (author mode). A textarea
+   cannot render markup, so the colour is a <pre> BEHIND a textarea whose own
+   text is transparent.
+
+   EVERY selector here carries `.decklight-narr` — not for tidiness, but because
+   `.decklight-narr .narr-input` (0,2,0) sets this textarea's font, line-height,
+   padding, border and colour, and it OUTRANKS a bare `.edit-code > textarea`
+   (0,1,1). Losing that fight is not cosmetic: the two layers then disagree on
+   line-height and padding, and the caret drifts away from the glyph it is
+   supposed to sit in, further with every line.
+
+   Both layers therefore take every metric from ONE rule below. */
+.decklight-narr .edit-code {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+.decklight-narr .edit-code > pre,
+.decklight-narr .edit-code > textarea {
+  margin: 0;
+  border: 0;
+  padding: 10px 12px;
+  font: 400 13px/1.55 var(--font-mono, ui-monospace, monospace);
+  letter-spacing: normal;
+  tab-size: 2;
+  white-space: pre-wrap;      /* both wrap, or neither does */
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+  min-height: 220px;
+  max-height: 46vh;
+}
+.decklight-narr .edit-code > pre {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  pointer-events: none;       /* the textarea takes every click */
+  background: var(--code-bg, rgba(0, 0, 0, .35));
+  border-radius: 8px;
+}
+.decklight-narr .edit-code > textarea {
+  position: relative;
+  display: block;
+  width: 100%;
+  resize: vertical;
+  background: transparent;
+  color: transparent;         /* the <pre> paints the glyphs */
+  caret-color: var(--fg, #fff);
+  border-radius: 8px;
+  overflow: auto;
+}
+/* The selection has to be visible against transparent text. */
+.decklight-narr .edit-code > textarea::selection { background: var(--accent, #6af); color: transparent; }
+.decklight-narr .edit-code > textarea:focus { outline: 2px solid var(--accent, #6af); outline-offset: 1px; }
+/* Still loading, or refused: there is no highlighted layer to read yet, so the
+   textarea shows its own text rather than an empty-looking box. */
+.decklight-narr .edit-code > textarea:disabled { color: var(--muted, #9aa); }
+
 /* "an agent is still working" — author mode only (src/core/editmode.js).
    BOTTOM CENTRE, which is the one piece of chrome nothing else claims: the
    logo takes a corner, the clock is top-right, the controls bottom-right and

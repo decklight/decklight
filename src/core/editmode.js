@@ -18,6 +18,8 @@
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { agentChipText, needsDevMode } from './devmode.js';
+import { dedentHtml } from './htmlfmt.js';
+import { hljs } from '../code/code.js';
 
 /**
  * Wire the dev-server features to a deck.
@@ -529,11 +531,39 @@ export function createEditMode({
     const head = document.createElement('div');
     head.className = 'narr-head';
     head.textContent = `edit content — slide ${slide}, element ${index} · ⌘⏎ saves · Esc closes`;
+    // A textarea cannot render markup, so the highlighting is a <pre> BEHIND a
+    // textarea whose own text is transparent — the standard shape, and the only
+    // one that keeps a real caret, real selection, real undo and real IME.
+    // The two must agree on font, size, line-height, padding, wrapping and
+    // tab-size or the layers drift apart mid-line; `.edit-code pre` and
+    // `.edit-code textarea` inherit all of it from the same rule for exactly
+    // that reason.
+    const wrap = document.createElement('div');
+    wrap.className = 'edit-code';
+    const pre = document.createElement('pre');
+    pre.setAttribute('aria-hidden', 'true');   // the textarea is the real control
+    const code = document.createElement('code');
+    code.className = 'hljs language-xml';
+    pre.appendChild(code);
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
     ta.value = 'loading…';
     ta.disabled = true;
     ta.spellcheck = false;
+    wrap.append(pre, ta);
+
+    // The highlighter is the one already bundled for code slides (13 languages,
+    // xml aliased to html) — so this costs no bytes. A trailing newline gets a
+    // space so the last line still paints; without it the layers disagree by
+    // one line at the bottom of the box.
+    const repaint = () => {
+      code.innerHTML = hljs.highlight(`${ta.value}\n`, { language: 'xml' }).value;
+    };
+    ta.addEventListener('input', repaint);
+    ta.addEventListener('scroll', () => {
+      pre.scrollTop = ta.scrollTop;
+      pre.scrollLeft = ta.scrollLeft;
+    });
     const save = async () => {
       try {
         const res = await fetch(editBase + '/edit/element/content', {
@@ -559,7 +589,7 @@ export function createEditMode({
     btn.textContent = '💾 save to file';
     btn.addEventListener('click', save);
     actions.appendChild(btn);
-    card.append(head, ta, actions);
+    card.append(head, wrap, actions);
     contentEl.appendChild(card);
     closeOnBackdrop(contentEl, closeContentEditor);
     root.appendChild(contentEl);
@@ -568,8 +598,13 @@ export function createEditMode({
         const res = await fetch(`${editBase}/edit/element/source?slide=${slide}&index=${index}`);
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j.ok) throw new Error(j.error || res.status);
-        ta.value = j.html;
+        // Dedented, so the element reads at its own depth rather than at the
+        // depth it happened to sit at in the file. Never re-indented: adding a
+        // line break between inline elements adds a visible space, and this
+        // editor writes straight back over the deck (SPEC `DECK_ANATOMY`).
+        ta.value = dedentHtml(j.html);
         ta.disabled = false;
+        repaint();
         ta.focus();
       } catch (e) {
         ta.value = '';

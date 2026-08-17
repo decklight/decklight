@@ -118,6 +118,15 @@ function segmentLabel(seg, totalLines) {
   return `lines ${ranges.join(',')}`;
 }
 
+/**
+ * The registered highlighter, for the one other place in the runtime that
+ * highlights: the element content editor (author mode). Exported rather than
+ * re-imported so there is ONE registration — the thirteen languages above are
+ * already in the bundle, so reusing them costs nothing, and a second `hljs`
+ * would cost all of it again.
+ */
+export { hljs };
+
 export function initCode(root, registerBuildProvider) {
   root.querySelectorAll('pre > code').forEach((codeEl) => {
     const langClass = [...codeEl.classList].find((c) => c.startsWith('language-'));

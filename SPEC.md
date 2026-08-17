@@ -1152,7 +1152,8 @@ decklight/
                  browser: overflow.js (the guardrail's watch), playlist.js (module navigation), finder.js (the
                  finder's index + ranking), layout.js (the L ring + its write-through), palette.js (what a typed
                  string means), debuglog.js (the D ring buffer), overlay.js (backdrop, list selection, the
-                 typeahead keyboard), escape.js, motion.js (the duration, FLIP and transition-class decisions
+                 typeahead keyboard), escape.js, htmlfmt.js (dedenting an element's source for the
+                 content editor, without changing what it renders), motion.js (the duration, FLIP and transition-class decisions
                  behind SLIDE_TRANSITIONS and AUTO_ANIMATE) — plus autoanimate, builds, print, svg, charts, media,
                  speaker, annotate, character, character-art, devmode, themegen, voicetrack
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
