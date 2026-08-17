@@ -390,10 +390,13 @@
 
           // Poll for the done card rather than sleeping a guessed interval: a
           // slide is several bridge round-trips and a blob stitch, and under a
-          // virtual clock those take real time the page cannot predict.
+          // virtual clock those take real time the page cannot predict. Every
+          // tick spends the run's virtual-time budget, so the interval is short
+          // and the ceiling is generous — a run that needs the whole 60s is
+          // still under a second of wall clock.
           const card = document.querySelector('.decklight-record .narr-card');
-          for (let i = 0; i < 200 && !/recording done/.test(card?.textContent ?? ''); i++) {
-            await new Promise((ok) => setTimeout(ok, 100));
+          for (let i = 0; i < 1200 && !/recording done/.test(card?.textContent ?? ''); i++) {
+            await new Promise((ok) => setTimeout(ok, 50));
           }
           r.finished = /recording done/.test(card?.textContent ?? '');
           r.posted = window.__recorded.slice();

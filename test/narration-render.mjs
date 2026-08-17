@@ -34,11 +34,18 @@ import { dumpDom, resultsFrom } from './harness.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'narration.html');
 
+// `record` records the WHOLE deck before it can assert anything, and the
+// download path it falls back to leaves a 5s revoke timer behind per file —
+// pending virtual-time work that spends the budget without advancing the
+// recording. Its own clock, so a slower runner does not turn "not finished
+// yet" into a failure. Virtual, not wall: these runs still take under a second.
+const BUDGET = (m) => (m === 'record' ? 120_000 : 30_000);
+
 function run(mode, extra = '') {
   // quietStderr: a headless Chrome on a machine with no D-Bus/UPower prints
   // pages of unrelated noise that would bury the actual result
   const html = dumpDom(`file://${page}?mode=${mode}${extra}`,
-    { fileAccess: true, budget: 30000, quietStderr: true, who: 'narration-render' });
+    { fileAccess: true, budget: BUDGET(mode), quietStderr: true, who: 'narration-render' });
   return resultsFrom(html, 'NARRATION', `mode=${mode}${extra}`);
 }
 
