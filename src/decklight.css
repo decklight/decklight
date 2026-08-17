@@ -824,6 +824,49 @@
   user-select: none;
 }
 .decklight-clock .clk-elapsed { color: var(--accent, #6af); }
+/* "an agent is still working" — author mode only (src/core/editmode.js).
+   BOTTOM CENTRE, which is the one piece of chrome nothing else claims: the
+   logo takes a corner, the clock is top-right, the controls bottom-right and
+   messages top-left, so this can be persistent without ever covering them.
+   Quiet by construction — it reports rather than asks, and nothing about a
+   background job should compete with the slide. */
+.decklight-agent-chip {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 42;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, .72);
+  color: #fff;
+  font: 500 14px/1 var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;   /* a ticking clock must not jitter */
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, .3);
+  pointer-events: none;                 /* never in the way of a slide click */
+  white-space: nowrap;
+}
+.decklight-agent-chip::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent, #6af);
+  animation: dl-agent-pulse 1.6s ease-in-out infinite;
+}
+@keyframes dl-agent-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+/* A pulse is the one thing here that moves. Somebody who asked for less motion
+   still gets the chip and the clock — the information, without the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .decklight-agent-chip::before { animation: none; }
+}
+/* Printing a deck must not print a job that was running when you hit print. */
+@media print { .decklight-agent-chip { display: none; } }
+
 /* touch chrome — shown only where there's no keyboard (see engine.js) */
 .decklight-touch-controls { position: absolute; left: 14px; top: 14px; z-index: 41; display: none; gap: 8px; }
 .decklight-touch-btn {

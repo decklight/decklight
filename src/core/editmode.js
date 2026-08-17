@@ -17,7 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
-import { needsDevMode } from './devmode.js';
+import { agentChipText, needsDevMode } from './devmode.js';
 
 /**
  * Wire the dev-server features to a deck.
@@ -48,6 +48,39 @@ export function createEditMode({
   let preferredAgent = null; // the one A reaches for, remembered server-side (#125)
   let editWizards = [];  // [{name, qualified, title}] engines a marketplace declares a wizard for
   let agentBusy = null;  // {agent, prompt, startedAt} while a one-shot runs
+
+  // The chip that says an agent is STILL working. A toast cannot: it expires,
+  // and the job does not. This lives as long as the run does, and ticks, so the
+  // difference between "thinking" and "wedged" is visible without pressing A to
+  // ask. Built lazily and removed outright — a deck that never asks an agent
+  // never grows the node, and `present` never reaches this code at all.
+  let agentChip = null;
+  let agentTick = 0;
+  function paintAgentChip() {
+    const text = agentChipText(agentBusy);
+    if (!text) {
+      clearInterval(agentTick);
+      agentTick = 0;
+      agentChip?.remove();
+      agentChip = null;
+      return;
+    }
+    if (!agentChip) {
+      agentChip = document.createElement('div');
+      agentChip.className = 'decklight-agent-chip';
+      // A live region, so a screen reader is told an agent started working
+      // without having to be watching the corner. Polite: it is status, and it
+      // must not interrupt what is being read.
+      agentChip.setAttribute('role', 'status');
+      agentChip.setAttribute('aria-live', 'polite');
+      root.appendChild(agentChip);
+    }
+    // textContent, never innerHTML: `agent` is a name from the server and
+    // `prompt` is the user's own words, and neither is markup.
+    agentChip.textContent = `🤖 ${text}`;
+    agentChip.title = agentBusy.prompt ? `asked: ${agentBusy.prompt}` : '';
+    if (!agentTick) agentTick = setInterval(paintAgentChip, 1000);
+  }
   if (!printMode && !params.has('embedded')) {
     const bases = config.edit?.url ? [config.edit.url]
       : /^https?:$/.test(location.protocol) ? [''] : ['http://127.0.0.1:8788'];
@@ -74,6 +107,9 @@ export function createEditMode({
           // PRESENTED is what wirePresentRemote wires up.
           agentBusy = j.agentBusy || null; // an agent may already be mid-run across a reload
           if (agentBusy) toast(`${agentBusy.agent} is editing the deck…`, 2000);
+          // The chip is restored too, with the SERVER's startedAt — a reload
+          // mid-run is exactly when "is it still going?" is hardest to answer.
+          paintAgentChip();
           const es = new EventSource(base + '/edit/events');
           es.onmessage = () => location.reload();
           es.addEventListener('agent', (ev) => {
@@ -81,10 +117,12 @@ export function createEditMode({
               const d = JSON.parse(ev.data);
               if (d.state === 'start') {
                 agentBusy = d;
+                paintAgentChip();
                 toast(`🤖 ${d.agent} is editing the deck…`, 2200);
                 debugLog('agent', `${d.agent} start: ${(d.prompt || '').slice(0, 80)}`);
               } else if (d.state === 'done') {
                 agentBusy = null;
+                paintAgentChip();
                 const status = d.ok ? '' : d.error ? ` — ${d.error}` : ` (exit ${d.code})`;
                 toast(d.changed ? `🤖 ${d.agent} edited the deck — Z undoes${status}`
                   : `🤖 ${d.agent} finished — no changes${status}`, 3000);
