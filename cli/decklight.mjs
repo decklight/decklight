@@ -58,6 +58,8 @@ Commands:
   restore  list the commits that touched a deck, and put it back to any of them
            EXAMPLE: decklight restore deck.html          (list)
            EXAMPLE: decklight restore deck.html a1b2c3d  (restore, as a new commit on top)
+  history  what decklight committed, and which commits are only on this machine
+           EXAMPLE: decklight history deck.html
   upgrade  bring a self-contained deck's inlined runtime + themes up to the installed version, in place
            EXAMPLE: decklight upgrade deck.html --dry-run   (see what would change; drop the flag to apply)
   pdf      render the deck to a PDF — one slide per page, at its own size, in its theme
@@ -279,6 +281,11 @@ switch (cmd) {
   case 'restore': {
     const { restoreMain } = await import('./restore.mjs');
     process.exitCode = await restoreMain(rest);
+    break;
+  }
+  case 'history': {
+    const { historyMain } = await import('./history.mjs');
+    process.exitCode = await historyMain(rest);
     break;
   }
   case 'author':

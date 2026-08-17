@@ -392,7 +392,9 @@ export function remoteLine(s) {
     case 'detached': return `detached HEAD · ${s.unpushed ?? 0} commits here`;
     case 'no-remote': return `${s.branch} · no remote — this history is only on this machine`;
     case 'ambiguous-remote': return `${s.branch} · several remotes, none named origin — push by name`;
-    case 'no-upstream': return `${s.branch} → no upstream (${s.remote} exists) · ↑${s.unpushed ?? 0} never pushed`;
+    case 'no-upstream': return s.unpushed
+      ? `${s.branch} → no upstream (${s.remote} exists) · ↑${s.unpushed} never pushed`
+      : `${s.branch} → no upstream — ${s.remote} exists but this branch tracks nothing`;
     case 'unreadable': return `${s.branch} → ${s.upstream} · could not be counted`;
     default: {
       const bits = [`${s.branch} → ${s.upstream}`];

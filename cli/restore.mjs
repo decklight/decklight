@@ -34,17 +34,25 @@ import { git, inGitRepo, isIdentityError, oneline } from './git.mjs';
 const SEP = '\x01';
 
 /**
- * The commits that touched this deck, newest first: `{ hash, when, subject }`.
+ * The commits that touched this deck, newest first:
+ * `{ hash, when, subject, full }`.
+ *
+ * `full` is the unabbreviated hash, and it is here for one reason: marking a
+ * commit as unpushed means comparing it against `rev-list`'s output, and
+ * `%h`'s abbreviation length is a repository setting that can differ between
+ * the two commands. Comparing abbreviations is a bug that only appears in big
+ * repositories, which is the worst kind.
+ *
  * `run` is the git invoker, injected so this is testable without a repo.
  * Returns [] for a file git has never seen.
  */
 export function deckHistory(deckPath, cwd, run = git) {
   const rel = relative(cwd, deckPath) || basename(deckPath);
-  const out = run(['log', `--format=%h${SEP}%ar${SEP}%s`, '--', rel], cwd);
+  const out = run(['log', `--format=%h${SEP}%ar${SEP}%s${SEP}%H`, '--', rel], cwd);
   if (!out) return [];
   return out.split('\n').filter(Boolean).map((line) => {
-    const [hash, when, subject] = line.split(SEP);
-    return { hash, when, subject };
+    const [hash, when, subject, full] = line.split(SEP);
+    return { hash, when, subject, full };
   });
 }
 

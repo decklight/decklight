@@ -521,7 +521,8 @@ export function init(userConfig = {}) {
     const has = (fn) => typeof fn === 'function';
     const all = [
       { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
-      { label: 'Restore a version…', hint: 'R', alias: 'history git rollback undo revert commit', run: () => editmode.restore.open() },
+      { label: 'History… (dev)', hint: 'H', alias: 'git log commits unpushed push remote when changed version', run: () => editmode.history.open() },
+      { label: 'Restore a version…', hint: 'R', alias: 'git rollback undo revert commit back', run: () => editmode.restore.open() },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: themes.openPicker },
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
@@ -566,7 +567,7 @@ export function init(userConfig = {}) {
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: `Captions ${narration.status().captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
       { label: `Clock ${hud.status().clockOn ? 'off' : 'on'}`, hint: 'K', alias: 'time elapsed timer talk wall watch', run: toggleClock },
-      { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'H', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
+      { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: `Narration ${narration.status().paused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
       { label: 'Edit speaker notes…', alias: 'edit mode notes write right-click background', run: toggleEditor },
@@ -1096,7 +1097,7 @@ export function init(userConfig = {}) {
   }
 
   // ----- chrome ------------------------------------------------------------
-  let progressBar = null; // mounted by the progress bar toggle (H), below
+  let progressBar = null; // mounted by the progress bar toggle (J), below
   let slideNumEl = null;
   if (config.controls && !printMode) {
     const controls = document.createElement('div');
@@ -1342,7 +1343,8 @@ export function init(userConfig = {}) {
       <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>
       <tr><td>K</td><td>clock — wall time + elapsed talk</td></tr>
-      <tr><td>H</td><td>progress bar — position in the deck, bottom edge</td></tr>
+      <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
+      <tr><td>H</td><td>history — commits, what is unpushed, live preview (author mode)</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
@@ -1480,7 +1482,8 @@ export function init(userConfig = {}) {
       case 'd': case 'D': toggleDebug(); break;
       case 'c': case 'C': toggleCaptions(); break;
       case 'k': case 'K': toggleClock(); break;
-      case 'h': case 'H': toggleProgress(); break;
+      case 'j': case 'J': toggleProgress(); break;
+      case 'h': case 'H': editmode.history.open(); break;
       case 'p': case 'P': toggleNarrPause(); break;
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
@@ -1653,7 +1656,7 @@ export function init(userConfig = {}) {
   });
   const { toggleClock, toggleProgress, toggleInk, toggleTranscript } = hud;
   instance.toggleClock = toggleClock;       // K programmatically
-  instance.toggleProgress = toggleProgress; // H programmatically
+  instance.toggleProgress = toggleProgress; // J programmatically
 
   // ── dev-server features (editmode.js) ────────────────────────────────────
   // Live reload, the notes editor, the phone remote, asking an agent, undo/redo

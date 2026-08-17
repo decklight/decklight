@@ -633,13 +633,21 @@ export function createEditMode({
     keydown: (e) => e.key === 'Escape' && (closeContentEditor(), true),
   });
 
-  // ----- restore overlay (R) — SPEC PRESENTING ---------------------------------------
+  // ----- the versions overlay (R restores, H reads) — SPEC PRESENTING ---------
   // The git-level sibling of Z/⇧Z: Z takes back a keystroke, R takes back a
   // session. Rows are the deck's commits (from `decklight restore`'s own
   // helper, over the edit server); the preview is that commit's deck rendered
   // for real, because a hash and a subject are not enough to recognise the
   // version you actually want.
+  //
+  // ONE OVERLAY, TWO DOORS. `H` opens it as a readout — it adds the ↑ marks and
+  // the branch's standing against its remote — and `R` opens it as the thing
+  // that takes you back. They share their data, their markup, their preview,
+  // their debounce and their keyboard, and the only differences are a title, a
+  // footer and some marks. Two copies of ninety lines is how they end up
+  // disagreeing about what a commit subject looks like six months from now.
   let restoreEl = null, restoreRows = [], restoreSel = 0, restoreDebounce = null;
+  let versionsMode = 'restore';
 
   function restorePreview(frame, entry) {
     if (entry) frame.src = `${editBase}/edit/at?ref=${encodeURIComponent(entry.hash)}&embedded`;
@@ -657,27 +665,51 @@ export function createEditMode({
     if (immediate) restorePreview(frame, entry);
     else restoreDebounce = setTimeout(() => restorePreview(frame, entry), 60);
   }
-  async function openRestore() {
+  async function openRestore(mode = 'restore') {
     if (restoreEl) return closeRestore();
-    if (!editAvailable) return toast(needsDevMode('restoring a version', location), 3200);
+    // The migration string, and it is load-bearing for one release at least: H
+    // used to be the progress bar, it worked offline and mid-talk, and somebody
+    // reaching for it during a presentation must be told where it went rather
+    // than getting a shrug.
+    if (!editAvailable) {
+      return toast(mode === 'history'
+        ? `the progress bar moved to J — ${needsDevMode('history', location)}`
+        : needsDevMode('restoring a version', location), 3800);
+    }
+    const label = mode === 'history' ? 'history' : 'restore';
     let entries = [];
+    let remote = null;
     try {
       const r = await fetch(editBase + '/edit/history');
       const j = await r.json();
-      if (!j.ok) return toast(`restore: ${j.error}`, 3000);
+      if (!j.ok) return toast(`${label}: ${j.error}`, 3000);
       entries = j.entries || [];
-    } catch { return toast('restore: could not read the deck history', 3000); }
-    if (!entries.length) return toast('restore: git has no record of this deck yet', 3000);
+      remote = j.remote || null;
+    } catch { return toast(`${label}: could not read the deck history`, 3000); }
+    if (!entries.length) return toast(`${label}: git has no record of this deck yet`, 3000);
     dismissOthers();
+    versionsMode = mode;
     restoreRows = entries;
     restoreEl = document.createElement('div');
-    restoreEl.className = 'decklight-theme-picker decklight-finder decklight-restore';
+    restoreEl.className = `decklight-theme-picker decklight-finder decklight-restore${
+      mode === 'history' ? ' decklight-history' : ''}`;
     restoreEl.innerHTML =
       '<div class="tp-panel">' +
-        '<div class="tp-side"><div class="tp-filter">Restore a version — ↑↓ to browse, ⏎ to restore</div>' +
+        '<div class="tp-side"><div class="tp-filter"></div>' +
+        '<div class="hs-remote"></div>' +
         '<div class="tp-list" role="listbox" aria-label="Deck history"></div></div>' +
         '<div class="tp-preview"><iframe title="Version preview"></iframe>' +
         '<div class="tp-caption"></div></div></div>';
+    // textContent for both: a branch name is arbitrary text, and the title is
+    // built from a mode rather than pasted in.
+    restoreEl.querySelector('.tp-filter').textContent = mode === 'history'
+      ? 'History — ↑↓ to browse, ⏎ restores this version, Esc closes'
+      : 'Restore a version — ↑↓ to browse, ⏎ to restore';
+    const remoteEl = restoreEl.querySelector('.hs-remote');
+    // The server sends the sentence ready-made — cli/git.mjs spawns git and the
+    // runtime cannot import it, so the words live in one place on that side.
+    if (mode === 'history' && remote?.line) remoteEl.textContent = remote.line;
+    else remoteEl.remove();
     // Built as nodes, not innerHTML: a commit subject is somebody else's text
     // and may contain anything — textContent escapes it by construction.
     const list = restoreEl.querySelector('.tp-list');
@@ -691,7 +723,18 @@ export function createEditMode({
       const when = document.createElement('span');
       when.className = 'rs-when';
       when.textContent = e.when;
-      row.append(hash, ` ${e.subject} `, when);
+      row.append(hash, ` ${e.subject} `);
+      // The ↑ is only shown where it means something: `pushed === false` is
+      // "this exists nowhere but here", while null is "not a question worth
+      // answering" (no remote, or git could not say).
+      if (versionsMode === 'history' && e.pushed === false) {
+        const up = document.createElement('span');
+        up.className = 'hs-push';
+        up.title = 'only on this machine';
+        up.textContent = '↑';
+        row.append(up);
+      }
+      row.append(when);
       row.addEventListener('click', () => { selectRestoreRow(i, true); commitRestore(); });
       list.appendChild(row);
     });
@@ -917,7 +960,9 @@ export function createEditMode({
     /** What the server's ping said a wizard can configure — the palette's Configure rows. */
     wizards: () => editWizards.slice(),
     /** R, and what the headless overlay harness drives (it has no git server). */
-    restore: { open: openRestore, close: closeRestore, list: () => restoreRows.slice() },
+    restore: { open: () => openRestore('restore'), close: closeRestore, list: () => restoreRows.slice() },
+    // The same overlay, opened as a readout. Two doors, one implementation.
+    history: { open: () => openRestore('history'), close: closeRestore, list: () => restoreRows.slice() },
     /** Is a dev server actually serving this deck? Layout cycling asks too. */
     available: () => editAvailable,
     /** Its origin ('' when the deck is served BY the edit server). */

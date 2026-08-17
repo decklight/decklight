@@ -197,7 +197,7 @@ export function createHistory(limit = 200) {
 // The plumbing lives in git.mjs now; imported for editMain's use below and
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
-import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, resolveGitMode, shouldCommit, commitSubject, oneline } from './git.mjs';
+import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, resolveGitMode, shouldCommit, commitSubject, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 export async function editMain(args) {
@@ -534,8 +534,27 @@ export async function editMain(args) {
       // historical revisions of the deck, which is nobody else's business.
       if (req.method === 'GET' && url.pathname === '/edit/history') {
         if (!gitOn) return json(409, { ok: false, error: 'git is off for this session — there is no history' });
-        try { return json(200, { ok: true, entries: deckHistory(deckPath, root) }); }
-        catch (e) { return json(500, { ok: false, error: oneline(e) }); }
+        try {
+          // One round trip serves the whole overlay: the commits, which of them
+          // exist nowhere but this machine, and where the branch stands. All of
+          // it is a LOCAL read — `unpushed` and `@{u}` read remote-tracking
+          // refs, so opening the history never touches the network (SPEC
+          // PRESENTING).
+          const entries = deckHistory(deckPath, root);
+          const remote = remoteState(root);
+          // `pushed` is null for "not a question worth answering here", and the
+          // two cases are different: git could not tell us, or there is no
+          // remote at all — in which case EVERY commit is unpushed and marking
+          // all of them is a wall of arrows saying what the footer says once.
+          const local = ['no-remote', 'ambiguous-remote'].includes(remote.state) ? null : unpushed(root);
+          const set = local ? new Set(local) : null;
+          for (const e of entries) e.pushed = set ? !set.has(e.full) : null;
+          // The LINE is computed here, not in the player: cli/git.mjs is Node
+          // (it spawns git), the runtime has zero dependencies and cannot
+          // import it, and duplicating the wording in the browser is how the
+          // four places that talk about unpushed work start disagreeing.
+          return json(200, { ok: true, entries, remote: { ...remote, line: remoteLine(remote) } });
+        } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
       }
       if (req.method === 'GET' && url.pathname === '/edit/at') {
         if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
