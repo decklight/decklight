@@ -41,7 +41,7 @@
 import { execFile } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, parse, relative, resolve } from 'node:path';
+import { basename, dirname, parse, resolve } from 'node:path';
 import { classifyRemoteError, noPromptEnv, oneline, parseAheadBehind } from './git.mjs';
 
 /** Every answer this can give. Frozen so a typo is a crash, not a silent miss. */
@@ -118,8 +118,14 @@ export async function resolveUpstream(deckPath, { run = runGit, home = homedir()
   // THE GATE THAT MATTERS: the deck must be a file this repository versions.
   // Without it, every deck in ~/Downloads is "inside a clone" for anyone whose
   // home directory is one.
-  const rel = relative(repoRoot, full);
-  const tracked = await run(['ls-files', '--error-unmatch', '--', rel], { cwd: repoRoot });
+  // Asked from the DECK'S OWN DIRECTORY, by basename — git resolves it against
+  // the repository itself. Computing the relative path here instead means
+  // comparing two absolute paths, and two absolute paths for the same file
+  // disagree more often than they look: git answers in forward slashes on every
+  // platform, macOS resolves /tmp and /var through symlinks, and a Windows temp
+  // directory is an 8.3 short name (RUNNER~1) that realpath may or may not
+  // expand. Every one of those made this refuse a deck it should have accepted.
+  const tracked = await run(['ls-files', '--error-unmatch', '--', basename(full)], { cwd });
   if (!tracked.ok) return no('untracked');
 
   const branch = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd: repoRoot });
