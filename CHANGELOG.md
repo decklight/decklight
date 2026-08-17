@@ -5,6 +5,98 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.5.0
+
+15 commits since 0.4.0. The release that went looking on other people's
+machines. 0.4.0 brought the tests to Windows and found the code ran there;
+0.5.0 asked the next question — does it *look* right there, and does it work in
+the browser the audience actually has — and the answers cost three real bugs,
+two of which nothing in the repo could have caught from Linux and Chrome.
+
+### Fixed
+
+- **A slide transition lasted 350 SECONDS, not 350ms.** `--transition-duration`
+  was read with `parseFloat(…) * 1000` and the shipped default is `350ms`, so
+  every section kept its `entering`, `leaving`, `tr-<name>` and `active-out`
+  classes for five minutes and fifty seconds instead of clearing at 410ms — the
+  deck spent a whole talk believing it was mid-move. auto-animate had the
+  identical bug, hit it, and fixed it in place; the transition path kept its
+  copy, because the fix was made where the bug was seen rather than where the
+  decision lived. Both now call one `cssDurationMs` (SPEC `MOTION`) (#330)
+- **`A` could not run an npm-installed agent on Windows.** Every agent installs
+  from npm and npm installs a JS CLI there as a `.cmd` shim, which Node has
+  refused to spawn without a shell since CVE-2024-27980 — so the agent was
+  detected, offered in the palette, and then did nothing. The fix is not a
+  shell: with one the arguments stop being arguments and become a command line
+  for `cmd.exe`, and one of them is your prompt, where `%VAR%` expands before
+  any escaping could apply. decklight resolves the shim back to the script it
+  runs and spawns node on that, so argv stays argv on both platforms. An agent
+  that is found but cannot be run is no longer offered at all (SPEC
+  `AGENT_UNITS`) (#318)
+- **A stored API key was unprotected on Windows, and the CLI said otherwise.**
+  `credentials.json` was written `0600` — a number with no meaning there, so the
+  file carried whatever ACL the profile handed it while the wizard printed
+  `(0600)` anyway. Windows now gets an explicit ACL, and every sentence decklight
+  prints about it is read BACK off the file: the wizard's line, the author
+  server's log, and a new `stored credentials:` line in `report-bug`. Setting
+  that ACL is three `icacls` steps, not the two the usual recipe gives — an
+  entry that is already explicit survives `/inheritance:r` untouched, which only
+  a Windows CI run could have shown (SPEC `ENGINES#WIZARD`) (#319, #320)
+- **The system voice was unreachable, twice over** — the local-voice probe and
+  the native engine each had a defect that hid the other (#316)
+
+### Added
+
+- **⟨CLICK⟩ segments narrate the builds they were written for.** A narrated
+  slide used to render as one fully-built still, so a deck whose notes were
+  already segmented for its builds lost that in the mp4 — the words for the
+  fourth bullet played over a slide that had shown all six from the first frame.
+  The sync rule already shipped in the live player; this is the recorded render
+  finally mirroring it. `tools/voiceover.mjs` synthesises each segment on its own
+  and CONCATENATES them into the per-slide file, so it is the same characters and
+  the same TTS bill, and every existing consumer of that file is untouched. A
+  marker count that does not match the build count warns naming the slide and
+  renders the old way — a wrong sync baked into an mp4 is worse than no sync
+  (SPEC `PRESENTING`) (#317)
+- **decklight tells you when a newer one exists.** `npx decklight` reuses
+  whatever tree npm already unpacked and does not re-resolve `latest`, so the
+  first version someone runs is the version they keep. The check is never on the
+  critical path: a command prints from a cache file it already has, and the
+  refresh happens in a detached child nobody waits for. Silent under `CI`,
+  `NO_UPDATE_NOTIFIER`, or when stderr is not a terminal (#315)
+
+### Verified elsewhere
+
+- **`npm run verify` runs on Windows every PR**, and found `contrast` and
+  `palette-rules` resolving `themes/` through `new URL(…).pathname` — the trap
+  #273 swept out of `cli/` and `tools/`, wearing its Windows face
+  (`D:\D:\a\decklight\themes`). Both had never run anywhere but Ubuntu. All
+  fifteen *rendering* harnesses passed unchanged, which is the real headline:
+  what renders, renders (#322)
+- **macOS renders on every PR too**, through `chrome-headless-shell` — the only
+  Chrome build a GitHub-hosted macOS runner can start, and four times faster than
+  the full browser. Chrome and Chromium both die there with
+  `bootstrap_look_up …MachPortRendezvousServer`, on all five flag combinations
+  probed, because that runner's session does not permit the lookup. The
+  self-hosted Mac runs the real browser on demand, all seventeen in ~155s
+  (#324, #325, #326, #327)
+- **The deck is checked in Gecko and WebKit** (`npm run cross-engine`, Firefox +
+  WebKit through Playwright, every PR). Sixteen assertions per engine about the
+  deck being USABLE rather than pixel-identical — three engines will never agree
+  on antialiasing. It found a Safari bug on its first run: after fast navigation
+  the URL sticks on an earlier slide permanently, because WebKit rate-limits
+  history writes and counts `replaceState` against the same budget (#328, open)
+  (#329)
+- **The soak walks the library, the chrome boundary and the history it builds**
+  — 50 steps now. All six unit kinds install, then `list` and `remove`; the
+  admission gate's printed digest is asserted to BE the `sha256` a catalog pins;
+  a presenter plugin proves `present` layers it on while `bundle` carries no byte
+  of it; `restore` finally uses the six steps of history the author leg spends
+  building (#321)
+- **Motion has a test file**, which is how the transition bug above was found:
+  15 unit tests over the decisions (a duration read from CSS, a FLIP from two
+  rectangles) and 8 more assertions per engine in the smoke test (#330)
+
 ## 0.4.0
 
 20 commits since 0.3.0. The release that stopped taking its own word for it.

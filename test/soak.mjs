@@ -883,8 +883,14 @@ try {
     must(ok.body?.name === 'soak-theme' && ok.body?.from === 'soak-theme@soak-market',
       `the response says ${JSON.stringify(ok.body)}`);
     must(/<style data-theme="soak-theme"/.test(deck()), 'the theme did not land in the deck');
-    must(/theme: installed soak-theme from soak-theme@soak-market/.test(authorSrv.log()),
-      'the server did not say where the theme came from');
+    // POLLED, not read once. The route logs BEFORE it responds, but the log
+    // reaches this process over a pipe — so a response can arrive before the
+    // parent's `data` event has fired, and reading the buffer immediately is a
+    // race this step lost on its third run. Every other server assertion here
+    // already waits; this one was written as if stdout were synchronous.
+    await until('the server to say where the theme came from',
+      () => /theme: installed soak-theme from soak-theme@soak-market/.test(authorSrv.log()),
+      { ms: 5000 });
 
     // And back out again: an install goes on the same undo stack as any other
     // edit, which is both the claim in the route and how this step leaves the
