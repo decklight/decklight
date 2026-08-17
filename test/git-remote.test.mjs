@@ -28,7 +28,8 @@ import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 import {
   aheadBehind, classifyRemoteError, exitPushLine, gitAvailable, headState, looksLikeGitUrl,
-  noPromptEnv, parseAheadBehind, preferredRemote, pushHint, remoteLine, remoteState, unpushed,
+  foreignWarning, noPromptEnv, parseAheadBehind, preferredRemote, pushHint, remoteLine,
+  remoteState, splitDeckPaths, unpushed,
 } from '../cli/git.mjs';
 
 // ── the counts, and the trap in them ──────────────────────────────────────
@@ -308,4 +309,64 @@ test('an unreachable remote answers, and answers QUICKLY', { skip: !HAVE_GIT && 
     assert.equal(s.state, 'no-upstream', 'an unreachable remote is still a remote');
     assert.ok(took < 10_000, `remoteState took ${took}ms — it must never be the thing that hangs`);
   } finally { rmTemp(root); }
+});
+
+// ── what else rides along on a pull ───────────────────────────────────────
+//
+// A fast-forward updates the WHOLE working tree, so a deck sharing a repo with
+// anything else means "update the deck" is also "update the source tree". The
+// person clicking is thinking about a slide. These pin what counts as a
+// surprise, and — just as importantly — what does not: a warning that fires on
+// a deck's own theme file is a warning people learn to dismiss.
+
+test("a deck's own siblings are not a surprise; the rest is", () => {
+  const { own, foreign } = splitDeckPaths([
+    'talks/deck.html', 'talks/themes/aurora.css', 'talks/assets/logo.svg',
+    'src/server.js', 'package.json',
+  ], 'talks/deck.html');
+  assert.deepEqual(own, ['talks/deck.html', 'talks/themes/aurora.css', 'talks/assets/logo.svg'],
+    'themes, images and narration travel WITH a deck');
+  assert.deepEqual(foreign, ['src/server.js', 'package.json']);
+});
+
+test('a deck at the repository root owns only itself', () => {
+  // With no directory to scope to, everything else is foreign — which is the
+  // honest answer for `git init` in a folder that already held other work.
+  const { own, foreign } = splitDeckPaths(['deck.html', 'notes.md', 'src/a.js'], 'deck.html');
+  assert.deepEqual(own, ['deck.html']);
+  assert.deepEqual(foreign, ['notes.md', 'src/a.js']);
+});
+
+test('a repository that holds only a deck says NOTHING', () => {
+  // The whole design rests on this: if the warning fires on the good case, it
+  // is noise, and the next one is dismissed unread.
+  assert.equal(foreignWarning({ total: 2, own: ['deck.html', 'themes/x.css'], foreign: [] }), null);
+  assert.equal(foreignWarning(null), null, 'unreadable is not a warning nobody can dismiss');
+});
+
+test('the warning names three files, counts the rest, and ends with the fix', () => {
+  const lines = foreignWarning({
+    total: 14,
+    own: ['deck.html'],
+    foreign: ['src/server.js', 'package.json', '.github/workflows/ci.yml', 'a.js', 'b.js'],
+  });
+  assert.match(lines[0], /14 files, 5 of them not the deck/);
+  assert.match(lines[1], /src\/server\.js · package\.json · \.github\/workflows\/ci\.yml · … 2 more/);
+  // The recommendation is last because it is the fix, not the finding.
+  assert.match(lines.at(-1), /keep the deck in a repository of its own/);
+});
+
+test('the same shape warns about a PUSH, in init\'s words', () => {
+  // The hazard at the other end: initRepo runs `git add -A`, so `init` in a
+  // directory holding other work commits all of it, and a repo created from
+  // that pushes all of it.
+  const lines = foreignWarning({ total: 24, own: ['deck.html'], foreign: ['.env.local', 'src/a.js'] },
+    { verb: 'push', scope: 'everything in this directory' });
+  assert.match(lines[0], /this push would change 24 files/);
+  assert.match(lines.at(-1), /a push updates everything in this directory/);
+});
+
+test('one file is singular', () => {
+  const lines = foreignWarning({ total: 1, own: [], foreign: ['x.js'] });
+  assert.match(lines[0], /change 1 file,/);
 });
