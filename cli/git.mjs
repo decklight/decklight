@@ -139,3 +139,267 @@ export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${ba
     return false;
   }
 }
+
+// ── the remote half ────────────────────────────────────────────────────────
+//
+// Everything above is LOCAL: does a repo exist, is the tree dirty, commit it.
+// That was the whole vocabulary, and it is why decklight could commit
+// diligently for a week and never once mention that none of it existed anywhere
+// but this laptop.
+//
+// Two rules govern this section, and both are learned rather than assumed:
+//
+// NEVER A HANG. `GIT_TERMINAL_PROMPT=0` is what cloneMarketplace already uses,
+// and it is HALF the answer: it stops git's own prompts and the https askpass,
+// while an `ssh://` remote will still sit forever on a host-key or passphrase
+// question nobody is there to type. `ssh -oBatchMode=yes` is the other half.
+// Blanking the askpass variables stops a GUI credential window opening behind a
+// headless probe, without disabling real credential HELPERS (osxkeychain,
+// libsecret), which is what makes a private remote work at all.
+//
+// NEVER A FETCH YOU DID NOT ASK FOR. cli/marketplace.mjs already decided this
+// for catalogs — "nothing ever pulls into it, which is what keeps decklight out
+// of the credential-helper trap a background `git pull` walks into" — and the
+// same holds here. Everything the author loop reads (`unpushed`, `@{u}`) is a
+// LOCAL read of remote-tracking refs and needs no network at all. `behind` is
+// therefore as fresh as your last fetch, and saying so is better than fetching
+// behind someone's back.
+
+/** The env every remote-touching git call runs under. See the note above. */
+export function noPromptEnv(env = process.env) {
+  const { GIT_ASKPASS, SSH_ASKPASS, ...rest } = env;
+  return {
+    ...rest,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_SSH_COMMAND: rest.GIT_SSH_COMMAND ?? 'ssh -oBatchMode=yes -oConnectTimeout=5',
+    GCM_INTERACTIVE: 'Never',
+  };
+}
+
+/**
+ * `git rev-list --left-right --count @{u}...HEAD` → `{ ahead, behind }`.
+ *
+ * THE LEFT COUNT IS `behind`. With `A...B` the left side is what is reachable
+ * from A and not B; A is the upstream, so the left number is what the upstream
+ * has and you do not. Getting this backwards is the classic bug in this command
+ * — it type-checks, it looks right, and it reports your unpushed work as the
+ * other side's — so the parse is its own function with its own test.
+ */
+export function parseAheadBehind(out) {
+  const parts = String(out ?? '').trim().split(/\s+/);
+  if (parts.length !== 2) return null;
+  const [behind, ahead] = parts.map(Number);
+  if (!Number.isInteger(behind) || !Number.isInteger(ahead) || behind < 0 || ahead < 0) return null;
+  return { ahead, behind };
+}
+
+/**
+ * Which remote to speak of when a command has to name one.
+ *
+ * Pure, because "several remotes and none called origin" is a real repository
+ * and guessing there would put someone's work on the wrong host.
+ */
+export function preferredRemote(names = []) {
+  if (!names.length) return { name: null, state: 'none' };
+  if (names.includes('origin')) return { name: 'origin', state: 'ok' };
+  if (names.length === 1) return { name: names[0], state: 'ok' };
+  return { name: null, state: 'ambiguous' };
+}
+
+/**
+ * Why a remote operation failed, as a word.
+ *
+ * The distinction that matters is `denied` versus `offline`: one means "your
+ * credentials do not open this", the other "nothing was reachable", and telling
+ * someone to check their network when the answer is a missing key wastes the
+ * ten minutes before a talk. `offline` also covers the timeout, because a
+ * remote that did not answer inside the bound is indistinguishable from one
+ * that is not there — and both are answers rather than hangs.
+ */
+export function classifyRemoteError(e) {
+  const text = String(e?.stderr || e?.message || e || '');
+  if (e?.signal || /\bETIMEDOUT\b|timed out/i.test(text)) return 'offline';
+  if (/could not resolve host|could not resolve hostname|network is unreachable|connection refused|connection timed out|failed to connect|unable to access/i.test(text)) return 'offline';
+  if (/authentication failed|permission denied|could not read (username|password)|terminal prompts disabled|access denied|\b403\b/i.test(text)) return 'denied';
+  if (/repository not found|does not appear to be a git repository|\b404\b/i.test(text)) return 'gone';
+  return 'unknown';
+}
+
+/**
+ * Is this string safe to hand to `git remote add` as a URL?
+ *
+ * The leading-dash refusal is the point: `git remote add origin
+ * --upload-pack=…` is an argument, not a URL, and `git remote add` offers no
+ * `--` terminator to hide behind. Same reasoning as commitSubject's dash rule.
+ */
+export function looksLikeGitUrl(s) {
+  const v = String(s ?? '').trim();
+  if (!v || v.startsWith('-')) return false;
+  if (/^(https?|ssh|git|file):\/\//i.test(v)) return true;
+  if (/^[\w.-]+@[\w.-]+:[^\s]+$/.test(v)) return true;   // scp form: git@host:owner/repo
+  return v.startsWith('/');                              // a local path is a remote too
+}
+
+// ── the probes, and the one object that answers "where does this stand?" ────
+
+/** Is git installed at all? `inGitRepo` swallows ENOENT, so it cannot tell you. */
+export function gitAvailable(cwd = process.cwd(), exec = execFileSync) {
+  try { git(['--version'], cwd, exec); return true; } catch { return false; }
+}
+
+/** Every remote's name, or `[]` — a repository with none is normal, not an error. */
+export function remoteNames(cwd, run = git) {
+  try { return run(['remote'], cwd).split('\n').map((s) => s.trim()).filter(Boolean); }
+  catch { return []; }
+}
+
+/** A remote's URL, for display only. Nothing branches on it. */
+export function remoteUrl(name, cwd, run = git) {
+  try { return run(['remote', 'get-url', name], cwd) || null; } catch { return null; }
+}
+
+/**
+ * What HEAD is: a branch, a detached commit, or nothing committed yet.
+ *
+ * The order is the correctness. An unborn HEAD (`git init`, nothing committed)
+ * has a symbolic-ref but no commit, so asking about the commit first is what
+ * distinguishes it from a detached one.
+ */
+export function headState(cwd, run = git) {
+  try { run(['rev-parse', '--verify', '--quiet', 'HEAD'], cwd); }
+  catch { return { state: 'unborn', branch: null }; }
+  try {
+    const branch = run(['symbolic-ref', '--short', '-q', 'HEAD'], cwd);
+    return branch ? { state: 'ok', branch } : { state: 'detached', branch: null };
+  } catch { return { state: 'detached', branch: null }; }
+}
+
+/** The branch's upstream (`origin/main`), or null when it tracks nothing. */
+export function upstreamOf(cwd, run = git) {
+  try { return run(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], cwd) || null; }
+  catch { return null; }
+}
+
+/** `{ ahead, behind }` against the upstream, or null. A LOCAL read — no fetch. */
+export function aheadBehind(cwd, run = git) {
+  try { return parseAheadBehind(run(['rev-list', '--left-right', '--count', '@{u}...HEAD'], cwd)); }
+  catch { return null; }
+}
+
+/**
+ * Commits that exist on no remote at all — the number the UI should show.
+ *
+ * Deliberately not `ahead`. This needs NO upstream, so a freshly added remote
+ * with nothing pushed still gets a truthful count where `@{u}` would simply
+ * fail; with no remotes at all it degrades to "every commit", which is exactly
+ * right ("none of this exists anywhere else"); and it is per-commit, so an
+ * overlay can mark the rows rather than print a number.
+ */
+export function unpushed(cwd, run = git) {
+  try { return run(['rev-list', 'HEAD', '--not', '--remotes'], cwd).split('\n').filter(Boolean); }
+  catch { return null; }
+}
+
+/**
+ * Where this repository stands, as one object. Never throws, never networks.
+ *
+ * Resolution is ordered and short-circuits, because each state makes the next
+ * question meaningless: you cannot be behind a remote you do not have, and you
+ * cannot be ahead of an upstream when HEAD is not on a branch.
+ */
+export function remoteState(cwd, { run = git, exec = execFileSync } = {}) {
+  const nothing = { remote: null, url: null, branch: null, upstream: null, ahead: null, behind: null, unpushed: null, why: null };
+  if (!gitAvailable(cwd, exec)) return { ...nothing, state: 'no-git' };
+  if (!inGitRepo(cwd, exec)) return { ...nothing, state: 'no-repo' };
+
+  const head = headState(cwd, run);
+  if (head.state === 'unborn') return { ...nothing, state: 'unborn' };
+
+  const local = unpushed(cwd, run);
+  const base = { ...nothing, branch: head.branch, unpushed: local ? local.length : null };
+  if (head.state === 'detached') return { ...base, state: 'detached' };
+
+  const picked = preferredRemote(remoteNames(cwd, run));
+  if (picked.state === 'none') return { ...base, state: 'no-remote' };
+  if (picked.state === 'ambiguous') return { ...base, state: 'ambiguous-remote' };
+
+  const withRemote = { ...base, remote: picked.name, url: remoteUrl(picked.name, cwd, run) };
+  const upstream = upstreamOf(cwd, run);
+  if (!upstream) return { ...withRemote, state: 'no-upstream' };
+
+  const counts = aheadBehind(cwd, run);
+  if (!counts) return { ...withRemote, upstream, state: 'unreadable', why: 'could not count against the upstream' };
+  return { ...withRemote, upstream, ...counts, state: 'ok' };
+}
+
+// ── the words ──────────────────────────────────────────────────────────────
+//
+// Four places tell you about unpushed work — a toast while authoring, a line
+// when author mode exits, the history overlay's footer, and `decklight
+// history` — and they must not disagree. So none of them writes a sentence:
+// they all call one of the three functions below. A wording change is then a
+// diff in one file with a test beside it, rather than four strings that were
+// the same in March.
+
+/** The push command that would actually work here, given what is set up. */
+const pushCommand = (s) => (s.state === 'no-upstream'
+  ? `git push -u ${s.remote} ${s.branch}`
+  : 'git push');
+
+/**
+ * Is there something to nudge about, and how much? `null` for "say nothing".
+ *
+ * The `ahead === 0` row returning null is the do-not-nag guarantee, and it is
+ * stated here rather than at each call site so it cannot be forgotten at one of
+ * them. A repository with NO remote also returns null: telling someone to push
+ * when there is nowhere to push is noise, and that nudge belongs to `init`.
+ */
+export function pushHint(s) {
+  if (!s || ['no-git', 'no-repo', 'unborn', 'unreadable'].includes(s.state)) return null;
+  if (s.state === 'detached') return { kind: 'detached', n: 0, text: 'detached HEAD — there is no branch to push' };
+  if (s.state === 'no-remote' || s.state === 'ambiguous-remote') return null;
+  const n = s.state === 'ok' ? s.ahead : s.unpushed;
+  if (!n) return null;
+  return { kind: s.state === 'ok' ? 'unpushed' : 'no-upstream', n, text: `↑${n} unpushed — ${pushCommand(s)}` };
+}
+
+/**
+ * The line author mode prints on its way out, or null for a clean exit.
+ *
+ * This one DOES speak up when there is no remote, unlike `pushHint` — the end
+ * of a session is the moment when "this only exists here" is worth knowing, and
+ * it is said once rather than every few minutes.
+ */
+export function exitPushLine(s) {
+  if (!s) return null;
+  if (s.state === 'no-remote' || s.state === 'ambiguous-remote') {
+    return s.unpushed
+      ? `  this deck's history is only on this machine — back it up: git remote add origin <url>`
+      : null;
+  }
+  const hint = pushHint(s);
+  if (!hint || !hint.n) return null;
+  return `  ↑${hint.n} commit${hint.n === 1 ? '' : 's'} only on this machine — ${pushCommand(s)}`;
+}
+
+/** The one-line readout `decklight history` and the overlay footer both show. */
+export function remoteLine(s) {
+  if (!s) return '';
+  switch (s.state) {
+    case 'no-git': return 'git is not installed';
+    case 'no-repo': return 'not in a git repository';
+    case 'unborn': return 'nothing committed yet';
+    case 'detached': return `detached HEAD · ${s.unpushed ?? 0} commits here`;
+    case 'no-remote': return `${s.branch} · no remote — this history is only on this machine`;
+    case 'ambiguous-remote': return `${s.branch} · several remotes, none named origin — push by name`;
+    case 'no-upstream': return `${s.branch} → no upstream (${s.remote} exists) · ↑${s.unpushed ?? 0} never pushed`;
+    case 'unreadable': return `${s.branch} → ${s.upstream} · could not be counted`;
+    default: {
+      const bits = [`${s.branch} → ${s.upstream}`];
+      if (s.ahead) bits.push(`↑${s.ahead} unpushed`);
+      if (s.behind) bits.push(`↓${s.behind} behind`);
+      if (!s.ahead && !s.behind) bits.push('all pushed');
+      return bits.join(' · ');
+    }
+  }
+}
