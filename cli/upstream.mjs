@@ -105,7 +105,11 @@ export async function resolveUpstream(deckPath, { run = runGit, home = homedir()
 
   const top = await run(['rev-parse', '--show-toplevel'], { cwd });
   if (!top.ok || !top.stdout) return no('no-repo');
-  const repoRoot = top.stdout;
+  // resolve() because git answers in FORWARD SLASHES on every platform,
+  // including Windows — so `C:/Users/x` has to become `C:\Users\x` before it
+  // can be compared with a path Node produced, or the tracked check below
+  // compares two spellings of the same directory and refuses every deck.
+  const repoRoot = resolve(top.stdout);
 
   // A repository whose root is $HOME or a filesystem root is somebody's whole
   // machine, not a deck's home. Belt and braces behind the tracked check below.
