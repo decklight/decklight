@@ -197,7 +197,7 @@ export function createHistory(limit = 200) {
 // The plumbing lives in git.mjs now; imported for editMain's use below and
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
-import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, resolveGitMode, shouldCommit, commitSubject, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
+import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 export async function editMain(args) {
@@ -288,7 +288,17 @@ export async function editMain(args) {
         : `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`);
     }
   }
-  const finalCommit = () => { if (gitOn) gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`); };
+  const finalCommit = () => {
+    if (!gitOn) return;
+    gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`);
+    // The last moment anyone is looking. Synchronous and fetch-free on purpose:
+    // this runs inside the SIGINT handler, and a network call there would hang
+    // a Ctrl-C — the worst possible place to hang.
+    try {
+      const line = exitPushLine(remoteState(root));
+      if (line) console.log(line);
+    } catch { /* a reminder is never worth failing an exit over */ }
+  };
   process.on('SIGINT', () => { finalCommit(); process.exit(0); });
   process.on('SIGTERM', () => { finalCommit(); process.exit(0); });
 
@@ -517,6 +527,9 @@ export async function editMain(args) {
         return json(200, {
           ok: true, deck: deckUrl, name: basename(deckPath),
           ...history.counts(), git: gitOn,
+          // What the player's one push nudge reads. Computed once, like everything
+          // else on ping: the toast is threshold-driven, not live.
+          remote: gitOn ? remoteState(root) : null,
           agents: agents.map((a) => ({ name: a.name, label: a.label })),
           // which one A reaches for, so the picker opens on it rather than
           // defaulting to the first detected agent every session (#125)

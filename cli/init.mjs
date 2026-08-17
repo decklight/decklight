@@ -38,6 +38,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+const { basename, relative } = path;
 import { pathToFileURL } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
@@ -49,7 +50,10 @@ import { THEMES_DIR, themeCss, runtimeCss, runtimeJs } from './pkg.mjs';
 import { TARGETS, detectedTargets, installGlobalSkill, display } from './skills.mjs';
 import { onPath } from './agents.mjs';
 import { escapeHtml } from './edit.mjs';
-import { inGitRepo, createRepo, isIdentityError, oneline } from './git.mjs';
+import {
+  classifyRemoteError, createRepo, foreignWarning, git as gitRun, inGitRepo, isIdentityError,
+  looksLikeGitUrl, noPromptEnv, oneline, remoteNames, splitDeckPaths,
+} from './git.mjs';
 import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 
@@ -168,6 +172,123 @@ export function planGit({ args = [], tty = false, inRepo = false } = {}) {
   if (args.includes('--git')) return { action: inRepo ? 'skip' : 'create' };
   if (inRepo) return { action: 'skip' };
   return { action: tty ? 'ask' : 'hint' };
+}
+
+/** Everything committed here that is not the deck — what a push would carry. */
+export function notTheDeck(root, deckPath, run = gitRun) {
+  try {
+    const tracked = run(['ls-files'], root).split('\n').filter(Boolean);
+    return splitDeckPaths(tracked, relative(root, deckPath)).foreign;
+  } catch { return []; }
+}
+
+/**
+ * Carry out whatever planRemote decided. Every failure is a NOTE, never an
+ * exit: the deck is the product, and a remote that could not be created is a
+ * line of advice rather than a reason to have failed the scaffold.
+ */
+export async function offerRemote(plan, { root, note, askYes, question, exec = execFileSync }) {
+  const git = (args) => exec('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const push = () => {
+    try {
+      exec('git', ['push', '-u', 'origin', 'HEAD'], {
+        cwd: root, stdio: 'ignore', timeout: 60_000, env: noPromptEnv(),
+      });
+      return null;
+    } catch (e) { return classifyRemoteError(e); }
+  };
+
+  if (plan.action === 'skip') return;
+  if (plan.action === 'hint') {
+    return note('  git: no remote — this history is only on this machine'
+      + ' (git remote add origin <url>, or --remote <url> next time)');
+  }
+
+  if (plan.action === 'set') {
+    if (!looksLikeGitUrl(plan.url)) {
+      return note(`  git: "${plan.url}" does not look like a git remote URL — no remote added`);
+    }
+    try { git(['remote', 'add', 'origin', plan.url]); }
+    catch (e) { return note(`  git: could not add the remote — ${oneline(e)}`); }
+    const why = push();
+    return note(why
+      ? `  git: origin added; the push failed (${why}) — retry with: git push -u origin HEAD`
+      : '  git: origin added and pushed — decklight publish turns this into a page');
+  }
+
+  if (plan.action === 'ask-gh') {
+    // PRIVATE, and the prompt says so. A public repository created off a
+    // default-yes prompt is a disclosure, not a convenience — and `gh repo edit
+    // --visibility public` is one command away for anyone who wants the
+    // opposite, which a second question here would not be worth.
+    const yes = await askYes('  create a PRIVATE GitHub repository and push this deck to it?'
+      + ` [${plan.defaultYes ? 'Y/n' : 'y/N'}] `, plan.defaultYes);
+    if (!yes) return note('  git: no remote — add one later with: gh repo create --source=. --push');
+    try {
+      exec('gh', ['repo', 'create', basename(root), '--private', '--source=.', '--remote', 'origin', '--push'],
+        { cwd: root, stdio: 'ignore', timeout: 120_000, env: noPromptEnv() });
+      return note(`  git: created a private GitHub repository from ${basename(root)} and pushed`);
+    } catch (e) { return note(`  git: gh could not create the repository — ${oneline(e)}`); }
+  }
+
+  // ask-url
+  const url = (await question('  paste a git remote URL so this deck is not only on this laptop'
+    + ' (blank to skip): ')).trim();
+  if (!url) return note('  git: no remote — add one later with: git remote add origin <url>');
+  if (!looksLikeGitUrl(url)) {
+    return note('  git: that does not look like a git remote URL — skipped'
+      + ' (git remote add origin <url> later)');
+  }
+  try { git(['remote', 'add', 'origin', url]); }
+  catch (e) { return note(`  git: could not add the remote — ${oneline(e)}`); }
+  const why = push();
+  // The remote STAYS ADDED on a failed push — that is the durable half, and it
+  // is what makes the retry one command instead of two.
+  return note(why
+    ? `  git: origin added; the push failed (${why}) — retry with: git push -u origin HEAD`
+    : '  git: origin added and pushed — decklight publish turns this into a page');
+}
+
+/**
+ * Is `gh` here AND signed in? Both halves matter: `gh` installed but logged out
+ * is exactly the state that turns a helpful offer into a confusing failure.
+ */
+export function ghReady(exec = execFileSync) {
+  if (!onPath('gh')) return false;
+  try {
+    exec('gh', ['auth', 'status'], {
+      stdio: 'ignore', timeout: 5000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+    });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Whether to offer a remote, and by which door. Pure, like planGit above.
+ *
+ * The two roads are `gh` (create the repository and push in one command) and a
+ * URL you paste, and which one is offered depends on whether `gh` is BOTH
+ * installed and logged in — `gh` present but signed out is exactly the state
+ * that turns a helpful offer into a confusing failure.
+ *
+ * `foreign` is how many files in the new repository are not the deck, and it
+ * only changes the DEFAULT: for a directory decklight just scaffolded the
+ * answer is almost certainly yes, and for one that already held somebody's
+ * work — where `git add -A` has just committed all of it — the answer should
+ * not be yes because they pressed return. Same question, different default,
+ * and the count is why.
+ */
+export function planRemote({
+  args = [], tty = false, haveRepo = false, hasRemote = false, ghReady = false, foreign = 0,
+} = {}) {
+  if (args.includes('--no-remote')) return { action: 'skip' };
+  const i = args.indexOf('--remote');
+  const url = i >= 0 ? args[i + 1] : null;
+  if (url && !url.startsWith('-')) return { action: 'set', url };
+  // Nothing to attach a remote to, or one is already attached.
+  if (!haveRepo || hasRemote) return { action: 'skip' };
+  if (!tty) return { action: 'hint' };
+  return { action: ghReady ? 'ask-gh' : 'ask-url', defaultYes: foreign === 0 };
 }
 
 // ── the skill scope: project by default, global as a proposition ────────────
@@ -395,6 +516,8 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--open') openAfter = true;
     else if (a === '--no-skill' || a === '--global-skill') ; // consumed by planSkill below
     else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
+    else if (a === '--remote') i++;                // consumed by planRemote below
+    else if (a === '--no-remote') ;                // likewise
     else if (!a.startsWith('-')) title = title ?? a;
     else fail(`unknown argument: ${a}`);
   }
@@ -426,7 +549,16 @@ unless --no-skill is given. The deck file is only touched with --force.
       rl.question(q).then(res, () => res(''));
     });
   };
-  const askYes = async (q) => !/^n/i.test((await question(q)).trim());
+  // `defaultYes` is what a bare Enter means. It is a parameter rather than a
+  // constant because the remote question flips it: for a directory decklight
+  // scaffolded the answer is almost certainly yes, and for one that already
+  // held somebody's work — where `git add -A` has just committed all of it —
+  // it should not be yes because they pressed return.
+  const askYes = async (q, defaultYes = true) => {
+    const a = (await question(q)).trim();
+    if (!a) return defaultYes;
+    return defaultYes ? !/^n/i.test(a) : /^y/i.test(a);
+  };
 
   if (from && themesSel !== 'all') {
     // A template carries its own themes — it is a whole deck, not a body to
@@ -540,6 +672,34 @@ unless --no-skill is given. The deck file is only touched with --force.
       + ' (--git-mode timer for a plain cadence)');
   }
   else if (action === 'hint') note('  git: no repository here — pass --git to create one and auto-commit the deck');
+
+  // ── the remote offer — the deck exists nowhere else until this happens ───
+  // ONLY for a repository decklight just created. A repo that was already here
+  // is somebody else's — it may be a monorepo, a checkout, a subdirectory of
+  // something larger — and offering to publish it because a deck was scaffolded
+  // inside it would be presumptuous. decklight's repositories are decklight's
+  // to ask about; everyone else's are not.
+  if (action === 'create') {
+    const foreignFiles = notTheDeck(root, deckPath);
+    const remote = planRemote({
+      args: argv,
+      tty,
+      haveRepo: inGitRepo(root),
+      hasRemote: remoteNames(root).length > 0,
+      ghReady: (argv.includes('--remote') || !tty) ? false : ghReady(),
+      foreign: foreignFiles.length,
+    });
+    // What would actually be pushed, said BEFORE the question rather than
+    // discovered after it: `initRepo` runs `git add -A`, so a decklight init in
+    // a directory that already held work has just committed all of it.
+    if (['ask-gh', 'ask-url'].includes(remote.action) && foreignFiles.length) {
+      for (const line of foreignWarning(
+        { total: foreignFiles.length + 1, own: [], foreign: foreignFiles },
+        { verb: 'push', scope: 'everything in this directory' },
+      ) ?? []) note(`  ${line}`);
+    }
+    await offerRemote(remote, { root, note, askYes, question });
+  }
 
   process.stdout.write(epilogue({ deckPath, tty: !!process.stdout.isTTY, noColor: !!process.env.NO_COLOR }));
 

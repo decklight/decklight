@@ -17,7 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
-import { agentChipText, needsDevMode } from './devmode.js';
+import { agentChipText, needsDevMode, pushToastText } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { hljs } from '../code/code.js';
 
@@ -50,6 +50,7 @@ export function createEditMode({
   let preferredAgent = null; // the one A reaches for, remembered server-side (#125)
   let editWizards = [];  // [{name, qualified, title}] engines a marketplace declares a wizard for
   let agentBusy = null;  // {agent, prompt, startedAt} while a one-shot runs
+  let pushToastShown = false;  // at most one push nudge per session, by construction
 
   // The chip that says an agent is STILL working. A toast cannot: it expires,
   // and the job does not. This lives as long as the run does, and ticks, so the
@@ -107,6 +108,11 @@ export function createEditMode({
           // 127.0.0.1 and serves no /remote/* at all (PRESENT#REMOTE). A deck
           // being AUTHORED has a keyboard in front of it; a deck being
           // PRESENTED is what wirePresentRemote wires up.
+          // Said once per session, and only when there is enough of it to be
+          // worth interrupting for. A session that STARTS forty commits behind
+          // hears it immediately rather than waiting for the next commit.
+          const pushMsg = pushToastText(j.remote);
+          if (pushMsg) { pushToastShown = true; toast(pushMsg, 4200); }
           agentBusy = j.agentBusy || null; // an agent may already be mid-run across a reload
           if (agentBusy) toast(`${agentBusy.agent} is editing the deck…`, 2000);
           // The chip is restored too, with the SERVER's startedAt — a reload
