@@ -840,19 +840,25 @@ const restoreRepo = () => {
 
 test('deckHistory parses git log rows, newest first', () => {
   // the git invoker is injected, so no repo is needed to test the parsing
-  const fake = () => ['a1b2c3d\x012 hours ago\x01third', 'ffff000\x013 days ago\x01first'].join('\n');
+  // `full` rides along because marking a commit as unpushed means comparing it
+  // against `rev-list`'s output, and %h's abbreviation length is a repository
+  // setting the two commands need not agree on.
+  const fake = () => [
+    'a1b2c3d\x012 hours ago\x01third\x01a1b2c3d4444444444444444444444444444444',
+    'ffff000\x013 days ago\x01first\x01ffff000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  ].join('\n');
   const rows = deckHistory('/x/deck.html', '/x', fake);
   assert.deepEqual(rows, [
-    { hash: 'a1b2c3d', when: '2 hours ago', subject: 'third' },
-    { hash: 'ffff000', when: '3 days ago', subject: 'first' },
+    { hash: 'a1b2c3d', when: '2 hours ago', subject: 'third', full: 'a1b2c3d4444444444444444444444444444444' },
+    { hash: 'ffff000', when: '3 days ago', subject: 'first', full: 'ffff000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
   ]);
 });
 
 test('deckHistory: a subject containing the separator cannot corrupt the row', () => {
   // \x01 is unreachable from a real commit message, which is the point of it
-  const fake = () => 'a1b2c3d\x01now\x01fix: a · b — c';
+  const fake = () => 'a1b2c3d\x01now\x01fix: a · b — c\x01a1b2c3dfull';
   assert.deepEqual(deckHistory('/x/d.html', '/x', fake), [
-    { hash: 'a1b2c3d', when: 'now', subject: 'fix: a · b — c' },
+    { hash: 'a1b2c3d', when: 'now', subject: 'fix: a · b — c', full: 'a1b2c3dfull' },
   ]);
 });
 
@@ -1346,4 +1352,88 @@ test('bundling an already-inlined deck says so, instead of blaming a missing <li
   });
 
   rmTemp(dir);
+});
+
+// ── decklight history — a readout, not a means to an end ──────────────────
+
+/** git in `cwd`, with a fixed identity so a bare CI machine can commit. */
+const hgit = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', env: gitIdEnv });
+
+test('markPushState marks what exists nowhere else, and admits when it cannot tell', async () => {
+  const { markPushState } = await import('../cli/history.mjs');
+  const entries = [{ full: 'aaa' }, { full: 'bbb' }, { full: 'ccc' }];
+  assert.deepEqual(markPushState(entries, ['aaa']).map((e) => e.pushed), [false, true, true]);
+  assert.deepEqual(markPushState(entries, []).map((e) => e.pushed), [true, true, true],
+    'nothing unpushed means everything is pushed — not "unknown"');
+  // null is "not a question worth answering here" — no remote, or git could not
+  // say. Marking every row in a repo with no remote is a wall of arrows saying
+  // what the footer says once.
+  assert.deepEqual(markPushState(entries, null).map((e) => e.pushed), [null, null, null]);
+});
+
+test('history refuses without a repo, and does NOT refuse an empty history', () => {
+  // The difference from `restore`, stated as a test: restore exits 1 when there
+  // is nothing to restore, because it is an action that could not be performed.
+  // A readout that exits non-zero because the answer is "nothing yet" breaks
+  // `decklight history && …` and reads as a malfunction.
+  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-hist-'));
+  try {
+    fs.writeFileSync(path.join(plain, 'deck.html'), '<div class="decklight"></div><script>Decklight.init({})</script>');
+    const noRepo = spawnSync(process.execPath, [CLI, 'history', 'deck.html'], { cwd: plain, encoding: 'utf8' });
+    assert.equal(noRepo.status, 1);
+    assert.match(noRepo.stderr, /not in a git repository/);
+
+    hgit(['init', '-q'], plain);
+    hgit(['config', 'user.email', 't@e.com'], plain);
+    hgit(['config', 'user.name', 'T'], plain);
+    const fresh = spawnSync(process.execPath, [CLI, 'history', 'deck.html'], { cwd: plain, encoding: 'utf8' });
+    assert.equal(fresh.status, 0, 'an empty history is an answer, not a failure');
+    // A repository with no commits at all: `git log` exits non-zero there
+    // ("does not have any commits yet"), and reporting that as a read error
+    // would turn the ordinary first minute of a deck's life into an error.
+    assert.match(fresh.stdout, /nothing committed yet/);
+
+    // And once there IS a commit, but none that touched this deck.
+    fs.writeFileSync(path.join(plain, 'other.txt'), 'x');
+    hgit(['add', 'other.txt'], plain); hgit(['commit', '-qm', 'unrelated'], plain);
+    const unseen = spawnSync(process.execPath, [CLI, 'history', 'deck.html'], { cwd: plain, encoding: 'utf8' });
+    assert.equal(unseen.status, 0);
+    assert.match(unseen.stdout, /no record of this file yet/);
+  } finally { rmTemp(plain); }
+});
+
+test('history lists commits, marks the unpushed ones, and names where they stand', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-hist2-'));
+  try {
+    const bare = path.join(root, 'bare.git');
+    const work = path.join(root, 'work');
+    fs.mkdirSync(work);
+    hgit(['init', '--bare', '-q', bare], root);
+    hgit(['init', '-q'], work);
+    hgit(['config', 'user.email', 't@e.com'], work);
+    hgit(['config', 'user.name', 'T'], work);
+    fs.writeFileSync(path.join(work, 'deck.html'), '<div class="decklight"></div>');
+    hgit(['add', '-A'], work); hgit(['commit', '-qm', 'first'], work);
+    hgit(['remote', 'add', 'origin', `file://${bare}`], work);
+    hgit(['push', '-q', '-u', 'origin', 'HEAD'], work);
+
+    let out = spawnSync(process.execPath, [CLI, 'history', 'deck.html'], { cwd: work, encoding: 'utf8' });
+    assert.equal(out.status, 0);
+    assert.match(out.stdout, /1 commit, newest first/);
+    assert.match(out.stdout, /all pushed/);
+    assert.ok(!out.stdout.includes('↑'), 'a pushed deck has no arrows');
+
+    fs.writeFileSync(path.join(work, 'deck.html'), '<div class="decklight"><section></section></div>');
+    hgit(['add', '-A'], work); hgit(['commit', '-qm', 'second'], work);
+    out = spawnSync(process.execPath, [CLI, 'history', 'deck.html'], { cwd: work, encoding: 'utf8' });
+    assert.match(out.stdout, /↑/, 'the new commit is marked');
+    assert.match(out.stdout, /↑1 unpushed/);
+    assert.match(out.stdout, /push them with:/);
+    assert.match(out.stdout, /restore one with:  decklight restore deck\.html/);
+  } finally { rmTemp(root); }
+});
+
+test('decklight --help lists history', () => {
+  const out = spawnSync(process.execPath, [CLI, '--help'], { encoding: 'utf8' }).stdout;
+  assert.match(out, /^ {2}history /m);
 });

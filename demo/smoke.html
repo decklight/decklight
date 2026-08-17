@@ -446,9 +446,9 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
       press('k');
       recs.push(rec('clockoff', !document.querySelector('.decklight-clock')));
       deck.prev(); // …restore the step the other assertions dumped
-      // progress bar (H) — same shape as the clock: off, on, tracks, off.
+      // progress bar (J) — same shape as the clock: off, on, tracks, off.
       recs.push(rec('progressdefault', !document.querySelector('.decklight-progress')));
-      press('h');
+      press('j');
       const bar = document.querySelector('.decklight-progress .bar');
       recs.push(rec('progressshown', !!bar));
       const wStart = bar?.style.width;                 // near the start — nearly empty
@@ -456,7 +456,7 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
       deck.goto(deck.state.totalSlides, 0);            // End: last slide — full
       recs.push(rec('progresstracks', !!bar && wStart !== bar.style.width && parseFloat(bar.style.width) === 100));
       deck.goto(restore.slide, restore.step);          // …restore for the dump
-      press('h');
+      press('j');
       recs.push(rec('progressoff', !document.querySelector('.decklight-progress')));
       // ink annotations (W / ⇧W) — no canvas until asked, pen captures and
       // paints, navigation and ⌫ clear, ⇧W is the laser, off releases clicks.
