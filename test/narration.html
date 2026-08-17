@@ -92,6 +92,27 @@
     });
 
     const BRIDGE = 'http://127.0.0.1:8899';
+    // ── mock author server: only the `record` mode has one ──────────────────
+    // ⇧V writes its slide-NN.wav through the server that owns the deck file
+    // (PRESENTING), so proving it stopped using the browser's download folder
+    // means standing an /edit/ping and an /edit/record up in front of it. Gated
+    // on the mode: every OTHER mode must keep failing that probe, or a fetch
+    // left pending would freeze Chrome's virtual clock and hang the page.
+    const AUTHOR = 'http://127.0.0.1:8788';
+    const recording = mode === 'record';
+    // ?nosrv — no author server answers, which is a `file://` deck or one served
+    // read-only by `decklight present`: nothing here may write to disk, so the
+    // browser's download folder is the honest fallback and must still work
+    const authored = recording && !params.has('nosrv');
+    window.__recorded = [];   // every /edit/record the deck posted
+    window.__downloaded = []; // …and every file it handed the browser instead
+    // downloadFromUrl builds an <a download> and clicks it; that click is the
+    // only observable difference between the two paths
+    const realClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function click() {
+      if (this.download) { window.__downloaded.push(this.download); return; }
+      return realClick.call(this);
+    };
     // .bind: an unbound window.fetch called as a bare function throws "Illegal
     // invocation", so every non-bridge request would die in the fallthrough
     const realFetch = window.fetch.bind(window);
@@ -100,6 +121,21 @@
       // the manifest is a real relative fetch, which file:// would refuse
       if (u.endsWith(MANIFEST_PATH)) {
         return new Response(manifestBody(), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (authored && u.startsWith(AUTHOR)) {
+        if (u.endsWith('/edit/ping')) {
+          // the basename guard the runtime applies: this page IS narration.html
+          return new Response(JSON.stringify({ ok: true, name: 'narration.html', undo: 0, redo: 0 }),
+            { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if (u.includes('/edit/record')) {
+          const q = new URL(u).searchParams;
+          const bytes = (await opts.body.arrayBuffer()).byteLength;
+          window.__recorded.push({ dir: q.get('dir'), slide: q.get('slide'), kind: q.get('kind'), bytes });
+          return new Response(JSON.stringify({ ok: true, dir: q.get('dir') }),
+            { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        return new Response('', { status: 404 });
       }
       if (!u.startsWith(BRIDGE)) return realFetch(url, opts);
       if (u.endsWith('/ping')) {
@@ -155,6 +191,10 @@
       cfg.narration = { files: [{ label: 'Test', dir: 'voices' }] };
     }
     if (manifestDeck) cfg.narration = { files: [{ label: 'Algenib · cloud', manifest: MANIFEST_PATH }] };
+    // ?dir — the deck already names a narration folder, so ⇧V records into THAT
+    // one rather than seeding a second. The persisted LIVE voice still wins as
+    // the source, which is what ⇧V needs to run at all.
+    if (recording && params.has('dir')) cfg.narration.files = 'voices';
     if (mode === 'modules') {
       cfg.playlist = {
         index: 0,
@@ -334,6 +374,64 @@
 
           r.PASS = r.playedSigned && r.keptTheQuery && r.noComplaint
             && r.quietOnNullSlide && r.perSlideUrls;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (recording) {
+          // ⇧V used to hand every stitched slide to the browser, which is how a
+          // recorded deck ended up as slide-NN.wav in the OS download folder —
+          // never the deck's, and `bundle` reads no other. With an author
+          // server up, every file must go through it instead.
+          await new Promise((ok) => setTimeout(ok, 400));   // /edit/ping answers
+          press('V', document.body, { shiftKey: true });
+          r.dialogOpens = !!document.querySelector('.decklight-record');
+          document.querySelector('.decklight-record .narr-card .narr-row')?.click();  // Start recording
+
+          // Poll for the done card rather than sleeping a guessed interval: a
+          // slide is several bridge round-trips and a blob stitch, and under a
+          // virtual clock those take real time the page cannot predict. Every
+          // tick spends the run's virtual-time budget, so the interval is short
+          // and the ceiling is generous — a run that needs the whole 60s is
+          // still under a second of wall clock.
+          const card = document.querySelector('.decklight-record .narr-card');
+          for (let i = 0; i < 1200 && !/recording done/.test(card?.textContent ?? ''); i++) {
+            await new Promise((ok) => setTimeout(ok, 50));
+          }
+          r.finished = /recording done/.test(card?.textContent ?? '');
+          r.posted = window.__recorded.slice();
+          r.downloaded = window.__downloaded.slice();
+          r.authored = authored;
+          const text = card?.textContent ?? '';
+          // slides 1, 3 and 4 have notes; slide 2 has none and is not recorded
+          r.slides = authored
+            ? r.posted.filter((p) => p.kind === 'wav').map((p) => p.slide)
+            : r.downloaded.map((n) => n.replace(/^slide-0*(\d+)\.wav$/, '$1'));
+          r.everySlideHasNotes = r.slides.join(',') === '1,3,4';
+
+          if (!authored) {
+            // no server, so the browser takes them — under their own names, and
+            // the card must not claim a folder next to a deck nothing wrote to
+            r.wentToDisk = r.posted.length === 0;
+            r.saidWhere = /downloads/.test(text);
+            r.PASS = r.dialogOpens && r.finished && r.wentToDisk
+              && r.everySlideHasNotes && r.saidWhere;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
+
+          r.wentToDisk = r.downloaded.length === 0 && r.posted.length > 0;
+          r.carriedAudio = r.posted.every((p) => p.bytes > 0);
+          // the folder: the deck's own narration.files when it has one, else
+          // the same `voiceover` tools/voiceover.mjs writes to
+          r.dir = r.posted[0]?.dir;
+          r.dirIsRight = r.dir === (params.has('dir') ? 'voices' : 'voiceover');
+          // and the card names where they landed, plus the line that plays them
+          r.saidWhere = text.includes(`${r.dir}/`) && !/downloads/.test(text);
+          r.namedTheConfig = text.includes(`files: '${r.dir}', ext: 'wav'`);
+
+          r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes
+            && r.carriedAudio && r.dirIsRight && r.saidWhere && r.namedTheConfig;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

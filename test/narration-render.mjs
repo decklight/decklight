@@ -21,6 +21,11 @@
  *   xss     — the bridge's roster names a voice WITH MARKUP (an ElevenLabs
  *             voice is named by whoever shared it): the N picker must render
  *             it as text, never parse it
+ *   record  — ⇧V with an author server up: every stitched slide goes THROUGH
+ *             that server into a folder beside the deck, and nothing reaches
+ *             the browser's download path (`&dir`: the deck already names a
+ *             narration folder, so the recording lands in that one;
+ *             `&nosrv`: nothing to write with, so the browser still gets them)
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,17 +34,25 @@ import { dumpDom, resultsFrom } from './harness.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'narration.html');
 
+// `record` records the WHOLE deck before it can assert anything, and the
+// download path it falls back to leaves a 5s revoke timer behind per file —
+// pending virtual-time work that spends the budget without advancing the
+// recording. Its own clock, so a slower runner does not turn "not finished
+// yet" into a failure. Virtual, not wall: these runs still take under a second.
+const BUDGET = (m) => (m === 'record' ? 120_000 : 30_000);
+
 function run(mode, extra = '') {
   // quietStderr: a headless Chrome on a machine with no D-Bus/UPower prints
   // pages of unrelated noise that would bury the actual result
   const html = dumpDom(`file://${page}?mode=${mode}${extra}`,
-    { fileAccess: true, budget: 30000, quietStderr: true, who: 'narration-render' });
+    { fileAccess: true, budget: BUDGET(mode), quietStderr: true, who: 'narration-render' });
   return resultsFrom(html, 'NARRATION', `mode=${mode}${extra}`);
 }
 
 let bad = 0;
 for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'hint', 'hint&print', 'manifest', 'expired']) {
+  'elevenlabsv3', 'hint', 'hint&print', 'manifest', 'expired',
+  'record', 'record&dir', 'record&nosrv']) {
   const [m, extra] = mode.split('&');
   const r = run(m, extra ? `&${extra}` : '');
   const ok = r.PASS === true;
@@ -91,6 +104,17 @@ for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', '
   if (mode === 'recorded') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} silent slide stays quiet=${r.quietOnSlideWithNoNotes}`
       + ` · missing file warns=${r.warnsOnMissingFile}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (m === 'record') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(12)} `
+      + (r.authored
+        ? `wrote ${r.slides?.join(',')} to ${r.dir}/ (right folder=${r.dirIsRight})`
+          + ` · nothing downloaded=${r.wentToDisk}`
+          + ` · card says where=${r.saidWhere} and how to play it=${r.namedTheConfig}`
+        : `no server → downloaded ${r.slides?.join(',')} (posted nothing=${r.wentToDisk})`
+          + ` · card says downloads=${r.saidWhere}`)
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
