@@ -83,3 +83,31 @@ export function agentChipText(job, now = Date.now()) {
   if (!Number.isFinite(started) || started <= 0 || started > now) return job.agent;
   return `${job.agent} · ${elapsedLabel(now - started)}`;
 }
+
+// ── "you have not pushed any of this" ─────────────────────────────────────
+//
+// The fourth place that mentions unpushed work, and the only one that
+// interrupts. The other three are read when you go looking — `decklight
+// history`, the H overlay's footer, the line author mode prints on its way out
+// — so this one has to earn a toast, and the governing is most of the design.
+
+/**
+ * The toast text for unpushed work, or null for "say nothing".
+ *
+ * THREE THINGS KEEP IT FROM NAGGING, and one-per-session is the load-bearing
+ * one: a limit expressed as a count cannot become a limit expressed as "every
+ * few minutes" by accident, which is what happens to interval-based nudges and
+ * why people turn them off. After that it is the message log's job (`` ` ``),
+ * where it stays without asking again.
+ *
+ * A repository with NO REMOTE is silent here on purpose. Telling somebody to
+ * push when there is nowhere to push is noise, and that nudge belongs to
+ * `decklight init`, once, at the moment a remote could actually be added.
+ */
+export function pushToastText(remote, { shown = false, threshold = 10 } = {}) {
+  if (shown || !remote) return null;
+  if (!['ok', 'no-upstream'].includes(remote.state)) return null;
+  const n = remote.state === 'ok' ? remote.ahead : remote.unpushed;
+  if (!n || n < threshold) return null;
+  return `↑${n} commits are only on this machine — H shows them`;
+}

@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentChipText, elapsedLabel, needsDevMode } from '../src/core/devmode.js';
+import { agentChipText, elapsedLabel, needsDevMode, pushToastText } from '../src/core/devmode.js';
 
 const FILE = { protocol: 'file:', pathname: '/Users/gp/decks/talk.html' };
 const HTTP = { protocol: 'https:', pathname: '/talks/talk.html' };
@@ -120,4 +120,40 @@ test('an unreadable timestamp still gets a chip, without a clock', () => {
   for (const bad of [undefined, null, 'soon', NaN, 0, -1, now + 5_000]) {
     assert.equal(agentChipText({ agent: 'bob', startedAt: bad }, now), 'bob', String(bad));
   }
+});
+
+// ── the one push nudge that interrupts ────────────────────────────────────
+
+test('a repository with no remote is SILENT — that nudge belongs to init', () => {
+  // Telling somebody to push when there is nowhere to push is noise, and the
+  // moment a remote could actually be added is `decklight init`, once.
+  assert.equal(pushToastText({ state: 'no-remote', unpushed: 50 }), null);
+  assert.equal(pushToastText({ state: 'no-repo' }), null);
+  assert.equal(pushToastText({ state: 'detached', unpushed: 20 }), null);
+  assert.equal(pushToastText(null), null);
+});
+
+test('below the threshold, nothing is said', () => {
+  // A handful of unpushed commits is a normal afternoon.
+  assert.equal(pushToastText({ state: 'ok', ahead: 9, unpushed: 9 }), null);
+  assert.equal(pushToastText({ state: 'ok', ahead: 0, unpushed: 0 }), null);
+});
+
+test('at the threshold it says how many, and where to look', () => {
+  assert.equal(pushToastText({ state: 'ok', ahead: 10, unpushed: 10 }),
+    '↑10 commits are only on this machine — H shows them');
+  // A branch that tracks nothing counts what exists nowhere else instead.
+  assert.equal(pushToastText({ state: 'no-upstream', unpushed: 12 }),
+    '↑12 commits are only on this machine — H shows them');
+});
+
+test('once per session, by construction', () => {
+  // The load-bearing guarantee: a limit expressed as a COUNT cannot decay into
+  // "every few minutes" the way an interval-based nudge does — and an interval
+  // nudge is the kind people turn off, after which the reminder is worth zero.
+  assert.equal(pushToastText({ state: 'ok', ahead: 40, unpushed: 40 }, { shown: true }), null);
+});
+
+test('the threshold is a knob, so a test can state it rather than assume it', () => {
+  assert.match(pushToastText({ state: 'ok', ahead: 3, unpushed: 3 }, { threshold: 3 }), /↑3 commits/);
 });

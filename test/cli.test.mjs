@@ -1437,3 +1437,69 @@ test('decklight --help lists history', () => {
   const out = spawnSync(process.execPath, [CLI, '--help'], { encoding: 'utf8' }).stdout;
   assert.match(out, /^ {2}history /m);
 });
+
+// ── the remote offer at init time ─────────────────────────────────────────
+
+test('planRemote: the whole table', async () => {
+  const { planRemote } = await import('../cli/init.mjs');
+  const p = (o) => planRemote({ tty: true, haveRepo: true, ...o });
+  assert.deepEqual(p({ args: ['--no-remote'] }), { action: 'skip' });
+  assert.deepEqual(p({ args: ['--remote', 'git@h:a/b'] }), { action: 'set', url: 'git@h:a/b' });
+  // Nothing to attach a remote to, or one is already attached.
+  assert.deepEqual(p({ haveRepo: false }), { action: 'skip' });
+  assert.deepEqual(p({ hasRemote: true }), { action: 'skip' });
+  // A headless run never blocks on a question nobody can answer.
+  assert.deepEqual(p({ tty: false }), { action: 'hint' });
+  assert.deepEqual(p({ ghReady: true }), { action: 'ask-gh', defaultYes: true });
+  assert.deepEqual(p({ ghReady: false }), { action: 'ask-url', defaultYes: true });
+  // A `--remote` that is really a flag is not a URL.
+  assert.deepEqual(p({ args: ['--remote', '--upload-pack=x'] }), { action: 'ask-url', defaultYes: true });
+});
+
+test('a directory that already held work flips the default to N', async () => {
+  const { planRemote } = await import('../cli/init.mjs');
+  // `initRepo` runs `git add -A`, so a decklight init in somebody's existing
+  // folder has just committed all of it. Same question, different default —
+  // "yes" should not be what happens when you press return over 23 files you
+  // did not think about.
+  assert.equal(planRemote({ tty: true, haveRepo: true, ghReady: true, foreign: 0 }).defaultYes, true);
+  assert.equal(planRemote({ tty: true, haveRepo: true, ghReady: true, foreign: 23 }).defaultYes, false);
+});
+
+test('init --remote wires the remote and says so; --no-remote adds nothing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-rem-'));
+  try {
+    const bare = path.join(root, 'bare.git');
+    const proj = path.join(root, 'proj');
+    fs.mkdirSync(proj);
+    execFileSync('git', ['init', '--bare', '-q', bare], { encoding: 'utf8' });
+    const out = spawnSync(process.execPath, [CLI, 'init', 'Remote Deck', '-o', 'deck.html',
+      '--themes', 'aurora', '--git', '--no-skill', '--remote', `file://${bare}`],
+    { cwd: proj, encoding: 'utf8', env: gitIdEnv });
+    assert.equal(out.status, 0, out.stderr);
+    const url = execFileSync('git', ['-C', proj, 'remote', 'get-url', 'origin'], { encoding: 'utf8' }).trim();
+    assert.equal(url, `file://${bare}`);
+    // and it actually pushed — the bare repo has the commit
+    assert.match(execFileSync('git', ['-C', bare, 'log', '--format=%s'], { encoding: 'utf8' }), /decklight init/);
+    assert.match(out.stdout, /origin added and pushed/);
+
+    const proj2 = path.join(root, 'proj2');
+    fs.mkdirSync(proj2);
+    spawnSync(process.execPath, [CLI, 'init', 'No Remote', '-o', 'd.html', '--themes', 'aurora',
+      '--git', '--no-skill', '--no-remote'], { cwd: proj2, encoding: 'utf8', env: gitIdEnv });
+    assert.equal(execFileSync('git', ['-C', proj2, 'remote'], { encoding: 'utf8' }).trim(), '',
+      '--no-remote adds nothing');
+  } finally { rmTemp(root); }
+});
+
+test('init --remote refuses a flag dressed as a URL', () => {
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-rem2-'));
+  try {
+    const out = spawnSync(process.execPath, [CLI, 'init', 'D', '-o', 'd.html', '--themes', 'aurora',
+      '--git', '--no-skill', '--remote', '--upload-pack=/bin/sh'],
+    { cwd: proj, encoding: 'utf8', env: gitIdEnv });
+    assert.equal(execFileSync('git', ['-C', proj, 'remote'], { encoding: 'utf8' }).trim(), '',
+      'no remote was added');
+    assert.equal(out.status, 0, 'and the deck was still scaffolded — this is a note, not a failure');
+  } finally { rmTemp(proj); }
+});
