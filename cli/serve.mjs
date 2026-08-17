@@ -81,6 +81,30 @@ export function allowEditRequest(req) {
 }
 
 /**
+ * A STRICTER gate: this exact origin, and nothing else.
+ *
+ * `allowEditRequest` above admits an absent Origin (curl, a probe) and the
+ * literal `null` — and `null` is what a SANDBOXED IFRAME sends. That is exactly
+ * what presenter chrome runs in (`injectChrome` mounts every plugin in one), so
+ * a gate that admits it would let a plugin reach an action the presenter never
+ * asked for. Pinning the port refuses another loopback dev server's page too,
+ * which the edit gate admits by design.
+ *
+ * Used by the one route in `present` that ACTS. The looser gate is right for
+ * `/edit/*`, where the server exists to be written to and a curl from the
+ * author's own machine is a feature; it is wrong here.
+ */
+export function isOwnOrigin(req, port) {
+  const origin = req.headers?.origin;
+  if (typeof origin !== 'string' || !origin) return false;
+  return [
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+    `http://[::1]:${port}`,
+  ].includes(origin);
+}
+
+/**
  * Pure request classifier: may this request be answered at all?
  * Loopback: always. Off-loopback: only /remote/* paths carrying the per-run
  * token (?t= query or x-decklight-token header) — everything else, all

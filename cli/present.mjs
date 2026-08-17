@@ -32,7 +32,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep, basename, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { argReader, isMain } from '../tools/args.mjs';
-import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded, withHeaders } from './serve.mjs';
+import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded, withHeaders, isOwnOrigin } from './serve.mjs';
 import { createRemoteRelay } from './remote.mjs';
 import { corsHeaders } from '../tools/bridge.mjs';
 
@@ -43,6 +43,10 @@ const CORS = corsHeaders();
 import { auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
 import { loadLibrary, injectChrome } from './plugin.mjs';
 import { verifyFile, verifyBytes, formatSignature, isVerified, UNSIGNED, TAMPERED, VERIFIED } from './sign.mjs';
+import {
+  SAFE_CONFIG, canPull, checkUpstream, resolveInterval, resolveUpstream, runGit, upstreamSuppressed,
+} from './upstream.mjs';
+import { oneline } from './git.mjs';
 import { isContainer, readContainer, formatManifest } from './deckfile.mjs';
 
 /**
@@ -122,6 +126,81 @@ export const CSP = [
  */
 export async function serveForRender(root, { html = null } = {}) {
   const files = staticFiles(root, { html });
+
+  /**
+   * Fast-forward, then re-read, re-audit and RE-PRINT.
+   *
+   * SPEC's condition on live reload under `present` is exactly this: never new
+   * bytes under the old verdict. So the label the presenter can see always
+   * describes the bytes being served, and the two move together.
+   */
+  async function doPull() {
+    // Re-checked against a FRESH fetch rather than trusted from the cached
+    // status: what was true ten minutes ago is not a licence to check out now.
+    const fresh = await refreshUpstream();
+    const allowed = canPull(fresh, { offered: pullArmed });
+    if (!allowed.ok) return { ok: false, ...allowed, http: allowed.state === 'dirty' ? 409 : 409 };
+
+    const from = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: upstream.repoRoot })).stdout;
+    console.log(`  upstream: PULL requested by the deck — fast-forward only, onto ${upstream.upstream}`);
+    const merged = await runGit([...SAFE_CONFIG, '-c', `core.hooksPath=${upstream.repoRoot}/.git/decklight-no-hooks`,
+      'merge', '--ff-only', '--no-verify', '@{upstream}'], { cwd: upstream.repoRoot, timeoutMs: 20000 });
+    if (!merged.ok) {
+      const why = oneline(merged.stderr || merged.err);
+      console.log(`  upstream: the fast-forward was refused — ${why}`);
+      return { ok: false, state: 'not-fast-forward', message: why };
+    }
+    const to = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: upstream.repoRoot })).stdout;
+
+    // An upstream commit must never blank somebody's talk.
+    if (!existsSync(deckPath)) {
+      console.log(`  upstream: fast-forwarded ${from} → ${to}, but the deck is gone from that commit`);
+      console.log('  still serving the bytes the label above describes');
+      return { ok: false, state: 'deck-gone', to, message: 'the deck is not in that commit — still serving the old bytes' };
+    }
+
+    const before = deck.payload;
+    const next = readAndAudit();
+    if (next.payload.equals(before)) {
+      console.log(`  upstream: fast-forwarded ${from} → ${to} — the deck itself is unchanged`);
+      await refreshUpstream();
+      return { ok: true, state: 'pulled', from, to, deck: 'unchanged', reload: false, message: `fast-forwarded to ${to} — the deck is unchanged` };
+    }
+
+    // STRICT RATCHETS: a pull may turn it on and can never turn it off. A deck
+    // that could clear its own strict flag by pulling could disarm the one
+    // mitigation present applies without being asked.
+    const wasStrict = deck.strict;
+    deck = { ...next, strict: next.strict || wasStrict };
+    const degraded = (next.report.counts.unaccounted > 0 || next.report.counts.handlers > 0)
+      && !(report.counts.unaccounted > 0 || report.counts.handlers > 0);
+
+    console.log(`  upstream: fast-forwarded ${from} → ${to}`);
+    console.log('  the deck file changed — re-read and re-audited; the label below replaces the one above');
+    for (const line of formatLabel(deck.report)) console.log(line);
+    console.log(formatSignature(deck.signature));
+    if (deck.strict) {
+      console.log(wasStrict && !next.strict
+        ? '  still serving strict — a pull cannot turn it off'
+        : '  serving strict — what could not be accounted for is stripped');
+    }
+    console.log('  the label above describes what the audience gets when the deck is reloaded');
+    await refreshUpstream();
+    return {
+      ok: true, state: 'pulled', from, to, deck: 'changed',
+      strict: deck.strict, degraded,
+      findings: { unaccounted: deck.report.counts.unaccounted, handlers: deck.report.counts.handlers },
+      // A degraded deck does NOT reload itself: the swap executes nothing (the
+      // browser is still showing the old DOM), so the reload can wait for a
+      // second confirmation that names what was found.
+      reload: !degraded,
+      message: degraded
+        ? `the updated deck runs ${deck.report.counts.unaccounted} unaccounted script block(s) and `
+          + `${deck.report.counts.handlers} inline handler(s) — they are stripped. Reload to show it`
+        : `fast-forwarded to ${to}`,
+    };
+  }
+
   const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
     let url;
     try { url = new URL(req.url, 'http://127.0.0.1'); }
@@ -176,6 +255,11 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
              an executable attribute — so CI can gate on a deck before it is
              forwarded or published.
   --no-plugins  present without your own chrome, whatever is installed.
+  --upstream-every N  minutes between upstream checks; 0 turns the check off  [10]
+  --no-upstream     never look at the upstream — no git, no network
+  --upstream-pull   register the update control the deck's H overlay drives.
+                    OFF by default: with it on, any script in the deck can
+                    fast-forward the clone the deck was served from.
 
   Your presenter plugins (decklight plugin) are layered on at serve time from
   ~/.decklight/plugins/ — a timer, a teleprompter, a confidence monitor. They
@@ -357,8 +441,34 @@ export async function presentMain(args, { client } = {}) {
   // no third state where a bad signature means something else — one degrade is
   // one thing to understand at the moment you have no time to understand two.
   const unverified = signature.state !== UNSIGNED && !isVerified(signature);
-  const strict = args.includes('--strict') || report.counts.unaccounted > 0
-    || report.counts.handlers > 0 || unverified;
+  // MUTABLE from here, because a pull may replace all of it (PRESENT#UPSTREAM).
+  // SPEC's condition on live reload is that the audit re-runs and the verdict is
+  // re-printed — never new bytes under the old label — so the bytes, the label,
+  // the signature and `strict` move together or not at all.
+  /** Read the deck, audit it, and decide strict — the startup block, reusable. */
+  function readAndAudit() {
+    const bytes = isContainer(deckPath) ? readContainer(deckPath).payload : readFileSync(deckPath);
+    const rep = auditDeck(bytes.toString('utf8'));
+    // The signature is NOT re-verified here: it is a sidecar for the file as
+    // published, verifying it costs the network, and a pull that changed the
+    // deck has already invalidated whatever the old one attested. The state is
+    // carried forward and the label says what it says.
+    return {
+      payload: bytes,
+      report: rep,
+      signature,
+      strict: args.includes('--strict') || rep.counts.unaccounted > 0 || rep.counts.handlers > 0,
+    };
+  }
+
+  let deck = {
+    payload,
+    report,
+    signature,
+    strict: args.includes('--strict') || report.counts.unaccounted > 0
+      || report.counts.handlers > 0 || unverified,
+  };
+  const strict = deck.strict;
 
   // The rewrite covers every html response, not only the deck: strict that
   // stopped at one file would be walked around by a second page under the same
@@ -379,7 +489,10 @@ export async function presentMain(args, { client } = {}) {
   // With an empty library `injectChrome` returns its input, so this whole
   // paragraph is a no-op and `present` is byte-for-byte the command it was.
   const chrome = args.includes('--no-plugins') ? { plugins: [], refused: [] } : loadLibrary();
-  const strip = strict ? (text) => stripUnaccounted(text).html : null;
+  // Consulted per request rather than decided once: after a pull, `strict` may
+  // have RATCHETED ON, and the bytes served have to follow the verdict printed
+  // for them.
+  const strip = (text) => (deck.strict ? stripUnaccounted(text).html : text);
 
   // Only the deck gets chrome. Every OTHER html file under the root still gets
   // the strict rewrite — strict that stopped at one file would be walked
@@ -388,12 +501,12 @@ export async function presentMain(args, { client } = {}) {
   // documents into same-origin iframes). Those same iframes are why the chrome
   // is deck-only: presenter chrome belongs to the document the presenter is
   // looking at, and the shim removes itself if it finds it is framed anyway.
-  const rewrite = (strip || chrome.plugins.length)
-    ? (text, file) => {
-      const out = strip ? strip(text) : text;
-      return file === deckPath ? injectChrome(out, chrome.plugins) : out;
-    }
-    : null;
+  // Always a function now: `strip` is decided per call, so a pull that turns
+  // strict ON must not find the rewrite path was compiled away at startup.
+  const rewrite = (text, file) => {
+    const out = strip(text);
+    return file === deckPath ? injectChrome(out, chrome.plugins) : out;
+  };
   // No `index` here: "/" is the deck, and the deck is answered from memory
   // before this handler is consulted — a fallthrough should 404, not reopen
   // the disk read this route exists to avoid.
@@ -414,8 +527,8 @@ export async function presentMain(args, { client } = {}) {
   const servePayload = (req, res) => {
     if (req.method !== 'GET') return false;
     const body = rewrite
-      ? Buffer.from(rewrite(payload.toString('utf8'), deckPath), 'utf8')
-      : payload;
+      ? Buffer.from(rewrite(deck.payload.toString('utf8'), deckPath), 'utf8')
+      : deck.payload;
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
     res.end(body);
     return true;
@@ -453,6 +566,114 @@ export async function presentMain(args, { client } = {}) {
   // fixed string or first-party content, so no uncovered response was
   // exploitable — but "every response carries the header" is only worth
   // stating if it holds by construction, not by each writeHead remembering.
+
+  /**
+   * Fast-forward, then re-read, re-audit and RE-PRINT.
+   *
+   * SPEC's condition on live reload under `present` is exactly this: never new
+   * bytes under the old verdict. So the label the presenter can see always
+   * describes the bytes being served, and the two move together.
+   */
+  async function doPull() {
+    // Re-checked against a FRESH fetch rather than trusted from the cached
+    // status: what was true ten minutes ago is not a licence to check out now.
+    const fresh = await refreshUpstream();
+    const allowed = canPull(fresh, { offered: pullArmed });
+    if (!allowed.ok) return { ok: false, ...allowed, http: allowed.state === 'dirty' ? 409 : 409 };
+
+    const from = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: upstream.repoRoot })).stdout;
+    console.log(`  upstream: PULL requested by the deck — fast-forward only, onto ${upstream.upstream}`);
+    const merged = await runGit([...SAFE_CONFIG, '-c', `core.hooksPath=${upstream.repoRoot}/.git/decklight-no-hooks`,
+      'merge', '--ff-only', '--no-verify', '@{upstream}'], { cwd: upstream.repoRoot, timeoutMs: 20000 });
+    if (!merged.ok) {
+      const why = oneline(merged.stderr || merged.err);
+      console.log(`  upstream: the fast-forward was refused — ${why}`);
+      return { ok: false, state: 'not-fast-forward', message: why };
+    }
+    const to = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: upstream.repoRoot })).stdout;
+
+    // An upstream commit must never blank somebody's talk.
+    if (!existsSync(deckPath)) {
+      console.log(`  upstream: fast-forwarded ${from} → ${to}, but the deck is gone from that commit`);
+      console.log('  still serving the bytes the label above describes');
+      return { ok: false, state: 'deck-gone', to, message: 'the deck is not in that commit — still serving the old bytes' };
+    }
+
+    const before = deck.payload;
+    const next = readAndAudit();
+    if (next.payload.equals(before)) {
+      console.log(`  upstream: fast-forwarded ${from} → ${to} — the deck itself is unchanged`);
+      await refreshUpstream();
+      return { ok: true, state: 'pulled', from, to, deck: 'unchanged', reload: false, message: `fast-forwarded to ${to} — the deck is unchanged` };
+    }
+
+    // STRICT RATCHETS: a pull may turn it on and can never turn it off. A deck
+    // that could clear its own strict flag by pulling could disarm the one
+    // mitigation present applies without being asked.
+    const wasStrict = deck.strict;
+    deck = { ...next, strict: next.strict || wasStrict };
+    const degraded = (next.report.counts.unaccounted > 0 || next.report.counts.handlers > 0)
+      && !(report.counts.unaccounted > 0 || report.counts.handlers > 0);
+
+    console.log(`  upstream: fast-forwarded ${from} → ${to}`);
+    console.log('  the deck file changed — re-read and re-audited; the label below replaces the one above');
+    for (const line of formatLabel(deck.report)) console.log(line);
+    console.log(formatSignature(deck.signature));
+    if (deck.strict) {
+      console.log(wasStrict && !next.strict
+        ? '  still serving strict — a pull cannot turn it off'
+        : '  serving strict — what could not be accounted for is stripped');
+    }
+    console.log('  the label above describes what the audience gets when the deck is reloaded');
+    await refreshUpstream();
+    return {
+      ok: true, state: 'pulled', from, to, deck: 'changed',
+      strict: deck.strict, degraded,
+      findings: { unaccounted: deck.report.counts.unaccounted, handlers: deck.report.counts.handlers },
+      // A degraded deck does NOT reload itself: the swap executes nothing (the
+      // browser is still showing the old DOM), so the reload can wait for a
+      // second confirmation that names what was found.
+      reload: !degraded,
+      message: degraded
+        ? `the updated deck runs ${deck.report.counts.unaccounted} unaccounted script block(s) and `
+          + `${deck.report.counts.handlers} inline handler(s) — they are stripped. Reload to show it`
+        : `fast-forwarded to ${to}`,
+    };
+  }
+
+  // ── the upstream check (PRESENT#UPSTREAM) ─────────────────────────────────
+  const suppressed = upstreamSuppressed({ args, env: process.env });
+  const upstreamCtx = suppressed ? { state: 'disabled' } : await resolveUpstream(deckPath);
+  // Absent unless the deck is a tracked file in a clone with an upstream. This
+  // is the whole safety argument: a deck you were emailed is a single file and
+  // never reaches any of it.
+  const upstream = upstreamCtx.state === 'ok' ? upstreamCtx : null;
+  // The PULL is a second, explicit opt-in. Server-side there is no way to tell
+  // "the presenter clicked" from "a script in the deck called fetch()" — a
+  // page's own script is indistinguishable from its user — so the capability is
+  // "a deck served from a clone can update itself from that clone's upstream",
+  // which is a thing someone should have typed rather than something the cwd
+  // decided. And never with --remote: a phone must not move somebody's repo.
+  const pullArmed = Boolean(upstream) && args.includes('--upstream-pull') && !token;
+  let upstreamStatus = upstream
+    ? { state: 'unchecked', branch: upstream.branch, upstream: upstream.upstream, message: 'not checked yet' }
+    : { state: upstreamCtx.state, message: suppressed || null };
+  let checking = null;
+  const intervalMs = resolveInterval(args);
+  let lastReported = null;
+  const pullOffer = () => (pullArmed
+    ? { offered: true }
+    : { offered: false, reason: !upstream ? upstreamCtx.state : token ? '--remote is on' : 'start with --upstream-pull' });
+
+  async function refreshUpstream() {
+    if (!upstream) return upstreamStatus;
+    // Single-flight: a script in a loop must not spawn a hundred fetches.
+    if (!checking) {
+      checking = checkUpstream(upstream).then((s) => { upstreamStatus = s; checking = null; return s; });
+    }
+    return checking;
+  }
+
   const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
     // Loopback always; off-loopback only /remote/* carrying the per-run token,
     // and only when --remote asked for a listener at all. Every other path is
@@ -487,6 +708,42 @@ export async function presentMain(args, { client } = {}) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/present/events') { decks.add(req, res, CORS); return; }
+    // ── the upstream (PRESENT#UPSTREAM) ─────────────────────────────────
+    // REGISTERED ONLY when the deck is a tracked file in a clone whose branch
+    // tracks something. On a deck you were emailed these are not refused, they
+    // do not exist — a POST lands on the same 405 as a POST to anything else,
+    // which is the argument the module header already makes about /edit/*.
+    //
+    // No CORS on either: /present/ping and /present/events carry it because the
+    // phone's origin differs, and the phone has no business here in either
+    // direction.
+    if (upstream && req.method === 'GET' && url.pathname === '/present/upstream') {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-cache' });
+      res.end(JSON.stringify({ ok: true, ...upstreamStatus, pull: pullOffer() }));
+      return;
+    }
+    if (upstream && req.method === 'POST' && url.pathname === '/present/upstream/check') {
+      if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
+      refreshUpstream().then(() => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, ...upstreamStatus, pull: pullOffer() }));
+      });
+      return;
+    }
+    if (pullArmed && req.method === 'POST' && url.pathname === '/present/upstream/pull') {
+      // The strict gate, not allowEditRequest: `null` is a sandboxed plugin
+      // frame's origin, and presenter chrome must not be able to fast-forward
+      // the presenter's repository.
+      if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
+      // The body is never read. Not validated — READ. No field of the request
+      // reaches git or the filesystem; the repository, the branch and
+      // `@{upstream}` are all constants resolved before the server existed.
+      doPull().then((out) => {
+        res.writeHead(out.ok ? 200 : (out.http ?? 409), { 'content-type': 'application/json' });
+        res.end(JSON.stringify(out));
+      });
+      return;
+    }
     // The phone remote: controller, QR, readout channel. These are the only
     // paths allowRemote let through from off this machine, and not one of them
     // writes anything — the phone asks the deck to move, it never edits.
@@ -526,6 +783,34 @@ export async function presentMain(args, { client } = {}) {
   for (const line of formatLabel(report)) console.log(line);
   if (container) console.log(formatManifest(container.manifest));
   console.log(formatSignature(signature));
+  // The upstream, said once at startup and then only when it CHANGES. `up to
+  // date` every ten minutes for an hour is noise that trains people to stop
+  // reading the terminal — which is where the ingredients label lives.
+  if (upstream) {
+    console.log(`  upstream: tracking ${upstream.upstream} — ${intervalMs ? `checking every ${intervalMs / 60000} min` : 'checked when asked'}`
+      + (pullArmed ? ', update control ON (--upstream-pull)' : ''));
+    if (!pullArmed && args.includes('--upstream-pull') && token) {
+      console.log('  upstream: --remote is on — the update control is off; pull from your own terminal');
+    }
+  } else if (suppressed) {
+    console.log(`  upstream: not checked — ${suppressed}`);
+  }
+
+  // Kicked AFTER the last startup line and never awaited: nothing about this
+  // can delay the server coming up or hang a talk on a registry that is down —
+  // the cli/update-check.mjs contract, applied to a different remote.
+  if (upstream) {
+    const tick = () => refreshUpstream().then((st) => {
+      if (st.state !== lastReported) {
+        lastReported = st.state;
+        console.log(`  upstream: ${st.message}`);
+      }
+    }).catch(() => {});
+    tick();
+    // unref'd so a Ctrl-C exits now rather than after an in-flight fetch.
+    // `--upstream-every 0` keeps the manual check and drops only the timer.
+    if (intervalMs > 0) setInterval(tick, intervalMs).unref();
+  }
   // Reported UNDER the label and never inside it. The label is an inventory of
   // the file; a plugin is not in the file, and folding one into those counts
   // would make the label start describing things the deck does not contain —
