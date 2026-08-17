@@ -21,6 +21,11 @@
  *   xss     — the bridge's roster names a voice WITH MARKUP (an ElevenLabs
  *             voice is named by whoever shared it): the N picker must render
  *             it as text, never parse it
+ *   record  — ⇧V with an author server up: every stitched slide goes THROUGH
+ *             that server into a folder beside the deck, and nothing reaches
+ *             the browser's download path (`&dir`: the deck already names a
+ *             narration folder, so the recording lands in that one;
+ *             `&nosrv`: nothing to write with, so the browser still gets them)
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,7 +44,8 @@ function run(mode, extra = '') {
 
 let bad = 0;
 for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'hint', 'hint&print', 'manifest', 'expired']) {
+  'elevenlabsv3', 'hint', 'hint&print', 'manifest', 'expired',
+  'record', 'record&dir', 'record&nosrv']) {
   const [m, extra] = mode.split('&');
   const r = run(m, extra ? `&${extra}` : '');
   const ok = r.PASS === true;
@@ -91,6 +97,17 @@ for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', '
   if (mode === 'recorded') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} silent slide stays quiet=${r.quietOnSlideWithNoNotes}`
       + ` · missing file warns=${r.warnsOnMissingFile}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (m === 'record') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(12)} `
+      + (r.authored
+        ? `wrote ${r.slides?.join(',')} to ${r.dir}/ (right folder=${r.dirIsRight})`
+          + ` · nothing downloaded=${r.wentToDisk}`
+          + ` · card says where=${r.saidWhere} and how to play it=${r.namedTheConfig}`
+        : `no server → downloaded ${r.slides?.join(',')} (posted nothing=${r.wentToDisk})`
+          + ` · card says downloads=${r.saidWhere}`)
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

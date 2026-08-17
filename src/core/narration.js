@@ -15,6 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
+import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import {
   manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
@@ -48,10 +49,16 @@ export function hintApplies({
  * `syncSoundBtn` (the mute button in the controls) and `updateDebugState` (the
  * D panel's status line). `downloadFromUrl` is the engine's download helper,
  * shared with the transcript.
+ *
+ * `authorBase` is a THUNK, not a string: the author server's URL is only known
+ * after editmode's probe answers, and editmode is built after this. It returns
+ * the prefix to post to — **`''` for a same-origin server, which is the common
+ * case and is not the same as absent** — or `null` when the deck is not being
+ * authored, which is what sends ⇧V's recordings back down the download path.
  */
 export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
-  syncSoundBtn, updateDebugState, downloadFromUrl,
+  syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
@@ -1120,10 +1127,18 @@ export function createNarration({
         <div class="rec-line">${done} / ${total} slides · ${fmtTime(elapsedMs)} elapsed · ~${eta} left</div>
         <div class="rec-hint">Esc to cancel</div>`;
     } else {
-      const { saved, total, cancelled } = data;
+      const { saved, total, cancelled, dir } = data;
+      // Where they landed is the whole point of the line: "your downloads" was
+      // true and useless — the next command you run reads the deck's folder.
+      const where = dir
+        ? `saved as slide-NN.wav in <code>${escapeHtml(dir)}/</code>, next to the deck`
+        : 'saved as slide-NN.wav to your downloads';
+      const next = dir
+        ? `Set <code>narration: { files: '${escapeHtml(dir)}', ext: 'wav' }</code> to play them back without the bridge — <code>decklight bundle</code> picks the folder up from there.`
+        : 'Move them next to the deck and point <code>narration.files</code> at that folder with <code>ext: \'wav\'</code> to play them back without the bridge.';
       card.innerHTML = `<div class="narr-head">${cancelled ? 'recording cancelled' : 'recording done'}</div>
-        <div class="rec-line">${saved} / ${total} slide${total === 1 ? '' : 's'} saved as slide-NN.wav to your downloads</div>
-        <div class="rec-line">Point <code>narration.files</code> at that folder with <code>ext: 'wav'</code> to play them back without the bridge.</div>
+        <div class="rec-line">${saved} / ${total} slide${total === 1 ? '' : 's'} ${where}</div>
+        <div class="rec-line">${next}</div>
         <div class="rec-hint">Enter or Esc to close</div>`;
     }
   }
@@ -1192,30 +1207,69 @@ export function createNarration({
     }
     return parts.length ? concatTimelines(parts) : null;
   }
+  // WHERE A RECORDING LANDS. A finished set of slide-NN.wav is only useful
+  // next to the deck: that is the one place `narration.files` can name and the
+  // one place `decklight bundle` looks. The browser's download folder is
+  // neither, so it is the FALLBACK — for a deck opened from a file:// or served
+  // read-only by `decklight present`, where nothing on this machine is allowed
+  // to write. In author mode the server that owns the deck file writes them.
+  //
+  // The folder is the deck's own `narration.files` when that names a plain
+  // relative directory, so re-recording refreshes the track already configured
+  // rather than seeding a second one; otherwise `voiceover`, the same default
+  // tools/voiceover.mjs writes to.
+  const RECORD_DIR = 'voiceover';
+  function recordDir() {
+    const f = config.narration?.files;
+    const first = typeof f === 'string' ? f
+      : Array.isArray(f) ? f.find((t) => typeof t?.dir === 'string')?.dir : null;
+    // a bucket URL and an absolute path are both somewhere the author server
+    // will refuse to write, and rightly — fall back rather than fail per slide
+    return first && !/^[a-z][a-z0-9+.-]*:/i.test(first) && !/^[/\\]/.test(first)
+      && !first.split(/[/\\]/).includes('..') ? first : RECORD_DIR;
+  }
+  /** Write one recorded file, through the author server when there is one.
+   *  Resolves true when it landed on disk, false when the browser took it. */
+  async function saveRecording(slide, kind, blob, dir) {
+    if (dir) {
+      try {
+        const r = await fetch(`${dir.base}/edit/record?slide=${slide}&kind=${kind}`
+          + `&dir=${encodeURIComponent(dir.name)}`, { method: 'POST', body: blob });
+        if ((await r.json())?.ok) return true;
+      } catch { /* server gone mid-recording — the browser still gets the file */ }
+    }
+    const name = `slide-${String(slide).padStart(2, '0')}.${kind === 'wav' ? 'wav' : 'visemes.json'}`;
+    const url = URL.createObjectURL(blob);
+    downloadFromUrl(url, name);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    return false;
+  }
   async function startRecording() {
     const list = slidesWithNotes();
     const run = ++recRun;
     const t0 = Date.now();
-    let done = 0, saved = 0;
+    let done = 0, saved = 0, toDisk = 0;
+    // `== null`, never falsy: the author server's prefix is '' when it is the
+    // origin serving this deck, which is most of the time.
+    const base = authorBase();
+    const dir = base == null ? null : { base, name: recordDir() };
     renderRecordCard('progress', { done, total: list.length, elapsedMs: 0 });
     for (const sl of list) {
       if (run !== recRun) return;
       try {
         const wav = await stitchSlideWav(sl, run);
-        if (run !== recRun) return; // cancelled mid-synthesis — don't download
+        if (run !== recRun) return; // cancelled mid-synthesis — don't save
         if (wav) {
-          const url = URL.createObjectURL(wav);
-          downloadFromUrl(url, `slide-${String(sl).padStart(2, '0')}.wav`);
-          setTimeout(() => URL.revokeObjectURL(url), 5000);
+          if (await saveRecording(sl, 'wav', wav, dir)) toDisk++;
+          if (run !== recRun) return;
           saved++;
-          // character on: the matching viseme sidecar downloads too, so the
+          // character on: the matching viseme sidecar is written too, so the
           // recorded set plays back lip-synced without the bridge
           const tl = await stitchSlideVisemes(sl, run);
           if (run !== recRun) return;
           if (tl) {
-            const jurl = URL.createObjectURL(new Blob([JSON.stringify(tl)], { type: 'application/json' }));
-            downloadFromUrl(jurl, `slide-${String(sl).padStart(2, '0')}.visemes.json`);
-            setTimeout(() => URL.revokeObjectURL(jurl), 5000);
+            await saveRecording(sl, 'visemes',
+              new Blob([JSON.stringify(tl)], { type: 'application/json' }), dir);
           }
         }
       } catch {
@@ -1224,7 +1278,9 @@ export function createNarration({
       done++;
       if (run === recRun) renderRecordCard('progress', { done, total: list.length, elapsedMs: Date.now() - t0 });
     }
-    if (run === recRun) renderRecordCard('done', { saved, total: list.length });
+    if (run === recRun) {
+      renderRecordCard('done', { saved, total: list.length, dir: toDisk ? dir.name : null });
+    }
   }
   function openRecordDialog() {
     if (!narrSet?.live) { toast('live voice only — pick a voice with N first'); return; }

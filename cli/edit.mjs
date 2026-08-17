@@ -46,7 +46,7 @@
 // `decklight author` asks interactively before passing --git down.
 
 import { createServer } from 'node:http';
-import { readFileSync, writeFileSync, watch, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, watch, existsSync } from 'node:fs';
 import { resolve, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent } from './agents.mjs';
@@ -586,6 +586,51 @@ export async function editMain(args) {
         writeFileSync(deckPath, content);
         console.log(`  ${dir} → ${JSON.stringify(history.counts())}`);
         return json(200, { ok: true, ...history.counts() });
+      }
+      // ── ⇧V offline recordings (PRESENTING) ───────────────────────────────
+      // The player used to hand every stitched slide to the browser's DOWNLOAD
+      // path, which is why a deck's voice arrived as thirty slide-NN.wav in
+      // whatever folder the OS calls Downloads — never the deck's, and on
+      // Windows not even near it. `bundle` only ever looks NEXT TO THE DECK, so
+      // the recording was finished and in the wrong place, and the last step
+      // was moving files by hand. In author mode the server that already owns
+      // the deck file writes them itself.
+      //
+      // Ahead of the shared body read below because this body is BINARY and
+      // megabytes of it: a slide of speech is ~48 kB a second, so the string
+      // concat and its 1 MB ceiling would both be wrong.
+      if (req.method === 'POST' && url.pathname === '/edit/record') {
+        const slide = Number(url.searchParams.get('slide'));
+        const kind = url.searchParams.get('kind');
+        if (!Number.isInteger(slide) || slide < 1 || slide > 9999) return json(400, { ok: false, error: 'bad slide' });
+        if (kind !== 'wav' && kind !== 'visemes') return json(400, { ok: false, error: 'bad kind' });
+        // The player names the FOLDER (its own `narration.files`, so a recorded
+        // set lands where that deck already plays from) and nothing else: the
+        // file name is built here, so no request can choose one. The folder is
+        // contained to the served root by the same rule staticFiles reads by —
+        // and `..`, absolute paths and Windows drive letters are refused before
+        // it, because `resolve` would happily swallow all three.
+        const want = url.searchParams.get('dir') || 'voiceover';
+        const bad = want.length > 200 || /^[/\\]/.test(want) || /^[a-zA-Z]:/.test(want)
+          || want.split(/[/\\]/).includes('..');
+        const dir = bad ? null : resolve(deckPath, '..', want);
+        if (!dir || (!dir.startsWith(root + sep) && dir !== root)) {
+          return json(400, { ok: false, error: 'the recording folder must sit inside the deck\'s own directory' });
+        }
+        const name = `slide-${String(slide).padStart(2, '0')}.${kind === 'wav' ? 'wav' : 'visemes.json'}`;
+        const chunks = [];
+        let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > 64e6) return json(413, { ok: false, error: 'recording too large' });
+          chunks.push(chunk);
+        }
+        try {
+          mkdirSync(dir, { recursive: true });
+          writeFileSync(resolve(dir, name), Buffer.concat(chunks));
+        } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
+        console.log(`  recorded ${want}/${name} (${Math.round(size / 1024)} kB)`);
+        return json(200, { ok: true, dir: want, file: name });
       }
       let body = '';
       if (req.method === 'POST') {

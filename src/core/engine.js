@@ -1629,6 +1629,10 @@ export function init(userConfig = {}) {
   const narration = createNarration({
     root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
     syncSoundBtn, updateDebugState, downloadFromUrl,
+    // ⇧V writes its slide-NN.wav next to the deck when there is a server that
+    // owns the deck file; a thunk because editmode is built below this, and its
+    // probe has not answered yet either way.
+    authorBase: () => (editmode?.available() ? editmode.base() : null),
   });
   const {
     character, toggleNarration, toggleNarrPause, changeNarrRate, toggleCaptions,

@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -557,10 +557,12 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
     const r = await rawReq(base, { path: path_, headers: { origin: EVIL } });
     assert.equal(r.status, 403, path_);
   }
-  // disk-writing mutations, all refused
+  // disk-writing mutations, all refused — including the one that writes a file
+  // BESIDE the deck rather than the deck itself
   for (const [path_, payload] of [
     ['/edit/notes', { slide: 1, text: 'x' }], ['/edit/restore', { ref: 'HEAD' }],
     ['/edit/element/remove', { slide: 1, index: 0 }],
+    ['/edit/record?slide=1&kind=wav&dir=voiceover', 'RIFF'],
   ]) {
     const r = await rawReq(base, {
       method: 'POST', path: path_, body: JSON.stringify(payload),
@@ -576,8 +578,60 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
   assert.equal(pre.status, 403, 'the preflight itself is refused');
   assert.notEqual(pre.headers['access-control-allow-origin'], '*');
 
-  // the deck on disk is untouched by any of it
+  // the deck on disk is untouched by any of it — and nothing was written next
+  // to it either
   assert.equal(readFileSync(path.join(dir, 'deck.html'), 'utf8'), DECK);
+  assert.deepEqual(readdirSync(dir).sort(), ['deck.html']);
+});
+
+// ── ⇧V recordings land next to the deck (PRESENTING) ──────────────────────
+// The bug this closes: the player handed every stitched slide to the browser's
+// download path, so a recorded deck arrived as thirty slide-NN.wav in the OS
+// download folder — never the deck's, which is the only folder `bundle` reads.
+
+test('POST /edit/record writes slide-NN.wav into a folder beside the deck', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  const wav = Buffer.from('RIFF....WAVEfmt ');
+  const r = await (await fetch(base + '/edit/record?slide=7&kind=wav&dir=voiceover', {
+    method: 'POST', body: wav,
+  })).json();
+  assert.deepEqual(r, { ok: true, dir: 'voiceover', file: 'slide-07.wav' });
+  // the folder is created on demand, and the bytes arrive intact — a string
+  // read would have mangled them
+  assert.deepEqual(readFileSync(path.join(dir, 'voiceover', 'slide-07.wav')), wav);
+
+  // the character's sidecar rides the same route under the name bundle looks for
+  const tl = JSON.stringify({ frames: [] });
+  const v = await (await fetch(base + '/edit/record?slide=7&kind=visemes&dir=voiceover', {
+    method: 'POST', body: tl,
+  })).json();
+  assert.equal(v.file, 'slide-07.visemes.json');
+  assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-07.visemes.json'), 'utf8'), tl);
+
+  // a deck that names its own narration folder records into THAT one
+  await fetch(base + '/edit/record?slide=1&kind=wav&dir=audio%2Ftake-2', { method: 'POST', body: wav });
+  assert.ok(existsSync(path.join(dir, 'audio', 'take-2', 'slide-01.wav')));
+});
+
+test('POST /edit/record names the folder only — never the file, and never one outside the deck', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const post = (qs) => fetch(`${base}/edit/record?${qs}`, { method: 'POST', body: 'x' });
+
+  // the file name is built server-side, so the only lever a caller has is the
+  // folder — and every way out of the served root is refused
+  for (const bad of ['dir=..', 'dir=../..%2Fetc', 'dir=%2Fetc', 'dir=C%3A%5CWindows', 'dir=a%2F..%2F..%2Fb']) {
+    assert.equal((await post(`slide=1&kind=wav&${bad}`)).status, 400, bad);
+  }
+  // and the shape of the request itself is checked before anything is written
+  for (const bad of ['slide=0&kind=wav', 'slide=x&kind=wav', 'slide=1&kind=exe', 'slide=1']) {
+    assert.equal((await post(bad)).status, 400, bad);
+  }
+  assert.deepEqual(readdirSync(dir).sort(), ['deck.html']);
 });
 
 test('the legitimate callers still get through — loopback, file://, and the CLI', async (t) => {
