@@ -120,7 +120,19 @@ export function commitSubject(raw, fallback) {
   return /^-/.test(capped) ? `agent: ${capped}` : capped;
 }
 
+/**
+ * The sha of the commit `gitAutocommit` last made, or null.
+ *
+ * Kept beside the commit rather than returned in its place because every
+ * existing caller treats the return value as a boolean — "did anything land" —
+ * and widening that to an object would put a truthiness question in front of
+ * the safety net. `--commit-messages` is the only caller that needs the sha,
+ * and it reads it immediately.
+ */
+export let lastCommitSha = null;
+
 export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${basename(deckPath)}`) {
+  lastCommitSha = null;
   try {
     if (!git(['status', '--porcelain', '--', deckPath], cwd)) return false;
     git(['add', '--', deckPath], cwd);
@@ -133,6 +145,7 @@ export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${ba
       git(['-c', 'user.name=decklight', '-c', 'user.email=decklight@localhost',
         'commit', '-m', message, '--', deckPath], cwd);
     }
+    try { lastCommitSha = git(['rev-parse', 'HEAD'], cwd); } catch { lastCommitSha = null; }
     return true;
   } catch (e) {
     console.error(`  git autocommit failed: ${oneline(e)}`);

@@ -32,48 +32,61 @@ export const AGENTS = [
     // -p is print (headless) mode; acceptEdits lets it write the deck file
     // without an interactive approval it has no TTY to ask on.
     args: (prompt) => ['-p', prompt, '--permission-mode', 'acceptEdits'],
+    // no --permission-mode: an ASK is read-only by construction, and a
+    // commit-message call has no business being able to edit the deck.
+    ask: (prompt) => ['-p', prompt],
   },
   {
     name: 'codex', label: 'Codex CLI', bin: 'codex',
     // exec is the non-interactive subcommand; --full-auto keeps it inside
     // the workspace sandbox while allowing file writes.
     args: (prompt) => ['exec', '--full-auto', prompt],
+    ask: (prompt) => ['exec', '--sandbox', 'read-only', prompt],
   },
   {
     name: 'bob', label: 'IBM Bob', bin: 'bob',
     // -p is Bob Shell's non-interactive prompt mode; --accept-license keeps
     // it from hanging on the license prompt when there is no TTY.
     args: (prompt) => ['-p', prompt, '--accept-license'],
+    ask: (prompt) => ['-p', prompt, '--accept-license'],
   },
   {
     name: 'gemini', label: 'Gemini CLI', bin: 'gemini',
     args: (prompt) => ['--yolo', '-p', prompt],
+    ask: (prompt) => ['-p', prompt],
   },
   {
     name: 'copilot', label: 'GitHub Copilot CLI', bin: 'copilot',
     args: (prompt) => ['-p', prompt, '--allow-all-tools'],
+    ask: (prompt) => ['-p', prompt],
   },
   {
     name: 'opencode', label: 'OpenCode', bin: 'opencode',
     args: (prompt) => ['run', prompt],
+    ask: (prompt) => ['run', prompt],
   },
   {
     name: 'goose', label: 'Goose', bin: 'goose',
     args: (prompt) => ['run', '-t', prompt],
+    ask: (prompt) => ['run', '-t', prompt],
   },
   {
     name: 'aider', label: 'Aider', bin: 'aider',
     // aider wants the file on the command line; --no-auto-commits because
     // dev's own autocommit (and the undo stack) owns history here.
     args: (prompt, deck) => ['--yes-always', '--no-auto-commits', '--message', prompt, deck],
+    // no deck on the command line either: aider edits what it is given
+    ask: (prompt) => ['--yes-always', '--no-auto-commits', '--message', prompt],
   },
   {
     name: 'cursor', label: 'Cursor CLI', bin: 'cursor-agent',
     args: (prompt) => ['-p', prompt, '--force'],
+    ask: (prompt) => ['-p', prompt],
   },
   {
     name: 'qwen', label: 'Qwen Code', bin: 'qwen',
     args: (prompt) => ['--yolo', '-p', prompt],
+    ask: (prompt) => ['-p', prompt],
   },
 ];
 
@@ -289,6 +302,38 @@ export function agentUnavailable(name, roster, home = configHome(),
  * file it should edit. Returns { bin, args, label } or null when the agent
  * isn't available.
  */
+/**
+ * The same agent, asked a QUESTION rather than told to edit (SPEC `PRESENTING`).
+ *
+ * Two things differ from `agentCommand` and both matter. There is no
+ * deck-editing preamble — the prompt is passed through verbatim, because the
+ * caller is asking about a diff, not about a file. And the argv comes from the
+ * agent's `ask` template, which drops every write permission the edit path
+ * turns on: `claude` loses `--permission-mode acceptEdits`, `codex` gains
+ * `--sandbox read-only`, `aider` is handed no deck at all. An agent invoked to
+ * write a commit message has no business being able to change what it is
+ * describing.
+ *
+ * Falls back to the edit argv for an INSTALLED agent (SPEC `AGENT_UNITS`),
+ * whose unit declares one template and cannot be asked for a second — noted
+ * rather than hidden, since it is the one path here that stays writable.
+ */
+export function agentAsk(name, prompt, { env = process.env, hasBin = canRun, home, spec = spawnSpec } = {}) {
+  const roster = detectAgents({ env, hasBin, home });
+  const wanted = name ?? preferredAgent(home);
+  const agent = wanted ? roster.find((a) => a.name === wanted) : roster[0];
+  if (!agent) return null;
+  const how = spec(agent.bin, { env }) ?? { bin: agent.bin, prefix: [] };
+  const build = agent.ask ?? agent.args;
+  return {
+    bin: how.bin,
+    args: [...how.prefix, ...build(prompt)],
+    label: agent.label,
+    name: agent.name,
+    readOnly: !!agent.ask,
+  };
+}
+
 export function agentCommand(name, instruction, deck, { env = process.env, hasBin = canRun, home, spec = spawnSpec } = {}) {
   const roster = detectAgents({ env, hasBin, home });
   // Precedence, matching how every other saved choice resolves (PRESENTING):

@@ -61,6 +61,11 @@ const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 878
                     agent edit, with the agent's own message), off     [timer]
                     (no repo + no flag: author ASKS whether to create one)
   --commit-every N  autocommit cadence in seconds                     [300]
+  --commit-messages an agent writes the commit subjects instead of the generic
+                    "autosave" — reads each commit's diff and amends the subject
+                    afterwards, so the commit itself is never delayed or risked.
+                    Opt-in: it sends the deck's diffs to the agent, and most
+                    agent CLIs are cloud-backed.
   --agent <name>    preferred AI agent for A (default: first detected)
 
   every server binds 127.0.0.1; for a phone remote: decklight present --remote
@@ -131,7 +136,8 @@ export function planServices({
     entry: EDIT,
     args: [deck, '--port', editPort,
       ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
-      ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode')],
+      ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode'),
+      ...(has('--commit-messages') ? ['--commit-messages'] : [])],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
 
