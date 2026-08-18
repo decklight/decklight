@@ -18,19 +18,108 @@
 # checklist for the human to answer.
 #
 # Reads the hook payload on stdin, writes a decision as JSON on stdout.
+#
+# WHEN IT FIRES is pinned by test/release-hook.test.mjs, because the two ways
+# this can be wrong are not symmetric. Missing a real tag is the dangerous one.
+# Firing on ordinary work is the corrosive one — a warning about something
+# permanent, printed on a routine branch push, is a warning people learn to wave
+# through, and then it is not there on the day it matters. It shipped with the
+# second.
 
 set -uo pipefail
 
 payload="$(cat)"
 cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')"
 
-# Only a push that carries a version tag. `git push origin main` is not a
-# release; `git push origin v0.3.0` and `git push --tags` are.
-if ! printf '%s' "$cmd" | grep -Eq 'git[[:space:]].*push'; then exit 0; fi
-if ! printf '%s' "$cmd" | grep -Eq '(^|[[:space:]])v[0-9]+\.[0-9]+\.[0-9]+|--tags|--follow-tags'; then exit 0; fi
-
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$root" || exit 0
+
+# ── does this command push refs/tags? ──────────────────────────────────────
+#
+# It used to grep the WHOLE command string for a `vN.N.N`-shaped word, which
+# reads a version number anywhere — including inside a heredoc. It fired on a
+# branch push whose commit message happened to contain the example
+# `marketplace add acme/themes --branch v2.1.0`: `git push` appeared, a
+# version-shaped token appeared, and the two were never connected. A release
+# warning that cries wolf on ordinary work is one people learn to wave through,
+# which is the opposite of what it is for.
+#
+# So: isolate the `git push` invocations, and ask GIT whether their arguments
+# name tags. release.yml triggers on `tags: ['v*.*.*']`, and this is
+# deliberately wider than that pattern — anything that puts a ref under
+# refs/tags on the remote is worth stopping for, and being wrong in that
+# direction costs a checklist rather than an unpublishable npm version.
+
+# Heredoc bodies are not command arguments. Strip them first, or a commit
+# message describing a release reads as one.
+strip_heredocs() {
+  awk '
+    $0 ~ /<<-?[[:space:]]*["'"'"']?[A-Za-z_][A-Za-z0-9_]*["'"'"']?/ && !skip {
+      line = $0
+      if (match(line, /<<-?[[:space:]]*["'"'"']?[A-Za-z_][A-Za-z0-9_]*["'"'"']?/)) {
+        d = substr(line, RSTART, RLENGTH)
+        gsub(/^<<-?[[:space:]]*/, "", d); gsub(/["'"'"']/, "", d)
+        delim = d; skip = 1
+      }
+      print; next
+    }
+    skip && $0 ~ ("^[[:space:]]*" delim "[[:space:]]*$") { skip = 0; next }
+    skip { next }
+    { print }
+  '
+}
+
+# One candidate per line: the segments that actually invoke `git … push`.
+push_segments() {
+  printf '%s\n' "$cmd" | strip_heredocs \
+    | tr '\n;|&' '\n\n\n\n' \
+    | grep -E '(^|[[:space:]])git([[:space:]]+-{1,2}[^[:space:]]+)*[[:space:]]+push([[:space:]]|$)'
+}
+
+pushes_tags=0
+while IFS= read -r seg; do
+  [ -n "$seg" ] || continue
+  # These push every tag by definition, whatever else is on the line.
+  if printf '%s' "$seg" | grep -Eq '(^|[[:space:]])--(tags|follow-tags|mirror)([[:space:]=]|$)'; then
+    pushes_tags=1; break
+  fi
+  prev=''
+  for tok in $seg; do
+    case "$tok" in
+      # everything after an unquoted `#` is a comment, not an argument — and a
+      # version number is exactly the kind of thing people write in one
+      \#*) break ;;
+      -*) prev="$tok"; continue ;;                    # an option, not a refspec
+    esac
+    # `git push origin tag v0.5.0` — git's own explicit form
+    if [ "$prev" = 'tag' ]; then pushes_tags=1; break; fi
+    # a refspec pushes its DESTINATION: src:dst, or just the one name
+    dst="${tok##*:}"
+    case "$dst" in
+      refs/tags/*) pushes_tags=1; break ;;
+    esac
+    # …anything that names a tag THIS repository actually has. Asking git is
+    # what makes `v2.1.0` inside a sentence differ from `v2.1.0` as a ref.
+    if git rev-parse --verify --quiet "refs/tags/${dst}" >/dev/null 2>&1; then
+      pushes_tags=1; break
+    fi
+    # …and a version-shaped ARGUMENT TO PUSH even when no such tag exists yet,
+    # because the release is `git tag v0.6.0 && git push origin v0.6.0` and this
+    # runs BEFORE either half. Asking git alone would miss the one command the
+    # whole hook exists for. The pattern is release.yml's own (`tags: v*.*.*`),
+    # and the difference from the version this replaces is everything: it is a
+    # positional argument to `git push`, not a word anywhere in the line.
+    case "$dst" in
+      v[0-9]*.[0-9]*.[0-9]*) pushes_tags=1; break ;;
+    esac
+    prev="$tok"
+  done
+  [ "$pushes_tags" = 1 ] && break
+done <<EOF_SEGMENTS
+$(push_segments)
+EOF_SEGMENTS
+
+[ "$pushes_tags" = 1 ] || exit 0
 
 CHECKLIST='Before this tag publishes — the parts no test can judge:
   · README — does its command table cover every command `decklight help` lists?
