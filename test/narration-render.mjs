@@ -51,7 +51,7 @@ function run(mode, extra = '') {
 
 let bad = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'hint', 'hint&print', 'manifest', 'expired',
+  'elevenlabsv3', 'scroll', 'hint', 'hint&print', 'manifest', 'expired',
   'record', 'record&dir', 'record&nosrv']) {
   const [m, extra] = mode.split('&');
   const r = run(m, extra ? `&${extra}` : '');
@@ -92,6 +92,13 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
   if (mode === 'elevenlabsv3') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} tone step shown=${r.toneStepShown}`
       + ` · tones offered=${r.toneLabels?.length ?? 0} · sent short v3 cue "${r.sentStyle}" (not the gemini prose)`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'scroll') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ${r.rows} rows, card scrolls=${r.scrollable}`
+      + ` · selection stayed in view=${r.visibleThroughout}${r.lostAt ? ` (lost at ↓${r.lostAt})` : ''}`
+      + ` · list scrolled=${r.scrolled} · hover held still=${r.hoverHeldStill}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

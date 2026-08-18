@@ -153,6 +153,12 @@
             // stylable" the picker would otherwise have to know by heart.
             : mode === 'elevenlabsv3'
               ? { engine: 'elevenlabs', model: 'eleven_v3', stylable: true, voices: [['Gilles', 'cloned'], ['Rachel', 'calm']] }
+              // A roster far taller than the card, which is the ordinary case
+              // on a system voice: a Mac answers 184 names. The scrolling bug
+              // this mode guards only exists past the fold.
+              : mode === 'scroll'
+                ? { engine: 'say', model: 'Albert', stylable: false,
+                  voices: Array.from({ length: 120 }, (_, i) => [`Voice ${String(i + 1).padStart(3, '0')}`, 'system']) }
               : { engine: 'mock', model: 'mock', stylable: true, voices: [['Alnilam', 'firm']] };
         return new Response(JSON.stringify({ ok: true, ...roster }),
           { status: 200, headers: { 'content-type': 'application/json' } });
@@ -494,6 +500,46 @@
 
           r.PASS = r.voiceRows.length > 0 && r.toneStepShown
             && r.toneLabels.includes('Super excited') && r.sentStyle === 'excited';
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'scroll') {
+          // ↓ must bring its selection WITH it. The card scrolls (max-height:
+          // 70vh) and the voices view is longer than it, so a selection that
+          // moves without scrolling walks off the bottom and you are choosing
+          // blind from about row 15 on — the list looks frozen and the
+          // highlight is simply gone.
+          press('n', document.body);                       // no tracks → voices view
+          await new Promise((ok) => setTimeout(ok, 500));   // /ping answers, view repaints
+          const card = document.querySelector('.narr-card');
+          const inView = () => {
+            const sel = document.querySelector('.narr-sel');
+            if (!sel) return false;
+            const c = card.getBoundingClientRect(), s = sel.getBoundingClientRect();
+            return s.top >= c.top - 1 && s.bottom <= c.bottom + 1;
+          };
+          r.rows = document.querySelectorAll('.narr-row').length;
+          r.scrollable = card.scrollHeight > card.clientHeight;
+          r.visibleThroughout = true;
+          for (let i = 0; i < 60; i++) {
+            press('ArrowDown', document.body);
+            if (!inView()) { r.visibleThroughout = false; r.lostAt = i + 1; break; }
+          }
+          r.scrolled = card.scrollTop > 0;
+          r.selectedAfter = document.querySelector('.narr-sel .narr-row-label')?.textContent;
+
+          // ...and HOVER must not, or the list jerks under the cursor: a row
+          // half off the edge would pull itself in and drag the row under the
+          // mouse out from under it.
+          const before = card.scrollTop;
+          const rows = [...document.querySelectorAll('.narr-row')];
+          rows[rows.length - 1]?.dispatchEvent(new MouseEvent('mouseenter'));
+          await new Promise((ok) => setTimeout(ok, 60));
+          r.hoverHeldStill = card.scrollTop === before;
+
+          r.PASS = r.rows > 60 && r.scrollable && r.visibleThroughout
+            && r.scrolled && r.hoverHeldStill;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

@@ -808,9 +808,23 @@ export function createNarration({
     debugLog('narr', `live config — ${liveCfg.voice} · ${liveCfg.tone}`);
     playSlideFile();
   }
-  function selectNarrRow(i) {
+  /**
+   * Move the selection, and scroll to it only when the KEYBOARD moved it.
+   *
+   * The card scrolls (`max-height: 70vh`) and the voices view is long — 30
+   * names on the cloud engines, 184 on a Mac's own — so ↓ used to walk the
+   * highlight straight off the bottom of a list that never moved: past row ~15
+   * you were choosing blind.
+   *
+   * But the rows also select on HOVER, and scrolling there would be a list that
+   * jerks under the cursor — a row half off the edge would pull itself into
+   * view and drag the row under the mouse out from under it. So the two callers
+   * ask for different things, which is why this is a parameter and not simply
+   * `selectInList`'s default.
+   */
+  function selectNarrRow(i, { scroll = false } = {}) {
     if (!narrRows.length) return;
-    narrSel = selectInList(narrEl.querySelectorAll('.narr-row'), i, 'narr-sel', { scroll: false });
+    narrSel = selectInList(narrEl.querySelectorAll('.narr-row'), i, 'narr-sel', { scroll });
   }
   function commitNarrRow() { narrRows[narrSel]?.commit(); }
   function narrBack() {
@@ -1204,9 +1218,10 @@ export function createNarration({
       el.addEventListener('click', () => { selectNarrRow(i); commitNarrRow(); });
       card.appendChild(el);
     });
+    // Opening on the current row means opening SCROLLED to it — a saved voice
+    // 90 rows down is otherwise a picker that looks like it forgot.
     const cur = narrRows.findIndex((r) => r.cur);
-    selectNarrRow(Math.max(0, cur));
-    narrEl.querySelector('.narr-sel')?.scrollIntoView({ block: 'nearest' });
+    selectNarrRow(Math.max(0, cur), { scroll: true });
   }
   /**
    * Ask the bridge to speak with a different engine, for this session only.
@@ -1515,8 +1530,8 @@ export function createNarration({
         return false;
       }
       switch (e.key) {
-        case 'ArrowDown': selectNarrRow(narrSel + 1); break;
-        case 'ArrowUp': selectNarrRow(narrSel - 1); break;
+        case 'ArrowDown': selectNarrRow(narrSel + 1, { scroll: true }); break;
+        case 'ArrowUp': selectNarrRow(narrSel - 1, { scroll: true }); break;
         case 'Enter': commitNarrRow(); break;
         case 'Escape': narrBack(); break;
         case 'n': case 'N': closeNarrPicker(); break;
