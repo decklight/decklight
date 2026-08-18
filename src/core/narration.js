@@ -41,6 +41,23 @@ export function hintApplies({
 }
 
 /**
+ * Seconds a slide holds after its narration, from `data-narration-pause="2"`.
+ *
+ * The finite sibling of `data-narration="hold"` (PRESENTING): hold is a pause
+ * with no end, this one has a number on it. Anything that is not a
+ * non-negative finite number — absent, empty, negative, a typo — reads as no
+ * pause, silently. A deck that mistypes it gets the behaviour it had before
+ * the attribute existed, which is the only failure mode worth having for a
+ * timing hint: nothing about the deck breaks, it simply does not breathe.
+ *
+ * Pure and exported so the parse rule is unit-testable without booting a deck.
+ */
+export function pauseSeconds(raw) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
  * Wire narration to a deck.
  *
  * `ctx` carries the engine's furniture (`root`, `stage`, `config`, `params`,
@@ -257,6 +274,11 @@ export function createNarration({
   // but the deck NEVER auto-advances off it; the presenter moves on
   // manually and narration resumes on the next slide.
   const narrationHolds = (sl) => instance._sections[sl - 1]?.dataset.narration === 'hold';
+  // data-narration-pause="2": the same idea with an end to it — the slide
+  // holds that many seconds after its last sentence before the deck moves on.
+  // A diagram the room has to actually look at, a punchline, the beat before a
+  // new section. `hold` wins on a slide carrying both: infinite beats finite.
+  const narrationPause = (sl) => pauseSeconds(instance._sections[sl - 1]?.dataset.narrationPause);
   // ── lookahead buffer ──────────────────────────────────────────────────
   // While live narration is ON, keep the next LIVE_LOOKAHEAD segments
   // synthesized in the background. Low priority by construction: ONE
@@ -338,12 +360,34 @@ export function createNarration({
     debugLog('narr', narrPaused ? 'paused' : 'resumed');
     updateDebugState();
   }
-  function advanceFrom(sl, step) {
-    if (!narrating || narrPaused || !narrSet?.live) return;
-    if (instance.state.slide !== sl || instance.state.step !== step) return;
+  async function advanceFrom(sl, step) {
+    const gen = liveSegGen;
+    const stale = () => gen !== liveSegGen || !narrating || !narrSet?.live
+      || instance.state.slide !== sl || instance.state.step !== step;
+    if (narrPaused || stale()) return;
     const rec = instance._records[sl - 1];
-    if (step < (rec ? rec.groups.length : 0)) instance.next();
-    else if (!narrationHolds(sl) && sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+    if (step < (rec ? rec.groups.length : 0)) { instance.next(); return; }
+    if (narrationHolds(sl) || sl >= instance.state.totalSlides) return;
+    // The beat this slide asked for. Waited rather than slept through: P must
+    // HOLD it, not eat it — a bare timer firing while paused would come back
+    // to the narrPaused guard and drop the advance on the floor, leaving the
+    // deck parked when the presenter resumes. Same shape as the sentence
+    // chain's pause gate, and the same liveSegGen guard as the silent beats,
+    // so manual navigation mid-pause still wins.
+    const pause = narrationPause(sl);
+    if (pause > 0) {
+      debugLog('narr', `slide ${sl} — holding ${pause}s before the next slide`);
+      // Paused time is not spent time: the beat stops with the deck and picks
+      // up where it left off, rather than quietly running out behind a ⏸.
+      for (let left = pause * 1000; left > 0;) {
+        if (stale()) return;
+        const t0 = Date.now();
+        await new Promise((r) => setTimeout(r, Math.min(150, left)));
+        if (!narrPaused) left -= Date.now() - t0;
+      }
+      if (narrPaused || stale()) return;
+    }
+    instance.goto(sl + 1, 0);
   }
   async function playLive() {
     const sl = instance.state.slide, step = instance.state.step;
@@ -426,7 +470,10 @@ export function createNarration({
         stopNarration('🔇 the voice did not play — auto-advance stopped · press the key left of 1 for messages');
         return;
       }
-      advanceFrom(sl, step);
+      // awaited, so liveChainActive stays true across the slide's pause — P
+      // during the beat then parks THIS chain (which resumes on its own)
+      // instead of looking like nothing is running and re-speaking the slide.
+      await advanceFrom(sl, step);
     } finally {
       if (liveChainGen === gen) liveChainActive = false;
     }
@@ -1177,6 +1224,10 @@ export function createNarration({
         chunks.push(new Uint8Array(buf.slice(44)));
       }
     }
+    // …and the slide's own beat, if it asked for one, so a recorded track
+    // breathes exactly where the live take it was stitched from does.
+    const pause = narrationPause(sl);
+    if (chunks.length && pause > 0) chunks.push(silencePcm(rate, pause));
     return chunks.length ? stitchWav(chunks, rate) : null;
   }
   // Viseme counterpart of stitchSlideWav: the SAME sentences, the SAME
@@ -1205,6 +1256,11 @@ export function createNarration({
       debugLog('lipsync', `slide ${sl}: viseme sidecar skipped (bridge unreachable)`);
       return null;
     }
+    // the trailing beat too — an empty timeline behind a gap, which
+    // concatTimelines renders as a closed mouth for exactly that long. The WAV
+    // and the sidecar must agree on every silence or the lip-sync drifts.
+    const pause = narrationPause(sl);
+    if (parts.length && pause > 0) parts.push({ timeline: { cues: [], duration: 0 }, gap: pause });
     return parts.length ? concatTimelines(parts) : null;
   }
   // WHERE A RECORDING LANDS. A finished set of slide-NN.wav is only useful

@@ -50,7 +50,7 @@ function run(mode, extra = '') {
 }
 
 let bad = 0;
-for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
+for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'hint', 'hint&print', 'manifest', 'expired',
   'record', 'record&dir', 'record&nosrv']) {
   const [m, extra] = mode.split('&');
@@ -115,6 +115,19 @@ for (const mode of ['healthy', 'flaky', 'dead', 'keys', 'modules', 'recorded', '
           + ` · card says where=${r.saidWhere} and how to play it=${r.namedTheConfig}`
         : `no server → downloaded ${r.slides?.join(',')} (posted nothing=${r.wentToDisk})`
           + ` · card says downloads=${r.saidWhere}`)
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'pause') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} slide 1 held ${r.heldFor}ms for its beat (>=900=${r.held})`
+      + ` · and the deck still reached ${r.slide}/${r.total} on its own=${r.reachedEnd}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'pausenav') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} still on 1 mid-beat=${r.stayedForTheBeat}`
+      + ` · jumped to ${r.visited?.join('→')} (asked for 4=${r.wentWhereAsked},`
+      + ` never fell through to 2=${r.neverJumpedToTwo})`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

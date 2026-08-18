@@ -56,7 +56,10 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --size <WxH>         frame size (default 1280x720; both must be even)
   --fps <n>            video frame rate (default 30)
   --hold <s>           seconds a slide without narration holds (default 5;
-                       per-slide override: data-video-hold="8" on the section)
+                       per-slide override: data-video-hold="8" on the section).
+                       A NARRATED slide holds for its audio instead — give that
+                       one a beat with data-narration-pause="2", the same
+                       attribute the live deck pauses on
   --build-hold <s>     seconds each build-up frame holds on a silent slide
                        (default: the slide's own hold, so builds move at the
                        pace the deck does)
@@ -69,7 +72,9 @@ its own audio: ⟨CLICK⟩ in the speaker notes splits the narration, and segmen
 is spoken over build step k — the same rule the live player follows. Without
 markers it holds fully built for the audio's real duration. A silent slide holds
 --hold seconds, --build-hold per step. Either way the audio track is continuous
-and the finished slide gets a ${TAIL_SECONDS}s breath before the cut.
+and the finished slide gets a ${TAIL_SECONDS}s breath before the cut — plus
+whatever data-narration-pause="2" asks for, so the mp4 breathes where the
+live deck does.
 Needs ffmpeg + ffprobe on PATH, and a Chrome ($CHROME or an installed one).
 `;
 
@@ -100,6 +105,23 @@ export function extractHolds(html, defaultHold) {
     const tag = sec.slice(0, sec.indexOf('>'));
     const m = tag.match(/data-video-hold="([\d.]+)"/);
     return m ? Number(m[1]) : defaultHold;
+  });
+}
+
+/**
+ * Per-slide narration beat: data-narration-pause="2" on the section, else 0.
+ *
+ * The recorded mirror of the live rule (PRESENTING): src/core/narration.js
+ * holds that many seconds after a slide's last sentence before moving on, and
+ * an exported mp4 must breathe in the same places the deck does. Read off the
+ * raw open tag, like extractHolds, so the same attribute appearing in a
+ * slide's CONTENT cannot be mistaken for the slide's own.
+ */
+export function extractPauses(html) {
+  return sectionBodies(html).map((sec) => {
+    const tag = sec.slice(0, sec.indexOf('>'));
+    const m = tag.match(/data-narration-pause="([\d.]+)"/);
+    return m ? Number(m[1]) : 0;
   });
 }
 
@@ -145,10 +167,13 @@ const round = (s) => Math.round(s * 1000) / 1000;
  * @param {{from,to}} [range]     1-based inclusive slide range
  * @param {object} [opts]         steps: per-slide build-step counts (null ⇒ one
  *                                frame per slide); buildHold: seconds per
- *                                build-up frame (null ⇒ the slide's own hold)
- * @returns {Array<{slide, step, audio, duration}>}  audio null ⇒ silent hold
+ *                                build-up frame (null ⇒ the slide's own hold);
+ *                                pauses: per-slide data-narration-pause seconds
+ *                                added to a NARRATED slide's finished frame
+ * @returns {Array<{slide, step, audio, duration, pad}>}  audio null ⇒ silent hold;
+ *                                `pad` is the silence ffmpeg appends to the audio
  */
-export function planTimeline(manifest, durations, holds, range = null, { steps = null, buildHold = null, onWarn = null } = {}) {
+export function planTimeline(manifest, durations, holds, range = null, { steps = null, buildHold = null, pauses = null, onWarn = null } = {}) {
   const from = range?.from ?? 1;
   const to = range?.to ?? holds.length;
   const plan = [];
@@ -165,6 +190,10 @@ export function planTimeline(manifest, durations, holds, range = null, { steps =
     // segmentation. This makes the recorded render the mirror of it.
     const segs = entry?.segments ?? null;
     const builds = steps?.[n - 1] ?? 0;
+    // The slide's own beat rides on the tail of its finished frame — the one
+    // place the live deck pauses too. A silent slide has no narration to pause
+    // after; --hold and data-video-hold are its knobs.
+    const tail = TAIL_SECONDS + (pauses?.[n - 1] ?? 0);
     if (Number.isFinite(dur) && segs?.length && builds) {
       const times = segs.map((sg) => durations?.[sg.file]);
       if (segs.length === builds + 1 && times.every((t) => Number.isFinite(t))) {
@@ -176,7 +205,8 @@ export function planTimeline(manifest, durations, holds, range = null, { steps =
             audio: sg.file,
             // Only the finished slide gets the breath. A build that paused for
             // it would read as hesitation rather than as a beat.
-            duration: round(times[k] + (last ? TAIL_SECONDS : 0)),
+            duration: round(times[k] + (last ? tail : 0)),
+            pad: last ? tail : 0,
           });
         });
         continue;
@@ -191,7 +221,7 @@ export function planTimeline(manifest, durations, holds, range = null, { steps =
     }
 
     if (Number.isFinite(dur)) {
-      plan.push({ slide: n, step: LAST_STEP, audio: file, duration: round(dur + TAIL_SECONDS) });
+      plan.push({ slide: n, step: LAST_STEP, audio: file, duration: round(dur + tail), pad: tail });
       continue;
     }
     const hold = holds[n - 1];
@@ -205,17 +235,18 @@ export function planTimeline(manifest, durations, holds, range = null, { steps =
 
 /**
  * ffmpeg argv for one slide's segment: the still looped at --fps under its
- * audio. Narrated slides pad the audio with the tail and stop there; silent
+ * audio. Narrated slides pad the audio with `pad` — the tail, plus whatever
+ * beat the slide asked for (`data-narration-pause`) — and stop there; silent
  * slides synthesize the same stereo/44.1k silence (anullsrc), so every segment
  * carries an audio stream and the concat-demuxer's `-c copy` audio track never
  * goes discontinuous. -t bounds both the infinite loop and the infinite
  * anullsrc (-shortest can't end a segment whose streams are both endless).
  */
-export function segmentArgs({ frame, audio, duration, fps, out }) {
+export function segmentArgs({ frame, audio, duration, fps, out, pad = TAIL_SECONDS }) {
   return [
     '-y', '-loop', '1', '-framerate', String(fps), '-i', frame,
     ...(audio
-      ? ['-i', audio, '-af', `apad=pad_dur=${TAIL_SECONDS}`]
+      ? ['-i', audio, '-af', `apad=pad_dur=${pad}`]
       : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100']),
     '-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p',
     '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
@@ -363,6 +394,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
 
     const html = readFileSync(deck, 'utf8');
     const holds = extractHolds(html, hold);
+    const pauses = extractPauses(html);
     if (!holds.length) throw new Error(`${basename(deck)} has no <section> slides`);
     const range = parseSlideRange(opt('--slides'), holds.length);
 
@@ -434,7 +466,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       if (!steps) console.warn('  builds: the deck did not report its build steps — one still per slide');
 
       plan = planTimeline(narration?.slides ?? null, durations, holds, range,
-        { steps, buildHold, onWarn: (w) => console.warn(`  ${w}`) });
+        { steps, buildHold, pauses, onWarn: (w) => console.warn(`  ${w}`) });
       const slideCount = new Set(plan.map((p) => p.slide)).size;
       log(`${basename(deck)}: ${slideCount} slide${slideCount === 1 ? '' : 's'}, `
         + `${plan.filter((p) => p.audio).length} narrated`
@@ -459,7 +491,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
         if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
         const seg = join(work, `seg-${id}.mp4`);
         await exec('ffmpeg', segmentArgs({
-          frame, duration: p.duration, fps, out: seg,
+          frame, duration: p.duration, pad: p.pad, fps, out: seg,
           audio: p.audio ? join(narration.dir, p.audio) : null,
         }));
         segments.push(seg);
