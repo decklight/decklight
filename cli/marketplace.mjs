@@ -6,7 +6,7 @@
 //
 //   decklight marketplace add    <owner/repo | git url | path> [--name x]
 //   decklight marketplace list
-//   decklight marketplace update <name>
+//   decklight marketplace update <name> [--branch <ref>]
 //   decklight marketplace remove <name>
 //
 // A marketplace is a git repo (or a local directory) with
@@ -535,6 +535,41 @@ export const cloneUrl = (src) =>
   (src.kind === 'github' ? `https://github.com/${src.owner}/${src.repo}.git` : src.url);
 
 /**
+ * Is `ref` a branch or tag name safe to hand `git clone --branch`?
+ *
+ * An ALLOWLIST, and deliberately narrower than git's own rules. This value goes
+ * onto a command line as the argument to `--branch`, so the first thing it must
+ * not be is another option: a ref beginning with `-` would be read as one, and
+ * `--upload-pack` is a ref name as far as this function's caller knows.
+ * Everything else is `check-ref-format` in the cases that matter — `..` and
+ * `~^:?*[` are refspec syntax, a trailing `.lock` is how git names its own
+ * lockfiles, and a leading or trailing `/` is not a ref at all.
+ *
+ * A full commit SHA is refused ON PURPOSE and by a rule of its own, because it
+ * LOOKS like it should work: `git clone --branch <sha>` fails, since --branch
+ * takes a ref and a bare object name is not one. Fetching a commit means a
+ * second round trip and a checkout — a different shape from the single shallow
+ * clone everything here is built on. Saying so beats relaying a git error
+ * nobody asked for.
+ */
+export const REF_RE = /^(?!-)(?!\.)(?!\/)[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+export function refProblem(ref) {
+  const r = String(ref ?? '');
+  if (!r) return 'is empty';
+  // hex-only and long enough to be an object name — `beef` and `add` are hex
+  // too, and they are also perfectly good branch names, so the length is what
+  // separates them
+  if (/^[0-9a-f]{7,40}$/i.test(r)) {
+    return 'looks like a commit — --branch takes a branch or a tag, not an object name';
+  }
+  if (!REF_RE.test(r)) return 'is not a branch or tag name';
+  if (r.includes('..') || r.endsWith('/') || r.endsWith('.lock') || /[~^:?*[\]\\ ]/.test(r)) {
+    return 'is not a branch or tag name';
+  }
+  return null;
+}
+
+/**
  * What to say when git could not clone a marketplace.
  *
  * The HTTPS form of a private repo fails here rather than 404ing somewhere
@@ -550,8 +585,16 @@ export const cloneUrl = (src) =>
  * so is the more useful sentence: it means the name or the access is the
  * problem, not the setup.
  */
-function cloneFailure(src, e, exec) {
-  const why = `git clone ${cloneUrl(src)} failed — ${oneline(e)}`;
+function cloneFailure(src, e, exec, ref = null) {
+  const why = `git clone ${cloneUrl(src)}${ref ? ` --branch ${ref}` : ''} failed — ${oneline(e)}`;
+  // The commonest failure once a ref is in play, and the one whose git wording
+  // ("Remote branch X not found in upstream origin") does not mention tags at
+  // all — so somebody who asked for a tag is told their tag does not exist as a
+  // branch, which is not what they got wrong.
+  if (ref && /remote branch .* not found|could not find remote branch/i.test(oneline(e))) {
+    return `${why}\n  no branch or tag "${ref}" in ${src.spec}`
+      + '\n  (a tag works here too — check the name, or drop --branch for the default)';
+  }
   // Offline is not an auth problem, and must not be answered as one: a plane
   // is a first-class place to run decklight, and the cache is still there.
   if (/could not resolve host|unable to access|connection (refused|timed out)|network is unreachable|SIGTERM/i.test(oneline(e))) {
@@ -624,19 +667,25 @@ export function hasGitCredential(url, exec = execFileSync) {
  * background `git pull` walks into, and keeps `~/.decklight/` from filling up
  * with nested repositories.
  */
-function cloneMarketplace(src, { exec, timeoutMs, stagingIn }) {
+function cloneMarketplace(src, { exec, timeoutMs, stagingIn, ref = null }) {
   mkdirSync(stagingIn, { recursive: true });
   const dir = mkdtempSync(join(stagingIn, '.staging-'));
   const opts = { stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs * 4, encoding: 'utf8' };
   try {
-    exec('git', ['clone', '--quiet', '--depth', '1', cloneUrl(src), dir], {
+    // No --branch means the REMOTE's default branch, whatever it is called —
+    // nothing here has ever assumed `main` or `master`, so a repo whose default
+    // is `trunk` already worked. --branch takes a tag as happily as a branch; a
+    // tag simply lands detached, which costs nothing because `.git` is deleted
+    // below either way.
+    exec('git', ['clone', '--quiet', '--depth', '1',
+      ...(ref ? ['--branch', ref] : []), cloneUrl(src), dir], {
       ...opts,
       // never a password prompt: an unreachable private repo is an answer, not a hang
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     });
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
-    throw new MarketplaceError(cloneFailure(src, e, exec));
+    throw new MarketplaceError(cloneFailure(src, e, exec, ref));
   }
   try {
     const p = join(dir, MANIFEST_PATH);
@@ -662,15 +711,18 @@ function cloneMarketplace(src, { exec, timeoutMs, stagingIn }) {
  * the clone carries a timeout, and offline is an answer, not a hang (a plane
  * is a first-class place to run decklight).
  */
-export async function fetchManifest(src, { exec = execFileSync, timeoutMs = 8000, stagingIn } = {}) {
+export async function fetchManifest(src, { exec = execFileSync, timeoutMs = 8000, stagingIn, ref = null } = {}) {
   if (src.kind === 'local') {
+    // A directory has no refs to choose between: it IS the checkout, read in
+    // place. Silently ignoring a --branch here would look like it worked.
+    if (ref) throw new MarketplaceError(`${src.spec} is a local directory — --branch needs a repository to clone`);
     if (!existsSync(src.root)) throw new MarketplaceError(`no such directory: ${src.spec}`);
     const p = join(src.root, MANIFEST_PATH);
     if (!existsSync(p)) throw new MarketplaceError(`${src.spec} has no ${MANIFEST_PATH} — is it a marketplace repo?`);
     return { raw: readFileSync(p, 'utf8'), checkout: null, commit: null };
   }
   // staged beside the destination by default, so adopting it is a rename
-  return cloneMarketplace(src, { exec, timeoutMs, stagingIn: stagingIn ?? join(configHome(), 'marketplaces') });
+  return cloneMarketplace(src, { exec, timeoutMs, ref, stagingIn: stagingIn ?? join(configHome(), 'marketplaces') });
 }
 
 /**
@@ -734,10 +786,17 @@ export function resolveEntry(ref, catalogs) {
 const USAGE = `usage: decklight marketplace <add|list|update|remove> …
 
   decklight marketplace add <owner/repo | git url | path> [--name <name>]
+                                                          [--branch <ref>]
     clone the source, read ${MANIFEST_PATH} at its root, and register
     the catalog under ~/.decklight/ — a local path never touches the network
     EXAMPLE: decklight marketplace add decklight/decklight-plugins-official
     EXAMPLE: decklight marketplace add ../my-marketplace
+    EXAMPLE: decklight marketplace add acme/themes --branch v2.1.0
+
+    --branch takes a BRANCH OR A TAG. Without it you get the remote's default
+    branch, whatever it is called — decklight has never assumed main or master.
+    The ref is remembered, so update re-clones the same one: a catalog pinned
+    to a tag stays pinned until you say otherwise.
 
     the clone uses YOUR git credentials, so a private marketplace works the
     way git clone does in your terminal — and its entries install from that
@@ -747,8 +806,9 @@ const USAGE = `usage: decklight marketplace <add|list|update|remove> …
     every registered marketplace and its cached entries (as name@marketplace),
     read from the cache alone — list works on a plane
 
-  decklight marketplace update <name>
+  decklight marketplace update <name> [--branch <ref>]
     re-clone a marketplace, refreshing the cached manifest and the checkout
+    (at the ref it was added with, unless --branch moves the pin)
     its entries install from; for a registered-not-fetched marketplace this is
     the FIRST fetch it ever gets
 
@@ -772,12 +832,19 @@ const entriesSummary = (name, entries) => {
 
 async function addMain(args, home) {
   const { opt } = argReader(args);
-  const [spec] = args.filter((a, i) => !a.startsWith('-') && args[i - 1] !== '--name');
+  const [spec] = args.filter((a, i) => !a.startsWith('-')
+    && args[i - 1] !== '--name' && args[i - 1] !== '--branch');
   if (!spec) { console.error(`decklight marketplace add: needs an owner/repo, a git url, or a path\n\n${USAGE}`); return 1; }
+
+  // A branch or a TAG — a tag is what you reach for to pin a catalog to a
+  // known-good version, which is the whole reason this is not branches only.
+  const ref = opt('--branch') ?? null;
+  const bad = ref === null ? null : refProblem(ref);
+  if (bad) { console.error(`decklight marketplace add: --branch ${JSON.stringify(ref)} ${bad}`); return 1; }
 
   const src = classifySource(spec);
   let got;
-  try { got = await fetchManifest(src, { stagingIn: join(home, 'marketplaces') }); } catch (e) {
+  try { got = await fetchManifest(src, { ref, stagingIn: join(home, 'marketplaces') }); } catch (e) {
     console.error(`decklight marketplace add: ${e.message}`);
     return 1;
   }
@@ -797,7 +864,12 @@ async function addMain(args, home) {
       console.error(`  remove it first, or register this one under another name with --name`);
       return 1;
     }
-    reg.marketplaces[name] = { ...(existing ?? {}), source: spec, commit: got.commit ?? undefined };
+    // The ref is REMEMBERED, so `update` re-clones the same one. Without that a
+    // catalog pinned to v1.2.0 would silently jump to the default branch the
+    // first time anybody refreshed it — which is the opposite of pinning.
+    reg.marketplaces[name] = {
+      ...(existing ?? {}), source: spec, ref: ref ?? undefined, commit: got.commit ?? undefined,
+    };
     writeCache(home, name, got.raw);
     const at = adoptCheckout(home, name, got.checkout);
     got.checkout = null;
@@ -827,8 +899,12 @@ function listMain(home) {
     // The commit is what the manifest AND every entry's files came from — one
     // clone, so there is a single answer to "which version of this catalog is
     // installed", and it is worth printing.
+    // The ref is shown BEFORE the commit, because they answer different
+    // questions: the ref is what you asked for and what `update` will fetch
+    // again, the commit is where that ref happened to point when it was cloned.
+    // A pinned catalog whose pin is invisible is one nobody remembers pinning.
     const head = `${name}${m.firstParty ? ' (first-party)' : ''}  ${m.source}`
-      + `${m.commit ? `  @${m.commit.slice(0, 7)}` : ''}`;
+      + `${m.ref ? `  #${m.ref}` : ''}${m.commit ? `  @${m.commit.slice(0, 7)}` : ''}`;
     const cached = loadCatalog(name, home);
     if (cached === null) {
       console.log(`${head} — registered, not fetched (decklight marketplace update ${name})`);
@@ -859,15 +935,24 @@ function listMain(home) {
 }
 
 async function updateMain(args, home) {
-  const [name] = args.filter((a) => !a.startsWith('-'));
+  const [name] = args.filter((a, i) => !a.startsWith('-') && args[i - 1] !== '--branch');
   if (!name) { console.error(`decklight marketplace update: which one?\n\n${USAGE}`); return 1; }
   const reg = loadRegistry(home);
   const m = reg.marketplaces[name];
   if (!m) { console.error(`decklight marketplace update: no marketplace "${name}" (decklight marketplace list)`); return 1; }
 
   const first = loadCatalog(name, home) === null;
+  // --branch here RE-PINS: it is how you move a marketplace from one tag to the
+  // next without removing and re-adding it (which would lose the name it was
+  // registered under). With no flag, whatever was pinned before still holds.
+  const { opt } = argReader(args);
+  const asked = opt('--branch') ?? null;
+  const bad = asked === null ? null : refProblem(asked);
+  if (bad) { console.error(`decklight marketplace update: --branch ${JSON.stringify(asked)} ${bad}`); return 1; }
+  const ref = asked ?? m.ref ?? null;
+
   let got;
-  try { got = await fetchManifest(classifySource(m.source), { stagingIn: join(home, 'marketplaces') }); } catch (e) {
+  try { got = await fetchManifest(classifySource(m.source), { ref, stagingIn: join(home, 'marketplaces') }); } catch (e) {
     console.error(`decklight marketplace update: ${name}: ${e.message}`);
     // The clone lands in staging and is adopted only once it validates, so a
     // failed update leaves BOTH halves of what is on disk untouched — the
@@ -883,10 +968,12 @@ async function updateMain(args, home) {
     got.checkout = null;
     const reg2 = loadRegistry(home);
     if (reg2.marketplaces[name]) {
-      reg2.marketplaces[name] = { ...reg2.marketplaces[name], commit: got.commit ?? undefined };
+      reg2.marketplaces[name] = {
+        ...reg2.marketplaces[name], ref: ref ?? undefined, commit: got.commit ?? undefined,
+      };
       saveRegistry(reg2, home);
     }
-    console.log(`${first ? 'fetched' : 'updated'} ${name} — ${entriesSummary(name, v.manifest.entries)}`);
+    console.log(`${first ? 'fetched' : 'updated'} ${name}${ref ? ` at ${ref}` : ''} — ${entriesSummary(name, v.manifest.entries)}`);
     if (at) console.log(`  cloned to ${at}${got.commit ? ` (${got.commit.slice(0, 7)})` : ''}`);
     return 0;
   } finally {

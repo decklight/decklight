@@ -602,6 +602,25 @@ A marketplace is a git repo (or a local directory) with
 mirroring Claude Code's layout deliberately (MARKETPLACE.md MARKETPLACES). The
 manifest names the catalog and its entries:
 
+**Which ref.** `add` and `update` take `--branch <ref>`, and it accepts a **tag**
+as readily as a branch — a tag is how a catalog gets pinned to a version known
+to work. Without it the shallow clone follows the remote's own `HEAD`, so
+nothing here has ever assumed `main` or `master` and a repo whose default is
+`trunk` always worked; what was missing was any way to ask for a ref that is not
+the default. The ref is **remembered in the registry**, so `update` re-clones the
+same one — a pin that a refresh silently abandoned would be decoration — and
+`update --branch` is how the pin is deliberately moved. `list` shows it as
+`#ref` beside the `@commit`, because the two answer different questions: the ref
+is what you asked for and what the next update will fetch, the commit is where
+that ref happened to point. A ref is validated against an allowlist before it
+reaches the command line, since a value beginning with `-` is an option rather
+than a ref; a full commit SHA is refused with its own message, because
+`--branch` takes a ref and a bare object name is not one — fetching a commit
+means a second round trip and a checkout, which is a different shape from the
+single shallow clone. `--branch` against a **local** directory is an error, not
+a no-op: a directory has no refs to choose between, and accepting the flag
+while ignoring it would look exactly like success.
+
 ```json
 {
   "name": "nord-pack",
