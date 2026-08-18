@@ -521,8 +521,7 @@ export function init(userConfig = {}) {
     const has = (fn) => typeof fn === 'function';
     const all = [
       { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
-      { label: 'History… (dev)', hint: 'H', alias: 'git log commits unpushed push remote when changed version', run: () => editmode.history.open() },
-      { label: 'Restore a version…', hint: 'R', alias: 'git rollback undo revert commit back', run: () => editmode.restore.open() },
+      { label: 'History… (dev)', hint: 'H', alias: 'restore version rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: themes.openPicker },
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
@@ -1344,13 +1343,12 @@ export function init(userConfig = {}) {
       <tr><td>⇧W</td><td>laser pointer</td></tr>
       <tr><td>K</td><td>clock — wall time + elapsed talk</td></tr>
       <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
-      <tr><td>H</td><td>history — commits, what is unpushed, live preview (author mode)</td></tr>
+      <tr><td>H</td><td>history — commits, what is unpushed, ⏎ restores one (author mode; R too)</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
-      <tr><td>R</td><td>restore a version (author mode — git history, live preview)</td></tr>
       <tr><td>E</td><td>element edit mode — right-click a slide element (author mode)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
@@ -1488,7 +1486,8 @@ export function init(userConfig = {}) {
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
-      case 'r': case 'R': editmode.restore.open(); break;
+      // R is history's other door — kept because it is in people's fingers.
+      case 'r': case 'R': editmode.history.open(); break;
       case 'e': case 'E': toggleElementEdit(); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
