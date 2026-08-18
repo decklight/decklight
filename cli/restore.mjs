@@ -56,6 +56,114 @@ export function deckHistory(deckPath, cwd, run = git) {
   });
 }
 
+/**
+ * How many commits deep the per-version stats go.
+ *
+ * Every stat below is CHEAP except one: the slide count, which can only be had
+ * by reading the whole deck at that revision, and a bundled deck is most of a
+ * megabyte. Thirty of those is ~20 MB through one pipe — fine — and three
+ * hundred is not. Rows past the limit simply carry no badge, which is the
+ * right failure: a number missing from row 40 costs nothing, and a two-second
+ * stall every time somebody presses H costs the feature.
+ */
+export const STAT_DEPTH = 30;
+
+/** Slides in a deck's source. `<section\b` is the same measure `decklight pdf` uses. */
+export const countSlides = (html) => (String(html).match(/<section\b/gi) ?? []).length;
+
+/**
+ * `git log --numstat`'s output, as `full hash → { add, del }`. Pure.
+ *
+ * The shape is a hash line, a blank line, then one tab-separated numstat row
+ * per path. No separator is needed to tell them apart: a numstat row always
+ * contains tabs and a hash line never does, so the hash is recognised by being
+ * a hash. `-` where a count should be is git saying "binary" — that is a null,
+ * not a zero, and a deck that someone checked in with a `binary` gitattribute
+ * must not be reported as having changed nothing.
+ */
+export function parseNumstat(out) {
+  const stats = new Map();
+  let full = null;
+  for (const line of String(out ?? '').split('\n')) {
+    if (/^[0-9a-f]{40,64}$/.test(line)) { full = line; continue; }
+    if (!full || !line.includes('\t')) continue;
+    const [add, del] = line.split('\t');
+    stats.set(full, {
+      add: add === '-' ? null : Number(add),
+      del: del === '-' ? null : Number(del),
+    });
+  }
+  return stats;
+}
+
+/**
+ * `git cat-file --batch`'s output, as `hash → slide count`. Pure.
+ *
+ * The format is a header line (`<oid> <type> <size>`), exactly `size` BYTES of
+ * content, then a newline — so the walk is by byte offset and never by
+ * splitting on newlines, which would desynchronise on the first deck
+ * containing one. A revision git cannot resolve answers `<name> missing`, with
+ * no content at all; that row just gets no count.
+ *
+ * `hashes` is the request order, which is also the reply order — that is the
+ * contract of `--batch`, and it is why the answers need no keys of their own.
+ */
+export function parseCatFileBatch(buf, hashes) {
+  const out = new Map();
+  let at = 0;
+  for (const hash of hashes) {
+    const nl = buf.indexOf(10, at);
+    if (nl < 0) break;
+    const head = buf.toString('utf8', at, nl);
+    at = nl + 1;
+    if (/\b(missing|ambiguous)$/.test(head)) continue;
+    const size = Number(head.split(' ')[2]);
+    if (!Number.isFinite(size)) break;
+    out.set(hash, countSlides(buf.toString('utf8', at, at + size)));
+    at += size + 1;                       // the trailing newline --batch adds
+  }
+  return out;
+}
+
+/**
+ * Decorate history entries with what each version WAS and what it CHANGED:
+ * `slides`, `add`, `del`. Mutates and returns `entries`.
+ *
+ * Two git invocations for the whole list, not two per row — a history overlay
+ * that spawned sixty processes to draw sixty rows would be slower than the
+ * thing it is showing you. Everything here is a local object read: no network,
+ * no working tree, nothing written.
+ *
+ * Best-effort by construction. A repository that cannot answer leaves the
+ * fields undefined and the overlay draws the row without badges, because the
+ * hash and the subject are the part you actually navigate by.
+ */
+export function decorateHistory(entries, deckPath, cwd, {
+  depth = STAT_DEPTH, run = git, exec = execFileSync,
+} = {}) {
+  if (!entries.length) return entries;
+  const rel = relative(cwd, deckPath) || basename(deckPath);
+  try {
+    const stats = parseNumstat(run(['log', '--format=%H', '--numstat', '--', rel], cwd));
+    for (const e of entries) {
+      const s = stats.get(e.full);
+      if (s) { e.add = s.add; e.del = s.del; }
+    }
+  } catch { /* counts are a nicety; the list is the feature */ }
+  try {
+    const heads = entries.slice(0, depth).map((e) => e.full);
+    const buf = exec('git', ['cat-file', '--batch'], {
+      cwd,
+      input: heads.map((h) => `${h}:${rel}\n`).join(''),
+      maxBuffer: 128 * 1024 * 1024,
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+    const slides = parseCatFileBatch(buf, heads);
+    for (const e of entries) if (slides.has(e.full)) e.slides = slides.get(e.full);
+  } catch { /* ditto */ }
+  return entries;
+}
+
 /** One list row, aligned enough to scan: `a1b2c3d · 2 hours ago · subject`. */
 export function formatEntry({ hash, when, subject }, pad = 14) {
   return `${hash}  ${String(when).padEnd(pad)}  ${subject}`;

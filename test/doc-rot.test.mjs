@@ -147,3 +147,28 @@ test('no doc or deck still tells anyone to run a command that was removed', () =
   }
   assert.deepEqual(hits, [], 'a shipped file invokes `decklight edit`, which refuses');
 });
+
+test('restoring stays two steps — no path writes the deck without arming first', () => {
+  // A SOURCE assertion rather than a behavioural one, and deliberately so: the
+  // confirmation is browser-only state in an overlay no headless harness opens,
+  // so the regression it guards against — ⏎ or a click restoring on the spot,
+  // which is how this worked before — would be completely silent. What can be
+  // checked cheaply is that the write is gated, and that nothing calls the
+  // writer except the two places allowed to.
+  // endsWith, not equality: these paths come from `path.relative`, which
+  // answers `core\\editmode.js` on Windows — a `===` against a forward-slash
+  // literal passes on two platforms out of three and fails only in CI.
+  const [, editmode] = files.find(([f]) => f.endsWith('editmode.js'));
+  assert.match(editmode, /if \(!entry \|\| !restoreArmed\) return;/,
+    'commitRestore no longer refuses to run unarmed — a mis-aimed ⏎ now writes the deck');
+  assert.match(editmode, /restoreArmed \? commitRestore\(\) : armRestore\(\)/,
+    '⏎ no longer asks before it restores');
+  assert.match(editmode, /restoreArmed \? disarmRestore\(\) : closeRestore\(\)/,
+    'Esc no longer cancels the question before it closes the overlay');
+  // Every call site of the writer, so a new one cannot appear unnoticed: the
+  // keyboard, the confirm button, and its own definition.
+  const calls = [...editmode.matchAll(/commitRestore/g)].length;
+  assert.equal(calls, 3,
+    `commitRestore is referenced ${calls} times, expected 3 — its definition, the`
+    + ' armed ⏎, and the confirm button. A new caller must go through armRestore.');
+});

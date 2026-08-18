@@ -471,12 +471,16 @@
   opacity: 0.75;
 }
 .decklight-restore .rs-when {
+  opacity: 0.55;
+  font-size: 0.85em;
+  padding-left: 0.75em;
+}
 
 /* The history door (H) — the same overlay as R, with two additions: a mark on
    commits that exist nowhere but this machine, and the branch's standing under
    the title. */
 .decklight-history .hs-push {
-  color: var(--accent, #6af);
+  color: #7fb2ff;
   font-weight: 600;
   margin: 0 6px 0 2px;
 }
@@ -487,11 +491,112 @@
   opacity: .62;
   font-variant-numeric: tabular-nums;
   border-bottom: 1px solid rgba(128, 128, 128, .18);
-}  float: right;
-  opacity: 0.55;
-  font-size: 0.85em;
-  padding-left: 0.75em;
 }
+
+/* A history row is four things competing for one line: the hash you navigate
+   by, the subject that says what happened, the badges that say how much, and
+   the age. Flex rather than a float, so the subject is the only part allowed
+   to be truncated — `min-width: 0` is what actually permits it to shrink, and
+   without it the badges get pushed off the end instead. */
+.decklight-history .tp-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  white-space: nowrap;
+}
+.decklight-history .rs-subject {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.decklight-history .rs-when,
+.decklight-history .hs-stat { flex: 0 0 auto; }
+.decklight-history .hs-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4em;
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+}
+/* The slide count reads as a slide: a small landscape box with a number in it,
+   which is a different KIND of fact from the two line counts beside it and
+   should not be mistaken for a third diff number. */
+.decklight-history .hs-slides {
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  padding: 0 0.35em;
+  opacity: 0.5;
+}
+/* Green added, red removed — the colours every diff has used for forty years.
+   Fixed hues rather than theme tokens on purpose: a theme is free to make its
+   accent red, and "how much did this commit add" must not change meaning with
+   the wallpaper. Both are light enough to sit on the picker's dark panel. */
+.decklight-history .hs-add { color: #4ec98a; }
+.decklight-history .hs-del { color: #f2777a; }
+
+/* Preview transport. The previewed version is `?embedded`, so its own chrome
+   is off and this row is the only way to walk it. */
+.decklight-history .hs-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  padding: 6px 0 2px;
+}
+.decklight-history .hs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(128, 128, 128, .28);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.decklight-history .hs-btn:hover:not(:disabled) { background: rgba(128, 128, 128, .18); }
+.decklight-history .hs-btn:disabled { opacity: 0.3; cursor: default; }
+.decklight-history .hs-pos {
+  min-width: 4.5em;
+  text-align: center;
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}
+
+/* The confirmation. It sits under the list rather than over it, because the
+   row it is asking about must stay visible while you answer. */
+.decklight-history .hs-confirm {
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(128, 128, 128, .28);
+  font-size: 0.85em;
+  white-space: normal;
+}
+.decklight-history .hs-q-hash { font-family: var(--font-mono, ui-monospace, monospace); }
+.decklight-history .hs-q-sub { opacity: 0.7; }
+.decklight-history .hs-why { opacity: 0.6; margin: 0.35em 0 0.7em; line-height: 1.35; }
+.decklight-history .hs-buttons { display: flex; gap: 0.5em; }
+.decklight-history .hs-buttons button {
+  font: inherit;
+  padding: 0.35em 0.8em;
+  border-radius: 4px;
+  border: 1px solid rgba(128, 128, 128, .35);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.decklight-history .hs-buttons button.hs-yes {
+  background: #e8eaee;
+  border-color: #e8eaee;
+  color: #16181d;
+  font-weight: 600;
+}
+.decklight-history .hs-buttons button.hs-no:hover { background: rgba(255, 255, 255, .14); }
+.decklight-history .hs-buttons button.hs-yes:hover { background: #fff; border-color: #fff; }
+.decklight-history .hs-keys { opacity: 0.45; font-size: 0.9em; margin-top: 0.6em; }
 
 /* ---------- brand logo (SPEC PRESENTING) -------------------------------------------
    Chrome-level mark on every slide. The engine sets data-canvas="dark|light"
