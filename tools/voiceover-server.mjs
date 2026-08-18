@@ -38,7 +38,7 @@
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
-import { resolveEngine, ENGINES } from './tts-engines.mjs';
+import { resolveEngine, engineBlocker, engineMenu, engineStatus, ENGINES } from './tts-engines.mjs';
 import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
 import { argReader, isMain } from './args.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
@@ -144,16 +144,43 @@ export async function ttsMain(args) {
   // made the name offerable, rather than in each engine — an engine that had to
   // know about the unit library would be an engine that could no longer be
   // tested without one.
-  const refs = installedVoices(engine.name);
-  const refIds = new Map(refs.map((r) => [r.label, r.voiceId]));
-  if (refs.length) console.log(`  voices: +${refs.length} installed (decklight voice list)`);
+  // Everything derived from the live engine, recomputed together — because the
+  // deck can now change which engine that is (SPEC `NARRATION`), and a roster
+  // or an id map left behind from the previous one would offer voices the
+  // current engine cannot say.
+  let refs = [];
+  let refIds = new Map();
+  const useEngine = (e) => {
+    engine = e;
+    refs = installedVoices(e.name);
+    refIds = new Map(refs.map((r) => [r.label, r.voiceId]));
+    if (refs.length) console.log(`  voices: +${refs.length} installed (decklight voice list)`);
+  };
+  useEngine(engine);
 
   const voiceRoster = async () => [
     ...(engine.listVoices ? (await engine.listVoices()).map((v) => [v.name, v.flavor]) : engine.voices),
     ...refs.map((r) => [r.label, r.marketplace ?? 'installed']),
   ];
 
+  // The engine's NAME is part of every cache key, so a swap cannot serve one
+  // engine's audio under another's voice — the cache survives the switch, and
+  // switching back replays instantly rather than re-billing.
   const cache = new Map();
+
+  // What the bridge could become, and what stands in the way. The options the
+  // deck's picker draws (SPEC `NARRATION`).
+  //
+  // The blockers are all fixed in a TERMINAL and this route never collects
+  // one: a key or a project id typed into a web page — even one on loopback —
+  // is a different thing from one exported in a shell, and a deck under
+  // `--remote` is reachable from a phone. So the deck lists what is missing and
+  // says where to fix it; it never becomes the place you configure credentials.
+  const menuOpts = () => ({
+    env: process.env,
+    project: opt('--project') ?? process.env.GOOGLE_CLOUD_PROJECT ?? saved?.project,
+    voice: opt('--voice'), dataDir: opt('--data-dir'), lang: opt('--lang'),
+  });
 
   // the player reads the cost estimate for its debug window
   const CORS = corsHeaders('x-tts-cost, x-tts-tokens, x-tts-cached');
@@ -177,6 +204,70 @@ export async function ttsMain(args) {
         stylable: engine.stylable, // gemini alone can be told HOW to say it
         voices,                    // piper speaks one voice, not the star roster
       }));
+    }
+    // ── which engine is speaking, and what else could (SPEC `NARRATION`) ──
+    if (req.method === 'GET' && req.url === '/engines') {
+      // Ready or not, every engine is listed. Hiding the ones this machine
+      // cannot use would answer "where did ElevenLabs go?" with silence — the
+      // useful answer is that it is there and needs a key.
+      const opts = menuOpts();
+      const menu = engineMenu(opts).map((e) => ({ ...e, current: e.name === engine.name }));
+      // An engine the bridge was STARTED with is ready by definition — it is
+      // speaking. Detection can disagree (a marketplace engine is not one of
+      // the six, and a project passed by flag is invisible to a later probe),
+      // and a picker that greyed out the running engine would be absurd.
+      if (!menu.some((e) => e.current)) {
+        menu.unshift({ name: engine.name, ready: true, reason: 'ok', current: true, cost: engine.cost });
+      }
+      res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, engine: engine.name, engines: menu }));
+    }
+    if (req.method === 'POST' && req.url === '/engine') {
+      let name;
+      try { ({ engine: name } = JSON.parse((await readBody(req)).toString())); }
+      catch { name = null; }
+      if (typeof name !== 'string' || !name) {
+        res.writeHead(400, { ...CORS, 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: 'name the engine' }));
+      }
+      if (name === engine.name) {
+        res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true, engine: engine.name, model: engine.model,
+          stylable: engine.stylable, voices: await voiceRoster().catch(() => []), changed: false }));
+      }
+      const opts = menuOpts();
+      // Checked BEFORE building, because two of the six build perfectly well
+      // and only fail on the first sentence — which mid-talk is a keypress into
+      // silence. A refusal here is recoverable; that one is not.
+      const status = engineStatus(name, opts);
+      if (ENGINES.includes(name) && !status.ready) {
+        // The blocker travels WITH the refusal. The deck's picker normally has
+        // it already (it came down with /engines), but a menu can be a minute
+        // stale — a key exported and un-exported, a model deleted — and a
+        // refusal the deck cannot put words to is a row that does nothing when
+        // clicked.
+        res.writeHead(409, { ...CORS, 'content-type': 'application/json' });
+        return res.end(JSON.stringify({
+          ok: false, error: status.reason, ...status, ...(engineBlocker(status, opts) ?? {}),
+        }));
+      }
+      let next;
+      try {
+        next = await resolveEngine({ ...opts, engine: name, model: undefined });
+      } catch (e) {
+        res.writeHead(409, { ...CORS, 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: String(e.message ?? e).slice(0, 200) }));
+      }
+      // Only now, once the new engine exists: a failed swap must leave the
+      // bridge speaking exactly as it was, not half-way between two engines.
+      const was = engine.name;
+      useEngine(next);
+      console.log(`  engine: ${was} → ${engine.name} (asked for by the deck)`);
+      if (engine.caveat) console.log(`  ${engine.caveat}`);
+      const voices = await voiceRoster().catch(() => []);
+      res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ ok: true, engine: engine.name, model: engine.model,
+        stylable: engine.stylable, cost: engine.cost, caveat: engine.caveat, voices, changed: true }));
     }
     if (req.method === 'GET' && req.url === '/voices') {
       res.writeHead(200, { ...CORS, 'content-type': 'application/json' });

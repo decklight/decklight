@@ -115,39 +115,63 @@ export function createNarration({
   // thirty star names — and a picker offering 29 voices that silently do nothing
   // is a lie. /ping tells us; until it answers, the built-in roster stands.
   const PING_URL = LIVE_URL.replace(/\/tts\/?$/, '/ping');
+  // The bridge speaks with ONE engine, but it can be told to speak with another
+  // (SPEC `NARRATION`) — so which one is a choice the deck can make, not just a
+  // fact it reads. These two are the same route in its read and write forms.
+  const ENGINES_URL = LIVE_URL.replace(/\/tts\/?$/, '/engines');
+  const ENGINE_URL = LIVE_URL.replace(/\/tts\/?$/, '/engine');
   let liveVoices = GEMINI_VOICES;
   let liveStylable = true;  // only gemini takes a delivery instruction
   let liveEngine = null;
   let livePing = null;
+  // The menu, and whether we have asked for it. Not cached across picker opens
+  // like the roster is: a presenter who exported a key and restarted the bridge
+  // must see that on the next open, not the answer from before they fixed it.
+  let liveMenu = null;
   function probeLive() {
     livePing ??= fetch(PING_URL)
       .then((r) => (r.ok ? r.json() : null))
       .then((p) => {
         if (!p) return null;
-        liveEngine = p.engine ?? null;
-        if (Array.isArray(p.voices) && p.voices.length) liveVoices = p.voices;
-        liveStylable = p.stylable !== false;
-        debugLog('tts', `bridge: ${p.engine} · ${p.model} · ${liveVoices.length} voice(s)`
-          + (liveStylable ? '' : ' · no style'));
         // A saved voice the LIVE bridge cannot speak is stale, not a choice: it
         // was picked for a different engine (the Gemini roster is the default,
         // and an ElevenLabs key knows none of those names). Sending it anyway
         // makes the first V a failure for a setting nobody remembers making, so
         // the roster wins and the first voice — for ElevenLabs, one of YOURS —
         // takes over. Said out loud, because a voice changing on its own is
-        // exactly the kind of thing that should never be silent.
-        if (liveVoices.length && !liveVoices.some(([n]) => n === liveCfg.voice)) {
-          const was = liveCfg.voice;
-          liveCfg = { ...liveCfg, voice: liveVoices[0][0] };
-          persistNarr();
-          debugLog('tts', `voice ${was} is not on this bridge — using ${liveCfg.voice}`);
-          if (narrSet?.live) toast(`voice ${was} → ${liveCfg.voice} (this bridge speaks its own roster)`, 2600);
-        }
+        // exactly the kind of thing that should never be silent. adoptBridge
+        // holds that rule, because a mid-session engine swap needs it too.
+        adoptBridge(p);
+        debugLog('tts', `bridge: ${p.engine} · ${p.model} · ${liveVoices.length} voice(s)`
+          + (liveStylable ? '' : ' · no style'));
         return p;
       })
       .catch(() => null); // no bridge — the picker still works, V just warns
     return livePing;
   }
+  /**
+   * Take on what the bridge just told us about itself.
+   *
+   * Shared by the /ping probe and by a swap, because a swap raises exactly the
+   * same question a first probe does — is the voice we hold still speakable? —
+   * and only more often. piper answers one voice, ElevenLabs answers yours, and
+   * a name kept from the previous engine would fail on the next sentence.
+   */
+  function adoptBridge(p) {
+    if (!p) return null;
+    liveEngine = p.engine ?? null;
+    if (Array.isArray(p.voices) && p.voices.length) liveVoices = p.voices;
+    liveStylable = p.stylable !== false;
+    if (liveVoices.length && !liveVoices.some(([n]) => n === liveCfg.voice)) {
+      const was = liveCfg.voice;
+      liveCfg = { ...liveCfg, voice: liveVoices[0][0] };
+      persistNarr();
+      debugLog('tts', `voice ${was} is not on this bridge — using ${liveCfg.voice}`);
+      if (narrSet?.live) toast(`voice ${was} → ${liveCfg.voice} (this bridge speaks its own roster)`, 2600);
+    }
+    return p;
+  }
+
   // Third element is the SAME tone as a short ElevenLabs v3 audio-tag cue —
   // v3 wants a bracketed word or two of direction, not a Gemini-shaped prose
   // instruction, so each preset carries both and toneStyle() below picks the
@@ -792,6 +816,7 @@ export function createNarration({
   function narrBack() {
     if (narrView === 'custom') renderNarr('tones');
     else if (narrView === 'tones') renderNarr('voices');
+    else if (narrView === 'engines') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('character');
     else if ((narrView === 'voices' || narrView === 'character') && narrSets.length) renderNarr('tracks');
     else closeNarrPicker();
@@ -991,8 +1016,64 @@ export function createNarration({
           });
         }
       }
+    } else if (view === 'engines') {
+      head.textContent = 'live voice — which engine speaks';
+      // Asked fresh on every open. A presenter who just exported a key and
+      // restarted the bridge must see that, not the answer from before they
+      // fixed it — and the whole list is four probes on the Node side.
+      if (!liveMenu) {
+        // A bridge that ANSWERS 404 is a different problem from one that does
+        // not answer at all: it is running, it is older than this deck, and
+        // telling its owner to start the thing they already started would send
+        // them looking in the wrong place entirely.
+        fetch(ENGINES_URL)
+          .then((r) => (r.ok ? r.json() : { stale: true }))
+          .then((j) => { liveMenu = j?.stale ? 'stale' : (j?.engines ?? []); })
+          .catch(() => { liveMenu = []; })
+          .then(() => { if (narrEl && narrView === 'engines') renderNarr('engines'); });
+      }
+      if (!liveMenu) narrRows.push({ text: 'asking the bridge…', cur: false, commit: () => {} });
+      else if (liveMenu === 'stale') {
+        narrRows.push({
+          text: `⚡ ${liveEngine ?? 'the bridge'} — and it cannot be changed from here`,
+          flavor: 'this voice bridge predates the engine picker',
+          blocked: 'restart it: decklight author',
+          cur: true,
+          commit: () => {},
+        });
+      } else if (!liveMenu.length) {
+        narrRows.push({
+          text: 'no voice bridge is answering',
+          flavor: 'the engine list comes from it',
+          blocked: 'decklight author',
+          cur: false,
+          commit: () => {},
+        });
+      }
+      (Array.isArray(liveMenu) ? liveMenu : []).forEach((e) => narrRows.push({
+        // No glyph: every row here is the same kind of thing, and the card's
+        // own ✓ already marks the live one — a ⚡ beside it would say it twice.
+        text: e.name,
+        // Ready: the price note, which is the thing that actually decides this
+        // for most people. Not ready: what is missing — never a price for
+        // something that cannot speak.
+        flavor: e.ready ? (e.cost ?? '') : (e.why ?? 'unavailable'),
+        blocked: e.ready ? null : (e.fix ?? null),
+        cur: !!e.current,
+        commit: () => switchEngine(e),
+      }));
     } else if (view === 'voices') {
       head.textContent = 'live voice — pick a voice · ▶ previews';
+      // The engine sits ABOVE the voice and decides the whole roster, so it
+      // belongs here rather than a level up: this is the screen where you
+      // notice the names are not the ones you wanted. Never in the way — it is
+      // one row, and picking a voice does not pass through it.
+      narrRows.push({
+        text: `⚙ engine: ${liveEngine ?? 'the bridge'}…`,
+        flavor: 'changes which voices exist',
+        cur: false,
+        commit: () => renderNarr('engines'),
+      });
       const wrap = document.createElement('div');
       wrap.className = 'narr-preview-row';
       const test = document.createElement('input');
@@ -1080,7 +1161,8 @@ export function createNarration({
     }
     narrRows.forEach((row, i) => {
       const el = document.createElement('div');
-      el.className = 'narr-row' + (row.cur ? ' narr-cur' : '');
+      el.className = 'narr-row' + (row.cur ? ' narr-cur' : '')
+        + (row.blocked || row.blocked === '' ? ' narr-blocked' : '');
       const label = document.createElement('span');
       label.className = 'narr-row-label';
       // Built as nodes, not innerHTML: a bridge's voice names and flavors are
@@ -1094,6 +1176,15 @@ export function createNarration({
         label.appendChild(flavor);
       }
       el.appendChild(label);
+      // The fix gets its own line rather than joining the flavor: it is a
+      // command to type, and a command wrapped into a sentence is a command
+      // somebody mis-copies.
+      if (row.blocked) {
+        const fix = document.createElement('div');
+        fix.className = 'narr-fix';
+        fix.textContent = row.blocked;
+        el.appendChild(fix);
+      }
       if (row.preview) {
         const btn = document.createElement('button');
         btn.type = 'button';
@@ -1111,6 +1202,45 @@ export function createNarration({
     const cur = narrRows.findIndex((r) => r.cur);
     selectNarrRow(Math.max(0, cur));
     narrEl.querySelector('.narr-sel')?.scrollIntoView({ block: 'nearest' });
+  }
+  /**
+   * Ask the bridge to speak with a different engine, for this session only.
+   *
+   * NOT PERSISTED, deliberately. `~/.config/decklight/tts.json` is what the CLI
+   * and the setup wizard write, and it decides what the NEXT `decklight author`
+   * starts with; an experiment two minutes before a talk must not quietly
+   * become tomorrow's default. The bridge itself keeps the choice until it is
+   * restarted, so it survives a reload of the deck.
+   *
+   * A blocked engine is a dead end here on purpose (SPEC `NARRATION`): the row
+   * says what is missing and where to fix it, and the fix is always something
+   * you do in a terminal. A key or a project id typed into a deck — even one on
+   * loopback — is a different thing from one exported in a shell, and a deck
+   * under `--remote` is reachable from a phone.
+   */
+  async function switchEngine(e) {
+    if (!e?.name) return;
+    if (!e.ready) {
+      return toast(e.fix ? `${e.name}: ${e.why} — ${e.fix}` : `${e.name}: ${e.why ?? 'unavailable'}`, 5000);
+    }
+    if (e.current) return renderNarr('voices');
+    try {
+      const r = await fetch(ENGINE_URL, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ engine: e.name }),
+      });
+      const j = await r.json();
+      if (!j.ok) return toast(`${e.name}: ${j.why ?? j.error}${j.fix ? ` — ${j.fix}` : ''}`, 5000);
+      // The roster just changed under us, so the cached /ping must not be
+      // replayed — and adoptBridge re-picks the voice if the one we held is
+      // not on the new engine.
+      livePing = Promise.resolve(adoptBridge(j));
+      liveMenu = null;
+      debugLog('tts', `engine → ${j.engine} · ${j.model} · ${liveVoices.length} voice(s)`);
+      toast(`⚡ engine: ${j.engine}${j.cost ? ` · ${j.cost}` : ''} — this session only`, 3200);
+      if (j.caveat) toast(j.caveat, 6000);
+      renderNarr('voices');
+    } catch { toast(`${e.name}: the voice bridge did not answer`, 3000); }
   }
   function commitCustomTone() {
     const v = narrEl?.querySelector('.narr-input')?.value.trim();

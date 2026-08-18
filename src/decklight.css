@@ -1221,6 +1221,21 @@
 .decklight-narr .narr-row.narr-sel { background: rgba(255, 255, 255, .14); }
 .decklight-narr .narr-row.narr-cur::after { content: ' ✓'; opacity: .7; }
 .decklight-narr .narr-flavor { opacity: .5; font-size: .85em; margin-left: 6px; }
+/* An engine this machine cannot use is SHOWN, dimmed, with the terminal command
+   that would fix it — hiding it would answer "where did ElevenLabs go?" with
+   silence. The fix wraps onto its own line (the row is a flex box) because it
+   is a command to type, and a command folded into a sentence is a command
+   somebody mis-copies. */
+.decklight-narr .narr-row.narr-blocked { flex-wrap: wrap; cursor: default; }
+.decklight-narr .narr-row.narr-blocked .narr-row-label { opacity: .45; }
+.decklight-narr .narr-fix {
+  flex: 0 0 100%;
+  margin: 2px 0 2px 1.1em;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: .78em;
+  opacity: .42;
+  overflow-wrap: anywhere;
+}
 .decklight-narr .narr-input {
   width: 100%;
   box-sizing: border-box;

@@ -473,7 +473,11 @@
           let rows = [...(picker?.querySelectorAll('.narr-row') ?? [])];
           r.voiceRows = rows.map((el) => el.querySelector('.narr-row-label')?.textContent);
 
-          rows[0]?.click();                                 // commit the top ("yours") voice
+          // The top VOICE, found by what it is rather than by where it sits:
+          // the voices view also carries the engine row (SPEC PRESENTING), and
+          // an index into this list is a thing that silently starts meaning
+          // something else the next time a row is added above it.
+          rows.find((el) => !/engine:/.test(el.textContent))?.click();
           // Long enough to hold on the tones view for a screenshot
           // (tools/shot.mjs --drive against this same mode, budget ~1200ms)
           // before the next click moves on.

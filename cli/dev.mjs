@@ -29,7 +29,7 @@ import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import {
-  ENGINES as TTS_ENGINES, PIPER_DEFAULT_VOICE, piperModelDir, piperModelPath,
+  ENGINES as TTS_ENGINES, PIPER_DEFAULT_VOICE, piperModelDir, engineStatus,
   piperDownloadCmd, piperDownloadLine,
 } from '../tools/tts-engines.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
@@ -168,31 +168,43 @@ export function planServices({
     ...pass('--voice'), ...pass('--data-dir'), ...pass('--lang'), ...pass('--tts-format'),
     ...pass('--tts-stability'),
   ];
+  // The SAME readiness check the bridge runs when the deck asks what it may
+  // switch to (SPEC NARRATION). Sharing the decision is the point: a picker
+  // that offered an engine `author` would have refused to start is a picker
+  // that lies. Only the phrasing differs — here there is a terminal, a
+  // presenter still setting things up, and room for the whole answer.
+  const ttsVoice = opt('--voice', saved?.voice ?? PIPER_DEFAULT_VOICE);
+  const ttsData = opt('--data-dir', piperModelDir(env));
+  const status = engineStatus(ttsEngine, {
+    env, project, voice: ttsVoice, dataDir: ttsData, lang: opt('--lang'),
+    // every probe threaded through, `detect` included: these are the injection
+    // points that let planServices be tested on any machine, and a readiness
+    // check reaching for the REAL PATH or the REAL synthesizer would decide a
+    // test's answer from the host it happened to run on
+    hasBin, exists, detect,
+  });
   if (has('--no-tts')) {
     skip.push({ name: 'voice', why: 'disabled with --no-tts' });
-  } else if (!TTS_ENGINES.includes(ttsEngine)) {
+  } else if (status.reason === 'unknown') {
     skip.push({ name: 'voice', why: `unknown --tts-engine '${ttsEngine}' — use ${TTS_ENGINES.join(', ')}` });
-  } else if (ttsEngine === 'piper' && !hasBin('piper', env)) {
+  } else if (status.reason === 'no-binary') {
     skip.push({ name: 'voice', why: 'piper not on PATH — install it (uv tool install piper-tts)' });
-  } else if (ttsEngine === 'piper' && !exists(piperModelPath(
-    opt('--voice', saved?.voice ?? PIPER_DEFAULT_VOICE), opt('--data-dir', piperModelDir(env))))) {
+  } else if (status.reason === 'no-model') {
     // piper is installed but has no voice to speak with. The bridge would come
     // up looking healthy and fail on the first sentence — a keypress into
     // silence — so it is caught here, where the fix can be offered instead.
-    const voice = opt('--voice', saved?.voice ?? PIPER_DEFAULT_VOICE);
-    const models = opt('--data-dir', piperModelDir(env));
-    const download = piperDownloadCmd(voice, models, { hasBin: (b) => hasBin(b, env) });
+    const download = piperDownloadCmd(ttsVoice, ttsData, { hasBin: (b) => hasBin(b, env) });
     skip.push({
       name: 'voice',
-      why: `the piper voice ${voice} is not in ${models} (~120 MB, one time)`
+      why: `the piper voice ${ttsVoice} is not in ${ttsData} (~120 MB, one time)`
         + ` — ${piperDownloadLine(download)}`,
       download,   // author offers to run this on a TTY; nothing is ever pulled silently
     });
-  } else if (ttsEngine === 'elevenlabs' && !env[ELEVENLABS_KEY_ENV]?.trim()) {
+  } else if (status.reason === 'no-key') {
     // The key never lands in the saved config, so the environment is the only
     // place it can come from — say that, and where to make one.
     skip.push({ name: 'voice', why: `elevenlabs needs $${ELEVENLABS_KEY_ENV} — create a key at https://elevenlabs.io/app/settings/api-keys and export it` });
-  } else if (cloudVoice && !project) {
+  } else if (status.reason === 'no-project') {
     skip.push({
       name: 'voice',
       why: `${ttsEngine} needs a GCP project — pass --project <id> or set GOOGLE_CLOUD_PROJECT`
@@ -202,11 +214,15 @@ export function planServices({
         // and being told why beats concluding decklight ignores their stack.
         + (ollama ? `\n    ${OLLAMA_NOTE}` : ''),
     });
-  } else if (cloudVoice && !validProjectId(project)) {
+  } else if (status.reason === 'bad-project') {
     // caught here rather than at the first narration: the bridge would start,
     // look healthy, and only fail on a keypress — with a 403 naming a project
     // nobody typed
     skip.push({ name: 'voice', why: `not a GCP project id: ${JSON.stringify(project)} — stray punctuation from a copy-paste?` });
+  } else if (status.reason === 'no-native-voice') {
+    // New with the shared check: `--tts-engine say` on a machine whose OS has
+    // no synthesizer used to start a bridge that failed on the first keypress.
+    skip.push({ name: 'voice', why: `${ttsEngine}: ${status.why ?? 'no system voice on this machine'}` });
   } else {
     run.push({ name: 'tts', tag: 'voice', entry: CLI, args: ttsArgs(), url: `http://127.0.0.1:${ttsPort}` });
   }
