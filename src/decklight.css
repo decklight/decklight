@@ -493,25 +493,77 @@
   border-bottom: 1px solid rgba(128, 128, 128, .18);
 }
 
-/* A history row is four things competing for one line: the hash you navigate
-   by, the subject that says what happened, the badges that say how much, and
-   the age. Flex rather than a float, so the subject is the only part allowed
-   to be truncated — `min-width: 0` is what actually permits it to shrink, and
-   without it the badges get pushed off the end instead. */
+/* THE PREVIEW IS THE POINT OF THIS OVERLAY, so the rail is built never to
+   fight it. A row used to put four things on one line — hash, subject, badges,
+   age — which made the column's MIN-CONTENT width the sum of all four; and a
+   flex item's default `min-width: auto` forbids shrinking below that, so
+   `flex: 0 0 300px` was a suggestion the content could veto. It did: the pane
+   collapsed to 57px the moment the title bar got long.
+
+   Two lines instead. The subject owns the first, the metadata dims underneath,
+   and `min-width: 0` on the column means nothing in here wants to be wide —
+   the preview's size stops depending on how somebody worded a commit message. */
+.decklight-history .tp-panel { width: min(1100px, 92vw); }
+/* This bar is a static LABEL here, not the live query the picker and finder
+   show in it — so it may wrap. That is what finally makes the rail's width
+   independent of it: nowrap made the whole sentence the column's min-content
+   width (the 57px collapse), and clipping it to an ellipsis would have hidden
+   half the keys instead. Wrapping does neither. */
+.decklight-history .tp-filter {
+  white-space: normal;
+  text-overflow: clip;
+}
+.decklight-history .tp-side {
+  flex: 0 0 30%;
+  min-width: 0;
+}
 .decklight-history .tp-row {
+  display: block;
+  white-space: normal;
+}
+.decklight-history .rs-subject {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;      /* two lines, then ellipsis: rows stay a knowable height */
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.decklight-history .hs-meta {
   display: flex;
   align-items: baseline;
   gap: 0.5em;
-  white-space: nowrap;
+  margin-top: 2px;
+  font-size: 0.82em;
+  opacity: 0.72;
 }
-.decklight-history .rs-subject {
-  flex: 1 1 auto;
-  min-width: 0;
+/* the age to the far right, so the column reads as a timeline down the edge */
+.decklight-history .hs-meta .rs-when {
+  margin-left: auto;
+  padding-left: 0.5em;
+  font-variant-numeric: tabular-nums;
+}
+/* The preview, shaped like the thing it shows. `aspect-ratio` rather than
+   `flex: 1` so a slide is never letterboxed into a portrait sliver — the
+   leftover height goes to the list, which can use it. */
+.decklight-history .tp-preview {
+  /* the slide, its transport and its caption travel together: with the iframe
+     on an aspect ratio the column no longer fills its height, and a block
+     pinned to the top of a taller box reads as a rendering accident */
+  justify-content: center;
+}
+.decklight-history .tp-preview iframe {
+  flex: 0 0 auto;
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+/* One line, truncating. It spells out what the row's badges abbreviate, and it
+   used to wrap to eight lines when the pane collapsed — a caption that can grow
+   vertically is a caption that hides the collapse it is a symptom of. */
+.decklight-history .tp-caption {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.decklight-history .rs-when,
-.decklight-history .hs-stat { flex: 0 0 auto; }
 .decklight-history .hs-stat {
   display: inline-flex;
   align-items: baseline;

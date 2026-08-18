@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentChipText, elapsedLabel, needsDevMode, pushToastText } from '../src/core/devmode.js';
+import { agentChipText, elapsedLabel, needsDevMode, pushToastText, shortAge, AGE_UNIT } from '../src/core/devmode.js';
 
 const FILE = { protocol: 'file:', pathname: '/Users/gp/decks/talk.html' };
 const HTTP = { protocol: 'https:', pathname: '/talks/talk.html' };
@@ -156,4 +156,55 @@ test('once per session, by construction', () => {
 
 test('the threshold is a knob, so a test can state it rather than assume it', () => {
   assert.match(pushToastText({ state: 'ok', ahead: 3, unpushed: 3 }, { threshold: 3 }), /↑3 commits/);
+});
+
+// ── shortAge — the metadata line under a history subject ──────────────────
+//
+// The history rail is deliberately narrow (the preview is the point of that
+// overlay), so the age rides on the metadata line as `18m` rather than
+// `18 minutes ago`. Compressed in the runtime rather than asked of git,
+// because `deckHistory`'s shape is the CLI's too and a fifth field would
+// ripple into `decklight restore` and `decklight history` for a label only
+// the overlay wants.
+
+test('git\'s relative dates compress to a unit character', () => {
+  const cases = [
+    ['12 seconds ago', '12s'], ['1 minute ago', '1m'], ['18 minutes ago', '18m'],
+    ['5 hours ago', '5h'], ['2 days ago', '2d'], ['3 weeks ago', '3w'],
+    ['2 months ago', '2mo'], ['1 year ago', '1y'],
+  ];
+  for (const [long, short] of cases) assert.equal(shortAge(long), short, long);
+});
+
+test('months and years do not collide on m and y', () => {
+  // `2m` for two months next to `2m` for two minutes would be a readout that
+  // is wrong by a factor of forty thousand and looks identical.
+  assert.notEqual(shortAge('2 months ago'), shortAge('2 minutes ago'));
+  assert.equal(shortAge('2 months ago'), '2mo');
+  assert.equal(shortAge('2 minutes ago'), '2m');
+});
+
+test('anything git words differently falls through unchanged', () => {
+  // The parse is a shortcut, not a contract. Something it does not recognise
+  // must arrive intact rather than become a guess or an empty cell — the row
+  // still has to say WHEN, even if it says it the long way.
+  for (const odd of ['just now', 'yesterday', '', 'in the future', '5 hours', 'ages ago']) {
+    assert.equal(shortAge(odd), odd, JSON.stringify(odd));
+  }
+});
+
+test('null and undefined are the empty string, not "undefined"', () => {
+  // It is rendered straight into a row; the string "undefined" in a UI is
+  // worse than a blank one.
+  assert.equal(shortAge(null), '');
+  assert.equal(shortAge(undefined), '');
+});
+
+test('every unit git can emit has a letter', () => {
+  // A unit missing from the table would render as `18undefined`. Git's
+  // relative dates come from exactly this set.
+  for (const unit of ['second', 'minute', 'hour', 'day', 'week', 'month', 'year']) {
+    assert.match(shortAge(`7 ${unit}s ago`), /^7[a-z]+$/, unit);
+  }
+  assert.equal(Object.keys(AGE_UNIT).length, 7);
 });
