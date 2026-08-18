@@ -155,7 +155,10 @@ test('restoring stays two steps — no path writes the deck without arming first
   // which is how this worked before — would be completely silent. What can be
   // checked cheaply is that the write is gated, and that nothing calls the
   // writer except the two places allowed to.
-  const [, editmode] = files.find(([f]) => f === 'core/editmode.js');
+  // endsWith, not equality: these paths come from `path.relative`, which
+  // answers `core\\editmode.js` on Windows — a `===` against a forward-slash
+  // literal passes on two platforms out of three and fails only in CI.
+  const [, editmode] = files.find(([f]) => f.endsWith('editmode.js'));
   assert.match(editmode, /if \(!entry \|\| !restoreArmed\) return;/,
     'commitRestore no longer refuses to run unarmed — a mis-aimed ⏎ now writes the deck');
   assert.match(editmode, /restoreArmed \? commitRestore\(\) : armRestore\(\)/,
