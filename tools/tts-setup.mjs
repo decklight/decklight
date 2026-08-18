@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, dirname, join } from 'node:path';
 import {
+  binOnPath,
   createEngine, ENGINES, PIPER_DEFAULT_VOICE, piperModelDir,
   piperDownloadCmd, piperDownloadLine,
 } from './tts-engines.mjs';
@@ -48,14 +49,6 @@ export function saveTtsConfig(config, env = process.env) {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
   return file;
-}
-
-// cli/agents.mjs has the full onPath (explicit paths too); tools/ cannot
-// import from cli/, and the wizard only ever probes bare names.
-function binOnPath(bin, env = process.env) {
-  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
-  return (env.PATH || '').split(delimiter)
-    .some((dir) => dir && exts.some((ext) => existsSync(join(dir, bin + ext))));
 }
 
 /** The project gcloud is configured with — the prefill when $GOOGLE_CLOUD_PROJECT is unset. */

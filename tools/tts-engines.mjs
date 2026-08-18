@@ -43,12 +43,12 @@
 // registered reaches its own voice exactly as it always did.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
 import {
-  createSynth as createElevenLabs, apiKey as elevenLabsKey,
+  createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
 } from './elevenlabs-tts.mjs';
 import { detectLocalVoice, sayArgs, sapiArgs } from './local-voice.mjs';
@@ -438,6 +438,154 @@ export function createEngine({
     voices: GEMINI_VOICES,
     synth: createGemini({ project, ttsModel: m, location }),
   };
+}
+
+/**
+ * Is `bin` on PATH? The bare-name probe the readiness check needs.
+ *
+ * `cli/agents.mjs` has the full version (explicit paths, execute bits); this
+ * one is here rather than there because `tools/` cannot import from `cli/`,
+ * and `tools/tts-setup.mjs` shares it so the wizard and the readiness check
+ * cannot disagree about whether piper is installed.
+ */
+export function binOnPath(bin, env = process.env) {
+  const exts = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  return (env.PATH || '').split(delimiter)
+    .some((dir) => dir && exts.some((ext) => existsSync(join(dir, bin + ext))));
+}
+
+/**
+ * Can this machine speak with `name` right now, and if not, what is missing?
+ *
+ * WHY THIS IS NOT `createEngine` THROWING. Two of the six build perfectly well
+ * and fail later: `gemini` and `chirp` construct a synth against a project id
+ * nobody has checked, so the bridge would come up looking healthy and only die
+ * on the first keypress — with a 403 naming a project the presenter never
+ * typed. Readiness is a question about the MACHINE (a binary, a model file, a
+ * key, a project), and it has to be asked before anything is constructed.
+ *
+ * WHY IT LIVES HERE. Two callers now ask it: `decklight author`, deciding
+ * whether to start the bridge at all, and the bridge itself, listing what the
+ * deck may switch to (SPEC `NARRATION`). They must not disagree — a picker
+ * offering an engine that `author` would have refused is a picker that lies.
+ * So the DECISION is shared and only the presentation differs: `reason` is a
+ * code the caller phrases for its own audience.
+ *
+ * Every probe is injected, so this is testable without a PATH, a filesystem,
+ * or a credential.
+ */
+export function engineStatus(name, {
+  // `project` defaults from the environment rather than to null: a caller that
+  // passes only `env` means "decide from this machine", and answering
+  // no-project on a machine whose GOOGLE_CLOUD_PROJECT is right there would be
+  // a wrong answer that looks like a correct one. A caller with its own
+  // precedence ladder (flags > env > saved config) passes the settled value.
+  env = process.env, project = env.GOOGLE_CLOUD_PROJECT ?? null,
+  voice = null, dataDir = null, lang = null,
+  hasBin = binOnPath, exists = existsSync, detect = detectLocalVoice,
+} = {}) {
+  const no = (reason, detail) => ({ name, ready: false, reason, ...detail });
+  if (!ENGINES.includes(name)) return no('unknown');
+
+  if (name === 'piper') {
+    if (!hasBin('piper', env)) return no('no-binary');
+    const v = voice ?? PIPER_DEFAULT_VOICE;
+    const models = dataDir ?? piperModelDir(env);
+    if (!exists(piperModelPath(v, models))) return no('no-model', { voice: v, dataDir: models });
+    return { name, ready: true, reason: 'ok' };
+  }
+  if (NATIVE_ENGINES.includes(name)) {
+    // A system voice needs no setup at all — but the wrong OS has none, and
+    // `say` on a machine with no configured voices is a silent bridge.
+    const d = detect({ lang });
+    if (d?.engine !== name || !d?.voices?.length) return no('no-native-voice', { why: d?.why });
+    return { name, ready: true, reason: 'ok' };
+  }
+  if (name === 'elevenlabs') {
+    return elevenLabsKey(env)?.trim() ? { name, ready: true, reason: 'ok' } : no('no-key');
+  }
+  // gemini and chirp
+  if (!project) return no('no-project');
+  if (!validProjectId(project)) return no('bad-project', { project });
+  return { name, ready: true, reason: 'ok' };
+}
+
+/**
+ * A blocker in two short sentences: what is missing, and what fixes it.
+ *
+ * These are the PICKER's words — one line each, because they are drawn under a
+ * greyed row in a deck. `decklight author` phrases the same codes at length
+ * (it has a terminal, and it is the place a presenter is still setting up).
+ * Both read the same `reason`, so they can be worded for their audience
+ * without being able to disagree about the facts.
+ *
+ * Every fix is something you do in a TERMINAL, and that is deliberate: the
+ * deck lists what is missing and never collects it. A key or a project id
+ * typed into a web page — even one on loopback — is a different thing from one
+ * exported in a shell, and a presented deck is reachable from a phone.
+ */
+export function engineBlocker(status, { env = process.env } = {}) {
+  const { reason } = status ?? {};
+  if (!reason || reason === 'ok') return null;
+  switch (reason) {
+    case 'no-binary':
+      return { why: 'not installed', fix: 'uv tool install piper-tts' };
+    case 'no-model':
+      return {
+        why: `the voice ${status.voice} is not downloaded (~120 MB, one time)`,
+        fix: piperDownloadLine(piperDownloadCmd(status.voice, status.dataDir,
+          { hasBin: (b) => binOnPath(b, env) })),
+      };
+    case 'no-key':
+      return { why: `needs $${ELEVENLABS_KEY_ENV}`, fix: 'export it, then restart decklight author' };
+    case 'no-project':
+      return {
+        why: 'needs a Google Cloud project',
+        fix: 'export GOOGLE_CLOUD_PROJECT=<id>, then restart decklight author',
+      };
+    case 'bad-project':
+      // Named rather than generic: this one is nearly always a copy-paste that
+      // brought punctuation with it, and seeing the value is the whole fix.
+      return { why: `not a GCP project id: ${JSON.stringify(status.project)}`, fix: 'stray punctuation from a copy-paste?' };
+    case 'no-native-voice':
+      return { why: status.why ?? 'no system voice on this machine', fix: null };
+    default:
+      return { why: `unknown engine — use ${ENGINES.join(', ')}`, fix: null };
+  }
+}
+
+/**
+ * What a presenter could switch to, with the price note and the blocker.
+ *
+ * Order is a RECOMMENDATION and deliberately not `ENGINES` order (which keeps
+ * gemini first for history): free and already-on-this-machine first, then the
+ * ones with a bill. The native engine is folded to whichever of say/sapi this
+ * OS actually has, because "sapi" on a Mac is not a choice, it is noise.
+ *
+ * `cost` comes from the engine itself where it can be built, so the picker
+ * quotes the same sentence the bridge's startup line does rather than a second
+ * copy of it. An engine that cannot be built has no cost to quote — it has a
+ * blocker, which is what the row shows instead.
+ */
+export function engineMenu(opts = {}) {
+  // Settled once, and shared with the construction below: `createEngine` for a
+  // cloud engine REFUSES a missing project, so a menu that probed readiness
+  // with the environment's project but built with `undefined` would quietly
+  // drop the price note off every row it had just called ready.
+  const env = opts.env ?? process.env;
+  const settled = { ...opts, env, project: opts.project ?? env.GOOGLE_CLOUD_PROJECT ?? null };
+  const native = NATIVE_ENGINES.includes(process.platform === 'win32' ? 'sapi' : 'say')
+    ? (process.platform === 'win32' ? 'sapi' : 'say') : null;
+  const order = [native, 'piper', 'chirp', 'gemini', 'elevenlabs'].filter(Boolean);
+  return order.map((name) => {
+    const status = engineStatus(name, settled);
+    let cost;
+    // Building it is the only way to learn the price note, and it is cheap —
+    // no network, no process. It can still throw (a native engine with no
+    // voices), which is not an error here: the row already carries the blocker.
+    try { cost = createEngine({ ...settled, engine: name }).cost; } catch { cost = undefined; }
+    return { ...status, cost, ...(engineBlocker(status, settled) ?? {}) };
+  });
 }
 
 /**
