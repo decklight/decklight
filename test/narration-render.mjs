@@ -51,7 +51,7 @@ function run(mode, extra = '') {
 
 let bad = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'scroll', 'hint', 'hint&print', 'manifest', 'expired',
+  'elevenlabsv3', 'scroll', 'segoverflow', 'hint', 'hint&print', 'manifest', 'expired',
   'record', 'record&dir', 'record&nosrv']) {
   const [m, extra] = mode.split('&');
   const r = run(m, extra ? `&${extra}` : '');
@@ -92,6 +92,13 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
   if (mode === 'elevenlabsv3') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} tone step shown=${r.toneStepShown}`
       + ` · tones offered=${r.toneLabels?.length ?? 0} · sent short v3 cue "${r.sentStyle}" (not the gemini prose)`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'segoverflow') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ${r.asked} sentences asked for`
+      + ` · spoke the first=${r.spokeFirst} and the surplus=${r.spokeSurplus}`
+      + ` · still advanced=${r.movedOn} · warned in the log=${r.warned} (not toasted=${r.notToasted})`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

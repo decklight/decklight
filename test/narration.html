@@ -544,6 +544,35 @@
           return;
         }
 
+        if (mode === 'segoverflow') {
+          // #350: a slide whose notes carry more ⟨CLICK⟩ segments than it has
+          // build steps used to drop every surplus segment — never synthesized,
+          // never spoken, never mentioned, while the speaker view went on
+          // showing it. Slide one has no data-build, so it has exactly one step
+          // and everything after the first marker is the surplus.
+          const notes = deck._sections[0].querySelector('aside.notes');
+          notes.textContent = 'Segment zero speaks here. ⟨CLICK⟩ Segment one is the surplus one.';
+          deck.toggleNarration();                                // V
+          await new Promise((ok) => setTimeout(ok, 6000));
+
+          const said = bodies.map((b) => b.text ?? '');
+          r.asked = said.length;
+          r.spokeFirst = said.some((t) => /Segment zero speaks here/.test(t));
+          r.spokeSurplus = said.some((t) => /surplus one/.test(t));
+          // and the deck still moves on — speaking the tail must not strand it
+          r.movedOn = deck.state.slide > 1;
+          // the counts disagreeing is an authoring slip worth seeing, so it is
+          // named in the message log (I) — but never toasted, because it is a
+          // note about the deck, not something to act on mid-sentence
+          r.warned = deck.messages().some((m) => /⟨CLICK⟩ segments but/.test(m.text));
+          r.notToasted = ![...document.querySelectorAll('.decklight-toast')]
+            .some((t) => /⟨CLICK⟩ segments but/.test(t.textContent));
+
+          r.PASS = r.spokeFirst && r.spokeSurplus && r.movedOn && r.warned && r.notToasted;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
         if (mode === 'xss') {
           // The N picker lists whatever the bridge said it can speak. A voice
           // named with markup must land in the rows as TEXT — the picker runs
