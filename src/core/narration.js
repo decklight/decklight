@@ -925,7 +925,12 @@ export function createNarration({
       previewAudio.play().catch(() => { /* autoplay policy */ });
       debugLog('narr', `preview ${voice}${style ? ' · styled' : ''}`);
       if (prefetch === 'voices') {
-        prefetchPreviews(text, GEMINI_VOICES.map(([n]) => ({ voice: n, style: '' })), 'voices');
+        // liveVoices, not GEMINI_VOICES (#348): the built-in roster is the
+        // fallback that stands only until /ping answers, and prefetching it on
+        // an engine that never had those voices means 30 synthesis calls for
+        // names it cannot say — free but pointless on piper or a system voice,
+        // and metered against your plan on ElevenLabs.
+        prefetchPreviews(text, liveVoices.map(([n]) => ({ voice: n, style: '' })), 'voices');
       } else if (prefetch === 'tones') {
         prefetchPreviews(text, TONES.map((t) => ({ voice, style: toneStyle(t) })), `tones:${voice}`);
       }

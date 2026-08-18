@@ -333,10 +333,32 @@ function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
  * Neither takes a delivery instruction, so both are `stylable: false` and the
  * picker skips the tone step, exactly as it does for piper and ElevenLabs.
  */
-function createNative({ kind, voice, shell = 'powershell.exe' }) {
+function createNative({ kind, voice, shell = 'powershell.exe', voices = [] }) {
   const bin = kind === 'say' ? 'say' : shell;
   const build = kind === 'say' ? sayArgs : sapiArgs;
-  return async (text) => {
+  // The roster this machine actually has, for the guard below. Held as names
+  // because that is what the player sends and what `say -v` takes.
+  const known = new Set(voices.map((v) => v?.name ?? v).filter(Boolean));
+  /**
+   * `(text, { voice })` — the SECOND argument is the voice for THIS sentence,
+   * and it is the whole contract every other engine here implements.
+   *
+   * This used to be `async (text) =>`, closing over the voice chosen when the
+   * bridge started. So the picker offered 184 macOS voices, the log printed
+   * whichever one you picked, and all 184 played the same one — the failure was
+   * invisible in the logs because the log line quotes the REQUEST.
+   */
+  return async (text, { voice: asked } = {}) => {
+    const pick = asked || voice;
+    // A name this machine cannot say is an ERROR, not a shrug. `say -v Zephyr`
+    // exits 0 and quietly produces the SYSTEM DEFAULT voice — so a typo, a
+    // stale saved voice, or a roster from another engine all sound like
+    // success while giving you somebody else's voice. (PowerShell's
+    // SelectVoice already throws on an unknown name; this makes the two agree.)
+    if (kind === 'say' && known.size && pick && !known.has(pick)) {
+      throw new Error(`no ${kind} voice named ${JSON.stringify(pick)} on this machine`
+        + ` — this bridge speaks ${known.size} others (GET /voices)`);
+    }
     // one line: `say` treats newlines as pauses and PowerShell quoting gets
     // harder the moment a string spans lines
     const line = String(text).replace(/\s+/g, ' ').trim();
@@ -344,7 +366,7 @@ function createNative({ kind, voice, shell = 'powershell.exe' }) {
     const dir = mkdtempSync(join(tmpdir(), 'decklight-native-'));
     const file = join(dir, 'out.wav');
     try {
-      execFileSync(bin, build(line, voice, file), { stdio: ['ignore', 'ignore', 'pipe'] });
+      execFileSync(bin, build(line, pick, file), { stdio: ['ignore', 'ignore', 'pipe'] });
       const wav = readFileSync(file);
       if (!wav.length) throw new Error(`${kind} produced no audio`);
       // `{ wav, usage }`, like every other engine and like this file's own
@@ -355,7 +377,8 @@ function createNative({ kind, voice, shell = 'powershell.exe' }) {
       // behind a door that never opened.
       return {
         wav,
-        usage: { model: voice ?? kind, chars: line.length, cost: 0, note: `${line.length} chars · local` },
+        // the voice that SPOKE, not the one the bridge booted with
+        usage: { model: pick ?? kind, chars: line.length, cost: 0, note: `${line.length} chars · local` },
       };
     } catch (e) {
       throw new Error(`${kind}: ${String(e.stderr ?? e.message).trim().split('\n')[0] || 'synthesis failed'}`);
@@ -367,6 +390,10 @@ function createNative({ kind, voice, shell = 'powershell.exe' }) {
 
 export function createEngine({
   engine = 'gemini', project, model, location, voice, dataDir, lang, format, stability, env = process.env,
+  // Injected like every other probe in this file, so a native engine can be
+  // built — and its voice handling asserted — on a machine that is not the one
+  // the test happens to run on.
+  detect = detectLocalVoice,
 } = {}) {
   if (!ENGINES.includes(engine)) {
     throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')},`
@@ -385,14 +412,16 @@ export function createEngine({
     };
   }
   if (engine === 'say' || engine === 'sapi') {
-    const detected = detectLocalVoice({ lang });
+    const detected = detect({ lang });
     const pick = voice ?? detected.voices?.[0]?.name;
     if (!pick) throw new Error(detected.why ?? `no ${engine} voices on this machine`);
     return {
       name: engine, model: pick, needsProject: false, stylable: false,
       cost: 'free · offline · already on this machine',
       voices: (detected.voices ?? []).map((v) => [v.name, v.locale || 'system']),
-      synth: createNative({ kind: engine, voice: pick, shell: detected.shell }),
+      synth: createNative({
+        kind: engine, voice: pick, shell: detected.shell, voices: detected.voices ?? [],
+      }),
     };
   }
   if (engine === 'elevenlabs') {
