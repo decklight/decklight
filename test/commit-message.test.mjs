@@ -23,8 +23,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  MAX_DIFF, amendSubject, amendable, changeDiff, describeCommit, messagePrompt,
-  messagesLine, subjectFrom,
+  MAX_DIFF, MAX_SLIDES_NAMED, amendSubject, amendable, changeDiff, changedSlides,
+  deckOutline, deckTitle, describeCommit, messagePrompt, messagesLine, parseHunks,
+  subjectFrom,
 } from '../cli/commit-message.mjs';
 import { AGENTS, agentAsk } from '../cli/agents.mjs';
 
@@ -93,6 +94,129 @@ test('the diff is capped, because a deck is one enormous file', () => {
   assert.equal(out.truncated, true);
   const small = changeDiff('/x', 'abc', 'deck.html', { run: () => 'short' });
   assert.deepEqual(small, { diff: 'short', truncated: false });
+});
+
+// ── where the change is ──────────────────────────────────────────────────
+//
+// The context the agent cannot get from a diff. `--unified=1` shows it the
+// changed line and one line either side, and git's own hunk header is worse
+// than useless on a deck: its function-context heuristic picks the last thing
+// resembling a definition, which in a single-file deck is a CSS selector from
+// the inlined stylesheet thousands of lines above. A real run offered
+// `mtable.tml-small mtd {` for an edit to a slide's table — and the agent, with
+// a gap to fill, invented "the espresso troubleshooting table" for a deck whose
+// slides never say espresso.
+
+const DECK = [
+  '<html><head><title>Coffee, Properly</title></head><body>',   // 1
+  '<div class="decklight">',                                     // 2
+  '  <section>',                                                 // 3
+  '    <h1>Coffee, Properly</h1>',                               // 4
+  '  </section>',                                                // 5
+  '  <section>',                                                 // 6
+  '    <h2>The variables that matter</h2>',                      // 7
+  '    <ul><li>Grind</li></ul>',                                 // 8
+  '  </section>',                                                // 9
+  '  <section>',                                                 // 10
+  '    <h2>Where it goes wrong</h2>',                            // 11
+  '    <table><tr><td>Sour</td></tr></table>',                    // 12
+  '  </section>',                                                // 13
+  '</div>',                                                      // 14
+  '<style>.x { color: red }</style>',                            // 15
+  '</body></html>',                                              // 16
+].join('\n');
+
+test('the deck outline is the slides, by line', () => {
+  const out = deckOutline(DECK);
+  assert.deepEqual(out.map((s) => [s.index, s.heading, s.from, s.to]), [
+    [1, 'Coffee, Properly', 3, 5],
+    [2, 'The variables that matter', 6, 9],
+    [3, 'Where it goes wrong', 10, 13],
+  ]);
+});
+
+test('a nested section is part of its slide, not a slide', () => {
+  // The same rule the runtime applies when it counts them: a slide is a
+  // TOP-LEVEL section. A regex would have made this two.
+  const html = ['<div>', '<section>', '<h2>Outer</h2>', '<section>inner</section>', '</section>', '</div>'].join('\n');
+  const out = deckOutline(html);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].heading, 'Outer');
+});
+
+test('a heading with markup inside it comes out as text', () => {
+  const html = '<section>\n<h2>Where it <em>goes wrong</em></h2>\n</section>';
+  assert.equal(deckOutline(html)[0].heading, 'Where it goes wrong');
+});
+
+test('a slide with no heading is still a slide', () => {
+  const html = '<section>\n<p>just words</p>\n</section>';
+  const [s] = deckOutline(html);
+  assert.equal(s.index, 1);
+  assert.equal(s.heading, null);
+});
+
+test('hunk headers give the NEW file\'s lines', () => {
+  // The + side, because the question is what the deck says now — a heading
+  // looked up in the version that no longer exists would name the slide a line
+  // used to be on.
+  assert.deepEqual(parseHunks('@@ -6397,2 +6400,3 @@ mtable.tml-small mtd {'), [{ start: 6400, count: 3 }]);
+  // a one-line hunk omits the count entirely
+  assert.deepEqual(parseHunks('@@ -1 +12 @@'), [{ start: 12, count: 1 }]);
+  assert.deepEqual(parseHunks('@@ -1,2 +3,4 @@\n@@ -9,1 +20,2 @@'), [{ start: 3, count: 4 }, { start: 20, count: 2 }]);
+  assert.deepEqual(parseHunks('no hunks here'), []);
+  assert.deepEqual(parseHunks(null), []);
+});
+
+test('a change inside a slide names that slide', () => {
+  const slides = changedSlides(DECK, '@@ -12 +12,2 @@\n+<tr><td>Bitter</td></tr>');
+  assert.deepEqual(slides.map((s) => s.heading), ['Where it goes wrong']);
+});
+
+test('a change spanning slides names each of them, in order', () => {
+  const slides = changedSlides(DECK, '@@ -7,6 +7,6 @@\n x');
+  assert.deepEqual(slides.map((s) => s.index), [2, 3]);
+});
+
+test('a change outside every slide names none — and that is the answer', () => {
+  // The theme, the inlined runtime, the metadata. Reporting "no slides" is
+  // what stops a subject about slide content being written for a theme swap.
+  assert.deepEqual(changedSlides(DECK, '@@ -15 +15,2 @@\n+.y { color: blue }'), []);
+});
+
+test('the prompt carries the title and the slides', () => {
+  const p = messagePrompt({
+    deck: 'deck.html', diff: 'x', truncated: false, template: 't',
+    title: 'Coffee, Properly',
+    slides: [{ index: 3, heading: 'Where it goes wrong' }],
+  });
+  assert.match(p, /titled "Coffee, Properly"/);
+  assert.match(p, /slide 3 — "Where it goes wrong"/);
+  // and it asks for the slide's WORDS, since a number stops being true the
+  // moment somebody inserts a slide above it
+  assert.match(p, /never by its number/);
+});
+
+test('the prompt says plainly when no slide is involved', () => {
+  const p = messagePrompt({ deck: 'd.html', diff: 'x', truncated: false, template: 't', slides: [] });
+  assert.match(p, /touches NO slide/);
+  assert.match(p, /theme, the inlined runtime/);
+});
+
+test('a change touching many slides lists some and counts the rest', () => {
+  // A wall of forty headings would crowd out the diff it is meant to frame.
+  const many = Array.from({ length: MAX_SLIDES_NAMED + 4 }, (_, i) => ({ index: i + 1, heading: `S${i + 1}` }));
+  const p = messagePrompt({ deck: 'd.html', diff: 'x', truncated: false, template: 't', slides: many });
+  assert.match(p, /and 4 more/);
+  assert.ok(!p.includes(`slide ${MAX_SLIDES_NAMED + 1} —`), 'listed past the cap');
+});
+
+test('a missing title is left out rather than said as empty', () => {
+  assert.equal(deckTitle('<html><body>x</body></html>'), null);
+  assert.equal(deckTitle('<title>  </title>'), null);
+  assert.equal(deckTitle(DECK), 'Coffee, Properly');
+  const p = messagePrompt({ deck: 'd.html', diff: 'x', truncated: false, template: 't', title: null, slides: [] });
+  assert.doesNotMatch(p, /titled/);
 });
 
 // ── the amend guard, against a real repository ───────────────────────────

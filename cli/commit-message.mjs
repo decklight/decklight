@@ -59,6 +59,99 @@ export function changeDiff(cwd, sha, deckRel, { max = MAX_DIFF, run = git } = {}
   return { diff: out.slice(0, max), truncated: true };
 }
 
+/** How many slide headings the prompt lists before it says "and N more". */
+export const MAX_SLIDES_NAMED = 6;
+
+/**
+ * The NEW-file line ranges a diff touches. Pure.
+ *
+ * Only the `+` side: the question is what the deck says now, and a heading
+ * looked up in the version that no longer exists would name the slide a line
+ * used to be on.
+ */
+export function parseHunks(diff) {
+  const out = [];
+  for (const m of String(diff ?? '').matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const start = Number(m[1]);
+    const count = m[2] === undefined ? 1 : Number(m[2]);
+    if (Number.isFinite(start) && Number.isFinite(count)) out.push({ start, count });
+  }
+  return out;
+}
+
+/**
+ * The deck's slides as `{ index, heading, from, to }`, by line. Pure.
+ *
+ * A depth counter rather than a regex over the whole document, because a slide
+ * may contain a nested `<section>` and only the top-level ones are slides —
+ * the same rule the runtime applies when it counts them.
+ */
+export function deckOutline(html) {
+  const lines = String(html ?? '').split('\n');
+  const slides = [];
+  let depth = 0;
+  let open = null;
+  lines.forEach((line, i) => {
+    const opens = (line.match(/<section\b/gi) ?? []).length;
+    const closes = (line.match(/<\/section\s*>/gi) ?? []).length;
+    for (let k = 0; k < opens; k++) {
+      if (depth === 0) open = { index: slides.length + 1, heading: null, from: i + 1, to: i + 1 };
+      depth += 1;
+    }
+    if (open && !open.heading) {
+      const h = /<h[12][^>]*>([\s\S]*?)<\/h[12]>/i.exec(line);
+      if (h) open.heading = h[1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim() || null;
+    }
+    for (let k = 0; k < closes; k++) {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0 && open) { open.to = i + 1; slides.push(open); open = null; }
+    }
+  });
+  if (open) { open.to = lines.length; slides.push(open); }
+  return slides;
+}
+
+/**
+ * Which slides a diff touched, in order. Pure.
+ *
+ * This is the context the agent could not otherwise have. `--unified=1` shows
+ * it the changed line and one line either side, and git's own hunk header is
+ * worse than nothing on a deck — the function-context heuristic picks the last
+ * thing that looked like a definition, which in a single-file deck is a CSS
+ * selector from the inlined stylesheet thousands of lines above. A real run
+ * offered `mtable.tml-small mtd {` for an edit to a slide's table, and the
+ * agent, with nothing better, invented a framing the deck never had.
+ *
+ * An empty result is itself an answer, and a useful one: the change is in the
+ * theme, the runtime or the metadata rather than in anything the audience
+ * sees, and a subject about "the slides" would be fiction.
+ */
+export function changedSlides(html, diff) {
+  const slides = deckOutline(html);
+  if (!slides.length) return [];
+  const hit = new Set();
+  for (const { start, count } of parseHunks(diff)) {
+    const last = start + Math.max(count, 1) - 1;
+    for (const s of slides) if (s.from <= last && s.to >= start) hit.add(s.index);
+  }
+  return slides.filter((s) => hit.has(s.index));
+}
+
+/** `<title>` — what the deck calls itself. */
+export function deckTitle(html) {
+  const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(String(html ?? ''));
+  return m ? m[1].replace(/\s+/g, ' ').trim() || null : null;
+}
+
+/**
+ * The deck as it stood at `sha`, for the two questions above. Best effort:
+ * without it the prompt simply carries less context, which is where this
+ * feature started.
+ */
+export function deckAtCommit(cwd, sha, deckRel, { run = git } = {}) {
+  try { return run(['show', `${sha}:./${deckRel}`], cwd) ?? ''; } catch { return ''; }
+}
+
 /**
  * What the agent is asked. Pure, so the wording is reviewable without an agent.
  *
@@ -68,10 +161,28 @@ export function changeDiff(cwd, sha, deckRel, { max = MAX_DIFF, run = git } = {}
  * the conversational framing every CLI adds by default. Asking for the bare
  * line is worth more than parsing one out afterwards.
  */
-export function messagePrompt({ deck, diff, truncated, template }) {
+export function messagePrompt({ deck, diff, truncated, template, title = null, slides = [] }) {
+  // WHERE the change is, before WHAT it is. Without this the agent sees the
+  // changed line and one line either side of it — enough to say a row was
+  // added to a table, not enough to know which talk the table is in, and an
+  // agent with a gap will fill it. It did: a row added to a brewing deck's
+  // troubleshooting table came back as "the espresso troubleshooting table",
+  // a word that appears nowhere in the deck.
+  const named = slides.slice(0, MAX_SLIDES_NAMED)
+    .map((s) => `  slide ${s.index}${s.heading ? ` — "${s.heading}"` : ' (no heading)'}`);
+  const more = slides.length - named.length;
+  const where = slides.length
+    ? ['The change is on:', ...named, ...(more > 0 ? [`  …and ${more} more`] : [])]
+    // Not a shrug: a change outside every <section> is the theme, the runtime
+    // or the metadata, and a subject about "the slides" would be fiction.
+    : ['This change touches NO slide — it is in the theme, the inlined runtime,',
+      'or the deck\'s metadata. Say that, rather than describing slide content.'];
   return [
     `Write the git commit subject for this change to "${deck}", a Decklight deck`,
     '(a single-file HTML presentation; one top-level <section> per slide).',
+    '',
+    ...(title ? [`The deck is titled "${title}".`] : []),
+    ...where,
     '',
     'Rules:',
     '- ONE line. No body, no preamble, no quotes, no markdown, no trailing period.',
@@ -80,6 +191,8 @@ export function messagePrompt({ deck, diff, truncated, template }) {
     '  "cut the pour-over slide down to one claim" — not "edit deck.html".',
     '- Describe the slides, not the HTML: a reader of this log is looking for a',
     '  moment in the deck, not a diff.',
+    '- Name a slide by its own words, never by its number: "the troubleshooting',
+    '  table" beats "slide 4", which stops being true the moment one is inserted.',
     '- Reply with the subject line and nothing else.',
     '',
     truncated
@@ -188,12 +301,21 @@ export async function describeCommit({
   // paying an agent to describe it would be the feature's own busywork.
   if (!amendable(cwd, sha, { run })) return null;
 
+  const rel = relative(cwd, deckPath) || deck;
   let diff;
-  try { diff = changeDiff(cwd, sha, relative(cwd, deckPath) || deck, { run }); }
+  try { diff = changeDiff(cwd, sha, rel, { run }); }
   catch { return null; }
   if (!diff.diff.trim()) return null;
 
-  const prompt = messagePrompt({ deck, template, ...diff });
+  // The deck AT the commit, not on disk: the working tree may have moved on
+  // while the agent was being asked, and a heading read from it would name a
+  // slide the commit does not contain.
+  const html = deckAtCommit(cwd, sha, rel, { run });
+  const prompt = messagePrompt({
+    deck, template, ...diff,
+    title: deckTitle(html),
+    slides: changedSlides(html, diff.diff),
+  });
   const spawned = agentAsk(agent, prompt, { env });
   if (!spawned) return null;
   // Caught, not propagated. This is called unawaited from the commit path, so
