@@ -68,6 +68,22 @@ export function elapsedLabel(ms) {
 }
 
 /**
+ * `18 minutes ago` → `18m`, for the metadata line under a subject.
+ *
+ * Compressed here rather than asked of git, because `deckHistory`'s shape is
+ * the CLI's too and a fifth field would ripple into `decklight restore` and
+ * `decklight history` for a label only the overlay wants. Git's `%ar` is
+ * stable English regardless of locale, so the parse is safe — and anything it
+ * does not recognise falls through unchanged rather than becoming a guess.
+ * The unabbreviated form is still under the preview.
+ */
+export const AGE_UNIT = { second: 's', minute: 'm', hour: 'h', day: 'd', week: 'w', month: 'mo', year: 'y' };
+export function shortAge(when) {
+  const m = /^(\d+)\s+(second|minute|hour|day|week|month|year)s?\s+ago$/.exec(String(when ?? '').trim());
+  return m ? `${m[1]}${AGE_UNIT[m[2]]}` : String(when ?? '');
+}
+
+/**
  * What the chip says for a running job, or null when nothing is running.
  *
  * `startedAt` comes from the SERVER (it is in the `agent` start event and in

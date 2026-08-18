@@ -17,7 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
-import { agentChipText, needsDevMode, pushToastText } from './devmode.js';
+import { agentChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { hljs } from '../code/code.js';
 
@@ -897,8 +897,11 @@ export function createEditMode({
         '<div class="tp-caption"></div></div></div>';
     // textContent for both: a branch name is arbitrary text, and the title is
     // built from a mode rather than pasted in.
-    restoreEl.querySelector('.tp-filter').textContent =
-      'History — ↑↓ to browse, ←→ walks the preview, ⏎ restores this version, Esc closes';
+    // Short on purpose. This bar is `white-space: nowrap`, so its text is the
+    // rail's min-content width — the long version of this string is literally
+    // what collapsed the preview to 57px. The keys it drops are all on screen:
+    // the transport draws ←→, and ⏎/Esc are in the confirmation card.
+    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ preview · ⏎ restore';
     const remoteEl = restoreEl.querySelector('.hs-remote');
     // The server sends the sentence ready-made — cli/git.mjs spawns git and the
     // runtime cannot import it, so the words live in one place on that side.
@@ -914,16 +917,23 @@ export function createEditMode({
       const row = document.createElement('div');
       row.className = 'tp-row';
       row.setAttribute('role', 'option');
-      const hash = document.createElement('span');
-      hash.className = 'rs-hash';
-      hash.textContent = e.hash;
+      // TWO LINES, and the reason is structural rather than aesthetic. On one
+      // line the row carried four things that all wanted room — hash, subject,
+      // badges, age — so the column's min-content width was the sum of them,
+      // and a flex column cannot shrink below that. `flex: 0 0 300px` became a
+      // suggestion its own content could veto, and the preview got what was
+      // left: 57px. With the subject on its own line under `min-width: 0`,
+      // nothing in this rail wants to be wide, and the preview's size stops
+      // being an accident of how somebody worded a commit message.
       const subject = document.createElement('span');
       subject.className = 'rs-subject';
       subject.textContent = e.subject;
-      const when = document.createElement('span');
-      when.className = 'rs-when';
-      when.textContent = e.when;
-      row.append(hash, subject, statBadges(e));
+      const meta = document.createElement('span');
+      meta.className = 'hs-meta';
+      const hash = document.createElement('span');
+      hash.className = 'rs-hash';
+      hash.textContent = e.hash;
+      meta.append(hash, statBadges(e));
       // The ↑ is only shown where it means something: `pushed === false` is
       // "this exists nowhere but here", while null is "not a question worth
       // answering" (no remote, or git could not say).
@@ -932,9 +942,14 @@ export function createEditMode({
         up.className = 'hs-push';
         up.title = 'only on this machine';
         up.textContent = '↑';
-        row.append(up);
+        meta.append(up);
       }
-      row.append(when);
+      const when = document.createElement('span');
+      when.className = 'rs-when';
+      when.title = e.when;          // the long form is one hover away
+      when.textContent = shortAge(e.when);
+      meta.append(when);
+      row.append(subject, meta);
       // A click SELECTS and asks. It used to restore, which meant a mis-aimed
       // click on a list you opened to read rewrote the deck.
       row.addEventListener('click', () => { selectRestoreRow(i, true); armRestore(); });

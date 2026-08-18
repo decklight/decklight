@@ -288,9 +288,69 @@ export function createNarration({
     return ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? [])
       .map((s) => s.trim()).filter(Boolean);
   }
+  /** Build steps this slide has: 0 = arrival, then one per `data-build` group. */
+  const buildSteps = (sl) => (instance._records?.[sl - 1]?.groups.length ?? 0);
+
+  /**
+   * What step `step` of slide `sl` actually SPEAKS.
+   *
+   * Normally one segment — segment k narrates build step k. But a slide can
+   * carry more ⟨CLICK⟩ markers than it has builds (#350), and the commonest
+   * case is a slide with no `data-build` at all: one step, and every segment
+   * after the first used to be dead text. Never synthesized, never spoken,
+   * never mentioned — while the speaker view went on displaying it, so the
+   * presenter read a cue the deck would never say.
+   *
+   * The surplus rides on the LAST step instead. There is nothing left to
+   * reveal, so the marker becomes a beat rather than a build trigger — which is
+   * the same call `tools/video.mjs` makes for a count that does not line up:
+   * render the slide the old way rather than bake in a wrong sync. Speaking it
+   * is what preserves the author's words; the warning below is what tells them
+   * the two counts disagree.
+   *
+   * `segStarts` marks which sentences begin a folded segment, so the ⇧V
+   * stitcher can put a segment-sized silence there rather than a sentence one —
+   * a recorded take breathes exactly where the live one does.
+   */
+  function stepAudio(sl, step) {
+    const segs = notesSegs(sl);
+    const texts = step < buildSteps(sl) ? [segs[step]] : segs.slice(step);
+    const sentences = [];
+    const segStarts = new Set();
+    for (const t of texts) {
+      const part = splitSentences(t);
+      if (part.length) segStarts.add(sentences.length);
+      sentences.push(...part);
+    }
+    return { sentences, segStarts };
+  }
+  const stepSentences = (sl, step) => stepAudio(sl, step).sentences;
+
+  /**
+   * Say once, per slide, that its notes ask for more beats than it has builds.
+   *
+   * The words are now spoken rather than dropped, so this is no longer a
+   * report of lost content — but the two counts still disagree, and that is
+   * nearly always an authoring slip worth seeing. It goes to the message log
+   * (`I`) and the debug log, never a toast: it is a note about the deck, not
+   * something the presenter must act on mid-sentence.
+   */
+  const warnedSegs = new Set();
+  function warnSegOverflow(sl) {
+    if (warnedSegs.has(sl)) return;
+    const segs = notesSegs(sl).length;
+    const steps = buildSteps(sl) + 1;
+    if (segs <= steps) return;
+    warnedSegs.add(sl);
+    const msg = `slide ${sl}: ${segs} ⟨CLICK⟩ segments but ${steps} build step${steps === 1 ? '' : 's'}`
+      + ` — the last ${segs - steps} ${segs - steps === 1 ? 'is' : 'are'} spoken on the final step`;
+    logOnly?.(msg);
+    debugLog('narr', msg);
+  }
+
   const sentenceKey = (sl, step, i) => `${sl}|s${step}|n${i}|${liveCfg.voice}|${liveCfg.style}`;
   function fetchLiveSentence(sl, step, i) {
-    const sentence = splitSentences(notesSegs(sl)[step])[i] ?? '';
+    const sentence = stepSentences(sl, step)[i] ?? '';
     return synthLive(sentence, sentenceKey(sl, step, i), `slide ${sl} seg ${step} #${i + 1}`);
   }
   // data-narration="hold": an interactive slide (quiz, exercise, live
@@ -323,10 +383,12 @@ export function createNarration({
     let sl = instance.state.slide;
     let step = instance.state.step;
     while (out.length < count && sl <= instance.state.totalSlides) {
-      const segs = notesSegs(sl);
-      const max = instance._records[sl - 1] ? instance._records[sl - 1].groups.length : 0;
+      const max = buildSteps(sl);
       for (; step <= max && out.length < count; step++) {
-        const n = splitSentences(segs[step]).length;
+        // stepSentences, not `segs[step]`: the last step may carry more than
+        // its own segment, and a lookahead that under-counted would leave the
+        // folded sentences to synthesize one at a time as they are reached.
+        const n = stepSentences(sl, step).length;
         for (let i = 0; i < n && out.length < count; i++) out.push([sl, step, i]);
       }
       sl += 1;
@@ -426,8 +488,9 @@ export function createNarration({
       }, 400);
       return;
     }
-    const segs = notesSegs(sl);
-    if (!segs[step]) {
+    warnSegOverflow(sl);
+    const sentences = stepSentences(sl, step);
+    if (!sentences.length) {
       // a build beat with no words — reveal the next step after a pause
       setTimeout(() => { if (gen === liveSegGen) advanceFrom(sl, step); }, 600);
       return;
@@ -435,7 +498,6 @@ export function createNarration({
     // speak the segment SENTENCE BY SENTENCE: each sentence is one cached
     // clip (short time-to-first-audio), the caption follows the spoken
     // sentence, and the build advances only after the segment's last one
-    const sentences = splitSentences(segs[step]);
     const stale = () => gen !== liveSegGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
     liveChainGen = gen;
     liveChainActive = true;
@@ -697,7 +759,10 @@ export function createNarration({
     // while the live voice speaks, the sentence chain owns the caption —
     // never flash the whole segment; the next spoken sentence fills it
     if (narrating && narrSet?.live) { setCaption(''); return; }
-    setCaption(notesSegs(instance.state.slide)[instance.state.step] ?? '');
+    // stepSentences, not the raw segment: on the last step this is every
+    // segment the slide has no build for, and a caption that showed only the
+    // first would go quiet exactly where the voice does not (#350).
+    setCaption(stepSentences(instance.state.slide, instance.state.step).join(' '));
   }
   function showCaptions() {
     captionEl = document.createElement('div');
@@ -808,9 +873,23 @@ export function createNarration({
     debugLog('narr', `live config — ${liveCfg.voice} · ${liveCfg.tone}`);
     playSlideFile();
   }
-  function selectNarrRow(i) {
+  /**
+   * Move the selection, and scroll to it only when the KEYBOARD moved it.
+   *
+   * The card scrolls (`max-height: 70vh`) and the voices view is long — 30
+   * names on the cloud engines, 184 on a Mac's own — so ↓ used to walk the
+   * highlight straight off the bottom of a list that never moved: past row ~15
+   * you were choosing blind.
+   *
+   * But the rows also select on HOVER, and scrolling there would be a list that
+   * jerks under the cursor — a row half off the edge would pull itself into
+   * view and drag the row under the mouse out from under it. So the two callers
+   * ask for different things, which is why this is a parameter and not simply
+   * `selectInList`'s default.
+   */
+  function selectNarrRow(i, { scroll = false } = {}) {
     if (!narrRows.length) return;
-    narrSel = selectInList(narrEl.querySelectorAll('.narr-row'), i, 'narr-sel', { scroll: false });
+    narrSel = selectInList(narrEl.querySelectorAll('.narr-row'), i, 'narr-sel', { scroll });
   }
   function commitNarrRow() { narrRows[narrSel]?.commit(); }
   function narrBack() {
@@ -1204,9 +1283,10 @@ export function createNarration({
       el.addEventListener('click', () => { selectNarrRow(i); commitNarrRow(); });
       card.appendChild(el);
     });
+    // Opening on the current row means opening SCROLLED to it — a saved voice
+    // 90 rows down is otherwise a picker that looks like it forgot.
     const cur = narrRows.findIndex((r) => r.cur);
-    selectNarrRow(Math.max(0, cur));
-    narrEl.querySelector('.narr-sel')?.scrollIntoView({ block: 'nearest' });
+    selectNarrRow(Math.max(0, cur), { scroll: true });
   }
   /**
    * Ask the bridge to speak with a different engine, for this session only.
@@ -1342,20 +1422,19 @@ export function createNarration({
   }
   const silencePcm = (rate, seconds) => new Uint8Array(2 * Math.round(rate * seconds));
   async function stitchSlideWav(sl, run) {
-    const rec = instance._records[sl - 1];
-    const max = rec ? rec.groups.length : 0;
-    const segs = notesSegs(sl);
+    const max = buildSteps(sl);
     const chunks = [];
     let rate = 24000;
     for (let step = 0; step <= max; step++) {
-      const sentences = splitSentences(segs[step]);
+      const { sentences, segStarts } = stepAudio(sl, step);
       for (let i = 0; i < sentences.length; i++) {
         const clip = await fetchLiveSentence(sl, step, i); // cache-first
         if (run !== recRun) return null;
         if (!clip) continue;
         const buf = await clip.blob.arrayBuffer();
         if (chunks.length === 0) rate = new DataView(buf).getUint32(24, true) || 24000;
-        else chunks.push(silencePcm(rate, i === 0 ? SEG_GAP_S : SENT_GAP_S));
+        // a folded segment still gets a SEGMENT-sized breath, not a sentence one
+        else chunks.push(silencePcm(rate, i === 0 || segStarts.has(i) ? SEG_GAP_S : SENT_GAP_S));
         chunks.push(new Uint8Array(buf.slice(44)));
       }
     }
@@ -1372,19 +1451,17 @@ export function createNarration({
   // down) just skips the sidecar; the WAV still records.
   async function stitchSlideVisemes(sl, run) {
     if (character.mode !== 'viseme') return null;
-    const rec = instance._records[sl - 1];
-    const max = rec ? rec.groups.length : 0;
-    const segs = notesSegs(sl);
+    const max = buildSteps(sl);
     const parts = [];
     try {
       for (let step = 0; step <= max; step++) {
-        const sentences = splitSentences(segs[step]);
+        const { sentences, segStarts } = stepAudio(sl, step);
         for (let i = 0; i < sentences.length; i++) {
           const tl = await character.ensureTimeline(
             sentenceKey(sl, step, i), fetchLiveSentence(sl, step, i), sentences[i]);
           if (run !== recRun) return null;
           if (!tl) continue;
-          parts.push({ timeline: tl, gap: parts.length ? (i === 0 ? SEG_GAP_S : SENT_GAP_S) : 0 });
+          parts.push({ timeline: tl, gap: parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : SENT_GAP_S) : 0 });
         }
       }
     } catch {
@@ -1515,8 +1592,8 @@ export function createNarration({
         return false;
       }
       switch (e.key) {
-        case 'ArrowDown': selectNarrRow(narrSel + 1); break;
-        case 'ArrowUp': selectNarrRow(narrSel - 1); break;
+        case 'ArrowDown': selectNarrRow(narrSel + 1, { scroll: true }); break;
+        case 'ArrowUp': selectNarrRow(narrSel - 1, { scroll: true }); break;
         case 'Enter': commitNarrRow(); break;
         case 'Escape': narrBack(); break;
         case 'n': case 'N': closeNarrPicker(); break;
