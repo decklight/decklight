@@ -777,6 +777,26 @@ test('/edit/history lists the deck history, newest first', async (t) => {
   assert.ok(j.entries[0].when, 'a human-readable age');
 });
 
+test('/edit/history carries what each version was and what it changed', async (t) => {
+  // The overlay draws a slide count and a +/− pair on every row, and it has no
+  // way to compute either: the runtime has zero dependencies and cannot spawn
+  // git, so if this route does not send the numbers there are no numbers.
+  const dir = gitRepoWithDeck(t);
+  const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
+
+  const { entries } = await (await fetch(base + '/edit/history')).json();
+  for (const e of entries) {
+    assert.equal(typeof e.slides, 'number', `${e.subject}: no slide count`);
+    assert.ok(e.slides > 0, `${e.subject}: a deck with no slides`);
+    assert.equal(typeof e.add, 'number', `${e.subject}: no additions`);
+    assert.equal(typeof e.del, 'number', `${e.subject}: no deletions`);
+  }
+  // the commit that created the file added lines and removed none
+  const first = entries[entries.length - 1];
+  assert.equal(first.del, 0);
+  assert.ok(first.add > 0);
+});
+
 test('/edit/at previews a version — with a base href so its assets resolve', async (t) => {
   const dir = gitRepoWithDeck(t);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });

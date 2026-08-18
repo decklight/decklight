@@ -53,7 +53,7 @@ import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPrefer
 import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
-import { deckHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
+import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
@@ -553,7 +553,11 @@ export async function editMain(args) {
           // it is a LOCAL read — `unpushed` and `@{u}` read remote-tracking
           // refs, so opening the history never touches the network (SPEC
           // PRESENTING).
-          const entries = deckHistory(deckPath, root);
+          // `slides` is what that version WAS, `add`/`del` what it CHANGED —
+          // the two questions a hash and a subject cannot answer, and the ones
+          // that tell "tightened the wording" apart from "cut four slides"
+          // before you restore it rather than after.
+          const entries = decorateHistory(deckHistory(deckPath, root), deckPath, root);
           const remote = remoteState(root);
           // `pushed` is null for "not a question worth answering here", and the
           // two cases are different: git could not tell us, or there is no

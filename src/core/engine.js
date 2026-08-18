@@ -1343,7 +1343,7 @@ export function init(userConfig = {}) {
       <tr><td>⇧W</td><td>laser pointer</td></tr>
       <tr><td>K</td><td>clock — wall time + elapsed talk</td></tr>
       <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
-      <tr><td>H</td><td>history — commits, what is unpushed, ⏎ restores one (author mode; R too)</td></tr>
+      <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (author mode; R too)</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>

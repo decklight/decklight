@@ -758,22 +758,104 @@ export function createEditMode({
   // footer and some marks. Two copies of ninety lines is how they end up
   // disagreeing about what a commit subject looks like six months from now.
   let restoreEl = null, restoreRows = [], restoreSel = 0, restoreDebounce = null;
+  // The preview's own position, and the handshake that lets us move it without
+  // reloading it. A bundled deck is most of a megabyte; stepping a slide by
+  // setting `src` to a new hash would re-parse all of it, and the arrows would
+  // feel broken. `?embedded` decks accept a `goto` from their parent (the same
+  // one the slide finder uses), so once the frame is up we only ever message it.
+  let previewSlide = 1, previewReady = false, previewPending = null;
+  // Armed, not fired. `⏎` on a row used to restore it on the spot, and a CLICK
+  // did too — which is a keystroke and a half between browsing your history and
+  // rewriting the deck on disk. Restoring is recoverable (it only ever adds a
+  // commit), but "recoverable" is not the same as "intended", and the whole
+  // point of a history is that you were looking rather than deciding.
+  let restoreArmed = false;
+
+  // Stroke icons in the shape of the transport controls everyone already
+  // knows. Constant markup, so innerHTML is the same call the touch chrome
+  // makes for its own icons — nothing here comes from the deck or from git.
+  const NAV_ICON = {
+    first: '<path d="M17 6l-6 6 6 6"/><path d="M7 6v12"/>',
+    prev: '<path d="M15 6l-6 6 6 6"/>',
+    next: '<path d="M9 6l6 6-6 6"/>',
+    last: '<path d="M7 6l6 6-6 6"/><path d="M17 6v12"/>',
+  };
+  const NAV_LABEL = {
+    first: 'first slide (Home)', prev: 'previous slide (←)',
+    next: 'next slide (→)', last: 'last slide (End)',
+  };
+  const navSvg = (d) => '<svg viewBox="0 0 24 24" width="16" height="16" fill="none"'
+    + ' stroke="currentColor" stroke-width="2" stroke-linecap="round"'
+    + ` stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+
+  /** Slides in the selected version, or 0 when this row is past STAT_DEPTH. */
+  const previewTotal = () => Number(restoreRows[restoreSel]?.slides) || 0;
+
+  function previewGoto(n) {
+    const total = previewTotal();
+    previewSlide = Math.max(1, total ? Math.min(n, total) : n);
+    const frame = restoreEl?.querySelector('iframe');
+    if (!previewReady) previewPending = previewSlide;
+    else frame?.contentWindow?.postMessage({ __decklightPreview: { goto: [previewSlide, 0] } }, '*');
+    renderNav();
+  }
+  function renderNav() {
+    const nav = restoreEl?.querySelector('.hs-nav');
+    if (!nav) return;
+    const total = previewTotal();
+    // With no slide count for this row (past the stat depth) the buttons still
+    // work — they just cannot know where the end is, so none of them is greyed
+    // out. Guessing a limit would strand somebody one slide short of it.
+    nav.querySelector('.hs-pos').textContent = total ? `${previewSlide} / ${total}` : `${previewSlide}`;
+    for (const b of nav.querySelectorAll('.hs-btn')) {
+      const at = b.dataset.go;
+      b.disabled = (previewSlide <= 1 && (at === 'first' || at === 'prev'))
+        || (!!total && previewSlide >= total && (at === 'next' || at === 'last'));
+    }
+  }
+  function navTo(where) {
+    if (where === 'first') return previewGoto(1);
+    if (where === 'prev') return previewGoto(previewSlide - 1);
+    if (where === 'next') return previewGoto(previewSlide + 1);
+    return previewGoto(previewTotal() || previewSlide + 1);
+  }
 
   function restorePreview(frame, entry) {
-    if (entry) frame.src = `${editBase}/edit/at?ref=${encodeURIComponent(entry.hash)}&embedded`;
+    if (!entry) return;
+    previewReady = false;
+    previewPending = null;
+    previewSlide = 1;
+    frame.addEventListener('load', () => {
+      previewReady = true;
+      if (previewPending != null) { const n = previewPending; previewPending = null; previewGoto(n); }
+    }, { once: true });
+    frame.src = `${editBase}/edit/at?ref=${encodeURIComponent(entry.hash)}&embedded`;
+    renderNav();
   }
   function selectRestoreRow(i, immediate) {
     const rows = [...restoreEl.querySelectorAll('.tp-row')];
     if (!rows.length) return;
+    disarmRestore();
     restoreSel = selectInList(rows, i, 'tp-selected');
     const entry = restoreRows[restoreSel];
-    restoreEl.querySelector('.tp-caption').textContent =
-      entry ? `${entry.hash} · ${entry.when} · ${entry.subject}` : '';
+    // The caption spells out what the row's badges abbreviate — the badges are
+    // for scanning the column, this is for reading the one you landed on.
+    restoreEl.querySelector('.tp-caption').textContent = entry
+      ? `${entry.hash} · ${entry.when} · ${entry.subject}${statSentence(entry)}` : '';
     const frame = restoreEl.querySelector('iframe');
     clearTimeout(restoreDebounce);
     // debounced like the finder: holding ↓ must not fire a page load per row
     if (immediate) restorePreview(frame, entry);
     else restoreDebounce = setTimeout(() => restorePreview(frame, entry), 60);
+  }
+  function statSentence(e) {
+    const bits = [];
+    if (Number.isFinite(e.slides)) bits.push(`${e.slides} slide${e.slides === 1 ? '' : 's'}`);
+    // Same rule as the badges: a zero side is left out rather than printed as
+    // `−0`, so the two readouts of the same commit say the same thing.
+    const diff = [e.add ? `+${e.add}` : '', e.del ? `−${e.del}` : ''].filter(Boolean);
+    if (diff.length) bits.push(`${diff.join(' ')} lines`);
+    return bits.length ? ` · ${bits.join(' · ')}` : '';
   }
   async function openHistory() {
     if (restoreEl) return closeRestore();
@@ -797,23 +879,34 @@ export function createEditMode({
     if (!entries.length) return toast(`${label}: git has no record of this deck yet`, 3000);
     dismissOthers();
     restoreRows = entries;
+    restoreArmed = false;
     restoreEl = document.createElement('div');
     restoreEl.className = 'decklight-theme-picker decklight-finder decklight-restore decklight-history';
     restoreEl.innerHTML =
       '<div class="tp-panel">' +
         '<div class="tp-side"><div class="tp-filter"></div>' +
         '<div class="hs-remote"></div>' +
-        '<div class="tp-list" role="listbox" aria-label="Deck history"></div></div>' +
+        '<div class="tp-list" role="listbox" aria-label="Deck history"></div>' +
+        '<div class="hs-confirm" hidden></div></div>' +
         '<div class="tp-preview"><iframe title="Version preview"></iframe>' +
+        '<div class="hs-nav" role="group" aria-label="Preview navigation">' +
+          ['first', 'prev'].map((k) => navBtn(k)).join('') +
+          '<span class="hs-pos" aria-live="polite"></span>' +
+          ['next', 'last'].map((k) => navBtn(k)).join('') +
+        '</div>' +
         '<div class="tp-caption"></div></div></div>';
     // textContent for both: a branch name is arbitrary text, and the title is
     // built from a mode rather than pasted in.
-    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ to browse, ⏎ restores this version, Esc closes';
+    restoreEl.querySelector('.tp-filter').textContent =
+      'History — ↑↓ to browse, ←→ walks the preview, ⏎ restores this version, Esc closes';
     const remoteEl = restoreEl.querySelector('.hs-remote');
     // The server sends the sentence ready-made — cli/git.mjs spawns git and the
     // runtime cannot import it, so the words live in one place on that side.
     if (remote?.line) remoteEl.textContent = remote.line;
     else remoteEl.remove();
+    for (const b of restoreEl.querySelectorAll('.hs-btn')) {
+      b.addEventListener('click', () => navTo(b.dataset.go));
+    }
     // Built as nodes, not innerHTML: a commit subject is somebody else's text
     // and may contain anything — textContent escapes it by construction.
     const list = restoreEl.querySelector('.tp-list');
@@ -824,10 +917,13 @@ export function createEditMode({
       const hash = document.createElement('span');
       hash.className = 'rs-hash';
       hash.textContent = e.hash;
+      const subject = document.createElement('span');
+      subject.className = 'rs-subject';
+      subject.textContent = e.subject;
       const when = document.createElement('span');
       when.className = 'rs-when';
       when.textContent = e.when;
-      row.append(hash, ` ${e.subject} `);
+      row.append(hash, subject, statBadges(e));
       // The ↑ is only shown where it means something: `pushed === false` is
       // "this exists nowhere but here", while null is "not a question worth
       // answering" (no remote, or git could not say).
@@ -839,21 +935,111 @@ export function createEditMode({
         row.append(up);
       }
       row.append(when);
-      row.addEventListener('click', () => { selectRestoreRow(i, true); commitRestore(); });
+      // A click SELECTS and asks. It used to restore, which meant a mis-aimed
+      // click on a list you opened to read rewrote the deck.
+      row.addEventListener('click', () => { selectRestoreRow(i, true); armRestore(); });
       list.appendChild(row);
     });
     closeOnBackdrop(restoreEl, closeRestore);
     root.appendChild(restoreEl);
     selectRestoreRow(0, true);
   }
+  function navBtn(k) {
+    return `<button type="button" class="hs-btn" data-go="${k}" title="${NAV_LABEL[k]}"`
+      + ` aria-label="${NAV_LABEL[k]}">${navSvg(NAV_ICON[k])}</button>`;
+  }
+  /**
+   * What this version was, and what it changed: a slide count and the line
+   * counts, in the two colours everybody already reads as added and removed.
+   *
+   * A zero side is omitted rather than shown as `−0`: every commit that only
+   * adds would carry a red zero, and the eye stops trusting the colour.
+   */
+  function statBadges(e) {
+    const wrap = document.createElement('span');
+    wrap.className = 'hs-stat';
+    if (Number.isFinite(e.slides)) {
+      const sl = document.createElement('span');
+      sl.className = 'hs-slides';
+      sl.title = `${e.slides} slide${e.slides === 1 ? '' : 's'} in this version`;
+      sl.textContent = String(e.slides);
+      wrap.append(sl);
+    }
+    if (e.add) {
+      const add = document.createElement('span');
+      add.className = 'hs-add';
+      add.title = `${e.add} line${e.add === 1 ? '' : 's'} added`;
+      add.textContent = `+${e.add}`;
+      wrap.append(add);
+    }
+    if (e.del) {
+      const del = document.createElement('span');
+      del.className = 'hs-del';
+      del.title = `${e.del} line${e.del === 1 ? '' : 's'} removed`;
+      del.textContent = `−${e.del}`;
+      wrap.append(del);
+    }
+    return wrap;
+  }
   function closeRestore() {
     clearTimeout(restoreDebounce);
     restoreEl?.remove();
     restoreEl = null;
+    restoreArmed = false;
+    previewReady = false;
+    previewPending = null;
+  }
+
+  /**
+   * Ask before writing. The card names the version, says what restoring will
+   * do, and — the part that matters — says what it will NOT do: history is
+   * never rewritten, so the deck you are on right now stays in this same list.
+   * That sentence is why the confirmation can be one keystroke rather than a
+   * typed hash.
+   */
+  function armRestore() {
+    const entry = restoreRows[restoreSel];
+    if (!entry) return;
+    restoreArmed = true;
+    const card = restoreEl.querySelector('.hs-confirm');
+    card.hidden = false;
+    card.textContent = '';
+    const q = document.createElement('div');
+    q.className = 'hs-q';
+    q.append('restore ', Object.assign(document.createElement('span'), {
+      className: 'hs-q-hash', textContent: entry.hash }),
+      Object.assign(document.createElement('span'), {
+        className: 'hs-q-sub', textContent: ` ${entry.subject}` }), '?');
+    const why = document.createElement('div');
+    why.className = 'hs-why';
+    why.textContent = `${(Number.isFinite(entry.slides) ? `${entry.slides} slides. ` : '')}`
+      + 'Written as a NEW commit — nothing is rewritten, and where you are now stays in this list.';
+    const row = document.createElement('div');
+    row.className = 'hs-buttons';
+    const yes = document.createElement('button');
+    yes.type = 'button';
+    yes.className = 'hs-yes';
+    yes.textContent = 'restore this version';
+    yes.addEventListener('click', commitRestore);
+    const no = document.createElement('button');
+    no.type = 'button';
+    no.className = 'hs-no';
+    no.textContent = 'cancel';
+    no.addEventListener('click', disarmRestore);
+    row.append(yes, no);
+    const keys = document.createElement('div');
+    keys.className = 'hs-keys';
+    keys.textContent = '⏎ confirms · Esc cancels';
+    card.append(q, why, row, keys);
+  }
+  function disarmRestore() {
+    restoreArmed = false;
+    const card = restoreEl?.querySelector('.hs-confirm');
+    if (card) { card.hidden = true; card.textContent = ''; }
   }
   async function commitRestore() {
     const entry = restoreRows[restoreSel];
-    if (!entry) return;
+    if (!entry || !restoreArmed) return;
     closeRestore();
     try {
       const r = await fetch(editBase + '/edit/restore', {
@@ -885,8 +1071,18 @@ export function createEditMode({
       switch (e.key) {
         case 'ArrowDown': selectRestoreRow(restoreSel + 1, false); break;
         case 'ArrowUp': selectRestoreRow(restoreSel - 1, false); break;
-        case 'Enter': commitRestore(); break;
-        case 'Escape': closeRestore(); break;
+        // ←→ and Home/End drive the PREVIEW, which has no chrome of its own.
+        // They used to fall through to the deck behind the overlay, which
+        // moved a presentation nobody could see.
+        case 'ArrowLeft': navTo('prev'); break;
+        case 'ArrowRight': navTo('next'); break;
+        case 'Home': navTo('first'); break;
+        case 'End': navTo('last'); break;
+        // Two steps, and the first one is not a write: ⏎ asks, ⏎ again does it.
+        case 'Enter': restoreArmed ? commitRestore() : armRestore(); break;
+        // Esc backs out of the question before it backs out of the overlay —
+        // cancelling a restore must not also close the history you were reading.
+        case 'Escape': restoreArmed ? disarmRestore() : closeRestore(); break;
         default: return false;
       }
       return true;
