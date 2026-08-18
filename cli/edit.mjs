@@ -7,7 +7,7 @@
 // `edit` out loud — author spawns this module directly:
 //
 //   node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
-//                     [--commit-every <seconds>] [--agent <name>]
+//                     [--commit-every <seconds>] [--agent <name>] [--commit-messages]
 //
 // It binds 127.0.0.1 and nothing else. The phone remote used to be here behind
 // `--remote`, which meant a clicker cost you an editing server on the LAN;
@@ -197,13 +197,14 @@ export function createHistory(limit = 200) {
 // The plumbing lives in git.mjs now; imported for editMain's use below and
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
-import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
+import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
+import { describeCommit, messagesLine } from './commit-message.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 export async function editMain(args) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
-                      [--commit-every <seconds>] [--agent <name>]
+                      [--commit-every <seconds>] [--agent <name>] [--commit-messages]
   serves the cwd, live-reloads the deck on change, and accepts edits from the
   player: notes (right-click a slide's background), per-slide layout (L/⇧L),
   element edit mode (E, then right-click an element), undo/redo (Z/⇧Z), agent asks (A)
@@ -260,6 +261,41 @@ export async function editMain(args) {
   const noGit = args.includes('--no-git');
   const wantGit = args.includes('--git');
   const commitEvery = Math.max(5, Number(opt('--commit-every', 300)) || 300);
+  // --commit-messages: an agent writes the subject decklight would otherwise
+  // template. Opt-in, because it sends the deck's diffs to whichever agent CLI
+  // is installed and most of them are cloud-backed — a permission decklight
+  // does not infer from what happens to be on PATH.
+  const wantMessages = args.includes('--commit-messages');
+
+  /**
+   * Every commit decklight authors ITSELF goes through here — the cadence, the
+   * session bookends, the save that clears the way before an agent edit.
+   *
+   * One funnel, because the amend has to happen right after the commit while
+   * the sha is still the tip, and a second call site that forgot to ask would
+   * silently be the one that keeps saying "autosave". Commits made from an
+   * AGENT'S OWN message do not come through here: they already say what
+   * happened, and asking an agent to rewrite an agent's sentence is a call
+   * that buys nothing.
+   *
+   * The describe is deliberately unawaited. The commit has landed by the time
+   * this returns, which is the whole contract of autocommit — the subject is
+   * an improvement that arrives late or not at all.
+   */
+  function ownCommit(message) {
+    const made = message === undefined
+      ? gitAutocommit(deckPath, root)
+      : gitAutocommit(deckPath, root, message);
+    if (!made) return false;
+    const sha = lastCommitSha;
+    if (wantMessages && sha) {
+      const template = message ?? `decklight: autosave ${basename(deckPath)}`;
+      describeCommit({ cwd: root, sha, deckPath, template, agent: agentPref })
+        .then((subject) => { if (subject) console.log(`  git: subject → "${subject}"`); })
+        .catch(() => { /* the commit stands; the wording was the optional part */ });
+    }
+    return true;
+  }
   // timer (default, unchanged) · agent (one commit per agent edit) · off
   const gitMode = resolveGitMode(args);
   let gitOn = false;
@@ -274,14 +310,14 @@ export async function editMain(args) {
     }
     if (inGitRepo(root)) {
       gitOn = true;
-      gitAutocommit(deckPath, root, `decklight: start editing ${basename(deckPath)}`);
+      ownCommit(`decklight: start editing ${basename(deckPath)}`);
       // The cadence is the backstop, and it runs in agent mode too: an agent
       // job only ever sees edits IT made, so hand edits — and any agent driven
       // from outside the A flow — would otherwise reach git only via the
       // Ctrl-C bookend, which a crash skips. It is held back while a job is in
       // flight so nothing commits a half-finished agent run.
       setInterval(() => {
-        if (shouldCommit(gitMode, { kind: 'timer', agentBusy: !!agentJob })) gitAutocommit(deckPath, root);
+        if (shouldCommit(gitMode, { kind: 'timer', agentBusy: !!agentJob })) ownCommit();
       }, commitEvery * 1000).unref();
       console.log(gitMode === 'agent'
         ? `  git: committing ${deckRel} once per agent edit with the agent's own message, every ${commitEvery}s otherwise (and on Ctrl-C)`
@@ -290,6 +326,9 @@ export async function editMain(args) {
   }
   const finalCommit = () => {
     if (!gitOn) return;
+    // Not ownCommit: this runs inside the SIGINT handler and the process exits
+    // immediately after, so there is no later for an amend to arrive in. The
+    // bookend keeps its literal subject, which is true anyway.
     gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`);
     // The last moment anyone is looking. Synchronous and fetch-free on purpose:
     // this runs inside the SIGINT handler, and a network call there would hang
@@ -315,6 +354,14 @@ export async function editMain(args) {
   // rather than discovered at the moment someone presses A mid-talk.
   if (agentPref && !agents.some((a) => a.name === agentPref)) {
     console.log(`  agent: ${agentUnavailable(agentPref, agents)}`);
+  }
+  // Said out loud, every session it is on: this is the switch that starts
+  // sending the deck somewhere, and a capability nobody is reminded of is one
+  // they stop counting on being off. Printed HERE rather than up with the other
+  // git lines because it names the agent, and the roster is only resolved now.
+  if (gitOn && wantMessages) {
+    const who = agents.find((a) => a.name === agentPref) ?? agents[0];
+    console.log(`  ${messagesLine(who?.name ?? null)}`);
   }
 
   // ── live reload: watch the deck, broadcast SSE (debounced — editors fire
@@ -460,7 +507,7 @@ export async function editMain(args) {
     // under the agent's message, and a history that misattributes authorship is
     // worse than one that only says "autosave".
     if (gitOn && shouldCommit(gitMode, { kind: 'bookend' })
-        && gitAutocommit(deckPath, root, `decklight: save before ${cmd.name} edits ${basename(deckPath)}`)) {
+        && ownCommit(`decklight: save before ${cmd.name} edits ${basename(deckPath)}`)) {
       console.log('  git: committed your outstanding changes first');
     }
     const before = readDeck();
