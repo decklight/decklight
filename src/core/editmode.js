@@ -160,6 +160,105 @@ export function createEditMode({
    * ALLOWED to do, and a shared code path with a boolean in it is how a
    * presenting server quietly acquires an editing capability later.
    */
+  // ── the deck update overlay (H, present mode) — SPEC PRESENT#UPSTREAM ─────
+  //
+  // The author's H is the deck's own history. A PRESENTED deck has no history
+  // to show — there is no edit server and no /edit/at to preview a commit with
+  // — so the same key answers the question that IS live there: has the person
+  // who wrote this pushed anything since I cloned it?
+  //
+  // It never draws on the slides. present.mjs is right that the audience cannot
+  // act on any of this, and this is an overlay somebody opened, not a banner.
+  // `''` is a REAL value here — it is the base for a deck served over http,
+  // where every fetch is same-origin — so a separate flag says whether we are
+  // presenting. `!presentBase` would read the empty string as "not wired" and
+  // send H down the author path on exactly the decks this exists for.
+  let presentBase = null;
+  let presenting = false;
+  let upEl = null;
+
+  function closeUpstream() { upEl?.remove(); upEl = null; }
+
+  function upstreamRow(text, cls) {
+    const d = document.createElement('div');
+    d.className = cls;
+    d.textContent = text;   // a commit subject is somebody else's text
+    return d;
+  }
+
+  async function renderUpstream(status) {
+    const list = upEl?.querySelector('.tp-list');
+    if (!list) return;
+    list.textContent = '';
+    list.appendChild(upstreamRow(status.message ?? status.state, 'hs-remote'));
+    for (const c of status.commits ?? []) {
+      list.appendChild(upstreamRow(`${c.hash}  ${c.subject}`, 'tp-row'));
+    }
+    const actions = upEl.querySelector('.up-actions');
+    actions.textContent = '';
+    const button = (label, run) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'narr-prev-btn';
+      b.textContent = label;
+      b.addEventListener('click', run);
+      actions.appendChild(b);
+      return b;
+    };
+    button('check now', async () => {
+      actions.textContent = 'checking…';
+      await renderUpstream(await postUpstream('/present/upstream/check'));
+    });
+    if (status.state === 'behind' && status.pull?.offered) {
+      button('update the deck', async () => {
+        actions.textContent = 'pulling…';
+        const out = await postUpstream('/present/upstream/pull');
+        if (out.reload) return location.reload();
+        // A pull that DEGRADED the label does not reload itself: swapping the
+        // bytes executes nothing, so the choice to show them can wait for a
+        // second, informed click.
+        await renderUpstream({ ...out, commits: [], message: out.message });
+        if (out.state === 'pulled') button('show it anyway', () => location.reload());
+      });
+    } else if (status.pull && !status.pull.offered && status.state === 'behind') {
+      actions.appendChild(upstreamRow(`update control off — ${status.pull.reason}`, 'hs-remote'));
+    }
+  }
+
+  async function postUpstream(path) {
+    try {
+      const r = await fetch(presentBase + path, { method: 'POST' });
+      return await r.json();
+    } catch { return { state: 'error', message: 'the presenting server did not answer' }; }
+  }
+
+  async function openUpstream() {
+    if (upEl) return closeUpstream();
+    let status;
+    try {
+      const r = await fetch(presentBase + '/present/upstream');
+      if (!r.ok) return toast('this deck is not a tracked file in a git clone — nothing to update from', 3400);
+      status = await r.json();
+    } catch { return toast('deck update: the presenting server did not answer', 3000); }
+    dismissOthers();
+    upEl = document.createElement('div');
+    upEl.className = 'decklight-theme-picker decklight-finder decklight-restore decklight-history';
+    upEl.innerHTML =
+      '<div class="tp-panel"><div class="tp-side">'
+      + '<div class="tp-filter">Deck update — Esc closes</div>'
+      + '<div class="tp-list" role="listbox" aria-label="Upstream commits"></div>'
+      + '<div class="up-actions tr-actions"></div></div></div>';
+    closeOnBackdrop(upEl, closeUpstream);
+    root.appendChild(upEl);
+    await renderUpstream(status);
+  }
+
+  overlays.register({
+    isOpen: () => !!upEl,
+    close: closeUpstream,
+    keydown: (e) => e.key === 'Escape' && (closeUpstream(), true),
+  });
+
   async function wirePresentRemote() {
     const base = /^https?:$/.test(location.protocol) ? '' : 'http://127.0.0.1:8790';
     try {
@@ -173,6 +272,12 @@ export function createEditMode({
         return;
       }
       instance.__remoteQr = j.remote ? `${base || location.origin}/remote/qr.svg` : null;
+      // H in present mode. The routes only exist when the deck is a tracked
+      // file in a clone with an upstream, so this base is enough to tell: a
+      // deck that is not one gets a 404/405 and H says so, rather than the
+      // overlay existing and being permanently empty.
+      presentBase = base;
+      presenting = true;
       const es = new EventSource(base + '/present/events');
       es.addEventListener('remote', (ev) => {
         try {
@@ -653,7 +758,6 @@ export function createEditMode({
   // footer and some marks. Two copies of ninety lines is how they end up
   // disagreeing about what a commit subject looks like six months from now.
   let restoreEl = null, restoreRows = [], restoreSel = 0, restoreDebounce = null;
-  let versionsMode = 'restore';
 
   function restorePreview(frame, entry) {
     if (entry) frame.src = `${editBase}/edit/at?ref=${encodeURIComponent(entry.hash)}&embedded`;
@@ -671,18 +775,16 @@ export function createEditMode({
     if (immediate) restorePreview(frame, entry);
     else restoreDebounce = setTimeout(() => restorePreview(frame, entry), 60);
   }
-  async function openRestore(mode = 'restore') {
+  async function openHistory() {
     if (restoreEl) return closeRestore();
     // The migration string, and it is load-bearing for one release at least: H
     // used to be the progress bar, it worked offline and mid-talk, and somebody
     // reaching for it during a presentation must be told where it went rather
     // than getting a shrug.
     if (!editAvailable) {
-      return toast(mode === 'history'
-        ? `the progress bar moved to J — ${needsDevMode('history', location)}`
-        : needsDevMode('restoring a version', location), 3800);
+      return toast(`the progress bar moved to J — ${needsDevMode('history', location)}`, 3800);
     }
-    const label = mode === 'history' ? 'history' : 'restore';
+    const label = 'history';
     let entries = [];
     let remote = null;
     try {
@@ -694,11 +796,9 @@ export function createEditMode({
     } catch { return toast(`${label}: could not read the deck history`, 3000); }
     if (!entries.length) return toast(`${label}: git has no record of this deck yet`, 3000);
     dismissOthers();
-    versionsMode = mode;
     restoreRows = entries;
     restoreEl = document.createElement('div');
-    restoreEl.className = `decklight-theme-picker decklight-finder decklight-restore${
-      mode === 'history' ? ' decklight-history' : ''}`;
+    restoreEl.className = 'decklight-theme-picker decklight-finder decklight-restore decklight-history';
     restoreEl.innerHTML =
       '<div class="tp-panel">' +
         '<div class="tp-side"><div class="tp-filter"></div>' +
@@ -708,13 +808,11 @@ export function createEditMode({
         '<div class="tp-caption"></div></div></div>';
     // textContent for both: a branch name is arbitrary text, and the title is
     // built from a mode rather than pasted in.
-    restoreEl.querySelector('.tp-filter').textContent = mode === 'history'
-      ? 'History — ↑↓ to browse, ⏎ restores this version, Esc closes'
-      : 'Restore a version — ↑↓ to browse, ⏎ to restore';
+    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ to browse, ⏎ restores this version, Esc closes';
     const remoteEl = restoreEl.querySelector('.hs-remote');
     // The server sends the sentence ready-made — cli/git.mjs spawns git and the
     // runtime cannot import it, so the words live in one place on that side.
-    if (mode === 'history' && remote?.line) remoteEl.textContent = remote.line;
+    if (remote?.line) remoteEl.textContent = remote.line;
     else remoteEl.remove();
     // Built as nodes, not innerHTML: a commit subject is somebody else's text
     // and may contain anything — textContent escapes it by construction.
@@ -733,7 +831,7 @@ export function createEditMode({
       // The ↑ is only shown where it means something: `pushed === false` is
       // "this exists nowhere but here", while null is "not a question worth
       // answering" (no remote, or git could not say).
-      if (versionsMode === 'history' && e.pushed === false) {
+      if (e.pushed === false) {
         const up = document.createElement('span');
         up.className = 'hs-push';
         up.title = 'only on this machine';
@@ -966,9 +1064,21 @@ export function createEditMode({
     /** What the server's ping said a wizard can configure — the palette's Configure rows. */
     wizards: () => editWizards.slice(),
     /** R, and what the headless overlay harness drives (it has no git server). */
-    restore: { open: () => openRestore('restore'), close: closeRestore, list: () => restoreRows.slice() },
-    // The same overlay, opened as a readout. Two doors, one implementation.
-    history: { open: () => openRestore('history'), close: closeRestore, list: () => restoreRows.slice() },
+    // ONE feature. Restoring is something you do FROM the history, not a
+    // separate thing with its own overlay, its own list and its own name for a
+    // commit — which is what it was, and the two had already started to differ.
+    // `restore` stays as a name so `R` and anything holding a reference keep
+    // working; it opens the history, because that is where restoring lives now.
+    // ONE KEY, and it answers the question that is live where you pressed it.
+    // Authoring, that is "what have I changed, and what is unpushed". Presenting
+    // — where there is no edit server and no /edit/at to preview a commit with —
+    // it is "has the author pushed anything since I cloned this".
+    history: {
+      open: () => (!editAvailable && presenting ? openUpstream() : openHistory()),
+      close: () => { closeRestore(); closeUpstream(); },
+      list: () => restoreRows.slice(),
+    },
+    restore: { open: openHistory, close: closeRestore, list: () => restoreRows.slice() },
     /** Is a dev server actually serving this deck? Layout cycling asks too. */
     available: () => editAvailable,
     /** Its origin ('' when the deck is served BY the edit server). */
