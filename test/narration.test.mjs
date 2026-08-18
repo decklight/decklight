@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { hintApplies } from '../src/core/narration.js';
+import { hintApplies, pauseSeconds } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
 const showing = { hasTracks: true };
@@ -44,4 +44,19 @@ test('the hint never appears where it would be wrong', () => {
 
 test('once the voice has been used on a deck, the hint is done there', () => {
   assert.equal(hintApplies({ ...showing, used: true }), false);
+});
+
+// --- data-narration-pause: the finite sibling of data-narration="hold" --------
+
+test('a slide asks for a beat in seconds, decimals included', () => {
+  assert.equal(pauseSeconds('2'), 2);
+  assert.equal(pauseSeconds('0.5'), 0.5);
+});
+
+test('anything that is not a positive number reads as no beat, silently', () => {
+  // A timing hint is not worth breaking a deck over: a typo leaves the slide
+  // behaving exactly as it did before the attribute existed.
+  for (const raw of [undefined, null, '', '0', '-1', 'abc', 'NaN', {}]) {
+    assert.equal(pauseSeconds(raw), 0, `${JSON.stringify(raw)} is not a beat`);
+  }
 });

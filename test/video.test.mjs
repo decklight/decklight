@@ -17,7 +17,7 @@ import { rmTemp } from './helpers.mjs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  TAIL_SECONDS, LAST_STEP, parseSize, parseSlideRange, extractHolds, planTimeline,
+  TAIL_SECONDS, LAST_STEP, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps,
 } from '../tools/video.mjs';
 
@@ -32,8 +32,8 @@ const durations = { 'slide-01.m4a': 3.2, 'slide-03.m4a': 7.05 };
 
 test('a narrated slide holds for its REAL audio duration plus the tail', () => {
   const plan = planTimeline(manifest, durations, [5, 5, 5]);
-  assert.deepEqual(plan[0], { slide: 1, step: LAST_STEP, audio: 'slide-01.m4a', duration: 3.2 + TAIL_SECONDS });
-  assert.deepEqual(plan[2], { slide: 3, step: LAST_STEP, audio: 'slide-03.m4a', duration: 7.45 });
+  assert.deepEqual(plan[0], { slide: 1, step: LAST_STEP, audio: 'slide-01.m4a', duration: 3.2 + TAIL_SECONDS, pad: TAIL_SECONDS });
+  assert.deepEqual(plan[2], { slide: 3, step: LAST_STEP, audio: 'slide-03.m4a', duration: 7.45, pad: TAIL_SECONDS });
 });
 
 test('a slide without narration holds --hold seconds, per-slide override included', () => {
@@ -50,6 +50,37 @@ test('a fully silent deck (no manifest) is all holds — and still one entry per
 test('a manifest entry whose audio has no measured duration falls back to the hold', () => {
   const plan = planTimeline(manifest, { 'slide-01.m4a': 3.2 }, [5, 5, 6]);
   assert.deepEqual(plan[2], { slide: 3, step: LAST_STEP, audio: null, duration: 6 });
+});
+
+test('data-narration-pause adds its beat to a narrated slide, and to the pad', () => {
+  // The mp4 must breathe where the live deck does: src/core/narration.js holds
+  // the same seconds after the slide's last sentence. It rides on the TAIL, and
+  // it has to reach `pad` as well as `duration` — widening -t without padding
+  // the audio would leave the concat demuxer's stream short.
+  const plan = planTimeline(manifest, durations, [5, 5, 5], null, { pauses: [2, 0, 0] });
+  assert.deepEqual(plan[0], {
+    slide: 1, step: LAST_STEP, audio: 'slide-01.m4a', duration: 5.6, pad: TAIL_SECONDS + 2,
+  });
+  assert.equal(plan[2].duration, 7.45, 'a slide that asked for nothing is untouched');
+  assert.equal(plan[2].pad, TAIL_SECONDS);
+});
+
+test('a pause on a SILENT slide changes nothing — --hold is that slide\'s knob', () => {
+  // One knob per job: a slide with no narration has no narration to pause after.
+  const plan = planTimeline(manifest, durations, [5, 8, 5], null, { pauses: [0, 3, 0] });
+  assert.deepEqual(plan[1], { slide: 2, step: LAST_STEP, audio: null, duration: 8 });
+});
+
+test('only the FINISHED frame of a segmented slide gets the pause, never a build', () => {
+  // A build that paused would read as hesitation rather than as a beat — the
+  // same reason the plain tail skips them.
+  const segmented = [{ file: 'slide-01.m4a', segments: [{ file: 's-1-0.m4a' }, { file: 's-1-1.m4a' }] }];
+  const durs = { 'slide-01.m4a': 4, 's-1-0.m4a': 1.5, 's-1-1.m4a': 2.5 };
+  const plan = planTimeline(segmented, durs, [5], null, { steps: [1], pauses: [2] });
+  assert.deepEqual(plan.map((p) => [p.step, p.duration, p.pad]), [
+    [0, 1.5, 0],
+    [LAST_STEP, 2.5 + TAIL_SECONDS + 2, TAIL_SECONDS + 2],
+  ]);
 });
 
 test('--slides a-b keeps absolute slide numbers and manifest alignment', () => {
@@ -85,6 +116,15 @@ test('extractHolds reads data-video-hold off each section, default elsewhere', (
   assert.deepEqual(extractHolds(html, 5), [5, 8, 5]);
 });
 
+test('extractPauses reads data-narration-pause off each section, 0 elsewhere', () => {
+  const html = `<div class="decklight">
+    <section><h2>one</h2></section>
+    <section data-narration-pause="2" data-layout="top"><h2>two</h2></section>
+    <section data-narration="hold"><p data-narration-pause="9">an attr on CONTENT is not a slide beat</p></section>
+  </div>`;
+  assert.deepEqual(extractPauses(html), [0, 2, 0]);
+});
+
 // --- ffmpeg arg builders --------------------------------------------------------
 
 test('a narrated segment loops the still under the audio, padded by the tail', () => {
@@ -98,6 +138,13 @@ test('a narrated segment loops the still under the audio, padded by the tail', (
   assert.equal(arg('-pix_fmt'), 'yuv420p');
   assert.equal(arg('-t'), '3.600');
   assert.equal(a[a.length - 1], 'seg.mp4');
+});
+
+test('a segment pads the audio by however long the slide asked to breathe', () => {
+  const a = segmentArgs({ frame: 'f.png', audio: 'x.m4a', duration: 5.6, fps: 30, out: 'o.mp4', pad: 2.4 });
+  assert.equal(a[a.indexOf('-af') + 1], 'apad=pad_dur=2.4');
+  const dflt = segmentArgs({ frame: 'f.png', audio: 'x.m4a', duration: 1, fps: 30, out: 'o.mp4' });
+  assert.equal(dflt[dflt.indexOf('-af') + 1], `apad=pad_dur=${TAIL_SECONDS}`, 'unasked, it is the plain tail');
 });
 
 test('a silent segment still carries an audio stream — anullsrc, same codec params', () => {

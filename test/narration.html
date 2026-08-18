@@ -54,6 +54,8 @@
 
     // ── mock bridge: `mode` decides how /tts behaves ─────────────────────────
     // healthy   — always 200
+    // pause     — 200; slide 1 carries data-narration-pause and must hold it
+    // pausenav  — 200; a manual jump mid-beat must win over the pending advance
     // flaky     — 429s the FIRST sentence only, then 200 (a transient quota hit)
     // dead      — 429s everything (the bridge is down)
     // roster    — 200, but the bridge speaks a roster of its OWN (an ElevenLabs
@@ -528,6 +530,54 @@
           r.spokeAs = bodies.every((b) => b.voice === 'My Voice');
           r.asked = bodies.length > 0;
           r.PASS = r.swapped && r.persisted && r.saidSo && r.asked && r.spokeAs;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'pause') {
+          // data-narration-pause: the slide holds its beat, then the deck
+          // carries on by itself. Both halves matter — a beat that never ends
+          // is data-narration="hold", and a beat the deck sails through is no
+          // beat at all.
+          deck._sections[0].dataset.narrationPause = '1';
+          const seen = [];
+          deck.on('slide', () => seen.push({ n: deck.state.slide, at: Date.now() }));
+          const t0 = Date.now();
+          deck.toggleNarration();                                // V
+          await new Promise((ok) => setTimeout(ok, 5000));
+
+          const left1 = seen.find((s) => s.n === 2);
+          r.heldFor = left1 ? left1.at - t0 : null;
+          // the two mocked sentences of slide 1 end within ~50ms; everything
+          // past that is the beat
+          r.held = r.heldFor !== null && r.heldFor >= 900;
+          r.slide = deck.state.slide;
+          r.total = deck.state.totalSlides;
+          r.reachedEnd = deck.state.slide === deck.state.totalSlides;
+          r.PASS = r.held && r.reachedEnd;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'pausenav') {
+          // Manual navigation mid-beat WINS, exactly as it does mid-sentence:
+          // the pending advance must be dropped, not queued behind the jump.
+          deck._sections[0].dataset.narrationPause = '3';
+          const seen = [];
+          deck.on('slide', () => seen.push(deck.state.slide));
+          deck.toggleNarration();                                // V
+          await new Promise((ok) => setTimeout(ok, 400));        // into the beat
+          r.duringBeat = deck.state.slide;
+          deck.goto(4, 0);                                       // the presenter moves on
+          await new Promise((ok) => setTimeout(ok, 4000));       // past the beat's end
+
+          r.visited = seen;
+          r.stayedForTheBeat = r.duringBeat === 1;
+          r.wentWhereAsked = seen[0] === 4;
+          r.neverJumpedToTwo = !seen.includes(2);
+          r.slide = deck.state.slide;
+          r.PASS = r.stayedForTheBeat && r.wentWhereAsked && r.neverJumpedToTwo
+            && deck.state.slide === 4;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

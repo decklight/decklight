@@ -84,8 +84,10 @@
       </aside>
     </section>
 
-    <!-- 3 · svg diagrams + concept colors -->
-    <section>
+    <!-- 3 · svg diagrams + concept colors.
+         data-narration-pause: a finished diagram is worth two seconds of
+         silence before the voice moves on — the room is still reading it. -->
+    <section data-narration-pause="2">
       <h2>Theme-Aware SVG Diagrams</h2>
       <p>Authored once with tokens — recolored by all 46 themes</p>
       <svg viewBox="0 0 800 300" width="800" data-build="draw" aria-label="Decklight architecture">
@@ -542,9 +544,10 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
         <li>Or a cloud voice, or <code>piper</code> offline — <code>decklight tts</code> sets itself up on first run</li>
         <li>Recorded tracks stream from a bucket; a <strong>signed manifest</strong> shows ☁ and its time left</li>
         <li>A deck with a voice-over <em>says so</em> — a pill fades in, and clicking it plays</li>
+        <li><code>data-narration-pause="2"</code> — a slide that earns a beat gets one</li>
       </ul>
       <aside class="notes">
-        <p>You may already know this one, because this deck has been talking to you since slide one. V starts the voice, N picks it, C puts captions under it — and the voice is the clock: each click beat ends, the next build lands, and the deck presents itself.</p><p>⟨CLICK⟩</p><p>Here's the part that changed. Every desktop you own has shipped a speech synthesizer for twenty years, and the current ones are genuinely good — macOS Premium and Personal Voices, Windows's natural voices. So with nothing configured, decklight asks the operating system what it can speak with before falling back to anything that needs a credential. No key, no download, no signup.</p><p>⟨CLICK⟩</p><p>Prefer a cloud voice, or your own cloned one, or piper running offline on your laptop? All still there — and the first time the bridge can't start, it asks you a few plain questions instead of throwing an error at you.</p><p>⟨CLICK⟩</p><p>Recorded tracks are the other half. Point a track at a bucket and it just plays; point it at a signed manifest and the deck shows a little cloud with the time left on the signature — because a link that quietly expires the morning of your talk is not a thing anyone should discover on stage.</p><p>⟨CLICK⟩</p><p>And the smallest fix of all: a deck that has a voice-over now tells you. A pill fades in near the bottom a second after load, and clicking it plays — which also happens to be the user gesture browsers demand before any audio at all. Before this, the only way to learn a deck talks was a key nobody had mentioned.</p>
+        <p>You may already know this one, because this deck has been talking to you since slide one. V starts the voice, N picks it, C puts captions under it — and the voice is the clock: each click beat ends, the next build lands, and the deck presents itself.</p><p>⟨CLICK⟩</p><p>Here's the part that changed. Every desktop you own has shipped a speech synthesizer for twenty years, and the current ones are genuinely good — macOS Premium and Personal Voices, Windows's natural voices. So with nothing configured, decklight asks the operating system what it can speak with before falling back to anything that needs a credential. No key, no download, no signup.</p><p>⟨CLICK⟩</p><p>Prefer a cloud voice, or your own cloned one, or piper running offline on your laptop? All still there — and the first time the bridge can't start, it asks you a few plain questions instead of throwing an error at you.</p><p>⟨CLICK⟩</p><p>Recorded tracks are the other half. Point a track at a bucket and it just plays; point it at a signed manifest and the deck shows a little cloud with the time left on the signature — because a link that quietly expires the morning of your talk is not a thing anyone should discover on stage.</p><p>⟨CLICK⟩</p><p>And the smallest fix of all: a deck that has a voice-over now tells you. A pill fades in near the bottom a second after load, and clicking it plays — which also happens to be the user gesture browsers demand before any audio at all. Before this, the only way to learn a deck talks was a key nobody had mentioned.</p><p>⟨CLICK⟩</p><p>And one small thing for the slides that need room to land. Data narration hold marks a slide interactive and the deck waits there forever. Data narration pause is the same idea with a number on it: two seconds after the last sentence, then it carries on. The diagram slide near the start of this deck has one, which is why it sat there for a moment before moving off.</p>
       </aside>
       <aside class="rehearse">
         <p>V · N · C — the voice is the clock</p>
@@ -552,6 +555,7 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
         <p>⟨CLICK⟩</p><p>Cloud / piper + setup wizard</p>
         <p>⟨CLICK⟩</p><p>Signed manifest = ☁ + time left</p>
         <p>⟨CLICK⟩</p><p>The pill announces the voice-over</p>
+        <p>⟨CLICK⟩</p><p>pause = hold, with a number</p>
       </aside>
     </section>
 
