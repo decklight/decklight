@@ -11,8 +11,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { notesSegments } from '../tools/deck-html.mjs';
 
-import { hintApplies, pauseSeconds } from '../src/core/narration.js';
+import { hintApplies, pauseSeconds, segmentFileIndex, narrationTracks } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
 const showing = { hasTracks: true };
@@ -58,5 +59,106 @@ test('anything that is not a positive number reads as no beat, silently', () => 
   // behaving exactly as it did before the attribute existed.
   for (const raw of [undefined, null, '', '0', '-1', 'abc', 'NaN', {}]) {
     assert.equal(pauseSeconds(raw), 0, `${JSON.stringify(raw)} is not a beat`);
+  }
+});
+
+// ── the tool↔runtime segment contract ─────────────────────────────────────
+//
+// Two functions split the same ⟨CLICK⟩ notes, differently, on purpose:
+// `notesSegs` in the runtime keeps every part (segment k must line up with
+// build step k) while `notesSegments` in tools/ drops the empties (it is naming
+// files). So for `⟨CLICK⟩ A ⟨CLICK⟩ B` the runtime sees three segments and the
+// disk holds two files.
+//
+// Nothing about that is visible when it goes wrong. The audio plays, the deck
+// advances, and the wrong beat is spoken over the wrong build. These pin the
+// mapping between them, and the last one runs the ACTUAL file-namer against the
+// ACTUAL runtime mapper so the two cannot drift apart later.
+
+test('segmentFileIndex numbers the segments that became files, 1-based', () => {
+  assert.deepEqual(segmentFileIndex(['A', 'B']), [1, 2]);
+  assert.deepEqual(segmentFileIndex(['A', 'B', 'C', 'D']), [1, 2, 3, 4]);
+});
+
+test('an empty segment takes no file, and does not consume a number', () => {
+  // The whole bug in one assertion: a ⟨CLICK⟩ at the start of a note is
+  // punctuation, so "A" is file 1 — not file 2, and not skipped.
+  assert.deepEqual(segmentFileIndex(['', 'A', 'B']), [null, 1, 2]);
+  assert.deepEqual(segmentFileIndex(['A', '', 'B']), [1, null, 2]);
+  assert.deepEqual(segmentFileIndex(['', 'A', '', 'B', '']), [null, 1, null, 2, null]);
+});
+
+test('below two real segments there are no files at all', () => {
+  // `notesSegments`'s own `parts.length > 1 ? parts : null`. null is the signal
+  // to play the whole-slide recording, which is what the tool wrote.
+  for (const segs of [['A'], ['', 'A'], ['', ''], [], null, undefined]) {
+    assert.equal(segmentFileIndex(segs), null, JSON.stringify(segs));
+  }
+});
+
+test('whitespace-only is empty, and the count survives normalisation', () => {
+  assert.deepEqual(segmentFileIndex(['A', '   ', 'B']), [1, null, 2]);
+  assert.deepEqual(segmentFileIndex([' A ', '\n B \n']), [1, 2]);
+});
+
+test('the runtime predicts the filenames the tool actually writes', () => {
+  // The contract, executed rather than asserted from memory: `notesSegments` is
+  // the function tools/voiceover.mjs names files with, and `segmentFileIndex`
+  // is what the player resolves them by. Feed both the same notes — the tool
+  // the HTML it reads from the file, the runtime the text a browser would give
+  // it — and the file numbers must agree.
+  const cases = [
+    '<p>One.</p><p>⟨CLICK⟩</p><p>Two.</p>',
+    '<p>⟨CLICK⟩</p><p>One.</p><p>⟨CLICK⟩</p><p>Two.</p>',
+    '<p>One.</p><p>⟨CLICK⟩</p><p>⟨CLICK⟩</p><p>Two.</p>',
+    '<p>One.</p><p>⟨CLICK⟩</p><p>Two.</p><p>⟨CLICK⟩</p><p>Three.</p>',
+    '<p>Only one.</p>',
+  ];
+  for (const html of cases) {
+    const files = notesSegments(html);                       // what the tool writes
+    const text = html.replace(/<[^>]+>/g, '');               // what textContent gives
+    const idx = segmentFileIndex(text.split('⟨CLICK⟩'));     // what the player resolves
+    if (files === null) {
+      assert.equal(idx, null, `${html}: the tool wrote no segment files but the player expects some`);
+      continue;
+    }
+    const highest = Math.max(...idx.filter((n) => n !== null));
+    assert.equal(highest, files.length,
+      `${html}: the tool wrote ${files.length} files, the player would ask for ${highest}`);
+    // and each numbered segment must carry the text the file was named for
+    const spoken = idx.map((n, k) => (n === null ? null : text.split('⟨CLICK⟩')[k]
+      .replace(/\s+/g, ' ').trim())).filter(Boolean);
+    assert.deepEqual(spoken, files, `${html}: segment text does not match the file's text`);
+  }
+});
+
+// ── narrationTracks — the `ext` that never arrived ────────────────────────
+
+test('the string form keeps ext and segments, not just the directory', () => {
+  // `narration: { files: 'voiceover', ext: 'wav' }` is the line the ⇧V done
+  // card prints and SPEC documents. It produced `{label, dir}` — no `ext` — so
+  // the player went looking for slide-01.m4a and reported a missing file for a
+  // recording that was sitting right there.
+  assert.deepEqual(narrationTracks({ files: 'voiceover', ext: 'wav' }),
+    [{ label: 'Narration', dir: 'voiceover', ext: 'wav' }]);
+  assert.deepEqual(narrationTracks({ files: 'v', ext: 'wav', segments: true }),
+    [{ label: 'Narration', dir: 'v', ext: 'wav', segments: true }]);
+});
+
+test('a plain string is still one plain track — no keys invented', () => {
+  // A track object that carried `ext: undefined` would look like it had opted
+  // in to something the deck never mentioned.
+  assert.deepEqual(narrationTracks({ files: 'voiceover' }), [{ label: 'Narration', dir: 'voiceover' }]);
+  assert.equal('ext' in narrationTracks({ files: 'voiceover' })[0], false);
+});
+
+test('the array form is passed through exactly as authored', () => {
+  const authored = [{ label: 'Me', dir: 'mine', ext: 'wav' }, { label: 'TTS', dir: 'tts' }];
+  assert.equal(narrationTracks({ files: authored }), authored);
+});
+
+test('no narration configured is no tracks, never a throw', () => {
+  for (const cfg of [undefined, null, {}, { files: null }, { files: '' }]) {
+    assert.deepEqual(narrationTracks(cfg), [], JSON.stringify(cfg));
   }
 });

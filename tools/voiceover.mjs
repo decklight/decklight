@@ -49,7 +49,7 @@ import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createEngine } from './tts-engines.mjs';
 import { argReader } from './args.mjs';
-import { sectionBodies, NOTES_ASIDE } from './deck-html.mjs';
+import { sectionBodies, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 
 const args = process.argv.slice(2);
 const deckPath = args.find((a) => !a.startsWith('-'));
@@ -102,19 +102,13 @@ const toAac = (wav, m4a) => execFileSync(encoder, encoder === 'ffmpeg'
 // ── extract per-slide narration text ─────────────────────────────────────────
 const html = readFileSync(deckPath, 'utf8');
 const sections = sectionBodies(html);
-const clean = (s) => s
-  .replace(/⟨CLICK⟩/g, ' ')
-  .replace(/<[^>]+>/g, ' ')
-  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
-  .replace(/\s+/g, ' ')
-  .trim();
 const raw = sections.map((sec) => {
   const aside = sec.match(NOTES_ASIDE);
   if (aside) return aside[1];
   const md = sec.match(/^Note:\s*$([\s\S]*?)(?=^Rehearse:\s*$|<\/script>)/m);
   return md ? md[1] : '';
 });
-const slides = raw.map(clean);
+const slides = raw.map(cleanNotes);
 /**
  * A slide's ⟨CLICK⟩ segments, or null when there is only one.
  *
@@ -126,10 +120,6 @@ const slides = raw.map(clean);
  * as silence — a ⟨CLICK⟩ at the very start or end of a note is punctuation,
  * not a beat.
  */
-export const notesSegments = (notes) => {
-  const parts = String(notes ?? '').split('⟨CLICK⟩').map(clean).filter(Boolean);
-  return parts.length > 1 ? parts : null;
-};
 // Segmenting needs ffmpeg specifically: the per-slide file is CONCATENATED from
 // the segments, and afconvert (Core Audio, macOS-only) has no concat demuxer.
 // Without it the slide is synthesised whole, exactly as before.

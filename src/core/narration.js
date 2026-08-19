@@ -73,6 +73,61 @@ export function pauseSeconds(raw) {
  * case and is not the same as absent** — or `null` when the deck is not being
  * authored, which is what sends ⇧V's recordings back down the download path.
  */
+/**
+ * `config.narration` as a list of TRACKS.
+ *
+ * A string is one track; an array is passed through as authored. The string
+ * form used to drop everything beside the directory — so
+ * `narration: { files: 'voiceover', ext: 'wav' }` produced `{label, dir}` with
+ * no `ext`, and the deck went looking for `slide-01.m4a`. That line is not a
+ * hypothetical: it is what the ⇧V recorder prints on its own done card and what
+ * SPEC tells authors to write, so the documented way to play back a recording
+ * resolved the wrong extension and failed as a missing file.
+ *
+ * `ext` and `segments` are read off the TRACK (`narrSet.ext`), which is why they
+ * have to be copied onto the one this form builds rather than left on the
+ * config object nothing consults.
+ */
+/**
+ * Which FILE each runtime segment was written as. The tool↔runtime contract.
+ *
+ * These two split the same notes differently, and the difference is silent:
+ * `notesSegs` (the runtime) keeps every part of the ⟨CLICK⟩ split, empties
+ * included, because segment k must line up with build step k. `notesSegments`
+ * (tools/voiceover.mjs, tools/deck-html.mjs) drops empties and gives up below
+ * two, because it is naming files. So for `⟨CLICK⟩ A ⟨CLICK⟩ B` the runtime sees
+ * three segments and the disk holds two files — and mapping step k to file k+1
+ * plays the wrong beat over the wrong build with nothing to notice it by.
+ *
+ * Returns an array parallel to `segs` whose entry k is the 1-BASED file number
+ * for that segment, or null where the segment produced no file. Returns null
+ * when the tool would have produced no files at all, which is the signal to use
+ * the whole-slide recording instead.
+ *
+ * Pure, and the single place either side may compute this.
+ */
+export function segmentFileIndex(segs) {
+  const parts = (segs ?? []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim());
+  // the tool's own `parts.length > 1 ? parts : null` — one segment is not a
+  // segmented slide, it is a slide
+  if (parts.filter(Boolean).length < 2) return null;
+  let file = 0;
+  return parts.map((t) => (t ? ++file : null));
+}
+
+export function narrationTracks(narration) {
+  const f = narration?.files;
+  if (!f) return [];
+  if (Array.isArray(f)) return f;
+  const track = { label: 'Narration', dir: f };
+  // Only when authored: `undefined` here would still be `undefined` on the
+  // track, but writing the keys unconditionally makes every track object look
+  // like it opted in to something it never mentioned.
+  if (narration.ext !== undefined) track.ext = narration.ext;
+  if (narration.segments !== undefined) track.segments = narration.segments;
+  return [track];
+}
+
 export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
   syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
@@ -191,11 +246,7 @@ export function createNarration({
   // brackets) — never the long Gemini-shaped sentence, which would still work
   // as v3 input but is not the short cue the ticket asks for.
   const toneStyle = ([, geminiText, tag]) => (liveEngine === 'elevenlabs' ? tag : geminiText);
-  const narrSets = (() => {
-    const f = config.narration?.files;
-    if (!f) return [];
-    return Array.isArray(f) ? f : [{ label: 'Narration', dir: f }];
-  })();
+  const narrSets = narrationTracks(config.narration);
   const LIVE_TRACK = { live: true };
   let liveCfg = { voice: 'Alnilam', tone: TONES[0][0], style: TONES[0][1] };
   let narrSet = narrSets[0] ?? null;

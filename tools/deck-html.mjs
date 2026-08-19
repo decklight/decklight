@@ -22,6 +22,40 @@ export const NOTES_ASIDE = /<aside class="notes">([\s\S]*?)<\/aside>/;
 export const sectionBodies = (html) => html.split(/<section\b/).slice(1);
 
 /**
+ * Speaker-note HTML as plain text: tags out, entities back, whitespace flat.
+ *
+ * The runtime gets this for free from `textContent`; a tool reading the FILE
+ * has to do it, and has to do it the same way or the two disagree about what a
+ * segment says.
+ */
+export const cleanNotes = (s) => String(s ?? '')
+  .replace(/⟨CLICK⟩/g, ' ')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/**
+ * A slide's notes split into the ⟨CLICK⟩ segments that become FILES, or null
+ * when there are not enough to be worth segmenting.
+ *
+ * Lives here rather than in tools/voiceover.mjs — which cannot be imported at
+ * all, it arg-parses and exits at load — so the runtime's
+ * `segmentFileIndex` can be tested against the very function that names the
+ * files it is predicting. Those two disagreeing is a silent bug: the runtime
+ * keeps empty segments (segment k must line up with build step k) and this
+ * drops them (it is naming files), so a ⟨CLICK⟩ at the start of a note shifts
+ * every filename by one.
+ *
+ * An empty segment is dropped rather than recorded as silence — a ⟨CLICK⟩ at
+ * the very start or end of a note is punctuation, not a beat.
+ */
+export const notesSegments = (notes) => {
+  const parts = String(notes ?? '').split('⟨CLICK⟩').map(cleanNotes).filter(Boolean);
+  return parts.length > 1 ? parts : null;
+};
+
+/**
  * Locate slide `n` (1-based) for a round-trip rewrite. Returns the capturing
  * split (`[preamble, '<section', body1, '<section', body2, …]`) and the index
  * of slide n's body segment; throws with the deck's real slide count when n is
