@@ -1051,14 +1051,36 @@ export function init(userConfig = {}) {
       }
     },
 
+    /**
+     * Put the position in the URL — COALESCED, and checked afterwards (#328).
+     *
+     * WebKit caps history writes at 100 per 10 seconds and counts `pushState`
+     * and `replaceState` against the same budget. A deck walked fast — a held
+     * arrow key, someone scrubbing for a slide — spends that in seconds: the
+     * showcase has 39 slides and about a hundred build steps, and 160 presses
+     * left the URL stuck on slide 32 while slide 39 was on screen. PERMANENTLY,
+     * because only a further navigation would have resynced it and at the end
+     * of a deck there are none left. Chrome and Firefox have no such limit,
+     * which is why nothing caught it until a deck ran under WebKit.
+     *
+     * So writes are coalesced to one per SETTLED position rather than one per
+     * keypress. That is both the fix and the thing that stops the budget being
+     * spent: a run of a hundred presses is now one write, not a hundred.
+     *
+     * And the write is verified. It used to be fire-and-forget — when WebKit
+     * dropped it, nothing noticed and nothing retried. Now a write that did not
+     * land is tried once more, on the next frame, by which time the limiter's
+     * window has usually moved on.
+     */
     _updateHash(pushSlide) {
       if (!this.config.hash || printMode) return;
-      const h = `#/${this.state.slide}/${this.state.step}`;
-      if (('#' + hashOf(location.hash)) === h) return;
-      suppressHashChange = true;
-      if (pushSlide) history.pushState(null, '', h);
-      else history.replaceState(null, '', h);
-      setTimeout(() => { suppressHashChange = false; });
+      // A slide change PUSHES and a step change REPLACES — the right
+      // distinction, and one a coalesced run must not lose: if any navigation
+      // in the run crossed a slide, the single write it collapses into is a
+      // push.
+      hashPushPending = hashPushPending || !!pushSlide;
+      if (hashTimer) return;
+      hashTimer = setTimeout(() => { hashTimer = null; flushHash(); }, HASH_COALESCE_MS);
     },
 
     _notify() {
@@ -1087,6 +1109,43 @@ export function init(userConfig = {}) {
 
   function hashOf(h) {
     return (h || '').replace(/^#/, '');
+  }
+
+  // 90ms: long enough that a held arrow key produces one write instead of one
+  // per repeat (key repeat is ~30ms once it starts), short enough that a single
+  // deliberate press updates the URL before anyone could copy it.
+  const HASH_COALESCE_MS = 90;
+  let hashTimer = null;
+  let hashPushPending = false;
+
+  /**
+   * Write the CURRENT position, and check that it took.
+   *
+   * Reads `instance.state` at flush time rather than closing over the position
+   * that scheduled it — the whole point is that the last position wins, and a
+   * queued write for slide 12 landing after the deck reached 39 would be the
+   * same bug in a new place.
+   */
+  function flushHash(retry = true) {
+    if (!instance || !config.hash || printMode) return;
+    const h = `#/${instance.state.slide}/${instance.state.step}`;
+    const push = hashPushPending;
+    hashPushPending = false;
+    if (('#' + hashOf(location.hash)) === h) return;
+    suppressHashChange = true;
+    try {
+      if (push) history.pushState(null, '', h);
+      else history.replaceState(null, '', h);
+    } catch { /* a limiter throwing is the same as one silently dropping */ }
+    setTimeout(() => { suppressHashChange = false; });
+    // Verified, because a dropped write is exactly what this bug was. One
+    // retry, a frame later: the limiter's window moves on, and a second failure
+    // means something other than rate limiting is wrong and retrying forever
+    // would spend the budget rather than recover it.
+    if (retry && ('#' + hashOf(location.hash)) !== h) {
+      hashPushPending = push;
+      requestAnimationFrame(() => flushHash(false));
+    }
   }
 
   function parseHash() {

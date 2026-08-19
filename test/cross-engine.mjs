@@ -144,9 +144,9 @@ async function drive(browser, origin) {
   let built = 0;
   let seen = 1;
   let at = await where();
-  // 120ms between presses: a presenter's pace, not a scrub. WebKit rate-limits
-  // history writes to 100 per 10 seconds and the runtime writes one per step,
-  // so a faster walk measures Safari's limiter rather than this deck (#328).
+  // 120ms between presses: a presenter's pace. The SCRUB — a held arrow key,
+  // which is what found #328 — is asserted separately below, now that the
+  // runtime coalesces its history writes instead of losing them.
   for (let i = 0; i < total * 12; i++) {
     await page.keyboard.press('ArrowRight');
     await page.waitForTimeout(120);
@@ -197,6 +197,32 @@ async function drive(browser, origin) {
     return { count: all.length, visible: all.filter((n) => n.offsetParent !== null).length };
   });
 
+  // ── the scrub (#328) ───────────────────────────────────────────────────
+  //
+  // A held arrow key, or anyone dragging through a deck to find a slide. WebKit
+  // caps history writes at 100 per 10 seconds and counts pushState and
+  // replaceState against the same budget, and the runtime used to write one per
+  // navigation — so a fast walk of the showcase silently exhausted it and left
+  // the URL on slide 31 with slide 39 on screen. PERMANENTLY: only a further
+  // navigation would have resynced it, and at the end of a deck there are none.
+  //
+  // Blink and Gecko have no such limit, so this assertion is about WebKit and
+  // costs the other two a few seconds. That is the point of running here at all.
+  await page.evaluate(() => { window.location.hash = '#/1/0'; });
+  await page.waitForTimeout(400);
+  for (let i = 0; i < 160; i++) {
+    await page.keyboard.press('ArrowRight');
+    await page.waitForTimeout(50);
+  }
+  // Settle, then wait out WebKit's 10-second window. A URL that is merely LATE
+  // is not the bug; one that never arrives is.
+  await page.waitForTimeout(1500);
+  const scrubbed = await where();
+  await page.waitForTimeout(11000);
+  const afterLimiter = await where();
+  const scrubSynced = afterLimiter.slide === afterLimiter.hashSlide
+    && scrubbed.slide === scrubbed.hashSlide;
+
   // A deep link is how a deck is shared mid-talk, and the deck has to arrive
   // where the URL says rather than at slide 1.
   await page.evaluate(() => window.location.hash = '#/12/0');
@@ -226,6 +252,7 @@ async function drive(browser, origin) {
 
   await page.close();
   return { total, firstActive, seen, built, overflowed, errors, welcomed, synced, at,
+    scrubSynced, scrubbed, afterLimiter,
     midMove, afterMove, themed, notes, deepLinked, wentBack, overviewOpen, overviewClosed, scrolls };
 }
 
@@ -260,6 +287,11 @@ try {
     // so it has to agree with the slide on screen.
     check(`${name}: the URL agrees with the slide on screen`, r.synced,
       `on slide ${r.at.slide}, URL says ${r.at.hashSlide}`);
+    // ...and still agrees after a SCRUB, which is where WebKit's history
+    // limiter used to leave it stuck for good (#328).
+    check(`${name}: and still agrees after 160 fast presses`, r.scrubSynced,
+      `settled on slide ${r.scrubbed.slide} with URL ${r.scrubbed.hashSlide}`
+      + `, and after the limiter window ${r.afterLimiter.slide} vs ${r.afterLimiter.hashSlide}`);
     check(`${name}: a transition marks both slides while it runs`, r.midMove === 2,
       `${r.midMove} section(s) marked entering/leaving 80ms in`);
     // The assertion that would have caught 350ms being read as 350 seconds.
