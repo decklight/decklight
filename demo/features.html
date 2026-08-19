@@ -508,6 +508,7 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
       <ul data-build>
         <li><strong>The voice already on your machine</strong> — macOS <code>say</code>, Windows SAPI. No key, no download, no signup</li>
         <li>Or cloud voices, your own cloned ones, or <code>piper</code> fully offline — <code>decklight tts</code> sets itself up on first run</li>
+        <li><strong>N &rarr; engine</strong> swaps which one speaks, mid-deck &mdash; each listed with its price, and the ones this machine can&rsquo;t use say what&rsquo;s missing</li>
         <li><strong>The voice is the clock</strong>: ⟨CLICK⟩ markers split the notes, each spoken beat reveals the next build</li>
         <li>When the voice <em>can't</em> play, the deck <strong>stops advancing</strong> and says why — rather than walking the talk past slides nobody heard</li>
       </ul>
@@ -632,6 +633,29 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
     </section>
 
     <!-- ══ 28 · present ══ -->
+    <section>
+      <h2>The Deck Remembers</h2>
+      <p>decklight commits as you write &mdash; and <strong>H</strong> is where you read it back</p>
+      <ul data-build>
+        <li><strong>H</strong> &mdash; every commit that touched this deck, with a live preview of each</li>
+        <li>Each row says what that version <em>was</em> and what it <em>changed</em> &mdash; slides, <span style="color:#4ec98a">+added</span> <span style="color:#f2777a">&minus;removed</span></li>
+        <li>&crarr; restores one &mdash; after asking, and as a <em>new</em> commit, so overshooting is free</li>
+        <li>&uarr; marks what exists nowhere but this machine; <code>decklight history</code> says the same from a terminal</li>
+        <li>Presenting a deck you cloned? <strong>H</strong> asks whether the author has pushed since</li>
+      </ul>
+      <aside class="notes">
+        <p>Every deck you author here is already in git &mdash; decklight commits on a cadence, once per agent edit, and at both ends of a session. That has been true for a while. What is new is that you can see it without leaving the deck.</p><p>&#10216;CLICK&#10217;</p><p>H opens the history: every commit that touched this file, newest first, and the arrow keys walk a live preview of each one. Not a diff &mdash; the actual slides, as they were.</p><p>&#10216;CLICK&#10217;</p><p>Each row carries a slide count and the lines added and removed, because a hash and a subject cannot tell &ldquo;tightened the wording&rdquo; apart from &ldquo;cut four slides&rdquo;, and that is the distinction you are scanning for.</p><p>&#10216;CLICK&#10217;</p><p>Enter restores the version you are looking at. It asks first, and it writes the old content as a new commit rather than rewriting anything &mdash; so overshooting costs nothing, and where you are right now stays in the same list.</p><p>&#10216;CLICK&#10217;</p><p>An up arrow marks the commits that exist nowhere but this machine. The same readout is a command, if you would rather have it in a terminal.</p><p>&#10216;CLICK&#10217;</p><p>And when you are presenting a deck you cloned from someone else, H asks the question that actually matters there instead: has the author pushed anything since you took your copy?</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Your deck is already in git</p>
+        <p>&#10216;CLICK&#10217;</p><p>H = the history, with a live preview</p>
+        <p>&#10216;CLICK&#10217;</p><p>Slides + lines per row</p>
+        <p>&#10216;CLICK&#10217;</p><p>&crarr; restores &mdash; asks first, never rewrites</p>
+        <p>&#10216;CLICK&#10217;</p><p>&uarr; = only on this machine</p>
+        <p>&#10216;CLICK&#10217;</p><p>Presenting a clone? H = &ldquo;has the author pushed?&rdquo;</p>
+      </aside>
+    </section>
+
     <section>
       <h2>Playing a Deck You Didn't Write</h2>
       <p><code>decklight present</code> — read-only over localhost, under a real CSP <em>header</em></p>
