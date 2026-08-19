@@ -5,6 +5,100 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.6.0
+
+25 commits since 0.5.0. The release where the deck's history stopped being
+something git knew about and decklight did not. 0.5.0 went looking on other
+people's machines; 0.6.0 looks at the record decklight has been keeping all
+along — and makes it something you can read, walk, and undo from inside the
+deck.
+
+### The durable record (SPEC `PRESENTING`)
+
+`decklight history` is the readout: what decklight committed, which commits
+exist nowhere but this machine, and what to type about it. It is a **read**,
+which is why it is not `restore` — that one is the write, and its listing is a
+means rather than an answer.
+
+`H` opens the same history in the deck. One overlay, one list, one preview:
+`⏎` restores the selected version and `R` is the same door, because folding
+restore in means there is one place a version is looked at and one place it is
+chosen rather than two that had already begun to differ. Every row carries what
+that version **was** and what it **changed** — a slide count, and `+added` /
+`−removed` — because a hash and a subject cannot tell "tightened the wording"
+apart from "cut four slides". The preview has its own transport, so a version
+is judged by walking it rather than by its first slide. And `⏎` **asks** before
+it writes: restoring is recoverable, but recoverable is not the same as
+intended, and the premise of a history is that you opened it to look.
+
+**decklight knows about other machines now.** A remote is offered at `init`,
+named while authoring, and reported on exit; unpushed work is called out in the
+four places it matters. A pull that would move more than the deck says so
+before it moves anything — a fast-forward updates the whole working tree, and
+that blast radius should be stated rather than discovered. In **present** mode a
+deck cloned from a repo can see its upstream and offer to pull it, `H` being the
+door there too: a presented deck has no history to preview, but it has the
+question the author's deck does not — *has the author pushed since I cloned
+this?*
+
+**`--commit-messages`** ends the wall of `decklight: autosave deck.html`: an
+agent reads each commit's diff and writes the subject. The commit lands first
+and the subject arrives as an amend, so a slow or missing agent costs a
+generically-worded commit rather than a lost one. Opt-in, because a diff of your
+deck goes to whichever agent CLI is installed.
+
+### Voice
+
+The speech engine is a choice you can make **from inside the deck** — `N` → live
+voice → engine lists every engine with its price note and, for the ones this
+machine cannot use, what is missing and the terminal command that fixes it. One
+readiness check answers for both the picker and `decklight author`, so a picker
+cannot offer what `author` would refuse.
+
+And the system voice you pick is the one that speaks. `createNative` ignored the
+per-sentence voice entirely, so all 184 macOS voices played the first one — while
+the log printed the name you asked for, which is why it survived so long. A name
+this machine cannot say is now an error rather than a silent fallback to the
+system default.
+
+`data-narration="hold"` lets a slide hold a beat before the voice moves on, and
+a slide with more ⟨CLICK⟩ segments than build steps speaks all of them instead
+of dropping the surplus in silence.
+
+### Elsewhere
+
+An agent chip says a job is still running, for as long as it is. The content
+editor shows indented, highlighted HTML. An installed theme records which
+catalog it came from. `⇧V` records next to the deck rather than into Downloads.
+A marketplace can be pinned with `--branch <ref>` — **and it takes a tag**, which
+is how a catalog stays on a version known to work.
+
+### Fixed
+
+- **Safari lost the URL.** WebKit caps history writes at 100 per 10 seconds and
+  counts `pushState` and `replaceState` against the same budget, so a held arrow
+  key left the URL on an earlier slide **permanently** — only a further
+  navigation would have resynced it, and at the end of a deck there are none.
+  Writes coalesce to one per settled position now, and are verified. Found by
+  the cross-engine harness, which is the first thing here ever to drive a deck
+  outside Blink.
+- **Ports were probed by connecting, not binding.** A Windows reservation has
+  nothing listening on it, so the probe called it free and the bind failed
+  `EACCES`.
+- **A dump that hung took the whole harness with it.** `--virtual-time-budget`
+  bounds Chrome's clock, not the wall clock; every dump carries a real timeout
+  now, and a stall names the mode it happened in.
+- **The soak was not hermetic** — a stray `decklight author` on the default port
+  could hang it, because the deck it renders shares a basename with what that
+  server was editing.
+
+### For contributors
+
+The release hook fires on a tag push rather than on the word "tag" anywhere in a
+command. `npm run soak` leaves a receipt naming the commit it passed on, and the
+pre-release checklist quotes it back — *"did you run the soak"* is a question
+answered from memory, and a commit hash is an answer.
+
 ## 0.5.0
 
 15 commits since 0.4.0. The release that went looking on other people's

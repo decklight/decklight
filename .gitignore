@@ -18,65 +18,7 @@ dist/
 # settings ARE versioned — see .claude/settings.json.
 .claude/settings.local.json
 
-# The soak's receipt: which commit 
-> decklight@0.5.0 soak
-> node test/soak.mjs
-
-decklight soak — 0.5.0, into "/var/folders/09/7ky81cf540v99yqxmcwcxnf80000gn/T/decklight soak K2ZwML/project"
-  darwin · chrome yes · network yes · ffmpeg yes · voice say
-
-[01/50] ok    the repo packs into a tarball                        1.0s
-[02/50] ok    it installs into an empty project                    1.7s
-[03/50] ok    the installed bin reports its version                0.6s
-[04/50] ok    init scaffolds a deck and a repo                     0.2s
-[05/50] ok    the repo tracks the deck and not node_modules        0.1s
-[06/50] ok    the authoring skill installs into the project        0.1s
-[07/50] ok    the ingredients label vouches for the runtime        0.1s
-[08/50] ok    an existing deck is brought across                   0.1s
-[09/50] ok    the imported deck's runtime is this install's        0.1s
-[10/50] ok    the imported deck renders                            2.0s
-[11/50] ok    first run registers without fetching                 0.0s
-[12/50] ok    a marketplace is cloned and kept                     0.2s
-[13/50] ok    an entry installs from that checkout                 0.1s
-[14/50] ok    a voice installs offline, as a pointer               0.0s
-[15/50] ok    the admission gate lints, loads, and prints the pin  1.9s
-[16/50] ok    every unit kind installs from the catalog            0.2s
-[17/50] ok    code installs only against its digest                0.2s
-[18/50] ok    a second add refreshes rather than duplicating       0.2s
-[19/50] ok    the first-party catalog fetches                      0.8s
-[20/50] ok    author starts and takes the repo                     1.6s
-[21/50] ok    a slide is added by writing the file                 0.6s
-[22/50] ok    slides edit over the author API                      0.0s
-[23/50] ok    undo and redo round-trip, keeping the slide          0.0s
-[24/50] ok    a theme installs into the deck through the author server 0.0s
-[25/50] ok    an explicit commit lands, and repeats as a no-op     0.1s
-[26/50] ok    the autosave cadence fires                           4.3s
-[27/50] ok    author exits cleanly and lets go                     0.4s
-[28/50] ok    restore walks the history back, and forward again    0.5s
-[29/50] ok    present serves the deck and nothing else             0.2s
-[30/50] ok    the deck renders                                     1.9s
-[31/50] ok    present lets go of its port                          0.0s
-[32/50] ok    bundle refuses an init-scaffolded deck               0.1s
-[33/50] ok    upgrade is a no-op on a current deck                 0.1s
-[34/50] ok    a stale deck is spotted, then upgraded               0.3s
-[35/50] ok    a deck from an older decklight upgrades              1.2s
-[36/50] ok    a linked deck bundles to one file                    0.1s
-[37/50] ok    a presenter plugin is yours, not the deck's          0.1s
-[38/50] ok    present layers the chrome on, and bundle never sees it 0.2s
-[39/50] ok    an installed transform runs at bundle time           0.1s
-[40/50] ok    a deck prints to PDF                                 3.7s
-[41/50] ok    publish pushes a site without touching the tree      0.5s
-[42/50] ok    every command answers --help, and refuses by name    1.6s
-[43/50] ok    present --check validates the bundle                 0.1s
-[44/50] ok    and the check bites when it should                   0.1s
-[45/50] ok    recording says what it needs, before it needs it     0.1s
-[46/50] ok    a terminal cast records in a real PTY                3.1s
-[47/50] ok    a silent deck still films, and still carries audio   25.2s
-[48/50] ok    a narrated deck follows its voice                    13.8s
-[49/50] ok    every kind lists what it installed, and removes it   1.0s
-[50/50] ok    the bundle opens by double-click                     1.9s
-
-decklight soak: PASS — 50 ok · 0 skipped · 0 failed · 73.9s last passed on, written by
+# The soak's receipt: which commit 'npm run soak' last passed on, written by
 # test/soak.mjs and read by the pre-release hook. Evidence about one machine's
 # run, not a fact about the repo — so it is per-clone and never committed.
 .soak-pass.json

@@ -1224,7 +1224,7 @@ decklight/
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
-  cli/           decklight.mjs (dispatcher: init/skills/rec/refresh/export/bundle/restore/upgrade/pdf/import/theme/
+  cli/           decklight.mjs (dispatcher: init/skills/rec/refresh/export/bundle/restore/history/upgrade/pdf/import/theme/
                  publish/marketplace/plugin/template/importer/transform/engine/extension/voice/agent/tts/lipsync/
                  video/author/present/associate/report-bug; `dev` is a hidden alias for `author`, `edit` refuses out
                  loud) + pkg.mjs (the package root and the one runtime-inlining transform) and util.mjs (CommandError
