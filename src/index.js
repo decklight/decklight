@@ -18,7 +18,7 @@ import * as terminal from 'virtual:terminal';
 // because this file is browser code with no filesystem, and the build stamps
 // it into the banner (`/*! Decklight vX.Y.Z`) that every tool reads back out of
 // a bundled deck. A release bumps both, and the build is what makes sure of it.
-export const version = '0.5.0';
+export const version = '0.6.0';
 export { registerBuildProvider };
 
 export function init(config = {}) {
