@@ -50,11 +50,23 @@ function run(mode, extra = '') {
 }
 
 let bad = 0;
+const timings = [];
+let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'segoverflow', 'hint', 'hint&print', 'manifest', 'expired',
   'record', 'record&dir', 'record&nosrv']) {
   const [m, extra] = mode.split('&');
+  // Timed, and printed even on success (#323). This harness boots a browser per
+  // mode, so when it dies to its budget the useful question is WHICH mode was
+  // slow — and the run that prompted this said only "KILLED after 180s", with
+  // sixteen ok lines above it and no way to tell a hang from a harness that had
+  // simply grown. A number per mode makes the next occurrence readable from the
+  // log alone, and makes drift visible before it becomes a failure.
+  const at = Date.now();
   const r = run(m, extra ? `&${extra}` : '');
+  const took = Date.now() - at;
+  slowest = Math.max(slowest, took);
+  timings.push([mode, took]);
   const ok = r.PASS === true;
   if (!ok) bad++;
   if (m === 'manifest' || m === 'expired') {
@@ -157,6 +169,15 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} slide ${r.slide}/${r.total} · ${r.ttsCalls} tts calls, ${r.failures} failed${detail}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
   if (r.lastMessage) console.log(`       message: "${r.lastMessage}"`);
+}
+// The cost report, printed always. `verify` caps this harness at a multiple of
+// the per-harness budget precisely because its cost is a SUM over modes
+// (test/verify.mjs), and the only way to see that sum growing — before it
+// becomes a timeout on somebody's PR — is to print it.
+const total = timings.reduce((a, [, ms]) => a + ms, 0);
+console.log(`\nnarration-render: ${timings.length} modes in ${(total / 1000).toFixed(1)}s`);
+for (const [name, ms] of [...timings].sort((a, b) => b[1] - a[1]).slice(0, 3)) {
+  console.log(`  slowest: ${name} ${(ms / 1000).toFixed(1)}s`);
 }
 if (bad) { console.error('narration-render: FAILED'); process.exit(1); }
 console.log('narration-render: PASS');
