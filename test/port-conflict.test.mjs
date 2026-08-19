@@ -16,9 +16,7 @@ import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
-import {
-  isPortOpen, identifyEditServer, nextFreePort, planPortConflict, resolvePortConflict,
-} from '../cli/port-conflict.mjs';
+import { isPortOpen, identifyEditServer, nextFreePort, planPortConflict, resolvePortConflict, canBind } from '../cli/port-conflict.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -132,6 +130,70 @@ test('a TTY that answers "kill": takes over the SAME port — A actually exits',
   assert.match(questions[0], /\[k\]ill/);
   await waitForExit(a.child);
   assert.equal(await isPortOpen(a.port), false);
+});
+
+// ── the probe: can I BIND, not is anyone THERE ────────────────────────────
+//
+// These two questions have different answers on Windows, and the difference is
+// #334. Hyper-V and WinNAT reserve blocks of ephemeral ports; a reserved port
+// has NOTHING LISTENING on it, so a connect probe calls it free and the bind
+// that follows fails `EACCES` — a permission error rather than `EADDRINUSE`,
+// which is why it surfaced as a crash instead of a busy port.
+
+test('canBind answers about binding, where isPortOpen answers about listening', async () => {
+  const srv = createTcpServer();
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const taken = srv.address().port;
+  try {
+    assert.equal(await canBind(taken), false, 'a port in use was reported bindable');
+    assert.equal(await isPortOpen(taken), true, 'and the connect probe agrees it is occupied');
+  } finally { await new Promise((r) => srv.close(r)); }
+  // once released, both agree the other way
+  assert.equal(await canBind(taken), true);
+  assert.equal(await isPortOpen(taken), false);
+});
+
+test('canBind refuses a port this process may not have, without throwing', async (t) => {
+  // Port 1 is privileged: binding it as an ordinary user is EACCES — the same
+  // class of failure a Windows reservation produces, and the one the old
+  // connect probe could not see at all. Skipped where the runner IS root,
+  // because there it is bindable and the assertion would be about privilege
+  // rather than about the probe.
+  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+    return t.skip('running as root — port 1 is bindable here');
+  }
+  if (process.platform === 'win32') return t.skip('Windows privilege model differs');
+  assert.equal(await canBind(1), false);
+});
+
+test('nextFreePort walks past a whole block of unavailable ports', async () => {
+  // A reservation is a BLOCK, often sixteen or more — the case that turns a
+  // single bad candidate into a run of them. Occupied here with real servers,
+  // which is the closest a test can get to a reserved range portably.
+  const srvs = [];
+  const first = 51000 + Math.floor(Math.random() * 2000) * 8;
+  for (let p = first; p < first + 6; p++) {
+    const s = createTcpServer();
+    // a port that was already taken by something else just makes the run
+    // shorter — the assertion below is about the ANSWER, not the length
+    await new Promise((r) => { s.once('error', r); s.listen(p, '127.0.0.1', r); });
+    srvs.push(s);
+  }
+  try {
+    const free = await nextFreePort(first);
+    assert.ok(free >= first, 'went backwards');
+    assert.equal(await canBind(free), true, `nextFreePort returned ${free}, which cannot be bound`);
+  } finally {
+    for (const s of srvs) await new Promise((r) => s.close(r));
+  }
+});
+
+test('nextFreePort gives up rather than walking forever', async () => {
+  // An unbounded walk through a reserved block is indistinguishable from a
+  // hang. Giving up returns the ORIGINAL port, so the caller fails with the
+  // real bind error rather than on a number this function invented.
+  const nothingIsFree = await nextFreePort(50000, '127.0.0.1', 0);
+  assert.equal(nothingIsFree, 50000);
 });
 
 // ── end to end: the edit server itself never crashes on a taken port ──────
