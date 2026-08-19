@@ -15,9 +15,31 @@ import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
  * options; `quietStderr` drops a headless Chrome's D-Bus/UPower noise on a
  * machine that has neither.
  */
+/**
+ * The wall clock every dump gets, unless a caller asks for a tighter one.
+ *
+ * `--virtual-time-budget` is not a timeout. It bounds Chrome's own clock, and a
+ * page that leaves work pending never drains it — so the child sits there with
+ * no output and no exit, forever. That is not hypothetical: it is #323, where
+ * `narration-render` normally takes ~73s on a Windows runner and once ran past
+ * the 180s `verify` kills at. Every other harness in that run was fine and the
+ * log said only that this one had been killed, because a stuck child looks
+ * exactly like a slow one from outside.
+ *
+ * Two minutes is ~100x the slowest legitimate dump here (they finish in under a
+ * second; a cold Chrome on Windows takes a few) and far under any harness
+ * budget, so this can only ever convert a HANG into a named failure. It cannot
+ * make a passing run fail.
+ */
+export const WALL_CLOCK_MS = Number(process.env.DUMP_TIMEOUT_MS ?? 120_000);
+
+/** True when `err` is a child this module killed for running too long. */
+export const timedOut = (err) => !!err
+  && (err.killed === true || err.signal === 'SIGKILL' || err.code === 'ETIMEDOUT');
+
 export function dumpDom(url, {
   budget = 5000, fileAccess = false, maxBuffer = 32 * 1024 * 1024,
-  quietStderr = false, extraFlags = [], who = 'render', timeout = 0,
+  quietStderr = false, extraFlags = [], who = 'render', timeout = WALL_CLOCK_MS,
 } = {}) {
   return execFileSync(chromeBin(who), chromeArgs(
     ...(fileAccess ? ['--allow-file-access-from-files'] : []),
@@ -29,10 +51,10 @@ export function dumpDom(url, {
     maxBuffer,
     // `--virtual-time-budget` bounds Chrome's own clock, not the real one: a
     // page whose virtual time never drains hangs the dump forever, with no
-    // output and no exit. Callers that cannot afford that pass a wall-clock
-    // `timeout` and get a killed child instead of a stuck one — the same
-    // belt-and-braces tools/extension-check.mjs already wears. Off by default,
-    // so no existing harness changes behaviour.
+    // output and no exit. So every dump now carries a wall clock (see
+    // WALL_CLOCK_MS) and a caller may tighten it — the same belt-and-braces
+    // tools/extension-check.mjs already wears, made the default because the
+    // harness that did not have it is the one that hung (#323).
     //
     // The way to drain a virtual clock is to leave no fetch pending, and one
     // page in this project cannot: a deck served by `decklight present` opens

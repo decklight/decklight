@@ -29,7 +29,7 @@
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dumpDom, resultsFrom } from './harness.mjs';
+import { dumpDom, resultsFrom, timedOut } from './harness.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'narration.html');
@@ -41,16 +41,55 @@ const page = path.join(here, 'narration.html');
 // yet" into a failure. Virtual, not wall: these runs still take under a second.
 const BUDGET = (m) => (m === 'record' ? 120_000 : 30_000);
 
+/** How long ONE mode may take on the wall clock before it is treated as stuck. */
+const MODE_WALL_MS = Number(process.env.NARRATION_MODE_TIMEOUT_MS ?? 90_000);
+
+/**
+ * One mode: render the page, read its verdict.
+ *
+ * RETRIED ONCE if the child had to be killed for running too long (#323). This
+ * harness spawns a fresh Chrome per mode — twenty cold starts — and on a
+ * Windows runner one of them occasionally never returns: the page leaves work
+ * pending, virtual time does not drain, and the dump sits there. It used to
+ * take the whole harness with it and say only "KILLED after 180s", which is
+ * indistinguishable from the harness having simply grown too slow and cost a
+ * re-run to tell apart.
+ *
+ * The retry is loud, and it is exactly one. A stall that repeats is not
+ * environmental and must fail — retrying until it works is how a real hang
+ * becomes a green tick that takes twice as long.
+ */
 function run(mode, extra = '') {
   // quietStderr: a headless Chrome on a machine with no D-Bus/UPower prints
   // pages of unrelated noise that would bury the actual result
-  const html = dumpDom(`file://${page}?mode=${mode}${extra}`,
-    { fileAccess: true, budget: BUDGET(mode), quietStderr: true, who: 'narration-render' });
-  return resultsFrom(html, 'NARRATION', `mode=${mode}${extra}`);
+  const dump = () => dumpDom(`file://${page}?mode=${mode}${extra}`, {
+    fileAccess: true, budget: BUDGET(mode), quietStderr: true,
+    who: 'narration-render', timeout: MODE_WALL_MS,
+  });
+  try {
+    return resultsFrom(dump(), 'NARRATION', `mode=${mode}${extra}`);
+  } catch (e) {
+    if (!timedOut(e)) throw e;
+    console.log(`     ${mode}: no answer within ${MODE_WALL_MS / 1000}s — killed, retrying once`);
+    stalled.push(mode);
+    try {
+      return resultsFrom(dump(), 'NARRATION', `mode=${mode}${extra} (retry)`);
+    } catch (again) {
+      if (!timedOut(again)) throw again;
+      // Reported like any other verdict rather than as a Node stack: this is a
+      // harness saying which mode hung, which is the whole answer somebody
+      // needed and could not get from "KILLED after 180s".
+      console.error(`FAIL ${mode.padEnd(8)} STUCK — no answer within ${MODE_WALL_MS / 1000}s, twice.`
+        + ' Its virtual clock never drained; the browser was killed both times.');
+      console.error('narration-render: FAILED');
+      process.exit(1);
+    }
+  }
 }
 
 let bad = 0;
 const timings = [];
+const stalled = [];
 let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'segoverflow', 'hint', 'hint&print', 'manifest', 'expired',
@@ -176,6 +215,10 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
 // becomes a timeout on somebody's PR — is to print it.
 const total = timings.reduce((a, [, ms]) => a + ms, 0);
 console.log(`\nnarration-render: ${timings.length} modes in ${(total / 1000).toFixed(1)}s`);
+// Said out loud even when the retry saved the run: a stall that stops being
+// reported is a stall that stops being investigated, and #323 is open precisely
+// because nobody could tell which mode it was.
+if (stalled.length) console.log(`  STALLED and retried: ${stalled.join(', ')}`);
 for (const [name, ms] of [...timings].sort((a, b) => b[1] - a[1]).slice(0, 3)) {
   console.log(`  slowest: ${name} ${(ms / 1000).toFixed(1)}s`);
 }
