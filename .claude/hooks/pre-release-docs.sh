@@ -121,7 +121,38 @@ EOF_SEGMENTS
 
 [ "$pushes_tags" = 1 ] || exit 0
 
-CHECKLIST='Before this tag publishes — the parts no test can judge:
+# ── the soak's receipt ─────────────────────────────────────────────────────
+#
+# `npm run soak` is the only suite that packs the tarball, installs it into an
+# empty project and drives the INSTALLED bin. It is deliberately outside
+# `npm test` and `npm run verify` because it takes minutes — and the cost of
+# that choice is that it is the one gate a person can simply forget. It was
+# forgotten across a whole session's changes, and the first run afterwards
+# caught two things nothing else could: a dump that hung forever, and the suite
+# itself not being hermetic.
+#
+# So this reads what the soak WROTE DOWN rather than asking whether it was run.
+# A checklist line is something to nod at; a commit hash is an answer.
+soak_line() {
+  local f="$root/.soak-pass.json"
+  [ -f "$f" ] || { echo '  · npm run soak — NO RECORD of a passing run on this machine'; return; }
+  local commit version when
+  commit="$(jq -r '.commit // ""' "$f" 2>/dev/null)"
+  version="$(jq -r '.version // "?"' "$f" 2>/dev/null)"
+  when="$(jq -r '.when // "?"' "$f" 2>/dev/null)"
+  local head; head="$(git rev-parse HEAD 2>/dev/null)"
+  if [ -n "$commit" ] && [ "$commit" = "$head" ]; then
+    echo "  · npm run soak — PASSED on this exact commit (${commit:0:7}, v$version, $when)"
+  else
+    echo "  · npm run soak — last PASS was ${commit:0:7} (v$version, $when), NOT this commit"
+    echo "    what you are about to publish has not been through it — run it"
+  fi
+}
+
+CHECKLIST="Before this tag publishes — the parts no test can judge:
+$(soak_line)"
+
+CHECKLIST="$CHECKLIST"'
   · README — does its command table cover every command `decklight help` lists?
   · SPEC REPO_LAYOUT — does the tree it describes match the tree that exists?
   · SPEC NON_GOALS — does it still call something a non-goal that now ships?

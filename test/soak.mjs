@@ -1473,6 +1473,28 @@ try {
     console.log(`  not reached: ${TOTAL - steps.length} more step(s)`);
   } else {
     console.log(`decklight soak: PASS — ${ok} ok · ${skipped.length} skipped · 0 failed · ${secs(Date.now() - t0)}`);
+    // A RECEIPT, for the release gate to read.
+    //
+    // This suite is not in `npm test` or `npm run verify` on purpose — it packs
+    // the tarball and installs it, which takes minutes — and the cost of that
+    // choice is that it is the one gate a person can simply forget. It was
+    // forgotten for a whole session's worth of changes, and the two things it
+    // then caught on the first run were a hang nothing else could see and a
+    // suite that was not hermetic.
+    //
+    // So it writes down WHAT it passed on. The pre-release hook quotes this
+    // back at tag time, where "did you run the soak" becomes a question with an
+    // answer instead of a checklist line to nod at. Untracked and per-clone:
+    // this is evidence about one machine's run, not a fact about the repo.
+    try {
+      writeFileSync(join(root, '.soak-pass.json'), `${JSON.stringify({
+        commit: sh(['git', 'rev-parse', 'HEAD'], { cwd: root, allowFail: true }).all.trim() || null,
+        version,
+        when: new Date().toISOString(),
+        steps: ok,
+        skipped: skipped.map((x) => x.n),
+      }, null, 2)}\n`);
+    } catch { /* a receipt is a nicety; the run already told you */ }
   }
   if (skipped.length) console.log(`  skipped: ${skipped.map((s) => `${s.n} (${s.why})`).join(' · ')}`);
 
