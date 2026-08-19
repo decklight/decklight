@@ -168,7 +168,14 @@ test('it is additive — the fields deckHistory already returns are untouched', 
   commit(r, S(1), 'one');
   const [before] = deckHistory(r.deck, r.dir);
   const [after] = decorateHistory(deckHistory(r.deck, r.dir), r.deck, r.dir);
-  for (const k of ['hash', 'when', 'subject', 'full']) assert.equal(after[k], before[k], k);
+  for (const k of ['hash', 'subject', 'full']) assert.equal(after[k], before[k], k);
+  // `when` is git's RELATIVE date, recomputed per call — two `deckHistory`
+  // reads either side of a second boundary answer "0 seconds ago" and "1 second
+  // ago", which is what this test did on a Windows runner. It is present and it
+  // is a string; comparing its VALUE across two invocations is comparing the
+  // clock, not the function.
+  assert.equal(typeof after.when, 'string');
+  assert.ok(after.when.length, 'the row lost its age');
   fs.rmSync(r.dir, { recursive: true, force: true });
 });
 

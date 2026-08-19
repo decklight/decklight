@@ -74,6 +74,27 @@ const HARNESSES = [
 const HARNESS_TIMEOUT_MS = Number(process.env.VERIFY_TIMEOUT_MS ?? 10 * 60 * 1000);
 
 /**
+ * Harnesses whose budget is a SUM rather than a page load.
+ *
+ * Almost every harness renders one deck and asserts about it, so the cap can be
+ * tight and a slow one is a stuck one. `narration-render` is not that shape: it
+ * boots a fresh browser per MODE — seventeen of them, each with a stubbed voice
+ * bridge, several waiting on real timers — so its cost grows every time
+ * narration gains a behaviour worth pinning, and on the Windows runner (~3×
+ * slower than a laptop here) it reached the 180s the release jobs set. It did
+ * not hang: the log shows sixteen modes passing and the seventeenth cut off
+ * mid-run, which is the failure mode a shared cap produces when one member has
+ * a different growth curve.
+ *
+ * A multiplier rather than a raised floor for everyone: the point of a tight
+ * cap is that a HANG names itself quickly, and that stays true for the other
+ * sixteen harnesses. If this list grows past a couple of entries, the answer is
+ * to split the harness rather than to keep widening the exception.
+ */
+const BUDGET = { 'narration-render': 3 };
+const budgetFor = (name) => HARNESS_TIMEOUT_MS * (BUDGET[name] ?? 1);
+
+/**
  * Harnesses this run must NOT pretend to have run.
  *
  * One caller: the hosted-macOS job, which drives `chrome-headless-shell`
@@ -106,10 +127,14 @@ for (const name of HARNESSES) {
   process.stdout.write(`\n─── ${name} ${'─'.repeat(Math.max(0, 60 - name.length))}\n`);
   const at = Date.now();
   const res = spawnSync(process.execPath, [path.join(here, `${name}.mjs`)],
-    { stdio: 'inherit', timeout: HARNESS_TIMEOUT_MS, env });
+    { stdio: 'inherit', timeout: budgetFor(name), env });
   const ms = Date.now() - at;
   const timedOut = res.error?.code === 'ETIMEDOUT';
-  if (timedOut) process.stdout.write(`\n${name}: KILLED after ${secs(ms)} — it never finished\n`);
+  // The budget is named in the message, because "KILLED after 180s" reads as a
+  // hang and this cap is a policy — the reader needs to know which they hit.
+  if (timedOut) {
+    process.stdout.write(`\n${name}: KILLED after ${secs(ms)} — its budget is ${secs(budgetFor(name))}\n`);
+  }
   results.push({ name, ok: res.status === 0 && !timedOut, ms, timedOut });
 }
 
