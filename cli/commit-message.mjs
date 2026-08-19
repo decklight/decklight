@@ -292,9 +292,15 @@ function ask(cmd, cwd, timeoutMs) {
 export async function describeCommit({
   cwd, sha, deckPath, template, agent = null,
   env = process.env, timeoutMs = ASK_TIMEOUT_MS, run = git, exec = ask,
+  // Injected alongside `exec`, and it has to be: a caller that supplies the
+  // RUNNER is not asking whether this machine happens to have an agent CLI on
+  // PATH. Leaving this one un-injectable made the tests pass here and fail on
+  // CI — for the honest reason that CI installs no agent, so the resolver said
+  // no before the fake runner was ever reached.
+  resolve = agentAsk,
 } = {}) {
   const deck = basename(deckPath);
-  const cmd = agentAsk(agent, 'x', { env });
+  const cmd = resolve(agent, 'x', { env });
   if (!cmd) return null;
   // Checked BEFORE the agent is spawned as well as after: a commit that has
   // already been superseded is one whose message nobody will ever see, and
@@ -316,7 +322,7 @@ export async function describeCommit({
     title: deckTitle(html),
     slides: changedSlides(html, diff.diff),
   });
-  const spawned = agentAsk(agent, prompt, { env });
+  const spawned = resolve(agent, prompt, { env });
   if (!spawned) return null;
   // Caught, not propagated. This is called unawaited from the commit path, so
   // a rejection here would be an unhandled one — and the whole contract is that
