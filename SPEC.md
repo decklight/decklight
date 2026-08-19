@@ -152,7 +152,7 @@ container, zero classes on the items.
 - Navigation: `→`/`Space`/click advances one step; `←` reverses; arriving from the previous slide shows step 0 (nothing built); arriving *backwards* from the next slide shows all steps built.
 - Hidden steps: `visibility: hidden` (not `display:none` — layout must not shift).
 - Events: `decklight:build` fires with `{slide, index, total, direction}`.
-- URL: `#/<slide>/<step>` deep-links to a build state.
+- URL: `#/<slide>/<step>` deep-links to a build state. A slide change **pushes** a history entry and a build step **replaces** one, so Back leaves a slide rather than unwinding its builds. The writes are **coalesced to one per settled position** and then **verified**: WebKit caps history writes at 100 per 10 seconds and counts `pushState` and `replaceState` against the same budget, so one write per keypress meant a held arrow key silently exhausted it and left the URL on an earlier slide — *permanently*, since only a further navigation would have resynced it and at the end of a deck there are none (#328). Coalescing is both the fix and what stops the budget being spent; a write that still does not land is retried once on the next frame, because a dropped one used to go unnoticed. Blink and Gecko have no such limit, which is why this needed a deck driven under WebKit to find (`npm run cross-engine`).
 
 ### BUILD_ENTRANCES — Entrance styles
 
