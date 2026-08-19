@@ -281,12 +281,17 @@ test('a commit that reached a remote is refused', () => {
 // ── the whole flow ───────────────────────────────────────────────────────
 
 const fakeAgent = (answer) => async () => answer;
+// The resolver too, or these test the CI runner's PATH rather than the code:
+// with no agent CLI installed, describeCommit gives up before the fake runner
+// is reached — which is exactly how this file passed locally and failed on CI.
+const anyAgent = () => ({ bin: 'fake-agent', args: [], name: 'fake', label: 'Fake' });
 
 test('a subject the agent wrote replaces the template', async () => {
   const r = repo();
   const sha = r.commit('<section>a</section>', 'decklight: autosave deck.html');
   const out = await describeCommit({
     cwd: r.dir, sha, deckPath: r.deck, template: 'decklight: autosave deck.html',
+    resolve: anyAgent,
     exec: fakeAgent('add the opening slide'),
   });
   assert.equal(out, 'add the opening slide');
@@ -303,7 +308,7 @@ test('every way the agent can fail leaves the commit exactly as it was', async (
     const sha = r.commit('<section>a</section>', 'decklight: autosave deck.html');
     const out = await describeCommit({
       cwd: r.dir, sha, deckPath: r.deck, template: 'decklight: autosave deck.html',
-      exec: fakeAgent(answer),
+      resolve: anyAgent, exec: fakeAgent(answer),
     });
     assert.equal(out, null, JSON.stringify(answer));
     assert.equal(r.g(['log', '-1', '--format=%s']), 'decklight: autosave deck.html');
@@ -317,6 +322,7 @@ test('an agent that throws is a non-event', async () => {
   const sha = r.commit('<section>a</section>', 'decklight: autosave deck.html');
   const out = await describeCommit({
     cwd: r.dir, sha, deckPath: r.deck, template: 'decklight: autosave deck.html',
+    resolve: anyAgent,
     exec: async () => { throw new Error('the CLI exploded'); },
   }).catch((e) => e);
   assert.ok(!(out instanceof Error), 'describeCommit rejected instead of giving up quietly');
@@ -332,6 +338,7 @@ test('the agent echoing the template back is not an amend', async () => {
   const before = r.g(['log', '-1', '--format=%H %s']);
   const out = await describeCommit({
     cwd: r.dir, sha, deckPath: r.deck, template: 'decklight: autosave deck.html',
+    resolve: anyAgent,
     exec: fakeAgent('decklight: autosave deck.html'),
   });
   assert.equal(out, null);
@@ -347,6 +354,7 @@ test('an agent answer is sanitized like any other agent text', async () => {
   const sha = r.commit('<section>a</section>', 'decklight: autosave deck.html');
   await describeCommit({
     cwd: r.dir, sha, deckPath: r.deck, template: 'decklight: autosave deck.html',
+    resolve: anyAgent,
     exec: fakeAgent('-rf everything'),
   });
   const subject = r.g(['log', '-1', '--format=%s']);
@@ -363,6 +371,7 @@ test('a commit already superseded is never sent to an agent at all', async () =>
   let asked = false;
   const out = await describeCommit({
     cwd: r.dir, sha: first, deckPath: r.deck, template: 'decklight: autosave deck.html',
+    resolve: anyAgent,
     exec: async () => { asked = true; return 'never'; },
   });
   assert.equal(out, null);
