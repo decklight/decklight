@@ -176,6 +176,49 @@ function sh(argv, { cwd = PROJECT, timeout = 120000, allowFail = false, shell = 
 /** The installed CLI — the `.cmd` shim on Windows, which needs a shell. */
 const dl = (args, opts) => sh([DL.bin, ...args], { ...opts, shell: DL.shell });
 
+/**
+ * Dump a deck the soak owns, from `file://`, WITHOUT the machine joining in.
+ *
+ * A deck opened over `file://` probes `http://127.0.0.1:8788/edit/ping` to find
+ * out whether it is being authored (SPEC `DECK_ANATOMY`), and wires up when the
+ * server there is editing a deck of the same BASENAME. The soak's deck is
+ * `deck.html`, which is what `init` calls one — so a developer who happens to
+ * have `decklight author deck.html` open on the default port is a server this
+ * dump will attach to. It then opens the live-reload EventSource on
+ * `/edit/events`, that stream never ends, Chrome's virtual clock never
+ * advances past it, and the dump HANGS FOREVER.
+ *
+ * That is not hypothetical — it is what this file did on a machine with one
+ * stray author session, failing at step 30 with a bare Chrome ETIMEDOUT that
+ * named nothing and pointed at nothing. A suite whose result depends on which
+ * processes a developer left running is not a suite, and the whole premise here
+ * is that it exercises the INSTALLED bin in a clean project.
+ *
+ * The isolation is a rename and nothing else: the deck is copied to a sibling
+ * whose basename cannot match any real session, and the copy is dumped. The
+ * BYTES are identical, so what renders is exactly the deck under test — only
+ * the name the basename guard compares is different. Rendering a copy rather
+ * than reaching for a Chrome flag keeps this honest at the layer the bug is on:
+ * the guard exists, it works, and this gives it something true to refuse.
+ */
+let isolatedSeq = 0;
+function dumpIsolated(deckFile, opts = {}) {
+  const dir = dirname(deckFile);
+  // Distinctive on purpose, so the guard declines and the probe stops there —
+  // and it KEEPS THE SPACE, because a space in the filename is load-bearing in
+  // this file rather than decorative: `import` once crashed with a raw ENOENT on
+  // any path containing one, which is why the fixtures are named as they are.
+  // A copy that quietly dropped it would take the assertion with it.
+  const copy = join(dir, `soak render ${process.pid}-${isolatedSeq++}.html`);
+  copyFileSync(deckFile, copy);
+  try {
+    return dumpDom(pathToFileURL(copy).href, opts);
+  } finally {
+    rmSync(copy, { force: true });
+  }
+}
+
+
 // ── servers ────────────────────────────────────────────────────────────────
 
 const kids = new Set();
@@ -650,7 +693,7 @@ try {
 
   await step('the imported deck renders', () => {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
-    const dom = dumpDom(pathToFileURL(join(PROJECT, 'q3-review.html')).href,
+    const dom = dumpIsolated(join(PROJECT, 'q3-review.html'),
       { budget: 8000, quietStderr: true, who: 'soak', timeout: 60000 });
     mounted(dom, 3);
     return undefined;
@@ -1004,7 +1047,7 @@ try {
     //
     // No probe splice either — present strips unaccounted script, so a spliced
     // probe would be removed and report nothing. Assert on the dumped DOM.
-    const dom = dumpDom(pathToFileURL(deckPath()).href,
+    const dom = dumpIsolated(deckPath(),
       { budget: 8000, quietStderr: true, who: 'soak', timeout: 60000 });
     mounted(dom, 3);
     must(dom.includes('Soak slide'), 'the slide added during the session is not in the rendered deck');
@@ -1439,7 +1482,7 @@ try {
     // No server, no sibling files, a path containing a space, and deliberately
     // WITHOUT --allow-file-access-from-files: a self-contained deck must need
     // none. This is the whole promise of `bundle` in one assertion.
-    const local = dumpDom(pathToFileURL(join(PROJECT, 'linked bundle.html')).href,
+    const local = dumpIsolated(join(PROJECT, 'linked bundle.html'),
       { budget: 8000, quietStderr: true, who: 'soak', timeout: 60000 });
     mounted(local, 2);
     must(local.includes('Linked and bundled'), 'the deck content is missing over file://');
