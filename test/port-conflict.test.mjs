@@ -171,8 +171,15 @@ test('nextFreePort walks past a whole block of unavailable ports', async () => {
   // single bad candidate into a run of them. Occupied here with real servers,
   // which is the closest a test can get to a reserved range portably.
   const srvs = [];
-  const first = 51000 + Math.floor(Math.random() * 2000) * 8;
-  for (let p = first; p < first + 6; p++) {
+  const RUN = 6;
+  // A random base so parallel runs do not collide, and a band chosen so the
+  // whole run stays inside the port range: `51000 + random*2000*8` reached
+  // 66992 and Node refused the listen with ERR_SOCKET_BAD_PORT on a Windows
+  // runner — arithmetic that happens to land low enough on the machine you
+  // wrote it on is the shape of bug this whole file is about.
+  const first = 49200 + Math.floor(Math.random() * 200) * 8;
+  assert.ok(first + RUN < 65536, `base ${first} would run past the port range`);
+  for (let p = first; p < first + RUN; p++) {
     const s = createTcpServer();
     // a port that was already taken by something else just makes the run
     // shorter — the assertion below is about the ANSWER, not the length
