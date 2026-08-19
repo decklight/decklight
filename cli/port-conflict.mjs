@@ -13,7 +13,7 @@
 // EADDRINUSE, and proactively, by author BEFORE it spawns the edit child —
 // that child's stdin is closed (piped, not a TTY), so it could never ask.
 
-import { createConnection } from 'node:net';
+import { createConnection, createServer } from 'node:net';
 
 /** Is something listening on `port`? Port 0 ("OS picks one") never conflicts. */
 export function isPortOpen(port, host = '127.0.0.1', timeout = 400) {
@@ -49,11 +49,46 @@ export async function shutdownEditServer(port, host = '127.0.0.1') {
   return !(await isPortOpen(port, host));
 }
 
-/** The next port at or after `port` that nothing is listening on. */
-export async function nextFreePort(port, host = '127.0.0.1') {
-  let p = port;
-  while (await isPortOpen(p, host)) p++;
-  return p;
+/**
+ * Can we actually LISTEN on this port?
+ *
+ * `isPortOpen` asks a different question — it connects, so it answers "is
+ * somebody there". For "may I have this port" that is the wrong question, and
+ * on Windows it is wrong in a way that fails: Hyper-V and WinNAT reserve blocks
+ * of ephemeral ports (`netsh int ipv4 show excludedportrange`), and a reserved
+ * port has NOTHING LISTENING on it. Connect is refused, `isPortOpen` says
+ * "free", and the bind that follows gets `EACCES` — a permission error, not
+ * `EADDRINUSE`, which is why it read as a crash rather than a busy port (#334).
+ *
+ * Binding is the only probe that answers the question being asked. It costs one
+ * listen/close per candidate, which is cheaper than the connect it replaces.
+ */
+export function canBind(port, host = '127.0.0.1') {
+  return new Promise((done) => {
+    const server = createServer();
+    // Every reason a bind can fail is a reason to try the next port: taken
+    // (EADDRINUSE), reserved or privileged (EACCES), or an address this host
+    // does not have (EADDRNOTAVAIL). None of them become usable by waiting.
+    server.once('error', () => done(false));
+    server.once('listening', () => server.close(() => done(true)));
+    try { server.listen(port, host); } catch { done(false); }
+  });
+}
+
+/**
+ * The next port at or after `port` this process can actually bind.
+ *
+ * Bounded, because the failure it now catches can repeat: a Hyper-V reservation
+ * is a BLOCK of ports, often 16 or more, and an unbounded walk through one is
+ * indistinguishable from a hang. Giving up returns the original port so the
+ * caller fails with the real bind error rather than on a number this function
+ * invented.
+ */
+export async function nextFreePort(port, host = '127.0.0.1', tries = 64) {
+  for (let p = port; p < port + tries && p <= 65535; p++) {
+    if (await canBind(p, host)) return p;
+  }
+  return port;
 }
 
 /**
