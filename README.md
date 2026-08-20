@@ -99,6 +99,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Narration** | TTS reads your notes in sync with builds; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Integrity** | read-only `present` under a real CSP header, an ingredients label of what a deck executes, Sigstore signing, the `.decklight` container | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
+| **The durable record** | decklight commits as you write; `H` reads it back — every version previewed live, what each changed, one keystroke to restore | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Marketplaces** | git-repo catalogs, registered not fetched; themes, templates, skills, voices, engines, importers, transforms and presenter plugins | [SPEC MARKETPLACE_REGISTRY](SPEC.md#marketplace_registry--marketplaces-registered-not-fetched) |
 
 ## CLI
@@ -108,7 +109,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title and offers a git repo; `--open` launches the deck, `--from <template>` starts from a marketplace template) |
 | `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project; `--pack` zips it for upload) |
 | `decklight author deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
-| `decklight present deck.html` | **play a deck you did not author** — read-only over localhost under a CSP header, with an ingredients label and `--strict` |
+| `decklight present deck.html` | **play a deck you did not author** — read-only over localhost under a CSP header, with an ingredients label and `--strict`; a deck in a clone can see its upstream and (with `--upstream-pull`) offer to fast-forward |
 | `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across (`.key` needs macOS; a Slides URL must be link-shared) |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
 | `decklight history deck.html` | what decklight committed, which commits exist only on this machine, and how to push them |
@@ -138,6 +139,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `S` | speaker view (again: rehearse cue cards) |
 | `T` | theme picker (type to filter) · `⌃T` generate a theme |
 | `V` | narration on/off |
+| `H` | the deck's history — every version previewed live, `⏎` restores one |
 | `/` | command palette · `G` find a slide |
 | `?` | help overlay — every key |
 

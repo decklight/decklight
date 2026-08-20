@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
@@ -583,4 +584,136 @@ test('the remote never writes, and a malformed payload is refused not crashed', 
     assert.ok(res.status >= 400, `refused: ${body}`);
   }
   assert.deepEqual(snapshot(dir), before, 'no file created, changed, or touched');
+});
+
+// ── the upstream (PRESENT#UPSTREAM) — promised in #342, written in this review ─
+//
+// These are the only routes in `present` that ACT, and they shipped without
+// route tests. The design's whole safety argument is a list of refusals —
+// structurally absent on a deck outside a clone, 403 on any origin that is not
+// exactly this server's own (a sandboxed plugin iframe's origin is `null`, and
+// presenter chrome must not be able to fast-forward the presenter's repository),
+// dead unless --upstream-pull was typed — and a refusal nobody tests is a
+// refusal that can quietly stop refusing.
+
+/** A bare origin repo and a clone of it whose deck present will serve. */
+function clonePair(t) {
+  const origin = mkdtempSync(path.join(tmpdir(), 'decklight-origin-'));
+  const clone = mkdtempSync(path.join(tmpdir(), 'decklight-clone-'));
+  t.after(() => { rmTemp(origin); rmTemp(clone); });
+  const g = (dir, args) => execFileSync('git', args,
+    { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  const seed = mkdtempSync(path.join(tmpdir(), 'decklight-seed-'));
+  t.after(() => rmTemp(seed));
+  g(seed, ['init', '-q', '-b', 'main']);
+  g(seed, ['config', 'user.email', 't@example.com']);
+  g(seed, ['config', 'user.name', 'Test']);
+  g(seed, ['config', 'commit.gpgsign', 'false']);
+  writeFileSync(path.join(seed, 'talk.html'), DECK);
+  writeFileSync(path.join(seed, 'theme.css'), '.decklight { color: red }');
+  g(seed, ['add', '-A']);
+  g(seed, ['commit', '-qm', 'first cut']);
+  execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'ignore' });
+  g(seed, ['remote', 'add', 'origin', origin]);
+  g(seed, ['push', '-q', 'origin', 'main']);
+  execFileSync('git', ['clone', '-q', origin, path.join(clone, 'work')], { stdio: 'ignore' });
+  const work = path.join(clone, 'work');
+  g(work, ['config', 'user.email', 't@example.com']);
+  g(work, ['config', 'user.name', 'Test']);
+  const pushFromSeed = (mutate, msg) => {
+    mutate(seed);
+    g(seed, ['commit', '-qam', msg]);
+    g(seed, ['push', '-q', 'origin', 'main']);
+  };
+  return { work, seed, pushFromSeed, g };
+}
+
+const ownOrigin = (base) => ({ Origin: base });
+
+test('outside a clone the upstream routes do not exist — not even to refuse', async (t) => {
+  // The structural gate: on a deck you were emailed there is nothing to
+  // refuse, because there is nothing there. A POST lands on the same 405 as a
+  // POST to /anything.
+  const dir = deckDir();
+  const { base } = await startPresent(t, dir);
+  assert.equal((await fetch(`${base}/present/upstream`)).status, 404);
+  const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
+  assert.equal(r.status, 405);
+});
+
+test('in a clone the readout answers, and a check finds the pushed commit', async (t) => {
+  const { work, pushFromSeed } = clonePair(t);
+  const { base } = await startPresent(t, work, { cwd: work });
+  const before = await (await fetch(`${base}/present/upstream`)).json();
+  assert.equal(before.ok, true);
+  assert.equal(before.pull.offered, false, 'a pull was offered without --upstream-pull');
+  assert.equal(before.pull.reason, 'start with --upstream-pull');
+
+  pushFromSeed((d) => writeFileSync(path.join(d, 'talk.html'),
+    DECK.replace('Alpha', 'Alpha Two')), 'sharpen the title');
+  const after = await (await fetch(`${base}/present/upstream/check`,
+    { method: 'POST', headers: ownOrigin(base) })).json();
+  assert.equal(after.state, 'behind');
+  assert.equal(after.behind, 1);
+  assert.equal(after.commits[0].subject, 'sharpen the title');
+});
+
+test('without --upstream-pull the pull route is dead, not forbidden', async (t) => {
+  const { work } = clonePair(t);
+  const { base } = await startPresent(t, work, { cwd: work });
+  const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
+  assert.equal(r.status, 405, 'the pull answered at all — it must not be registered');
+});
+
+test('the pull refuses every origin that is not exactly this server', async (t) => {
+  // The strict gate, isOwnOrigin, not allowEditRequest — and the difference is
+  // the whole point: `null` is a SANDBOXED IFRAME's origin, which is exactly
+  // what presenter plugins run in. The looser gate admits it; this one must
+  // not, or an installed timer widget can fast-forward the repository.
+  const { work } = clonePair(t);
+  const { base } = await startPresent(t, work, { cwd: work, extraArgs: ['--upstream-pull'] });
+  for (const [why, headers] of [
+    ['a foreign site', { Origin: 'https://evil.example' }],
+    ['a sandboxed iframe (null)', { Origin: 'null' }],
+    ['no Origin at all', {}],
+    ['loopback on another port', { Origin: 'http://127.0.0.1:1' }],
+  ]) {
+    const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers });
+    assert.equal(r.status, 403, `${why} was allowed to pull`);
+  }
+});
+
+test('the armed pull fast-forwards, and only ever fast-forwards', async (t) => {
+  const { work, pushFromSeed, g } = clonePair(t);
+  const { base } = await startPresent(t, work, { cwd: work, extraArgs: ['--upstream-pull'] });
+  const tip = g(work, ['rev-parse', 'HEAD']);
+
+  pushFromSeed((d) => writeFileSync(path.join(d, 'talk.html'),
+    DECK.replace('Alpha', 'Alpha Two')), 'sharpen the title');
+  await fetch(`${base}/present/upstream/check`, { method: 'POST', headers: ownOrigin(base) });
+  const pulled = await (await fetch(`${base}/present/upstream/pull`,
+    { method: 'POST', headers: ownOrigin(base) })).json();
+  assert.equal(pulled.ok, true, JSON.stringify(pulled));
+  assert.notEqual(g(work, ['rev-parse', 'HEAD']), tip, 'the working tree did not move');
+  assert.match(readFileSync(path.join(work, 'talk.html'), 'utf8'), /Alpha Two/);
+
+  // and a DIVERGED clone is a refusal, never a merge: the deck commits locally,
+  // the origin moves separately, and --ff-only must say no
+  g(work, ['commit', '-qam', 'local divergence', '--allow-empty']);
+  pushFromSeed((d) => writeFileSync(path.join(d, 'theme.css'),
+    '.decklight { color: blue }'), 'recolor');
+  await fetch(`${base}/present/upstream/check`, { method: 'POST', headers: ownOrigin(base) });
+  const refused = await (await fetch(`${base}/present/upstream/pull`,
+    { method: 'POST', headers: ownOrigin(base) })).json();
+  assert.equal(refused.ok, false, 'a diverged clone was pulled anyway');
+  assert.equal(g(work, ['status', '--porcelain']).length, 0, 'the refusal left the tree dirty');
+});
+
+test('--no-upstream removes the feature even inside a clone', async (t) => {
+  const { work } = clonePair(t);
+  const { base } = await startPresent(t, work,
+    { cwd: work, extraArgs: ['--no-upstream', '--upstream-pull'] });
+  assert.equal((await fetch(`${base}/present/upstream`)).status, 404);
+  const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
+  assert.equal(r.status, 405);
 });

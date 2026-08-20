@@ -126,6 +126,15 @@ nothing changed, so an extra call is harmless. If the port is not listening
 there is no authoring server: skip it silently and carry on, never start one
 yourself. This is what makes a history someone can read afterwards, instead
 of a wall of identical timer commits.
+
+**That history is readable, and it is how a bad edit is undone.** \`decklight
+history deck.html\` lists every commit that touched the deck and marks the ones
+that exist only on this machine; \`decklight restore deck.html <hash>\` puts the
+deck back — written as a NEW commit, never a rewrite, so restoring is always
+safe to try. In the deck itself the same history is \`H\` (a live preview of
+every version; \`⏎\` restores after asking). Prefer restore over hand-reverting
+your own edits: it is exact, and it keeps the record honest about what
+happened.
 `;
 }
 

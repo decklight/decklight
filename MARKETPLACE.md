@@ -36,7 +36,13 @@ that inversion.
 - **Decentralized git-repo marketplaces**, mirroring Claude's layout:
   `.decklight/marketplace.json` at the repo root, added with
   `decklight marketplace add owner/repo`. No central registry to host or
-  moderate.
+  moderate. `--branch <ref>` pins the catalog to a branch **or a tag** — a tag
+  being how a catalog stays on a version known to work — and the ref is
+  remembered, so `update` re-clones the same one until `update --branch` moves
+  the pin deliberately. Without it the clone follows the remote's own `HEAD`,
+  whatever it is called; nothing here has ever assumed `main`. The full rules
+  (validation, why a commit SHA is refused with its own message, why a local
+  directory refuses the flag) are SPEC `MARKETPLACE_REGISTRY`.
 - **A first-party vetted marketplace in the decklight org**
   (`decklight/decklight-plugins-official`), registered automatically on first
   run — **registered, not fetched**. The network is touched only when the
@@ -573,6 +579,19 @@ through it lands in **Added** — the group `decklight theme add` already
 populates with `<style data-theme="…" data-theme-added>` — so installed
 marketplace themes inherit `,`/`.` cycling, `?theme=`, and `bundle` carriage for
 free.
+
+**Provenance travels with the theme** (#340). A theme installed from a catalog
+carries `data-theme-marketplace="<kebab-id>"` always, and `data-theme-source`
+only when the manifest supplied a non-empty `title` — identity is inlined
+because a bundled deck opened on a machine with no registry has nothing to
+resolve a reference against, and the pretty name is inlined as a *preference*
+for a stable heading rather than a necessity (the id is a legible fallback).
+The picker groups by `source` → `marketplace` → **Added**, so a deck whose
+catalog is not registered on the reader's machine still shows the right
+heading; a theme from a raw URL or a local file writes neither attribute and
+lands under **Added** byte-identical to before. Note the disclosure this
+implies: the catalog's name is readable in the deck's own bytes by anyone the
+deck is sent to — a catalog that must not be named simply omits `title`.
 
 - **Invariant for SPEC:** *a presented deck never touches the network for a
   theme.* Shipped themes are compiled in, bundled ones are inline, and the only

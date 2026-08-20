@@ -7,7 +7,7 @@ carrying the same notes in prose.
 
 ## 0.6.0
 
-25 commits since 0.5.0. The release where the deck's history stopped being
+28 commits since 0.5.0. The release where the deck's history stopped being
 something git knew about and decklight did not. 0.5.0 went looking on other
 people's machines; 0.6.0 looks at the record decklight has been keeping all
 along — and makes it something you can read, walk, and undo from inside the
@@ -92,12 +92,24 @@ is how a catalog stays on a version known to work.
   could hang it, because the deck it renders shares a basename with what that
   server was editing.
 
+### Also fixed
+
+- **`narration: { files: 'voiceover', ext: 'wav' }` now works.** The string form
+  dropped `ext`, so the documented way to play back a recording — the exact line
+  the `⇧V` done card prints — resolved `.m4a` and reported a missing file. The
+  vanishingly-unlikely inverse holds too: a deck that wrote `ext: 'wav'` while
+  `.m4a` files sit on disk played before this and stops now.
+- The features deck and the site describe this release: a slide for the durable
+  record, the engine picker on the voice slide, a matching site trait.
+
 ### For contributors
 
 The release hook fires on a tag push rather than on the word "tag" anywhere in a
 command. `npm run soak` leaves a receipt naming the commit it passed on, and the
 pre-release checklist quotes it back — *"did you run the soak"* is a question
-answered from memory, and a commit hash is an answer.
+answered from memory, and a commit hash is an answer. `notesSegments` moved to
+`tools/deck-html.mjs` so the runtime's segment-file mapper is tested against the
+actual file-namer rather than a description of it.
 
 ## 0.5.0
 
