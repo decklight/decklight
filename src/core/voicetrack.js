@@ -45,6 +45,31 @@ export function manifestSlideUrl(manifest, manifestUrl, n) {
 }
 
 /**
+ * Where segment k of slide n plays from, or null — and null is an ANSWER.
+ *
+ * `k` is the 1-BASED FILE NUMBER (`segmentFileIndex`'s output), matching the
+ * `slide-NN-KK` names tools/voiceover.mjs writes and the order of the
+ * manifest's `segments` array. Past the end of that array the answer is null,
+ * and the caller must treat the whole slide as unsegmented rather than error:
+ * the manifest is the authority on what was actually recorded, and notes that
+ * gained a ⟨CLICK⟩ since then ask for a beat nobody ever spoke.
+ *
+ * Same verbatim-`url` rule as manifestSlideUrl, for the same reason — a
+ * presigned URL's query string IS the signature. And the caller has one more
+ * duty this function cannot carry for it: on a SIGNED manifest (one with an
+ * `expires`), segments without their own `url` were never uploaded by
+ * tools/publish-voices.mjs, so they must be ignored wholesale — resolving them
+ * against the bucket would 403 every beat.
+ */
+export function manifestSegmentUrl(manifest, manifestUrl, n, k) {
+  const seg = manifest?.slides?.[n - 1]?.segments?.[k - 1];
+  if (!seg) return null;
+  if (seg.url) return seg.url;
+  if (!seg.file) return null;
+  return ABSOLUTE.test(seg.file) ? seg.file : manifestBase(manifestUrl) + seg.file;
+}
+
+/**
  * Where the signatures stand: `at` (a Date, or null when the manifest carries
  * no expiry at all — an unsigned manifest never lapses), `msLeft`, `expired`.
  */

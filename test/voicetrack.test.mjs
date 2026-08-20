@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  manifestBase, manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
+  manifestBase, manifestSegmentUrl, manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
 } from '../src/core/voicetrack.js';
 
 const MANIFEST_URL = 'voices/algenib/manifest.signed.json';
@@ -107,4 +107,41 @@ test('a track is keyed by whichever of manifest or dir it has', () => {
   assert.equal(trackKey({ manifest: 'v/m.json' }), 'v/m.json');
   assert.equal(trackKey({ dir: 'voices/algenib' }), 'voices/algenib');
   assert.equal(trackKey({ live: true }), null);
+});
+
+// ── manifestSegmentUrl — segment k of slide n, or an honest null ──────────
+//
+// `k` is the 1-BASED FILE NUMBER (segmentFileIndex's output), matching the
+// slide-NN-KK names tools/voiceover.mjs writes and the order of the manifest's
+// `segments` array. Null is an ANSWER, not an error: the manifest is the
+// authority on what was recorded, and notes that gained a ⟨CLICK⟩ since ask
+// for a beat nobody spoke.
+
+test('a segment resolves beside the manifest, like a slide file does', () => {
+  const m = { slides: [{ file: 'slide-01.m4a', segments: [{ file: 'slide-01-01.m4a' }, { file: 'slide-01-02.m4a' }] }] };
+  assert.equal(manifestSegmentUrl(m, MANIFEST_URL, 1, 1), 'voices/algenib/slide-01-01.m4a');
+  assert.equal(manifestSegmentUrl(m, MANIFEST_URL, 1, 2), 'voices/algenib/slide-01-02.m4a');
+});
+
+test('a segment url is used verbatim — the query string IS the signature', () => {
+  const signed = 'https://bucket/slide-01-01.m4a?X-Goog-Signature=abc%2Fdef';
+  const m = { slides: [{ segments: [{ url: signed }] }] };
+  assert.equal(manifestSegmentUrl(m, MANIFEST_URL, 1, 1), signed);
+});
+
+test('past the end of the segments array is null — the whole-slide signal', () => {
+  const m = { slides: [{ file: 'slide-01.m4a', segments: [{ file: 'slide-01-01.m4a' }] }] };
+  assert.equal(manifestSegmentUrl(m, MANIFEST_URL, 1, 2), null);
+});
+
+test('a null slide, no segments, and a bare manifest all answer null', () => {
+  assert.equal(manifestSegmentUrl({ slides: [null] }, MANIFEST_URL, 1, 1), null);
+  assert.equal(manifestSegmentUrl({ slides: [{ file: 'slide-01.m4a' }] }, MANIFEST_URL, 1, 1), null);
+  assert.equal(manifestSegmentUrl(null, MANIFEST_URL, 1, 1), null);
+  assert.equal(manifestSegmentUrl({}, MANIFEST_URL, 9, 1), null);
+});
+
+test('an absolute file needs no base, mirroring the slide rule', () => {
+  const m = { slides: [{ segments: [{ file: 'https://cdn/x/slide-01-01.m4a' }] }] };
+  assert.equal(manifestSegmentUrl(m, MANIFEST_URL, 1, 1), 'https://cdn/x/slide-01-01.m4a');
 });

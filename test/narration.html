@@ -183,10 +183,12 @@
     // the recorded case, the live bridge otherwise (a persisted live voice wins
     // over config.narration.files, which is what made this test lie the first time)
     const manifestDeck = mode === 'manifest' || mode === 'expired';
-    const recordedDeck = mode === 'recorded' || mode === 'hint';
+    const recordedDeck = mode === 'recorded' || mode === 'hint' || mode === 'switch';
     localStorage.setItem(key, JSON.stringify(
       manifestDeck ? { track: MANIFEST_PATH }
-        : recordedDeck ? { dir: 'voices' }
+        // `switch` STARTS live and swaps to the recorded track mid-sentence —
+        // the persisted state must be the live one for the swap to be a swap
+        : recordedDeck && mode !== 'switch' ? { dir: 'voices' }
           : { live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
     // the hint is once-per-deck FOREVER, so a previous run of this harness
     // would otherwise suppress it and the mode would pass by doing nothing
@@ -196,7 +198,9 @@
     if (recordedDeck) {
       // slide 2 has NO notes (nothing to say → no file, and that is fine);
       // slide 3 has notes but its file is missing (that IS worth saying)
-      cfg.narration = { files: [{ label: 'Test', dir: 'voices' }] };
+      // `switch` keeps the mock bridge's liveUrl too — it starts LIVE and swaps
+      // to this track mid-sentence, so both halves must point at the harness
+      cfg.narration = { ...(mode === 'switch' ? cfg.narration : {}), files: [{ label: 'Test', dir: 'voices' }] };
     }
     if (manifestDeck) cfg.narration = { files: [{ label: 'Algenib · cloud', manifest: MANIFEST_PATH }] };
     // ?dir — the deck already names a narration folder, so ⇧V records into THAT
@@ -609,6 +613,40 @@
           r.spokeAs = bodies.every((b) => b.voice === 'My Voice');
           r.asked = bodies.length > 0;
           r.PASS = r.swapped && r.persisted && r.saidSo && r.asked && r.spokeAs;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'switch') {
+          // The advanceFrom guard, pinned (#342's machinery, reshaped for
+          // recorded playback). A live sentence chain is mid-flight when the
+          // presenter switches to a recorded track in the N picker. The chain's
+          // pending advance must DIE with the switch: it was armed by a mode
+          // that no longer holds the deck, and a deck that jumps a slide right
+          // after you change tracks is this guard failing. The old guard
+          // (`!narrSet?.live`) protected this by accident; the mode comparison
+          // protects it on purpose — and this is the test that notices if a
+          // refactor loses it.
+          deck.toggleNarration();                              // V — live speaks
+          await new Promise((ok) => setTimeout(ok, 700));      // mid-sentence
+          const slideBefore = deck.state.slide;
+          r.liveWasSpeaking = bodies.length > 0;
+
+          // the picker's own commit path: N → the recorded track's row
+          deck.editmodeHooks?.noop;                            // (no-op; keyboard path below)
+          press('n', document.body);
+          await new Promise((ok) => setTimeout(ok, 400));
+          const rows = [...document.querySelectorAll('.narr-row')];
+          const trackRow = rows.find((el) => /Test/.test(el.textContent));
+          r.pickerListedTrack = !!trackRow;
+          trackRow?.click();
+          // long enough for the orphaned live chain's sentence to end and its
+          // advance — if the guard failed — to fire
+          await new Promise((ok) => setTimeout(ok, 2500));
+
+          r.stayedPut = deck.state.slide === slideBefore;
+          r.nowRecorded = JSON.parse(localStorage.getItem(key)).dir === 'voices';
+          r.PASS = r.liveWasSpeaking && r.pickerListedTrack && r.stayedPut && r.nowRecorded;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }
