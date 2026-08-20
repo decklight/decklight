@@ -18,7 +18,7 @@ import { createCharacter, concatTimelines } from './character.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import {
-  manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
+  manifestSegmentUrl, manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
 } from './voicetrack.js';
 
 /**
@@ -721,7 +721,11 @@ export function createNarration({
    * why, so the caller just stops.
    */
   async function ensureTrack() {
-    if (!narrSet || narrSet.live || !narrSet.manifest) { loaded = null; return true; }
+    if (!narrSet || narrSet.live || !narrSet.manifest) {
+      loaded = null;
+      drivesBuilds = resolveDrivesBuilds();
+      return true;
+    }
     if (loaded?.track !== narrSet) {
       try {
         loaded = { track: narrSet, data: await loadManifest(narrSet.manifest) };
@@ -738,7 +742,88 @@ export function createNarration({
         + ` — auto-advance stopped · re-sign: ${resignCommand(loaded.data)}`);
       return false;
     }
+    drivesBuilds = resolveDrivesBuilds();
     return true;
+  }
+
+  /**
+   * Does THIS track carry per-segment audio — the files that let a recording
+   * pace the builds instead of the presenter?
+   *
+   * Answered ONCE per track, here, and never by probing per slide. A HEAD
+   * request would be wrong in exactly the deployments this must not break:
+   * `fetch` is dead on `file://` (which is why bundledManifest exists at all),
+   * and a `dir` pointing at a public bucket works today *precisely because*
+   * <audio> does no CORS preflight — a probe against that bucket fails without
+   * CORS headers and would report "no segments" for a track that has them. And
+   * a media element cannot report an HTTP status, so a 404 is indistinguishable
+   * from silence anyway.
+   *
+   * The ladder, in order:
+   *   1. `segments: false` — never. The escape hatch for a folder holding stale
+   *      slide-NN-KK files from an earlier recording.
+   *   2. a manifest that declares them. Already written by tools/voiceover.mjs,
+   *      already inlined by `decklight bundle`, already read by tools/video.mjs
+   *      — no new config and no new I/O.
+   *   3. a directory track that opted in with `segments: true`. Opt-in because
+   *      the runtime cannot see the folder and must not guess — and because a
+   *      ⇧V track must NOT become self-driving by accident: stitchSlideWav
+   *      bakes `data-narration-pause` into the WAV, and advanceFrom honours the
+   *      same pause again, so every beat would play twice.
+   *   4. otherwise no — today's behaviour, byte for byte.
+   */
+  function resolveDrivesBuilds() {
+    segFallback.clear();
+    if (!narrSet || narrSet.live) return false;
+    if (narrSet.segments === false) return false;
+    if (narrSet.manifest) {
+      const data = loaded?.data;
+      const slides = data?.slides ?? [];
+      const signed = Boolean(expiryState(data).at);
+      // A SIGNED manifest that advertises segments is advertising audio
+      // tools/publish-voices.mjs never uploaded — it walks slides[i].file only
+      // and spreads the rest of the entry through untouched. Those segments
+      // would 403 on every beat, so they are only believed when each carries
+      // its own signed url.
+      return slides.some((e) => Array.isArray(e?.segments) && e.segments.length
+        && (!signed || e.segments.every((sg) => sg?.url)));
+    }
+    return narrSet.segments === true;
+  }
+  // Per-slide, cleared with the track: a slide whose FIRST segment could not be
+  // played falls back to its whole-slide file and stays there, rather than
+  // re-failing on every step.
+  const segFallback = new Set();
+  let drivesBuilds = false;
+
+  /**
+   * The audio files step `step` of slide `sl` plays, in order — or null when
+   * this slide has none and the whole-slide file should play instead.
+   *
+   * The recorded twin of `stepAudio`, fold and all: on the LAST step it returns
+   * every remaining segment rather than one, so the surplus a slide carries
+   * beyond its build count is chained back to back (#350). That is why this
+   * needs no `segments.length === builds + 1` equality guard where
+   * tools/video.mjs has one — video cannot chain within a single still, and the
+   * player can.
+   *
+   * An empty array is a legitimate silent beat, exactly as in playLive.
+   */
+  function stepFiles(sl, step) {
+    if (!drivesBuilds || segFallback.has(sl)) return null;
+    const segs = notesSegs(sl);
+    const index = segmentFileIndex(segs);
+    if (!index) return null;
+    const last = step >= buildSteps(sl);
+    const from = Math.min(step, index.length);
+    const files = (last ? index.slice(from) : index.slice(from, from + 1))
+      .filter((n) => n !== null)
+      .map((n) => (narrSet.manifest
+        ? manifestSegmentUrl(loaded?.data, narrSet.manifest, sl, n)
+        : `${narrSet.dir}/slide-${String(sl).padStart(2, '0')}-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`));
+    // A manifest that ran out of segments is the authority saying this slide
+    // was recorded whole — not an error, just a different shape.
+    return files.every(Boolean) ? files : null;
   }
   /** Where slide n plays from, for either kind of track — null for silence. */
   function slideFileUrl(n) {
@@ -747,15 +832,36 @@ export function createNarration({
     // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
     return `${narrSet.dir}/slide-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
   }
+  /**
+   * The router. Three shapes of track, one entry point — every caller
+   * (`slide`, `build`, V, the picker) goes through here and none of them needs
+   * to know which shape is selected.
+   */
   function playSlideFile() {
     if (!narrSet) return;
     if (narrSet.live) return playLive();
+    if (drivesBuilds) return playRecorded();
+    return playWholeSlide();
+  }
+
+  /**
+   * One file for the whole slide — the recorded track decklight has always
+   * played, unchanged.
+   *
+   * `selfDriving` is the one addition: a track whose segments pace the deck
+   * still meets slides that were recorded whole (no ⟨CLICK⟩ in the notes, or a
+   * manifest that lists no segments for them). Those must not park the deck at
+   * the end of their file — they advance the SLIDE when it ends, which is the
+   * `endOfSlide` call tools/video.mjs makes for the same shape.
+   */
+  function playWholeSlide({ selfDriving = false, gen = segGen } = {}) {
+    const sl = instance.state.slide, step = instance.state.step;
     // A slide with nothing to say has no file, and that is NOT a failure: the
     // pre-render tool only emits audio for slides that have notes (the showcase
     // is 30 slides and 20 clips). Warning here would fire ten times on a deck
     // that is behaving perfectly — so only a slide that SHOULD speak can complain.
-    if (!notesText(instance.state.slide)) { narrAudio?.pause(); return; }
-    const file = slideFileUrl(instance.state.slide);
+    if (!notesText(sl)) { narrAudio?.pause(); return; }
+    const file = slideFileUrl(sl);
     // a manifest is the authority on what exists: no entry, nothing to play
     if (!file) { narrAudio?.pause(); return; }
     narrAudio ??= new Audio();
@@ -767,30 +873,151 @@ export function createNarration({
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
       character.attachAudio(narrAudio);
-      character.beginSlide(narrSet, instance.state.slide);
+      character.beginSlide(narrSet, sl);
     }
-    // a track with no file for this slide used to fail in total silence — with
-    // nothing on screen, an unnarrated slide is indistinguishable from a broken one
-    narrAudio.onerror = () => {
-      debugLog('narr', `no audio: ${file}`);
-      const exp = narrSet.manifest ? expiryState(loaded?.data) : null;
-      if (exp?.at) {
-        // A SIGNED file that will not load is the clock running out — a 403 for
-        // a lapsed or revoked signature. A media element never reports the
-        // status, so the deck cannot prove it; what it CAN do is stop (the
-        // voice is the clock) and name the one command that fixes the only
-        // cause worth naming.
-        debugLog('narr', 'signed url failed — a media element cannot report the status');
-        stopNarration(`🔇 slide ${instance.state.slide} of “${narrSet.label}” would not load`
-          + ` (signed until ${stampOf(exp.at)}) — auto-advance stopped`
-          + ` · re-sign: ${resignCommand(loaded?.data)}`);
-        return;
-      }
-      toast(`🔇 no narration for slide ${instance.state.slide} (${file}) · press the key left of 1 for messages`);
-    };
+    if (selfDriving) {
+      // The generation the CALLER was on, not the one this reads when the file
+      // ends: navigation during playback bumps segGen, and an advance armed
+      // before it must not fire after it.
+      narrAudio.onended = () => { if (gen === segGen) advanceFrom(sl, step, { mode: 'file', endOfSlide: true }); };
+    }
+    narrAudio.onerror = () => fileFailed(sl, file);
     narrAudio.play().catch(() => {
       toast('🔇 the browser blocked audio — click the deck once, then V');
     });
+  }
+
+  /**
+   * A recorded file that would not load — the one place it is reported, so the
+   * whole-slide path and the segment chain say the same thing about it.
+   *
+   * A track with no file for this slide used to fail in total silence: with
+   * nothing on screen, an unnarrated slide is indistinguishable from a broken
+   * one. `fatal` is the difference between the two callers: a whole-slide file
+   * missing costs this slide's audio and the deck plays on, while a segment
+   * missing mid-slide stops the deck, because on a self-pacing track the voice
+   * is the clock and the next build is waiting on a beat that will never come.
+   */
+  function fileFailed(sl, file, { fatal = false } = {}) {
+    debugLog('narr', `no audio: ${file}`);
+    const exp = narrSet?.manifest ? expiryState(loaded?.data) : null;
+    if (exp?.at) {
+      // A SIGNED file that will not load is the clock running out — a 403 for
+      // a lapsed or revoked signature. A media element never reports the
+      // status, so the deck cannot prove it; what it CAN do is stop (the
+      // voice is the clock) and name the one command that fixes the only
+      // cause worth naming.
+      debugLog('narr', 'signed url failed — a media element cannot report the status');
+      stopNarration(`🔇 slide ${sl} of “${narrSet.label}” would not load`
+        + ` (signed until ${stampOf(exp.at)}) — auto-advance stopped`
+        + ` · re-sign: ${resignCommand(loaded?.data)}`);
+      return;
+    }
+    if (fatal) {
+      stopNarration(`🔇 no audio for slide ${sl} (${file}) — auto-advance stopped`
+        + ' · press the key left of 1 for messages');
+      return;
+    }
+    toast(`🔇 no narration for slide ${sl} (${file}) · press the key left of 1 for messages`);
+  }
+
+  /**
+   * The recorded voice pacing the deck: the segments belonging to THIS step,
+   * played back to back, and then the same advanceFrom the live chain awaits.
+   *
+   * Structurally playLive with the fetch removed — same silent-slide skip, same
+   * pause gate between clips, same staleness guard, same `finally`. Kept
+   * parallel deliberately: these two are the only things that move the deck on
+   * their own, and a divergence between them is a bug that only shows up in one
+   * of the two modes.
+   */
+  async function playRecorded() {
+    const sl = instance.state.slide, step = instance.state.step;
+    const gen = ++segGen;
+    if (!notesText(sl)) {
+      if (narrationHolds(sl)) { debugLog('narr', `hold on slide ${sl} — manual advance`); return; }
+      // nothing to say on this slide at all — skip it after a short beat
+      setTimeout(() => {
+        if (gen !== segGen || !narrating || modeNow() !== 'file') return;
+        if (instance.state.slide === sl && sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+      }, 400);
+      return;
+    }
+    warnSegOverflow(sl);
+    const files = stepFiles(sl, step);
+    // recorded whole — one file, then the next slide
+    if (!files) { playWholeSlide({ selfDriving: true, gen }); return; }
+    if (!files.length) {
+      // a build beat with no words — reveal the next step after a pause
+      setTimeout(() => { if (gen === segGen) advanceFrom(sl, step, { mode: 'file' }); }, 600);
+      return;
+    }
+    const stale = () => gen !== segGen || !narrating || modeNow() !== 'file'
+      || instance.state.slide !== sl || instance.state.step !== step;
+    chainGen = gen;
+    chainActive = true;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        while (narrPaused) { // P holds the chain between segments too
+          if (stale()) return;
+          await new Promise((r) => setTimeout(r, 150));
+        }
+        if (stale()) return;
+        narrAudio ??= new Audio();
+        if (character.mode !== 'off') {
+          character.attachAudio(narrAudio);
+          // Per SLIDE, not per segment: the viseme sidecar lipsync.mjs writes
+          // covers the whole slide, so the mouth drifts across a segment
+          // boundary until it learns to write one per segment. Stated in SPEC
+          // PRESENTING rather than hidden here.
+          character.beginSlide(narrSet, sl);
+        }
+        // both cleared before the src moves — see playLive
+        narrAudio.onended = null;
+        narrAudio.onerror = null;
+        narrAudio.src = files[i];
+        narrAudio.playbackRate = narrRate;
+        const how = await new Promise((done) => {
+          narrAudio.onended = () => done('ended');
+          // `error` is the ONLY 404 signal a media element gives — it cannot
+          // report an HTTP status — and it is raced against play() because a
+          // resolved play() does not mean anything was heard.
+          narrAudio.onerror = () => done('error');
+          // A rejected play() is two different failures wearing one shape:
+          // NotAllowedError is autoplay policy (fixable with a click), and
+          // anything else is the source itself, which is the missing-file path.
+          narrAudio.play().catch((e) => done(e?.name === 'NotAllowedError' ? 'blocked' : 'error'));
+        });
+        if (stale()) return;
+        if (how === 'blocked') {
+          stopNarration('🔇 the browser blocked audio — click the deck once, then V — the slides wait for the voice');
+          return;
+        }
+        if (how === 'error') {
+          // The FIRST segment of a slide missing means this slide was probably
+          // recorded whole while its neighbours were not — a mixed folder is
+          // the normal state of a deck being re-recorded slide by slide. Take
+          // the whole-slide file and stay there for this slide.
+          if (step === 0 && i === 0) {
+            debugLog('narr', `no segments for slide ${sl} — falling back to the whole-slide file`);
+            segFallback.add(sl);
+            playWholeSlide({ selfDriving: true, gen });
+            return;
+          }
+          // Past the first beat there is nothing to fall back TO: the segments
+          // already spoke, and replaying the whole slide would repeat them. The
+          // voice is the clock, so the deck stops rather than walking on in
+          // silence — and names the file, because that is the fix.
+          fileFailed(sl, files[i], { fatal: true });
+          return;
+        }
+      }
+      if (stale()) return;
+      // awaited, so chainActive stays true across the slide's pause — see playLive
+      await advanceFrom(sl, step, { mode: 'file' });
+    } finally {
+      if (chainGen === gen) chainActive = false;
+    }
   }
   // the one teardown: V, and the bridge giving up, must leave the same state
   function stopNarration(msg = 'narration off') {
@@ -830,7 +1057,15 @@ export function createNarration({
   instance.on('slide', () => { if (narrating) playSlideFile(); });
   // builds re-sync the live voice too — whether the advance came from the
   // narration itself or from the presenter pressing → mid-sentence
-  instance.on('build', () => { if (narrating && narrSet?.live) playLive(); });
+  // Builds re-sync the voice — whether the advance came from the narration
+  // itself or from the presenter pressing → mid-sentence. Conditional on the
+  // track pacing itself: an unconditional call would make a PLAIN recorded
+  // track restart its whole-slide file on every →.
+  instance.on('build', () => {
+    if (!narrating) return;
+    if (narrSet?.live) playLive();
+    else if (drivesBuilds) playRecorded();
+  });
 
   // ── closed captions (C) — SPEC PRESENTING ────────────────────────────────────────
   // YouTube-style captions: the CURRENT notes segment (the same text the

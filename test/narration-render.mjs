@@ -93,6 +93,7 @@ const stalled = [];
 let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
+  'segments', 'segfold', 'segmiss', 'segnav', 'plainrec', 'segmanifest', 'segsigned',
   'record', 'record&dir', 'record&nosrv']) {
   const [m, extra] = mode.split('&');
   // Timed, and printed even on success (#323). This harness boots a browser per
@@ -170,6 +171,45 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
   if (mode === 'roster') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} stale voice ${r.savedBefore} → ${r.savedAfter}`
       + ` (swapped=${r.swapped} persisted=${r.persisted} said so=${r.saidSo} spoke as it=${r.spokeAs})`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (m === 'segmanifest' || m === 'segsigned') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} `
+      + (r.unsignedSegments
+        ? `unsigned segments on a signed manifest ignored=${r.ignoredThem}`
+          + ` · whole slide instead=${r.playedTheWholeSlide} · did not pace itself=${r.didNotAdvance}`
+        : `each segment's own signature, verbatim=${r.playedEachSigned && r.keptTheQuery}`
+          + ` · whole-slide entry too=${r.wholeSlideToo} · ran to the end=${r.ranToTheEnd}`)
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (m === 'segments' || m === 'segfold') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} every beat spoke=${r.spokeEverySegment}`
+      + ` · whole-slide inside a segmented track=${r.wholeSlideToo}`
+      + ` · ran to the end on its own=${r.ranToTheEnd} · asked for ${r.asked?.length} files`
+      + (m === 'segfold' ? ` · warned the counts disagree=${r.warnedOverflow}` : '')
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'segmiss') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} first segment gone → whole slide=${r.fellBackAtArrival}`
+      + ` (and moved on=${r.wentOn})`
+      + ` · gap mid-slide → held=${r.heldThere} named the file=${r.namedTheFile} once=${r.saidItOnce}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'segnav') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} → mid-beat advanced exactly once=${r.midClip}`
+      + ` · in order=${r.inOrder} · nothing played twice=${r.stillNothingTwice}`
+      + ` · still reached the end=${r.reachedTheEnd}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'plainrec') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} un-opted track unchanged:`
+      + ` one file for the slide=${r.playedTheWholeSlide} · did not auto-advance=${r.didNotAdvance}`
+      + ` · → did not restart it=${r.steppedWithoutRestarting}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
