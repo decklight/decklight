@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 import {
-  canPull, classifyFailure, describe as describeState, resolveInterval, resolveUpstream,
+  canPull, checkUpstream, classifyFailure, describe as describeState, resolveInterval, resolveUpstream,
   SAFE_CONFIG, upstreamSuppressed,
 } from '../cli/upstream.mjs';
 
@@ -147,4 +147,97 @@ test('the states read as sentences a presenter can act on', () => {
   assert.match(describeState('ahead', { ahead: 2, upstream: 'origin/main' }), /nothing to pull/);
   assert.match(describeState('behind', { behind: 1, upstream: 'o/m', dirty: true }),
     /uncommitted changes here/);
+});
+
+// ── checkUpstream — the half that talks to a real remote ──────────────────
+//
+// Everything above tests the DECISIONS (resolve, classify, describe, canPull).
+// This is the runner that fetches and counts, and it went untested from #342
+// until this review — which mattered, because it is the function whose answer
+// decides whether present offers to move somebody's working tree. `run` is
+// injected, so every network condition is a scripted answer.
+
+const ctx = { repoRoot: '/r', branch: 'main', upstream: 'origin/main' };
+const script = (answers) => {
+  const calls = [];
+  const run = async (args) => {
+    calls.push(args);
+    const key = args.includes('fetch') ? 'fetch'
+      : args.includes('rev-list') ? 'revlist'
+      : args.includes('status') ? 'status'
+      : args.includes('log') ? 'log' : 'other';
+    return answers[key] ?? { ok: true, stdout: '' };
+  };
+  return { run, calls };
+};
+
+test('a clean fetch and equal counts is up-to-date, with a timestamp', async () => {
+  const { run } = script({
+    fetch: { ok: true, stdout: '' },
+    revlist: { ok: true, stdout: '0\t0' },
+    status: { ok: true, stdout: '' },
+    log: { ok: true, stdout: '' },
+  });
+  const s = await checkUpstream(ctx, { run, now: () => 1234 });
+  assert.equal(s.state, 'up-to-date');
+  assert.equal(s.checkedAt, 1234);
+});
+
+test('behind counts LEFT, which is the classic inversion to get wrong', async () => {
+  // `rev-list --left-right --count @{upstream}...HEAD`: the LEFT number is
+  // commits only upstream has — behind. Swap them and the deck offers to pull
+  // work it already has while missing the work it lacks.
+  const { run } = script({
+    fetch: { ok: true, stdout: '' },
+    revlist: { ok: true, stdout: '3\t0' },
+    status: { ok: true, stdout: '' },
+    log: { ok: true, stdout: 'abc1234\x01sharpen the title' },
+  });
+  const s = await checkUpstream(ctx, { run });
+  assert.equal(s.state, 'behind');
+  assert.equal(s.behind, 3);
+  assert.equal(s.ahead, 0);
+  assert.deepEqual(s.commits[0], { hash: 'abc1234', subject: 'sharpen the title' });
+});
+
+test('a failed fetch is NEVER reported as up to date', async () => {
+  // The property the whole function is shaped around: comparing against a
+  // stale ref would turn "I could not ask" into "nothing new", which is the
+  // one wrong answer a presenter acts on.
+  const { run, calls } = script({ fetch: { ok: false, stderr: 'Could not resolve host: github.com' } });
+  const s = await checkUpstream(ctx, { run });
+  assert.equal(s.state, 'offline');
+  assert.match(s.message, /NOT up to date/);
+  assert.equal(s.checkedAt, null, 'a non-answer carried a timestamp');
+  assert.equal(calls.length, 1, 'counted against a ref the fetch never refreshed');
+});
+
+test('the fetch runs under the safe config and never recurses', async () => {
+  // decklight is not the presenter typing `git fetch`: hooks, gc, submodule
+  // recursion and credential prompts are all pinned off for the talk's sake.
+  const { run, calls } = script({ fetch: { ok: false, stderr: 'x' } });
+  await checkUpstream(ctx, { run });
+  const fetch = calls[0];
+  for (const flag of SAFE_CONFIG) assert.ok(fetch.includes(flag), `fetch missing ${flag}`);
+  assert.ok(fetch.includes('--no-recurse-submodules'));
+  assert.ok(fetch.includes('--no-tags'));
+});
+
+test('a dirty tree is reported, because a pull would collide with it', async () => {
+  const { run } = script({
+    fetch: { ok: true, stdout: '' },
+    revlist: { ok: true, stdout: '1\t0' },
+    status: { ok: true, stdout: ' M deck.html' },
+    log: { ok: true, stdout: '' },
+  });
+  assert.equal((await checkUpstream(ctx, { run })).dirty, true);
+});
+
+test('garbage counts are an error, not a zero', async () => {
+  const { run } = script({
+    fetch: { ok: true, stdout: '' },
+    revlist: { ok: true, stdout: 'fatal: bad revision' },
+  });
+  const s = await checkUpstream(ctx, { run });
+  assert.equal(s.state, 'error');
 });
