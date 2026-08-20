@@ -59,11 +59,18 @@ function deckDir() {
  * would otherwise fail for a reason that has nothing to do with the change
  * they are making.
  */
-async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs = [] } = {}) {
+async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs = [], env = {} } = {}) {
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-present-home-'));
   t.after(() => rmTemp(home));
+  // `env` overrides merge over the inherited environment; a key set to
+  // undefined is REMOVED — the upstream tests need `CI` gone, because
+  // upstreamSuppressed() turns the whole feature off under CI by design (a
+  // present in a pipeline must not fetch), and these tests fetch only from a
+  // file:// remote this fixture created.
+  const childEnv = { ...process.env, DECKLIGHT_HOME: home, ...env };
+  for (const k of Object.keys(childEnv)) if (childEnv[k] === undefined) delete childEnv[k];
   const child = spawn(process.execPath, [CLI, 'present', deck, '--port', '0', ...extraArgs],
-    { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
+    { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv });
   t.after(() => { child.kill('SIGKILL'); rmTemp(dir); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
@@ -649,7 +656,8 @@ test('outside a clone the upstream routes do not exist — not even to refuse', 
 
 test('in a clone the readout answers, and a check finds the pushed commit', async (t) => {
   const { work, pushFromSeed } = clonePair(t);
-  const { base } = await startPresent(t, work, { cwd: work });
+  const { base } = await startPresent(t, work,
+    { cwd: work, env: { CI: undefined, DECKLIGHT_NO_UPSTREAM_CHECK: undefined } });
   const before = await (await fetch(`${base}/present/upstream`)).json();
   assert.equal(before.ok, true);
   assert.equal(before.pull.offered, false, 'a pull was offered without --upstream-pull');
@@ -666,7 +674,8 @@ test('in a clone the readout answers, and a check finds the pushed commit', asyn
 
 test('without --upstream-pull the pull route is dead, not forbidden', async (t) => {
   const { work } = clonePair(t);
-  const { base } = await startPresent(t, work, { cwd: work });
+  const { base } = await startPresent(t, work,
+    { cwd: work, env: { CI: undefined, DECKLIGHT_NO_UPSTREAM_CHECK: undefined } });
   const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
   assert.equal(r.status, 405, 'the pull answered at all — it must not be registered');
 });
@@ -677,7 +686,8 @@ test('the pull refuses every origin that is not exactly this server', async (t) 
   // what presenter plugins run in. The looser gate admits it; this one must
   // not, or an installed timer widget can fast-forward the repository.
   const { work } = clonePair(t);
-  const { base } = await startPresent(t, work, { cwd: work, extraArgs: ['--upstream-pull'] });
+  const { base } = await startPresent(t, work, { cwd: work, extraArgs: ['--upstream-pull'],
+    env: { CI: undefined, DECKLIGHT_NO_UPSTREAM_CHECK: undefined } });
   for (const [why, headers] of [
     ['a foreign site', { Origin: 'https://evil.example' }],
     ['a sandboxed iframe (null)', { Origin: 'null' }],
@@ -691,7 +701,8 @@ test('the pull refuses every origin that is not exactly this server', async (t) 
 
 test('the armed pull fast-forwards, and only ever fast-forwards', async (t) => {
   const { work, pushFromSeed, g } = clonePair(t);
-  const { base } = await startPresent(t, work, { cwd: work, extraArgs: ['--upstream-pull'] });
+  const { base } = await startPresent(t, work, { cwd: work, extraArgs: ['--upstream-pull'],
+    env: { CI: undefined, DECKLIGHT_NO_UPSTREAM_CHECK: undefined } });
   const tip = g(work, ['rev-parse', 'HEAD']);
 
   pushFromSeed((d) => writeFileSync(path.join(d, 'talk.html'),
@@ -717,9 +728,21 @@ test('the armed pull fast-forwards, and only ever fast-forwards', async (t) => {
 
 test('--no-upstream removes the feature even inside a clone', async (t) => {
   const { work } = clonePair(t);
-  const { base } = await startPresent(t, work,
-    { cwd: work, extraArgs: ['--no-upstream', '--upstream-pull'] });
+  const { base } = await startPresent(t, work, { cwd: work,
+    extraArgs: ['--no-upstream', '--upstream-pull'],
+    env: { CI: undefined, DECKLIGHT_NO_UPSTREAM_CHECK: undefined } });
   assert.equal((await fetch(`${base}/present/upstream`)).status, 404);
   const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
   assert.equal(r.status, 405);
+});
+
+test('under CI the upstream feature is off by design — even in a clone', async (t) => {
+  // upstreamSuppressed() returns 'CI' when env.CI is set: a present running in
+  // a pipeline must not fetch. This is the behaviour that failed this very
+  // suite on GitHub Actions until the fixtures cleared the variable — pinned
+  // here so the next person finds a test instead of a mystery.
+  const { work } = clonePair(t);
+  const { base } = await startPresent(t, work,
+    { cwd: work, extraArgs: ['--upstream-pull'], env: { CI: 'true' } });
+  assert.equal((await fetch(`${base}/present/upstream`)).status, 404);
 });
