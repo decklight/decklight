@@ -614,6 +614,12 @@ function clonePair(t) {
   g(seed, ['add', '-A']);
   g(seed, ['commit', '-qm', 'first cut']);
   execFileSync('git', ['init', '-q', '--bare', origin], { stdio: 'ignore' });
+  // The bare repo's HEAD points at init.defaultBranch — 'main' on one machine,
+  // 'master' on the CI runner. The seed pushes 'main', the clone checks out
+  // origin's HEAD, and when that names a branch nobody pushed, git 'succeeds'
+  // with a WARNING and an EMPTY working tree — present then refuses a deck
+  // that is not there. Pin it, the same lesson the marketplace fixtures learned.
+  g(origin, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
   g(seed, ['remote', 'add', 'origin', origin]);
   g(seed, ['push', '-q', 'origin', 'main']);
   execFileSync('git', ['clone', '-q', origin, path.join(clone, 'work')], { stdio: 'ignore' });
