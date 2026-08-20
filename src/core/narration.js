@@ -479,10 +479,15 @@ export function createNarration({
   // When a segment finishes, reveal the next build; after the last step,
   // move to the next slide. Guarded on (slide, step) so any manual
   // navigation mid-clip silently wins over the pending advance.
-  let liveSegGen = 0; // cancels pending silent-beat timers and stale onended
+  // ONE generation counter for every audio chain, live or recorded. The modes
+  // are mutually exclusive at any instant, and sharing the counter is what
+  // makes a track switch cancel whatever was in flight — two counters would
+  // leave each mode blind to the other's cancellation, which is exactly the
+  // bug that appears when the N picker swaps live→recorded mid-sentence.
+  let segGen = 0; // cancels pending silent-beat timers and stale onended
   let narrPaused = false;     // P — freezes audio, captions and auto-advance
-  let liveChainActive = false; // a sentence chain is running for liveChainGen
-  let liveChainGen = 0;
+  let chainActive = false; // a chain (sentences or segment files) is running for chainGen
+  let chainGen = 0;
   function toggleNarrPause() {
     if (!narrating) { toast('narration is off — V starts it'); return; }
     narrPaused = !narrPaused;
@@ -490,26 +495,49 @@ export function createNarration({
       narrAudio?.pause();
     } else if (narrAudio?.src && narrAudio.paused && !narrAudio.ended && narrAudio.currentTime > 0) {
       narrAudio.play().catch(() => { /* autoplay policy */ }); // resume mid-sentence
-    } else if (!liveChainActive) {
+    } else if (!chainActive) {
       playLive(); // nothing parked (e.g. paused on a silent beat) — re-arm
     } // else: the parked chain's pause-gate resumes on its own
     toast(narrPaused ? '⏸ narration paused — P resumes' : '▶ narration resumed');
     debugLog('narr', narrPaused ? 'paused' : 'resumed');
     updateDebugState();
   }
-  async function advanceFrom(sl, step) {
-    const gen = liveSegGen;
-    const stale = () => gen !== liveSegGen || !narrating || !narrSet?.live
+  /** Which kind of chain is entitled to advance the deck right now. */
+  const modeNow = () => (narrSet?.live ? 'live' : narrSet ? 'file' : null);
+
+  /**
+   * The audio finished — move the deck the way a presenter would.
+   *
+   * `mode` is the chain declaring WHICH playback armed this advance, and the
+   * staleness guard compares it against the mode that holds the deck NOW. That
+   * replaces the old `!narrSet?.live` clause, which did double duty: it made
+   * this function inert for recorded tracks (gone on purpose — recorded chains
+   * may drive builds now) and it killed a live chain whose pending advance
+   * survived a switch to a recorded track (kept, as the mode comparison — a
+   * chain from the mode you switched away from must not move the deck the mode
+   * you switched to is standing on). The shared segGen bump does the same job;
+   * both stay, because the guard states the invariant where a counter three
+   * functions away merely implies it.
+   *
+   * `endOfSlide` says the audio that just finished was the WHOLE slide, not one
+   * step's segment — the recorded track's case for a slide with builds but no
+   * ⟨CLICK⟩ in its notes. Stepping into the builds there would replay nothing
+   * (there are no more files), so the advance skips to the next slide, the same
+   * call tools/video.mjs makes when it renders such a slide at LAST_STEP.
+   */
+  async function advanceFrom(sl, step, { mode = 'live', endOfSlide = false } = {}) {
+    const gen = segGen;
+    const stale = () => gen !== segGen || !narrating || modeNow() !== mode
       || instance.state.slide !== sl || instance.state.step !== step;
     if (narrPaused || stale()) return;
     const rec = instance._records[sl - 1];
-    if (step < (rec ? rec.groups.length : 0)) { instance.next(); return; }
+    if (!endOfSlide && step < (rec ? rec.groups.length : 0)) { instance.next(); return; }
     if (narrationHolds(sl) || sl >= instance.state.totalSlides) return;
     // The beat this slide asked for. Waited rather than slept through: P must
     // HOLD it, not eat it — a bare timer firing while paused would come back
     // to the narrPaused guard and drop the advance on the floor, leaving the
     // deck parked when the presenter resumes. Same shape as the sentence
-    // chain's pause gate, and the same liveSegGen guard as the silent beats,
+    // chain's pause gate, and the same segGen guard as the silent beats,
     // so manual navigation mid-pause still wins.
     const pause = narrationPause(sl);
     if (pause > 0) {
@@ -528,13 +556,13 @@ export function createNarration({
   }
   async function playLive() {
     const sl = instance.state.slide, step = instance.state.step;
-    const gen = ++liveSegGen;
+    const gen = ++segGen;
     fillLiveBuffer(); // (re-)arm the lookahead from the new position
     if (!notesText(sl)) {
       if (narrationHolds(sl)) { debugLog('narr', `hold on slide ${sl} — manual advance`); return; }
       // nothing to say on this slide at all — skip it after a short beat
       setTimeout(() => {
-        if (gen !== liveSegGen || !narrating || !narrSet?.live) return;
+        if (gen !== segGen || !narrating || !narrSet?.live) return;
         if (instance.state.slide === sl && sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
       }, 400);
       return;
@@ -543,15 +571,15 @@ export function createNarration({
     const sentences = stepSentences(sl, step);
     if (!sentences.length) {
       // a build beat with no words — reveal the next step after a pause
-      setTimeout(() => { if (gen === liveSegGen) advanceFrom(sl, step); }, 600);
+      setTimeout(() => { if (gen === segGen) advanceFrom(sl, step); }, 600);
       return;
     }
     // speak the segment SENTENCE BY SENTENCE: each sentence is one cached
     // clip (short time-to-first-audio), the caption follows the spoken
     // sentence, and the build advances only after the segment's last one
-    const stale = () => gen !== liveSegGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
-    liveChainGen = gen;
-    liveChainActive = true;
+    const stale = () => gen !== segGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
+    chainGen = gen;
+    chainActive = true;
     let spoke = 0;
     try {
       for (let i = 0; i < sentences.length; i++) {
@@ -584,6 +612,14 @@ export function createNarration({
           character.attachAudio(narrAudio);
           character.beginSentence(sentenceKey(sl, step, i), clip, sentences[i]);
         }
+        // Both handlers cleared BEFORE the src moves: narrAudio is one shared
+        // element across live and recorded playback, and a handler left behind
+        // by the other mode fires against this mode's audio. The recorded
+        // path's onerror surviving into a live sentence would report a bridge
+        // clip as a missing file; a stale onended is a promise resolved by an
+        // ending it was never waiting for.
+        narrAudio.onended = null;
+        narrAudio.onerror = null;
         narrAudio.src = clip.url;
         narrAudio.playbackRate = narrRate;
         let blocked = false;
@@ -607,12 +643,12 @@ export function createNarration({
         stopNarration('🔇 the voice did not play — auto-advance stopped · press the key left of 1 for messages');
         return;
       }
-      // awaited, so liveChainActive stays true across the slide's pause — P
+      // awaited, so chainActive stays true across the slide's pause — P
       // during the beat then parks THIS chain (which resumes on its own)
       // instead of looking like nothing is running and re-speaking the slide.
       await advanceFrom(sl, step);
     } finally {
-      if (liveChainGen === gen) liveChainActive = false;
+      if (chainGen === gen) chainActive = false;
     }
   }
   // What went wrong, in the presenter's words — and what to do about it. The
@@ -723,6 +759,10 @@ export function createNarration({
     // a manifest is the authority on what exists: no entry, nothing to play
     if (!file) { narrAudio?.pause(); return; }
     narrAudio ??= new Audio();
+    // same hygiene as the live chain: the element is shared, and a live
+    // sentence's onended must not be resolved by a recorded slide finishing
+    narrAudio.onended = null;
+    narrAudio.onerror = null;
     narrAudio.src = file;
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
@@ -755,7 +795,7 @@ export function createNarration({
   // the one teardown: V, and the bridge giving up, must leave the same state
   function stopNarration(msg = 'narration off') {
     narrating = false;
-    liveSegGen++; // cancel any pending silent-beat advance
+    segGen++; // cancel any pending silent-beat advance
     bufferGen++;  // stop the lookahead loop
     narrPaused = false;
     narrAudio?.pause();

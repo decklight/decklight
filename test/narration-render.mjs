@@ -92,7 +92,7 @@ const timings = [];
 const stalled = [];
 let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'scroll', 'segoverflow', 'hint', 'hint&print', 'manifest', 'expired',
+  'elevenlabsv3', 'scroll', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
   'record', 'record&dir', 'record&nosrv']) {
   const [m, extra] = mode.split('&');
   // Timed, and printed even on success (#323). This harness boots a browser per
@@ -150,6 +150,13 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ${r.asked} sentences asked for`
       + ` · spoke the first=${r.spokeFirst} and the surplus=${r.spokeSurplus}`
       + ` · still advanced=${r.movedOn} · warned in the log=${r.warned} (not toasted=${r.notToasted})`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'switch') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} live spoke=${r.liveWasSpeaking}`
+      + ` · picker listed the track=${r.pickerListedTrack}`
+      + ` · orphaned live chain did not advance=${r.stayedPut} · now recorded=${r.nowRecorded}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
