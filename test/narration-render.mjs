@@ -34,12 +34,19 @@ import { dumpDom, resultsFrom, timedOut } from './harness.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'narration.html');
 
-// `record` records the WHOLE deck before it can assert anything, and the
-// download path it falls back to leaves a 5s revoke timer behind per file —
-// pending virtual-time work that spends the budget without advancing the
-// recording. Its own clock, so a slower runner does not turn "not finished
-// yet" into a failure. Virtual, not wall: these runs still take under a second.
-const BUDGET = (m) => (m === 'record' ? 120_000 : 30_000);
+// The `record*` modes record the WHOLE deck before they can assert anything,
+// and the download path they fall back to leaves a 5s revoke timer behind per
+// file — pending virtual-time work that spends the budget without advancing
+// the recording. Their own clock, so a slower runner does not turn "not
+// finished yet" into a failure. Virtual, not wall: these runs still take under
+// a second.
+//
+// A PREFIX, not `=== 'record'`. `recordseg` was added with an exact match still
+// here, so the mode that records the MOST slides got the smallest budget — and
+// it passed four runs out of five, which is the worst way for a test to be
+// wrong: a real ceiling reported as a flake. Any mode that records the deck
+// needs the recording budget, whatever else its name says.
+const BUDGET = (m) => (m.startsWith('record') ? 120_000 : 30_000);
 
 /** How long ONE mode may take on the wall clock before it is treated as stuck. */
 const MODE_WALL_MS = Number(process.env.NARRATION_MODE_TIMEOUT_MS ?? 90_000);
@@ -94,7 +101,7 @@ let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'plainrec', 'segmanifest', 'segsigned',
-  'record', 'record&dir', 'record&nosrv']) {
+  'record', 'record&dir', 'record&nosrv', 'recordseg']) {
   const [m, extra] = mode.split('&');
   // Timed, and printed even on success (#323). This harness boots a browser per
   // mode, so when it dies to its budget the useful question is WHICH mode was
@@ -210,6 +217,13 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} un-opted track unchanged:`
       + ` one file for the slide=${r.playedTheWholeSlide} · did not auto-advance=${r.didNotAdvance}`
       + ` · → did not restart it=${r.steppedWithoutRestarting}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'recordseg') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} ⇧V wrote a beat per ⟨CLICK⟩=${r.wroteABeatPerClick}`
+      + ` (${(r.beats ?? []).join(' ')}) · none for a one-breath slide=${r.noBeatsForAOneBreathSlide}`
+      + ` · card offers segments: true=${r.namedSegments}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
