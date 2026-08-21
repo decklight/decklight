@@ -1769,12 +1769,15 @@ export function createNarration({
       const { saved, total, cancelled, dir } = data;
       // Where they landed is the whole point of the line: "your downloads" was
       // true and useless — the next command you run reads the deck's folder.
+      const names = data.segmented ? 'slide-NN.wav + one slide-NN-KK.wav per ⟨CLICK⟩' : 'slide-NN.wav';
       const where = dir
-        ? `saved as slide-NN.wav in <code>${escapeHtml(dir)}/</code>, next to the deck`
-        : 'saved as slide-NN.wav to your downloads';
+        ? `saved as ${names} in <code>${escapeHtml(dir)}/</code>, next to the deck`
+        : `saved as ${names} to your downloads`;
+      const seg = data.segmented ? ', segments: true' : '';
       const next = dir
-        ? `Set <code>narration: { files: '${escapeHtml(dir)}', ext: 'wav' }</code> to play them back without the bridge — <code>decklight bundle</code> picks the folder up from there.`
-        : 'Move them next to the deck and point <code>narration.files</code> at that folder with <code>ext: \'wav\'</code> to play them back without the bridge.';
+        ? `Set <code>narration: { files: '${escapeHtml(dir)}', ext: 'wav'${seg} }</code> to play them back without the bridge — <code>decklight bundle</code> picks the folder up from there.`
+          + (data.segmented ? ' <strong>segments</strong> is what makes them step the builds.' : '')
+        : `Move them next to the deck and point <code>narration.files</code> at that folder with <code>ext: 'wav'${seg}</code> to play them back without the bridge.`;
       card.innerHTML = `<div class="narr-head">${cancelled ? 'recording cancelled' : 'recording done'}</div>
         <div class="rec-line">${saved} / ${total} slide${total === 1 ? '' : 's'} ${where}</div>
         <div class="rec-line">${next}</div>
@@ -1798,12 +1801,57 @@ export function createNarration({
     return new Blob([h.buffer, ...chunks], { type: 'audio/wav' });
   }
   const silencePcm = (rate, seconds) => new Uint8Array(2 * Math.round(rate * seconds));
+  /**
+   * Which ⟨CLICK⟩ segment each run of a step's sentences came from.
+   *
+   * `stepAudio` flattens a step's segments into one sentence list, and on the
+   * LAST step that list is every remaining segment (#350) — so the flattening
+   * has to be undone to write one file per segment. `segStarts` marks where the
+   * runs begin but not WHICH segment each is; this pairs them up.
+   *
+   * Empty segments contribute no sentences and so no run, which is exactly how
+   * `segmentFileIndex` numbers them: skipped, never numbered.
+   */
+  function stepSegmentRuns(sl, step) {
+    const segs = notesSegs(sl);
+    const texts = step < buildSteps(sl)
+      ? [[step, segs[step]]]
+      : segs.slice(step).map((t, i) => [step + i, t]);
+    const runs = [];
+    let at = 0;
+    for (const [k, t] of texts) {
+      const part = splitSentences(t ?? '');
+      if (part.length) runs.push({ seg: k, from: at, count: part.length });
+      at += part.length;
+    }
+    return runs;
+  }
+
+  /**
+   * Stitch one slide, and every beat within it.
+   *
+   * Returns BOTH shapes, because they are read by different things and always
+   * have been: `wav` is `slide-NN.wav`, which tools/lipsync.mjs, tools/video.mjs
+   * and any deck that never opted in all understand, and `segments` is one
+   * `slide-NN-KK.wav` per ⟨CLICK⟩ beat, which is what lets the recording pace
+   * the builds (PRESENTING). ⇧R already wrote both; this is ⇧V catching up, so
+   * that the layout on disk says nothing about which recorder made it.
+   *
+   * The beat files deliberately differ from their slice of the whole-slide file
+   * in two ways. They carry no SEGMENT gap — that silence separates beats, and
+   * a beat that begins with it would have the breath before the build rather
+   * than after it — and no trailing `data-narration-pause`, which `advanceFrom`
+   * honours itself and would otherwise be held twice.
+   */
   async function stitchSlideWav(sl, run) {
     const max = buildSteps(sl);
+    const index = segmentFileIndex(notesSegs(sl));
     const chunks = [];
+    const beats = new Map();   // file number → its own chunk list
     let rate = 24000;
     for (let step = 0; step <= max; step++) {
       const { sentences, segStarts } = stepAudio(sl, step);
+      const runs = stepSegmentRuns(sl, step);
       for (let i = 0; i < sentences.length; i++) {
         const clip = await fetchLiveSentence(sl, step, i); // cache-first
         if (run !== recRun) return null;
@@ -1812,14 +1860,26 @@ export function createNarration({
         if (chunks.length === 0) rate = new DataView(buf).getUint32(24, true) || 24000;
         // a folded segment still gets a SEGMENT-sized breath, not a sentence one
         else chunks.push(silencePcm(rate, i === 0 || segStarts.has(i) ? SEG_GAP_S : SENT_GAP_S));
-        chunks.push(new Uint8Array(buf.slice(44)));
+        const pcm = new Uint8Array(buf.slice(44));
+        chunks.push(pcm);
+        // …and the same audio again, into the beat it belongs to
+        const run_ = runs.find((r) => i >= r.from && i < r.from + r.count);
+        const file = run_ && index ? index[run_.seg] : null;
+        if (file == null) continue;
+        let list = beats.get(file);
+        if (!list) beats.set(file, list = []);
+        if (list.length) list.push(silencePcm(rate, SENT_GAP_S));
+        list.push(pcm);
       }
     }
     // …and the slide's own beat, if it asked for one, so a recorded track
     // breathes exactly where the live take it was stitched from does.
     const pause = narrationPause(sl);
     if (chunks.length && pause > 0) chunks.push(silencePcm(rate, pause));
-    return chunks.length ? stitchWav(chunks, rate) : null;
+    return {
+      wav: chunks.length ? stitchWav(chunks, rate) : null,
+      segments: [...beats].map(([file, list]) => ({ file, wav: stitchWav(list, rate) })),
+    };
   }
   // Viseme counterpart of stitchSlideWav: the SAME sentences, the SAME
   // silence gaps, so the merged timeline lines up with the stitched WAV.
@@ -1912,7 +1972,7 @@ export function createNarration({
     const list = slidesWithNotes();
     const run = ++recRun;
     const t0 = Date.now();
-    let done = 0, saved = 0, toDisk = 0;
+    let done = 0, saved = 0, toDisk = 0, segmented = false;
     // `== null`, never falsy: the author server's prefix is '' when it is the
     // origin serving this deck, which is most of the time.
     const base = authorBase();
@@ -1921,12 +1981,21 @@ export function createNarration({
     for (const sl of list) {
       if (run !== recRun) return;
       try {
-        const wav = await stitchSlideWav(sl, run);
+        const take = await stitchSlideWav(sl, run);
         if (run !== recRun) return; // cancelled mid-synthesis — don't save
-        if (wav) {
-          if (await saveRecording(sl, 'wav', wav, dir)) toDisk++;
+        if (take?.wav) {
+          if (await saveRecording(sl, 'wav', take.wav, dir)) toDisk++;
           if (run !== recRun) return;
           saved++;
+          // …and one file per ⟨CLICK⟩ beat, so a synthesized track paces the
+          // builds exactly as a track recorded with ⇧R does. Same layout from
+          // both recorders — the files on disk say nothing about which one
+          // made them (PRESENTING).
+          for (const beat of take.segments) {
+            await saveRecording(sl, 'wav', beat.wav, dir, beat.file);
+            if (run !== recRun) return;
+            segmented = true;
+          }
           // character on: the matching viseme sidecar is written too, so the
           // recorded set plays back lip-synced without the bridge
           const tl = await stitchSlideVisemes(sl, run);
@@ -1943,7 +2012,7 @@ export function createNarration({
       if (run === recRun) renderRecordCard('progress', { done, total: list.length, elapsedMs: Date.now() - t0 });
     }
     if (run === recRun) {
-      renderRecordCard('done', { saved, total: list.length, dir: toDisk ? dir.name : null });
+      renderRecordCard('done', { saved, total: list.length, dir: toDisk ? dir.name : null, segmented });
     }
   }
   function openRecordDialog() {

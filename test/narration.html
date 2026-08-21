@@ -144,7 +144,7 @@
     // on the mode: every OTHER mode must keep failing that probe, or a fetch
     // left pending would freeze Chrome's virtual clock and hang the page.
     const AUTHOR = 'http://127.0.0.1:8788';
-    const recording = mode === 'record';
+    const recording = mode === 'record' || mode === 'recordseg';
     // ?nosrv — no author server answers, which is a `file://` deck or one served
     // read-only by `decklight present`: nothing here may write to disk, so the
     // browser's download folder is the honest fallback and must still work
@@ -176,7 +176,10 @@
         if (u.includes('/edit/record')) {
           const q = new URL(u).searchParams;
           const bytes = (await opts.body.arrayBuffer()).byteLength;
-          window.__recorded.push({ dir: q.get('dir'), slide: q.get('slide'), kind: q.get('kind'), bytes });
+          window.__recorded.push({
+            dir: q.get('dir'), slide: q.get('slide'), kind: q.get('kind'),
+            seg: q.get('seg'), bytes,
+          });
           return new Response(JSON.stringify({ ok: true, dir: q.get('dir') }),
             { status: 200, headers: { 'content-type': 'application/json' } });
         }
@@ -246,7 +249,7 @@
     //   6 — notes with no ⟨CLICK⟩ at all: recorded whole, inside a track whose
     //       other slides are segmented. It must still advance itself.
     //   7 — no notes: nothing was ever recorded, and that is not a failure.
-    if (segmentDeck || plainDeck || segManifest) {
+    if (segmentDeck || plainDeck || segManifest || mode === 'recordseg') {
       const beats = 'Beat one. ⟨CLICK⟩ Beat two. ⟨CLICK⟩ Beat three.';
       const builds = mode === 'segfold'
         ? '<p data-build>Only one build here.</p>'
@@ -641,9 +644,11 @@
           const text = card?.textContent ?? '';
           // slides 1, 3 and 4 have notes; slide 2 has none and is not recorded
           r.slides = authored
-            ? r.posted.filter((p) => p.kind === 'wav').map((p) => p.slide)
+            ? r.posted.filter((p) => p.kind === 'wav' && p.seg == null).map((p) => p.slide)
             : r.downloaded.map((n) => n.replace(/^slide-0*(\d+)\.wav$/, '$1'));
-          r.everySlideHasNotes = r.slides.join(',') === '1,3,4';
+          // slides 1, 3 and 4 have notes; slide 2 has none and is not recorded.
+          // recordseg adds 5 (three ⟨CLICK⟩ beats) and 6 (one breath); 7 is silent.
+          r.everySlideHasNotes = r.slides.join(',') === (mode === 'recordseg' ? '1,3,4,5,6' : '1,3,4');
 
           if (!authored) {
             // no server, so the browser takes them — under their own names, and
@@ -666,8 +671,34 @@
           r.saidWhere = text.includes(`${r.dir}/`) && !/downloads/.test(text);
           r.namedTheConfig = text.includes(`files: '${r.dir}', ext: 'wav'`);
 
+          if (mode === 'recordseg') {
+            // ⇧V catching up with ⇧R: the same layout from both recorders, so
+            // the files on disk say nothing about which one made them. A
+            // SYNTHESIZED track gains build-pacing for free here — until now
+            // only a track recorded by mouth could have it.
+            r.beats = r.posted.filter((p) => p.seg != null)
+              .map((p) => `${p.slide}-${p.seg}`);
+            r.wroteABeatPerClick = r.beats.join(' ') === '5-1 5-2 5-3';
+            // …and only where the tool would have segmented: slide 6 is one
+            // breath, and one beat is not a segmented slide
+            r.noBeatsForAOneBreathSlide = !r.beats.some((b) => b.startsWith('6-'));
+            r.beatsCarriedAudio = r.posted.filter((p) => p.seg != null).every((p) => p.bytes > 44);
+            // the card prints the flag without which the beats do nothing
+            r.namedSegments = text.includes(`files: '${r.dir}', ext: 'wav', segments: true`);
+            r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes
+              && r.carriedAudio && r.dirIsRight && r.saidWhere && r.wroteABeatPerClick
+              && r.noBeatsForAOneBreathSlide && r.beatsCarriedAudio && r.namedSegments;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
+          // the plain deck has no ⟨CLICK⟩ anywhere, so ⇧V writes no beats and
+          // must not offer a flag that would send the player looking for them
+          r.noBeatsWithoutClicks = r.posted.every((p) => p.seg == null)
+            && !/segments: true/.test(text);
+
           r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes
-            && r.carriedAudio && r.dirIsRight && r.saidWhere && r.namedTheConfig;
+            && r.carriedAudio && r.dirIsRight && r.saidWhere && r.namedTheConfig
+            && r.noBeatsWithoutClicks;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }
