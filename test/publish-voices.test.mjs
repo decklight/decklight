@@ -17,9 +17,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
-  V4_MAX_SECONDS, parseDuration, parseBucket, trackPrefix, changedFiles,
+  V4_MAX_SECONDS, parseDuration, parseBucket, trackPrefix, changedFiles, manifestFiles,
   signedManifest, signedUrlFrom, positional,
 } from '../tools/publish-voices.mjs';
+import { manifestSegmentUrl, manifestSlideUrl } from '../src/core/voicetrack.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TOOL = path.resolve(here, '../tools/publish-voices.mjs');
@@ -78,6 +79,59 @@ test('only the slides whose audio actually moved are uploaded', () => {
   assert.equal(changedFiles(manifest, previous, { all: true }).length, 2);
 });
 
+test('a slide is several files: the whole slide, then its ⟨CLICK⟩ beats', () => {
+  // In play order, because that is the order they are signed in and the order
+  // the tally counts — a reader comparing the log to the manifest should not
+  // have to reconcile two sequences.
+  assert.deepEqual(manifestFiles({ slides: [
+    { file: 'slide-01.m4a', segments: [{ file: 'slide-01-01.m4a' }, { file: 'slide-01-02.m4a' }] },
+    null,
+    { file: 'slide-03.m4a' },
+  ] }), ['slide-01.m4a', 'slide-01-01.m4a', 'slide-01-02.m4a', 'slide-03.m4a']);
+  assert.deepEqual(manifestFiles({ slides: [] }), []);
+  assert.deepEqual(manifestFiles(null), []);
+});
+
+test('beats are uploaded with their slide — they have no hash of their own', () => {
+  // voiceover.mjs writes `{file}` per beat and nothing else, so a beat inherits
+  // its slide's hash. That is the right answer as well as the only one: the
+  // beats are cut from the same synthesis as the slide file and move with it.
+  const withBeats = (hash) => ({ slides: [
+    { file: 'slide-01.m4a', hash, segments: [{ file: 'slide-01-01.m4a' }, { file: 'slide-01-02.m4a' }] },
+  ] });
+  const published = { slides: [{
+    file: 'slide-01.m4a',
+    hash: 'aaa',
+    segments: [{ file: 'slide-01-01.m4a', url: 'https://x/1' }, { file: 'slide-01-02.m4a', url: 'https://x/2' }],
+  }] };
+  // nothing moved: nothing is re-sent, beats included
+  assert.deepEqual(changedFiles(withBeats('aaa'), published).map((f) => f.file), []);
+  // the slide's audio moved, so its beats did too
+  assert.deepEqual(changedFiles(withBeats('bbb'), published).map((f) => f.file),
+    ['slide-01.m4a', 'slide-01-01.m4a', 'slide-01-02.m4a']);
+});
+
+test('beats an EARLIER publish carried without signing are re-sent, not skipped', () => {
+  // The exact shape of the bug being fixed. This tool used to walk
+  // slides[i].file only and spread the rest of the entry through untouched, so
+  // a published manifest already LISTS beats whose bytes never left the
+  // author's disk. Keying on the file name alone would read those entries as
+  // "already up there" and skip precisely the tracks that need this fix — a
+  // silent no-op on the one run that was supposed to repair them.
+  const manifest = { slides: [
+    { file: 'slide-01.m4a', hash: 'aaa', segments: [{ file: 'slide-01-01.m4a' }, { file: 'slide-01-02.m4a' }] },
+  ] };
+  const publishedByTheOldTool = { slides: [{
+    file: 'slide-01.m4a',
+    hash: 'aaa',
+    url: 'https://x/1?sig=A',
+    segments: [{ file: 'slide-01-01.m4a' }, { file: 'slide-01-02.m4a' }],   // carried, never uploaded
+  }] };
+  // the slide itself is genuinely up there and stays put; the beats go
+  assert.deepEqual(changedFiles(manifest, publishedByTheOldTool).map((f) => f.file),
+    ['slide-01-01.m4a', 'slide-01-02.m4a']);
+});
+
 test('the shipped manifest carries a url per slide and how to renew them', () => {
   const manifest = {
     engine: 'gemini', voice: 'Algenib',
@@ -98,6 +152,63 @@ test('the shipped manifest carries a url per slide and how to renew them', () =>
   assert.equal(out.source, 'voices/algenib');
   assert.equal(out.bucket, 'gs://dl-voices/showcase');
   assert.equal(out.signDuration, '7d');
+});
+
+test('every beat gets its own url — the runtime refuses one without', () => {
+  // src/core/narration.js believes a segment on a SIGNED manifest only when it
+  // carries a url of its own, precisely because for as long as this tool did
+  // not write them an entry without one named audio that was not in the
+  // bucket. Now that it writes them, that rule is what makes the track work
+  // rather than what makes it fall back.
+  const manifest = { slides: [
+    { file: 'slide-01.m4a', hash: 'a', segments: [{ file: 'slide-01-01.m4a' }, { file: 'slide-01-02.m4a' }] },
+    null,
+    { file: 'slide-03.m4a', hash: 'c' },
+  ] };
+  const urls = new Map([
+    ['slide-01.m4a', 'https://x/1?sig=A'],
+    ['slide-01-01.m4a', 'https://x/1-1?sig=B'],
+    ['slide-01-02.m4a', 'https://x/1-2?sig=C'],
+    ['slide-03.m4a', 'https://x/3?sig=D'],
+  ]);
+  const out = signedManifest(manifest, {
+    urls, expires: '2026-07-24T09:00:00Z', source: 'v', bucket: 'gs://b', signDuration: '7d',
+  });
+  assert.deepEqual(out.slides[0].segments, [
+    { file: 'slide-01-01.m4a', url: 'https://x/1-1?sig=B' },
+    { file: 'slide-01-02.m4a', url: 'https://x/1-2?sig=C' },
+  ]);
+  assert.equal(out.slides[0].url, 'https://x/1?sig=A', 'the whole-slide file is still signed');
+  // a slide with no beats grows no `segments` key it never had
+  assert.equal('segments' in out.slides[2], false);
+  assert.equal(out.slides[1], null);
+});
+
+test('what this tool writes is what the runtime resolves — both sides, one assertion', () => {
+  // The two halves of this contract live in different files and are edited by
+  // different reflexes: the publisher decides the shape, the player decides
+  // what it will believe. Running the tool's own output through the player's
+  // own resolver is the cheapest thing that fails when either drifts.
+  const manifest = { slides: [
+    { file: 'slide-01.m4a', hash: 'a', segments: [{ file: 'slide-01-01.m4a' }, { file: 'slide-01-02.m4a' }] },
+  ] };
+  const urls = new Map([
+    ['slide-01.m4a', 'https://signed.example/s1?sig=A'],
+    ['slide-01-01.m4a', 'https://signed.example/s1-1?sig=B'],
+    ['slide-01-02.m4a', 'https://signed.example/s1-2?sig=C'],
+  ]);
+  const published = signedManifest(manifest, {
+    urls, expires: '2026-09-01T00:00:00Z', source: 'v', bucket: 'gs://b', signDuration: '7d',
+  });
+  const at = 'voices/algenib/manifest.signed.json';
+  // verbatim, query string and all — a signature that survives a join is not a
+  // signature that survives being rebuilt from a prefix
+  assert.equal(manifestSegmentUrl(published, at, 1, 1), 'https://signed.example/s1-1?sig=B');
+  assert.equal(manifestSegmentUrl(published, at, 1, 2), 'https://signed.example/s1-2?sig=C');
+  assert.equal(manifestSlideUrl(published, at, 1), 'https://signed.example/s1?sig=A');
+  // and a beat the track does not have is null, not a guessed filename
+  assert.equal(manifestSegmentUrl(published, at, 1, 3), null);
+  assert.equal(manifestSegmentUrl(published, at, 2, 1), null);
 });
 
 test('an unsigned publish writes no expiry at all', () => {
@@ -166,11 +277,45 @@ test('--dry-run reaches gcloud for nothing and writes nothing', () => {
       { encoding: 'utf8', env: { ...process.env, PATH: '' } });
     assert.equal(dry.status, 0, dry.stderr);
     assert.match(dry.stdout, /would upload 1 changed file/);
-    assert.match(dry.stdout, /would sign 1 slide URL\(s\) for 7d/);
+    // one slide, no ⟨CLICK⟩ beats — so the tally carries no beat clause
+    assert.match(dry.stdout, /would sign 1 URL\(s\) for 7d/);
+    assert.doesNotMatch(dry.stdout, /beats/);
     assert.match(dry.stdout, /would write .*manifest\.signed\.json/);
 
     const wrote = spawnSync('node', ['-e', `process.exit(require('fs').existsSync(${JSON.stringify(path.join(dir, 'manifest.signed.json'))}) ? 1 : 0)`]);
     assert.equal(wrote.status, 0, 'a dry run leaves no manifest behind');
+  } finally {
+    rmTemp(dir);
+  }
+});
+
+test('a track with ⟨CLICK⟩ beats uploads and signs them, and says how many', () => {
+  // The bug: this tool walked slides[i].file only and spread the rest of the
+  // entry through untouched, so a signed manifest advertised beats whose audio
+  // was never uploaded. The runtime refuses to believe an unsigned segment
+  // (SPEC PRESENTING), which meant a cloud-hosted track quietly lost its
+  // build-pacing and fell back to slide-level sync — silently, because
+  // everything else about it worked.
+  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-pv-'));
+  try {
+    writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
+      engine: 'gemini',
+      voice: 'Algenib',
+      slides: [
+        { file: 'slide-01.m4a', hash: 'a', segments: [{ file: 'slide-01-01.m4a' }, { file: 'slide-01-02.m4a' }] },
+        null,
+        { file: 'slide-03.m4a', hash: 'c' },
+      ],
+    }));
+    for (const f of ['slide-01.m4a', 'slide-01-01.m4a', 'slide-01-02.m4a', 'slide-03.m4a']) {
+      writeFileSync(path.join(dir, f), 'not really audio');
+    }
+    const dry = spawnSync(process.execPath, [TOOL, dir, '--bucket', 'gs://b/p', '--sign', '7d', '--dry-run'],
+      { encoding: 'utf8', env: { ...process.env, PATH: '' } });
+    assert.equal(dry.status, 0, dry.stderr);
+    // the beats are files like any other: uploaded, and counted
+    assert.match(dry.stdout, /would upload 4 changed file/);
+    assert.match(dry.stdout, /would sign 4 URL\(s\) \(2 slides \+ 2 ⟨CLICK⟩ beats\) for 7d/);
   } finally {
     rmTemp(dir);
   }
