@@ -1285,7 +1285,7 @@ try {
     // `video` answering --help on stderr with exit 1 on its first run (#294).
     for (const cmd of ['init', 'import', 'bundle', 'upgrade', 'pdf', 'present', 'author', 'publish',
       'theme', 'marketplace', 'plugin', 'template', 'skills', 'importer', 'transform', 'engine',
-      'voice', 'agent', 'extension', 'restore', 'rec', 'tts', 'lipsync', 'video', 'report-bug', 'associate']) {
+      'voice', 'agent', 'extension', 'restore', 'cast', 'record', 'tts', 'lipsync', 'video', 'report-bug', 'associate']) {
       const r = dl([cmd, '--help']);
       must(r.stdout.length > 40, `${cmd} --help printed almost nothing to stdout`);
     }
@@ -1328,7 +1328,7 @@ try {
     // command that installs it (the ENGINES pattern: offer at the point of
     // failure, not a setup step nobody performs in advance).
     copyFileSync(join(root, 'test', 'fixtures', 'smoke.term.yaml'), join(PROJECT, 'smoke.term.yaml'));
-    const r = dl(['rec', 'smoke.term.yaml'], { allowFail: true });
+    const r = dl(['cast', 'smoke.term.yaml'], { allowFail: true });
     must(r.code !== 0, 'rec ran without its optional dependencies');
     must(/js-yaml|node-pty/.test(r.all), `the refusal does not name what is missing: ${r.all}`);
     must(/npm install/.test(r.all), 'the refusal does not name the command that fixes it');
@@ -1343,7 +1343,7 @@ try {
       { timeout: 300000, allowFail: true, shell: NPM.shell });
     if (dep.code !== 0) return { skip: 'node-pty would not install (no build toolchain?)' };
 
-    dl(['rec', 'smoke.term.yaml', '-o', 'demo cast.json'], { timeout: 180000 });
+    dl(['cast', 'smoke.term.yaml', '-o', 'demo cast.json'], { timeout: 180000 });
     const cast = JSON.parse(readFileSync(join(PROJECT, 'demo cast.json'), 'utf8'));
     must(Array.isArray(cast.steps) && cast.steps.length === 3, `the cast has ${cast.steps?.length} steps`);
     must(cast.steps[0].cmd.includes('echo "hello decklight"'), 'the first command is not the one scripted');

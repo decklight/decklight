@@ -127,10 +127,14 @@ test('no doc or deck claims a theme count the repo does not have', () => {
 });
 
 test('no doc or deck still tells anyone to run a command that was removed', () => {
-  // `decklight edit` was folded into `author` (#182) and now refuses out loud.
-  // The public site was still demonstrating it in its terminal cast, and
-  // docs/architecture.svg still labelled a box with it — both of which a
-  // reader would reasonably copy.
+  // `decklight edit` was folded into `author` (#182). The public site was still
+  // demonstrating it in its terminal cast, and docs/architecture.svg still
+  // labelled a box with it — both of which a reader would reasonably copy.
+  //
+  // This matters MORE now that neither removed command carries a refusal stub:
+  // a reader who copies one gets `unknown command`, with no hint of what
+  // replaced it. The docs are the only thing left pointing at the new name, so
+  // a doc that points at the old one is the whole failure.
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const files = ['README.md', 'SPEC.md', 'site/index.html', 'docs/architecture.svg',
     'cli/skill-content.mjs', 'demo/intro.html', 'demo/showcase.html', 'demo/features.html', 'demo/pitch.html'];
@@ -140,12 +144,21 @@ test('no doc or deck still tells anyone to run a command that was removed', () =
     text.split('\n').forEach((line, i) => {
       // the README names it once, to say it is gone — that mention is the fix,
       // not the rot, so only an INVOCATION counts
-      if (/(decklight|npx decklight)\s+edit\b/.test(line) && !/refuses|folded|removed|was\s+/.test(line)) {
-        hits.push(`${rel}:${i + 1}`);
+      // `decklight rec` joined it: renamed to `cast` because `decklight record`
+      // (the author's voice) made a three-letter abbreviation of "record" mean
+      // the other recorder, and dropped rather than aliased for exactly that
+      // reason — a surviving `rec` would quietly mean the opposite of what a
+      // reader assumes. A doc that still teaches either is a doc a reader will
+      // copy into a command that exits 1.
+      for (const gone of ['edit', 'rec']) {
+        const re = new RegExp(`(decklight|npx decklight|decklight@latest)\\s+${gone}\\b`);
+        if (re.test(line) && !/refuses|folded|removed|renamed|alias|was\s+/.test(line)) {
+          hits.push(`${rel}:${i + 1} (${gone})`);
+        }
       }
     });
   }
-  assert.deepEqual(hits, [], 'a shipped file invokes `decklight edit`, which refuses');
+  assert.deepEqual(hits, [], 'a shipped file invokes a command that was removed and now refuses');
 });
 
 test('restoring stays two steps — no path writes the deck without arming first', () => {

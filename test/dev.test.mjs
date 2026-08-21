@@ -259,12 +259,18 @@ test('`dev` still works, as a permanent hidden alias — same command, no nag', 
   assert.doesNotMatch(missing.stderr, /unknown command/);
 });
 
-test('`edit` refuses out loud — the replacement named, never "unknown command"', () => {
+test('`edit` is not a command, and says so the way any other unknown one does', () => {
+  // It used to carry a refusal stub naming `author`. That stub was a migration
+  // aid, and there is nobody to migrate: decklight has no released users, so
+  // every stub is a line of dispatch, a test and a paragraph of docs bought
+  // for no one. Dropped along with `rec`'s (MARKETPLACE.md COMMANDS records
+  // the supersession).
   const r = spawnSync('node', [CLI, 'edit', 'deck.html'], { encoding: 'utf8' });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /decklight author/, 'the way forward is named');
-  assert.doesNotMatch(r.stderr, /unknown command/);
-  assert.doesNotMatch(r.stdout + r.stderr, /Usage:\n {2}decklight <command>/, 'no global-help dump — one line, on purpose');
+  assert.match(r.stderr, /unknown command "edit"/);
+  // the help still lists the command that does the job, which is how someone
+  // who typed `edit` finds `author` now
+  assert.match(r.stdout, /^ {2}author /m);
 });
 
 // ── the leash: a child outlives its parent for exactly as long as the pipe ──

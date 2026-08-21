@@ -5,7 +5,7 @@
 /**
  * decklight — the Decklight command line.
  *
- *   decklight rec      record a terminal cast from a YAML script
+ *   decklight cast     record a terminal cast from a YAML script (alias: rec)
  *   decklight refresh  re-run embedded scripts, rewrite drifted casts
  *   decklight export   convert a cast to asciicast v2
  *   decklight pdf      render a deck to a PDF — one slide per page, no print dialog
@@ -27,7 +27,7 @@
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)
  *   decklight video    render a deck to a narrated mp4 (stills + voiceover audio)
  *
- * The subcommand implementations live in rec.mjs and
+ * The subcommand implementations live in cast.mjs and
  * bundle.mjs (importable modules; direct execution still works but
  * this dispatcher is the documented entry point).
  */
@@ -46,8 +46,9 @@ Commands:
            EXAMPLE: decklight skills claude codex   (or --all, or omit to use detected agents)
            EXAMPLE: decklight skills --global        (install into each agent's config home, every project)
            EXAMPLE: decklight skills claude --pack   (zip it to upload in your claude.ai skill settings)
-  rec      record a truthful terminal cast by running a YAML command script in a real PTY
-           EXAMPLE: decklight rec deck.term.yaml -o deck.cast.json
+  cast     record a truthful terminal cast by running a YAML command script in a real PTY
+           (this records a TERMINAL — decklight record records your VOICE)
+           EXAMPLE: decklight cast deck.term.yaml -o deck.cast.json
   refresh  re-execute the script embedded in each cast; rewrite the ones whose output drifted
            EXAMPLE: decklight refresh casts/
   export   flatten a cast to asciicast v2 (markers per step) for the asciinema ecosystem
@@ -108,6 +109,7 @@ Commands:
            EXAMPLE: decklight author demo/showcase.html   (bridges without prerequisites are skipped)
   record   capture the deck's narration in YOUR voice — the deck reads you its notes
            one ⟨CLICK⟩ beat at a time, and → ends a beat AND reveals the next build
+           (this records YOU — decklight cast records a terminal)
            EXAMPLE: decklight record talk.html   (serves it: a microphone needs 127.0.0.1)
   present  play a deck you did not author — read-only over localhost, under a CSP header;
            prints what the file will execute, and strips what it cannot account for
@@ -190,19 +192,19 @@ switch (cmd) {
     await skillsMain(rest);
     break;
   }
-  case 'rec': {
-    const { recMain } = await import('./rec.mjs');
-    await recMain(rest);
+  case 'cast': {
+    const { castMain } = await import('./cast.mjs');
+    await castMain(rest);
     break;
   }
   case 'refresh': {
-    const { recMain } = await import('./rec.mjs');
-    await recMain(rest.includes('--help') ? ['--help'] : ['refresh', ...rest]);
+    const { castMain } = await import('./cast.mjs');
+    await castMain(rest.includes('--help') ? ['--help'] : ['refresh', ...rest]);
     break;
   }
   case 'export': {
-    const { recMain } = await import('./rec.mjs');
-    await recMain(rest.includes('--help') ? ['--help'] : ['export', ...rest]);
+    const { castMain } = await import('./cast.mjs');
+    await castMain(rest.includes('--help') ? ['--help'] : ['export', ...rest]);
     break;
   }
   case 'bundle': {
@@ -311,13 +313,6 @@ switch (cmd) {
     const { associateMain } = await import('./associate.mjs');
     process.exitCode = await associateMain(rest);
     break;
-  }
-  case 'edit': {
-    // Removed as a command (COMMANDS in MARKETPLACE.md) — but a removal must
-    // refuse out loud, naming the way forward, not shrug "unknown command".
-    // The server itself lives on in edit.mjs; `author` starts it.
-    process.stderr.write('decklight edit was folded into the authoring loop — run `decklight author <deck.html>` instead\n');
-    process.exit(1);
   }
   default:
     process.stderr.write(`decklight: unknown command "${cmd}"\n\n`);
