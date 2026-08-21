@@ -115,6 +115,57 @@ export function segmentFileIndex(segs) {
   return parts.map((t) => (t ? ++file : null));
 }
 
+/**
+ * The beats to capture for one slide, in order — the recording plan.
+ *
+ * The mic recorder's unit is a ⟨CLICK⟩ SEGMENT, not a build step, because the
+ * files are per segment: a slide with three beats over one build writes three
+ * files, and recording per step would write two and leave the third missing.
+ * The step each beat is filmed at is `min(k, steps)`, which is where playback
+ * puts it — surplus beats sit on the last step with nothing left to reveal.
+ *
+ * `file` is the 1-based file number from `segmentFileIndex`, or **null** for a
+ * slide the tool would not have segmented at all (fewer than two beats with
+ * words in them). That slide is one take, `slide-NN.wav`, exactly as ⇧V and
+ * tools/voiceover.mjs write it — a single-beat slide is not a segmented slide.
+ *
+ * Empty segments are dropped: `⟨CLICK⟩ A` is a beat before any words, and there
+ * is nothing to read aloud for it.
+ *
+ * Pure, and the one place the recorder decides what it is recording.
+ */
+export function recordPlan(segs, steps = 0) {
+  const parts = (segs ?? []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim());
+  const index = segmentFileIndex(parts);
+  if (!index) {
+    const text = parts.filter(Boolean).join(' ');
+    return text ? [{ seg: 0, step: 0, file: null, text }] : [];
+  }
+  return parts
+    .map((text, k) => (text ? { seg: k, step: Math.min(k, steps), file: index[k], text } : null))
+    .filter(Boolean);
+}
+
+/**
+ * One buffer of mic audio as the 16-bit little-endian PCM every other part of
+ * this toolchain speaks: `stitchWav` frames it, tools/lipsync.mjs reads it,
+ * tools/video.mjs muxes it, and every TTS engine already returns it.
+ *
+ * Clamped before scaling, because a Web Audio sample is nominally -1..1 and
+ * genuinely is not: a hot input overshoots, and a bare `s * 32768` wraps at the
+ * Int16 boundary — the loudest moment of a take turning into a burst of noise
+ * exactly where it is most audible.
+ */
+export function floatToPcm16(samples) {
+  const out = new Uint8Array(samples.length * 2);
+  const view = new DataView(out.buffer);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(i * 2, Math.round(s * (s < 0 ? 32768 : 32767)), true);
+  }
+  return out;
+}
+
 export function narrationTracks(narration) {
   const f = narration?.files;
   if (!f) return [];
@@ -1813,7 +1864,17 @@ export function createNarration({
   // rather than seeding a second one; otherwise `voiceover`, the same default
   // tools/voiceover.mjs writes to.
   const RECORD_DIR = 'voiceover';
+  const plainFolder = (d) => (typeof d === 'string' && d
+    && !/^[a-z][a-z0-9+.-]*:/i.test(d) && !/^[/\\]/.test(d) && !d.split(/[/\\]/).includes('..')
+    ? d : null);
   function recordDir() {
+    // `decklight record --dir NAME` opens the deck with ?dir=NAME, which wins:
+    // it is the one thing the person recording asked for out loud. Validated
+    // here as well as in the command, because a URL is typed by hand too — and
+    // the server refuses the same three shapes a third time, which is where it
+    // actually matters.
+    const asked = plainFolder(params?.get?.('dir'));
+    if (asked) return asked;
     const f = config.narration?.files;
     const first = typeof f === 'string' ? f
       : Array.isArray(f) ? f.find((t) => typeof t?.dir === 'string')?.dir : null;
@@ -1823,16 +1884,25 @@ export function createNarration({
       && !first.split(/[/\\]/).includes('..') ? first : RECORD_DIR;
   }
   /** Write one recorded file, through the author server when there is one.
-   *  Resolves true when it landed on disk, false when the browser took it. */
-  async function saveRecording(slide, kind, blob, dir) {
+   *  Resolves true when it landed on disk, false when the browser took it.
+   *
+   *  `seg` is the 1-based SEGMENT file number (`slide-NN-KK.wav`), null for the
+   *  whole-slide file. It is computed here, through `recordPlan`, rather than
+   *  by the server: the runtime is the only side that has the notes, and the
+   *  server stays what it is — a writer that is told a folder and a number and
+   *  builds the name itself, so no request can choose one. */
+  async function saveRecording(slide, kind, blob, dir, seg = null) {
     if (dir) {
       try {
         const r = await fetch(`${dir.base}/edit/record?slide=${slide}&kind=${kind}`
+          + (seg == null ? '' : `&seg=${seg}`)
           + `&dir=${encodeURIComponent(dir.name)}`, { method: 'POST', body: blob });
         if ((await r.json())?.ok) return true;
       } catch { /* server gone mid-recording — the browser still gets the file */ }
     }
-    const name = `slide-${String(slide).padStart(2, '0')}.${kind === 'wav' ? 'wav' : 'visemes.json'}`;
+    const name = `slide-${String(slide).padStart(2, '0')}`
+      + (seg == null ? '' : `-${String(seg).padStart(2, '0')}`)
+      + `.${kind === 'wav' ? 'wav' : 'visemes.json'}`;
     const url = URL.createObjectURL(blob);
     downloadFromUrl(url, name);
     setTimeout(() => URL.revokeObjectURL(url), 5000);
@@ -1892,6 +1962,307 @@ export function createNarration({
     recEl = null;
   }
 
+
+  // ── ⇧R: record YOUR OWN voice, one ⟨CLICK⟩ beat at a time — SPEC PRESENTING ──
+  //
+  // ⇧V records the deck in a synthesized voice. This records it in yours, and
+  // the difference that matters is not the timbre — it is that a human take has
+  // no natural boundaries. A TTS run knows where a segment ends because it
+  // synthesized it; a person talking does not, and asking them afterwards to
+  // split a ten-minute WAV into forty files by ear is how a feature nobody uses
+  // gets built.
+  //
+  // So the deck is the teleprompter and → is the boundary. You read the beat on
+  // screen, press → when you finish it, and that keystroke is both the end of
+  // one file and the reveal of the next build — the same gesture you will make
+  // when you present it, which is exactly why the timing comes out right.
+  //
+  // Capture is WebAudio → Int16 PCM → the same `stitchWav` ⇧V uses. Not
+  // MediaRecorder (webm/opus is a format nothing else in this toolchain reads),
+  // and not an AudioWorklet: a worklet's module has to be fetched from a URL,
+  // which on a zero-dependency single-file runtime means a blob: URL, and
+  // `decklight present` serves `script-src 'self' 'unsafe-inline'` with no
+  // blob:. A ScriptProcessorNode is deprecated and universally shipped, and
+  // works under that policy today.
+  let micEl = null, micView = 'intro', micRun = 0;
+  let micCtx = null, micStream = null, micNode = null, micSource = null;
+  let micChunks = null;      // the beat being captured, or null between beats
+  let micTake = null;        // the beat just finished
+  let micPeak = 0, micMeter = null;
+  let micEnd = null;         // resolves the beat: 'next' | 'retake' | 'stop'
+
+  /** Why this browser cannot record, in the words of the thing to do about it. */
+  function micUnavailable() {
+    if (navigator.mediaDevices?.getUserMedia) return null;
+    // The one confusing case, so it gets a sentence rather than a failure: a
+    // deck opened straight off disk is not a secure context anywhere that
+    // matters, and no amount of clicking Allow will change that. `decklight
+    // record` exists to put the same file on http://127.0.0.1, which is one.
+    if (location.protocol === 'file:') {
+      return 'a browser will not open a microphone for a page loaded from a file.'
+        + ' Serve the deck instead — <code>decklight record ' + escapeHtml(deckFileName()) + '</code>'
+        + ' — and this works: 127.0.0.1 is a secure context, file:// is not.';
+    }
+    return 'this browser exposes no microphone (getUserMedia needs a secure context —'
+      + ' http://127.0.0.1 or https://)';
+  }
+  const deckFileName = () => decodeURIComponent(location.pathname.split('/').pop() || 'deck.html');
+
+  /** What went wrong when the browser refused, in the presenter's words. */
+  function micWhy(e) {
+    const n = e?.name ?? '';
+    if (n === 'NotAllowedError' || n === 'SecurityError') {
+      return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then press ⇧R again.';
+    }
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') {
+      return 'no microphone was found. Plug one in, or pick one as the system input, then press ⇧R again.';
+    }
+    if (n === 'NotReadableError') {
+      return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and press ⇧R again.';
+    }
+    return `the microphone could not be opened (${escapeHtml(String(e?.message || n || e))}).`;
+  }
+
+  // 24 kHz mono, matching every engine's output — a WAV lipsync.mjs and
+  // video.mjs already read, at ~2.8 MB a minute rather than 5.8. Asked of the
+  // AudioContext rather than decimated by hand: the browser resamples properly,
+  // and naive decimation aliases everything above 12 kHz down into the voice.
+  const MIC_RATE = 24000;
+  async function openMic() {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    const Ctx = window.AudioContext ?? window.webkitAudioContext;
+    // A browser that will not give the rate asked for gives its own; the WAV
+    // header records whatever came back, so both cases are correct files.
+    try { micCtx = new Ctx({ sampleRate: MIC_RATE }); } catch { micCtx = new Ctx(); }
+    micSource = micCtx.createMediaStreamSource(micStream);
+    micNode = micCtx.createScriptProcessor(4096, 1, 1);
+    micNode.onaudioprocess = (e) => {
+      const buf = e.inputBuffer.getChannelData(0);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) { const a = Math.abs(buf[i]); if (a > peak) peak = a; }
+      micPeak = Math.max(micPeak, peak);
+      if (micChunks) micChunks.push(floatToPcm16(buf));
+    };
+    // A ScriptProcessorNode is only pulled when it reaches the destination —
+    // and reaching it directly would put the microphone into the speakers,
+    // which is a feedback loop and a ruined take. Zero gain: connected, silent.
+    const mute = micCtx.createGain();
+    mute.gain.value = 0;
+    micSource.connect(micNode);
+    micNode.connect(mute);
+    mute.connect(micCtx.destination);
+    if (micCtx.state === 'suspended') await micCtx.resume();
+    debugLog('narr', `mic open at ${micCtx.sampleRate} Hz`);
+  }
+  function closeMic() {
+    try { micNode?.disconnect(); micSource?.disconnect(); } catch { /* already gone */ }
+    if (micNode) micNode.onaudioprocess = null;
+    micStream?.getTracks().forEach((t) => t.stop());
+    micCtx?.close?.();
+    micCtx = micStream = micNode = micSource = null;
+    micChunks = null;
+    clearInterval(micMeter);
+    micMeter = null;
+  }
+
+  /** Capture until the presenter says the beat is over. */
+  function captureBeat() {
+    micChunks = [];
+    micPeak = 0;
+    return new Promise((done) => { micEnd = done; });
+  }
+  /** The keys that end a beat, called from the overlay handler below. */
+  function endBeat(how) {
+    if (!micEnd) return;
+    micTake = micChunks ?? [];
+    micChunks = null;
+    const done = micEnd;
+    micEnd = null;
+    done(how);
+  }
+
+  function micBar(level) {
+    const pct = Math.min(100, Math.round(level * 140));   // headroom, not a VU
+    const hot = level > 0.95;
+    return `<div class="rec-level${hot ? ' hot' : ''}"><div class="rec-level-fill" style="width:${pct}%"></div></div>`;
+  }
+  function renderMicCard(view, data = {}) {
+    micView = view;
+    const card = micEl?.querySelector('.narr-card');
+    if (!card) return;
+    if (view === 'intro') {
+      const { slides, beats, why } = data;
+      if (why) {
+        card.innerHTML = `<div class="narr-head">record your voice</div>
+          <div class="rec-line">${why}</div>
+          <div class="rec-hint">Esc to close</div>`;
+        return;
+      }
+      card.innerHTML = `<div class="narr-head">record your voice</div>
+        <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${beats} beat${beats === 1 ? '' : 's'} — the deck reads you the notes, one ⟨CLICK⟩ at a time</div>
+        <div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.</div>
+        <div class="narr-row narr-sel">Start recording</div>
+        <div class="rec-hint">Enter to start · Esc to cancel</div>`;
+      card.querySelector('.narr-row').addEventListener('click', () => startMicRecording());
+      return;
+    }
+    if (view === 'capture') {
+      const { sl, nth, slides, beat, i, of, note } = data;
+      card.innerHTML = `<div class="narr-head">recording · slide ${nth} of ${slides}</div>
+        <div class="rec-line rec-where">slide ${sl} · beat ${i + 1} of ${of}</div>
+        <div class="rec-read">${escapeHtml(beat.text)}</div>
+        ${note ? `<div class="rec-line rec-note">${note}</div>` : ''}
+        ${micBar(0)}
+        <div class="rec-hint"><kbd>→</kbd> next beat · <kbd>⌫</kbd> retake this one · <kbd>Esc</kbd> stop</div>`;
+      return;
+    }
+    if (view === 'saving') {
+      card.innerHTML = `<div class="narr-head">saving slide ${data.sl}…</div>
+        <div class="rec-line">${data.files} file${data.files === 1 ? '' : 's'}</div>`;
+      return;
+    }
+    const { slides, files, dir, segmented, stopped } = data;
+    const where = dir
+      ? `saved to <code>${escapeHtml(dir)}/</code>, next to the deck`
+      : 'saved to your downloads — move them next to the deck';
+    const cfg = `narration: { files: '${escapeHtml(dir ?? 'voiceover')}', ext: 'wav'${segmented ? ', segments: true' : ''} }`;
+    card.innerHTML = `<div class="narr-head">${stopped ? 'recording stopped' : 'recording done'}</div>
+      <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'} ${where}</div>
+      <div class="rec-line">Play it back with <code>${cfg}</code>${segmented
+        ? ' — <strong>segments</strong> is what makes your voice step the builds.'
+        : '.'}</div>
+      <div class="rec-hint">Enter or Esc to close</div>`;
+  }
+
+  async function startMicRecording() {
+    const run = ++micRun;
+    const list = slidesWithNotes();
+    const base = authorBase();
+    const dir = base == null ? null : { base, name: recordDir() };
+    let slidesDone = 0, files = 0, toDisk = 0, segmented = false, stopped = false;
+    // The recorded track must not play over the take, and P must not be
+    // holding a chain that resumes into the middle of one.
+    if (narrating) toggleNarration();
+    try {
+      await openMic();
+    } catch (e) {
+      renderMicCard('intro', { why: micWhy(e) });
+      return;
+    }
+    // The meter is the answer to "is it even hearing me" BEFORE twenty slides
+    // are recorded silent. Decays on its own so a peak reads as a peak.
+    micMeter = setInterval(() => {
+      const fill = micEl?.querySelector('.rec-level-fill');
+      const box = micEl?.querySelector('.rec-level');
+      if (!fill) return;
+      fill.style.width = `${Math.min(100, Math.round(micPeak * 140))}%`;
+      box.classList.toggle('hot', micPeak > 0.95);
+      micPeak *= 0.7;
+    }, 100);
+
+    outer: for (const sl of list) {
+      if (run !== micRun) return;
+      const plan = recordPlan(notesSegs(sl), buildSteps(sl));
+      if (!plan.length) continue;
+      // Said HERE, where it can still be acted on: a slide with builds and no
+      // ⟨CLICK⟩ in its notes is recorded as one take, so its builds will not be
+      // paced by anything. That is an authoring gap, and the moment you are
+      // reading the slide's notes aloud is the moment to learn about it.
+      const note = plan.length === 1 && buildSteps(sl) > 0
+        ? `this slide has ${buildSteps(sl)} build${buildSteps(sl) === 1 ? '' : 's'} but no ⟨CLICK⟩ in its notes`
+          + ' — one take for the whole slide; add ⟨CLICK⟩ between the beats to pace them'
+        : null;
+      const takes = [];
+      for (let i = 0; i < plan.length; i++) {
+        const beat = plan[i];
+        instance.goto(sl, beat.step);
+        renderMicCard('capture', { sl, nth: slidesDone + 1, slides: list.length, beat, i, of: plan.length, note });
+        const how = await captureBeat();
+        if (run !== micRun) return;
+        if (how === 'stop') { stopped = true; break outer; }
+        if (how === 'retake') { i--; continue; }   // the for's i++ returns to the same beat
+        takes.push({ file: beat.file, pcm: micTake });
+      }
+      if (!takes.length) continue;
+      renderMicCard('saving', { sl, files: takes.length + 1 });
+      const rate = micCtx?.sampleRate ?? MIC_RATE;
+      // The whole-slide file, for every reader that predates segments:
+      // tools/lipsync.mjs, tools/video.mjs, and a deck that never opts in.
+      //
+      // The takes are joined BACK TO BACK, with none of stitchSlideWav's
+      // synthetic gaps — a synthesized clip stops the instant the sentence
+      // does and needs a breath added, while a human take already contains
+      // every pause the person took. Adding 0.35s to each would only make the
+      // whole-slide file drag exactly where the segmented one does not.
+      const chunks = takes.flatMap((t) => t.pcm);
+      const pause = narrationPause(sl);
+      if (chunks.length && pause > 0) chunks.push(silencePcm(rate, pause));
+      if (await saveRecording(sl, 'wav', stitchWav(chunks, rate), dir)) toDisk++;
+      files++;
+      if (run !== micRun) return;
+      // …and one file per beat, which is what lets the recording step the
+      // builds. Never carrying the slide's trailing pause: `advanceFrom`
+      // honours `data-narration-pause` itself, and a beat baked into the audio
+      // as well would be held twice.
+      for (const t of takes) {
+        if (t.file == null) continue;
+        await saveRecording(sl, 'wav', stitchWav(t.pcm, rate), dir, t.file);
+        if (run !== micRun) return;
+        files++;
+        segmented = true;
+      }
+      slidesDone++;
+    }
+    closeMic();
+    if (run !== micRun) return;
+    renderMicCard('done', { slides: slidesDone, files, dir: toDisk ? dir.name : null, segmented, stopped });
+  }
+
+  function openMicRecorder() {
+    if (micEl) return;
+    micEl = document.createElement('div');
+    micEl.className = 'decklight-narr decklight-record decklight-mic';
+    micEl.innerHTML = '<div class="narr-card" role="dialog" aria-label="Record your voice"></div>';
+    closeOnBackdrop(micEl, closeMicRecorder);
+    root.appendChild(micEl);
+    const why = micUnavailable();
+    const list = slidesWithNotes();
+    const beats = list.reduce((n, sl) => n + recordPlan(notesSegs(sl), buildSteps(sl)).length, 0);
+    renderMicCard('intro', why ? { why } : { slides: list.length, beats });
+  }
+  function closeMicRecorder() {
+    micRun++;                  // invalidate any loop in flight
+    endBeat('stop');           // …and unblock it, so its finally runs
+    closeMic();
+    micEl?.remove();
+    micEl = null;
+  }
+  overlays.register({
+    isOpen: () => !!micEl,
+    close: closeMicRecorder,
+    keydown(e) {
+      if (micView === 'capture') {
+        // → / Enter / ⎵ all end the beat. Space is the universal advance key
+        // in a presentation, and binding it to "discard that take" is a trap
+        // you spring once and remember forever — retake is ⌫, which reads as
+        // taking it back.
+        if (e.key === 'ArrowRight' || e.key === 'Enter' || e.key === ' ' || e.key === 'PageDown') endBeat('next');
+        else if (e.key === 'Backspace') endBeat('retake');
+        else if (e.key === 'Escape') closeMicRecorder();
+        else return false;
+        return true;
+      }
+      if (e.key === 'Escape') closeMicRecorder();
+      else if (e.key === 'Enter') {
+        if (micView === 'intro' && !micUnavailable()) startMicRecording();
+        else if (micView !== 'saving') closeMicRecorder();
+      } else return false;
+      return true;
+    },
+  });
+
   // Both dialogs take the keyboard while they are up. The recorder registers
   // first because it can be opened from the picker, and the dialog that opened
   // last is the one you are looking at.
@@ -1937,6 +2308,7 @@ export function createNarration({
     toggleCaptions,
     openPicker: openNarrPicker,
     openRecordDialog,
+    openMicRecorder,
     applySolo,
     notesSegs,
     /** Everything the engine's chrome, palette and debug panel read back. */

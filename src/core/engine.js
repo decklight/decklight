@@ -552,6 +552,7 @@ export function init(userConfig = {}) {
       { label: 'Character…', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
       { label: `Character solo ${character.solo ? 'off' : 'on'}`, alias: 'centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
       { label: 'Record offline narration…', hint: '⇧V', alias: 'export download batch wav tts', run: openRecordDialog },
+      { label: 'Record your own voice…', hint: '⇧R', alias: 'microphone mic narrate teleprompter speak record voice', run: openMicRecorder },
       { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
       { label: 'Speaker view', hint: 'S', run: () => {
@@ -1546,7 +1547,8 @@ export function init(userConfig = {}) {
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
       // R is history's other door — kept because it is in people's fingers.
-      case 'r': case 'R': editmode.history.open(); break;
+      // ⇧R records YOUR voice; bare R stays history, which is in people's fingers.
+      case 'r': case 'R': if (e.shiftKey) openMicRecorder(); else editmode.history.open(); break;
       case 'e': case 'E': toggleElementEdit(); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
@@ -1697,10 +1699,18 @@ export function init(userConfig = {}) {
   });
   const {
     character, toggleNarration, toggleNarrPause, changeNarrRate, toggleCaptions,
-    openRecordDialog, notesSegs,
+    openRecordDialog, openMicRecorder, notesSegs,
   } = narration;
   const openNarrPicker = narration.openPicker;
   instance.toggleNarration = toggleNarration;               // V, programmatic
+  // `decklight record deck.html` opens the deck HERE — the whole point of that
+  // command being that a microphone needs a secure context and file:// is not
+  // one. Deferred a beat so the first slide has landed and the welcome card (a
+  // first run is exactly when someone tries this) has had its say; skipped
+  // entirely if anything else already owns the keyboard.
+  if (params.has('record') && !printMode) {
+    setTimeout(() => { if (!overlays.active()) openMicRecorder(); }, 700);
+  }
 
   // ── presenter overlays (hud.js) ──────────────────────────────────────────
   // Clock, progress hairline, ink and transcript: four things you can layer

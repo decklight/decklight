@@ -616,6 +616,36 @@ test('POST /edit/record writes slide-NN.wav into a folder beside the deck', asyn
   assert.ok(existsSync(path.join(dir, 'audio', 'take-2', 'slide-01.wav')));
 });
 
+// ── ⇧R: one file per ⟨CLICK⟩ beat, which is what steps the builds ─────────
+test('POST /edit/record?seg writes slide-NN-KK.wav — and refuses a seg it cannot name', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const wav = Buffer.from('RIFF....WAVEfmt seg');
+
+  const r = await (await fetch(base + '/edit/record?slide=4&kind=wav&seg=2&dir=voiceover', {
+    method: 'POST', body: wav,
+  })).json();
+  // zero-padded on BOTH halves — the name tools/voiceover.mjs writes and the
+  // runtime resolves; one unpadded field and the whole track goes missing
+  assert.deepEqual(r, { ok: true, dir: 'voiceover', file: 'slide-04-02.wav' });
+  assert.deepEqual(readFileSync(path.join(dir, 'voiceover', 'slide-04-02.wav')), wav);
+
+  // the whole-slide file is still its own name — the two live side by side,
+  // because every reader that predates segments only knows the short one
+  await fetch(base + '/edit/record?slide=4&kind=wav&dir=voiceover', { method: 'POST', body: wav });
+  assert.deepEqual(readdirSync(path.join(dir, 'voiceover')).sort(), ['slide-04-02.wav', 'slide-04.wav']);
+
+  const post = (qs) => fetch(`${base}/edit/record?${qs}`, { method: 'POST', body: 'x' });
+  // `seg` is half of a filename this server builds, so it is bounded exactly
+  // like `slide` — and a viseme sidecar has no segments to be one of
+  for (const bad of ['seg=0', 'seg=-1', 'seg=1.5', 'seg=x', 'seg=1000', 'seg=..%2F..%2Fx']) {
+    assert.equal((await post(`slide=1&kind=wav&${bad}&dir=voiceover`)).status, 400, bad);
+  }
+  assert.equal((await post('slide=1&kind=visemes&seg=1&dir=voiceover')).status, 400);
+  assert.deepEqual(readdirSync(path.join(dir, 'voiceover')).sort(), ['slide-04-02.wav', 'slide-04.wav']);
+});
+
 test('POST /edit/record names the folder only — never the file, and never one outside the deck', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);

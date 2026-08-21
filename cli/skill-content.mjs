@@ -76,6 +76,7 @@ with a build and notes already wired):
 - \`decklight bundle deck.html --themes all\` — flatten into one self-contained file to hand off or publish
 - \`decklight pdf deck.html\` — render every slide to a PDF, and report the ones that overflow
 - \`decklight tts\` — live voice bridge so the deck can narrate itself on the fly
+- \`decklight record deck.html\` — record the narration in the author's OWN voice: the deck shows one \`⟨CLICK⟩\` beat at a time and \`→\` ends it, writing \`slide-NN-KK.wav\` per beat so the recording paces the builds (play it back with \`narration: { files: 'voiceover', ext: 'wav', segments: true }\`)
 - \`decklight skills\` — regenerate this skill after upgrading Decklight
 
 **Render the deck before you call a slide done.** Content that exceeds a slide

@@ -201,7 +201,7 @@ import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha,
 import { describeCommit, messagesLine } from './commit-message.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
-export async function editMain(args) {
+export async function editMain(args, { onListen = null } = {}) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
                       [--commit-every <seconds>] [--agent <name>] [--commit-messages]
@@ -687,6 +687,17 @@ export async function editMain(args) {
         const kind = url.searchParams.get('kind');
         if (!Number.isInteger(slide) || slide < 1 || slide > 9999) return json(400, { ok: false, error: 'bad slide' });
         if (kind !== 'wav' && kind !== 'visemes') return json(400, { ok: false, error: 'bad kind' });
+        // `seg` is the per-⟨CLICK⟩ file number (slide-NN-KK.wav) — the audio
+        // that lets a recording step the builds. Absent means the whole slide.
+        // Bounded and integral like `slide`, and for the same reason: it is
+        // half of a filename this server builds, and the only defence that
+        // survives someone deciding the name should be more flexible one day.
+        const segRaw = url.searchParams.get('seg');
+        const seg = segRaw == null ? null : Number(segRaw);
+        if (seg !== null && (!Number.isInteger(seg) || seg < 1 || seg > 999)) {
+          return json(400, { ok: false, error: 'bad seg' });
+        }
+        if (seg !== null && kind !== 'wav') return json(400, { ok: false, error: 'only wav has segments' });
         // The player names the FOLDER (its own `narration.files`, so a recorded
         // set lands where that deck already plays from) and nothing else: the
         // file name is built here, so no request can choose one. The folder is
@@ -700,7 +711,9 @@ export async function editMain(args) {
         if (!dir || (!dir.startsWith(root + sep) && dir !== root)) {
           return json(400, { ok: false, error: 'the recording folder must sit inside the deck\'s own directory' });
         }
-        const name = `slide-${String(slide).padStart(2, '0')}.${kind === 'wav' ? 'wav' : 'visemes.json'}`;
+        const name = `slide-${String(slide).padStart(2, '0')}`
+          + (seg === null ? '' : `-${String(seg).padStart(2, '0')}`)
+          + `.${kind === 'wav' ? 'wav' : 'visemes.json'}`;
         const chunks = [];
         let size = 0;
         for await (const chunk of req) {
@@ -949,7 +962,12 @@ export async function editMain(args) {
   });
 
   const actual = await listenTakingOverIfNeeded(server, port, host);
-  console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
+  // `decklight record` runs this same server in-process and needs to know
+  // WHICH port it ended up on (a taken --port moves to the next free one) and
+  // to print its own banner instead of the authoring one.
+  if (onListen) onListen({ port: actual, deckUrl, server });
+  else console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
+  return { port: actual, deckUrl, host, server };
 }
 
 

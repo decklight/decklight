@@ -97,7 +97,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
 | **Terminals** | `decklight rec` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
-| **Narration** | TTS reads your notes in sync with builds; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
+| **Narration** | TTS reads your notes in sync with builds — or **your own voice**, recorded beat by beat and pacing them the same way; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Integrity** | read-only `present` under a real CSP header, an ingredients label of what a deck executes, Sigstore signing, the `.decklight` container | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **The durable record** | decklight commits as you write; `H` reads it back — every version previewed live, what each changed, one keystroke to restore | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Marketplaces** | git-repo catalogs, registered not fetched; themes, templates, skills, voices, engines, importers, transforms and presenter plugins | [SPEC MARKETPLACE_REGISTRY](SPEC.md#marketplace_registry--marketplaces-registered-not-fetched) |
@@ -112,6 +112,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight present deck.html` | **play a deck you did not author** — read-only over localhost under a CSP header, with an ingredients label and `--strict`; a deck in a clone can see its upstream and (with `--upstream-pull`) offer to fast-forward |
 | `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across (`.key` needs macOS; a Slides URL must be link-shared) |
 | `decklight rec script.term.yaml` | record a terminal cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
+| `decklight record deck.html` | record the narration in **your own voice** — the deck reads you its notes one ⟨CLICK⟩ at a time, and `→` ends a beat *and* reveals the next build, so your voice paces the deck (`rec` records a terminal; `record` records you) |
 | `decklight history deck.html` | what decklight committed, which commits exist only on this machine, and how to push them |
 | `decklight restore deck.html` | list the commits that touched a deck, and put it back to any of them |
 | `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
@@ -138,7 +139,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `→` `←` `Space` | next / previous build or slide |
 | `S` | speaker view (again: rehearse cue cards) |
 | `T` | theme picker (type to filter) · `⌃T` generate a theme |
-| `V` | narration on/off |
+| `V` | narration on/off · `⇧V` records it in a synthesized voice · `⇧R` records it in yours |
 | `H` | the deck's history — every version previewed live, `⏎` restores one |
 | `/` | command palette · `G` find a slide |
 | `?` | help overlay — every key |

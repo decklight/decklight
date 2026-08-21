@@ -45,6 +45,7 @@ const HARNESSES = [
   'render',
   'player-render',
   'narration-render',
+  'record-render',
   'character-render',
   'engine-render',
   'pin-render',
@@ -92,6 +93,11 @@ const HARNESS_TIMEOUT_MS = Number(process.env.VERIFY_TIMEOUT_MS ?? 10 * 60 * 100
  * to split the harness rather than to keep widening the exception.
  */
 const BUDGET = { 'narration-render': 3 };
+// `record-render` is the other shape again: it runs on the REAL clock, because
+// an AudioContext cannot be fast-forwarded, so its cost is the wall time of the
+// take it records (~6s here) plus two cold browsers. Well inside the base cap —
+// listed here only so the next person adding a beat to its fixture knows the
+// number is a wall clock and not a page load.
 const budgetFor = (name) => HARNESS_TIMEOUT_MS * (BUDGET[name] ?? 1);
 
 /**

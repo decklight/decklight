@@ -13,7 +13,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
 
-import { hintApplies, pauseSeconds, segmentFileIndex, narrationTracks } from '../src/core/narration.js';
+import {
+  hintApplies, pauseSeconds, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
+} from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
 const showing = { hasTracks: true };
@@ -130,6 +132,84 @@ test('the runtime predicts the filenames the tool actually writes', () => {
       .replace(/\s+/g, ' ').trim())).filter(Boolean);
     assert.deepEqual(spoken, files, `${html}: segment text does not match the file's text`);
   }
+});
+
+// ── recordPlan — what ⇧R actually captures, beat by beat ──────────────────
+
+test('the recording plan is one beat per ⟨CLICK⟩ segment, filmed at its own build', () => {
+  // Per SEGMENT, not per step: the files are per segment, and recording per
+  // step would write two files for a three-beat slide and leave the third
+  // missing — the whole track silently short by one on every such slide.
+  assert.deepEqual(recordPlan(['One.', 'Two.', 'Three.'], 2), [
+    { seg: 0, step: 0, file: 1, text: 'One.' },
+    { seg: 1, step: 1, file: 2, text: 'Two.' },
+    { seg: 2, step: 2, file: 3, text: 'Three.' },
+  ]);
+});
+
+test('a beat past the slide\'s builds is still recorded — filmed on the last step', () => {
+  // #350's shape: three beats, one build. There is nothing left to reveal, so
+  // the surplus is read against the fully built slide — which is exactly where
+  // playback chains it.
+  assert.deepEqual(recordPlan(['One.', 'Two.', 'Three.'], 1).map((b) => [b.step, b.file]),
+    [[0, 1], [1, 2], [1, 3]]);
+});
+
+test('an empty segment is a silent beat: nothing to read, and no file', () => {
+  // `⟨CLICK⟩ A ⟨CLICK⟩ B` — the runtime sees three segments, the disk holds
+  // two files, and the first has no words in it to read aloud.
+  assert.deepEqual(recordPlan(['', 'A.', 'B.'], 2), [
+    { seg: 1, step: 1, file: 1, text: 'A.' },
+    { seg: 2, step: 2, file: 2, text: 'B.' },
+  ]);
+});
+
+test('a slide the tool would not segment is ONE take, and says so with a null file', () => {
+  // Below two beats there are no slide-NN-KK files anywhere in this toolchain
+  // — voiceover.mjs gives up at the same threshold — so the recorder writes
+  // slide-NN.wav and nothing else. `file: null` is that instruction.
+  assert.deepEqual(recordPlan(['Only this.'], 0), [{ seg: 0, step: 0, file: null, text: 'Only this.' }]);
+  // …including a slide with BUILDS but no ⟨CLICK⟩: one take, filmed at arrival,
+  // which is where its whole-slide file plays back
+  assert.deepEqual(recordPlan(['Only this.'], 4), [{ seg: 0, step: 0, file: null, text: 'Only this.' }]);
+  // and the empty forms record nothing at all
+  assert.deepEqual(recordPlan([], 0), []);
+  assert.deepEqual(recordPlan(['', '  '], 1), []);
+  assert.deepEqual(recordPlan(undefined, 0), []);
+});
+
+test('the plan reads the same whitespace the file numbering does', () => {
+  // recordPlan and segmentFileIndex must normalise identically or the beat
+  // being read aloud and the file it is written as come apart.
+  const segs = ['  One.  ', '\n', ' Two. '];
+  assert.deepEqual(recordPlan(segs, 1).map((b) => b.file), [1, 2]);
+  assert.deepEqual(recordPlan(segs, 1).map((b) => b.text), ['One.', 'Two.']);
+  assert.deepEqual(segmentFileIndex(segs), [1, null, 2]);
+});
+
+// ── floatToPcm16 — the mic's samples in the format everything else reads ──
+
+test('mic samples become 16-bit little-endian PCM, and a hot input does not wrap', () => {
+  const pcm = floatToPcm16(new Float32Array([0, 0.5, -0.5, 1, -1]));
+  assert.equal(pcm.length, 10);
+  const v = new DataView(pcm.buffer);
+  const at = (i) => v.getInt16(i * 2, true);
+  assert.equal(at(0), 0);
+  assert.equal(at(1), 16384);
+  assert.equal(at(2), -16384);
+  // full scale, both signs — and NOT 32768, which is what a bare `s * 32768`
+  // writes and an Int16 reads back as -32768: the loudest moment of a take
+  // inverting into a click exactly where it is most audible
+  assert.equal(at(3), 32767);
+  assert.equal(at(4), -32768);
+});
+
+test('an overshooting sample is clamped, not wrapped', () => {
+  // Web Audio nominally hands out -1..1 and genuinely does not: a hot mic or a
+  // gain stage overshoots, and every sample past the rail must saturate.
+  const v = new DataView(floatToPcm16(new Float32Array([2, -2, 1.0001, -1.0001])).buffer);
+  assert.deepEqual([0, 1, 2, 3].map((i) => v.getInt16(i * 2, true)),
+    [32767, -32768, 32767, -32768]);
 });
 
 // ── narrationTracks — the `ext` that never arrived ────────────────────────

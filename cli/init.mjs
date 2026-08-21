@@ -375,13 +375,26 @@ export function openCommand(platform, url) {
  * cannot launch (headless, no xdg-open) gets one dim line and a normal exit:
  * the deck was created, which is the product.
  */
-export async function openDeck(deckPath, { platform = process.platform, spawnFn = spawn, out = process.stdout } = {}) {
-  const url = pathToFileURL(deckPath).href;
-  const { cmd, args } = openCommand(platform, url);
+export async function openDeck(deckPath, opts = {}) {
   const rel = path.relative('.', deckPath) || deckPath;
+  // the prefix names the FLAG that asked, which is what a reader of the line
+  // needs: --open is opt-in, and its one dim failure line has to say so
+  return openUrl(pathToFileURL(deckPath).href, { ...opts, what: rel, prefix: '--open: ' });
+}
+
+/**
+ * The same launcher, for a URL that is not a file — `decklight record` serves
+ * the deck over http://127.0.0.1 precisely because a browser will not open a
+ * microphone for a `file://` page.
+ */
+export async function openUrl(url, {
+  platform = process.platform, spawnFn = spawn, out = process.stdout, what = url, prefix = '',
+} = {}) {
+  const { cmd, args } = openCommand(platform, url);
+  const rel = what;
   const dim = (s) => (out.isTTY && !process.env.NO_COLOR ? `${DIM}${s}${RESET}` : s);
   const skipped = (err) =>
-    out.write(dim(`--open: could not launch a browser (${cmd}: ${err.code ?? err.message}) — open ${rel} yourself\n`));
+    out.write(dim(`${prefix}could not launch a browser (${cmd}: ${err.code ?? err.message}) — open ${rel} yourself\n`));
   await new Promise((resolve) => {
     let child;
     try {
