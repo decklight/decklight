@@ -87,4 +87,35 @@ export async function runMain(cmd, fn) {
 // the first time a deck highlights language-html, which turned the old
 // escape into a lazy SyntaxError. The unicode escape is valid in strings,
 // templates, JSON, and regexes with or without the u flag.
+/**
+ * The two recorders take inputs as different as their outputs — `cast` a YAML
+ * command script, `record` a deck — and the names invite the mix-up: they
+ * differ by two letters and both mean "record".
+ *
+ * Getting it wrong used to be silent in the direction that mattered.
+ * `decklight record demo.term.yaml` started a server, printed a URL and opened
+ * a browser on a YAML file: no error anywhere, just a page that would never be
+ * a deck. (The other way at least failed, if unhelpfully — `script has no
+ * steps`, said of a perfectly good deck.)
+ *
+ * Returns the refusal, or null when the file is the right kind or a kind
+ * neither command claims — an unusual extension is not evidence of a mistake,
+ * and refusing one would break a deck somebody named `talk.htm5`.
+ */
+export function wrongRecorder(cmd, file) {
+  const name = String(file ?? '');
+  const isScript = /\.ya?ml$/i.test(name);
+  const isDeck = /\.(html?|decklight)$/i.test(name);
+  const wrong = (cmd === 'record' && isScript) || (cmd === 'cast' && isDeck);
+  if (!wrong) return null;
+  const what = isScript ? 'a terminal script, not a deck' : 'a deck, not a terminal script';
+  // Both are named, because the whole reason this is worth refusing is that
+  // either could have been meant — and the suggested line is the one they
+  // typed, repaired, so it can be copied rather than reconstructed.
+  return `${name} is ${what}.\n`
+    + '  decklight cast    records a TERMINAL — a YAML command script, replayed in the deck\n'
+    + "  decklight record  records YOU — your voice narrating a deck's notes\n\n"
+    + `  did you mean:  decklight ${isScript ? 'cast' : 'record'} ${name}`;
+}
+
 export const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\u0021--');

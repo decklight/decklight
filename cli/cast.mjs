@@ -36,7 +36,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { createRequire } from 'node:module';
-import { makeFail, runMain } from './util.mjs';
+import { makeFail, runMain, wrongRecorder } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
 
 const require = createRequire(import.meta.url);
@@ -529,6 +529,11 @@ export async function castMain(argv = process.argv.slice(2)) {
 
   const { yaml } = loadDeps();
   const scriptPath = rest[0];
+  // Named before the YAML parser gets it: a deck handed to this command used
+  // to come back as `script has no steps`, which is true of every HTML file
+  // and says nothing about the one thing that went wrong.
+  const mixedUp = wrongRecorder('cast', scriptPath);
+  if (mixedUp) fail(mixedUp);
   if (!scriptPath || !fs.existsSync(scriptPath)) fail(`script not found: ${scriptPath}`);
   const oIdx = rest.indexOf('-o');
   const outPath = oIdx !== -1 && rest[oIdx + 1]
