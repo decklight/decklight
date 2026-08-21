@@ -150,6 +150,7 @@
     // browser's download folder is the honest fallback and must still work
     const authored = recording && !params.has('nosrv');
     window.__recorded = [];   // every /edit/record the deck posted
+    window.__narrationWritten = [];   // …and every config it wrote back
     window.__downloaded = []; // …and every file it handed the browser instead
     // downloadFromUrl builds an <a download> and clicks it; that click is the
     // only observable difference between the two paths
@@ -171,6 +172,19 @@
         if (u.endsWith('/edit/ping')) {
           // the basename guard the runtime applies: this page IS narration.html
           return new Response(JSON.stringify({ ok: true, name: 'narration.html', undo: 0, redo: 0 }),
+            { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if (u.includes('/edit/narration')) {
+          const cfg = JSON.parse(opts.body);
+          // ?badconfig — a deck that builds its config elsewhere, which the
+          // real server answers 409 for. The card must say so, not shrug.
+          if (params.has('badconfig')) {
+            return new Response(JSON.stringify({ ok: false,
+              error: 'this deck builds its config outside the Decklight.init(…) call' }),
+            { status: 409, headers: { 'content-type': 'application/json' } });
+          }
+          window.__narrationWritten.push(cfg);
+          return new Response(JSON.stringify({ ok: true, changed: true }),
             { status: 200, headers: { 'content-type': 'application/json' } });
         }
         if (u.includes('/edit/record')) {
@@ -655,8 +669,11 @@
             // the card must not claim a folder next to a deck nothing wrote to
             r.wentToDisk = r.posted.length === 0;
             r.saidWhere = /downloads/.test(text);
+            // no server to write through, so no offer to — the button is
+            // absent exactly where it could not have worked
+            r.noOfferWithoutAServer = !card?.querySelector('.rec-use');
             r.PASS = r.dialogOpens && r.finished && r.wentToDisk
-              && r.everySlideHasNotes && r.saidWhere;
+              && r.everySlideHasNotes && r.saidWhere && r.noOfferWithoutAServer;
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
           }
@@ -670,6 +687,24 @@
           // and the card names where they landed, plus the line that plays them
           r.saidWhere = text.includes(`${r.dir}/`) && !/downloads/.test(text);
           r.namedTheConfig = text.includes(`files: '${r.dir}', ext: 'wav'`);
+
+          // "Use this track" — the offer that spares you pasting a config
+          // line, and the one thing between a finished recording and a deck
+          // that plays it.
+          const useBtn = card?.querySelector('.rec-use');
+          r.offeredToUseIt = !!useBtn;
+          if (useBtn) {
+            useBtn.click();
+            for (let i = 0; i < 200 && !/now plays this track|couldn/.test(useBtn.textContent); i++) {
+              await new Promise((ok) => setTimeout(ok, 20));
+            }
+            r.useResult = useBtn.textContent;
+            r.wroteTheConfig = window.__narrationWritten.slice();
+            r.saidItWorked = /now plays this track/.test(useBtn.textContent);
+            // a 409 must reach the presenter as the server's own sentence
+            r.explainedTheRefusal = params.has('badconfig')
+              && /outside the Decklight\.init/.test(useBtn.textContent);
+          }
 
           if (mode === 'recordseg') {
             // ⇧V catching up with ⇧R: the same layout from both recorders, so
@@ -685,9 +720,16 @@
             r.beatsCarriedAudio = r.posted.filter((p) => p.seg != null).every((p) => p.bytes > 44);
             // the card prints the flag without which the beats do nothing
             r.namedSegments = text.includes(`files: '${r.dir}', ext: 'wav', segments: true`);
+            // …and the button writes exactly the line the card printed
+            r.configMatchedTheCard = JSON.stringify(r.wroteTheConfig)
+              === JSON.stringify([{ files: r.dir, ext: 'wav', segments: true }]);
             r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes
               && r.carriedAudio && r.dirIsRight && r.saidWhere && r.wroteABeatPerClick
-              && r.noBeatsForAOneBreathSlide && r.beatsCarriedAudio && r.namedSegments;
+              && r.noBeatsForAOneBreathSlide && r.beatsCarriedAudio && r.namedSegments
+              && r.offeredToUseIt
+              && (params.has('badconfig')
+                ? r.explainedTheRefusal && !r.wroteTheConfig.length
+                : r.saidItWorked && r.configMatchedTheCard);
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
           }
@@ -696,9 +738,13 @@
           r.noBeatsWithoutClicks = r.posted.every((p) => p.seg == null)
             && !/segments: true/.test(text);
 
+          // a deck with no ⟨CLICK⟩ anywhere must not be handed segments: true
+          r.configMatchedTheCard = JSON.stringify(r.wroteTheConfig)
+            === JSON.stringify([{ files: r.dir, ext: 'wav' }]);
           r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes
             && r.carriedAudio && r.dirIsRight && r.saidWhere && r.namedTheConfig
-            && r.noBeatsWithoutClicks;
+            && r.noBeatsWithoutClicks && r.offeredToUseIt && r.saidItWorked
+            && r.configMatchedTheCard;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

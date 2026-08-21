@@ -30,7 +30,7 @@ import { argReader, isMain } from '../tools/args.mjs';
 import { wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
-const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceover] [--no-open]
+const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceover] [--slides a-b] [--no-open]
   serves the deck over http://127.0.0.1 and opens it with the voice recorder up
 
   the deck reads you its notes one ⟨CLICK⟩ beat at a time; → ends a beat, which
@@ -40,6 +40,9 @@ const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceove
   --port N     port to serve on (taken? moves to the next free one)     [8788]
   --dir NAME   folder to write into, relative to the deck   [the deck's own
                narration.files, else voiceover]
+  --slides a-b re-record only this range (1-based, inclusive; "7" for one
+               slide). Every other slide's files are left untouched, so a
+               fluffed beat costs one slide and not the whole deck
   --no-open    don't launch a browser — print the URL and wait
 
   writes <dir>/slide-NN.wav (the whole slide) and <dir>/slide-NN-KK.wav (one
@@ -80,9 +83,30 @@ export function dirProblem(name) {
  * record against the slides your audience will see, at the build they will see
  * them at.
  */
-export function recordUrl(port, deckUrl, dir) {
-  const q = dir ? `?record&dir=${encodeURIComponent(dir)}` : '?record';
-  return `http://127.0.0.1:${port}${deckUrl}${q}`;
+export function recordUrl(port, deckUrl, dir, slides) {
+  const q = ['record',
+    ...(dir ? [`dir=${encodeURIComponent(dir)}`] : []),
+    ...(slides ? [`slides=${encodeURIComponent(slides)}`] : [])].join('&');
+  return `http://127.0.0.1:${port}${deckUrl}?${q}`;
+}
+
+/**
+ * `7` or `3-9` → itself; anything else → a message.
+ *
+ * The deck's own slide count is not known here (the browser has it), so this
+ * checks the SHAPE and leaves the bounds to the runtime, which simply records
+ * the slides that exist in range. A range past the end records nothing and
+ * says so on the card, which is a better answer than a CLI refusing to start.
+ */
+export function slidesProblem(range) {
+  if (range === undefined || range === null) return null;
+  const m = /^(\d+)(?:-(\d+))?$/.exec(String(range).trim());
+  if (!m) return `--slides must be a-b or a single slide number (got "${range}")`;
+  const from = Number(m[1]);
+  const to = m[2] ? Number(m[2]) : from;
+  if (from < 1) return '--slides is 1-based — there is no slide 0';
+  if (to < from) return `--slides ${range} ends before it starts`;
+  return null;
 }
 
 export async function recordMain(args, { open = openUrl, out = process.stdout, onListen = null } = {}) {
@@ -92,8 +116,10 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   }
   const { opt } = argReader(args);
   const dir = opt('--dir');
-  const bad = dirProblem(dir);
-  if (bad) { process.stderr.write(`decklight record: ${bad}\n`); return 2; }
+  const slides = opt('--slides');
+  for (const bad of [dirProblem(dir), slidesProblem(slides)]) {
+    if (bad) { process.stderr.write(`decklight record: ${bad}\n`); return 2; }
+  }
 
   const deck = args.find((a) => !a.startsWith('-'));
   // Before the server, not after: this used to serve the YAML file, print a
@@ -113,10 +139,11 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   // missing or outside the served root — say nothing on top of it.
   if (!started) return process.exitCode ?? 1;
 
-  const url = recordUrl(started.port, started.deckUrl, dir);
+  const url = recordUrl(started.port, started.deckUrl, dir, slides);
   out.write(`decklight record on ${url}\n`);
   out.write('  ⇧R opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
-  out.write(`  files land in ${dir ?? "the deck's narration folder"}, next to the deck. Ctrl-C when you are done.\n`);
+  out.write(`  files land in ${dir ?? "the deck's narration folder"}, next to the deck.`
+    + `${slides ? ` Only slide${/-/.test(slides) ? 's' : ''} ${slides}.` : ''} Ctrl-C when you are done.\n`);
   if (!args.includes('--no-open')) await open(url, { out, what: url });
   return 0;
 }

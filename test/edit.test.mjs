@@ -18,6 +18,7 @@ import { childEnv, rmTemp, writeFakeBin } from './helpers.mjs';
 import http from 'node:http';
 
 import {
+  setNarrationConfig, narrationLiteral, initArgument,
   setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
 } from '../cli/edit.mjs';
@@ -45,6 +46,75 @@ const DECK = `<!doctype html>
 `;
 
 // ── setSlideLayout: the file is the source of truth ───────────────────────
+
+// ── the recorder's last manual step, removed (PRESENTING) ────────────────
+// The recorder writes the files and then asked you to paste a config line into
+// the deck by hand. This server already owns the file — notes, layouts, element
+// edits all go through applyEdit — so it can take that step too.
+
+const boot = (init) => '<!doctype html><div class="decklight"><section><h1>x</h1></section></div>\n'
+  + '<script src="decklight.js"></script>\n<script>' + init + '</script>\n';
+/** DECK has no boot call; the narration route needs one to edit. */
+const BOOT_DECK = boot;
+const initOf = (html) => html.match(/<script>([^<]*)<\/script>/g).pop().replace(/<\/?script>/g, '').trim();
+const TRACK = { files: 'voiceover', ext: 'wav', segments: true };
+
+test('the narration config is written into the deck, whatever shape it was in', () => {
+  const set = (init) => initOf(setNarrationConfig(boot(init), TRACK));
+  const want = "narration: { files: 'voiceover', ext: 'wav', segments: true }";
+
+  // an empty config, and no config at all
+  assert.equal(set('Decklight.init({});'), `Decklight.init({ ${want} });`);
+  assert.equal(set('Decklight.init();'), `Decklight.init({ ${want} });`);
+  // a config with other keys keeps them
+  assert.match(set("Decklight.init({ theme: 'midnight' });"), /theme: 'midnight'/);
+  // …and the scaffolder's own assigned form
+  assert.match(set('const deck = Decklight.init({});'), /^const deck = Decklight/);
+
+  // an existing narration key is REPLACED, not duplicated — re-recording into
+  // a second folder must not leave the deck naming both
+  const twice = set("Decklight.init({ narration: { files: 'old', ext: 'm4a' }, theme: 'x' });");
+  assert.equal(twice.match(/narration:/g).length, 1);
+  assert.match(twice, /files: 'voiceover'/);
+  assert.doesNotMatch(twice, /'old'/);
+  assert.match(twice, /theme: 'x'/, 'the rest of the config survives');
+});
+
+test('the config walker is not fooled by braces and parens inside strings', () => {
+  // The reason this is a walker and not a regex. Both of these are things a
+  // real deck contains, and a bracket-counting regex reads them as structure —
+  // which would splice the config into the middle of somebody's title.
+  const set = (init) => initOf(setNarrationConfig(boot(init), TRACK));
+  assert.match(set("Decklight.init({ title: 'Acme (Inc)' });"), /title: 'Acme \(Inc\)'/);
+  assert.match(set("Decklight.init({ title: 'a } b' });"), /title: 'a \} b'/);
+  // a `narration:` nested inside another key is not this object's key
+  const nested = set("Decklight.init({ character: { narration: 1 }, theme: 'x' });");
+  assert.match(nested, /character: \{ narration: 1 \}/, 'the nested key is left alone');
+  assert.match(nested, /narration: \{ files: 'voiceover'/, 'and a real top-level one is added');
+});
+
+test('a config built outside the init call is refused, never guessed at', () => {
+  // `const cfg = {…}; Decklight.init(cfg)` has nothing at the call site to
+  // edit. Guessing which `cfg`, in which scope, is how an editor corrupts a
+  // file — so this returns null and the card keeps printing the line.
+  assert.equal(setNarrationConfig(boot('const cfg = { theme: 1 }; Decklight.init(cfg);'), TRACK), null);
+  assert.equal(setNarrationConfig(boot('Decklight.init(window.CFG);'), TRACK), null);
+  // and a deck with no boot call at all
+  assert.equal(setNarrationConfig('<div class="decklight"></div>', TRACK), null);
+  assert.equal(initArgument('<div class="decklight"></div>'), null);
+});
+
+test('the literal reads as a person would have typed it', () => {
+  // It lands in someone's source file and stays there — JSON.stringify's
+  // double quotes and missing spaces would look like a machine had been in.
+  assert.equal(narrationLiteral({ files: 'voiceover', ext: 'wav', segments: true }),
+    "{ files: 'voiceover', ext: 'wav', segments: true }");
+  assert.equal(narrationLiteral({ files: 'voiceover' }), "{ files: 'voiceover' }");
+  // undefined keys are omitted rather than written out
+  assert.equal(narrationLiteral({ files: 'a', ext: undefined }), "{ files: 'a' }");
+  // …and a quote in a folder name cannot end the string early
+  assert.equal(narrationLiteral({ files: "it's" }), "{ files: 'it\\'s' }");
+});
 
 test('setSlideLayout writes, replaces, and (for auto) removes data-layout', () => {
   const set = setSlideLayout(DECK, 1, 'split');
@@ -588,6 +658,49 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
 // The bug this closes: the player handed every stitched slide to the browser's
 // download path, so a recorded deck arrived as thirty slide-NN.wav in the OS
 // download folder — never the deck's, which is the only folder `bundle` reads.
+
+test('POST /edit/narration writes the config, undoes like any other edit', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, BOOT_DECK('Decklight.init({});'));
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  const r = await (await post(base, '/edit/narration',
+    { files: 'voiceover', ext: 'wav', segments: true })).json();
+  assert.equal(r.ok, true);
+  assert.equal(r.changed, true);
+  assert.match(readFileSync(deck, 'utf8'),
+    /narration: \{ files: 'voiceover', ext: 'wav', segments: true \}/);
+
+  // one door for every mutation, so Z takes this back like a notes edit
+  assert.equal(r.undo, 1);
+  await post(base, '/edit/undo');
+  assert.doesNotMatch(readFileSync(deck, 'utf8'), /narration:/);
+
+  // the same three shapes /edit/record refuses for a folder — this one is
+  // written INTO the deck, where a bad value is not a failed request but a
+  // deck that no longer plays
+  for (const bad of [{ files: '/etc' }, { files: '../..' }, { files: 'C:\\x' },
+    { files: '' }, { files: 5 }, { files: 'ok', ext: '../x' }, { files: 'ok', segments: 'yes' }]) {
+    assert.equal((await post(base, '/edit/narration', bad)).status, 400, JSON.stringify(bad));
+  }
+});
+
+test('POST /edit/narration says WHY when a deck builds its config elsewhere', async (t) => {
+  // Not a failure of this server — a deck whose config is not a literal at the
+  // call site. Naming that is the difference between "paste this line" and
+  // "it did not work".
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, BOOT_DECK('const cfg = { theme: 1 }; Decklight.init(cfg);'));
+  const before = readFileSync(deck, 'utf8');
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  const res = await post(base, '/edit/narration', { files: 'voiceover', ext: 'wav' });
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /outside the Decklight\.init/);
+  assert.equal(readFileSync(deck, 'utf8'), before, 'and it wrote nothing');
+});
 
 test('POST /edit/record writes slide-NN.wav into a folder beside the deck', async (t) => {
   const dir = tmp(t);

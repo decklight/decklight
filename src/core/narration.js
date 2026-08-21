@@ -1742,10 +1742,24 @@ export function createNarration({
   // it, and a loop only acts while its own run is still current — a cancel
   // followed by an immediate re-record can't resurrect the old loop.
   let recEl = null, recView = 'confirm', recRun = 0;
+  /**
+   * The slides a recorder walks: every one that has something to say, narrowed
+   * by `?slides=a-b` when `decklight record --slides` asked for a range.
+   *
+   * The range exists because recording starts at slide 1 and there is no way
+   * to skip: fluff slide 30 of a 40-slide deck and you would read 29 slides of
+   * beats to reach it again. Esc already lets you keep a PREFIX; this is what
+   * lets you redo a middle. Files outside the range are left exactly as they
+   * are, which is the whole point — a re-record is meant to be surgical.
+   */
   function slidesWithNotes() {
     const out = [];
     for (let sl = 1; sl <= instance.state.totalSlides; sl++) if (notesText(sl)) out.push(sl);
-    return out;
+    const m = /^(\d+)(?:-(\d+))?$/.exec(params?.get?.('slides') ?? '');
+    if (!m) return out;
+    const from = Number(m[1]);
+    const to = m[2] ? Number(m[2]) : from;
+    return out.filter((sl) => sl >= from && sl <= to);
   }
   function fmtTime(ms) {
     const s = Math.round(ms / 1000);
@@ -1786,7 +1800,9 @@ export function createNarration({
       card.innerHTML = `<div class="narr-head">${cancelled ? 'recording cancelled' : 'recording done'}</div>
         <div class="rec-line">${saved} / ${total} slide${total === 1 ? '' : 's'} ${where}</div>
         <div class="rec-line">${next}</div>
+        ${useTrackRow(dir)}
         <div class="rec-hint">Enter or Esc to close</div>`;
+      wireUseTrack(card, dir, { ext: 'wav', ...(data.segmented ? { segments: true } : {}) });
     }
   }
   // Slide files are STITCHED FROM THE SENTENCE CACHE: every clip already
@@ -1991,6 +2007,54 @@ export function createNarration({
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     return false;
   }
+  /**
+   * Point the deck's own config at the track just recorded.
+   *
+   * The recorder writes the files and then used to ask you to paste a line
+   * into the deck by hand — the one manual step in a flow that is otherwise a
+   * key and an arrow. The author server already owns this file, so it can
+   * write this too; Z undoes it like any other edit.
+   *
+   * A BUTTON, never automatic. Editing someone's deck the moment a recording
+   * ends is the wrong default even with undo behind it, and the button is
+   * absent exactly where it could not work anyway — no author server means no
+   * write, and the card falls back to printing the line.
+   */
+  async function useRecordedTrack(btn, dir, cfg) {
+    const base = authorBase();
+    if (base == null) return;
+    btn.textContent = 'saving…';
+    try {
+      const r = await fetch(`${base}/edit/narration`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ files: dir, ...cfg }),
+      });
+      const out = await r.json();
+      if (!out?.ok) throw new Error(out?.error || `HTTP ${r.status}`);
+      btn.textContent = '✓ the deck now plays this track — Z undoes it';
+      btn.classList.add('rec-done');
+      debugLog('narr', `narration config → ${dir}`);
+    } catch (e) {
+      // The one case that cannot work is a config built outside the init call.
+      // The server says which; repeating it here beats "could not save".
+      btn.classList.add('rec-failed');
+      btn.textContent = `couldn't write it — ${String(e.message || e)}`;
+    }
+  }
+  /** The done card's offer, when there is a server able to take it. */
+  function useTrackRow(dir) {
+    return authorBase() == null || !dir ? ''
+      : '<div class="narr-row narr-sel rec-use" role="button" tabindex="0">Use this track in the deck</div>';
+  }
+  function wireUseTrack(card, dir, cfg) {
+    const btn = card?.querySelector('.rec-use');
+    if (!btn) return;
+    const go = () => useRecordedTrack(btn, dir, cfg);
+    btn.addEventListener('click', go);
+    btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  }
+
   async function startRecording() {
     const list = slidesWithNotes();
     const run = ++recRun;
@@ -2232,7 +2296,9 @@ export function createNarration({
       <div class="rec-line">Play it back with <code>${cfg}</code>${segmented
         ? ' — <strong>segments</strong> is what makes your voice step the builds.'
         : '.'}</div>
+      ${useTrackRow(dir)}
       <div class="rec-hint">Enter or Esc to close</div>`;
+    wireUseTrack(card, dir, { ext: 'wav', ...(segmented ? { segments: true } : {}) });
   }
 
   async function startMicRecording() {

@@ -551,8 +551,11 @@ export function init(userConfig = {}) {
       { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
       { label: 'Character…', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
       { label: `Character solo ${character.solo ? 'off' : 'on'}`, alias: 'centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
-      { label: 'Record offline narration…', hint: '⇧V', alias: 'export download batch wav tts', run: openRecordDialog },
-      { label: 'Record your own voice…', hint: '⇧R', alias: 'microphone mic narrate teleprompter speak record voice', run: openMicRecorder },
+      // Named as a PAIR, differing only where it matters: "offline" described
+      // how the old one was made, not what you got, and read as the opposite
+      // of nothing once a second recorder existed.
+      { label: 'Record narration (synthesized voice)…', hint: '⇧V', alias: 'export download batch wav tts offline', run: openRecordDialog },
+      { label: 'Record narration (your voice)…', hint: '⇧R', alias: 'microphone mic narrate teleprompter speak record voice', run: openMicRecorder },
       { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
       { label: 'Speaker view', hint: 'S', run: () => {

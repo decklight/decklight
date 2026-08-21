@@ -101,7 +101,7 @@ let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'plainrec', 'segmanifest', 'segsigned',
-  'record', 'record&dir', 'record&nosrv', 'recordseg']) {
+  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig']) {
   const [m, extra] = mode.split('&');
   // Timed, and printed even on success (#323). This harness boots a browser per
   // mode, so when it dies to its budget the useful question is WHICH mode was
@@ -217,6 +217,12 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} un-opted track unchanged:`
       + ` one file for the slide=${r.playedTheWholeSlide} · did not auto-advance=${r.didNotAdvance}`
       + ` · → did not restart it=${r.steppedWithoutRestarting}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'recordseg&badconfig') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} a deck that builds its config elsewhere:`
+      + ` the refusal reaches the card=${r.explainedTheRefusal}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
