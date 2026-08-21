@@ -9,7 +9,7 @@
 //     --bucket gs://decklight-voices/showcase --sign 7d
 //
 // What ships next to the deck afterwards is manifest.signed.json — a few KB of
-// JSON naming one URL per slide. The runtime plays those URLs verbatim, which
+// JSON naming one URL per slide, plus one per ⟨CLICK⟩ beat. The runtime plays those URLs verbatim, which
 // is the entire reason this exists: a presigned URL carries its signature in
 // the query string, and the older `dir:` form has nowhere to put one. A PUBLIC
 // bucket never needed this and still doesn't (`dir: 'https://storage.googleapis.com/…'`
@@ -27,7 +27,8 @@ import { argReader, isMain } from './args.mjs';
 
 const USAGE = `usage: node tools/publish-voices.mjs <voice-dir> --bucket gs://bucket/prefix [--sign 7d]
   uploads a recorded track's audio to Cloud Storage and writes a manifest of
-  per-slide URLs to deploy next to the deck
+  URLs to deploy next to the deck — one per slide, plus one per ⟨CLICK⟩ beat,
+  which is what lets a cloud-hosted track pace the builds and not just the slides
 
   --bucket gs://…  destination; the track's own folder name is appended
   --sign <dur>     mint V4 signed URLs valid this long (max 7d, the V4 cap)
@@ -84,6 +85,24 @@ export const trackPrefix = ({ bucket, prefix }, dirName) =>
   `gs://${bucket}/${[prefix, dirName].filter(Boolean).join('/')}`;
 
 /**
+ * Every audio file this track has, in play order: the whole-slide file, then
+ * its ⟨CLICK⟩ beats.
+ *
+ * A slide is more than one file now. `tools/voiceover.mjs` has always written
+ * `slide-NN-KK.m4a` per beat and listed them under `segments`, and the runtime
+ * plays them to pace the builds (SPEC PRESENTING) — so publishing a track
+ * without them publishes a track that cannot do the thing it was recorded for.
+ */
+export function manifestFiles(manifest) {
+  const out = [];
+  for (const s of (manifest?.slides ?? []).filter(Boolean)) {
+    if (s.file) out.push(s.file);
+    for (const sg of s.segments ?? []) if (sg?.file) out.push(sg.file);
+  }
+  return out;
+}
+
+/**
  * Which files this run has to upload.
  *
  * The track's manifest already carries a content hash per slide — that is how
@@ -91,12 +110,33 @@ export const trackPrefix = ({ bucket, prefix }, dirName) =>
  * manifest.signed.json is a record of exactly which bytes are already up
  * there. No bucket listing, no re-hashing: files whose hash moved, plus any
  * the last publish never saw.
+ *
+ * Keyed by FILE rather than by slide, because a slide is several files. A beat
+ * has no hash of its own (voiceover.mjs writes `{file}` and nothing else) so it
+ * inherits its slide's, which is the right answer anyway: the beats are cut
+ * from the same synthesis as the slide file, and move exactly when it moves.
  */
 export function changedFiles(manifest, previous, { all = false } = {}) {
-  const was = new Map((previous?.slides ?? []).filter(Boolean).map((s) => [s.file, s.hash]));
-  return (manifest?.slides ?? [])
-    .filter(Boolean)
-    .filter((s) => all || was.get(s.file) !== s.hash);
+  const was = new Map();
+  for (const s of (previous?.slides ?? []).filter(Boolean)) {
+    was.set(s.file, s.hash);
+    for (const sg of s.segments ?? []) {
+      // A beat carried through an earlier publish WITHOUT a url of its own was
+      // never uploaded: this tool walked slides[i].file only and spread the
+      // rest of the entry through untouched, so the entry travelled while the
+      // bytes stayed on the author's disk. Treating it as already-published
+      // would skip precisely the tracks this fix exists for.
+      if (sg?.file && sg.url) was.set(sg.file, s.hash);
+    }
+  }
+  const out = [];
+  for (const s of (manifest?.slides ?? []).filter(Boolean)) {
+    for (const file of [s.file, ...(s.segments ?? []).map((sg) => sg?.file)]) {
+      if (!file) continue;
+      if (all || was.get(file) !== s.hash) out.push({ file, hash: s.hash });
+    }
+  }
+  return out;
 }
 
 /**
@@ -112,7 +152,18 @@ export function signedManifest(manifest, {
     source,
     bucket,
     ...(signDuration ? { signDuration } : {}),
-    slides: (manifest.slides ?? []).map((s) => (s ? { ...s, url: urls.get(s.file) ?? s.url } : null)),
+    slides: (manifest.slides ?? []).map((s) => {
+      if (!s) return null;
+      const out = { ...s, url: urls.get(s.file) ?? s.url };
+      // Each beat gets its OWN url, and it has to: the runtime refuses to
+      // believe a segment on a signed manifest unless it carries one, because
+      // for as long as this tool did not write them, an entry without a url
+      // named audio that was never in the bucket.
+      if (s.segments) {
+        out.segments = s.segments.map((sg) => (sg?.file ? { ...sg, url: urls.get(sg.file) ?? sg.url } : sg));
+      }
+      return out;
+    }),
   };
 }
 
@@ -192,27 +243,33 @@ export async function publishVoicesMain(args = []) {
     }
   }
 
-  // EVERY slide is signed, not only the changed ones: signatures expire on
+  // EVERY file is signed, not only the changed ones: signatures expire on
   // their own schedule, so a re-sign that skipped the untouched files would
-  // publish a manifest where most slides had already lapsed.
-  const all = (manifest.slides ?? []).filter(Boolean);
+  // publish a manifest where most of it had already lapsed.
+  const all = manifestFiles(manifest);
+  const slideCount = (manifest.slides ?? []).filter((s) => s?.file).length;
+  const beats = all.length - slideCount;
+  // Said out loud, because it is the difference between a cloud track that
+  // paces the builds and one that only changes slides — and the count is the
+  // only place a publisher can notice the beats were never recorded.
+  const tally = `${all.length} URL(s)` + (beats ? ` (${slideCount} slides + ${beats} ⟨CLICK⟩ beats)` : '');
   const urls = new Map();
   let expires = null;
   if (signSeconds === null) {
-    for (const s of all) urls.set(s.file, `https://storage.googleapis.com/${dest.bucket}/${[dest.prefix, dirName, s.file].filter(Boolean).join('/')}`);
-    console.log(`wrote ${all.length} public URL(s) — no signature, no expiry`);
+    for (const f of all) urls.set(f, `https://storage.googleapis.com/${dest.bucket}/${[dest.prefix, dirName, f].filter(Boolean).join('/')}`);
+    console.log(`wrote ${tally} public — no signature, no expiry`);
   } else if (dry) {
-    console.log(`would sign ${all.length} slide URL(s) for ${signArg}`);
+    console.log(`would sign ${tally} for ${signArg}`);
   } else {
-    for (const s of all) {
-      const out = gcloud(['storage', 'sign-url', `${at}/${s.file}`,
+    for (const f of all) {
+      const out = gcloud(['storage', 'sign-url', `${at}/${f}`,
         `--duration=${signSeconds}s`, '--format=json']);
       const url = signedUrlFrom(JSON.parse(out));
-      if (!url) { console.error(`publish-voices: gcloud signed nothing for ${s.file}`); return 1; }
-      urls.set(s.file, url);
+      if (!url) { console.error(`publish-voices: gcloud signed nothing for ${f}`); return 1; }
+      urls.set(f, url);
     }
     expires = new Date(Date.now() + signSeconds * 1000).toISOString();
-    console.log(`signed ${all.length} slide URL(s) · valid until ${expires}`
+    console.log(`signed ${tally} · valid until ${expires}`
       + (signSeconds === V4_MAX_SECONDS ? ' (7 days — the V4 maximum)' : ''));
   }
 
@@ -224,6 +281,9 @@ export async function publishVoicesMain(args = []) {
   writeFileSync(outPath, JSON.stringify(out, null, 1));
   console.log(`wrote ${outPath} — deploy it next to the deck`);
   console.log(`  narration: { files: [{ label: '${manifest.voice ?? dirName}', manifest: '${dir}/manifest.signed.json' }] }`);
+  // A manifest track needs no `segments: true` — the manifest IS the list of
+  // what exists — so the only thing left to say is that the beats are in it.
+  if (beats) console.log(`  ${beats} ⟨CLICK⟩ beat(s) signed too — this track paces the builds, not just the slides`);
   return 0;
 }
 
