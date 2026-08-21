@@ -1529,6 +1529,51 @@ test('init --remote refuses a flag dressed as a URL', () => {
 // a secure context and a local file is not one, however many times you click
 // Allow. http://127.0.0.1 is one. That is the command.
 
+test('handing a recorder the OTHER one\'s file is refused, naming both', async () => {
+  const { wrongRecorder } = await import('../cli/util.mjs');
+  // The silent one: `record` used to start a server, print a URL and open a
+  // browser on a YAML file — no error anywhere, just a page that would never
+  // be a deck.
+  const a = wrongRecorder('record', 'demo.term.yaml');
+  assert.match(a, /demo\.term\.yaml is a terminal script, not a deck/);
+  assert.match(a, /did you mean: {2}decklight cast demo\.term\.yaml/);
+  // …and the loud-but-useless one: a deck came back as `script has no steps`,
+  // which is true of every HTML file and names nothing.
+  const b = wrongRecorder('cast', 'talk.html');
+  assert.match(b, /talk\.html is a deck, not a terminal script/);
+  assert.match(b, /did you mean: {2}decklight record talk\.html/);
+  // both are named either way round, because either could have been meant
+  for (const msg of [a, b]) {
+    assert.match(msg, /decklight cast {4}records a TERMINAL/);
+    assert.match(msg, /decklight record {2}records YOU/);
+  }
+
+  // the right file for the right command says nothing at all
+  assert.equal(wrongRecorder('record', 'talk.html'), null);
+  assert.equal(wrongRecorder('record', 'deck.decklight'), null);
+  assert.equal(wrongRecorder('cast', 'demo.term.yaml'), null);
+  assert.equal(wrongRecorder('cast', 'demo.yml'), null);
+  // …and neither does an extension neither command claims. An unusual name is
+  // not evidence of a mistake, and refusing one would break a deck somebody
+  // called talk.htm5.
+  assert.equal(wrongRecorder('record', 'talk.htm5'), null);
+  assert.equal(wrongRecorder('cast', 'script'), null);
+  assert.equal(wrongRecorder('record', undefined), null);
+});
+
+test('record refuses the other recorder\'s file before it serves anything', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-mixup-'));
+  t.after(() => rmTemp(dir));
+  fs.writeFileSync(path.join(dir, 'demo.term.yaml'), 'steps:\n  - cmd: echo hi\n');
+  // spawned so a server started by mistake would be visible as a hang; it
+  // must exit at once instead, and bind nothing
+  const r = spawnSync(process.execPath, [CLI, 'record', 'demo.term.yaml', '--no-open'],
+    { cwd: dir, env: childEnv(), encoding: 'utf8', timeout: 20000 });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /is a terminal script, not a deck/);
+  assert.doesNotMatch(r.stdout, /decklight record on http/, 'it served the file anyway');
+});
+
 test('record refuses a --dir it could not write into, before serving anything', async () => {
   const { dirProblem } = await import('../cli/record.mjs');
   assert.equal(dirProblem(undefined), null);       // unset: the deck decides

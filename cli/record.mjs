@@ -27,6 +27,7 @@
 import { editMain } from './edit.mjs';
 import { openUrl } from './init.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
+import { wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
 const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceover] [--no-open]
@@ -95,6 +96,10 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
   if (bad) { process.stderr.write(`decklight record: ${bad}\n`); return 2; }
 
   const deck = args.find((a) => !a.startsWith('-'));
+  // Before the server, not after: this used to serve the YAML file, print a
+  // URL and open a browser on it, with no error anywhere.
+  const mixedUp = wrongRecorder('record', deck);
+  if (mixedUp) { process.stderr.write(`decklight record: ${mixedUp}\n`); return 2; }
   let started;
   // `--no-git`, always: recording is not editing, and a take that happens to
   // coincide with the autocommit cadence has no business creating a commit.
