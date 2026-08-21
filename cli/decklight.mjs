@@ -106,6 +106,9 @@ Commands:
   author   one command for the whole authoring loop: live-reload editing + every bridge this
            machine can run, one Ctrl-C; E in the player edits speaker notes back into the file
            EXAMPLE: decklight author demo/showcase.html   (bridges without prerequisites are skipped)
+  record   capture the deck's narration in YOUR voice — the deck reads you its notes
+           one ⟨CLICK⟩ beat at a time, and → ends a beat AND reveals the next build
+           EXAMPLE: decklight record talk.html   (serves it: a microphone needs 127.0.0.1)
   present  play a deck you did not author — read-only over localhost, under a CSP header;
            prints what the file will execute, and strips what it cannot account for
            EXAMPLE: decklight present talk.html   (no editing surface, nothing is written)
@@ -292,6 +295,11 @@ switch (cmd) {
   case 'dev': {  // permanent hidden alias — the pre-rename name; works forever, documented nowhere
     const { devMain } = await import('./dev.mjs');
     await devMain(rest);
+    break;
+  }
+  case 'record': {
+    const { recordMain } = await import('./record.mjs');
+    process.exitCode = await recordMain(rest);
     break;
   }
   case 'present': {

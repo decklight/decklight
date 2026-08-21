@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1502,4 +1502,68 @@ test('init --remote refuses a flag dressed as a URL', () => {
       'no remote was added');
     assert.equal(out.status, 0, 'and the deck was still scaffolded — this is a note, not a failure');
   } finally { rmTemp(proj); }
+});
+
+// ── decklight record — the command whose whole job is the origin ──────────
+// A browser will not open a microphone for a file:// page: getUserMedia needs
+// a secure context and a local file is not one, however many times you click
+// Allow. http://127.0.0.1 is one. That is the command.
+
+test('record refuses a --dir it could not write into, before serving anything', async () => {
+  const { dirProblem } = await import('../cli/record.mjs');
+  assert.equal(dirProblem(undefined), null);       // unset: the deck decides
+  assert.equal(dirProblem('voiceover'), null);
+  assert.equal(dirProblem('audio/take-2'), null);
+  // the same three shapes /edit/record refuses, refused here so a typo costs a
+  // message rather than a 400 per beat halfway through a take
+  assert.match(dirProblem('/etc'), /absolute path/);
+  assert.match(dirProblem('C:\\Windows'), /absolute path/);
+  assert.match(dirProblem('../..'), /inside the deck/);
+  assert.match(dirProblem('a/../../b'), /inside the deck/);
+  assert.match(dirProblem('https://bucket/voices'), /folder, not a URL/);
+  assert.match(dirProblem(''), /needs a folder name/);
+});
+
+test('record opens the deck on the server it just started, with the recorder armed', async () => {
+  const { recordUrl } = await import('../cli/record.mjs');
+  // ?record, not #record: the runtime reads location.search. And the deck
+  // itself, not a separate page — you record against the slides the audience
+  // sees, at the build they see them at.
+  assert.equal(recordUrl(8788, '/talk.html'), 'http://127.0.0.1:8788/talk.html?record');
+  assert.equal(recordUrl(9001, '/decks/talk.html', 'audio/take 2'),
+    'http://127.0.0.1:9001/decks/talk.html?record&dir=audio%2Ftake%202');
+});
+
+test('record serves the deck and prints the URL the browser is sent to', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-record-'));
+  t.after(() => rmTemp(dir));
+  fs.writeFileSync(path.join(dir, 'talk.html'),
+    '<!doctype html><div class="decklight"><section><h1>Hi</h1></section></div>');
+
+  // Spawned, not called: this command's server is meant to OUTLIVE the call —
+  // it holds a file watcher and a live-reload stream for as long as you are
+  // recording — so in-process it would keep the test runner alive forever.
+  // --port 0 lets the OS pick, which is what makes it safe to run anywhere.
+  const child = spawn(process.execPath, [CLI, 'record', 'talk.html', '--port', '0', '--dir', 'takes', '--no-open'],
+    { cwd: dir, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  const url = await new Promise((resolve, reject) => {
+    const scan = setInterval(() => {
+      const m = out.match(/decklight record on (\S+)/);
+      if (m) { clearInterval(scan); resolve(m[1]); }
+    }, 25);
+    child.on('exit', () => { clearInterval(scan); reject(new Error('record exited early:\n' + out)); });
+    setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 15000);
+  });
+  assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/talk\.html\?record&dir=takes$/);
+  // ?record is what arms the recorder, and --dir rides along so the files land
+  // where the command was told to put them rather than where the deck guesses
+  assert.match(out, /⇧R opens the recorder/);
+  // …and the server really is serving that deck
+  const res = await fetch(url.replace(/\?.*/, ''));
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /class="decklight"/);
 });

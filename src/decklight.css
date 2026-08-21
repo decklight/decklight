@@ -1318,6 +1318,42 @@
   transition: width 200ms ease;
 }
 
+/* live recording (⇧R) — the card is a TELEPROMPTER, so it is wider than the
+   ⇧V one and the line you are reading is the largest thing on it. Everything
+   else on the card is chrome around that one sentence. */
+.decklight-mic .narr-card { width: min(640px, 90vw); }
+.decklight-mic .rec-where { font-size: 12px; opacity: .55; letter-spacing: .04em; }
+.decklight-mic .rec-read {
+  padding: 10px 12px 12px;
+  font-size: 20px;
+  line-height: 1.45;
+  text-wrap: pretty;
+  max-height: 42vh;
+  overflow-y: auto;
+}
+.decklight-mic .rec-note { font-size: 12px; opacity: .7; }
+.decklight-mic kbd {
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 4px;
+  font-size: .9em;
+}
+/* the level meter — the answer to "is it even hearing me", before twenty
+   slides are recorded silent rather than after */
+.decklight-mic .rec-level {
+  height: 8px;
+  margin: 2px 12px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .12);
+  overflow: hidden;
+}
+.decklight-mic .rec-level-fill {
+  height: 100%;
+  background: var(--accent, #6af);
+  transition: width 90ms linear;
+}
+.decklight-mic .rec-level.hot .rec-level-fill { background: #e5533d; }
+
 /* command palette (/) */
 .decklight-palette .narr-card { width: min(520px, 86vw); }
 .decklight-palette .pal-input {
