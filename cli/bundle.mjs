@@ -446,14 +446,20 @@ html = html.replace(
     if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) continue;
     let mp4s = 0;
     for (const f of fs.readdirSync(abs).sort()) {
-      const vm = f.match(/^slide-(\d+)\.visemes\.json$/);
+      // slide-NN and slide-NN-KK alike: a beat-paced track carries a sidecar
+      // per ⟨CLICK⟩ beat, and a bundle that inlined only the slide ones would
+      // leave the character animating from amplitude the moment it is opened
+      // from file:// — which is the one place a bundle is always opened.
+      const vm = f.match(/^(slide-\d+(?:-\d+)?)\.visemes\.json$/);
       if (vm) {
+        // vm[1] is the whole STEM (`slide-07`, `slide-07-02`) — the same name
+        // the runtime looks the block up by, so the two cannot drift apart.
         if (seen.has(vm[1])) {
-          notices.push(`character visemes: ${d}/${f} skipped — slide ${vm[1]} already inlined from another track`);
+          notices.push(`character visemes: ${d}/${f} skipped — ${vm[1]} already inlined from another track`);
           continue;
         }
         seen.add(vm[1]);
-        embeds.push(`<script type="application/json" data-decklight-visemes="slide-${vm[1]}">\n`
+        embeds.push(`<script type="application/json" data-decklight-visemes="${vm[1]}">\n`
           + `${scriptSafe(fs.readFileSync(path.join(abs, f), 'utf8'))}\n</script>`);
       } else if (/^slide-\d+\.mp4$/.test(f)) mp4s++;
     }
@@ -461,7 +467,11 @@ html = html.replace(
       notices.push(`character video: ${mp4s} slide-NN.mp4 in ${d}/ stay external — ship the folder next to the bundle`);
     }
   }
-  if (seen.size) notices.push(`character visemes: inlined ${seen.size} slide timeline(s)`);
+  if (seen.size) {
+    const beats = [...seen].filter((k) => /^slide-\d+-\d+$/.test(k)).length;
+    notices.push(`character visemes: inlined ${seen.size} timeline(s)`
+      + (beats ? ` (${seen.size - beats} slides + ${beats} ⟨CLICK⟩ beats)` : ''));
+  }
 }
 
 // --------------------------------------------- narration manifest tracks

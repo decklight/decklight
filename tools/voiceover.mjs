@@ -201,6 +201,10 @@ for (let i = 0; i < slides.length; i++) {
       const sM4a = join(outDir, `slide-${n}-${kk}.m4a`);
       const out = await tts.synth(segs[k], { voice, style });
       writeFileSync(sWav, out.wav);
+      // The beat's own words, beside its own audio — tools/lipsync.mjs hands
+      // this to Rhubarb as the dialog hint, and a hint for the whole slide
+      // would be worse than none against one beat of it.
+      writeFileSync(join(outDir, `slide-${n}-${kk}.txt`), segs[k]);
       usage = { cost: usage.cost + (out.usage?.cost ?? 0) };
       toAac(sWav, sM4a);
       if (!keepWav) rmSync(sWav);

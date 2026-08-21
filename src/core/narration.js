@@ -869,12 +869,18 @@ export function createNarration({
     const from = Math.min(step, index.length);
     const files = (last ? index.slice(from) : index.slice(from, from + 1))
       .filter((n) => n !== null)
-      .map((n) => (narrSet.manifest
-        ? manifestSegmentUrl(loaded?.data, narrSet.manifest, sl, n)
-        : `${narrSet.dir}/slide-${String(sl).padStart(2, '0')}-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`));
+      // The NUMBER travels with the url, not just the url: the character's
+      // viseme sidecar is named after it (slide-NN-KK.visemes.json), and
+      // deriving it back out of a signed url is not possible at all.
+      .map((n) => ({
+        file: n,
+        url: narrSet.manifest
+          ? manifestSegmentUrl(loaded?.data, narrSet.manifest, sl, n)
+          : `${narrSet.dir}/slide-${String(sl).padStart(2, '0')}-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`,
+      }));
     // A manifest that ran out of segments is the authority saying this slide
     // was recorded whole — not an error, just a different shape.
-    return files.every(Boolean) ? files : null;
+    return files.every((f) => f.url) ? files : null;
   }
   /** Where slide n plays from, for either kind of track — null for silence. */
   function slideFileUrl(n) {
@@ -1017,16 +1023,15 @@ export function createNarration({
         narrAudio ??= new Audio();
         if (character.mode !== 'off') {
           character.attachAudio(narrAudio);
-          // Per SLIDE, not per segment: the viseme sidecar lipsync.mjs writes
-          // covers the whole slide, so the mouth drifts across a segment
-          // boundary until it learns to write one per segment. Stated in SPEC
-          // PRESENTING rather than hidden here.
-          character.beginSlide(narrSet, sl);
+          // Per BEAT: the sidecar is cut to the same audio this element is
+          // about to play, so the mouth cannot drift across a ⟨CLICK⟩ the way
+          // one slide-long timeline replayed per beat inevitably did.
+          character.beginSlide(narrSet, sl, files[i].file);
         }
         // both cleared before the src moves — see playLive
         narrAudio.onended = null;
         narrAudio.onerror = null;
-        narrAudio.src = files[i];
+        narrAudio.src = files[i].url;
         narrAudio.playbackRate = narrRate;
         const how = await new Promise((done) => {
           narrAudio.onended = () => done('ended');
@@ -1059,7 +1064,7 @@ export function createNarration({
           // already spoke, and replaying the whole slide would repeat them. The
           // voice is the clock, so the deck stops rather than walking on in
           // silence — and names the file, because that is the fix.
-          fileFailed(sl, files[i], { fatal: true });
+          fileFailed(sl, files[i].url, { fatal: true });
           return;
         }
       }
@@ -1889,16 +1894,29 @@ export function createNarration({
   async function stitchSlideVisemes(sl, run) {
     if (character.mode !== 'viseme') return null;
     const max = buildSteps(sl);
+    const index = segmentFileIndex(notesSegs(sl));
     const parts = [];
+    const beats = new Map();   // file number → its own parts, cut like its WAV
     try {
       for (let step = 0; step <= max; step++) {
         const { sentences, segStarts } = stepAudio(sl, step);
+        const runs = stepSegmentRuns(sl, step);
         for (let i = 0; i < sentences.length; i++) {
           const tl = await character.ensureTimeline(
             sentenceKey(sl, step, i), fetchLiveSentence(sl, step, i), sentences[i]);
           if (run !== recRun) return null;
           if (!tl) continue;
           parts.push({ timeline: tl, gap: parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : SENT_GAP_S) : 0 });
+          // …and into the beat's own timeline, gapped exactly as its WAV is:
+          // sentence gaps inside a beat, and never the segment gap that
+          // separates beats. A sidecar cut differently from the audio it is
+          // played against is a sidecar that drifts.
+          const own = runs.find((r) => i >= r.from && i < r.from + r.count);
+          const file = own && index ? index[own.seg] : null;
+          if (file == null) continue;
+          let list = beats.get(file);
+          if (!list) beats.set(file, list = []);
+          list.push({ timeline: tl, gap: list.length ? SENT_GAP_S : 0 });
         }
       }
     } catch {
@@ -1908,9 +1926,14 @@ export function createNarration({
     // the trailing beat too — an empty timeline behind a gap, which
     // concatTimelines renders as a closed mouth for exactly that long. The WAV
     // and the sidecar must agree on every silence or the lip-sync drifts.
+    // (Only on the whole-slide timeline: the beat files carry no trailing
+    // pause either, for the same reason.)
     const pause = narrationPause(sl);
     if (parts.length && pause > 0) parts.push({ timeline: { cues: [], duration: 0 }, gap: pause });
-    return parts.length ? concatTimelines(parts) : null;
+    return {
+      slide: parts.length ? concatTimelines(parts) : null,
+      segments: [...beats].map(([file, list]) => ({ file, timeline: concatTimelines(list) })),
+    };
   }
   // WHERE A RECORDING LANDS. A finished set of slide-NN.wav is only useful
   // next to the deck: that is the one place `narration.files` can name and the
@@ -2000,9 +2023,16 @@ export function createNarration({
           // recorded set plays back lip-synced without the bridge
           const tl = await stitchSlideVisemes(sl, run);
           if (run !== recRun) return;
-          if (tl) {
+          if (tl?.slide) {
             await saveRecording(sl, 'visemes',
-              new Blob([JSON.stringify(tl)], { type: 'application/json' }), dir);
+              new Blob([JSON.stringify(tl.slide)], { type: 'application/json' }), dir);
+            if (run !== recRun) return;
+          }
+          // one sidecar per beat, beside the beat's own WAV
+          for (const beat of tl?.segments ?? []) {
+            await saveRecording(sl, 'visemes',
+              new Blob([JSON.stringify(beat.timeline)], { type: 'application/json' }), dir, beat.file);
+            if (run !== recRun) return;
           }
         }
       } catch {
