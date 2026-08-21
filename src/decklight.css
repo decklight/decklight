@@ -1354,6 +1354,22 @@
 }
 .decklight-mic .rec-level.hot .rec-level-fill { background: #e5533d; }
 
+/* "Use this track" — the offer that spares you pasting a config line. Shares
+   .narr-row's chrome; the two states it can reach are the two things worth
+   saying afterwards, so neither is a toast that scrolls away. */
+.decklight-record .rec-use { margin-top: 6px; cursor: pointer; }
+.decklight-record .rec-use.rec-done {
+  color: #7cd6a3;
+  background: rgba(124, 214, 163, .12);
+  cursor: default;
+}
+.decklight-record .rec-use.rec-failed {
+  color: #ffb4a2;
+  background: rgba(229, 83, 61, .12);
+  cursor: default;
+  font-size: 13px;
+}
+
 /* command palette (/) */
 .decklight-palette .narr-card { width: min(520px, 86vw); }
 .decklight-palette .pal-input {

@@ -53,6 +53,9 @@ import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPrefer
 import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
+// the boot-call locator audit and upgrade share — three commands, one answer
+// about which <script> is the init call
+import { classifyScripts } from './audit.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
@@ -144,6 +147,133 @@ export function setSlideElementHtml(html, slide, index, outerHtml) {
 // The spec's 7 entrance styles (MOTION), plus 'none' — an explicit, instant
 // build step, distinct from having no data-build attribute at all: one more
 // advance still reveals the element, it just has no animation.
+/**
+ * Skip one JS string literal starting at `i` (which is its quote). Returns the
+ * index of the closing quote, or the end of the text if it never closes.
+ *
+ * The whole reason the walkers below are walkers and not regexes: a config
+ * carrying `{ alt: "Acme (Inc)" }` or `{ title: "a } b" }` closes nothing, and
+ * a regex counting brackets reads both as structure. `cli/audit.mjs` learned
+ * this first (isBootCall); this is the same rule applied to the object.
+ */
+function skipString(text, i) {
+  const q = text[i];
+  for (i++; i < text.length && text[i] !== q; i++) if (text[i] === '\\') i++;
+  return i;
+}
+
+/**
+ * The `Decklight.init(…)` argument in `html`: where it starts and ends.
+ *
+ * Located through the same classifier `audit` and `upgrade` use, so all three
+ * agree on which `<script>` is the boot call rather than each finding its own.
+ * Returns null when the deck has no boot call at all.
+ */
+export function initArgument(html) {
+  const boot = classifyScripts(html).find((b) => b.kind === 'boot');
+  if (!boot) return null;
+  const inner = html.slice(boot.start, boot.end);
+  const m = /Decklight\s*\.\s*init\s*\(/.exec(inner);
+  if (!m) return null;
+  const open = m.index + m[0].length - 1;
+  let depth = 0;
+  for (let i = open; i < inner.length; i++) {
+    const c = inner[i];
+    if (c === '"' || c === "'" || c === '`') { i = skipString(inner, i); continue; }
+    if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) {
+      return { start: boot.start + open + 1, end: boot.start + i };
+    }
+  }
+  return null;
+}
+
+/**
+ * Where a TOP-LEVEL key's value sits inside an object literal, or null.
+ *
+ * Depth-aware and string-aware: a `narration:` nested inside `character: {…}`
+ * is not this object's key, and `{ note: "narration: off" }` is not a key at
+ * all. Both are things a plausible deck contains.
+ */
+function topLevelKey(obj, key) {
+  const re = new RegExp(`(^|[{,\\s])${key}\\s*:`);
+  let depth = 0;
+  for (let i = 0; i < obj.length; i++) {
+    const c = obj[i];
+    if (c === '"' || c === "'" || c === '`') { i = skipString(obj, i); continue; }
+    if (c === '{' || c === '[' || c === '(') { depth++; continue; }
+    if (c === '}' || c === ']' || c === ')') { depth--; continue; }
+    if (depth !== 1) continue;
+    const m = re.exec(obj.slice(i, i + key.length + 3));
+    if (!m || m.index !== 0) continue;
+    // the value runs to the comma or closing brace at THIS depth
+    let j = i + m[0].length;
+    let d = 0;
+    for (; j < obj.length; j++) {
+      const v = obj[j];
+      if (v === '"' || v === "'" || v === '`') { j = skipString(obj, j); continue; }
+      if (v === '{' || v === '[' || v === '(') d++;
+      else if (v === '}' || v === ']' || v === ')') { if (d === 0) break; d--; }
+      else if (v === ',' && d === 0) break;
+    }
+    return { from: i + (m[1] ? 1 : 0), to: j, valueFrom: i + m[0].length };
+  }
+  return null;
+}
+
+/** `{ files: 'voiceover', ext: 'wav', segments: true }`, as a person writes it. */
+export function narrationLiteral(cfg) {
+  const parts = [];
+  for (const [k, v] of Object.entries(cfg)) {
+    if (v === undefined || v === null) continue;
+    parts.push(`${k}: ${typeof v === 'string' ? `'${v.replace(/'/g, "\\'")}'` : v}`);
+  }
+  return `{ ${parts.join(', ')} }`;
+}
+
+/**
+ * Point the deck's own config at a track that was just recorded.
+ *
+ * The recorder writes the files and then had to ask you to paste a config line
+ * into the deck by hand — the one manual step in a flow that is otherwise a
+ * key and an arrow. The author server already owns this file (it writes notes,
+ * layouts and element edits), so it can write this too, through the same
+ * applyEdit door: Z undoes it, live-reload shows it.
+ *
+ * Returns the new HTML, or **null when the config is not a literal at the call
+ * site** — `const cfg = {…}; Decklight.init(cfg)` has nothing here to edit, and
+ * guessing which `cfg` is meant, in which scope, is how an editor corrupts a
+ * file. That deck keeps the printed line and is told why.
+ */
+export function setNarrationConfig(html, cfg) {
+  const arg = initArgument(html);
+  if (!arg) return null;
+  const raw = html.slice(arg.start, arg.end);
+  const literal = narrationLiteral(cfg);
+  const splice = (from, to, text) => html.slice(0, from) + text + html.slice(to);
+
+  // `Decklight.init()` — nothing passed at all
+  if (!raw.trim()) return splice(arg.start, arg.end, `{ narration: ${literal} }`);
+  // anything that is not an object literal: an identifier, a call, a spread of
+  // something declared elsewhere. Not ours to rewrite.
+  const open = raw.indexOf('{');
+  if (open === -1 || raw.slice(0, open).trim()) return null;
+  const close = raw.lastIndexOf('}');
+  if (close < open) return null;
+
+  const obj = raw.slice(open, close + 1);
+  const found = topLevelKey(obj, 'narration');
+  if (found) {
+    return splice(arg.start + open + found.valueFrom, arg.start + open + found.to, ` ${literal}`);
+  }
+  // no narration key yet — add one, keeping whatever else is configured
+  const inner = obj.slice(1, -1);
+  const body = inner.trim()
+    ? `{ narration: ${literal},${inner.replace(/^\s*\n?/, inner.includes('\n') ? '\n' : ' ')}}`
+    : `{ narration: ${literal} }`;
+  return splice(arg.start + open, arg.start + close + 1, body);
+}
+
 export const BUILD_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'];
 
 /**
@@ -731,6 +861,39 @@ export async function editMain(args, { onListen = null } = {}) {
       let body = '';
       if (req.method === 'POST') {
         for await (const chunk of req) { body += chunk; if (body.length > 1e6) throw new Error('too large'); }
+      }
+      // Point the deck at a track the recorder just wrote. The one manual step
+      // in a flow that is otherwise a key and an arrow — and this server
+      // already owns the file, so it can take that step too.
+      if (req.method === 'POST' && url.pathname === '/edit/narration') {
+        const { files, ext, segments } = JSON.parse(body || '{}');
+        // The same three shapes /edit/record refuses for a folder, refused
+        // again here: this one is written INTO the deck, where a bad value is
+        // not a failed request but a deck that no longer plays.
+        if (typeof files !== 'string' || !files.trim() || files.length > 200
+            || /^[/\\]/.test(files) || /^[a-zA-Z]:/.test(files)
+            || files.split(/[/\\]/).includes('..')) {
+          return json(400, { ok: false, error: 'bad narration folder' });
+        }
+        if (ext !== undefined && !/^[a-z0-9]{1,5}$/.test(String(ext))) {
+          return json(400, { ok: false, error: 'bad ext' });
+        }
+        if (segments !== undefined && typeof segments !== 'boolean') {
+          return json(400, { ok: false, error: 'bad segments' });
+        }
+        const next = setNarrationConfig(readDeck(), {
+          files: files.trim(), ...(ext === undefined ? {} : { ext }), ...(segments === undefined ? {} : { segments }),
+        });
+        if (next === null) {
+          // Not a failure of this server — a deck whose config is built
+          // somewhere else. Say which, so the answer is "paste this line",
+          // not "it did not work".
+          return json(409, { ok: false,
+            error: 'this deck builds its config outside the Decklight.init(…) call, so there is no literal here to edit' });
+        }
+        const changed = applyEdit(next);
+        if (changed) console.log(`  narration: ${files} in the deck's config`);
+        return json(200, { ok: true, changed, ...history.counts() });
       }
       if (req.method === 'POST' && url.pathname === '/edit/restore') {
         if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });

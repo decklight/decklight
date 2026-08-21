@@ -1589,6 +1589,29 @@ test('record refuses a --dir it could not write into, before serving anything', 
   assert.match(dirProblem(''), /needs a folder name/);
 });
 
+test('--slides re-records a range, so a fluffed beat costs one slide', async () => {
+  const { slidesProblem, recordUrl } = await import('../cli/record.mjs');
+  // Recording starts at slide 1 and cannot skip: without this, fluffing slide
+  // 30 of a 40-slide deck means reading 29 slides of beats to reach it. Esc
+  // already lets you keep a PREFIX; a range is what lets you redo a middle.
+  assert.equal(slidesProblem(undefined), null);
+  assert.equal(slidesProblem('7'), null);
+  assert.equal(slidesProblem('3-9'), null);
+  assert.match(slidesProblem('0'), /1-based/);
+  assert.match(slidesProblem('9-3'), /ends before it starts/);
+  assert.match(slidesProblem('x'), /a-b or a single slide number/);
+  assert.match(slidesProblem('1-'), /a-b or a single slide number/);
+  // The BOUNDS are the runtime's to judge, not this command's: the deck's
+  // slide count lives in the browser. A range past the end records nothing and
+  // the card says so, which beats a CLI that refuses to start.
+  assert.equal(slidesProblem('900-999'), null);
+
+  assert.equal(recordUrl(8788, '/talk.html', null, '3-9'),
+    'http://127.0.0.1:8788/talk.html?record&slides=3-9');
+  assert.equal(recordUrl(8788, '/talk.html', 'takes', '7'),
+    'http://127.0.0.1:8788/talk.html?record&dir=takes&slides=7');
+});
+
 test('record opens the deck on the server it just started, with the recorder armed', async () => {
   const { recordUrl } = await import('../cli/record.mjs');
   // ?record, not #record: the runtime reads location.search. And the deck
