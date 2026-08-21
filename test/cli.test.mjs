@@ -30,7 +30,7 @@ const CLI = path.resolve(here, '../cli/decklight.mjs');
 
 test('global help lists all subcommands with runnable examples', () => {
   const out = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  for (const sub of ['init', 'skills', 'rec', 'refresh', 'export', 'bundle', 'upgrade', 'publish', 'marketplace', 'video']) {
+  for (const sub of ['init', 'skills', 'cast', 'record', 'refresh', 'export', 'bundle', 'upgrade', 'publish', 'marketplace', 'video']) {
     assert.match(out, new RegExp(`^  ${sub} `, 'm'), `missing subcommand: ${sub}`);
   }
   assert.equal((out.match(/EXAMPLE:/g) || []).length >= 5, true, 'one example per subcommand');
@@ -39,8 +39,28 @@ test('global help lists all subcommands with runnable examples', () => {
 test('help <sub> shows the subcommand help', () => {
   const out = execFileSync('node', [CLI, 'help', 'bundle'], { encoding: 'utf8' });
   assert.match(out, /decklight bundle <deck\.html>/);
-  const rec = execFileSync('node', [CLI, 'help', 'rec'], { encoding: 'utf8' });
-  assert.match(rec, /decklight rec <script\.term\.yaml>/);
+  const cast = execFileSync('node', [CLI, 'help', 'cast'], { encoding: 'utf8' });
+  assert.match(cast, /decklight cast <script\.term\.yaml>/);
+});
+
+test('`rec` is gone — no alias, no stub, and the two recorders name each other', () => {
+  // `rec` was renamed to `cast` because `decklight record` (the author's voice)
+  // made a three-letter abbreviation of "record" mean the other recorder. It
+  // was dropped outright rather than aliased or stubbed: an alias would have
+  // kept a name that quietly means the opposite of what its reader assumes,
+  // and a refusal stub is a migration aid for users decklight does not have
+  // yet. What survives is the help, which is where someone who typed `rec`
+  // now finds both answers.
+  const r = spawnSync('node', [CLI, 'rec', 'demo.term.yaml'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /unknown command "rec"/);
+  const help = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
+  assert.doesNotMatch(help, /^ {2}rec {2}/m);
+  // Each recorder says what the OTHER one records. This is the whole
+  // disambiguation now, so it is the thing worth pinning: the names alone
+  // cannot carry it, and nothing else says it.
+  assert.match(help, /^ {2}cast .*\n.*decklight record records your VOICE/m);
+  assert.match(help, /^ {2}record .*\n(?:.*\n)*?.*decklight cast records a terminal/m);
 });
 
 test('unknown subcommand exits 1 with the global help', () => {
@@ -50,11 +70,11 @@ test('unknown subcommand exits 1 with the global help', () => {
   assert.match(r.stdout, /Commands:/);
 });
 
-test('a tiny rec runs through the dispatcher end-to-end', { skip: recSkip }, () => {
+test('a tiny cast runs through the dispatcher end-to-end', { skip: recSkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-cli-'));
   const yamlPath = path.join(dir, 'tiny.term.yaml');
   fs.writeFileSync(yamlPath, 'steps:\n  - cmd: echo dispatcher-ok\n');
-  execFileSync('node', [CLI, 'rec', yamlPath, '--quiet'], { encoding: 'utf8' });
+  execFileSync('node', [CLI, 'cast', yamlPath, '--quiet'], { encoding: 'utf8' });
   const cast = JSON.parse(fs.readFileSync(path.join(dir, 'tiny.cast.json'), 'utf8'));
   assert.equal(cast.decklightCast, 1);
   assert.equal(cast.steps[0].cmd, 'echo dispatcher-ok');

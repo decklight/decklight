@@ -82,7 +82,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 1. **`decklight init`** — scaffold a starter deck plus the agent skill above.
 2. **Author** one HTML file: `<section>` slides, `data-build` reveals, inline SVG with theme tokens, `<aside class="notes">` split on `⟨CLICK⟩` (notes drive builds, captions, transcript **and** narration all at once).
 3. **`decklight author deck.html`** — the whole live loop under one Ctrl-C: live-reload editing (from your editor or the browser), plus any narration/lip-sync bridges this machine can run (missing prerequisites are skipped with the fix printed, never a hard failure). In the browser: **`E`** edits notes back into the file, **`L`** cycles layouts, **`Z`/`⇧Z`** undo/redo, and **`A`** asks an installed coding agent — Claude Code, Codex, Gemini, Copilot, Aider and more, auto-detected from `$PATH` — to edit the deck headlessly; the page reloads when it saves. Edits auto-commit as you go.
-4. **`decklight rec script.term.yaml`** — record a truthful terminal cast in a real PTY.
+4. **`decklight cast script.term.yaml`** — record a truthful terminal cast in a real PTY.
 5. **`decklight bundle deck.html --themes all`** — flatten runtime, themes, casts and narration into one offline HTML file to hand off.
 
 ## Features at a glance
@@ -95,7 +95,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | **Theming** | 46 themes in 2 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC THEMING](SPEC.md#theming--the-token-contract) |
 | **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
 | **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
-| **Terminals** | `decklight rec` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
+| **Terminals** | `decklight cast` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Narration** | TTS reads your notes in sync with builds — or **your own voice**, recorded beat by beat and pacing them the same way; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Integrity** | read-only `present` under a real CSP header, an ingredients label of what a deck executes, Sigstore signing, the `.decklight` container | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
@@ -111,8 +111,8 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight author deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
 | `decklight present deck.html` | **play a deck you did not author** — read-only over localhost under a CSP header, with an ingredients label and `--strict`; a deck in a clone can see its upstream and (with `--upstream-pull`) offer to fast-forward |
 | `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across (`.key` needs macOS; a Slides URL must be link-shared) |
-| `decklight rec script.term.yaml` | record a terminal cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
-| `decklight record deck.html` | record the narration in **your own voice** — the deck reads you its notes one ⟨CLICK⟩ at a time, and `→` ends a beat *and* reveals the next build, so your voice paces the deck (`rec` records a terminal; `record` records you) |
+| `decklight cast script.term.yaml` | record a **terminal** cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
+| `decklight record deck.html` | record the narration in **your own voice** — the deck reads you its notes one ⟨CLICK⟩ at a time, and `→` ends a beat *and* reveals the next build, so your voice paces the deck (`cast` records a terminal, `record` records you) |
 | `decklight history deck.html` | what decklight committed, which commits exist only on this machine, and how to push them |
 | `decklight restore deck.html` | list the commits that touched a deck, and put it back to any of them |
 | `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
@@ -130,7 +130,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait |
 | `decklight report-bug` | gather the version + environment facts a bug report needs, and print the issue URL |
 
-`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings), `present` and `lipsync` in [SPEC PRESENTING](SPEC.md#presenting--presenting--output). (`decklight dev` still works as a hidden alias for `author`; `decklight edit` was folded into it and refuses out loud.) Drive a deck programmatically with the [JS API](SPEC.md#js_api--public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
+`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings), `present` and `lipsync` in [SPEC PRESENTING](SPEC.md#presenting--presenting--output). (`decklight dev` still works as a hidden alias for `author`.) Drive a deck programmatically with the [JS API](SPEC.md#js_api--public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
 ## Keys
 

@@ -14,13 +14,13 @@ import { fileURLToPath } from 'node:url';
 import { optionalDepSkip as recSkip } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const CLI = path.join(here, '..', 'cli', 'rec.mjs');
+const CLI = path.join(here, '..', 'cli', 'cast.mjs');
 
 const test = (name, fn) => baseTest(name, { skip: recSkip }, fn);
 
 // Record under zsh when it's present (macOS default — exercises the
 // zsh-specific prompt taming), else bash (Linux/CI). rec supports both
-// (cli/rec.mjs shellArgs/setupLine); only these fixtures were pinned to zsh.
+// (cli/cast.mjs shellArgs/setupLine); only these fixtures were pinned to zsh.
 const SHELL = fs.existsSync('/bin/zsh') ? 'zsh' : 'bash';
 
 function tmpdir() {

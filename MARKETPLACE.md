@@ -405,10 +405,16 @@ decklight present talk.decklight    # play it, verified, read-only
   double-click of a `.decklight`. One implementation, two doors.
 - **`edit` is removed.** It existed only because `dev` cost something to start;
   with engines resolved on demand (ENGINES) `author` has zero startup cost by
-  construction. Per the #165 precedent it refuses out loud (`renamed: use
-  decklight author`), not `unknown command`. **The `/edit/*` endpoints are the
-  contract and are unchanged** — only the way the server starts changes.
-  `test/edit.test.mjs`'s 33 server tests move onto `author`.
+  construction. ~~Per the #165 precedent it refuses out loud (`renamed: use
+  decklight author`), not `unknown command`.~~ **Superseded**: the refusal stub
+  was dropped along with `rec`'s, and both now fall through to the ordinary
+  `unknown command` with the help. A refusal stub is a migration aid, and
+  decklight has no released users to migrate — every stub is a line of dispatch,
+  a test and a paragraph of docs bought for nobody. The #165 precedent stands
+  for a command people are *using*; that is the condition it was written under,
+  and it is not this one. **The `/edit/*` endpoints are the contract and are
+  unchanged** — only the way the server starts changes. `test/edit.test.mjs`'s
+  33 server tests move onto `author`.
 
 ### ENGINES — On demand: core owns the affordance, the marketplace owns the engine
 
@@ -682,8 +688,10 @@ to play someone else's deck is a single command.
       — `V` with no engine says so and stops
 - [ ] `decklight author` starts instantly with no engines installed — no bridge
       processes, no network
-- [ ] `decklight edit` refuses out loud with the new command named; the
-      `/edit/*` endpoint contract is byte-for-byte unchanged
+- [ ] ~~`decklight edit` refuses out loud with the new command named~~ →
+      superseded (COMMANDS): `edit` is simply not a command, and says so the
+      way any other unknown one does; the `/edit/*` endpoint contract is
+      byte-for-byte unchanged
 
 **Safety and integrity**
 

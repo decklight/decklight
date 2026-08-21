@@ -3,10 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * decklight-rec — record truthful terminal casts for Decklight decks (SPEC RECORDER_CLI/CAST_FORMAT).
+ * decklight-cast — record truthful terminal casts for Decklight decks (SPEC RECORDER_CLI/CAST_FORMAT).
  *
- *   decklight rec <script.term.yaml> [-o out.cast.json] [--allow-fail] [--quiet]
+ *   decklight cast <script.term.yaml> [-o out.cast.json] [--allow-fail] [--quiet]
  *   decklight refresh <dir | cast.json…> [--allow-fail]
+ *
+ * This briefly shipped as `decklight rec`, a name dropped without an alias or
+ * a refusal stub: `rec` reads as an abbreviation of `record`, and `decklight
+ * record` now records something else entirely — the author's voice — so the
+ * old name would have gone on quietly meaning the opposite of what its reader
+ * assumes. Nothing depends on it (decklight has no released users yet), so
+ * there is nothing to migrate and no stub worth carrying.
+ *
+ * `cast` is not a new word here: the file is `.cast.json`, the format is SPEC
+ * CAST_FORMAT, `refresh` takes casts and `export` flattens one. Only the
+ * command that made them ever said `rec`.
  *
  * How a step boundary is detected (the sentinel technique):
  *   All commands run in ONE persistent PTY shell session. For each step we
@@ -41,7 +52,7 @@ const READY_MARK = `${GS}DECKLIGHT-READY${GS}`;
 
 // ---------------------------------------------------------------- utilities
 
-const fail = makeFail('rec');
+const fail = makeFail('cast');
 
 function loadDeps() {
   let yaml, pty;
@@ -445,10 +456,11 @@ async function refresh(targets, { allowFail }) {
 
 // --------------------------------------------------------------------- main
 
-const HELP = `decklight rec — record terminal casts for Decklight decks
+const HELP = `decklight cast — record terminal casts for Decklight decks
+  (recording your VOICE narrating a deck is a different command: decklight record)
 
 Usage:
-  decklight rec <script.term.yaml> [-o out.cast.json] [--allow-fail] [--quiet]
+  decklight cast <script.term.yaml> [-o out.cast.json] [--allow-fail] [--quiet]
   decklight refresh <dir | cast.json…> [--allow-fail]
   decklight export <cast.json> [-o out.cast]         # asciicast v2
 
@@ -489,7 +501,7 @@ Notes:
       decklight export demo.cast.json && agg demo.cast demo.gif
 `;
 
-export async function recMain(argv = process.argv.slice(2)) {
+export async function castMain(argv = process.argv.slice(2)) {
   if (!argv.length || argv.includes('--help') || argv.includes('-h')) { console.log(HELP); return; }
   const allowFail = argv.includes('--allow-fail');
   const quiet = argv.includes('--quiet');
@@ -539,4 +551,4 @@ export async function recMain(argv = process.argv.slice(2)) {
 
 // Import-safe: only run the CLI when executed directly (recordScript and
 // exportAsciicast are importable for tests/tooling).
-if (isMain(import.meta.url)) process.exitCode = await runMain('rec', recMain);
+if (isMain(import.meta.url)) process.exitCode = await runMain('cast', castMain);

@@ -327,7 +327,7 @@
       <p>Real PTY output, replayed step by step — never a video</p>
       <div class="terminal" data-cast-inline="#cast-git-tour" data-mode="step" data-rows="12"></div>
       <aside class="notes">
-        <p>Terminal demos. This one was recorded with decklight rec from a YAML script — a real PTY, real output, secrets redacted at capture time. Not a video. Never a video.</p><p>⟨CLICK⟩</p><p>Each advance types the command with humane little imperfections, then streams the output exactly as recorded. Truthful, repeatable, and it will never hang on conference Wi-Fi.</p><p>⟨CLICK⟩</p><p>Casts embed their own script, so when your CLI changes its output next quarter — and it will — decklight refresh re-records everything and tells you exactly what drifted.</p><p>⟨CLICK⟩</p><p>And when it's time to share, decklight export flattens to asciicast v2, and the whole asciinema ecosystem opens up.</p>
+        <p>Terminal demos. This one was recorded with decklight cast from a YAML script — a real PTY, real output, secrets redacted at capture time. Not a video. Never a video.</p><p>⟨CLICK⟩</p><p>Each advance types the command with humane little imperfections, then streams the output exactly as recorded. Truthful, repeatable, and it will never hang on conference Wi-Fi.</p><p>⟨CLICK⟩</p><p>Casts embed their own script, so when your CLI changes its output next quarter — and it will — decklight refresh re-records everything and tells you exactly what drifted.</p><p>⟨CLICK⟩</p><p>And when it's time to share, decklight export flattens to asciicast v2, and the whole asciinema ecosystem opens up.</p>
       </aside>
       <aside class="rehearse">
         <p>PTY truth, not video</p>
@@ -626,7 +626,7 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
       <h2>One File to Ship</h2>
       <p>The CLI records, refreshes, exports — and flattens</p>
       <pre data-lines="1|2|3|4|5"><code class="language-bash">decklight import talk.pptx          # PowerPoint · Keynote · Google Slides
-decklight rec demo.term.yaml        # record a cast in a real PTY
+decklight cast demo.term.yaml       # record a cast in a real PTY
 decklight refresh casts/            # re-record everything, report drift
 decklight pdf deck.html             # every slide to PDF — overflows named
 decklight bundle deck.html --all    # ONE self-contained HTML, themes included</code></pre>
@@ -972,7 +972,7 @@ decklight bundle deck.html --all    # ONE self-contained HTML, themes included</
    "output": [
     [
      0.02,
-     "## \u001b[32mmain\u001b[m\r\n \u001b[31mM\u001b[m cli/rec.mjs\r\n \u001b[31mM\u001b[m demo/casts/git-tour.cast.json\r\n \u001b[31mM\u001b[m src/terminal/player.mjs\r\n"
+     "## \u001b[32mmain\u001b[m\r\n \u001b[31mM\u001b[m cli/cast.mjs\r\n \u001b[31mM\u001b[m demo/casts/git-tour.cast.json\r\n \u001b[31mM\u001b[m src/terminal/player.mjs\r\n"
     ],
     [
      0.02,

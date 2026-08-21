@@ -318,7 +318,7 @@ An installed theme becomes a `<style data-theme="<name>" data-theme-added media=
 
 ### RECORDER_CLI — Recorder CLI (authoring-time; the only part with native deps)
 
-`cli/rec.mjs`, invoked as `npx decklight@latest rec <script.term.yaml> [-o out.cast.json]`
+`cli/cast.mjs`, invoked as `npx decklight@latest cast <script.term.yaml> [-o out.cast.json]`. It briefly shipped as `rec`, a name dropped with **no alias and no refusal stub** — it reads as an abbreviation of `record`, and `decklight record` now records the author's VOICE, so keeping it alive would mean keeping a name that quietly means the opposite of what its reader assumes. Nothing is released against it, so there is nothing to migrate. `cast` was already the word: the file is `.cast.json`, the format is CAST_FORMAT, `refresh` takes casts and `export` flattens one
 (the `decklight` dispatcher in `cli/decklight.mjs` also provides `refresh`, `export`, `bundle`,
 and a global `--help`; the per-file entry points still run directly, undocumented).
 
@@ -1228,7 +1228,7 @@ decklight/
                  publish/marketplace/plugin/template/importer/transform/engine/extension/voice/agent/tts/lipsync/
                  video/author/present/associate/report-bug; `dev` is a hidden alias for `author`, `edit` refuses out
                  loud) + pkg.mjs (the package root and the one runtime-inlining transform) and util.mjs (CommandError
-                 + runMain: every command fails one way), init.mjs, rec.mjs, bundle.mjs, upgrade.mjs, restore.mjs,
+                 + runMain: every command fails one way), init.mjs, cast.mjs, bundle.mjs, upgrade.mjs, restore.mjs,
                  theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides →
                  deck, JS_API), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), units.mjs
                  (templates/skills/importers/voices/engines/agents), plugin.mjs (presenter chrome, PRESENT#PLUGINS),
