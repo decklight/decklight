@@ -44,8 +44,44 @@ test('batch visemes: generates sidecars, second run keeps them, edits invalidate
   // new audio bytes for slide 2 → only that slide regenerates
   fs.writeFileSync(path.join(vo, 'slide-02.wav'), Buffer.concat([Buffer.from('RIFF....WAVEfmt '), Buffer.alloc(512, 3)]));
   const third = run();
-  assert.match(third, /slide 01: visemes unchanged — kept/);
+  // the log names the STEM, which is the filename — `slide-01-02` reads as
+  // itself, where "slide 01-02" reads as a typo
+  assert.match(third, /slide-01: visemes unchanged — kept/);
   assert.match(third, /1 generated, 1 unchanged/);
+
+  rmTemp(dir);
+});
+
+test('a ⟨CLICK⟩ beat gets its own sidecar, cut to its own audio', { skip: winSkip }, () => {
+  // The drift this closes: a beat-paced track plays ONE beat's audio at a time
+  // (PRESENTING), so a timeline cut for the whole slide starts at zero against
+  // every one of them — right for the first beat, progressively wronger after.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-lipsync-seg-'));
+  const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));
+  const vo = path.join(dir, 'voiceover');
+  fs.mkdirSync(vo);
+  const wav = (fill) => Buffer.concat([Buffer.from('RIFF....WAVEfmt '), Buffer.alloc(512, fill)]);
+  // slide 1 was recorded in two beats; slide 2 in one breath
+  fs.writeFileSync(path.join(vo, 'slide-01.wav'), wav(1));
+  fs.writeFileSync(path.join(vo, 'slide-01-01.wav'), wav(2));
+  fs.writeFileSync(path.join(vo, 'slide-01-01.txt'), 'The first beat.');
+  fs.writeFileSync(path.join(vo, 'slide-01-02.wav'), wav(3));
+  fs.writeFileSync(path.join(vo, 'slide-01-02.txt'), 'And the second.');
+  fs.writeFileSync(path.join(vo, 'slide-02.wav'), wav(4));
+
+  const out = execFileSync('node', [TOOL, vo, '--rhubarb', stub], { encoding: 'utf8' });
+  // counted apart, because "4 slides" would be a lie about a two-slide deck
+  assert.match(out, /2 slides with audio · 2 ⟨CLICK⟩ beats/);
+  for (const f of ['slide-01.visemes.json', 'slide-01-01.visemes.json',
+    'slide-01-02.visemes.json', 'slide-02.visemes.json']) {
+    assert.ok(fs.existsSync(path.join(vo, f)), `missing ${f}`);
+  }
+  assert.ok(!fs.readdirSync(vo).some((f) => f.includes('.tmp.')), 'temp files cleaned up');
+
+  // and a beat is incremental like everything else here
+  const again = execFileSync('node', [TOOL, vo, '--rhubarb', stub], { encoding: 'utf8' });
+  assert.match(again, /0 generated, 4 unchanged/);
+  assert.match(again, /slide-01-02: visemes unchanged — kept/);
 
   rmTemp(dir);
 });

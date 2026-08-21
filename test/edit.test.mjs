@@ -638,12 +638,21 @@ test('POST /edit/record?seg writes slide-NN-KK.wav — and refuses a seg it cann
 
   const post = (qs) => fetch(`${base}/edit/record?${qs}`, { method: 'POST', body: 'x' });
   // `seg` is half of a filename this server builds, so it is bounded exactly
-  // like `slide` — and a viseme sidecar has no segments to be one of
+  // like `slide`
   for (const bad of ['seg=0', 'seg=-1', 'seg=1.5', 'seg=x', 'seg=1000', 'seg=..%2F..%2Fx']) {
     assert.equal((await post(`slide=1&kind=wav&${bad}&dir=voiceover`)).status, 400, bad);
   }
-  assert.equal((await post('slide=1&kind=visemes&seg=1&dir=voiceover')).status, 400);
   assert.deepEqual(readdirSync(path.join(dir, 'voiceover')).sort(), ['slide-04-02.wav', 'slide-04.wav']);
+
+  // A viseme sidecar is cut per beat too, for the same reason the audio is:
+  // the player plays one beat at a time, so a timeline for the whole slide
+  // starts at zero against every one of them.
+  const tl = JSON.stringify({ cues: [], duration: 0.4 });
+  const v = await (await fetch(base + '/edit/record?slide=4&kind=visemes&seg=2&dir=voiceover', {
+    method: 'POST', body: tl,
+  })).json();
+  assert.equal(v.file, 'slide-04-02.visemes.json');
+  assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-04-02.visemes.json'), 'utf8'), tl);
 });
 
 test('POST /edit/record names the folder only — never the file, and never one outside the deck', async (t) => {

@@ -12,6 +12,14 @@
 { "v": 1, "kind": "visemes", "duration": 1.0, "source": "test",
   "cues": [ { "t": 0, "v": "X" }, { "t": 0.4, "v": "E" } ] }
 </script>
+<!-- and the sidecar for ONE ⟨CLICK⟩ beat of that slide. Deliberately a
+     different shape at the same instant: at t=0.5 the slide's timeline says E
+     and this one says C, so "did it read the beat's own timeline" has a
+     one-character answer rather than an inference. -->
+<script type="application/json" data-decklight-visemes="slide-01-02">
+{ "v": 1, "kind": "visemes", "duration": 1.0, "source": "test",
+  "cues": [ { "t": 0, "v": "X" }, { "t": 0.3, "v": "C" } ] }
+</script>
 <script type="module">
 // Drives src/core/character.js directly (no engine, no bridge, no audio
 // device): the bridge is a stubbed fetch, the narration audio a plain mock
@@ -27,9 +35,13 @@ try {
     v: 1, kind: 'visemes', duration: 2.0, source: 'stub',
     cues: [{ t: 0, v: 'X' }, { t: 0.3, v: 'B' }, { t: 0.6, v: 'D' }, { t: 1.2, v: 'F' }],
   };
-  window.fetch = async () => new Response(JSON.stringify(timeline), {
-    status: 200, headers: { 'content-type': 'application/json' },
-  });
+  // 404 for a beat that was never cut — a track recorded before lipsync knew
+  // how to cut them is exactly that, and it must not fall back to the slide's
+  window.fetch = async (url) => (String(url).includes('slide-01-09')
+    ? new Response('nope', { status: 404 })
+    : new Response(JSON.stringify(timeline), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    }));
 
   const root = document.getElementById('root');
   const character = createCharacter({
@@ -69,6 +81,21 @@ try {
   await raf2();
   results.visemeFromSidecar = el?.getAttribute('data-viseme');
 
+  // …and a ⟨CLICK⟩ beat reads its OWN timeline. A beat-paced track plays one
+  // beat's audio at a time, so the slide's timeline starts at zero against
+  // every one of them — right for the first, progressively wronger after it.
+  character.beginSlide({ dir: 'voiceover' }, 1, 2);
+  await new Promise((r) => setTimeout(r, 30));
+  await raf2();
+  results.visemeFromBeatSidecar = el?.getAttribute('data-viseme');
+
+  // A beat with no sidecar animates from amplitude rather than mouthing the
+  // slide's words: wrong-but-confident is worse than visibly approximate.
+  character.beginSlide({ dir: 'voiceover' }, 1, 9);
+  await new Promise((r) => setTimeout(r, 30));
+  await raf2();
+  results.missingBeatDidNotReuseTheSlide = el?.getAttribute('data-viseme') !== 'E';
+
   // solo: the class lands on the ROOT (the stage is what gets hidden), and
   // only while the character is on screen — a stopped narration or a
   // switched-off character must never leave the deck staring at a blank stage
@@ -94,6 +121,7 @@ try {
   results.PASS = results.mounted && results.shown && results.mouthShapes === 9
     && results.visemeMidB === 'B' && results.visemeMidD === 'D'
     && results.visemeWhenPaused === 'X' && results.visemeFromSidecar === 'E'
+    && results.visemeFromBeatSidecar === 'C' && results.missingBeatDidNotReuseTheSlide
     && results.hiddenAfterStop && results.cueAtSpot === 'F'
     && results.soloOnRoot && results.soloPersisted && results.soloDroppedWhenOff
     && results.soloBackOnWhenShown && results.soloOffClears

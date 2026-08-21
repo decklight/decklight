@@ -687,8 +687,9 @@ export async function editMain(args, { onListen = null } = {}) {
         const kind = url.searchParams.get('kind');
         if (!Number.isInteger(slide) || slide < 1 || slide > 9999) return json(400, { ok: false, error: 'bad slide' });
         if (kind !== 'wav' && kind !== 'visemes') return json(400, { ok: false, error: 'bad kind' });
-        // `seg` is the per-⟨CLICK⟩ file number (slide-NN-KK.wav) — the audio
-        // that lets a recording step the builds. Absent means the whole slide.
+        // `seg` is the per-⟨CLICK⟩ file number — the audio that lets a recording
+        // step the builds (slide-NN-KK.wav) and the viseme timeline cut to
+        // match it (slide-NN-KK.visemes.json). Absent means the whole slide.
         // Bounded and integral like `slide`, and for the same reason: it is
         // half of a filename this server builds, and the only defence that
         // survives someone deciding the name should be more flexible one day.
@@ -697,7 +698,6 @@ export async function editMain(args, { onListen = null } = {}) {
         if (seg !== null && (!Number.isInteger(seg) || seg < 1 || seg > 999)) {
           return json(400, { ok: false, error: 'bad seg' });
         }
-        if (seg !== null && kind !== 'wav') return json(400, { ok: false, error: 'only wav has segments' });
         // The player names the FOLDER (its own `narration.files`, so a recorded
         // set lands where that deck already plays from) and nothing else: the
         // file name is built here, so no request can choose one. The folder is

@@ -304,29 +304,49 @@ export function createCharacter({ root, config, debugLog, toast }) {
         .catch(() => warnOnce());
     }
   }
-  // A recorded per-slide file started (playSlideFile). Sidecar data comes
+  // A recorded file started (playSlideFile / playRecorded). Sidecar data comes
   // from tools/lipsync.mjs: slide-NN.visemes.json / slide-NN.mp4 in the same
   // dir. Viseme JSON prefers an inline <script data-decklight-visemes>
   // block (written by `decklight bundle`) — fetch() is blocked on file://.
-  function beginSlide(set, slideNo) {
+  //
+  // `seg` is the ⟨CLICK⟩ beat number when a beat is what is playing, and it
+  // names a DIFFERENT sidecar (slide-NN-KK.visemes.json) rather than an offset
+  // into the slide's. A beat-paced track plays one beat's audio at a time, so a
+  // timeline cut for the whole slide starts at zero against every one of them —
+  // the mouth is right for the first beat and progressively wronger after it.
+  //
+  // A missing beat sidecar deliberately falls through to NO timeline rather
+  // than to the slide's: the amplitude fallback is honest about not knowing,
+  // while the slide's timeline would be confidently wrong in exactly the way
+  // this exists to fix. (Tracks made before lipsync learned to cut beats are
+  // that case, and they animate rather than mouth the wrong words.)
+  function beginSlide(set, slideNo, seg = null) {
     if (mode === 'off' || !set || set.live) return;
     show();
     const nn = String(slideNo).padStart(2, '0');
-    const key = `file|${set.dir}|${nn}`;
+    const stem = seg == null ? `slide-${nn}` : `slide-${nn}-${String(seg).padStart(2, '0')}`;
+    const key = `file|${set.dir}|${stem}`;
+    if (currentKey === key) return;   // same beat re-armed — keep the timeline
     currentKey = key;
     if (mode === 'viseme') {
       timeline = null;
       (async () => {
-        const inline = document.querySelector(`script[data-decklight-visemes="slide-${nn}"]`);
+        const inline = document.querySelector(`script[data-decklight-visemes="${stem}"]`);
         if (inline) return JSON.parse(inline.textContent);
-        const res = await fetch(`${set.dir}/slide-${nn}.visemes.json`);
+        const res = await fetch(`${set.dir}/${stem}.visemes.json`);
         if (!res.ok) throw new Error(String(res.status));
         return res.json();
       })()
         .then((tl) => { if (currentKey === key) timeline = tl; })
-        .catch(() => { /* no sidecar for this slide — fallback animates */ });
+        .catch(() => { /* no sidecar for this beat — fallback animates */ });
     } else if (videoEl) {
-      videoEl.src = `${set.dir}/slide-${nn}.mp4`;
+      // Video stays per SLIDE. A talking head is minutes of GPU time a clip,
+      // and the element mirrors the audio's transport rather than seeking to a
+      // timeline, so cutting it per beat would cost a great deal to fix a
+      // smaller error than the visemes had.
+      const src = `${set.dir}/slide-${nn}.mp4`;
+      if (videoEl.src.endsWith(`/slide-${nn}.mp4`)) return;
+      videoEl.src = src;
       videoEl.playbackRate = audioEl?.playbackRate ?? 1;
       videoEl.play().catch(() => { /* no file — poster frame stays */ });
     }

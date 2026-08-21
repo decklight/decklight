@@ -81,12 +81,23 @@ if (doVideo) {
 }
 const ffmpegOk = have('ffmpeg', ['-version']);
 
-// every slide-NN with audio, wav preferred over m4a
-const slides = [...new Set(readdirSync(dir)
-  .map((f) => f.match(/^slide-(\d+)\.(wav|m4a)$/)?.[1])
+// Every stem with audio, wav preferred over m4a: slide-NN, and slide-NN-KK for
+// a track whose ⟨CLICK⟩ beats were recorded separately.
+//
+// A beat needs its OWN sidecar. The player plays one beat's audio at a time on
+// a beat-paced track (PRESENTING), so a timeline cut for the whole slide starts
+// at zero against every one of them — right for the first beat and
+// progressively wronger after it. Cutting one per beat is the fix, and it costs
+// only Rhubarb passes: they are seconds each, and incremental like everything
+// else here.
+const stems = [...new Set(readdirSync(dir)
+  .map((f) => f.match(/^(slide-\d+(?:-\d+)?)\.(wav|m4a)$/)?.[1])
   .filter(Boolean))].sort();
-if (!slides.length) { console.error(`${dir}: no slide-NN.wav/.m4a files`); process.exit(1); }
-console.log(`${basename(dir)}: ${slides.length} slides with audio`);
+const slides = stems.filter((st) => !/-\d+-\d+$/.test(st));
+const beats = stems.filter((st) => /-\d+-\d+$/.test(st));
+if (!stems.length) { console.error(`${dir}: no slide-NN.wav/.m4a files`); process.exit(1); }
+console.log(`${basename(dir)}: ${slides.length} slides with audio`
+  + (beats.length ? ` · ${beats.length} ⟨CLICK⟩ beats` : ''));
 
 // incremental state — its own file so voiceover.mjs reruns can't clobber it
 const statePath = join(dir, 'lipsync.json');
@@ -99,11 +110,11 @@ const sha = (...parts) => {
   return h.digest('hex').slice(0, 16);
 };
 
-function toWav(nn) {
-  const wav = join(dir, `slide-${nn}.wav`);
+function toWav(stem) {
+  const wav = join(dir, `${stem}.wav`);
   if (existsSync(wav)) return { path: wav, tmp: false };
-  const m4a = join(dir, `slide-${nn}.m4a`);
-  const tmp = join(dir, `slide-${nn}.tmp.wav`);
+  const m4a = join(dir, `${stem}.m4a`);
+  const tmp = join(dir, `${stem}.tmp.wav`);
   if (ffmpegOk) execFileSync('ffmpeg', ['-y', '-i', m4a, tmp], { stdio: 'ignore' });
   else execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16', m4a, tmp]);
   return { path: tmp, tmp: true };
@@ -115,40 +126,45 @@ function toWav(nn) {
 const face = veo && engine === 'wav2lip' ? await veo.motionFor(portrait) : portrait;
 
 let made = 0, kept = 0;
-for (const nn of slides) {
-  const audioFile = ['wav', 'm4a'].map((e) => join(dir, `slide-${nn}.${e}`)).find(existsSync);
+for (const stem of stems) {
+  // A beat gets visemes only. A talking head is minutes of GPU time per clip,
+  // and the player's video element mirrors the audio's transport rather than
+  // seeking a timeline — so cutting video per beat would cost a great deal to
+  // fix a smaller error than the visemes had.
+  const isBeat = /-\d+-\d+$/.test(stem);
+  const audioFile = ['wav', 'm4a'].map((e) => join(dir, `${stem}.${e}`)).find(existsSync);
   const audioBytes = readFileSync(audioFile);
-  const txtPath = join(dir, `slide-${nn}.txt`);
+  const txtPath = join(dir, `${stem}.txt`);
   const text = existsSync(txtPath) ? readFileSync(txtPath, 'utf8').trim() : '';
-  const st = (state[nn] ??= {});
+  const st = (state[stem] ??= {});
   const jobs = [];
   if (doVisemes) jobs.push('visemes');
-  if (doVideo) jobs.push('video');
+  if (doVideo && !isBeat) jobs.push('video');
 
   for (const job of jobs) {
-    const outFile = join(dir, job === 'visemes' ? `slide-${nn}.visemes.json` : `slide-${nn}.mp4`);
+    const outFile = join(dir, job === 'visemes' ? `${stem}.visemes.json` : `${stem}.mp4`);
     const hash = job === 'visemes'
       ? sha('visemes|', text, '|', audioBytes)
       : sha('video|', engine, '|', readFileSync(face), '|', audioBytes);   // `face`, so --veo re-renders
     if (st[job] === hash && existsSync(outFile)) {
       kept++;
-      console.log(`  slide ${nn}: ${job} unchanged — kept`);
+      console.log(`  ${stem}: ${job} unchanged — kept`);
       continue;
     }
-    const wav = toWav(nn);
+    const wav = toWav(stem);
     try {
       const t0 = Date.now();
       if (job === 'visemes') {
-        const tmpOut = join(dir, `slide-${nn}.tmp.visemes.json`);
+        const tmpOut = join(dir, `${stem}.tmp.visemes.json`);
         let dialogFile;
-        if (text) { dialogFile = join(dir, `slide-${nn}.tmp.txt`); writeFileSync(dialogFile, text); }
+        if (text) { dialogFile = join(dir, `${stem}.tmp.txt`); writeFileSync(dialogFile, text); }
         const tl = await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut });
         writeFileSync(outFile, JSON.stringify(tl));
         rmSync(tmpOut, { force: true });
-        rmSync(join(dir, `slide-${nn}.tmp.txt`), { force: true });
-        console.log(`  slide ${nn}: ${tl.cues.length} cues → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        rmSync(join(dir, `${stem}.tmp.txt`), { force: true });
+        console.log(`  ${stem}: ${tl.cues.length} cues → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       } else {
-        const tmpMp4 = join(dir, `slide-${nn}.tmp.mp4`);
+        const tmpMp4 = join(dir, `${stem}.tmp.mp4`);
         if (engine === 'wav2lip') {
           // a --veo clip is hundreds of frames to detect faces in, not one:
           // batch small or an 8GB card dies with "Image too big to run face
@@ -156,7 +172,7 @@ for (const nn of slides) {
           await runWav2lip(python, { dir: wav2lipDir, checkpoint: wav2lipCkpt, face,
             wav: wav.path, out: tmpMp4, smallBatches: face !== portrait, inherit: true });
         } else {
-          const resDir = join(dir, `slide-${nn}.tmp.d`);
+          const resDir = join(dir, `${stem}.tmp.d`);
           await runSadtalker(python, { dir: sadtalkerDir, still: portrait,
             wav: wav.path, out: tmpMp4, resultDir: resDir, inherit: true });
           rmSync(resDir, { recursive: true, force: true });
@@ -166,7 +182,7 @@ for (const nn of slides) {
           await muteFaststart(tmpMp4, outFile);
           rmSync(tmpMp4, { force: true });
         } else renameSync(tmpMp4, outFile);
-        console.log(`  slide ${nn}: ${engine} → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        console.log(`  ${stem}: ${engine} → ${basename(outFile)} · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
       }
       st[job] = hash;
       made++;
