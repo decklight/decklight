@@ -46,7 +46,7 @@
 // `decklight author` asks interactively before passing --git down.
 
 import { createServer } from 'node:http';
-import { readFileSync, writeFileSync, mkdirSync, watch, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, watch, existsSync } from 'node:fs';
 import { resolve, sep, basename } from 'node:path';
 import { spawn } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent } from './agents.mjs';
@@ -195,7 +195,7 @@ export function initArgument(html) {
  * is not this object's key, and `{ note: "narration: off" }` is not a key at
  * all. Both are things a plausible deck contains.
  */
-function topLevelKey(obj, key) {
+function objectKey(obj, key) {
   const re = new RegExp(`(^|[{,\\s])${key}\\s*:`);
   let depth = 0;
   for (let i = 0; i < obj.length; i++) {
@@ -219,6 +219,35 @@ function topLevelKey(obj, key) {
     return { from: i + (m[1] ? 1 : 0), to: j, valueFrom: i + m[0].length };
   }
   return null;
+}
+
+/**
+ * The span of each top-level element of an array literal, `[` … `]` included
+ * in the input. String- and depth-aware for the same reason everything else
+ * here is: `[{ label: 'a, b' }]` is one element, not two.
+ */
+function arrayEntries(arr) {
+  const out = [];
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < arr.length; i++) {
+    const c = arr[i];
+    if (c === '"' || c === "'" || c === '`') { i = skipString(arr, i); continue; }
+    if (c === '{' || c === '[' || c === '(') {
+      if (depth === 1 && start === -1) start = i;
+      depth++;
+      continue;
+    }
+    if (c === '}' || c === ']' || c === ')') {
+      depth--;
+      if (depth === 1 && start !== -1) { out.push({ from: start, to: i + 1 }); start = -1; }
+      continue;
+    }
+    if (depth === 1 && start === -1 && !/[\s,]/.test(c)) start = i;
+    if (depth === 1 && start !== -1 && c === ',') { out.push({ from: start, to: i }); start = -1; }
+  }
+  if (start !== -1) out.push({ from: start, to: arr.lastIndexOf(']') });
+  return out;
 }
 
 /** `{ files: 'voiceover', ext: 'wav', segments: true }`, as a person writes it. */
@@ -245,6 +274,105 @@ export function narrationLiteral(cfg) {
  * guessing which `cfg` is meant, in which scope, is how an editor corrupts a
  * file. That deck keeps the printed line and is told why.
  */
+/** `{ label: 'Rachel · ElevenLabs', dir: 'voices/rachel', ext: 'wav' }` */
+export function trackLiteral(track) {
+  return narrationLiteral(track);
+}
+
+/**
+ * Add a recorded track to the deck's `narration.files`, or update it in place.
+ *
+ * ADD, not replace. A deck can carry as many tracks as you have voices — four
+ * cloned ones, the system voice, two takes of your own — and `N` is the
+ * switcher. Replacing the key (which is what this did when it only knew how to
+ * write one) threw the others away the first time somebody recorded a second
+ * voice, which is exactly when a multi-track deck exists.
+ *
+ * A track already listed under the same `dir` is UPDATED rather than added
+ * twice: re-recording into a folder should refresh what the deck says about
+ * it, not leave the picker showing the same folder twice.
+ *
+ * The one-string form (`files: 'voiceover'`, with `ext`/`segments` beside it)
+ * becomes a one-element list carrying those same keys — the shape
+ * `narrationTracks()` already normalises it to internally, so the deck plays
+ * identically before and after.
+ *
+ * Returns the new HTML, or null when there is no literal here to edit.
+ */
+export function upsertNarrationTrack(html, track) {
+  const arg = initArgument(html);
+  if (!arg) return null;
+  const raw = html.slice(arg.start, arg.end);
+  const splice = (from, to, text) => html.slice(0, from) + text + html.slice(to);
+  const one = narrationLiteral(track);
+
+  // no config object at the call site at all
+  if (!raw.trim()) return splice(arg.start, arg.end, `{ narration: { files: [${one}] } }`);
+  const open = raw.indexOf('{');
+  if (open === -1 || raw.slice(0, open).trim()) return null;
+  const close = raw.lastIndexOf('}');
+  if (close < open) return null;
+  const obj = raw.slice(open, close + 1);
+  const at = arg.start + open;
+
+  const narr = objectKey(obj, 'narration');
+  if (!narr) {
+    const inner = obj.slice(1, -1);
+    const body = inner.trim()
+      ? `{ narration: { files: [${one}] },${inner.replace(/^\s*\n?/, inner.includes('\n') ? '\n' : ' ')}}`
+      : `{ narration: { files: [${one}] } }`;
+    return splice(at, arg.start + close + 1, body);
+  }
+
+  const nval = obj.slice(narr.valueFrom, narr.to).trim();
+  const nvalAt = at + narr.valueFrom + (obj.slice(narr.valueFrom, narr.to).length - obj.slice(narr.valueFrom, narr.to).trimStart().length);
+  if (!nval.startsWith('{')) return null;   // narration built elsewhere
+
+  const files = objectKey(nval, 'files');
+  if (!files) {
+    const inner = nval.slice(1, -1);
+    const body = inner.trim() ? `{ files: [${one}],${inner.replace(/^\s*/, ' ')}}` : `{ files: [${one}] }`;
+    return splice(nvalAt, nvalAt + nval.length, body);
+  }
+
+  const fval = nval.slice(files.valueFrom, files.to).trim();
+  const fvalStart = nvalAt + nval.indexOf(fval, files.valueFrom);
+
+  // already a list: update the entry naming this folder, else append
+  if (fval.startsWith('[')) {
+    const entries = arrayEntries(fval);
+    const same = entries.find((e) => {
+      const m = /\bdir\s*:\s*(['"`])([^'"`]*)\1/.exec(fval.slice(e.from, e.to));
+      return m && m[2] === track.dir;
+    });
+    if (same) return splice(fvalStart + same.from, fvalStart + same.to, one);
+    const closeAt = fval.lastIndexOf(']');
+    const body = entries.length ? `,\n    ${one}\n  ` : one;
+    return splice(fvalStart + closeAt, fvalStart + closeAt, body);
+  }
+
+  // the one-string form: carry it across as the first entry, keys and all
+  const m = /^(['"`])([^'"`]*)\1$/.exec(fval);
+  if (!m) return null;
+  const kept = { label: m[2], dir: m[2] };
+  for (const k of ['ext', 'segments']) {
+    const found = objectKey(nval, k);
+    if (!found) continue;
+    const v = nval.slice(found.valueFrom, found.to).trim();
+    kept[k] = v === 'true' ? true : v === 'false' ? false : v.replace(/^['"`]|['"`]$/g, '');
+  }
+  const list = kept.dir === track.dir ? [one] : [narrationLiteral(kept), one];
+  // the sibling ext/segments moved INTO the entry they described, so they must
+  // not stay behind saying it about every track
+  const rest = [];
+  for (const [k, span] of ['liveUrl', 'character', 'engine', 'voice', 'style']
+    .map((k) => [k, objectKey(nval, k)]).filter(([, v]) => v)) {
+    rest.push(nval.slice(span.from, span.to).trim().replace(/,$/, ''));
+  }
+  const body = `{ files: [\n    ${list.join(',\n    ')}\n  ]${rest.length ? `, ${rest.join(', ')}` : ''} }`;
+  return splice(nvalAt, nvalAt + nval.length, body);
+}
+
 export function setNarrationConfig(html, cfg) {
   const arg = initArgument(html);
   if (!arg) return null;
@@ -262,7 +390,7 @@ export function setNarrationConfig(html, cfg) {
   if (close < open) return null;
 
   const obj = raw.slice(open, close + 1);
-  const found = topLevelKey(obj, 'narration');
+  const found = objectKey(obj, 'narration');
   if (found) {
     return splice(arg.start + open + found.valueFrom, arg.start + open + found.to, ` ${literal}`);
   }
@@ -862,6 +990,46 @@ export async function editMain(args, { onListen = null } = {}) {
       if (req.method === 'POST') {
         for await (const chunk of req) { body += chunk; if (body.length > 1e6) throw new Error('too large'); }
       }
+      // What tracks already sit next to this deck. The runtime cannot see the
+      // filesystem — which is why `segments: true` is opt-in at all — so it
+      // cannot know that `voices/rachel` is taken before proposing it. One
+      // question, asked when a recorder opens.
+      if (req.method === 'GET' && url.pathname === '/edit/tracks') {
+        const root2 = resolve(deckPath, '..');
+        const seen = [];
+        const look = (rel) => {
+          let entries;
+          try { entries = readdirSync(resolve(root2, rel), { withFileTypes: true }); } catch { return; }
+          const wav = entries.filter((e) => e.isFile() && /^slide-\d+(-\d+)?\.(wav|m4a|mp3)$/.test(e.name));
+          if (wav.length) {
+            let engine = null; let voice = null;
+            try {
+              const m = JSON.parse(readFileSync(resolve(root2, rel, 'manifest.json'), 'utf8'));
+              engine = m.engine ?? null; voice = m.voice ?? null;
+            } catch { /* a folder recorded by hand has no manifest, and needs none */ }
+            seen.push({
+              dir: rel.split(sep).join('/'),
+              files: wav.length,
+              // the beats are what let a track pace the builds, so whether it
+              // has them is the one fact worth reporting beside the count
+              segments: wav.some((e) => /^slide-\d+-\d+\./.test(e.name)),
+              ext: (wav[0].name.split('.').pop()),
+              engine,
+              voice,
+            });
+          }
+          return entries;
+        };
+        for (const e of look('.') ?? []) {
+          if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue;
+          const kids = look(e.name) ?? [];
+          // one more level, because the convention is voices/<voice>
+          for (const k of kids) {
+            if (k.isDirectory() && !k.name.startsWith('.')) look(`${e.name}${sep}${k.name}`);
+          }
+        }
+        return json(200, { ok: true, tracks: seen });
+      }
       // Point the deck at a track the recorder just wrote. The one manual step
       // in a flow that is otherwise a key and an arrow — and this server
       // already owns the file, so it can take that step too.
@@ -881,8 +1049,17 @@ export async function editMain(args, { onListen = null } = {}) {
         if (segments !== undefined && typeof segments !== 'boolean') {
           return json(400, { ok: false, error: 'bad segments' });
         }
-        const next = setNarrationConfig(readDeck(), {
-          files: files.trim(), ...(ext === undefined ? {} : { ext }), ...(segments === undefined ? {} : { segments }),
+        const { label } = JSON.parse(body || '{}');
+        if (label !== undefined && (typeof label !== 'string' || label.length > 120)) {
+          return json(400, { ok: false, error: 'bad label' });
+        }
+        // upsert, never replace: a deck carries as many tracks as you have
+        // voices, and writing one must not throw the others away
+        const next = upsertNarrationTrack(readDeck(), {
+          label: label || files.trim(),
+          dir: files.trim(),
+          ...(ext === undefined ? {} : { ext }),
+          ...(segments === undefined ? {} : { segments }),
         });
         if (next === null) {
           // Not a failure of this server — a deck whose config is built

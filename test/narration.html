@@ -174,6 +174,15 @@
           return new Response(JSON.stringify({ ok: true, name: 'narration.html', undo: 0, redo: 0 }),
             { status: 200, headers: { 'content-type': 'application/json' } });
         }
+        if (u.endsWith('/edit/tracks')) {
+          // A folder already recorded with the voice about to be used, so
+          // rule 2 (refresh, do not accumulate takes) has something to find.
+          // ?dir tests rule 3 instead — the deck's OWN configured folder — so
+          // it reports nothing, or rule 2 would rightly win over it.
+          return new Response(JSON.stringify({ ok: true, tracks: params.has('dir') ? [] : [
+            { dir: 'voices/alnilam', files: 6, segments: false, ext: 'm4a', engine: 'mock', voice: 'Alnilam' },
+          ] }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
         if (u.includes('/edit/narration')) {
           const cfg = JSON.parse(opts.body);
           // ?badconfig — a deck that builds its config elsewhere, which the
@@ -670,6 +679,10 @@
           await new Promise((ok) => setTimeout(ok, 400));   // /edit/ping answers
           press('V', document.body, { shiftKey: true });
           r.dialogOpens = !!document.querySelector('.decklight-record');
+          // the target lands asynchronously (the server is asked what exists),
+          // so the card names the folder a moment after it opens
+          const field = await until(() => document.querySelector('.decklight-record .rec-dir'), 3000);
+          r.folderField = field?.value ?? null;
           document.querySelector('.decklight-record .narr-card .narr-row')?.click();  // Start recording
 
           // Poll for the done card rather than sleeping a guessed interval: a
@@ -718,10 +731,15 @@
           // the folder: the deck's own narration.files when it has one, else
           // the same `voiceover` tools/voiceover.mjs writes to
           r.dir = r.posted[0]?.dir;
-          r.dirIsRight = r.dir === (params.has('dir') ? 'voices' : 'voiceover');
+          // A TRACK IS A FOLDER, named after the voice: recording a second
+          // voice into the first one's folder is what this replaced. `?dir`
+          // still wins — it is what the person asked for out loud.
+          r.dirIsRight = r.dir === (params.has('dir') ? 'voices' : 'voices/alnilam');
           // and the card names where they landed, plus the line that plays them
           r.saidWhere = text.includes(`${r.dir}/`) && !/downloads/.test(text);
           r.namedTheConfig = text.includes(`files: '${r.dir}', ext: 'wav'`);
+          // the folder is offered before the run, and it is editable
+          r.folderWasShown = !!r.folderField && r.folderField === r.dir;
 
           // "Use this track" — the offer that spares you pasting a config
           // line, and the one thing between a finished recording and a deck
@@ -756,8 +774,13 @@
             // the card prints the flag without which the beats do nothing
             r.namedSegments = text.includes(`files: '${r.dir}', ext: 'wav', segments: true`);
             // …and the button writes exactly the line the card printed
-            r.configMatchedTheCard = JSON.stringify(r.wroteTheConfig)
-              === JSON.stringify([{ files: r.dir, ext: 'wav', segments: true }]);
+            const wrote = r.wroteTheConfig[0] ?? {};
+            r.configMatchedTheCard = r.wroteTheConfig.length === 1
+              && wrote.files === r.dir && wrote.ext === 'wav' && wrote.segments === true
+              // the label is what makes a picker row distinguishable from the
+              // seven others; a track written without one is a row reading as
+              // its own folder path
+              && typeof wrote.label === 'string' && wrote.label.length > 0;
             r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes
               && r.carriedAudio && r.dirIsRight && r.saidWhere && r.wroteABeatPerClick
               && r.noBeatsForAOneBreathSlide && r.beatsCarriedAudio && r.namedSegments
@@ -774,12 +797,15 @@
             && !/segments: true/.test(text);
 
           // a deck with no ⟨CLICK⟩ anywhere must not be handed segments: true
-          r.configMatchedTheCard = JSON.stringify(r.wroteTheConfig)
-            === JSON.stringify([{ files: r.dir, ext: 'wav' }]);
+          const wrote = r.wroteTheConfig[0] ?? {};
+          r.configMatchedTheCard = r.wroteTheConfig.length === 1
+            && wrote.files === r.dir && wrote.ext === 'wav' && wrote.segments === undefined
+            && typeof wrote.label === 'string' && wrote.label.length > 0;
+          r.label = wrote.label;
           r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes
             && r.carriedAudio && r.dirIsRight && r.saidWhere && r.namedTheConfig
             && r.noBeatsWithoutClicks && r.offeredToUseIt && r.saidItWorked
-            && r.configMatchedTheCard;
+            && r.configMatchedTheCard && r.folderWasShown;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

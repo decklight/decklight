@@ -247,9 +247,10 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
     continue;
   }
   if (m === 'record') {
+    if (!ok) console.error('   ', JSON.stringify(r));
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(12)} `
       + (r.authored
-        ? `wrote ${r.slides?.join(',')} to ${r.dir}/ (right folder=${r.dirIsRight})`
+        ? `wrote ${r.slides?.join(',')} to ${r.dir}/ (right folder=${r.dirIsRight}, offered up front as "${r.folderField}", labelled "${r.label ?? ''}")`
           + ` · nothing downloaded=${r.wentToDisk}`
           + ` · card says where=${r.saidWhere} and how to play it=${r.namedTheConfig}`
         : `no server → downloaded ${r.slides?.join(',')} (posted nothing=${r.wentToDisk})`

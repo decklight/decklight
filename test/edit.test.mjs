@@ -666,11 +666,13 @@ test('POST /edit/narration writes the config, undoes like any other edit', async
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
   const r = await (await post(base, '/edit/narration',
-    { files: 'voiceover', ext: 'wav', segments: true })).json();
+    { files: 'voiceover', ext: 'wav', segments: true, label: 'My voice' })).json();
   assert.equal(r.ok, true);
   assert.equal(r.changed, true);
+  // a LIST, always: a deck carries as many tracks as you have voices, and the
+  // one-track shape is the case where you happen to have one
   assert.match(readFileSync(deck, 'utf8'),
-    /narration: \{ files: 'voiceover', ext: 'wav', segments: true \}/);
+    /narration: \{ files: \[\{ label: 'My voice', dir: 'voiceover', ext: 'wav', segments: true \}\] \}/);
 
   // one door for every mutation, so Z takes this back like a notes edit
   assert.equal(r.undo, 1);
@@ -684,6 +686,35 @@ test('POST /edit/narration writes the config, undoes like any other edit', async
     { files: '' }, { files: 5 }, { files: 'ok', ext: '../x' }, { files: 'ok', segments: 'yes' }]) {
     assert.equal((await post(base, '/edit/narration', bad)).status, 400, JSON.stringify(bad));
   }
+});
+
+test('a second voice is ADDED to the deck, never written over the first', async (t) => {
+  // The bug this closes, in one test. A deck carrying four cloned voices and
+  // the system one had them all replaced the moment somebody recorded a sixth
+  // — which is precisely when a multi-track deck exists.
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, BOOT_DECK("Decklight.init({ narration: { files: ["
+    + "{ label: 'Rachel · elevenlabs', dir: 'voices/rachel' }, "
+    + "{ label: 'Adam · elevenlabs', dir: 'voices/adam' }] } });"));
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+
+  await post(base, '/edit/narration',
+    { files: 'voices/me', ext: 'wav', segments: true, label: 'My voice' });
+  let html = readFileSync(deck, 'utf8');
+  assert.match(html, /voices\/rachel/, 'the first cloned voice survives');
+  assert.match(html, /voices\/adam/, 'and the second');
+  assert.match(html, /label: 'My voice', dir: 'voices\/me'/);
+
+  // …and recording into the same folder again UPDATES it rather than listing
+  // it twice — the picker must not show one folder as two rows
+  await post(base, '/edit/narration',
+    { files: 'voices/me', ext: 'wav', segments: true, label: 'My voice, take 2' });
+  html = readFileSync(deck, 'utf8');
+  assert.equal(html.match(/dir: 'voices\/me'/g).length, 1);
+  assert.match(html, /My voice, take 2/);
+  assert.doesNotMatch(html, /label: 'My voice',/);
+  assert.equal(html.match(/dir: 'voices\//g).length, 3, 'three tracks, still');
 });
 
 test('POST /edit/narration says WHY when a deck builds its config elsewhere', async (t) => {

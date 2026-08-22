@@ -166,6 +166,35 @@ export function floatToPcm16(samples) {
   return out;
 }
 
+/**
+ * Where a recording should go, and what to call it in the picker.
+ *
+ * A TRACK IS A FOLDER. A deck carries as many as you have voices — four cloned
+ * ones, the system voice, two takes of your own — and `N` is the switcher. So
+ * the one thing a recorder must not do is write them all into the same place,
+ * which is what a single `voiceover` default guaranteed: record a second voice
+ * and the first was gone, with nothing said.
+ *
+ * The voice names the folder because it is the only thing that distinguishes
+ * one take from another to the person doing it. `taken` is the folders that
+ * already hold audio (the author server can see them; the deck cannot), and a
+ * collision takes the next free suffix rather than overwriting or refusing —
+ * the proposal is editable on the card, so a wrong guess costs a keystroke.
+ */
+export function proposeTrack({ engine, voice, mine = false } = {}, taken = []) {
+  const slug = (t) => String(t ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '').slice(0, 40);
+  const base = mine ? 'voices/me' : `voices/${slug(voice) || slug(engine) || 'take'}`;
+  const used = new Set(taken);
+  let dir = base;
+  for (let n = 2; used.has(dir); n++) dir = `${base}-${n}`;
+  const nth = dir === base ? '' : `, take ${dir.slice(base.length + 1)}`;
+  const label = mine
+    ? `My voice${nth}`
+    : `${voice || 'Narration'}${engine ? ` · ${engine}` : ''}${nth}`;
+  return { dir, label };
+}
+
 export function narrationTracks(narration) {
   const f = narration?.files;
   if (!f) return [];
@@ -1742,7 +1771,7 @@ export function createNarration({
   // recRun is a generation counter, not a boolean: closing the dialog bumps
   // it, and a loop only acts while its own run is still current — a cancel
   // followed by an immediate re-record can't resurrect the old loop.
-  let recEl = null, recView = 'confirm', recRun = 0;
+  let recEl = null, recView = 'confirm', recRun = 0, recTarget = null;
   /**
    * The slides a recorder walks: every one that has something to say, narrowed
    * by `?slides=a-b` when `decklight record --slides` asked for a range.
@@ -1774,8 +1803,10 @@ export function createNarration({
       card.innerHTML = `<div class="narr-head">record offline narration</div>
         <div class="rec-line">⚡ ${liveCfg.voice} · ${liveCfg.tone}</div>
         <div class="rec-line">${n} slide${n === 1 ? '' : 's'} stitched from the sentence cache — only unheard sentences synthesize</div>
+        ${folderRow(data.target)}
         <div class="narr-row narr-sel">Start recording</div>
         <div class="rec-hint">Enter to start · Esc to cancel</div>`;
+      wireFolderRow(card, (t) => { recTarget = t; });
       card.querySelector('.narr-row').addEventListener('click', startRecording);
     } else if (view === 'progress') {
       const { done, total, elapsedMs } = data;
@@ -1803,7 +1834,7 @@ export function createNarration({
         <div class="rec-line">${next}</div>
         ${useTrackRow(dir)}
         <div class="rec-hint">Enter or Esc to close</div>`;
-      wireUseTrack(card, dir, { ext: 'wav', ...(data.segmented ? { segments: true } : {}) });
+      wireUseTrack(card, dir, { ext: 'wav', label: data.label, ...(data.segmented ? { segments: true } : {}) });
     }
   }
   // Slide files are STITCHED FROM THE SENTENCE CACHE: every clip already
@@ -1963,11 +1994,74 @@ export function createNarration({
   // relative directory, so re-recording refreshes the track already configured
   // rather than seeding a second one; otherwise `voiceover`, the same default
   // tools/voiceover.mjs writes to.
+  /**
+   * The folders next to the deck that already hold audio.
+   *
+   * The runtime cannot see the filesystem — that is why `segments: true` is
+   * opt-in at all — so it cannot know `voices/rachel` is taken before
+   * proposing it. The author server can, and answers once per recorder open.
+   */
+  async function knownTracks() {
+    const base = authorBase();
+    if (base == null) return [];
+    try {
+      const r = await fetch(`${base}/edit/tracks`);
+      const j = await r.json();
+      return Array.isArray(j?.tracks) ? j.tracks : [];
+    } catch { return []; }
+  }
+  /**
+   * What this recorder is about to write, and what the picker will call it.
+   *
+   * Four rules, in order, and the order is the whole design:
+   *
+   *  1. `--dir` / `?dir=` — asked for out loud, and nothing outranks that.
+   *  2. A folder already recorded with THIS engine and voice. Re-recording a
+   *     voice should REFRESH its take, not accumulate `-2`, `-3`, `-4` — and
+   *     tools/voiceover.mjs writes engine and voice into each folder's
+   *     manifest.json, so the question is answerable rather than guessed.
+   *  3. The deck's own single configured folder. A deck that names one place
+   *     is a deck that has decided; seeding a second one beside it would be
+   *     answering a question nobody asked.
+   *  4. `voices/<voice>`, suffixed past anything already there — a NEW voice
+   *     gets a new folder, which is what makes four cloned voices, two system
+   *     ones and two takes of your own into eight pickable tracks instead of
+   *     one folder overwritten eight times.
+   */
+  function targetFor({ mine }, tracks) {
+    const engine = mine ? null : liveEngine;   // adoptBridge keeps this current
+    const voice = mine ? null : liveCfg?.voice;
+    const who = mine ? { mine: true } : { engine, voice };
+    const proposed = proposeTrack(who, tracks.map((t) => t.dir));
+    // The "take 2" in a proposed label belongs to a NEW folder that had to step
+    // around an existing one. Refreshing that same folder, or writing to one
+    // that was asked for by name, is not a second take of anything — so those
+    // take the plain label, or the picker grows a row reading "take 2" for the
+    // recording that replaced take 1.
+    const plain = proposeTrack(who, []).label;
+    const at = (dir, why) => ({
+      dir,
+      label: why === 'new' ? proposed.label : plain,
+      why,
+      clash: tracks.find((t) => t.dir === dir) ?? null,
+    });
+
+    const asked = plainFolder(params?.get?.('dir'));
+    if (asked) return at(asked, 'asked');
+    if (!mine && voice) {
+      const same = tracks.find((t) => t.voice && t.voice === voice && (!t.engine || !engine || t.engine === engine));
+      if (same) return at(same.dir, 'refresh');
+    }
+    const configured = plainFolder(recordDir({ configOnly: true }));
+    if (configured) return at(configured, 'configured');
+    return at(proposed.dir, 'new');
+  }
+
   const RECORD_DIR = 'voiceover';
   const plainFolder = (d) => (typeof d === 'string' && d
     && !/^[a-z][a-z0-9+.-]*:/i.test(d) && !/^[/\\]/.test(d) && !d.split(/[/\\]/).includes('..')
     ? d : null);
-  function recordDir() {
+  function recordDir({ configOnly = false } = {}) {
     // `decklight record --dir NAME` opens the deck with ?dir=NAME, which wins:
     // it is the one thing the person recording asked for out loud. Validated
     // here as well as in the command, because a URL is typed by hand too — and
@@ -1980,8 +2074,11 @@ export function createNarration({
       : Array.isArray(f) ? f.find((t) => typeof t?.dir === 'string')?.dir : null;
     // a bucket URL and an absolute path are both somewhere the author server
     // will refuse to write, and rightly — fall back rather than fail per slide
-    return first && !/^[a-z][a-z0-9+.-]*:/i.test(first) && !/^[/\\]/.test(first)
-      && !first.split(/[/\\]/).includes('..') ? first : RECORD_DIR;
+    const ok = plainFolder(first);
+    // configOnly: "what has this deck DECIDED", with no default standing in
+    // for an answer — targetFor needs to tell "no configured folder" from
+    // "the fallback one".
+    return ok ?? (configOnly ? null : RECORD_DIR);
   }
   /** Write one recorded file, through the author server when there is one.
    *  Resolves true when it landed on disk, false when the browser took it.
@@ -2008,6 +2105,47 @@ export function createNarration({
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     return false;
   }
+  /**
+   * The folder this recording goes into — shown, and editable, BEFORE it runs.
+   *
+   * A track is a folder, so the folder is the only thing distinguishing four
+   * cloned voices, two system ones and two takes of your own. It is proposed
+   * from the voice rather than typed, because the voice is what tells them
+   * apart to the person recording — but it is an input and not a label,
+   * because a proposal that cannot be corrected is just a decision made
+   * somewhere else.
+   */
+  function folderRow(target) {
+    if (!target) return '';
+    // A refresh is not a collision: re-recording the same voice into its own
+    // folder is the thing you meant. Only a folder holding SOMEBODY ELSE gets
+    // a warning.
+    const clash = target.clash && target.why !== 'refresh'
+      ? `<div class="rec-line rec-warn">${target.clash.files} file(s) are already in`
+        + ` <code>${escapeHtml(target.dir)}/</code>${target.clash.voice ? ` (${escapeHtml(target.clash.voice)})` : ''}`
+        + ' and will be replaced.</div>'
+      : '';
+    return `<div class="rec-line rec-folder"><label>folder
+      <input class="rec-dir" value="${escapeHtml(target.dir)}" spellcheck="false"
+             aria-label="folder to record into"></label></div>${clash}`;
+  }
+  function wireFolderRow(card, keep) {
+    const input = card?.querySelector('.rec-dir');
+    if (!input) return;
+    const read = () => {
+      const dir = plainFolder(input.value.trim());
+      input.classList.toggle('rec-bad', !dir);
+      return dir;
+    };
+    input.addEventListener('input', () => {
+      const dir = read();
+      if (dir) keep({ dir, label: input.dataset.label || dir, clash: null });
+    });
+    // Enter in the field starts the recording rather than doing nothing, which
+    // is what a single-field card should do
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') e.stopPropagation(); });
+  }
+
   /**
    * Point the deck's own config at the track just recorded.
    *
@@ -2093,7 +2231,9 @@ export function createNarration({
     // `== null`, never falsy: the author server's prefix is '' when it is the
     // origin serving this deck, which is most of the time.
     const base = authorBase();
-    const dir = base == null ? null : { base, name: recordDir() };
+    const target = recTarget ?? targetFor({ mine: false }, await knownTracks());
+    if (run !== recRun) return;
+    const dir = base == null ? null : { base, name: target.dir };
     renderRecordCard('progress', { done, total: list.length, elapsedMs: 0 });
     for (const sl of list) {
       if (run !== recRun) return;
@@ -2136,7 +2276,7 @@ export function createNarration({
       if (run === recRun) renderRecordCard('progress', { done, total: list.length, elapsedMs: Date.now() - t0 });
     }
     if (run === recRun) {
-      renderRecordCard('done', { saved, total: list.length, dir: toDisk ? dir.name : null, segmented });
+      renderRecordCard('done', { saved, total: list.length, dir: toDisk ? dir.name : null, segmented, label: target.label });
     }
   }
   function openRecordDialog() {
@@ -2147,7 +2287,15 @@ export function createNarration({
     recEl.innerHTML = '<div class="narr-card" role="dialog" aria-label="Record offline narration"></div>';
     closeOnBackdrop(recEl, closeRecordDialog);
     root.appendChild(recEl);
+    recTarget = null;
     renderRecordCard('confirm', { total: slidesWithNotes().length });
+    authorReady()
+      .then(() => knownTracks())
+      .then((tracks) => {
+        if (!recEl || recView !== 'confirm') return;
+        recTarget = targetFor({ mine: false }, tracks);
+        renderRecordCard('confirm', { total: slidesWithNotes().length, target: recTarget });
+      });
   }
   function closeRecordDialog() {
     recRun++; // invalidate any in-flight recording loop
@@ -2177,7 +2325,7 @@ export function createNarration({
   // `decklight present` serves `script-src 'self' 'unsafe-inline'` with no
   // blob:. A ScriptProcessorNode is deprecated and universally shipped, and
   // works under that policy today.
-  let micEl = null, micView = 'intro', micRun = 0;
+  let micEl = null, micView = 'intro', micRun = 0, micTarget = null;
   let micCtx = null, micStream = null, micNode = null, micSource = null;
   let micChunks = null;      // the beat being captured, or null between beats
   let micTake = null;        // the beat just finished
@@ -2300,9 +2448,11 @@ export function createNarration({
         ${beats === 0
     ? `<div class="rec-line rec-warn">Nothing to record${range ? ` in slides ${escapeHtml(range)}` : ''} — no slide there has notes to read.</div>`
     : '<div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.</div>'}
+        ${folderRow(data.target)}
         ${warn ? `<div class="rec-line rec-warn">${warn}</div>` : ''}
         ${beats === 0 ? '' : '<div class="narr-row narr-sel">Start recording</div>'}
         <div class="rec-hint">${beats === 0 ? 'Esc to close' : 'Enter to start · Esc to cancel'}</div>`;
+      wireFolderRow(card, (t) => { micTarget = t; });
       card.querySelector('.narr-row')?.addEventListener('click', () => startMicRecording());
       return;
     }
@@ -2333,7 +2483,7 @@ export function createNarration({
         : '.'}</div>
       ${useTrackRow(dir)}
       <div class="rec-hint">Enter or Esc to close</div>`;
-    wireUseTrack(card, dir, { ext: 'wav', ...(segmented ? { segments: true } : {}) });
+    wireUseTrack(card, dir, { ext: 'wav', label: data.label, ...(segmented ? { segments: true } : {}) });
   }
 
   async function startMicRecording() {
@@ -2342,7 +2492,9 @@ export function createNarration({
     await authorReady();          // see startRecording — never sampled early
     if (run !== micRun) return;
     const base = authorBase();
-    const dir = base == null ? null : { base, name: recordDir() };
+    const target = micTarget ?? targetFor({ mine: true }, await knownTracks());
+    if (run !== micRun) return;
+    const dir = base == null ? null : { base, name: target.dir };
     let slidesDone = 0, files = 0, toDisk = 0, segmented = false, stopped = false;
     // The recorded track must not play over the take, and P must not be
     // holding a chain that resumes into the middle of one.
@@ -2419,7 +2571,7 @@ export function createNarration({
     }
     closeMic();
     if (run !== micRun) return;
-    renderMicCard('done', { slides: slidesDone, files, dir: toDisk ? dir.name : null, segmented, stopped });
+    renderMicCard('done', { slides: slidesDone, files, dir: toDisk ? dir.name : null, segmented, stopped, label: target.label });
   }
 
   function openMicRecorder() {
@@ -2433,15 +2585,29 @@ export function createNarration({
     const list = slidesWithNotes();
     const beats = list.reduce((n, sl) => n + recordPlan(notesSegs(sl), buildSteps(sl)).length, 0);
     const range = params?.get?.('slides');
+    micTarget = null;
     renderMicCard('intro', why ? { why } : { slides: list.length, beats, range });
     if (why) return;
+    // ONE deferred render, not two: the target and the no-server warning both
+    // arrive after the probe, and two independent re-renders meant whichever
+    // landed second erased the other.
+    authorReady()
+      .then(() => knownTracks())
+      .then((tracks) => {
+        if (!micEl || micView !== 'intro') return;
+        micTarget = authorBase() == null ? null : targetFor({ mine: true }, tracks);
+        renderMicCard('intro', {
+          slides: list.length,
+          beats,
+          range,
+          target: micTarget,
+          warn: authorBase() == null ? noServerReason() : null,
+        });
+      });
     // Where the files will land, said BEFORE the first beat rather than after
     // the last. A take that was going somewhere unexpected is worth eight
     // seconds of warning and is not worth eight beats of reading.
-    authorReady().then(() => {
-      if (!micEl || micView !== 'intro' || authorBase() != null) return;
-      renderMicCard('intro', { slides: list.length, beats, range, warn: noServerReason() });
-    });
+
   }
   function closeMicRecorder() {
     micRun++;                  // invalidate any loop in flight
