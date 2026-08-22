@@ -22,6 +22,56 @@ export const NOTES_ASIDE = /<aside class="notes">([\s\S]*?)<\/aside>/;
 export const sectionBodies = (html) => html.split(/<section\b/).slice(1);
 
 /**
+ * A section body from `sectionBodies`, reduced to what is actually inside the
+ * section.
+ *
+ * `sectionBodies` splits on `<section` and keeps everything after it, so each
+ * piece begins with the REST OF THE OPEN TAG (` class="x">`) and ends with the
+ * closing tag and whatever follows. A DOM reader never sees either. Anything
+ * comparing the two — the review fingerprint does — has to drop them, or the
+ * file side hashes a stray `>` that the browser side cannot produce.
+ */
+export const sectionInner = (body) => {
+  const s = String(body ?? '');
+  const open = s.indexOf('>');
+  const inner = open === -1 ? s : s.slice(open + 1);
+  const close = inner.toLowerCase().lastIndexOf('</section>');
+  return close === -1 ? inner : inner.slice(0, close);
+};
+
+/**
+ * A slide's own text, as the fingerprint that anchors review comments sees it
+ * (SPEC REVIEW) — the file-reading twin of `slideBody` in src/core/finder.js.
+ *
+ * Asides are dropped before anything else: a comment is about what the audience
+ * sees, so an author rewriting their own speaker notes must not orphan every
+ * comment on the slide. Scripts and styles go for the same reason the DOM side
+ * filters them — they are machinery, not content.
+ *
+ * The two sides do NOT have to agree about spacing, because `fingerprint`
+ * removes whitespace rather than collapsing it. They do have to agree about
+ * what counts as content, which is what this shares with its DOM twin.
+ */
+export const slideText = (sectionBody) => String(sectionBody ?? '')
+  .replace(/<aside\b[\s\S]*?<\/aside>/gi, ' ')
+  .replace(/<script\b[\s\S]*?<\/script>/gi, ' ')
+  .replace(/<style\b[\s\S]*?<\/style>/gi, ' ')
+  .replace(/<[^>]+>/g, ' ')
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/**
+ * A slide's title as the finder and the comment list both name it: the first
+ * heading, else its opening words. The file-reading twin of `slideTitle`.
+ */
+export const slideHeading = (sectionBody, i) => {
+  const h = /<h[1-3]\b[^>]*>([\s\S]*?)<\/h[1-3]>/i.exec(sectionBody);
+  const fromHeading = h ? slideText(h[1]) : '';
+  return fromHeading || slideText(sectionBody).slice(0, 60) || `slide ${i + 1}`;
+};
+
+/**
  * Speaker-note HTML as plain text: tags out, entities back, whitespace flat.
  *
  * The runtime gets this for free from `textContent`; a tool reading the FILE
