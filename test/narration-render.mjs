@@ -101,7 +101,7 @@ let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'plainrec', 'segmanifest', 'segsigned',
-  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig']) {
+  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record']) {
   const [m, extra] = mode.split('&');
   // Timed, and printed even on success (#323). This harness boots a browser per
   // mode, so when it dies to its budget the useful question is WHICH mode was
@@ -220,6 +220,13 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
+  if (m === 'micwarn') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} opened by ?record with no server answering:`
+      + ` warned BEFORE the first beat=${r.warned} · named the cause=${r.namedTheCause}`
+      + ` · still lets you record anyway=${r.stillOffersToRecord}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
   if (mode === 'recordseg&badconfig') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} a deck that builds its config elsewhere:`
       + ` the refusal reaches the card=${r.explainedTheRefusal}`
@@ -246,7 +253,7 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
           + ` · nothing downloaded=${r.wentToDisk}`
           + ` · card says where=${r.saidWhere} and how to play it=${r.namedTheConfig}`
         : `no server → downloaded ${r.slides?.join(',')} (posted nothing=${r.wentToDisk})`
-          + ` · card says downloads=${r.saidWhere}`)
+          + ` · card says downloads=${r.saidWhere} and WHY=${r.saidWhyNotTheDeck}`)
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

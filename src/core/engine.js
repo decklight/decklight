@@ -1699,6 +1699,9 @@ export function init(userConfig = {}) {
     // owns the deck file; a thunk because editmode is built below this, and its
     // probe has not answered yet either way.
     authorBase: () => (editmode?.available() ? editmode.base() : null),
+    // …and the thing that makes reading it safe: false means "no server" only
+    // AFTER this resolves. The recorder awaits it rather than guessing early.
+    authorReady: () => editmode?.settled?.() ?? Promise.resolve(),
   });
   const {
     character, toggleNarration, toggleNarrPause, changeNarrRate, toggleCaptions,
