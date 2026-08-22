@@ -84,6 +84,13 @@ export function createEditMode({
     agentChip.title = agentBusy.prompt ? `asked: ${agentBusy.prompt}` : '';
     if (!agentTick) agentTick = setInterval(paintAgentChip, 1000);
   }
+  // Resolves when the probe has finished asking — WIRED UP OR NOT. `available()`
+  // is false for both "no server" and "have not asked yet", and a caller that
+  // cannot tell those apart makes the wrong choice for the wrong reason: the
+  // recorder read it 700ms after load and sent a whole take to the download
+  // folder because the answer had not arrived, not because there was no server.
+  let probeSettled;
+  const settled = new Promise((r) => { probeSettled = r; });
   if (!printMode && !params.has('embedded')) {
     const bases = config.edit?.url ? [config.edit.url]
       : /^https?:$/.test(location.protocol) ? [''] : ['http://127.0.0.1:8788'];
@@ -140,9 +147,11 @@ export function createEditMode({
           });
           debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`
             + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
+          probeSettled();
           return;
         } catch { /* not served by the edit server */ }
       }
+      probeSettled();   // asked everything, wired up nothing
       // Not authored, but possibly PRESENTED (PRESENT#REMOTE): `decklight
       // present --remote` hosts the phone remote with no edit surface at all, so
       // the deck wires up the clicker and the position readout and NOTHING else.
@@ -1292,6 +1301,8 @@ export function createEditMode({
     restore: { open: openHistory, close: closeRestore, list: () => restoreRows.slice() },
     /** Is a dev server actually serving this deck? Layout cycling asks too. */
     available: () => editAvailable,
+    /** Resolves once the probe has an answer either way — see `settled`. */
+    settled: () => { if (printMode || params.has('embedded')) probeSettled(); return settled; },
     /** Its origin ('' when the deck is served BY the edit server). */
     base: () => editBase,
   };

@@ -1332,6 +1332,18 @@
   overflow-y: auto;
 }
 .decklight-mic .rec-note { font-size: 12px; opacity: .7; }
+/* Something you need to act on before you start reading — the amber the deck
+   uses everywhere for "this will not do what you expect". */
+.decklight-record .rec-warn {
+  color: #ffcf8b;
+  background: rgba(255, 207, 139, .1);
+  border-radius: 6px;
+  margin: 4px 12px;
+  padding: 7px 10px;
+  font-size: 13px;
+  opacity: 1;
+}
+.decklight-record .rec-warn code { font-size: .92em; }
 .decklight-mic kbd {
   padding: 1px 5px;
   border: 1px solid rgba(255, 255, 255, .25);

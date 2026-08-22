@@ -182,6 +182,7 @@ export function narrationTracks(narration) {
 export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
   syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
+  authorReady = () => Promise.resolve(),
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
@@ -1791,7 +1792,7 @@ export function createNarration({
       const names = data.segmented ? 'slide-NN.wav + one slide-NN-KK.wav per ⟨CLICK⟩' : 'slide-NN.wav';
       const where = dir
         ? `saved as ${names} in <code>${escapeHtml(dir)}/</code>, next to the deck`
-        : `saved as ${names} to your downloads`;
+        : `saved as ${names} to your downloads — ${noServerReason()}`;
       const seg = data.segmented ? ', segments: true' : '';
       const next = dir
         ? `Set <code>narration: { files: '${escapeHtml(dir)}', ext: 'wav'${seg} }</code> to play them back without the bridge — <code>decklight bundle</code> picks the folder up from there.`
@@ -2055,11 +2056,40 @@ export function createNarration({
     btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
   }
 
+  /**
+   * Why the files went to the download folder — the half the card never said.
+   *
+   * "Saved to your downloads" is where, and where is not something you can act
+   * on. There is exactly one cause (no author server owns this deck file) and
+   * three ways to arrive at it, and which one you are in decides what to do
+   * next. The `?record` case is the loud one: that parameter means `decklight
+   * record` opened this deck, so a server WAS started — finding none means it
+   * is serving a different deck, and the fix is to stop that one.
+   */
+  function noServerReason() {
+    if (params?.has?.('record')) {
+      return 'no author server answered, though <code>decklight record</code> started one'
+        + ' — something else is holding the port for another deck. Stop it and record again;'
+        + ' press D for the log.';
+    }
+    if (location.protocol === 'file:') {
+      return 'this deck was opened from a file, so nothing may write beside it.'
+        + ' <code>decklight record deck.html</code> serves it and writes them for you.';
+    }
+    return 'no author server owns this deck file — <code>decklight record deck.html</code>'
+      + ' writes them next to the deck instead.';
+  }
+
   async function startRecording() {
     const list = slidesWithNotes();
     const run = ++recRun;
     const t0 = Date.now();
     let done = 0, saved = 0, toDisk = 0, segmented = false;
+    // Awaited, not sampled: authorBase() is null both for "no server" and for
+    // "the probe has not answered yet", and reading it early is how a whole
+    // take ends up in the download folder for no reason at all.
+    await authorReady();
+    if (run !== recRun) return;
     // `== null`, never falsy: the author server's prefix is '' when it is the
     // origin serving this deck, which is most of the time.
     const base = authorBase();
@@ -2263,12 +2293,17 @@ export function createNarration({
           <div class="rec-hint">Esc to close</div>`;
         return;
       }
+      const { range, warn } = data;
       card.innerHTML = `<div class="narr-head">record your voice</div>
-        <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${beats} beat${beats === 1 ? '' : 's'} — the deck reads you the notes, one ⟨CLICK⟩ at a time</div>
-        <div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.</div>
-        <div class="narr-row narr-sel">Start recording</div>
-        <div class="rec-hint">Enter to start · Esc to cancel</div>`;
-      card.querySelector('.narr-row').addEventListener('click', () => startMicRecording());
+        <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${beats} beat${beats === 1 ? '' : 's'} — the deck reads you the notes, one ⟨CLICK⟩ at a time${
+  range ? ` <strong>(slides ${escapeHtml(range)} only — everything else is left alone)</strong>` : ''}</div>
+        ${beats === 0
+    ? `<div class="rec-line rec-warn">Nothing to record${range ? ` in slides ${escapeHtml(range)}` : ''} — no slide there has notes to read.</div>`
+    : '<div class="rec-line">Press <kbd>→</kbd> when you finish a beat: it ends the file <em>and</em> reveals the next build, so your voice paces the deck exactly as it will on the night.</div>'}
+        ${warn ? `<div class="rec-line rec-warn">${warn}</div>` : ''}
+        ${beats === 0 ? '' : '<div class="narr-row narr-sel">Start recording</div>'}
+        <div class="rec-hint">${beats === 0 ? 'Esc to close' : 'Enter to start · Esc to cancel'}</div>`;
+      card.querySelector('.narr-row')?.addEventListener('click', () => startMicRecording());
       return;
     }
     if (view === 'capture') {
@@ -2289,7 +2324,7 @@ export function createNarration({
     const { slides, files, dir, segmented, stopped } = data;
     const where = dir
       ? `saved to <code>${escapeHtml(dir)}/</code>, next to the deck`
-      : 'saved to your downloads — move them next to the deck';
+      : `saved to your downloads — ${noServerReason()}`;
     const cfg = `narration: { files: '${escapeHtml(dir ?? 'voiceover')}', ext: 'wav'${segmented ? ', segments: true' : ''} }`;
     card.innerHTML = `<div class="narr-head">${stopped ? 'recording stopped' : 'recording done'}</div>
       <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${files} file${files === 1 ? '' : 's'} ${where}</div>
@@ -2304,6 +2339,8 @@ export function createNarration({
   async function startMicRecording() {
     const run = ++micRun;
     const list = slidesWithNotes();
+    await authorReady();          // see startRecording — never sampled early
+    if (run !== micRun) return;
     const base = authorBase();
     const dir = base == null ? null : { base, name: recordDir() };
     let slidesDone = 0, files = 0, toDisk = 0, segmented = false, stopped = false;
@@ -2395,7 +2432,16 @@ export function createNarration({
     const why = micUnavailable();
     const list = slidesWithNotes();
     const beats = list.reduce((n, sl) => n + recordPlan(notesSegs(sl), buildSteps(sl)).length, 0);
-    renderMicCard('intro', why ? { why } : { slides: list.length, beats });
+    const range = params?.get?.('slides');
+    renderMicCard('intro', why ? { why } : { slides: list.length, beats, range });
+    if (why) return;
+    // Where the files will land, said BEFORE the first beat rather than after
+    // the last. A take that was going somewhere unexpected is worth eight
+    // seconds of warning and is not worth eight beats of reading.
+    authorReady().then(() => {
+      if (!micEl || micView !== 'intro' || authorBase() != null) return;
+      renderMicCard('intro', { slides: list.length, beats, range, warn: noServerReason() });
+    });
   }
   function closeMicRecorder() {
     micRun++;                  // invalidate any loop in flight
@@ -2421,7 +2467,7 @@ export function createNarration({
       }
       if (e.key === 'Escape') closeMicRecorder();
       else if (e.key === 'Enter') {
-        if (micView === 'intro' && !micUnavailable()) startMicRecording();
+        if (micView === 'intro' && !micUnavailable() && micEl?.querySelector('.narr-row')) startMicRecording();
         else if (micView !== 'saving') closeMicRecorder();
       } else return false;
       return true;

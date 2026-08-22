@@ -263,7 +263,7 @@
     //   6 — notes with no ⟨CLICK⟩ at all: recorded whole, inside a track whose
     //       other slides are segmented. It must still advance itself.
     //   7 — no notes: nothing was ever recorded, and that is not a failure.
-    if (segmentDeck || plainDeck || segManifest || mode === 'recordseg') {
+    if (segmentDeck || plainDeck || segManifest || mode === 'recordseg' || mode === 'micwarn') {
       const beats = 'Beat one. ⟨CLICK⟩ Beat two. ⟨CLICK⟩ Beat three.';
       const builds = mode === 'segfold'
         ? '<p data-build>Only one build here.</p>'
@@ -327,6 +327,15 @@
     // The message shortcut has to reach the presenter WHEREVER they are: mid-talk,
     // and mid-edit — where a focused textarea owns every bare keystroke, so `i`
     // must type an "i" and the modifier form must still open the log.
+    async function until(fn, ms = 4000) {
+      const stop = Date.now() + ms;
+      for (;;) {
+        const v = fn();
+        if (v) return v;
+        if (Date.now() > stop) return null;
+        await new Promise((ok) => setTimeout(ok, 30));
+      }
+    }
     const press = (k, target, opts = {}) => target.dispatchEvent(
       new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
     const logOpen = () => !!document.querySelector('.decklight-msglog');
@@ -391,6 +400,28 @@
           r.warnsOnMissingFile = msgs.some((m) => /no narration for slide 3/.test(m));
           r.lastMessage = msgs[msgs.length - 1] ?? '';
           r.PASS = r.quietOnSlideWithNoNotes && r.warnsOnMissingFile;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'micwarn') {
+          // ⇧R on a deck opened by `decklight record`, with no server
+          // answering. That parameter means a server WAS started, so finding
+          // none means something else holds the port for another deck — and
+          // after eight beats is the wrong time to learn where the files went.
+          const card = await until(() => document.querySelector('.decklight-mic .narr-card'), 4000);
+          r.opened = !!card;
+          r.countedTheBeats = /slides? · \d+ beats?/.test(card?.textContent ?? '');
+          // the warning arrives when the PROBE gives up, not at open — the
+          // whole bug was reading "no server" before the answer existed
+          await until(() => card?.querySelector('.rec-warn'), 6000);
+          const warn = card?.querySelector('.rec-warn');
+          r.warned = !!warn;
+          r.warnText = warn?.textContent ?? '';
+          r.namedTheCause = /holding the port for another deck/.test(r.warnText);
+          r.stillOffersToRecord = !!card?.querySelector('.narr-row');
+          r.PASS = r.opened && r.countedTheBeats && r.warned && r.namedTheCause
+            && r.stillOffersToRecord;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }
@@ -672,8 +703,12 @@
             // no server to write through, so no offer to — the button is
             // absent exactly where it could not have worked
             r.noOfferWithoutAServer = !card?.querySelector('.rec-use');
+            // …and it says WHY it chose the download folder. "Saved to your
+            // downloads" is where, and where is not something you can act on.
+            r.saidWhyNotTheDeck = /decklight record/.test(text);
             r.PASS = r.dialogOpens && r.finished && r.wentToDisk
-              && r.everySlideHasNotes && r.saidWhere && r.noOfferWithoutAServer;
+              && r.everySlideHasNotes && r.saidWhere && r.noOfferWithoutAServer
+              && r.saidWhyNotTheDeck;
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
           }
