@@ -15,6 +15,7 @@ import { notesSegments } from '../tools/deck-html.mjs';
 
 import {
   hintApplies, pauseSeconds, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
+  proposeTrack,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -185,6 +186,35 @@ test('the plan reads the same whitespace the file numbering does', () => {
   assert.deepEqual(recordPlan(segs, 1).map((b) => b.file), [1, 2]);
   assert.deepEqual(recordPlan(segs, 1).map((b) => b.text), ['One.', 'Two.']);
   assert.deepEqual(segmentFileIndex(segs), [1, null, 2]);
+});
+
+// ── proposeTrack — a track is a folder, named after the voice ─────────────
+
+test('the voice names the folder, because that is what tells takes apart', () => {
+  // A deck carries as many tracks as you have voices — four cloned ones, the
+  // system voice, two takes of your own — and N is the switcher. A single
+  // `voiceover` default meant recording a second voice erased the first, with
+  // nothing said.
+  assert.deepEqual(proposeTrack({ engine: 'elevenlabs', voice: 'Rachel' }, []),
+    { dir: 'voices/rachel', label: 'Rachel · elevenlabs' });
+  // punctuation and case are not folder names
+  assert.equal(proposeTrack({ engine: 'say', voice: 'Daniel (Enhanced)' }, []).dir,
+    'voices/daniel-enhanced');
+  // your own voice has no voice NAME to borrow
+  assert.deepEqual(proposeTrack({ mine: true }, []), { dir: 'voices/me', label: 'My voice' });
+  // and a bridge that told us nothing still proposes something sayable
+  assert.equal(proposeTrack({}, []).dir, 'voices/take');
+});
+
+test('a folder already holding audio is never silently written over', () => {
+  // The next free suffix, not a refusal and not a clobber — and the label says
+  // which take it is, because two rows reading "Rachel · elevenlabs" in the
+  // picker are worse than none.
+  assert.deepEqual(proposeTrack({ engine: 'elevenlabs', voice: 'Rachel' }, ['voices/rachel']),
+    { dir: 'voices/rachel-2', label: 'Rachel · elevenlabs, take 2' });
+  assert.equal(proposeTrack({ mine: true }, ['voices/me', 'voices/me-2']).dir, 'voices/me-3');
+  // …and a folder that exists but is not in the way is not counted
+  assert.equal(proposeTrack({ mine: true }, ['voices/rachel']).dir, 'voices/me');
 });
 
 // ── floatToPcm16 — the mic's samples in the format everything else reads ──
