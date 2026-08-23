@@ -22,8 +22,8 @@ import { basename, dirname, relative, resolve } from 'node:path';
 
 import { argReader, isMain } from '../tools/args.mjs';
 import { sectionBodies, sectionInner, slideText, slideHeading } from '../tools/deck-html.mjs';
-import { fingerprint, resolveAnchor, VERDICT_NOTE } from '../src/core/review.js';
-import { reviewPathFor, parseReview, serializeRecord, foldReview, mergeById } from './review-store.mjs';
+import { fingerprint, resolveAnchor, VERDICT_NOTE, foldReview } from '../src/core/review.js';
+import { reviewPathFor, parseReview, serializeRecord, mergeById } from './review-store.mjs';
 import { findDeck } from './history.mjs';
 import { gitAvailable, inGitRepo, gitAutocommit, oneline } from './git.mjs';
 

@@ -817,6 +817,13 @@
           // could not.
           press('m', document.body);
           r.noModuleMenu = !document.querySelector('.decklight-module-menu');
+          // …and M is not free any more: it is review comments (SPEC REVIEW).
+          // Asserting that here is what keeps this mode honest — it used to
+          // press M for the side effect of nothing happening, and an overlay
+          // that DID open then swallowed the G below and the finder never ran.
+          r.mIsReviewNow = !!document.querySelector('.decklight-review');
+          press('Escape', document.body);
+          await new Promise((ok) => setTimeout(ok, 30));
 
           press('g', document.body);
           const rows = [...document.querySelectorAll('.decklight-finder .tp-row')].map((el) => el.textContent);
@@ -826,7 +833,7 @@
           r.hidesCurrentModule = !rows.some((t) => /This module/.test(t));
           r.moduleRowMarked = !!document.querySelector('.decklight-finder .tp-row.tp-module');
 
-          r.PASS = r.noModuleMenu && r.finderOpens && r.listsSlides
+          r.PASS = r.noModuleMenu && r.mIsReviewNow && r.finderOpens && r.listsSlides
             && r.listsModules && r.hidesCurrentModule && r.moduleRowMarked;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;

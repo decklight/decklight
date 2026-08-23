@@ -15,3 +15,13 @@
 *.m4a binary
 *.wav binary
 *.woff2 binary
+
+# Review comments are an APPEND-ONLY log (SPEC REVIEW), and this line is what
+# makes that pay off: two reviewers commenting on the same deck at the same time
+# produce two sets of added lines, and git takes both instead of asking somebody
+# to resolve a conflict in a file nobody edits by hand.
+#
+# It works because nothing ever rewrites a line — resolving a comment and
+# replying to one are records of their own. A store that mutated a line would
+# conflict on exactly the deck that two people were reviewing.
+*.review.jsonl merge=union

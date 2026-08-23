@@ -46,9 +46,9 @@
 // `decklight author` asks interactively before passing --git down.
 
 import { createServer } from 'node:http';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, watch, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, watch, existsSync } from 'node:fs';
 import { resolve, sep, basename } from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
@@ -56,6 +56,7 @@ import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
 import { classifyScripts } from './audit.mjs';
+import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
@@ -458,6 +459,16 @@ export function createHistory(limit = 200) {
 import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
 import { describeCommit, messagesLine } from './commit-message.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
+
+/** Who the author is, from git's own answer — see cli/review.mjs. */
+function reviewerName(cwd = process.cwd()) {
+  const cfg = (key) => {
+    try { return execFileSync('git', ['config', key], { cwd, encoding: 'utf8' }).trim(); } catch { return ''; }
+  };
+  const name = cfg('user.name');
+  const email = cfg('user.email');
+  return (name && email) ? `${name} <${email}>` : (name || email || '');
+}
 
 export async function editMain(args, { onListen = null } = {}) {
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
@@ -990,6 +1001,17 @@ export async function editMain(args, { onListen = null } = {}) {
       if (req.method === 'POST') {
         for await (const chunk of req) { body += chunk; if (body.length > 1e6) throw new Error('too large'); }
       }
+      // ── review comments (SPEC REVIEW) ─────────────────────────────
+      // The author's side of `decklight review`. The same file, the same
+      // append-only rule: this server may add a line (a resolve, a reply) and
+      // may not rewrite one, because `merge=union` is what keeps two reviewers
+      // from conflicting and an edit in place is what would break it.
+      if (req.method === 'GET' && url.pathname === '/edit/review') {
+        const store = reviewPathFor(deckPath);
+        if (!existsSync(store)) return json(200, { ok: true, records: [], skipped: 0 });
+        const { records, skipped } = parseReview(readFileSync(store, 'utf8'));
+        return json(200, { ok: true, records, skipped });
+      }
       // What tracks already sit next to this deck. The runtime cannot see the
       // filesystem — which is why `segments: true` is opt-in at all — so it
       // cannot know that `voices/rachel` is taken before proposing it. One
@@ -1033,6 +1055,28 @@ export async function editMain(args, { onListen = null } = {}) {
       // Point the deck at a track the recorder just wrote. The one manual step
       // in a flow that is otherwise a key and an arrow — and this server
       // already owns the file, so it can take that step too.
+      if (req.method === 'POST' && url.pathname === '/edit/review') {
+        const { op, re, body: text } = JSON.parse(body || '{}');
+        if (typeof re !== 'string' || !/^[a-z0-9]{1,12}$/.test(re)) {
+          return json(400, { ok: false, error: 'bad comment id' });
+        }
+        if (op !== 'resolve' && !(typeof text === 'string' && text.trim() && text.length <= 4000)) {
+          return json(400, { ok: false, error: 'a reply needs something in it' });
+        }
+        const store = reviewPathFor(deckPath);
+        const rec = op === 'resolve'
+          ? { op: 'resolve', re, at: new Date().toISOString(), by: reviewerName() }
+          : { id: newId(), at: new Date().toISOString(), by: reviewerName(), re, body: text };
+        try { appendFileSync(store, `${serializeRecord(rec)}\n`); }
+        catch (e) { return json(500, { ok: false, error: oneline(e) }); }
+        if (gitOn) {
+          gitAutocommit(store, root, op === 'resolve'
+            ? commitSubject(`review: resolve ${re}`, 'review: resolve a comment')
+            : commitSubject(`review: reply to ${re}`, 'review: a reply'));
+        }
+        console.log(`  review: ${op === 'resolve' ? `resolved ${re}` : `replied to ${re}`}`);
+        return json(200, { ok: true });
+      }
       if (req.method === 'POST' && url.pathname === '/edit/narration') {
         const { files, ext, segments } = JSON.parse(body || '{}');
         // The same three shapes /edit/record refuses for a folder, refused

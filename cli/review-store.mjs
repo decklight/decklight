@@ -23,6 +23,10 @@
 // Nothing here touches git or the filesystem. The store is the shape; who reads
 // and writes it is cli/review.mjs (the reviewer) and cli/comments.mjs (the
 // author).
+//
+// `foldReview` — turning the log into comments-with-replies — lives in
+// src/core/review.js instead, because the BROWSER needs it too and the runtime
+// may never import from cli/. The dependency only ever points one way.
 
 /** The sidecar that belongs to a deck: `talk.html` → `talk.review.jsonl`. */
 export const reviewPathFor = (deckPath) => String(deckPath).replace(/\.html?$/i, '') + '.review.jsonl';
@@ -59,37 +63,6 @@ export function parseReview(text) {
 export function serializeRecord(rec) {
   const { body, ...rest } = rec;
   return JSON.stringify(body === undefined ? rest : { ...rest, body });
-}
-
-/**
- * Fold the records into what a reader wants: comments, each with its replies and
- * whether it has been resolved.
- *
- * The fold is the whole reason `op:"resolve"` is a separate line — state is
- * DERIVED from the log rather than stored, so two people resolving the same
- * comment is two harmless lines rather than a conflict, and a resolve that
- * arrives before the comment it refers to (which `merge=union` can do, since it
- * does not reorder) still lands once both are present.
- */
-export function foldReview(records) {
-  const byId = new Map();
-  const replies = [];
-  const resolves = [];
-  for (const r of records) {
-    if (r.op === 'resolve') { resolves.push(r); continue; }
-    if (r.re) { replies.push(r); continue; }
-    // A duplicate id is the same comment arriving twice (an import, a union
-    // merge that saw both sides). First one wins; it is the same text.
-    if (!byId.has(r.id)) byId.set(r.id, { ...r, replies: [], resolved: null });
-  }
-  for (const r of replies) byId.get(r.re)?.replies.push(r);
-  for (const r of resolves) {
-    const c = byId.get(r.re);
-    // Last resolve wins, but only over another resolve — a comment resolved and
-    // then resolved again by somebody else is still resolved.
-    if (c) c.resolved = { at: r.at ?? null, by: r.by ?? null };
-  }
-  return [...byId.values()];
 }
 
 /**

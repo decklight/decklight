@@ -46,6 +46,7 @@ const HARNESSES = [
   'player-render',
   'narration-render',
   'record-render',
+  'review-render',
   'character-render',
   'engine-render',
   'pin-render',

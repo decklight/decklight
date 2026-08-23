@@ -272,7 +272,7 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
     continue;
   }
   if (mode === 'modules') {
-    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} M gone=${r.noModuleMenu} · finder lists slides=${r.listsSlides}`
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} M is review now=${r.mIsReviewNow} · finder lists slides=${r.listsSlides}`
       + ` modules=${r.listsModules} (marked=${r.moduleRowMarked}, current hidden=${r.hidesCurrentModule})`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;

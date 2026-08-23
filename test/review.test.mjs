@@ -8,9 +8,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  reviewPathFor, parseReview, serializeRecord, foldReview, mergeById, newId,
+  reviewPathFor, parseReview, serializeRecord, mergeById, newId,
 } from '../cli/review-store.mjs';
-import { fingerprint, resolveAnchor, VERDICT_NOTE, indexSlides } from '../src/core/review.js';
+import { fingerprint, resolveAnchor, VERDICT_NOTE, indexSlides, foldReview } from '../src/core/review.js';
 import { sectionBodies, sectionInner, slideText, slideHeading } from '../tools/deck-html.mjs';
 
 // ── the store ─────────────────────────────────────────────────────────────
