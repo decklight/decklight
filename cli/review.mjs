@@ -55,7 +55,8 @@ const USAGE = `usage: decklight review <deck.html> [--port 8790] [--no-open] [--
 
   --port N    port to serve on (taken? moves to the next free one)     [8790]
   --no-open   don't launch a browser — print the URL and wait
-  --no-git    write the file and never commit it
+  --no-git    write the file and never commit it (each comment still records
+              WHICH COMMIT the deck was on — that is provenance, not bookkeeping)
 
   comments land in <deck>.review.jsonl beside the deck: one line each,
   append-only, so two reviewers never conflict and a push reads as a diff.
@@ -145,10 +146,22 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
   // Git is the backend, not a requirement: a reviewer who was sent a file has
   // no repository and must still be able to say something.
   const noGit = args.includes('--no-git');
-  const gitOn = !noGit && gitAvailable(deckDir) && inGitRepo(deckDir);
-  const by = gitOn ? reviewerIdentity(deckDir) : '';
+  const inRepo = gitAvailable(deckDir) && inGitRepo(deckDir);
+  const gitOn = !noGit && inRepo;
+  const by = inRepo ? reviewerIdentity(deckDir) : '';
+  /**
+   * WHICH VERSION OF THE DECK this comment is about.
+   *
+   * Gated on being in a repository, NOT on `--no-git`. Those are two different
+   * questions: `--no-git` says "do not commit for me", and this says "which
+   * bytes was the reviewer looking at" — provenance, not bookkeeping. Suppressing
+   * it with the commit is how a comment loses the one fact that lets anybody
+   * check what the slide said at the time.
+   *
+   * `--short`, because it is read by people and lives in a line somebody scans.
+   */
   const deckHead = () => {
-    if (!gitOn) return null;
+    if (!inRepo) return null;
     try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: deckDir, encoding: 'utf8' }).trim(); }
     catch { return null; }
   };

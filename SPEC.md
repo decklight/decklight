@@ -551,6 +551,8 @@ union merge, and refusing to read it because of one truncated line is how forty 
 forty-first. It is not deck content: `bundle` never inlines it and the ingredients label never counts it, so a
 signed deck stays `verified` no matter how much review it attracts.
 
+**Every comment records which commit the deck was on** when it was written. That is a different question from anchoring and neither implies the other: a slide can be untouched in a deck that has moved forty commits since somebody read it. It is gated on being in a repository, **not** on `--no-git` — that flag says "do not commit for me", and this is provenance. `decklight comments` reports it with the distance (`against 1504ce8, 3 commits ago`), stays silent when there is nothing to say, and **never counts a commit this clone cannot resolve** — a comment can arrive by `--import` from someone whose history yours has not seen, and reporting `0 commits since` for a hash you do not have would be a confident lie. `--at <id>` is what the field is for: it prints what the slide SAID at that commit beside what it says now, because a verdict of `stale` can say the slide changed without being able to say how, and how is usually the whole question — a reviewer objecting to a sentence that is no longer there has either been answered already or been misread.
+
 **Anchoring.** A slide has no stable identity — `locateSlide` is the nth `<section>` in the file and
 `data-slide-index` is written from array position at every load — so a comment records the slide number, that
 slide's title, and a **fingerprint** of its text, and resolution walks them in descending order of confidence,

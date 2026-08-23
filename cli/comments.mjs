@@ -25,7 +25,8 @@ import { sectionBodies, sectionInner, slideText, slideHeading } from '../tools/d
 import { fingerprint, resolveAnchor, VERDICT_NOTE, foldReview } from '../src/core/review.js';
 import { reviewPathFor, parseReview, serializeRecord, mergeById } from './review-store.mjs';
 import { findDeck } from './history.mjs';
-import { gitAvailable, inGitRepo, gitAutocommit, oneline } from './git.mjs';
+import { gitAvailable, inGitRepo, gitAutocommit, oneline, git } from './git.mjs';
+import { deckAt } from './restore.mjs';
 
 const HELP = `usage: decklight comments <deck.html> [--unresolved] [--all] [--import <file>]
   what reviewers said, resolved against the deck as it is now
@@ -35,6 +36,9 @@ const HELP = `usage: decklight comments <deck.html> [--unresolved] [--all] [--im
   --import FILE  merge a reviewer's file into this deck's own, skipping anything
                  already there, and commit it — the return path for a reviewer
                  who was sent the deck and has no clone
+  --at ID        show what the slide SAID when comment ID was written, beside
+                 what it says now — the point of recording which commit a
+                 comment was made against
 
   comments live in <deck>.review.jsonl beside the deck; reviewers write them
   with: decklight review <deck.html>
@@ -52,6 +56,45 @@ export function indexDeckFile(html) {
     const inner = sectionInner(body);
     return { slide: i + 1, title: slideHeading(inner, i), fp: fingerprint(slideText(inner)) };
   });
+}
+
+/**
+ * How far the DECK has moved since a comment was written.
+ *
+ * The anchor verdict answers a different question — whether the SLIDE is still
+ * the slide. Both matter and neither implies the other: a comment can be
+ * `exact` (that slide is untouched) against a deck that is forty commits older
+ * than the one in front of you, and knowing which version somebody was reading
+ * is what lets you go and look.
+ *
+ * `null` when the question cannot be asked — no repository, or a comment
+ * written without one. Never `0`: "nobody knows" and "no commits since" are
+ * different answers and only one of them is reassuring.
+ */
+export function commitsSince(deckCommit, cwd, run = git) {
+  if (!deckCommit) return null;
+  try {
+    const n = run(['rev-list', '--count', `${deckCommit}..HEAD`], cwd);
+    return Number.isFinite(Number(n)) ? Number(n) : null;
+  } catch { return null; }   // the commit is not in this clone — see reviewedElsewhere
+}
+
+/**
+ * Is this commit one this repository has ever heard of?
+ *
+ * A comment can arrive by `--import` from somebody whose clone had commits
+ * yours does not, and reporting "0 commits since" for a hash you cannot resolve
+ * would be a confident lie.
+ */
+export function knowsCommit(deckCommit, cwd, run = git) {
+  if (!deckCommit) return false;
+  try { run(['cat-file', '-e', `${deckCommit}^{commit}`], cwd); return true; } catch { return false; }
+}
+
+/** One slide's text out of a whole deck, by number. */
+export function slideTextOf(html, n) {
+  const body = sectionBodies(html)[(n ?? 0) - 1];
+  return body === undefined ? '' : slideText(sectionInner(body));
 }
 
 /** `2h ago`, `3d ago` — the same shape `git log --format=%ar` gives elsewhere. */
@@ -145,6 +188,58 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
     return 0;
   }
 
+  // ── --at: what were they actually looking at ────────────────────────────
+  //
+  // Every comment records the commit the deck was on when it was written, and
+  // this is what that field is FOR. An anchor verdict can say "this slide
+  // changed since" without being able to say HOW, and "how" is usually the
+  // whole question — a reviewer objecting to a sentence that is no longer
+  // there has either been answered already or been misread.
+  const atArg = opt('--at');
+  if (atArg !== undefined) {
+    if (!existsSync(storePath)) { err.write(`decklight comments: ${name} has no comments\n`); return 1; }
+    const { records } = parseReview(read(storePath));
+    const c = foldReview(records).find((x) => x.id === atArg);
+    if (!c) { err.write(`decklight comments: no comment [${atArg}] on ${name}\n`); return 1; }
+    if (!c.deck) {
+      err.write(`decklight comments: [${atArg}] records no commit`
+        + ' — it was written outside a repository, so there is no earlier version to show\n');
+      return 1;
+    }
+    if (!(gitAvailable(deckDir) && inGitRepo(deckDir)) || !knowsCommit(c.deck, deckDir)) {
+      err.write(`decklight comments: this clone does not have ${c.deck}`
+        + ' — the comment came from somewhere with commits this repository has not seen\n');
+      return 1;
+    }
+    let thenHtml;
+    try { thenHtml = deckAt(deckPath, c.deck, deckDir); }
+    catch (e) { err.write(`decklight comments: could not read ${name} at ${c.deck}: ${oneline(e)}\n`); return 1; }
+
+    const thenSlides = indexDeckFile(thenHtml);
+    const nowSlides = indexDeckFile(read(deckPath));
+    // the slide as it was is found by the comment's own index — at THAT commit
+    // the number was still true, which is exactly why it was recorded
+    const wasAt = thenSlides[(c.slide ?? 0) - 1];
+    const anchor = resolveAnchor(c, nowSlides);
+    const nowAt = anchor.slide ? nowSlides[anchor.slide - 1] : null;
+
+    out.write(`[${c.id}] ${c.by ? c.by.replace(/\s*<[^>]*>$/, '') : 'someone'}`
+      + `${c.at ? ` · ${ago(c.at)}` : ''} · against ${c.deck}\n`);
+    for (const line of String(c.body ?? '').split('\n')) out.write(`  ${line}\n`);
+    out.write('\n');
+    out.write(`  then · slide ${c.slide} · ${wasAt?.title ?? '(gone even then)'}\n`);
+    out.write(`    ${slideTextOf(thenHtml, c.slide) || '(nothing)'}\n\n`);
+    if (!nowAt) {
+      out.write(`  now  · ${VERDICT_NOTE.orphaned}\n`);
+    } else {
+      out.write(`  now  · slide ${anchor.slide} · ${nowAt.title}`
+        + `${anchor.movedFrom ? ` (moved from ${anchor.movedFrom})` : ''}`
+        + `${anchor.verdict === 'exact' ? ' — unchanged' : ''}\n`);
+      out.write(`    ${slideTextOf(read(deckPath), anchor.slide) || '(nothing)'}\n`);
+    }
+    return 0;
+  }
+
   // ── the listing ─────────────────────────────────────────────────────────
   if (!existsSync(storePath)) {
     // Not an error: no comments is the state every deck starts in, and the
@@ -174,9 +269,26 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
   if (skipped) out.write(`  (${skipped} line(s) in ${storeName} could not be read and were skipped)\n`);
   out.write('\n');
 
+  const inRepo = gitAvailable(deckDir) && inGitRepo(deckDir);
+  /**
+   * Which version this was written against, and how far the deck has moved.
+   *
+   * Silent when there is nothing to say — no commit recorded, or the deck has
+   * not moved — because a line that appears on every comment is a line nobody
+   * reads by the third one.
+   */
+  const against = (c) => {
+    if (!c.deck) return '';
+    if (!inRepo || !knowsCommit(c.deck, deckDir)) return ` · against ${c.deck}`;
+    const n = commitsSince(c.deck, deckDir);
+    if (n === null) return ` · against ${c.deck}`;
+    return n === 0 ? ` · against ${c.deck} (still current)`
+      : ` · against ${c.deck}, ${n} commit${n === 1 ? '' : 's'} ago`;
+  };
+
   const printOne = (c, indent = '    ') => {
     const who = c.by ? c.by.replace(/\s*<[^>]*>$/, '') : 'someone';
-    out.write(`${indent}${who}${c.at ? ` · ${ago(c.at)}` : ''}`
+    out.write(`${indent}${who}${c.at ? ` · ${ago(c.at)}` : ''}${against(c)}`
       + `${c.resolved ? '  ✓ resolved' : ''}  [${c.id}]\n`);
     for (const line of String(c.body ?? '').split('\n')) out.write(`${indent}  ${line}\n`);
     for (const r of c.replies ?? []) {

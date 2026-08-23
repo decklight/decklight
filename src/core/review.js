@@ -299,6 +299,11 @@ export function createReview({
       const head = el_('div', 'rv-head');
       head.append(el_('span', 'rv-slide', anchor.slide ? `slide ${anchor.slide}` : 'slide gone'));
       head.append(el_('span', 'rv-who', who(c)));
+      // WHICH VERSION this was written against. The anchor answers whether the
+      // SLIDE is still the slide; this answers which deck they were reading,
+      // and neither implies the other — a slide can be untouched in a deck that
+      // has moved a long way since somebody looked at it.
+      if (c.deck) head.append(el_('span', 'rv-at', `@${c.deck}`));
       if (anchor.movedFrom) head.append(el_('span', 'rv-moved', `was ${anchor.movedFrom}`));
       if (c.resolved) head.append(el_('span', 'rv-tick', '✓'));
       row.append(head);
