@@ -16,7 +16,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 
-import { commentsMain, indexDeckFile, ago, groupComments } from '../cli/comments.mjs';
+import {
+  commentsMain, indexDeckFile, ago, groupComments, commitsSince, knowsCommit, slideTextOf,
+} from '../cli/comments.mjs';
 import { parseReview } from '../cli/review-store.mjs';
 import { fingerprint } from '../src/core/review.js';
 
@@ -192,4 +194,134 @@ test('relative time reads as a person would say it', () => {
   assert.equal(at(5 * 3600e3), '5 hours ago');
   assert.equal(at(3 * 86400e3), '3 days ago');
   assert.equal(ago('not a date'), '', 'a comment with no timestamp says nothing about when');
+});
+
+// ── which version a comment was written against ──────────────────────────
+//
+// Every comment records the deck's commit. The anchor verdict answers whether
+// the SLIDE is still the slide; this answers which deck somebody was reading,
+// and neither implies the other.
+
+/** A repo whose deck has moved on since a comment was left. */
+function repo(t) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'dl-prov-'));
+  t.after(() => rmTemp(dir));
+  const g = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
+  g('init', '-q');
+  g('config', 'user.name', 'Ana Ruiz');
+  g('config', 'user.email', 'ana@example.com');
+  writeFileSync(path.join(dir, 'talk.html'), DECK_V1);
+  g('add', 'talk.html');
+  g('commit', '-qm', 'the deck');
+  const at = g('rev-parse', '--short', 'HEAD');
+  return { dir, g, at };
+}
+
+test('how far the deck has moved is counted, and "unknown" is not zero', (t) => {
+  const { dir, g, at } = repo(t);
+  assert.equal(commitsSince(at, dir), 0, 'nothing has happened yet');
+  g('commit', '-q', '--allow-empty', '-m', 'one');
+  g('commit', '-q', '--allow-empty', '-m', 'two');
+  assert.equal(commitsSince(at, dir), 2);
+  // A comment with no commit recorded, and a commit this clone never had, are
+  // both "cannot say" — reporting 0 for either would be a confident lie.
+  assert.equal(commitsSince(null, dir), null);
+  assert.equal(commitsSince('deadbee', dir), null);
+  assert.equal(knowsCommit(at, dir), true);
+  assert.equal(knowsCommit('deadbee', dir), false);
+  assert.equal(knowsCommit(null, dir), false);
+});
+
+test('the listing says which version, and only when there is something to say', (t) => {
+  const { dir, g, at } = repo(t);
+  const store = path.join(dir, 'talk.review.jsonl');
+  const line = (extra) => JSON.stringify({
+    id: 'aa1', at: new Date().toISOString(), by: 'Ana Ruiz <ana@example.com>',
+    slide: 1, title: 'Intro', fp: indexDeckFile(DECK_V1)[0].fp, body: 'a remark', ...extra,
+  });
+  const run = () => {
+    const out = { text: '', write(s) { this.text += s; } };
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try { commentsMain(['talk.html'], { out, err: out }); return out.text; } finally { process.chdir(cwd); }
+  };
+
+  writeFileSync(store, line({ deck: at }) + '\n');
+  assert.match(run(), new RegExp(`against ${at} \\(still current\\)`), 'the deck has not moved');
+
+  g('commit', '-q', '--allow-empty', '-m', 'moved on');
+  assert.match(run(), new RegExp(`against ${at}, 1 commit ago`));
+
+  // a comment from a clone this repository has never seen: named, not counted
+  writeFileSync(store, line({ deck: 'deadbee' }) + '\n');
+  const out = run();
+  assert.match(out, /against deadbee/);
+  assert.doesNotMatch(out, /commits? ago|still current/, 'no count for a hash it cannot resolve');
+
+  // and a comment written outside a repository says nothing at all rather than
+  // wearing an empty field
+  writeFileSync(store, line({}) + '\n');
+  assert.doesNotMatch(run(), /against/);
+});
+
+test('--at shows what the slide SAID then, beside what it says now', (t) => {
+  const { dir, g, at } = repo(t);
+  writeFileSync(path.join(dir, 'talk.review.jsonl'), JSON.stringify({
+    id: 'aa1', at: new Date().toISOString(), by: 'Ana Ruiz <ana@example.com>', deck: at,
+    slide: 2, title: 'Why this matters', fp: indexDeckFile(DECK_V1)[1].fp,
+    body: 'Which argument?',
+  }) + '\n');
+  // the deck moves: slide 2's words change
+  writeFileSync(path.join(dir, 'talk.html'), DECK_V1.replace('the argument', 'the rewritten argument'));
+  g('commit', '-qam', 'rewrite slide 2');
+
+  const out = { text: '', write(s) { this.text += s; } };
+  const cwd = process.cwd();
+  process.chdir(dir);
+  let code;
+  try { code = commentsMain(['talk.html', '--at', 'aa1'], { out, err: out }); } finally { process.chdir(cwd); }
+  assert.equal(code, 0);
+  assert.match(out.text, /then · slide 2 · Why this matters/);
+  assert.match(out.text, /Why this matters the argument\b/, 'the words they were reading');
+  assert.match(out.text, /now {2}· slide 2 · Why this matters/);
+  assert.match(out.text, /the rewritten argument/, 'and the words that replaced them');
+});
+
+test('--at refuses, with the reason, when it cannot show anything', (t) => {
+  const { dir, at } = repo(t);
+  const store = path.join(dir, 'talk.review.jsonl');
+  const run = (argv) => {
+    const out = { text: '', write(s) { this.text += s; } };
+    const cwd = process.cwd();
+    process.chdir(dir);
+    try { return { code: commentsMain(['talk.html', ...argv], { out, err: out }), text: out.text }; }
+    finally { process.chdir(cwd); }
+  };
+  const base = { id: 'aa1', at: 'now', slide: 1, title: 'Intro', body: 'x' };
+
+  writeFileSync(store, JSON.stringify({ ...base, deck: at }) + '\n');
+  let r = run(['--at', 'nope']);
+  assert.equal(r.code, 1);
+  assert.match(r.text, /no comment \[nope\]/);
+
+  // written outside a repository — there is no earlier version to show, and
+  // saying which of the reasons applies is the difference between an answer
+  // and a shrug
+  writeFileSync(store, JSON.stringify(base) + '\n');
+  r = run(['--at', 'aa1']);
+  assert.equal(r.code, 1);
+  assert.match(r.text, /records no commit/);
+
+  // arrived by --import from a clone with commits this one has never seen
+  writeFileSync(store, JSON.stringify({ ...base, deck: 'deadbee' }) + '\n');
+  r = run(['--at', 'aa1']);
+  assert.equal(r.code, 1);
+  assert.match(r.text, /this clone does not have deadbee/);
+});
+
+test('one slide out of a whole deck, by number', () => {
+  assert.equal(slideTextOf(DECK_V1, 1), 'Intro opening');
+  assert.equal(slideTextOf(DECK_V1, 3), 'Cut me doomed');
+  assert.equal(slideTextOf(DECK_V1, 9), '', 'past the end is empty, not a throw');
+  assert.equal(slideTextOf(DECK_V1, undefined), '');
 });

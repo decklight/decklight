@@ -1064,9 +1064,22 @@ export async function editMain(args, { onListen = null } = {}) {
           return json(400, { ok: false, error: 'a reply needs something in it' });
         }
         const store = reviewPathFor(deckPath);
+        // A reply is a new statement about the deck and carries which version it
+        // was made against, exactly as a comment does. A resolve does not: it is
+        // about the comment, not about the slide.
+        let at = null;
+        try { at = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(); }
+        catch { at = null; }
         const rec = op === 'resolve'
           ? { op: 'resolve', re, at: new Date().toISOString(), by: reviewerName() }
-          : { id: newId(), at: new Date().toISOString(), by: reviewerName(), re, body: text };
+          : {
+            id: newId(),
+            at: new Date().toISOString(),
+            by: reviewerName(),
+            ...(at ? { deck: at } : {}),
+            re,
+            body: text,
+          };
         try { appendFileSync(store, `${serializeRecord(rec)}\n`); }
         catch (e) { return json(500, { ok: false, error: oneline(e) }); }
         if (gitOn) {

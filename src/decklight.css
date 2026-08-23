@@ -1421,6 +1421,7 @@
 .decklight-review .rv-resolved { opacity: .5; }
 .decklight-review .rv-head { display: flex; gap: 8px; align-items: baseline; font-size: 12px; opacity: .7; }
 .decklight-review .rv-slide { color: var(--accent, #6af); }
+.decklight-review .rv-at { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; opacity: .8; }
 .decklight-review .rv-moved::before { content: "("; }
 .decklight-review .rv-moved::after { content: ")"; }
 .decklight-review .rv-tick { color: #7cd6a3; margin-left: auto; }
