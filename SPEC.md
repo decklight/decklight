@@ -20,6 +20,7 @@ being moved, and it says what it points at.
 | `CODE_AND_MATH` | code blocks and LaTeX |
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` | keys, speaker view, narration, print/PDF, overflow |
+| `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; agents as descriptors, and the remembered preference; the speech-engine factory contract and installing one; what an engine needs from the machine before a key is worth asking for; compat for code-carrying units; the digest pin they install against; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
@@ -530,6 +531,72 @@ Authorship is **structural, not detected**: the server spawns the agent itself a
 - **Merged single-file presentation**: `decklight bundle <deck.html> --all [--title "…"]` follows the deck's playlist and concatenates EVERY module's sections into one deck (explicit form: `decklight bundle a.html b.html … -o one.html`). Each module's first section is marked `data-module="<title>"`; embedded cast ids are prefixed per module to stay unique; relative asset refs are rebased onto the first deck's directory; the per-module `playlist` config is stripped. **In-file module navigation**: `data-module` sections are ordinary slides, so the finder (`G`) already finds them by title or body text and `goto()`s them with no page load; the chrome module tag shows the module of the current slide (nearest preceding marker).
 - **Publish (GitHub Pages)**: `decklight publish <deck.html> [--branch gh-pages] [--remote origin] [--no-bundle] [--path <subdir>]` — bundles the deck (single-file, via the bundler above; `--no-bundle` pushes the file as-is) to `index.html` + `.nojekyll` and pushes them to the branch on the remote, then prints the site URL derived from the remote URL: `git@github.com:owner/repo.git` and `https://github.com/owner/repo(.git)` both → `https://owner.github.io/repo/`, an `owner.github.io` repo → `https://owner.github.io/`, and a non-GitHub remote just prints the pushed ref. The commit is built with git plumbing (`hash-object → mktree → commit-tree → push <sha>:refs/heads/<branch>`), so the author's working tree, index, and checked-out branch are never touched. The first publish creates the branch as an orphan and prints where to enable Pages in the repo Settings; every later publish fetches the remote branch and parents on it — history, not force-push — and the sign-off in the commit message comes from `git config user.name/user.email`. `--path <subdir>` publishes under a subdirectory, preserving whatever else the branch already carries. Zero new dependencies: plain git.
 - **Publish targets** (`--target gh-pages|netlify|vercel`, default `gh-pages`; MARKETPLACE.md ENGINES): where the bundled page goes is a choice, not only a place. gh-pages — the bullet above, unchanged — needs git auth and no credential, so it stays core. Netlify and Vercel need a token, so they follow the rule anything on the authoring path needing a credential becomes a marketplace engine behind a core affordance: the affordance is `--target`, and each declares a real `ENGINES#WIZARD` schema (`cli/wizard.mjs` `validateSchema`), so a missing or malformed answer is refused by the exact validation a browser-wizard engine goes through, not a bespoke check. **The token is never a terminal prompt and never the browser wizard** — `publish` is a one-shot, often-headless command (CI has no browser to paste a key into, and no `/edit/wizard` to post it to, since that endpoint is served by the author server, which `publish` never starts) — so it is read from the **provider's own CLI env var** (`NETLIFY_AUTH_TOKEN` + `NETLIFY_SITE_ID`, `VERCEL_TOKEN` + `VERCEL_PROJECT` + optional `VERCEL_TEAM_ID`), matching the ElevenLabs precedent (`tools/elevenlabs-tts.mjs`): a key is not boring, so the environment remembers it and it is never written to `~/.decklight/`. `--branch`/`--remote` are refused alongside a non-gh-pages target rather than silently ignored, since they would otherwise appear to do something. Netlify deploys as a single zip (`cli/zip.mjs`, the `skills --pack` container plumbing); Vercel takes the same files inline as base64 in one JSON POST, per its own API shape. **S3 is deliberately not a target yet** — the one provider needing request signing (SigV4) rather than a bearer token, and a hand-rolled signer nobody can exercise against a real bucket in CI is a correctness claim not worth shipping unverified; Netlify and Vercel are what prove the shape generalizes (MARKETPLACE.md `OPEN`).
+
+## REVIEW — Reviewer comments
+
+A deck gets reviewed the way a document does — "slide 12 contradicts slide 4", "cut the third bullet" — and
+the numbers in that sentence go stale the moment a slide is inserted. Comments therefore live beside the deck
+and are **anchored to slides by content**, not by number.
+
+**The store** is `<deck>.review.jsonl` beside the deck: one JSON object per line, **append-only, never
+rewritten**. That is the merge strategy rather than a tidiness rule — `.gitattributes` declares
+`*.review.jsonl merge=union`, so two reviewers commenting at once produce two sets of added lines and no
+conflict, and it holds only while nothing ever edits a line. Resolving a comment and replying to one are
+records of their own (`{op:"resolve", re}` and `{re}`), so state is **folded from the log** rather than stored:
+two people resolving the same comment is two harmless lines, and a resolve that `merge=union` placed above the
+comment it refers to still lands. JSONL rather than JSON because an appended line is a one-line diff — a
+reviewer's push reads in a pull request with no tooling at all — and `body` is written last so the eye lands on
+the prose. A malformed line is skipped and **counted**, never fatal: this file arrives over email and through a
+union merge, and refusing to read it because of one truncated line is how forty comments are lost to a
+forty-first. It is not deck content: `bundle` never inlines it and the ingredients label never counts it, so a
+signed deck stays `verified` no matter how much review it attracts.
+
+**Anchoring.** A slide has no stable identity — `locateSlide` is the nth `<section>` in the file and
+`data-slide-index` is written from array position at every load — so a comment records the slide number, that
+slide's title, and a **fingerprint** of its text, and resolution walks them in descending order of confidence,
+**reporting which one answered**: `exact` (the fingerprint matched — this is the slide wherever it now sits,
+naming where it moved from), `stale` (the fingerprint is gone but exactly one slide still carries the title —
+probably right, and worth saying it may not be), `unanchored` (no fingerprint was ever recorded, so the index
+is not a worse answer than nothing), `orphaned` (the slide is gone). A title match must be **unique**: two
+slides called "Agenda" is an ordinary deck and picking the first would be a coin flip presented as an answer.
+The positional fallback is **not** a fallback for a known slide — a comment that recorded a fingerprint and
+cannot find it has lost its slide, and pinning it to whatever is twelfth now puts an objection under prose that
+never said the thing. An orphan is listed rather than dropped, last: an objection to a slide somebody deleted
+is often the most interesting line in the file. The fingerprint is over the slide's text with **whitespace
+removed, not collapsed**, because the browser reads it through the DOM and a tool reads it out of the file and
+the two disagree about spacing in endless invisible ways; notes are excluded, so an author polishing their own
+speaker notes does not orphan every comment on the slide.
+
+**`decklight review <deck.html>`** serves the deck over `http://127.0.0.1` and opens it at `?review`. It
+registers `GET /review/ping`, `GET /review/comments` and `POST /review/comments`, opens the deck **read-only**,
+and the one path it will ever write is the sidecar. It is a third command with a third route namespace rather
+than a flag on `present` (which registers no `/edit/*` to have refused) or on `author` (which would hand a
+reviewer the power to rewrite what they were asked to read) — the capability is stated by what is registered,
+per PRESENTING's rule that a shared path with a boolean in it is how a server quietly acquires a capability
+later, and it is **asserted as a test**: every `/edit/*` route answers as the unknown path it is, and the deck
+is byte-identical afterwards. With a repository each comment is committed — the sidecar alone, staged by
+itself, with the same per-invocation identity fallback every other decklight commit uses, and **never pushed**.
+With no repository the file is simply written, because a reviewer who was sent a deck and has no clone must
+still be able to say something; that file is the deliverable, and the author takes it in with
+`decklight comments <deck> --import <file>` (merge by id, so importing twice changes nothing).
+
+**In the deck, `M`** opens one overlay whose powers depend on which server answered: a review server means the
+composer is there, on the slide you are looking at; an author server means rows can be resolved; with neither,
+the list still reads and says where comments come from. `⌘/⌃⏎` posts and a bare `⏎` is a newline, because a
+comment is prose. Resolving is **armed, then confirmed**, and `Esc` backs out of the arm without closing.
+Rows are built as nodes, never `innerHTML` — a comment is somebody else's text that arrived over git. The
+author's server exposes the same store under the same append-only rule (`GET`/`POST /edit/review`).
+**`decklight comments <deck.html>`** is the terminal reader: grouped by slide, each group carrying how it was
+found, orphans last, resolved ones counted rather than printed (`--all`, `--unresolved`).
+
+Comment text is **untrusted input from a third party**. It is data everywhere it travels; the one place it
+reaches a command line is a commit subject, and that goes through the same sanitiser as an agent's (one line,
+capped, never leading `-`). It must never reach the `A` agent path unattended — CONTRIBUTING's split between
+the thing with a schedule and the thing with hands applies directly.
+
+This persists where ink (PRESENTING) is deliberately ephemeral, and the two must not be confused in the
+vocabulary either: ink is the **presenter** marking a slide during a talk and is cleared on every slide change;
+a review comment is a **reviewer** writing to the author before one. Different actor, different lifetime.
 
 ## JS_API — Public JS API
 

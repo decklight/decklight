@@ -23,7 +23,8 @@ import { createOnboarding, TIPS } from './onboarding.js';
 import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
-import { buildIndex, rankMatches } from './finder.js';
+import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
+import { createReview } from './review.js';
 import { createDebugLog } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
@@ -521,6 +522,7 @@ export function init(userConfig = {}) {
     const has = (fn) => typeof fn === 'function';
     const all = [
       { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
+      { label: 'Review comments…', hint: 'M', alias: 'feedback remarks reviewer notes critique comment', run: () => review.open() },
       { label: 'History… (dev)', hint: 'H', alias: 'restore version rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: themes.openPicker },
@@ -1407,6 +1409,7 @@ export function init(userConfig = {}) {
       <tr><td>K</td><td>clock — wall time + elapsed talk</td></tr>
       <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
       <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (author mode; R too)</td></tr>
+      <tr><td>M</td><td>review comments — what reviewers said, ⏎ jumps to the slide</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
@@ -1549,6 +1552,9 @@ export function init(userConfig = {}) {
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
+      // M is free because the module menu that held it was removed — the
+      // finder does both of its jobs (see the `modules` harness mode).
+      case 'm': case 'M': review.open(); break;
       // R is history's other door — kept because it is in people's fingers.
       // ⇧R records YOUR voice; bare R stays history, which is in people's fingers.
       case 'r': case 'R': if (e.shiftKey) openMicRecorder(); else editmode.history.open(); break;
@@ -1717,6 +1723,33 @@ export function init(userConfig = {}) {
   if (params.has('record') && !printMode) {
     setTimeout(() => { if (!overlays.active()) openMicRecorder(); }, 700);
   }
+
+  // ── review comments (review.js) — SPEC REVIEW ────────────────────────────
+  // Somebody else's remarks on this deck, anchored to slides and carried by
+  // git. What M can do depends on which server answered: a review server takes
+  // a new comment, an author server resolves one, and with neither the list
+  // still reads and says where comments come from.
+  const review = createReview({
+    root,
+    params,
+    overlays,
+    instance,
+    toast,
+    debugLog,
+    dismissOthers: () => {
+      themes.closePicker();
+      if (finderEl) closeSlideFinder();
+      if (palEl) closePalette();
+      editmode.restore.close();
+    },
+    sections: () => instance._sections ?? [],
+    // the finder's own helpers, so a comment remembers a slide by the name the
+    // finder would give it and the two can never disagree
+    titleOf: slideTitle,
+    bodyOf: slideBody,
+    authorBase: () => (editmode?.available() ? editmode.base() : null),
+    authorReady: () => editmode?.settled?.() ?? Promise.resolve(),
+  });
 
   // ── presenter overlays (hud.js) ──────────────────────────────────────────
   // Clock, progress hairline, ink and transcript: four things you can layer

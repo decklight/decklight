@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Decklight review comments — headless verification</title>
+  <link rel="stylesheet" href="../dist/decklight.css">
+</head>
+<body>
+  <!--
+    Review comments (SPEC REVIEW) in a real browser.
+
+    Two things can only be checked here. First, that the fingerprint the BROWSER
+    computes for a slide is the one a tool reading the FILE computes — the unit
+    tests pin each side separately, and a regex pretending to be a DOM would
+    only prove that two regexes agree. Second, that a comment written against
+    one deck is still found after the deck moves, which is the whole feature and
+    is decided by DOM text extraction.
+
+    The servers are mocked: `/review/*` for a reviewer, `/edit/*` for an author.
+    Which one answers is what decides whether M can take a comment or resolve
+    one, so each mode runs with exactly one of them up.
+  -->
+  <div class="decklight">
+    <section><h1>Intro</h1><p>opening</p></section>
+    <section><h2>Why this matters</h2><p>the argument</p></section>
+    <section><h2>Cut me</h2><p>doomed</p></section>
+  </div>
+
+  <pre id="test-sink">running…</pre>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const mode = params.get('mode') ?? 'reviewer';
+
+    // The store the mocked servers share, as lines — the same shape the real
+    // file holds, so the page is exercising the real parser.
+    window.__posted = [];
+    const seeded = params.has('seed') ? [
+      // written when slide 2 said "the argument" and slide 3 existed
+      '{"id":"aa1","at":"2026-08-20T10:00:00Z","by":"Ana Ruiz <ana@x>","slide":2,'
+        + '"title":"Why this matters","fp":"__FP2__","body":"This contradicts slide 1."}',
+      '{"id":"rr1","at":"2026-08-20T11:00:00Z","by":"Bo <bo@x>","re":"aa1","body":"Or slide 1 is wrong."}',
+      '{"id":"bb2","at":"2026-08-20T12:00:00Z","by":"Bo <bo@x>","slide":3,'
+        + '"title":"Cut me","fp":"__FP3__","body":"Agreed, cut this."}',
+      '{"id":"cc3","at":"2026-08-20T13:00:00Z","by":"Bo <bo@x>","slide":1,'
+        + '"title":"Intro","fp":"__FP1__","body":"Nice opening."}',
+      '{"op":"resolve","re":"cc3","at":"2026-08-21T09:00:00Z","by":"Gilles"}',
+    ] : [];
+    window.__store = [];
+
+    const realFetch = window.fetch.bind(window);
+    window.fetch = async (url, opts) => {
+      const u = String(url);
+      const reviewer = mode === 'reviewer';
+      if (u.endsWith('/review/ping')) {
+        return reviewer
+          ? new Response(JSON.stringify({ ok: true, name: 'review.html', review: true }),
+            { status: 200, headers: { 'content-type': 'application/json' } })
+          : new Response('', { status: 404 });
+      }
+      if (u.endsWith('/edit/ping')) {
+        return reviewer
+          ? new Response('', { status: 404 })
+          : new Response(JSON.stringify({ ok: true, name: 'review.html', undo: 0, redo: 0 }),
+            { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (u.endsWith('/review/comments') || u.endsWith('/edit/review')) {
+        if (opts?.method === 'POST') {
+          const rec = JSON.parse(opts.body);
+          window.__posted.push(rec);
+          // the server's half: it is the one that knows who and when
+          window.__store.push(JSON.stringify(
+            rec.op === 'resolve' ? { ...rec, at: 'now', by: 'Me <me@x>' }
+              : { id: `n${window.__posted.length}`, at: 'now', by: 'Me <me@x>', ...rec }));
+          return new Response(JSON.stringify({ ok: true, id: 'n1' }),
+            { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        const lines = [...window.__store];
+        const records = [];
+        for (const l of lines) { try { records.push(JSON.parse(l)); } catch { /* counted below */ } }
+        return new Response(JSON.stringify({ ok: true, records, skipped: lines.length - records.length }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return realFetch(url, opts);
+    };
+
+    try {
+      localStorage.setItem('decklight-onboarded', '1');
+      localStorage.setItem('decklight-tips-off', '1');
+    } catch (e) { /* private mode */ }
+  </script>
+
+  <script src="../dist/decklight.js"></script>
+  <script type="module">
+    // A MODULE, and it must be: module scripts are deferred, so this runs after
+    // the classic bundle above and `Decklight` is already there. A classic
+    // driver reaching for something a module had set would run first and find
+    // nothing — which is exactly what the first version of this page did.
+    //
+    // Static imports, like character.html: dynamic import() races the virtual
+    // clock. Importing the source directly is what lets the page compute a
+    // fingerprint with the SAME function the CLI uses.
+    import { fingerprint, indexSlides } from '../src/core/review.js';
+    import { slideTitle, slideBody } from '../src/core/finder.js';
+    const sink = document.getElementById('test-sink');
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const press = (k, target = document.body, opts = {}) => target.dispatchEvent(
+      new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
+    async function until(fn, ms = 6000) {
+      const stop = Date.now() + ms;
+      for (;;) {
+        const v = fn();
+        if (v) return v;
+        if (Date.now() > stop) return null;
+        await wait(30);
+      }
+    }
+
+    (async () => {
+      const r = {};
+      try {
+        const deck = Decklight.init({});
+        // The ENGINE's own list, not a fresh query: init moves the sections
+        // under `.decklight-stage`, so `.decklight > section` matches nothing
+        // afterwards — and `_sections` is exactly what the overlay reads.
+        const idx = () => indexSlides(deck._sections, { titleOf: slideTitle, bodyOf: slideBody });
+
+        // What the browser makes of this deck, for the file side to compare
+        // against. THE cross-check: the unit tests pin each reader on its own.
+        r.browserIndex = idx();
+
+        // seed the store with comments anchored to THIS deck's own fingerprints
+        const was = idx();
+        window.__store = seeded.map((l) => l
+          .replace('__FP1__', was[0].fp).replace('__FP2__', was[1].fp).replace('__FP3__', was[2].fp));
+
+        if (mode === 'reviewer') {
+          // A reviewer: the composer is there, and what it posts carries the
+          // anchor the author will need to find this slide again.
+          deck.goto(2, 0);
+          await wait(50);
+          press('m');
+          const card = await until(() => document.querySelector('.decklight-review .narr-card'));
+          r.opened = !!card;
+          const input = await until(() => card.querySelector('.rv-input'));
+          r.composerShown = !!input;
+          r.saysWhichSlide = /on slide 2 · Why this matters/.test(card.querySelector('.rv-on')?.textContent ?? '');
+
+          input.value = 'This contradicts slide 1.';
+          card.querySelector('.rv-send').click();
+          await until(() => window.__posted.length);
+          r.posted = window.__posted[0];
+          r.anchoredToTheSlideOnScreen = r.posted?.slide === 2
+            && r.posted.title === 'Why this matters' && r.posted.fp === was[1].fp;
+          // …and the list picked it straight up
+          r.listedAfterPosting = !!(await until(() => [...card.querySelectorAll('.rv-body')]
+            .some((n) => n.textContent === 'This contradicts slide 1.')));
+
+          r.PASS = r.opened && r.composerShown && r.saysWhichSlide
+            && r.anchoredToTheSlideOnScreen && r.listedAfterPosting;
+          sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'moved') {
+          // The deck moves under the comments: a slide inserted above, slide 2
+          // edited, slide 3 deleted. Then M is opened and every verdict has to
+          // be on screen and pointing at the right place.
+          const [first,, third] = deck._sections;
+          const stage = first.parentElement;
+          third.remove();                                          // "Cut me" is gone
+          deck._sections[1].querySelector('p').textContent = 'the argument, rewritten';
+          const fresh = document.createElement('section');
+          fresh.innerHTML = '<h2>Brand new</h2><p>inserted above everything</p>';
+          stage.prepend(fresh);
+          // sync() is the engine's own door for slides that appeared after
+          // init — without it `_sections` is still the list built at load and
+          // the overlay would resolve against a deck that no longer exists
+          deck.sync();
+          await wait(150);
+          r.slidesNow = deck._sections.length;
+
+          press('m');
+          const card = await until(() => document.querySelector('.decklight-review .narr-card'));
+          const rowText = () => [...card.querySelectorAll('.rv-row')].map((n) => n.textContent);
+          await until(() => rowText().length >= 2);
+          r.rows = rowText();
+
+          // MOVED: "Nice opening" was on slide 1, which is now slide 2
+          r.foundTheMovedSlide = r.rows.some((t) => /slide 2/.test(t) && /Nice opening/.test(t));
+          // EDITED: found by title, and flagged
+          r.flaggedTheEdited = r.rows.some((t) => /This contradicts slide 1/.test(t)
+            && /changed since the comment was written/.test(t));
+          // DELETED: not silently re-pinned to whatever is third now
+          r.orphanNotRepinned = r.rows.some((t) => /slide gone/.test(t) && /Agreed, cut this/.test(t));
+          // a reply hangs off its parent rather than standing alone
+          r.replyNested = r.rows.some((t) => /Or slide 1 is wrong/.test(t) && /This contradicts/.test(t));
+          // ⏎ goes to where the slide IS now, not where it was
+          const target = [...card.querySelectorAll('.rv-row')].find((n) => /Nice opening/.test(n.textContent));
+          target.click();
+          await wait(80);
+          r.jumpedTo = deck.state.slide;
+          r.jumpedToWhereItIsNow = r.jumpedTo === 2;
+
+          r.PASS = r.foundTheMovedSlide && r.flaggedTheEdited && r.orphanNotRepinned
+            && r.replyNested && r.jumpedToWhereItIsNow;
+          sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'author') {
+          // An author: no composer, and R resolves — armed, then confirmed.
+          press('m');
+          const card = await until(() => document.querySelector('.decklight-review .narr-card'));
+          await until(() => card.querySelectorAll('.rv-row').length >= 2);
+          r.noComposerForAnAuthor = !card.querySelector('.rv-input');
+          r.saysResolveIsThere = /R resolves/.test(card.querySelector('.rec-hint')?.textContent ?? '');
+
+          press('ArrowDown');   // off whichever row was selected first
+          press('r');
+          r.armedNotFired = !!(await until(() => card.querySelector('.rv-arm')));
+          r.nothingPostedYet = window.__posted.length === 0;
+          // Escape backs out of the arm WITHOUT closing — the house two-step
+          press('Escape');
+          await wait(120);
+          r.escapeDisarmedNotClosed = !card.querySelector('.rv-arm')
+            && !!document.querySelector('.decklight-review');
+
+          press('r');
+          await until(() => document.querySelector('.decklight-review .rv-arm'));
+          press('r');
+          await until(() => window.__posted.length);
+          r.resolvedOnSecond = window.__posted[0]?.op === 'resolve';
+          r.resolveIsAnAppend = !!window.__posted[0]?.re;
+
+          r.PASS = r.noComposerForAnAuthor && r.saysResolveIsThere && r.armedNotFired
+            && r.nothingPostedYet && r.escapeDisarmedNotClosed && r.resolvedOnSecond
+            && r.resolveIsAnAppend;
+          sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+      } catch (e) {
+        r.exception = String(e && (e.stack || e.message || e));
+      }
+      r.PASS = r.PASS === true;
+      sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
+    })();
+  </script>
+</body>
+</html>

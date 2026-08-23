@@ -98,6 +98,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | **Terminals** | `decklight cast` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Narration** | TTS reads your notes in sync with builds — or **your own voice**, recorded beat by beat and pacing them the same way; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
+| **Review** | reviewers comment on slides; git carries it, and a comment finds its slide again after the deck moves | [SPEC REVIEW](SPEC.md#review--reviewer-comments) |
 | **Integrity** | read-only `present` under a real CSP header, an ingredients label of what a deck executes, Sigstore signing, the `.decklight` container | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **The durable record** | decklight commits as you write; `H` reads it back — every version previewed live, what each changed, one keystroke to restore | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Marketplaces** | git-repo catalogs, registered not fetched; themes, templates, skills, voices, engines, importers, transforms and presenter plugins | [SPEC MARKETPLACE_REGISTRY](SPEC.md#marketplace_registry--marketplaces-registered-not-fetched) |
@@ -113,6 +114,8 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across (`.key` needs macOS; a Slides URL must be link-shared) |
 | `decklight cast script.term.yaml` | record a **terminal** cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
 | `decklight record deck.html` | record the narration in **your own voice** — the deck reads you its notes one ⟨CLICK⟩ at a time, and `→` ends a beat *and* reveals the next build, so your voice paces the deck (`cast` records a terminal, `record` records you) |
+| `decklight review deck.html` | **leave comments on somebody's deck**, anchored to slides — a comment survives the slide moving, and says so when its slide changed or is gone |
+| `decklight comments deck.html` | read what reviewers said, resolved against the deck as it is now (`--import` takes in a file from a reviewer with no clone) |
 | `decklight history deck.html` | what decklight committed, which commits exist only on this machine, and how to push them |
 | `decklight restore deck.html` | list the commits that touched a deck, and put it back to any of them |
 | `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
@@ -140,6 +143,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `S` | speaker view (again: rehearse cue cards) |
 | `T` | theme picker (type to filter) · `⌃T` generate a theme |
 | `V` | narration on/off · `⇧V` records it in a synthesized voice · `⇧R` records it in yours |
+| `M` | review comments — what reviewers said, `⏎` jumps to the slide |
 | `H` | the deck's history — every version previewed live, `⏎` restores one |
 | `/` | command palette · `G` find a slide |
 | `?` | help overlay — every key |
@@ -167,10 +171,10 @@ Every one of those agents runs under the same rule: on a public repo, an automat
 ## Architecture
 
 <p align="center">
-  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: a single deck.html and a theme.css feed a zero-dependency browser runtime (engine, terminal player, svg/code/math, narration, overlays); two localhost servers sit beside it — decklight author for live-reload note editing and decklight tts bridging to Vertex AI Gemini TTS; a node CLI records, refreshes, exports and bundles; and a verification band (WCAG gates, palette rules, headless render assertions, property tests) gates everything against SPEC.md.">
+  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: a single deck.html and a theme.css feed a zero-dependency browser runtime (engine, terminal player, svg/code/math, narration, overlays); three localhost servers sit beside it — decklight author for live-reload note editing, decklight tts bridging to Vertex AI Gemini TTS, and decklight review, which writes reviewer comments to a deck.review.jsonl sidecar carried by git and registers no editing routes at all; a node CLI records, refreshes, exports and bundles; and a verification band (WCAG gates, palette rules, headless render assertions, property tests) gates everything against SPEC.md.">
 </p>
 
-One HTML file and one theme stylesheet feed a **zero-dependency browser runtime**; everything with native dependencies or credentials lives in **localhost tools** (the CLI, the `edit` live-reload server, the `tts` bridge); and a **verification band** — contrast gates, palette rules, headless render assertions, property tests — holds all of it to the `SPEC.md` contract.
+One HTML file and one theme stylesheet feed a **zero-dependency browser runtime**; everything with native dependencies or credentials lives in **localhost tools** (the CLI, the `author` live-reload server, the `tts` bridge, and `review`, which can write one sidecar file and nothing else); and a **verification band** — contrast gates, palette rules, headless render assertions, property tests — holds all of it to the `SPEC.md` contract.
 
 ## Development
 

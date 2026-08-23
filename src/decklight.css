@@ -1406,6 +1406,36 @@
   font-size: 13px;
 }
 
+/* review comments (M) — SPEC REVIEW. Shares the narration card chrome; the
+   list is rows of somebody else's prose, so it reads like a thread rather
+   than a picker. */
+.decklight-review .narr-card { width: min(560px, 88vw); }
+.decklight-review .rv-compose { padding: 4px 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, .1); }
+.decklight-review .rv-on { font-size: 12px; opacity: .55; margin-bottom: 6px; }
+.decklight-review .rv-input { width: 100%; resize: vertical; margin-bottom: 6px; }
+.decklight-review .rv-list { padding: 4px 0; }
+.decklight-review .rv-none,
+.decklight-review .rv-skipped { padding: 8px 12px; opacity: .55; font-size: 13px; }
+.decklight-review .rv-row { padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+.decklight-review .rv-row.rv-sel { background: rgba(255, 255, 255, .14); }
+.decklight-review .rv-resolved { opacity: .5; }
+.decklight-review .rv-head { display: flex; gap: 8px; align-items: baseline; font-size: 12px; opacity: .7; }
+.decklight-review .rv-slide { color: var(--accent, #6af); }
+.decklight-review .rv-moved::before { content: "("; }
+.decklight-review .rv-moved::after { content: ")"; }
+.decklight-review .rv-tick { color: #7cd6a3; margin-left: auto; }
+.decklight-review .rv-body { margin-top: 3px; white-space: pre-wrap; }
+.decklight-review .rv-note { margin-top: 4px; font-size: 12px; color: #ffcf8b; }
+.decklight-review .rv-reply { margin: 4px 0 0 12px; font-size: 13px; opacity: .8; white-space: pre-wrap; }
+.decklight-review .rv-arm {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 207, 139, .12);
+  color: #ffcf8b;
+  font-size: 12px;
+}
+
 /* command palette (/) */
 .decklight-palette .narr-card { width: min(520px, 86vw); }
 .decklight-palette .pal-input {

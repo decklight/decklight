@@ -17,15 +17,29 @@
 // this file. In-file `data-module` chapters need nothing special: they are
 // ordinary slides and are already indexed as such.
 
-/** A slide's title: its first heading, else its opening words, else its number. */
-function slideTitle(section, i, body) {
+/**
+ * A slide's title: its first heading, else its opening words, else its number.
+ *
+ * Exported because review comments remember it (SPEC REVIEW): a comment records
+ * the title of the slide it was written on, and resolves against it when the
+ * fingerprint no longer matches. Sharing THIS function is what stops the finder
+ * and the comment list disagreeing about what a slide is called.
+ */
+export function slideTitle(section, i, body) {
   const heading = section.querySelector('h1, h2, h3');
   const fromHeading = (heading?.textContent || '').replace(/\s+/g, ' ').trim();
   return fromHeading || body.slice(0, 60) || `slide ${i + 1}`;
 }
 
-/** A slide's searchable text — its content, minus notes and the machinery. */
-function slideBody(section) {
+/**
+ * A slide's searchable text — its content, minus notes and the machinery.
+ *
+ * Exported for the same reason as `slideTitle`, and it carries one decision
+ * review depends on: notes are excluded, so an author rewriting their own
+ * speaker notes does not change a slide's fingerprint and orphan every comment
+ * on it. A comment is about what the audience sees.
+ */
+export function slideBody(section) {
   const content = [...section.children].filter((el) => !el.matches('aside, script, style'));
   return content.map((el) => el.textContent).join(' ').replace(/\s+/g, ' ').trim();
 }
