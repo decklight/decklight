@@ -88,7 +88,7 @@ const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
  * ships, which is the harder half of the upgrade.
  */
 const OLDER_RELEASE = '0.2.0';
-const TOTAL = 50;
+const TOTAL = 51;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
