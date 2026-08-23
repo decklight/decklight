@@ -64,6 +64,13 @@
   </g>
 
   <!-- ── verification band ────────────────────────────────────────── -->
+  <!-- decklight review — a third localhost server, and the only one whose write
+       surface is a single sidecar file (SPEC REVIEW) -->
+  <rect x="710" y="356" width="180" height="86" rx="10" fill="#274035" stroke="#43695a" stroke-width="1.5"/>
+  <text x="800" y="382" text-anchor="middle" font-size="13" font-weight="700" fill="#e8eaf2">decklight review</text>
+  <text x="800" y="400" text-anchor="middle" font-size="10.5" fill="#aeb4c6">M leaves comments on a slide</text>
+  <text x="800" y="416" text-anchor="middle" font-size="10.5" fill="#aeb4c6">writes deck.review.jsonl only</text>
+  <text x="800" y="432" text-anchor="middle" font-size="10.5" fill="#aeb4c6">git carries it · no /edit/*</text>
   <rect x="40" y="470" width="850" height="60" rx="10" fill="#1c2620" stroke="#39584a" stroke-width="1.5"/>
   <text x="465" y="494" text-anchor="middle" font-size="12.5" font-weight="700" fill="#9fd6b4">verification — SPEC.md is the contract</text>
   <text x="465" y="514" text-anchor="middle" font-size="10.5" fill="#8fae9c">WCAG contrast gates · R1–R8 palette rules · headless render assertions · property tests across seeds · data-overflow guardrail</text>

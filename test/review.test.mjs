@@ -292,3 +292,49 @@ test('the file reader names a slide the way the finder would', () => {
   // the open tag's attributes are not part of the slide's name
   assert.equal(slideHeading(inner(' class="x" data-layout="split"><h2>Named</h2>'), 0), 'Named');
 });
+
+// ── review comments are not deck content ─────────────────────────────────
+
+test('bundle never inlines the sidecar, and the audit never counts it', async (t) => {
+  // A comment is a reviewer talking to an author. It must not travel inside a
+  // deck that gets handed to an audience — and writing it into the deck at all
+  // would invalidate `talk.html.sig` and read as `tampered` under `present`
+  // (SPEC INTEGRITY#SIGNING), which is why the store is a sidecar in the first
+  // place. Asserted rather than assumed: bundle walks narration folders and
+  // this file is not in one, so nothing inlines it TODAY — and a future
+  // inliner that reached wider would break the promise silently.
+  const { mkdtempSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const nodePath = await import('node:path');
+  const { rmTemp } = await import('./helpers.mjs');
+  const { bundleMain } = await import('../cli/bundle.mjs');
+
+  const dir = mkdtempSync(nodePath.join(tmpdir(), 'dl-rv-bundle-'));
+  t.after(() => rmTemp(dir));
+  const { mkdirSync, copyFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const repo = nodePath.resolve(nodePath.dirname(fileURLToPath(import.meta.url)), '..');
+  // bundle inlines a real runtime and a real theme, so the fixture needs both
+  mkdirSync(nodePath.join(dir, 'themes'), { recursive: true });
+  copyFileSync(nodePath.join(repo, 'themes', 'midnight.css'), nodePath.join(dir, 'themes', 'midnight.css'));
+  copyFileSync(nodePath.join(repo, 'dist', 'decklight.js'), nodePath.join(dir, 'decklight.js'));
+  copyFileSync(nodePath.join(repo, 'dist', 'decklight.css'), nodePath.join(dir, 'decklight.css'));
+  const deck = nodePath.join(dir, 'talk.html');
+  writeFileSync(deck, '<!doctype html><html><head>'
+    + '<link rel="stylesheet" href="decklight.css">'
+    + '<link rel="stylesheet" href="themes/midnight.css"></head><body><div class="decklight">'
+    + '<section><h1>One</h1></section></div>'
+    + '<script src="decklight.js"></script><script>Decklight.init({});</script></body></html>');
+  writeFileSync(nodePath.join(dir, 'talk.review.jsonl'),
+    '{"id":"aa1","slide":1,"body":"SECRET-REVIEWER-PROSE-DO-NOT-SHIP"}\n');
+
+  const out = nodePath.join(dir, 'out.html');
+  const cwd = process.cwd();
+  process.chdir(dir);
+  try { await bundleMain(['talk.html', '-o', 'out.html']); } finally { process.chdir(cwd); }
+
+  const bundled = readFileSync(out, 'utf8');
+  assert.doesNotMatch(bundled, /SECRET-REVIEWER-PROSE-DO-NOT-SHIP/,
+    'a reviewer\'s words shipped inside a deck handed to an audience');
+  assert.doesNotMatch(bundled, /review\.jsonl/, 'and the deck does not even name the file');
+});
