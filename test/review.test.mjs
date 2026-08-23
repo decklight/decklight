@@ -10,7 +10,9 @@ import assert from 'node:assert/strict';
 import {
   reviewPathFor, parseReview, serializeRecord, mergeById, newId,
 } from '../cli/review-store.mjs';
-import { fingerprint, resolveAnchor, VERDICT_NOTE, indexSlides, foldReview } from '../src/core/review.js';
+import {
+  fingerprint, resolveAnchor, VERDICT_NOTE, indexSlides, foldReview,
+} from '../tools/review-anchor.mjs';
 import { sectionBodies, sectionInner, slideText, slideHeading } from '../tools/deck-html.mjs';
 
 // ── the store ─────────────────────────────────────────────────────────────
@@ -337,4 +339,26 @@ test('bundle never inlines the sidecar, and the audit never counts it', async (t
   assert.doesNotMatch(bundled, /SECRET-REVIEWER-PROSE-DO-NOT-SHIP/,
     'a reviewer\'s words shipped inside a deck handed to an audience');
   assert.doesNotMatch(bundled, /review\.jsonl/, 'and the deck does not even name the file');
+});
+
+test('the shared anchor imports nothing, and must not start', async () => {
+  // It is imported by the BROWSER runtime (esbuild inlines it into dist) and by
+  // the CLI, so a single `node:` import here would break a runtime whose whole
+  // claim is zero dependencies — and it would break it at bundle time, in a
+  // file nobody was looking at.
+  //
+  // It lives in tools/ rather than src/ because `files` does not ship src/: the
+  // CLI importing from there works in a checkout and fails on every install.
+  // The soak found that, which is what the soak is for.
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const nodePath = await import('node:path');
+  const here = nodePath.dirname(fileURLToPath(import.meta.url));
+  const text = readFileSync(nodePath.join(here, '..', 'tools', 'review-anchor.mjs'), 'utf8');
+  assert.doesNotMatch(text, /^\s*import\s/m, 'the shared anchor grew an import');
+  assert.doesNotMatch(text, /require\s*\(/, 'the shared anchor grew a require');
+
+  // …and it is in a directory the published package actually contains
+  const pkg = JSON.parse(readFileSync(nodePath.join(here, '..', 'package.json'), 'utf8'));
+  assert.ok(pkg.files.includes('tools/'), 'tools/ is no longer published — the CLI would break on install');
 });

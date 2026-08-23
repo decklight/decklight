@@ -64,6 +64,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { dumpDom } from './harness.mjs';
 import { findChrome } from '../tools/chrome.mjs';
+// The reviewer's anchor, computed the way the BROWSER computes it. Deliberately
+// the repo's own function against the INSTALLED cli: if the two ever disagree
+// about a slide's fingerprint, a comment written in a deck stops being findable
+// by `decklight comments` — silently — and this step is where that shows up.
+import { fingerprint } from '../src/core/review.js';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-html.mjs';
 import { ffprobeArgs, TAIL_SECONDS } from '../tools/video.mjs';
@@ -1277,6 +1282,76 @@ try {
     must(git(['status', '--porcelain']) === statusBefore, 'publish touched the working tree or the index');
   });
 
+  await step('a reviewer comments, and the comment survives the deck moving', async () => {
+    // The whole round trip, through the INSTALLED binary: somebody reviews a
+    // deck, the author reads it back after editing, and the comment is still
+    // on the right slide. Everything about anchoring is unit-tested; what only
+    // this can catch is the two commands not being reachable from a packed
+    // tarball at all — the dispatch, the help, findDeck, the sidecar's path.
+    writeFileSync(join(PROJECT, 'reviewed.html'),
+      '<!doctype html><html><head><link rel="stylesheet" href="themes/midnight.css"></head><body>'
+      + '<div class="decklight">'
+      + '<section><h1>Opening</h1><p>the first slide</p></section>'
+      + '<section><h2>The claim</h2><p>because the numbers say so</p></section>'
+      + '</div><script src="decklight.js"></script><script>Decklight.init({});</script></body></html>');
+
+    const srv = await startServer(['review', 'reviewed.html', '--port', '0', '--no-open'],
+      /http:\/\/127\.0\.0\.1:(\d+)/, { timeoutMs: 15000 });
+    const say = async (body) => {
+      const r = await fetch(`${srv.base}/review/comments`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      must(r.ok, `posting a comment answered ${r.status}`);
+      return r.json();
+    };
+    // the anchor the browser would compute, computed the same way here
+    const claim = 'The claim because the numbers say so';
+    await say({ slide: 2, title: 'The claim', fp: fingerprint(claim), body: 'Which numbers?' });
+    await say({ slide: 1, title: 'Opening', fp: fingerprint('Opening the first slide'), body: 'Good opener.' });
+
+    // the capability, on the installed binary: no editing surface exists here
+    const edit = await fetch(`${srv.base}/edit/notes`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ slide: 1, text: 'rewritten by a reviewer' }),
+    });
+    must(edit.status === 404 || edit.status === 405, `/edit/notes answered ${edit.status} on a review server`);
+
+    srv.child.kill('SIGTERM');
+    must(await waitExit(srv.child, 5000), 'review did not exit on SIGTERM');
+
+    const store = join(PROJECT, 'reviewed.review.jsonl');
+    must(existsSync(store), 'no review sidecar was written');
+    must(readFileSync(store, 'utf8').trim().split('\n').length === 2, 'one line per comment');
+    must(!readFileSync(join(PROJECT, 'reviewed.html'), 'utf8').includes('Which numbers'),
+      'a comment was written into the deck');
+
+    let read = dl(['comments', 'reviewed.html']);
+    must(/slide 2 · The claim/.test(read.all), `the listing did not group by slide: ${read.all}`);
+    must(/Which numbers\?/.test(read.all), 'a comment went missing');
+
+    // …now the deck moves: a slide inserted above, and the commented one edited
+    writeFileSync(join(PROJECT, 'reviewed.html'),
+      readFileSync(join(PROJECT, 'reviewed.html'), 'utf8')
+        .replace('<section><h1>Opening</h1>', '<section><h2>Brand new</h2><p>inserted</p></section><section><h1>Opening</h1>')
+        .replace('because the numbers say so', 'because three studies say so'));
+    read = dl(['comments', 'reviewed.html']);
+    must(/slide 3 · The claim/.test(read.all), `a comment did not follow its slide: ${read.all}`);
+    must(/was slide 2 when this was written/.test(read.all), 'it followed the slide but did not say it moved');
+    must(/changed since the comment was written/.test(read.all), 'an edited slide was not flagged');
+    must(/slide 2 · Opening/.test(read.all), 'the untouched comment did not move with its slide');
+
+    // and the return path for a reviewer with no clone
+    writeFileSync(join(PROJECT, 'from-ana.review.jsonl'),
+      '{"id":"ana001","at":"2026-08-23T10:00:00Z","by":"Ana <ana@x>","slide":1,'
+      + '"title":"Opening","body":"Sent this from a copy, no repo."}\n');
+    const first = dl(['comments', 'reviewed.html', '--import', 'from-ana.review.jsonl']);
+    must(/1 new/.test(first.all), `--import did not take it: ${first.all}`);
+    const again = dl(['comments', 'reviewed.html', '--import', 'from-ana.review.jsonl']);
+    must(/nothing new/.test(again.all), 'importing the same file twice added it twice');
+  });
+
   await step('every command answers --help, and refuses by name', () => {
     // The journey exercises a dozen commands; this sweeps the roster. `--help`
     // must exit 0 everywhere, and a bad input must be a NAMED refusal rather
@@ -1285,7 +1360,8 @@ try {
     // `video` answering --help on stderr with exit 1 on its first run (#294).
     for (const cmd of ['init', 'import', 'bundle', 'upgrade', 'pdf', 'present', 'author', 'publish',
       'theme', 'marketplace', 'plugin', 'template', 'skills', 'importer', 'transform', 'engine',
-      'voice', 'agent', 'extension', 'restore', 'cast', 'record', 'tts', 'lipsync', 'video', 'report-bug', 'associate']) {
+      'voice', 'agent', 'extension', 'restore', 'cast', 'record', 'review', 'comments',
+      'tts', 'lipsync', 'video', 'report-bug', 'associate']) {
       const r = dl([cmd, '--help']);
       must(r.stdout.length > 40, `${cmd} --help printed almost nothing to stdout`);
     }
