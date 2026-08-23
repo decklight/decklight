@@ -75,6 +75,16 @@ const DECK = `<!doctype html>
     navigator.mediaDevices.getUserMedia = async () => {
       const ctx = new AudioContext();
       if (ctx.state === 'suspended') await ctx.resume();
+      // DOES THE AUDIO GRAPH ACTUALLY RUN HERE? ctx.state says "running" on a
+      // machine with no output device driving the render quantum, and then
+      // renders nothing: currentTime crawls, no ScriptProcessor callback ever
+      // fires, and every WAV comes out as a 44-byte header. That is a fact
+      // about the host, not about the recorder, so it is measured and reported
+      // rather than left to look like a failure.
+      // (No backticks in here: this lives inside the deck's template literal.)
+      const t0 = ctx.currentTime;
+      await new Promise((ok) => setTimeout(ok, 250));
+      window.__audioRan = ctx.currentTime - t0 > 0.05;
       const dest = ctx.createMediaStreamDestination();
       // A tone, not noise: "did it capture audio" then has a deterministic
       // answer instead of one that depends on what the room sounds like.
@@ -147,6 +157,7 @@ const DECK = `<!doctype html>
         r.card = card()?.textContent ?? '';
         r.finished = done();
       }
+      r.audioRan = window.__audioRan !== false;
     } catch (e) { r.exception = String(e && (e.stack || e.message || e)); }
     // The page is the only thing that knows it is finished; nothing is dumped,
     // so this is how the harness finds out.
@@ -158,9 +169,23 @@ const DECK = `<!doctype html>
 `;
 
 let bad = 0;
+let skipped = 0;
 function check(label, ok, detail) {
   if (!ok) bad++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label.padEnd(9)} ${detail}`);
+}
+/**
+ * A check this machine cannot answer.
+ *
+ * Reported as its own state — never silently passed, never failed. The one
+ * check here that needs the host to have a working audio output device is the
+ * one that reads the captured bytes, and a machine without one is not a
+ * regression in the recorder. Counted in the summary so a run that skipped it
+ * cannot read as a run that made the check.
+ */
+function skip(label, why) {
+  skipped++;
+  console.log(`skip ${label.padEnd(9)} ${why}`);
 }
 function fail(msg) {
   console.error(`FAIL record-render — ${msg}`);
@@ -273,9 +298,21 @@ const segBytes = ['slide-01-01.wav', 'slide-01-02.wav', 'slide-01-03.wav']
 // the whole-slide file IS its beats, back to back — no synthetic gap, because a
 // human take already contains every pause the person took
 const sums = files.length > 0 && Math.abs((sizes['slide-01.wav'] - 44) - segBytes) <= 4;
-check('audio', riff && audible && sums,
-  `RIFF/WAVE=${riff} · not silence=${audible} · whole slide = its beats back to back=${sums}`
-  + ` (${Object.entries(sizes).map(([f, n]) => `${f.replace('slide-0', '')}:${n}`).join(' ')})`);
+// The header is structure and is checked on any machine; the CONTENT needs an
+// audio device that renders. Splitting them is what keeps the useful half of
+// this check alive on a laptop with no output device plugged in.
+check('wav', riff, `every file is a real RIFF/WAVE (${files.length} of them)`);
+if (took.audioRan === false) {
+  skip('audio', 'this machine\'s audio graph does not render — AudioContext says "running" while'
+    + ' currentTime stands still, so nothing was captured to measure. The recorder is untested here,'
+    + ' not broken: plug in an output device, or read this check on CI.');
+} else {
+  // `sums` is under the same gate on purpose: 44-byte files sum to 44 bytes and
+  // would pass this trivially, which is a false pass rather than a check.
+  check('audio', audible && sums,
+    `not silence=${audible} · whole slide = its beats back to back=${sums}`
+    + ` (${Object.entries(sizes).map(([f, n]) => `${f.replace('slide-0', '')}:${n}`).join(' ')})`);
+}
 
 // The claim, in one line: → ended a file AND revealed the next build. Beat k of
 // slide 1 is read at build step k; slide 2 has no builds and starts at 0.
@@ -299,5 +336,6 @@ check('refusal', /microphone was blocked/.test(blocked.card ?? '')
   + ` · wrote nothing=${!existsSync(path.join(tmp, 'denied'))}`);
 
 if (bad) fail(`${bad} check${bad === 1 ? '' : 's'} failed`);
-console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+console.log(`record-render: PASS (${((Date.now() - t0) / 1000).toFixed(1)}s)`
+  + (skipped ? ` — ${skipped} check${skipped === 1 ? '' : 's'} SKIPPED, see above` : ''));
 process.exit(0);
