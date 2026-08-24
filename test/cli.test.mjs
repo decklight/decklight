@@ -1640,8 +1640,11 @@ test('record serves the deck and prints the URL the browser is sent to', async (
   child.stderr.on('data', (c) => { out += c; });
   const url = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
+      // BOTH lines, not just the first: the URL and the ⇧R hint are separate
+      // writes, and resolving on the URL alone then asserting the hint is a
+      // race the test loses on a slow runner — Windows CI lost it for real.
       const m = out.match(/decklight record on (\S+)/);
-      if (m) { clearInterval(scan); resolve(m[1]); }
+      if (m && /⇧R opens the recorder/.test(out)) { clearInterval(scan); resolve(m[1]); }
     }, 25);
     child.on('exit', () => { clearInterval(scan); reject(new Error('record exited early:\n' + out)); });
     setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 15000);
