@@ -679,6 +679,29 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
+    <!-- ══ 30 · review comments ══ -->
+    <section>
+      <h2>Somebody Else&rsquo;s Two Cents</h2>
+      <p><strong>M</strong> leaves a comment on a slide &mdash; git carries it back to you</p>
+      <ul data-build>
+        <li><strong>decklight review</strong> &mdash; they comment; your deck is never touched</li>
+        <li><code>M</code> on a slide, and the comment remembers <em>which</em> slide</li>
+        <li>Insert three slides above it and the comment still finds it</li>
+        <li>Changed? Moved? Gone? It says which, instead of guessing</li>
+        <li><code>.review.jsonl</code>, append-only &mdash; two reviewers never conflict</li>
+      </ul>
+      <aside class="notes">
+        <p>A deck gets reviewed the way a document does &mdash; slide twelve contradicts slide four, cut the third bullet. Until now there was nowhere to put that, so people emailed you prose with slide numbers in it.</p><p>&#10216;CLICK&#10217;</p><p>So there is a command for the reviewer. It serves them the deck and takes their comments, and it cannot edit the deck at all &mdash; there is no route for that to have refused. You hand somebody a deck to read, not to rewrite.</p><p>&#10216;CLICK&#10217;</p><p>They press M on whatever slide they are looking at and say the thing. And the comment does not just record a slide number: it records what the slide was called and a fingerprint of what it said.</p><p>&#10216;CLICK&#10217;</p><p>Which is the whole trick, because slide numbers go stale the instant you insert one. Add three slides above it and the comment is still on the right slide, and it tells you it moved.</p><p>&#10216;CLICK&#10217;</p><p>And when it cannot be sure, it says so rather than guessing. Changed since they wrote it, or the slide is gone entirely &mdash; which is often the most interesting comment in the file. The whole thing is one appended line per comment, so two reviewers at once never collide, and their push reads as a diff in a pull request with no tooling at all.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>Reviewing a deck had nowhere to put remarks</p>
+        <p>&#10216;CLICK&#10217;</p><p>decklight review &mdash; read, never rewrite</p>
+        <p>&#10216;CLICK&#10217;</p><p>M &rarr; remembers the slide, not the number</p>
+        <p>&#10216;CLICK&#10217;</p><p>Insert slides above &mdash; still finds it</p>
+        <p>&#10216;CLICK&#10217;</p><p>Unsure? Says which. One line each, no conflicts</p>
+      </aside>
+    </section>
+
     <section>
       <h2>Playing a Deck You Didn't Write</h2>
       <p><code>decklight present</code> — read-only over localhost, under a real CSP <em>header</em></p>
@@ -700,7 +723,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
-    <!-- ══ 30 · container + plugins ══ -->
+    <!-- ══ 31 · container + plugins ══ -->
     <section data-layout="split">
       <h2>Two More Safety Rails</h2>
       <p>For the file that travels, and the chrome that doesn't</p>
@@ -729,7 +752,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
-    <!-- ══ 31 · verification ══ -->
+    <!-- ══ 32 · verification ══ -->
     <section>
       <h2>Verified by Construction</h2>
       <p>Built for authors who don't have eyeballs</p>
@@ -751,7 +774,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
-    <!-- ══ 32 · close ══ -->
+    <!-- ══ 33 · close ══ -->
     <section data-logo="96">
       <h2>One HTML File. No Build Step.</h2>
       <p>Two stylesheets, one script — view source on this deck to start yours</p>
