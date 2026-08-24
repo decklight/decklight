@@ -164,6 +164,32 @@ function skipString(text, i) {
 }
 
 /**
+ * Skip one JS comment starting at `i` (which is its `/`). Returns the index of
+ * the comment's last character, or `i` unchanged when this `/` is not a
+ * comment at all (division, a lone slash in whatever).
+ *
+ * The walkers below skip strings and skipped nothing else — so a deck whose
+ * boot call carried a commented-out earlier track (`// narration: { files:
+ * 'old' }` — exactly what an author leaves behind) had that key
+ * FOUND, the splice landed inside the comment, and the UI said ✓ while the
+ * deck played nothing. An unbalanced `)` in a comment likewise ended
+ * initArgument's span early, and a splice into a truncated span corrupts the
+ * file rather than missing it.
+ */
+function skipComment(text, i) {
+  if (text[i] !== '/') return i;
+  if (text[i + 1] === '/') {
+    const nl = text.indexOf('\n', i + 2);
+    return nl === -1 ? text.length : nl;
+  }
+  if (text[i + 1] === '*') {
+    const end = text.indexOf('*/', i + 2);
+    return end === -1 ? text.length : end + 1;
+  }
+  return i;
+}
+
+/**
  * The `Decklight.init(…)` argument in `html`: where it starts and ends.
  *
  * Located through the same classifier `audit` and `upgrade` use, so all three
@@ -181,6 +207,7 @@ export function initArgument(html) {
   for (let i = open; i < inner.length; i++) {
     const c = inner[i];
     if (c === '"' || c === "'" || c === '`') { i = skipString(inner, i); continue; }
+    if (c === '/') { const j = skipComment(inner, i); if (j !== i) { i = j; continue; } }
     if (c === '(') depth++;
     else if (c === ')' && --depth === 0) {
       return { start: boot.start + open + 1, end: boot.start + i };
@@ -197,27 +224,33 @@ export function initArgument(html) {
  * all. Both are things a plausible deck contains.
  */
 function objectKey(obj, key) {
-  const re = new RegExp(`(^|[{,\\s])${key}\\s*:`);
+  const re = new RegExp(`^${key}\\s*:`);
   let depth = 0;
   for (let i = 0; i < obj.length; i++) {
     const c = obj[i];
     if (c === '"' || c === "'" || c === '`') { i = skipString(obj, i); continue; }
+    if (c === '/') { const j = skipComment(obj, i); if (j !== i) { i = j; continue; } }
     if (c === '{' || c === '[' || c === '(') { depth++; continue; }
     if (c === '}' || c === ']' || c === ')') { depth--; continue; }
     if (depth !== 1) continue;
-    const m = re.exec(obj.slice(i, i + key.length + 3));
-    if (!m || m.index !== 0) continue;
+    // The boundary is checked against the PREVIOUS character, not folded into
+    // the regex: `^` matches the start of every slice, so the old
+    // `(^|[{,\\s])` form let `mynarration:` match at its own `n`.
+    if (i > 0 && !/[{,\s]/.test(obj[i - 1])) continue;
+    const m = re.exec(obj.slice(i, i + key.length + 2));
+    if (!m) continue;
     // the value runs to the comma or closing brace at THIS depth
     let j = i + m[0].length;
     let d = 0;
     for (; j < obj.length; j++) {
       const v = obj[j];
       if (v === '"' || v === "'" || v === '`') { j = skipString(obj, j); continue; }
+      if (v === '/') { const k2 = skipComment(obj, j); if (k2 !== j) { j = k2; continue; } }
       if (v === '{' || v === '[' || v === '(') d++;
       else if (v === '}' || v === ']' || v === ')') { if (d === 0) break; d--; }
       else if (v === ',' && d === 0) break;
     }
-    return { from: i + (m[1] ? 1 : 0), to: j, valueFrom: i + m[0].length };
+    return { from: i, to: j, valueFrom: i + m[0].length };
   }
   return null;
 }
@@ -234,6 +267,7 @@ function arrayEntries(arr) {
   for (let i = 0; i < arr.length; i++) {
     const c = arr[i];
     if (c === '"' || c === "'" || c === '`') { i = skipString(arr, i); continue; }
+    if (c === '/') { const j = skipComment(arr, i); if (j !== i) { i = j; continue; } }
     if (c === '{' || c === '[' || c === '(') {
       if (depth === 1 && start === -1) start = i;
       depth++;
