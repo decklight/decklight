@@ -93,6 +93,32 @@ test('the config walker is not fooled by braces and parens inside strings', () =
   assert.match(nested, /narration: \{ files: 'voiceover'/, 'and a real top-level one is added');
 });
 
+test('the config walker is not fooled by comments either', () => {
+  // A commented-out earlier track is exactly what an author leaves behind, and
+  // a walker that skips strings but not comments FINDS that key: the splice
+  // lands inside the comment, the UI says ✓, and the deck plays nothing.
+  const set = (init) => initOf(setNarrationConfig(boot(init), TRACK));
+
+  const block = set("Decklight.init({ theme: 'x', /* narration: { files: 'old' }, */ });");
+  assert.match(block, /\/\* narration: \{ files: 'old' \}, \*\//, 'the comment is left exactly as written');
+  assert.match(block, /narration: \{ files: 'voiceover'/, 'the real key is added OUTSIDE it');
+  const line = set("Decklight.init({\n  theme: 'x',\n  // narration: { files: 'old' },\n});");
+  assert.match(line, /\/\/ narration: \{ files: 'old' \},/, 'the line comment survives');
+  assert.match(line, /narration: \{ files: 'voiceover'/);
+
+  // an unbalanced ')' in a comment must not end the init argument early —
+  // a splice into a truncated span lands mid-expression and corrupts the deck
+  const paren = set("Decklight.init({ theme: 'x' /* ) */ });");
+  assert.match(paren, /narration: \{ files: 'voiceover'/);
+  assert.match(paren, /\/\* \) \*\//, 'the comment is untouched');
+
+  // and a key SUFFIX is not the key: the old prefix guard matched ^ at every
+  // slice, so `mynarration:` was found at its own `n`
+  const suffix = set("Decklight.init({ mynarration: 1, theme: 'x' });");
+  assert.match(suffix, /mynarration: 1/, 'the impostor key is left alone');
+  assert.match(suffix, /narration: \{ files: 'voiceover'/, 'the real key is added beside it');
+});
+
 test('a config built outside the init call is refused, never guessed at', () => {
   // `const cfg = {…}; Decklight.init(cfg)` has nothing at the call site to
   // edit. Guessing which `cfg`, in which scope, is how an editor corrupts a
