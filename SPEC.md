@@ -593,7 +593,10 @@ are never touched and none of their local commits come along; the assembled ref 
 there: a morning of reviewing is one branch, one pull request. The parent is the review branch, else the
 checkout's upstream, else the remote's default branch — and **never an orphan**: an orphan's pull-request diff
 reads as "delete every file in the repository", so no resolvable parent is a refusal, not a guess. `--pr` opens
-the pull request (behind `gh`, signed in; any failure past the push is a note, never an exit), `--dry-run`
+the pull request **against the branch the review is of** — the checkout's upstream, else the remote's default
+branch — never blindly against the repository default, which for a review of a feature branch would bury the
+comments under that branch's own commits (behind `gh`, signed in; any failure past the push is a note, never an
+exit), `--dry-run`
 builds the commit and stops before any ref is written, and the announced count is **open comments through the
 same fold every reader uses** — never a raw line count.
 

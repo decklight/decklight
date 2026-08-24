@@ -102,13 +102,21 @@ export function ownerRepo(remoteUrl) {
   return m ? { owner: m[1], repo: m[2] } : null;
 }
 
-/** The compare URL a reviewer can hand somebody when there is no `gh`. */
-export function compareUrl(remoteUrl, branch) {
+/**
+ * The compare URL a reviewer can hand somebody when there is no `gh`.
+ *
+ * `base` is the branch the review is of; without it GitHub compares against
+ * the repository default, which for a review of branchA is a page full of
+ * branchA's own commits with the comments buried at the bottom.
+ */
+export function compareUrl(remoteUrl, branch, base = null) {
   const at = ownerRepo(remoteUrl);
+  if (!at) return null;
   // per SEGMENT: the branch's own `/` is part of the path GitHub expects,
   // and encoding it to %2F gives a compare page for a branch nobody has
-  const ref = branch.split('/').map(encodeURIComponent).join('/');
-  return at ? `https://github.com/${at.owner}/${at.repo}/compare/${ref}?expand=1` : null;
+  const seg = (b) => b.split('/').map(encodeURIComponent).join('/');
+  const range = base ? `${seg(base)}...${seg(branch)}` : seg(branch);
+  return `https://github.com/${at.owner}/${at.repo}/compare/${range}?expand=1`;
 }
 
 /**
@@ -167,7 +175,13 @@ export function submitReview(deckPath, {
   };
   let parent = remoteHead(`refs/heads/${branch}`);
   const resubmit = Boolean(parent);
-  if (!parent) {
+  // The branch the review is OF — reviewing a deck on branchA means the pull
+  // request must target branchA, or its diff shows branchA's own commits
+  // against the default branch with the comments buried underneath. Resolved
+  // even on a resubmit, when the parent is the review branch itself: the base
+  // is still what --pr and the compare URL diff against.
+  let base = null;
+  {
     // whatever this checkout tracks, as the remote has it
     let upstreamRef = null;
     try {
@@ -177,18 +191,30 @@ export function submitReview(deckPath, {
         { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
       if (up) upstreamRef = `refs/heads/${up.split('/').slice(1).join('/')}`;
     } catch { upstreamRef = null; }
-    if (upstreamRef) parent = remoteHead(upstreamRef);
+    if (upstreamRef) {
+      const at = remoteHead(upstreamRef);
+      if (at) {
+        base = upstreamRef.slice('refs/heads/'.length);
+        if (!parent) parent = at;
+      }
+    }
   }
-  if (!parent) {
+  if (!base) {
     // No upstream — a detached HEAD (a reviewer on a tag), or a local branch
-    // never pushed. The remote's own default branch is the right parent then:
+    // never pushed. The remote's own default branch is the right base then:
     // it is what a pull request would diff against anyway.
     try {
       const head = exec('git', ['ls-remote', '--symref', remote, 'HEAD'],
         { cwd, encoding: 'utf8', env: noPromptEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
       const m = /^ref:\s+(refs\/heads\/\S+)\s+HEAD/m.exec(head);
-      if (m) parent = remoteHead(m[1]);
-    } catch { parent = null; }
+      if (m) {
+        const at = remoteHead(m[1]);
+        if (at) {
+          base = m[1].slice('refs/heads/'.length);
+          if (!parent) parent = at;
+        }
+      }
+    } catch { /* refusal below says what came back empty */ }
   }
   // NEVER AN ORPHAN. publish's orphan path is correct for gh-pages — a branch
   // whose whole history is the site. Here an orphan would be a commit whose
@@ -239,7 +265,7 @@ export function submitReview(deckPath, {
     out.write(`would push ${commit.slice(0, 7)} → ${remote} ${branch}`
       + ` (${what}${resubmit ? ', onto the branch already there' : ''})\n`);
     out.write('  --dry-run: nothing was pushed, and no ref was written\n');
-    return { branch, commit, pushed: false, comments: n, resubmit };
+    return { branch, base, commit, pushed: false, comments: n, resubmit };
   }
 
   git(['push', '--quiet', remote, `${commit}:refs/heads/${branch}`]);
@@ -255,6 +281,10 @@ export function submitReview(deckPath, {
         prUrl = exec('gh', ['pr', 'create',
           '--repo', `${at.owner}/${at.repo}`,
           '--head', branch,
+          // The branch the review is of — NOT the repo default. A review of a
+          // deck on branchA against main would diff all of branchA plus the
+          // comments, which is a pull request about the wrong thing.
+          ...(base ? ['--base', base] : []),
           '--title', `Review: ${what} on ${name}`,
           '--body', `Left with \`decklight review ${name}\`.\n\n`
             + `Read them with:\n\n    decklight comments ${name}\n`,
@@ -267,9 +297,9 @@ export function submitReview(deckPath, {
     }
   }
   if (!prUrl) {
-    const url = compareUrl(remoteUrl, branch);
+    const url = compareUrl(remoteUrl, branch, base);
     if (url) out.write(`  open a pull request:  ${url}\n`);
     else out.write(`  tell the author:  git fetch ${remote} ${branch}\n`);
   }
-  return { branch, commit, pushed: true, comments: n, resubmit, pr: prUrl };
+  return { branch, base, commit, pushed: true, comments: n, resubmit, pr: prUrl };
 }

@@ -69,6 +69,12 @@ test('compareUrl keeps the branch a path, not one percent-encoded blob', () => {
     compareUrl('git@github.com:o/r.git', 'review/ana-2026-08-24'),
     'https://github.com/o/r/compare/review/ana-2026-08-24?expand=1',
   );
+  // with a base, the compare is base...branch — a review of branchA compared
+  // against the repo default would bury the comments under branchA's commits
+  assert.equal(
+    compareUrl('git@github.com:o/r.git', 'review/ana-2026-08-24', 'feature/talk'),
+    'https://github.com/o/r/compare/feature/talk...review/ana-2026-08-24?expand=1',
+  );
   assert.equal(compareUrl('https://gitlab.com/o/r.git', 'review/ana-2026-08-24'), null);
 });
 
@@ -192,6 +198,30 @@ test('--dry-run reaches commit-tree and stops: no ref anywhere', (t) => {
   assert.equal(git('cat-file', '-t', r.commit), 'commit');
   assert.match(out.text, /would push [0-9a-f]{7} → origin review\/ana-2026-08-24/);
   assert.match(out.text, /nothing was pushed/);
+});
+
+test('a review OF branchA parents on branchA and reports it as the base', (t) => {
+  const { dir, deck, git, bareGit } = fixture();
+  t.after(() => rmTemp(dir));
+  // the deck under review lives on a feature branch, pushed and tracking —
+  // and main moves on underneath it, so basing on main would be visibly wrong
+  git('checkout', '--quiet', '-b', 'feature/talk');
+  fs.appendFileSync(path.join(dir, 'work', 'talks', 'deck.html'), '<!-- v2 -->');
+  // the DECK alone: the sidecar is the reviewer's unsent work, and pushing it
+  // with the branch would make the review commit's tree equal its parent's
+  git('add', '--', 'talks/deck.html'); git('commit', '--quiet', '-m', 'the deck, revised on a branch');
+  git('push', '--quiet', '-u', 'origin', 'feature/talk');
+
+  const out = sink();
+  const r = submitReview(deck, { out, now: at('2026-08-24T09:41:00Z') });
+
+  assert.equal(r.base, 'feature/talk', 'the base is the branch the review is of');
+  assert.equal(bareGit('rev-parse', `${r.commit}^`), bareGit('rev-parse', 'feature/talk'),
+    'the parent is origin/feature-talk, not the default branch');
+  // the diff against the reviewed branch is the sidecar alone; against main it
+  // would also carry the branch's own revision of the deck
+  const vsBase = bareGit('diff', '--name-only', 'feature/talk', r.commit).split('\n').filter(Boolean);
+  assert.deepEqual(vsBase, ['talks/deck.review.jsonl']);
 });
 
 test('a detached-HEAD reviewer parents on the remote default branch, never an orphan', (t) => {
