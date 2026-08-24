@@ -284,7 +284,10 @@ export function createReview({
       switch (e.key) {
         case 'ArrowDown': select(sel + 1); break;
         case 'ArrowUp': select(sel - 1); break;
-        case 'Enter': jump(); break;
+        // Armed on the row you are on, ⏎ CONFIRMS — the promise the arm text
+        // makes, and the same key restore's two-step confirms with. Anywhere
+        // else it jumps, which is what the hint says it does.
+        case 'Enter': (armed && rows[sel]?.id === armed) ? resolve() : jump(); break;
         case 'r': case 'R': resolve(); break;
         case 'm': case 'M': close(); break;
         default: return false;
