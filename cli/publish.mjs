@@ -261,7 +261,12 @@ if (git(['ls-remote', remote, `refs/heads/${branch}`])) {
   parent = git(['rev-parse', 'FETCH_HEAD']);
 }
 
-const lsTree = (sha) => git(['ls-tree', sha]).split('\n').filter(Boolean).map((l) => {
+// `--full-tree` is load-bearing. Plain `git ls-tree <tree>` is implicitly
+  // scoped to the CURRENT PATH PREFIX, and this git runs in the DECK'S
+  // directory — so for a deck one level down, the gh-pages tree came back as
+  // its own (nonexistent) `talks/` subtree, empty, and the publish rebuilt the
+  // site from nothing. Every page published before it, deleted. No error.
+  const lsTree = (sha) => git(['ls-tree', '--full-tree', sha]).split('\n').filter(Boolean).map((l) => {
   const [meta, name] = l.split('\t');
   const [mode, type, entrySha] = meta.split(/\s+/);
   return { mode, type, sha: entrySha, name };
