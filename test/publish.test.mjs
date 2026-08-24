@@ -148,6 +148,34 @@ test('publish --no-bundle pushes the file as-is; --path nests it and keeps sibli
   rmTemp(dir);
 });
 
+test('a deck in a SUBDIRECTORY does not wipe the pages already published', async () => {
+  // `git ls-tree <tree>` is implicitly scoped to the current path prefix, and
+  // publish runs git in the DECK'S directory. Read from `talks/`, the gh-pages
+  // tree came back as its (nonexistent) `talks/` subtree — empty — so the second
+  // publish rebuilt the whole site from nothing and deleted the first deck's
+  // page. No error, no warning: the site just lost a talk.
+  const { dir, work, deck, git, bareGit } = fixture();
+  const { publishMain } = await import('../cli/publish.mjs');
+  await publishMain([deck, '--no-sign', '--path', 'first']);
+
+  const nested = path.join(work, 'talks', 'second.html');
+  fs.mkdirSync(path.dirname(nested), { recursive: true });
+  fs.writeFileSync(nested, fs.readFileSync(deck, 'utf8')
+    .replace('Publish Me', 'The Second One')
+    .replace(/(?:dist|themes)\//g, (m) => `../${m}`));
+  git('add', '-A');
+  git('commit', '--quiet', '-m', 'a second deck, one directory down');
+
+  await publishMain([nested, '--no-sign', '--path', 'second']);
+
+  assert.match(bareGit('show', 'gh-pages:second/index.html'), /<title>The Second One<\/title>/);
+  assert.match(bareGit('show', 'gh-pages:first/index.html'), /<title>Publish Me<\/title>/,
+    'publishing from a subdirectory deleted the page published before it');
+  bareGit('cat-file', '-e', 'gh-pages:.nojekyll');
+
+  rmTemp(dir);
+});
+
 test('publish honors --branch and --remote', async () => {
   const { dir, work, deck, git, bareGit } = fixture();
   const other = path.join(dir, 'other.git');
