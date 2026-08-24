@@ -39,7 +39,7 @@ import { existsSync, readFileSync, appendFileSync } from 'node:fs';
 import { basename, dirname, resolve, relative } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { argReader, isMain } from '../tools/args.mjs';
+import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { staticFiles, allowEditRequest, listenTakingOverIfNeeded } from './serve.mjs';
 import { inGitRepo, gitAutocommit, gitAvailable, commitSubject, oneline } from './git.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
@@ -129,7 +129,7 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
     return 0;
   }
   const { opt } = argReader(args);
-  const deckArg = args.find((a) => !a.startsWith('-'));
+  const deckArg = firstPositional(args, ['--port']);
   const root = process.cwd();
   const deckPath = resolve(root, deckArg);
   if (!existsSync(deckPath)) { process.stderr.write(`decklight review: no such deck: ${deckArg}\n`); return 1; }

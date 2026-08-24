@@ -51,7 +51,7 @@ import { resolve, sep, basename } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
-import { argReader, isMain } from '../tools/args.mjs';
+import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
@@ -500,13 +500,13 @@ export async function editMain(args, { onListen = null } = {}) {
     console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
     console.error('  /edit/agent were reachable from the same run you were not watching. present has no edit');
     console.error('  surface to widen, so that is where it lives.');
-    console.error(`\n  decklight present ${args.find((a) => !a.startsWith('-')) ?? '<deck.html>'} --remote`);
+    console.error(`\n  decklight present ${firstPositional(args, ['--port', '--commit-every', '--agent']) ?? '<deck.html>'} --remote`);
     process.exitCode = 2;
     return;
   }
   const host = '127.0.0.1';
   const root = process.cwd();
-  const deckPath = resolve(root, args.find((a) => !a.startsWith('-')));
+  const deckPath = resolve(root, firstPositional(args, ['--port', '--commit-every', '--agent']));
   if (!existsSync(deckPath)) { console.error(`deck not found: ${deckPath}`); process.exitCode = 1; return; }
   if (!deckPath.startsWith(root + sep)) { console.error('deck must live under the current directory'); process.exitCode = 1; return; }
   const deckUrl = '/' + deckPath.slice(root.length + 1).split(sep).join('/');

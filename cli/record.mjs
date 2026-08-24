@@ -26,7 +26,7 @@
 
 import { editMain } from './edit.mjs';
 import { openUrl } from './init.mjs';
-import { argReader, isMain } from '../tools/args.mjs';
+import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
@@ -121,7 +121,7 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
     if (bad) { process.stderr.write(`decklight record: ${bad}\n`); return 2; }
   }
 
-  const deck = args.find((a) => !a.startsWith('-'));
+  const deck = firstPositional(args, ['--dir', '--slides', '--port']);
   // Before the server, not after: this used to serve the YAML file, print a
   // URL and open a browser on it, with no error anywhere.
   const mixedUp = wrongRecorder('record', deck);

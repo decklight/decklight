@@ -1622,6 +1622,26 @@ test('record opens the deck on the server it just started, with the recorder arm
     'http://127.0.0.1:9001/decks/talk.html?record&dir=audio%2Ftake%202');
 });
 
+test('a flag value before the deck is never mistaken for the deck', async () => {
+  // `opt()` reads a flag's value without consuming it, so every dispatch that
+  // finds "the first thing not starting with -" used to find the VALUE of a
+  // flag placed before the deck: `review --port 8790 deck.html` refused with
+  // "no such deck: 8790" — blaming a file nobody named.
+  const { firstPositional } = await import('../tools/args.mjs');
+  assert.equal(firstPositional(['--port', '8790', 'deck.html'], ['--port']), 'deck.html');
+  assert.equal(firstPositional(['deck.html', '--port', '8790'], ['--port']), 'deck.html');
+  assert.equal(firstPositional(['--dir', 'voices/me', '--slides', '2', 'talk.html'],
+    ['--dir', '--slides', '--port']), 'talk.html');
+  // a cast handed to record is still SEEN, so wrongRecorder can name the mixup
+  assert.equal(firstPositional(['--dir', 'takes', 'demo.yaml'], ['--dir']), 'demo.yaml');
+  assert.equal(firstPositional(['--no-open'], ['--port']), undefined);
+
+  // and through the real dispatch: the refusal names the deck, not the port
+  const r = spawnSync(process.execPath, [CLI, 'review', '--port', '0', 'no-such-deck.html'],
+    { encoding: 'utf8', env: childEnv() });
+  assert.match(r.stderr + r.stdout, /no such deck: no-such-deck\.html/);
+});
+
 test('record serves the deck and prints the URL the browser is sent to', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-record-'));
   t.after(() => rmTemp(dir));
