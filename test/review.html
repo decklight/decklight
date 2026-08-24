@@ -228,14 +228,16 @@
 
           press('r');
           await until(() => document.querySelector('.decklight-review .rv-arm'));
-          press('r');
+          // ⏎ is what the arm text promises — it must CONFIRM, not jump away
+          press('Enter');
           await until(() => window.__posted.length);
           r.resolvedOnSecond = window.__posted[0]?.op === 'resolve';
+          r.enterDidNotCloseOrJump = !!document.querySelector('.decklight-review');
           r.resolveIsAnAppend = !!window.__posted[0]?.re;
 
           r.PASS = r.noComposerForAnAuthor && r.saysResolveIsThere && r.armedNotFired
             && r.nothingPostedYet && r.escapeDisarmedNotClosed && r.resolvedOnSecond
-            && r.resolveIsAnAppend;
+            && r.enterDidNotCloseOrJump && r.resolveIsAnAppend;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
         }
