@@ -33,6 +33,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
+import { putBlob } from './git-tree.mjs';
 import { TARGETS, schemaFor, envVarsFor, envAnswers, deploy } from '../tools/publish-targets.mjs';
 import { checkAnswers } from './wizard.mjs';
 
@@ -261,42 +262,16 @@ if (git(['ls-remote', remote, `refs/heads/${branch}`])) {
   parent = git(['rev-parse', 'FETCH_HEAD']);
 }
 
-// `--full-tree` is load-bearing. Plain `git ls-tree <tree>` is implicitly
-  // scoped to the CURRENT PATH PREFIX, and this git runs in the DECK'S
-  // directory — so for a deck one level down, the gh-pages tree came back as
-  // its own (nonexistent) `talks/` subtree, empty, and the publish rebuilt the
-  // site from nothing. Every page published before it, deleted. No error.
-  const lsTree = (sha) => git(['ls-tree', '--full-tree', sha]).split('\n').filter(Boolean).map((l) => {
-  const [meta, name] = l.split('\t');
-  const [mode, type, entrySha] = meta.split(/\s+/);
-  return { mode, type, sha: entrySha, name };
-});
-const mktree = (entries) => {
-  // git's tree order: byte-wise, with tree names comparing as "name/"
-  const key = (e) => (e.type === 'tree' ? `${e.name}/` : e.name);
-  entries.sort((a, b) => (key(a) < key(b) ? -1 : 1));
-  return git(['mktree'], entries.map((e) => `${e.mode} ${e.type} ${e.sha}\t${e.name}\n`).join(''));
-};
-// Return a copy of the tree at `treeish` with the blob placed at pathParts,
-// building intermediate trees and keeping every sibling entry.
-const putBlob = (treeish, pathParts, blobSha) => {
-  const entries = treeish ? lsTree(treeish) : [];
-  const name = pathParts[0];
-  const kept = entries.filter((e) => e.name !== name);
-  if (pathParts.length === 1) {
-    kept.push({ mode: '100644', type: 'blob', sha: blobSha, name });
-  } else {
-    const sub = entries.find((e) => e.name === name && e.type === 'tree');
-    kept.push({ mode: '040000', type: 'tree', sha: putBlob(sub?.sha, pathParts.slice(1), blobSha), name });
-  }
-  return mktree(kept);
-};
+// The tree builders live in cli/git-tree.mjs now — `review submit` needs the
+// same ones, and neither git's `name/` sort order nor the `--full-tree` scoping
+// bug is a thing to keep two copies of.
+const put = (treeish, parts_, blob) => putBlob(git, treeish, parts_, blob);
 
-let tree = putBlob(parent, ['.nojekyll'], nojekyllBlob);
-tree = putBlob(tree, [...parts, 'index.html'], pageBlob);
+let tree = put(parent, ['.nojekyll'], nojekyllBlob);
+tree = put(tree, [...parts, 'index.html'], pageBlob);
 // Beside the page it covers, under the name a verifier will look for.
-if (sigBlob) tree = putBlob(tree, [...parts, 'index.html.sig'], sigBlob);
-if (deckBlob) tree = putBlob(tree, [...parts, 'index.decklight'], deckBlob);
+if (sigBlob) tree = put(tree, [...parts, 'index.html.sig'], sigBlob);
+if (deckBlob) tree = put(tree, [...parts, 'index.decklight'], deckBlob);
 
 const config = (key) => {
   try { return execFileSync('git', ['config', key], { cwd, encoding: 'utf8' }).trim(); }

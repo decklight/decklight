@@ -4,7 +4,7 @@
 
 // decklight comments — what reviewers said about a deck. SPEC REVIEW.
 //
-//   decklight comments <deck.html> [--unresolved] [--all] [--import <file>]
+//   decklight comments <deck.html> [--unresolved] [--all] [--import <file>] [--incoming]
 //
 // The author's side of `decklight review`. Reads `<deck>.review.jsonl`, resolves
 // every comment against the deck AS IT IS NOW, and prints it grouped by slide.
@@ -24,11 +24,12 @@ import { argReader, isMain } from '../tools/args.mjs';
 import { sectionBodies, sectionInner, slideText, slideHeading } from '../tools/deck-html.mjs';
 import { fingerprint, resolveAnchor, VERDICT_NOTE, foldReview } from '../tools/review-anchor.mjs';
 import { reviewPathFor, parseReview, serializeRecord, mergeById } from './review-store.mjs';
+import { reviewsWaiting } from './review-remote.mjs';
 import { findDeck } from './history.mjs';
 import { gitAvailable, inGitRepo, gitAutocommit, oneline, git } from './git.mjs';
 import { deckAt } from './restore.mjs';
 
-const HELP = `usage: decklight comments <deck.html> [--unresolved] [--all] [--import <file>]
+const HELP = `usage: decklight comments <deck.html> [--unresolved] [--all] [--import <file>] [--incoming]
   what reviewers said, resolved against the deck as it is now
 
   --unresolved   only the ones nobody has closed off
@@ -36,6 +37,9 @@ const HELP = `usage: decklight comments <deck.html> [--unresolved] [--all] [--im
   --import FILE  merge a reviewer's file into this deck's own, skipping anything
                  already there, and commit it — the return path for a reviewer
                  who was sent the deck and has no clone
+  --incoming     ask the remote what reviews are WAITING — the branches
+                 \`decklight review submit\` pushed that you have not merged
+                 (--remote NAME to ask a remote other than origin)
   --at ID        show what the slide SAID when comment ID was written, beside
                  what it says now — the point of recording which commit a
                  comment was made against
@@ -133,6 +137,39 @@ export function groupComments(comments, slides) {
   };
 }
 
+/**
+ * `--incoming`: the SSH-and-pipes surface for "what reviews are waiting".
+ *
+ * Exit 0 when the question was ANSWERED — including "none" — and 1 only when
+ * it could not be asked. A script watching for reviews needs to tell "nothing
+ * waiting" from "the network was down", which is the whole reason
+ * `reviewsWaiting` returns states instead of an array.
+ */
+async function listIncoming(deckPath, { remote, name, out, err }) {
+  const r = await reviewsWaiting(deckPath, { remote });
+  if (r.state === 'ok') {
+    for (const v of r.reviews) {
+      out.write(`${v.branch}  ${v.comments} comment${v.comments === 1 ? '' : 's'}`
+        + `${v.replies ? ` (+${v.replies} repl${v.replies === 1 ? 'y' : 'ies'})` : ''}`
+        + `${v.unreadable ? ` (${v.unreadable} unreadable line${v.unreadable === 1 ? '' : 's'})` : ''}`
+        + ` · ${v.who}${v.at ? ` · ${ago(v.at)}` : ''}\n`);
+    }
+    // The intake is plain git on purpose: merging the branch brings the
+    // sidecar through the union merge, which is what the format is FOR.
+    out.write(`\ntake one in:  git merge ${remote}/${r.reviews[0].branch}`
+      + `   then read it:  decklight comments ${name}\n`);
+    return 0;
+  }
+  if (r.state === 'none') { out.write(`no reviews waiting on ${remote}\n`); return 0; }
+  if (r.state === 'no-repo') { err.write(`decklight comments: ${name} is not in a git repository\n`); return 1; }
+  if (r.state === 'untracked') { err.write(`decklight comments: ${name} is not a file this repository tracks\n`); return 1; }
+  if (r.state === 'no-remote') { err.write(`decklight comments: no remote "${remote}" here (git remote add ${remote} <url>)\n`); return 1; }
+  // could not ask — which is an answer, and never rendered as "none waiting"
+  err.write(`decklight comments: could not check ${remote} — ${r.state}`
+    + `${r.reason ? ` (${r.reason.split('\n')[0]})` : ''}\n`);
+  return 1;
+}
+
 export function commentsMain(argv = process.argv.slice(2), { out = process.stdout, err = process.stderr } = {}) {
   const { opt } = argReader(argv);
   if (argv.includes('--help') || argv.includes('-h')) { out.write(HELP); return 0; }
@@ -159,6 +196,17 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
   const storeName = basename(storePath);
   const deckDir = dirname(deckPath);
   const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
+
+  // ── --incoming: what reviews are waiting on the remote ──────────────────
+  // The async door in a sync command: everything else here reads local files,
+  // and staying sync is what keeps the tests and the dispatcher simple. This
+  // one flag genuinely asks the network, so it alone returns a promise — both
+  // production callers await the result either way.
+  if (argv.includes('--incoming')) {
+    return listIncoming(deckPath, {
+      remote: opt('--remote', 'origin'), name: relative(cwd, deckPath) || name, out, err,
+    });
+  }
 
   // ── --import: the no-repo reviewer's return path ────────────────────────
   const importArg = opt('--import');
@@ -324,6 +372,6 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
 }
 
 if (isMain(import.meta.url)) {
-  try { process.exitCode = commentsMain(); }
+  try { process.exitCode = await commentsMain(); }
   catch (e) { process.stderr.write(`decklight comments: ${oneline(e)}\n`); process.exitCode = 1; }
 }

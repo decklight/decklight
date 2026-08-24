@@ -30,9 +30,12 @@
 // promise in a comment — test/review-server.test.mjs asserts every /edit/* route
 // 405s and that the deck is byte-identical afterwards.
 //
-// Git is the backend but never the transport: with a repository, each comment is
-// committed (the sidecar alone, staged by itself); with none, the file is just a
-// file, which is the thing you send back. decklight never pushes.
+// Git is the backend but never the transport for the SERVER: with a repository,
+// each comment is committed (the sidecar alone, staged by itself); with none,
+// the file is just a file, which is the thing you send back. This server never
+// pushes — pushing is `review submit` (cli/review-submit.mjs), a one-shot the
+// reviewer types (or confirms in the overlay), and POST /review/submit below is
+// that same code behind the same explicit gesture.
 
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
@@ -65,6 +68,8 @@ const USAGE = `usage: decklight review <deck.html> [--port 8790] [--no-open] [--
 
   this server writes that file and nothing else — it has no /edit/* routes and
   never opens the deck for writing
+
+  when you are done, send them:   decklight review submit <deck.html>
 `;
 
 /**
@@ -123,7 +128,58 @@ export function commentProblem(input) {
   return null;
 }
 
+const SUBMIT_USAGE = `usage: decklight review submit <deck.html> [--pr] [--remote origin] [--dry-run]
+  push the comments you left to a branch of their own, for the author to read
+
+  the branch is review/<you>-<today>, and a second submit the same day lands on
+  the branch already there — a morning of reviewing is one branch, one PR
+
+  --pr             also open a pull request (needs gh, signed in)
+  --remote NAME    which remote to push to                          [origin]
+  --dry-run        build the commit and stop before pushing anything
+
+  this pushes ONE FILE: the comments. Your branch, your working tree and your
+  index are never touched, and none of your own commits come along.
+`;
+
+/**
+ * `decklight review submit <deck>`.
+ *
+ * Thin on purpose — everything that could be got wrong lives in
+ * cli/review-submit.mjs, where it is testable without a process.
+ */
+async function submitSubcommand(args, { out = process.stdout } = {}) {
+  const { opt } = argReader(args);
+  // The deck is the positional that LOOKS like a deck — `--remote upstream
+  // talk.html` must not read "upstream" as the deck. comments.mjs's rule.
+  const deckArg = args.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
+  if (!deckArg || args.includes('--help') || args.includes('-h')) {
+    out.write(SUBMIT_USAGE);
+    return deckArg ? 0 : 1;
+  }
+  const { submitReview } = await import('./review-submit.mjs');
+  try {
+    submitReview(resolve(process.cwd(), deckArg), {
+      remote: opt('--remote', 'origin'),
+      pr: args.includes('--pr'),
+      dryRun: args.includes('--dry-run'),
+      out,
+    });
+    return 0;
+  } catch (e) {
+    // CommandError already carries the command name and a way forward.
+    process.stderr.write(`${e?.message ?? e}\n`);
+    return 1;
+  }
+}
+
 export async function reviewMain(args, { open = openUrl, out = process.stdout, onListen = null } = {}) {
+  // `review submit <deck>` is a one-shot: it pushes what is already written and
+  // exits. It is dispatched here rather than as a command of its own because it
+  // is the second half of `review` — the same store, the same reviewer, and a
+  // person who typed one will look for the other in the same place.
+  if (args[0] === 'submit') return submitSubcommand(args.slice(1), { out });
+
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     out.write(USAGE);
     return 0;
@@ -148,6 +204,9 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
   const noGit = args.includes('--no-git');
   const inRepo = gitAvailable(deckDir) && inGitRepo(deckDir);
   const gitOn = !noGit && inRepo;
+  // Whether THIS session pushed. Read by the Ctrl-C line below: a reviewer who
+  // wrote comments and never submitted should hear so on the way out.
+  let submitted = false;
   const by = inRepo ? reviewerIdentity(deckDir) : '';
   /**
    * WHICH VERSION OF THE DECK this comment is about.
@@ -222,6 +281,26 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
       return json(res, 200, { ok: true, id: rec.id, committed });
     }
 
+    if (req.method === 'POST' && url.pathname === '/review/submit') {
+      // The browser NEVER runs git: it asks, and this server — the only thing
+      // in the room holding a capability — does the pushing, with the same
+      // code the typed `review submit` runs. Dynamically imported like the
+      // subcommand, so review-submit's static import of reviewerIdentity from
+      // this file never becomes a cycle.
+      try {
+        const { submitReview } = await import('./review-submit.mjs');
+        const lines = [];
+        const r = submitReview(deckPath, { out: { write: (t) => lines.push(t) } });
+        out.write(lines.join(''));   // the terminal is a log of what happened
+        submitted = true;
+        return json(res, 200, { ok: true, branch: r.branch, comments: r.comments, resubmit: r.resubmit });
+      } catch (e) {
+        // A refusal (no remote, nothing to send) arrives with its way forward
+        // in the message — the browser toasts it verbatim.
+        return json(res, 500, { ok: false, error: String(e?.message ?? e) });
+      }
+    }
+
     if (files(req, res, url)) return;
     // Everything else — including every /edit/* path — lands here. There is no
     // route to have refused, which is the point.
@@ -239,13 +318,40 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
   const existing = existsSync(storePath) ? parseReview(readFileSync(storePath, 'utf8')).records.length : 0;
   out.write(`  comments go to ${storeName}`
     + `${existing ? ` (${existing} already there)` : ''}`
-    + `${gitOn ? ', committed as you go' : ', not committed — this is not a git repository'}\n`);
+    // --no-git inside a clone means "don't auto-commit", not "there is no
+    // repository" — saying the wrong one steers the reviewer away from
+    // `review submit`, which works fine there.
+    + `${gitOn ? ', committed as you go'
+      : inRepo ? ', not committed (--no-git)'
+        : ', not committed — this is not a git repository'}\n`);
   if (!gitOn && !noGit) {
     out.write(`  send ${storeName} back when you are done; the author reads it with:\n`);
     out.write(`      decklight comments ${name} --import ${storeName}\n`);
   }
+  // Where the comments go next. Said at startup rather than only on Ctrl-C: a
+  // reviewer who closes the terminal never sees an exit line, and a review that
+  // stays on their laptop is a review that did not happen.
+  // `deckArg`, not basename: this line exists to be PASTED, and for a deck in
+  // a subdirectory `review submit deck.html` resolves against cwd and fails.
+  // The path the reviewer just typed is, by construction, one that works here.
+  out.write(`  when you are done, send them:  decklight review submit ${deckArg}`
+    + `${inRepo ? '' : `   (no repository here — send ${storeName} back instead)`}\n`);
   out.write('  Ctrl-C when you are done.\n');
   if (!args.includes('--no-open')) await open(url, { out, what: url });
+
+  // The exit line. Local prints only — cli/edit.mjs:604's rule: a SIGINT
+  // handler that touched the network would hang the very keystroke that asks
+  // to leave.
+  process.on('SIGINT', () => {
+    if (!submitted && inRepo && existsSync(storePath)) {
+      const { records } = parseReview(readFileSync(storePath, 'utf8'));
+      const open_ = records.filter((r) => !r.op && !r.re).length;
+      if (open_) {
+        out.write(`\n${open_} comment${open_ === 1 ? '' : 's'} not submitted — send them with:  decklight review submit ${deckArg}\n`);
+      }
+    }
+    process.exit(0);
+  });
   return 0;
 }
 

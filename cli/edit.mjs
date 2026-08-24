@@ -47,7 +47,7 @@
 
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, watch, existsSync } from 'node:fs';
-import { resolve, sep, basename } from 'node:path';
+import { resolve, relative, sep, basename } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
@@ -59,6 +59,7 @@ import { classifyScripts } from './audit.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
+import { reviewsWaiting, reviewLine, reviewCheckSuppressed } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
 // The `/edit/*` surface answers loopback only — but "loopback" is the wrong
@@ -505,6 +506,8 @@ function reviewerName(cwd = process.cwd()) {
 }
 
 export async function editMain(args, { onListen = null } = {}) {
+  // /edit/review/incoming's answer, briefly remembered (see the route).
+  let incomingCache = null;
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
                       [--commit-every <seconds>] [--agent <name>] [--commit-messages]
@@ -1046,6 +1049,20 @@ export async function editMain(args, { onListen = null } = {}) {
         const { records, skipped } = parseReview(readFileSync(store, 'utf8'));
         return json(200, { ok: true, records, skipped });
       }
+      // What reviews are waiting on the remote — the M overlay's incoming
+      // section. This one is a fetch the author DID ask for: it runs behind
+      // the keypress that just opened the overlay, on demand and nowhere else.
+      // The 60s cache is what keeps a nervous author tapping M from turning
+      // one gesture into a fetch storm; the off switches still win outright.
+      if (req.method === 'GET' && url.pathname === '/edit/review/incoming') {
+        const skipped = reviewCheckSuppressed({ args });
+        if (skipped) return json(200, { ok: true, state: 'suppressed', reason: skipped, reviews: [] });
+        if (!incomingCache || Date.now() - incomingCache.at > 60_000) {
+          const r = await reviewsWaiting(deckPath);
+          incomingCache = { at: Date.now(), r };
+        }
+        return json(200, { ok: true, ...incomingCache.r });
+      }
       // What tracks already sit next to this deck. The runtime cannot see the
       // filesystem — which is why `segments: true` is opt-in at all — so it
       // cannot know that `voices/rachel` is taken before proposing it. One
@@ -1398,6 +1415,27 @@ export async function editMain(args, { onListen = null } = {}) {
   // to print its own banner instead of the authoring one.
   if (onListen) onListen({ port: actual, deckUrl, server });
   else console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
+
+  // Did somebody review this deck? Asked ONCE, after the last startup line,
+  // detached and never awaited — the update-check shape: nothing about it can
+  // delay the server coming up or hang authoring on a remote that is down. It
+  // is a fetch the author did not type, which is why it is the sanctioned
+  // exception cli/git.mjs names, why it is never on a timer, and why it is
+  // nowhere near the SIGINT path (finalCommit above says what lives there and
+  // why nothing else may).
+  if (!onListen) {
+    const skipped = reviewCheckSuppressed({ args });
+    if (skipped) {
+      console.log(`  reviews: not checked — ${skipped}`);
+    } else {
+      reviewsWaiting(deckPath)
+        .then((r) => {
+          const line = reviewLine(r, { deck: relative(process.cwd(), deckPath) || basename(deckPath) });
+          if (line) console.log(`  ${line}`);
+        })
+        .catch(() => {});
+    }
+  }
   return { port: actual, deckUrl, host, server };
 }
 

@@ -577,15 +577,49 @@ reviewer the power to rewrite what they were asked to read) — the capability i
 per PRESENTING's rule that a shared path with a boolean in it is how a server quietly acquires a capability
 later, and it is **asserted as a test**: every `/edit/*` route answers as the unknown path it is, and the deck
 is byte-identical afterwards. With a repository each comment is committed — the sidecar alone, staged by
-itself, with the same per-invocation identity fallback every other decklight commit uses, and **never pushed**.
+itself, with the same per-invocation identity fallback every other decklight commit uses. **The server never
+pushes**; that invariant is what a browser is pointed at, and it survives unchanged. Pushing exists only as
+`review submit` below — a one-shot subcommand somebody typed, which is the argument `publish` already makes.
 With no repository the file is simply written, because a reviewer who was sent a deck and has no clone must
 still be able to say something; that file is the deliverable, and the author takes it in with
 `decklight comments <deck> --import <file>` (merge by id, so importing twice changes nothing).
 
+**`decklight review submit <deck.html>`** sends the review back: it pushes **one file** — the sidecar — to a
+branch of its own, `review/<user>-<YYYY-MM-DD>` (the slug is a lossy rendering; the full identity rides in the
+commit's `Signed-off-by`). The commit is built the way `publish` builds one — blob, tree parented on **what the
+remote has**, `commit-tree`, push by object name — so the reviewer's working tree, index and checked-out branch
+are never touched and none of their local commits come along; the assembled ref goes through the same
+`refProblem` gate every user-influenced ref does. A second submit the same day parents on the branch already
+there: a morning of reviewing is one branch, one pull request. The parent is the review branch, else the
+checkout's upstream, else the remote's default branch — and **never an orphan**: an orphan's pull-request diff
+reads as "delete every file in the repository", so no resolvable parent is a refusal, not a guess. `--pr` opens
+the pull request **against the branch the review is of** — the checkout's upstream, else the remote's default
+branch — never blindly against the repository default, which for a review of a feature branch would bury the
+comments under that branch's own commits (behind `gh`, signed in; any failure past the push is a note, never an
+exit), `--dry-run`
+builds the commit and stops before any ref is written, and the announced count is **open comments through the
+same fold every reader uses** — never a raw line count.
+
+**The author finds out** without being asked, on three surfaces sharing one reader (two network calls no matter
+how many reviews wait, landing refs exactly where a plain `git fetch` would): a line at `decklight author`
+startup — detached, never awaited, never on a timer, and nowhere near the SIGINT path — the `M` overlay's
+incoming section (read on demand, behind the keypress that opened it), and `decklight comments --incoming` for
+SSH and pipes (exit 0 when the question was answered, including "none"; 1 when it could not be asked). The
+startup check is a fetch the author did not type: it is the **named, sanctioned exception** to "never a fetch
+you did not ask for", kept to the update-check shape, and switched off by any of `--no-review-check`,
+`DECKLIGHT_NO_REVIEW_CHECK`, or `CI` — each reporting the *reason* it was skipped, because a silent skip and "no
+reviews waiting" look identical and mean opposite things. A check that could not run is a **named failure
+state and never renders as "none waiting"** — unchecked is its own answer and never a pass. The `refs/heads/review/*`
+glob is a frozen constant in the source; nothing derived from a deck, a request, or a reviewer's choices
+reaches a refspec position.
+
 **In the deck, `M`** opens one overlay whose powers depend on which server answered: a review server means the
 composer is there, on the slide you are looking at; an author server means rows can be resolved; with neither,
 the list still reads and says where comments come from. `⌘/⌃⏎` posts and a bare `⏎` is a newline, because a
-comment is prose. Resolving is **armed, then confirmed**, and `Esc` backs out of the arm without closing.
+comment is prose. Resolving is **armed, then confirmed**, and `Esc` backs out of the arm without closing. Submitting is the
+same two-step (`S`, or the palette's "Submit review…"), and the browser never runs git: it asks
+`POST /review/submit`, and the local server — the only thing in the room holding a capability — does the
+pushing with the same code the typed subcommand runs.
 Rows are built as nodes, never `innerHTML` — a comment is somebody else's text that arrived over git. The
 author's server exposes the same store under the same append-only rule (`GET`/`POST /edit/review`).
 **`decklight comments <deck.html>`** is the terminal reader: grouped by slide, each group carrying how it was

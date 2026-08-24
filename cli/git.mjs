@@ -177,6 +177,13 @@ export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${ba
 // LOCAL read of remote-tracking refs and needs no network at all. `behind` is
 // therefore as fresh as your last fetch, and saying so is better than fetching
 // behind someone's back.
+//
+// ONE named exception: the review check at `decklight author` startup
+// (cli/review-remote.mjs), which exists precisely because "somebody reviewed
+// your deck" is only useful unasked. It is once, detached, off by three
+// switches that each say why, and nowhere near a SIGINT handler — the shape
+// update-check.mjs established. SPEC REVIEW states the contract; anything
+// else that wants to fetch unasked argues there, not here.
 
 /** The env every remote-touching git call runs under. See the note above. */
 export function noPromptEnv(env = process.env) {

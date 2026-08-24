@@ -523,6 +523,7 @@ export function init(userConfig = {}) {
     const all = [
       { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
       { label: 'Review comments…', hint: 'M', alias: 'feedback remarks reviewer notes critique comment', run: () => review.open() },
+      { label: 'Submit review…', hint: 'S', alias: 'send review push comments submit feedback', run: () => review.submit() },
       { label: 'History… (dev)', hint: 'H', alias: 'restore version rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: themes.openPicker },

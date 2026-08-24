@@ -64,6 +64,16 @@
           : new Response(JSON.stringify({ ok: true, name: 'review.html', undo: 0, redo: 0 }),
             { status: 200, headers: { 'content-type': 'application/json' } });
       }
+      if (u.endsWith('/review/submit')) {
+        window.__submitCalls = (window.__submitCalls || 0) + 1;
+        return new Response(JSON.stringify({ ok: true, branch: 'review/me-2026-08-24', comments: window.__store.length, resubmit: false }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (u.endsWith('/edit/review/incoming')) {
+        return new Response(JSON.stringify({ ok: true, state: 'ok', reviews: [
+          { branch: 'review/ana-2026-08-25', who: 'ana', when: '2026-08-25', comments: 2, replies: 0, at: '2026-08-25T09:00:00Z' },
+        ] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/review/comments') || u.endsWith('/edit/review')) {
         if (opts?.method === 'POST') {
           const rec = JSON.parse(opts.body);
@@ -156,8 +166,29 @@
           r.listedAfterPosting = !!(await until(() => [...card.querySelectorAll('.rv-body')]
             .some((n) => n.textContent === 'This contradicts slide 1.')));
 
+          // Submitting is ARMED, then CONFIRMED — pushing is outward-facing,
+          // and the first S must never be enough.
+          const submitRow = await until(() => card.querySelector('.rv-submit'));
+          r.submitRowShown = !!submitRow;
+          press('s');
+          await until(() => document.querySelector('.rv-submit.rv-arm'));
+          r.submitArmedNotFired = !window.__submitCalls;
+          // Escape backs out of the arm WITHOUT closing — the house two-step
+          press('Escape');
+          await wait(120);
+          r.submitEscapeDisarmed = !document.querySelector('.rv-submit.rv-arm')
+            && !!document.querySelector('.decklight-review');
+          r.stillNotFired = !window.__submitCalls;
+          press('s');
+          await until(() => document.querySelector('.rv-submit.rv-arm'));
+          press('s');
+          await until(() => window.__submitCalls);
+          r.submittedOnSecond = window.__submitCalls === 1;
+
           r.PASS = r.opened && r.composerShown && r.saysWhichSlide
-            && r.anchoredToTheSlideOnScreen && r.listedAfterPosting;
+            && r.anchoredToTheSlideOnScreen && r.listedAfterPosting
+            && r.submitRowShown && r.submitArmedNotFired && r.submitEscapeDisarmed
+            && r.stillNotFired && r.submittedOnSecond;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
         }
@@ -215,6 +246,12 @@
           await until(() => card.querySelectorAll('.rv-row').length >= 2);
           r.noComposerForAnAuthor = !card.querySelector('.rv-input');
           r.saysResolveIsThere = /R resolves/.test(card.querySelector('.rec-hint')?.textContent ?? '');
+          // what reviewers sent that is not merged yet, above the local list
+          const incoming = await until(() => card.querySelector('.rv-incoming'));
+          r.incomingShown = !!incoming;
+          r.incomingSaysWhoAndHowMany = /ana · 2 comments waiting · review\/ana-2026-08-25/
+            .test(incoming?.textContent ?? '');
+          r.incomingSaysHowToTakeIn = /git merge origin\/review\/ana-2026-08-25/.test(incoming?.textContent ?? '');
 
           press('ArrowDown');   // off whichever row was selected first
           press('r');
@@ -237,7 +274,8 @@
 
           r.PASS = r.noComposerForAnAuthor && r.saysResolveIsThere && r.armedNotFired
             && r.nothingPostedYet && r.escapeDisarmedNotClosed && r.resolvedOnSecond
-            && r.enterDidNotCloseOrJump && r.resolveIsAnAppend;
+            && r.enterDidNotCloseOrJump && r.resolveIsAnAppend && r.incomingShown
+            && r.incomingSaysWhoAndHowMany && r.incomingSaysHowToTakeIn;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
         }

@@ -56,7 +56,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
-  rmSync, statSync, writeFileSync,
+  appendFileSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -88,7 +88,7 @@ const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
  * ships, which is the harder half of the upgrade.
  */
 const OLDER_RELEASE = '0.2.0';
-const TOTAL = 51;
+const TOTAL = 52;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -1350,6 +1350,67 @@ try {
     must(/1 new/.test(first.all), `--import did not take it: ${first.all}`);
     const again = dl(['comments', 'reviewed.html', '--import', 'from-ana.review.jsonl']);
     must(/nothing new/.test(again.all), 'importing the same file twice added it twice');
+  });
+
+  await step('the review comes back as a branch, and the author hears it waiting', async () => {
+    // The submit half of the round trip, through the INSTALLED binary, against
+    // a real bare remote — the only place dispatch, the push plumbing and the
+    // incoming reader meet outside a unit test. The last review bug shipped
+    // because nothing walked this path from a packed tarball.
+    const hub = join(SPACE, 'soakhub.git');
+    spawnSync('git', ['init', '--quiet', '--bare', hub], { encoding: 'utf8' });
+    git(['add', 'reviewed.html', 'reviewed.review.jsonl']);
+    git(['commit', '--quiet', '-m', 'soak: the reviewed deck']);
+    git(['remote', 'add', 'soakhub', hub]);
+    const branch = git(['symbolic-ref', '--short', 'HEAD']).trim();
+    git(['push', '--quiet', 'soakhub', branch]);
+    // …and then the reviewer keeps reviewing: one more comment the hub has
+    // never seen. Without this the local sidecar equals what main carries and
+    // the review commit's tree would equal its parent's — a push of nothing,
+    // which is not the situation the feature exists for.
+    appendFileSync(join(PROJECT, 'reviewed.review.jsonl'),
+      '{"id":"soak99","at":"2026-08-24T12:00:00Z","by":"Soak <soak@x>","slide":1,'
+      + '"title":"Opening","body":"One more before sending."}\n');
+
+    // --dry-run first: everything built, no ref anywhere
+    const dry = dl(['review', 'submit', 'reviewed.html', '--remote', 'soakhub', '--dry-run']);
+    must(/would push [0-9a-f]{7}/.test(dry.all), `--dry-run did not name the commit: ${dry.all}`);
+    const dryRefs = spawnSync('git', ['for-each-ref', '--format=%(refname)', 'refs/heads/review/'],
+      { cwd: hub, encoding: 'utf8' }).stdout.trim();
+    must(dryRefs === '', `--dry-run pushed something: ${dryRefs}`);
+
+    const sub = dl(['review', 'submit', 'reviewed.html', '--remote', 'soakhub']);
+    must(/pushed 4 comments on reviewed\.html/.test(sub.all), `submit did not report the push: ${sub.all}`);
+    const m = /review\/[a-z0-9._-]+-\d{4}-\d{2}-\d{2}/.exec(sub.all);
+    must(m, `no review branch named in: ${sub.all}`);
+    const rbranch = m[0];
+
+    // the bare remote has exactly that branch, and its diff is ONE file
+    const refs = spawnSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads/review/'],
+      { cwd: hub, encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean);
+    must(refs.length === 1 && refs[0] === rbranch, `expected one review branch, got: ${refs}`);
+    const changed = spawnSync('git', ['diff', '--name-only', branch, rbranch],
+      { cwd: hub, encoding: 'utf8' }).stdout.trim().split('\n').filter(Boolean);
+    must(changed.length === 1 && changed[0] === 'reviewed.review.jsonl',
+      `the review diff is not the sidecar alone: ${changed}`);
+    // and the reviewer's checkout never moved
+    must(git(['status', '--porcelain', '--', 'reviewed.html']).trim() === '',
+      'submit dirtied the reviewer\u2019s checkout');
+
+    // the author, in a SECOND clone, hears it without being told
+    const author2 = join(SPACE, 'author2');
+    spawnSync('git', ['clone', '--quiet', hub, author2], { encoding: 'utf8' });
+    const heard = dl(['comments', 'reviewed.html', '--incoming'], { cwd: author2 });
+    must(new RegExp(`${rbranch}  4 comments`).test(heard.all),
+      `--incoming did not list the waiting review: ${heard.all}`);
+    must(!/no reviews/.test(heard.all), 'a waiting review rendered as none');
+
+    // and a remote that stops existing is a NAMED failure, never "none"
+    spawnSync('git', ['remote', 'set-url', 'origin', join(SPACE, 'gone.git')], { cwd: author2, encoding: 'utf8' });
+    const gone = dl(['comments', 'reviewed.html', '--incoming'], { cwd: author2, allowFail: true });
+    must(gone.code === 1, `an unanswerable check exited ${gone.code}`);
+    must(/could not check/.test(gone.all), `the failure was not named: ${gone.all}`);
+    must(!/no reviews/i.test(gone.all), 'a failed check rendered as "no reviews"');
   });
 
   await step('every command answers --help, and refuses by name', () => {
