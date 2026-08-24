@@ -56,7 +56,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
-  rmSync, statSync, writeFileSync,
+  appendFileSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -1364,6 +1364,13 @@ try {
     git(['remote', 'add', 'soakhub', hub]);
     const branch = git(['symbolic-ref', '--short', 'HEAD']).trim();
     git(['push', '--quiet', 'soakhub', branch]);
+    // …and then the reviewer keeps reviewing: one more comment the hub has
+    // never seen. Without this the local sidecar equals what main carries and
+    // the review commit's tree would equal its parent's — a push of nothing,
+    // which is not the situation the feature exists for.
+    appendFileSync(join(PROJECT, 'reviewed.review.jsonl'),
+      '{"id":"soak99","at":"2026-08-24T12:00:00Z","by":"Soak <soak@x>","slide":1,'
+      + '"title":"Opening","body":"One more before sending."}\n');
 
     // --dry-run first: everything built, no ref anywhere
     const dry = dl(['review', 'submit', 'reviewed.html', '--remote', 'soakhub', '--dry-run']);
@@ -1373,7 +1380,7 @@ try {
     must(dryRefs === '', `--dry-run pushed something: ${dryRefs}`);
 
     const sub = dl(['review', 'submit', 'reviewed.html', '--remote', 'soakhub']);
-    must(/pushed 3 comments on reviewed\.html/.test(sub.all), `submit did not report the push: ${sub.all}`);
+    must(/pushed 4 comments on reviewed\.html/.test(sub.all), `submit did not report the push: ${sub.all}`);
     const m = /review\/[a-z0-9._-]+-\d{4}-\d{2}-\d{2}/.exec(sub.all);
     must(m, `no review branch named in: ${sub.all}`);
     const rbranch = m[0];
@@ -1394,7 +1401,7 @@ try {
     const author2 = join(SPACE, 'author2');
     spawnSync('git', ['clone', '--quiet', hub, author2], { encoding: 'utf8' });
     const heard = dl(['comments', 'reviewed.html', '--incoming'], { cwd: author2 });
-    must(new RegExp(`${rbranch}  3 comments`).test(heard.all),
+    must(new RegExp(`${rbranch}  4 comments`).test(heard.all),
       `--incoming did not list the waiting review: ${heard.all}`);
     must(!/no reviews/.test(heard.all), 'a waiting review rendered as none');
 

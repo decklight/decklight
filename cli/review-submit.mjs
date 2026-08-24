@@ -146,7 +146,7 @@ export function submitReview(deckPath, {
   try { exec('git', ['rev-parse', '--git-dir'], { cwd, stdio: 'ignore' }); }
   catch { fail(`${cwd} is not inside a git repository — there is nowhere to push to`); }
   let remoteUrl;
-  try { remoteUrl = exec('git', ['remote', 'get-url', remote], { cwd, encoding: 'utf8' }).trim(); }
+  try { remoteUrl = exec('git', ['remote', 'get-url', remote], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); }
   catch { fail(`no remote "${remote}" in this repository (git remote add ${remote} <url>)`); }
 
   const who = reviewerIdentity(cwd, exec);
@@ -172,7 +172,9 @@ export function submitReview(deckPath, {
     let upstreamRef = null;
     try {
       const up = exec('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'],
-        { cwd, encoding: 'utf8' }).trim();
+        // stderr captured, not inherited: "no upstream" is an ANSWER here, and
+        // execFileSync would otherwise print git's fatal: line mid-success
+        { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
       if (up) upstreamRef = `refs/heads/${up.split('/').slice(1).join('/')}`;
     } catch { upstreamRef = null; }
     if (upstreamRef) parent = remoteHead(upstreamRef);
@@ -183,7 +185,7 @@ export function submitReview(deckPath, {
     // it is what a pull request would diff against anyway.
     try {
       const head = exec('git', ['ls-remote', '--symref', remote, 'HEAD'],
-        { cwd, encoding: 'utf8', env: noPromptEnv() });
+        { cwd, encoding: 'utf8', env: noPromptEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
       const m = /^ref:\s+(refs\/heads\/\S+)\s+HEAD/m.exec(head);
       if (m) parent = remoteHead(m[1]);
     } catch { parent = null; }
