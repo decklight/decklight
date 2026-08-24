@@ -345,7 +345,12 @@ export function createCharacter({ root, config, debugLog, toast }) {
       // timeline, so cutting it per beat would cost a great deal to fix a
       // smaller error than the visemes had.
       const src = `${set.dir}/slide-${nn}.mp4`;
-      if (videoEl.src.endsWith(`/slide-${nn}.mp4`)) return;
+      // The WHOLE path, not the `/slide-NN.mp4` suffix: every track names its
+      // files the same way, so a suffix match said "already playing" when the
+      // presenter switched tracks on this slide — rachel's face kept mouthing
+      // over the new track's audio. videoEl.src is absolutized by the browser,
+      // so the relative src resolves the same way before comparing.
+      if (videoEl.src === new URL(src, location.href).href) return;
       videoEl.src = src;
       videoEl.playbackRate = audioEl?.playbackRate ?? 1;
       videoEl.play().catch(() => { /* no file — poster frame stays */ });

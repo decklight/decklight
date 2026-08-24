@@ -113,12 +113,26 @@ try {
   await raf2();
   results.soloOffClears = !root.classList.contains('decklight-solo');
 
+  // video mode: switching TRACKS on the same slide must switch the file.
+  // Every track names its files slide-NN.mp4, so a suffix comparison said
+  // "already playing" and kept the old track's face over the new track's audio.
+  character.setMode('video');
+  character.beginSlide({ dir: 'voices/rachel' }, 7);
+  await raf2();
+  const vid = () => root.querySelector('.decklight-character video')?.getAttribute('src') ?? '';
+  results.videoFromFirstTrack = /voices\/rachel\/slide-07\.mp4$/.test(vid());
+  character.beginSlide({ dir: 'voices/me' }, 7);
+  await raf2();
+  results.videoFollowsTheTrack = /voices\/me\/slide-07\.mp4$/.test(vid());
+  character.setMode('viseme');
+
   character.stop();
   results.hiddenAfterStop = !el?.classList.contains('show');
   results.soloDroppedWhenStopped = !root.classList.contains('decklight-solo');
   results.cueAtSpot = cueAt(timeline, 1.5);
 
   results.PASS = results.mounted && results.shown && results.mouthShapes === 9
+    && results.videoFromFirstTrack && results.videoFollowsTheTrack
     && results.visemeMidB === 'B' && results.visemeMidD === 'D'
     && results.visemeWhenPaused === 'X' && results.visemeFromSidecar === 'E'
     && results.visemeFromBeatSidecar === 'C' && results.missingBeatDidNotReuseTheSlide
