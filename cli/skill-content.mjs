@@ -77,7 +77,7 @@ with a build and notes already wired):
 - \`decklight pdf deck.html\` — render every slide to a PDF, and report the ones that overflow
 - \`decklight tts\` — live voice bridge so the deck can narrate itself on the fly
 - \`decklight record deck.html\` — record the narration in the author's OWN voice: the deck shows one \`⟨CLICK⟩\` beat at a time and \`→\` ends it, writing \`slide-NN-KK.wav\` per beat so the recording paces the builds (play it back with \`narration: { files: 'voiceover', ext: 'wav', segments: true }\`)
-- \`decklight review deck.html\` / \`decklight comments deck.html\` — reviewer comments on slides, stored append-only in \`<deck>.review.jsonl\` and carried by git; a comment records the slide's title and a fingerprint of its text, so it finds its slide again after the deck moves and says so when the slide changed or is gone
+- \`decklight review deck.html\` / \`decklight comments deck.html\` — reviewer comments on slides, stored append-only in \`<deck>.review.jsonl\` and carried by git; a comment records the slide's title and a fingerprint of its text, so it finds its slide again after the deck moves and says so when the slide changed or is gone; \`decklight review submit deck.html\` pushes the review to a \`review/<you>-<date>\` branch (one file, never the reviewer's own commits; \`--pr\` opens the pull request), and the author hears about waiting reviews at \`decklight author\` startup, in the M overlay, and via \`decklight comments deck.html --incoming\`
 - \`decklight skills\` — regenerate this skill after upgrading Decklight
 
 **Render the deck before you call a slide done.** Content that exceeds a slide

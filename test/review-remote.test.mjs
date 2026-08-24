@@ -1,0 +1,230 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
+// Finding the reviews waiting on a remote.
+//
+// The assertion this file cares most about is a negative one: when the check
+// COULD NOT RUN, nothing anywhere says "no reviews". A silent failure and an
+// all-clear look identical to an author, and mean opposite things — the whole
+// state machine exists to keep them apart.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { rmTemp } from './helpers.mjs';
+
+import {
+  reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem,
+} from '../cli/review-remote.mjs';
+import { submitReview } from '../cli/review-submit.mjs';
+
+const gitIn = (dir) => (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+
+/**
+ * An author's clone of a repo holding two decks, and a bare origin that two
+ * reviewers have already submitted to — through the real `submitReview`, so
+ * this exercises the branches that command actually produces rather than
+ * hand-built ones that might not match.
+ */
+function fixture() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-incoming-'));
+  const bare = path.join(dir, 'origin.git');
+  execFileSync('git', ['init', '--quiet', '--bare', '--initial-branch=main', bare]);
+
+  const author = path.join(dir, 'author');
+  fs.mkdirSync(path.join(author, 'talks'), { recursive: true });
+  const deck = path.join(author, 'talks', 'deck.html');
+  fs.writeFileSync(deck, '<div class="decklight"><section><h2>Hi</h2></section></div>');
+  const other = path.join(author, 'talks', 'other.html');
+  fs.writeFileSync(other, '<div class="decklight"><section><h2>Elsewhere</h2></section></div>');
+  const g = gitIn(author);
+  g('init', '--quiet', '--initial-branch=main');
+  g('config', 'user.name', 'Gilles'); g('config', 'user.email', 'g@example.com');
+  g('remote', 'add', 'origin', bare);
+  g('add', '-A'); g('commit', '--quiet', '-m', 'two decks'); g('push', '--quiet', '-u', 'origin', 'main');
+
+  // two reviewers, each in their own clone, each submitting for real
+  const submit = (who, email, day, deckName, lines) => {
+    const clone = path.join(dir, who);
+    execFileSync('git', ['clone', '--quiet', bare, clone]);
+    const cg = gitIn(clone);
+    cg('config', 'user.name', who); cg('config', 'user.email', email);
+    const store = path.join(clone, 'talks', `${deckName}.review.jsonl`);
+    fs.writeFileSync(store, lines.join('\n') + '\n');
+    submitReview(path.join(clone, 'talks', `${deckName}.html`), {
+      out: { write() {} }, now: () => new Date(`${day}T09:00:00Z`),
+    });
+  };
+  const c = (id, body, extra = {}) =>
+    JSON.stringify({ id, at: '2026-08-24T09:00:00Z', by: 'r', slide: 1, body, ...extra });
+
+  submit('ana', 'ana@example.com', '2026-08-20', 'deck', [c('a1', 'first'), c('a2', 'second')]);
+  submit('bo', 'bo@example.com', '2026-08-24', 'deck', [
+    c('b1', 'a remark'),
+    JSON.stringify({ id: 'b2', at: '2026-08-24T10:00:00Z', by: 'bo', re: 'a1', body: 'a reply' }),
+  ]);
+  // a review of the OTHER deck: must not show up when asking about this one
+  submit('cy', 'cy@example.com', '2026-08-22', 'other', [c('x1', 'about the other deck')]);
+  // an ordinary branch: must not be mistaken for a review
+  const clone = path.join(dir, 'ana');
+  gitIn(clone)('push', '--quiet', 'origin', 'main:refs/heads/feature/unrelated');
+
+  return { dir, bare, author, deck, other, g };
+}
+
+test('describeBranch reads the who and the when back out of the ref', () => {
+  assert.deepEqual(describeBranch('review/ana-2026-08-24'), { who: 'ana', when: '2026-08-24' });
+  assert.deepEqual(describeBranch('review/ana.ruiz-2026-08-24'), { who: 'ana.ruiz', when: '2026-08-24' });
+  // a branch somebody made by hand still renders, rather than throwing
+  assert.deepEqual(describeBranch('review/whatever'), { who: 'whatever', when: null });
+});
+
+test('reviewsWaiting finds every review of THIS deck, newest first, and nothing else', async (t) => {
+  const { dir, deck } = fixture();
+  t.after(() => rmTemp(dir));
+
+  const r = await reviewsWaiting(deck);
+  assert.equal(r.state, 'ok');
+  assert.deepEqual(r.reviews.map((x) => x.who), ['bo', 'ana'], 'newest first');
+  assert.equal(r.reviews.find((x) => x.who === 'ana').comments, 2);
+  const bo = r.reviews.find((x) => x.who === 'bo');
+  assert.equal(bo.comments, 1, 'a reply is not a comment');
+  assert.equal(bo.replies, 1);
+  assert.equal(bo.branch, 'review/bo-2026-08-24');
+  // the review of another deck, and the unrelated branch, are both absent
+  assert.equal(r.reviews.some((x) => x.who === 'cy'), false, 'a review of another deck leaked in');
+  assert.equal(r.reviews.some((x) => x.branch.includes('feature')), false);
+
+  // …and asking about the OTHER deck gets that one instead
+  const o = await reviewsWaiting(path.join(path.dirname(deck), 'other.html'));
+  assert.deepEqual(o.reviews.map((x) => x.who), ['cy']);
+});
+
+test('the fetch lands where a plain `git fetch` would, and nowhere new', async (t) => {
+  const { dir, author, deck, g } = fixture();
+  t.after(() => rmTemp(dir));
+  await reviewsWaiting(deck);
+
+  const refs = g('for-each-ref', '--format=%(refname)').split('\n').filter(Boolean);
+  assert.ok(refs.includes('refs/remotes/origin/review/bo-2026-08-24'));
+  // no namespace of decklight's own invention to clean up later
+  assert.equal(refs.some((r) => /decklight|incoming|tmp/i.test(r)), false, `invented a ref namespace: ${refs}`);
+  // and the author's own checkout is untouched by looking
+  assert.equal(g('status', '--porcelain'), '');
+  assert.equal(g('rev-parse', '--abbrev-ref', 'HEAD'), 'main');
+});
+
+test('a resolved comment is not "waiting", and an all-resolved branch is not a review', async (t) => {
+  const { dir, deck } = fixture();
+  t.after(() => rmTemp(dir));
+  // a fourth reviewer whose two comments are both already resolved, and a
+  // duplicate line as a union merge would leave it
+  const clone = path.join(dir, 'di');
+  execFileSync('git', ['clone', '--quiet', path.join(dir, 'origin.git'), clone]);
+  const cg = gitIn(clone);
+  cg('config', 'user.name', 'di'); cg('config', 'user.email', 'di@example.com');
+  const rec = (o) => JSON.stringify(o);
+  fs.writeFileSync(path.join(clone, 'talks', 'deck.review.jsonl'), [
+    rec({ id: 'd1', at: '2026-08-23T09:00:00Z', by: 'di', slide: 1, body: 'done already' }),
+    rec({ id: 'd1', at: '2026-08-23T09:00:00Z', by: 'di', slide: 1, body: 'done already' }),
+    rec({ op: 'resolve', re: 'd1', at: '2026-08-23T10:00:00Z', by: 'Gilles' }),
+  ].join('\n') + '\n');
+  submitReview(path.join(clone, 'talks', 'deck.html'), {
+    out: { write() {} }, now: () => new Date('2026-08-23T11:00:00Z'),
+  });
+
+  const r = await reviewsWaiting(deck);
+  assert.equal(r.reviews.some((x) => x.who === 'di'), false,
+    'a branch with nothing open was reported as waiting');
+  // and ana's open count is folded, not a line count
+  assert.equal(r.reviews.find((x) => x.who === 'ana').comments, 2);
+});
+
+test('a remote name that could read as an option is refused, never repaired', async () => {
+  assert.equal(remoteNameProblem('origin'), null);
+  assert.equal(remoteNameProblem('up-stream.2'), null);
+  assert.ok(remoteNameProblem('--upload-pack=x'));
+  assert.ok(remoteNameProblem(''));
+  const r = await reviewsWaiting('/nowhere/deck.html', {
+    remote: '--upload-pack=touch /tmp/pwned',
+    run: () => { throw new Error('git must not run for a refused remote name'); },
+  });
+  assert.equal(r.state, 'error');
+  assert.match(r.reason, /not a remote name/);
+});
+
+test('a check that could not run is never reported as "no reviews"', async (t) => {
+  const { dir, deck, g } = fixture();
+  t.after(() => rmTemp(dir));
+  // the remote goes away underneath us — the offline case, without a network
+  g('remote', 'set-url', 'origin', path.join(dir, 'gone.git'));
+
+  const r = await reviewsWaiting(deck);
+  assert.notEqual(r.state, 'ok');
+  assert.notEqual(r.state, 'none');
+  assert.deepEqual(r.reviews, []);
+
+  const line = reviewLine(r, { deck: 'deck.html' });
+  assert.ok(line, 'a failed check said nothing at all');
+  assert.match(line, /not checked/);
+  assert.doesNotMatch(line, /no reviews/i);
+});
+
+test('reviewsWaiting stays out of the way where the feature does not apply', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-noincoming-'));
+  t.after(() => rmTemp(dir));
+  const loose = path.join(dir, 'deck.html');
+  fs.writeFileSync(loose, '<div class="decklight"></div>');
+  assert.equal((await reviewsWaiting(loose)).state, 'no-repo');
+  assert.equal(reviewLine({ state: 'no-repo' }), null, 'nagged about a deck that is not in a repo');
+
+  const g = gitIn(dir);
+  g('init', '--quiet'); g('config', 'user.name', 'A'); g('config', 'user.email', 'a@x');
+  // in a repo, but the deck is not a file it versions
+  assert.equal((await reviewsWaiting(loose)).state, 'untracked');
+  g('add', '-A'); g('commit', '--quiet', '-m', 'x');
+  assert.equal((await reviewsWaiting(loose)).state, 'no-remote');
+  assert.equal(reviewLine({ state: 'no-remote' }), null);
+});
+
+test('reviewLine says how many and from whom, and points at the next command', () => {
+  const at = (d) => `2026-08-${d}T09:00:00Z`;
+  const line = reviewLine({
+    state: 'ok',
+    reviews: [
+      { who: 'bo', comments: 1, at: at('24') },
+      { who: 'ana', comments: 2, at: at('20') },
+    ],
+  }, { deck: 'talk.html' });
+  assert.equal(line, 'reviews: 3 comments waiting from bo, ana — decklight comments talk.html --incoming');
+
+  const many = reviewLine({
+    state: 'ok',
+    reviews: ['a', 'b', 'c', 'd', 'e'].map((who) => ({ who, comments: 1, at: at('24') })),
+  }, { deck: 'talk.html' });
+  assert.match(many, /from a, b, c \+2 more/);
+
+  assert.equal(reviewLine({ state: 'none', reviews: [] }), null, 'said something when there was nothing');
+});
+
+test('every off switch names itself, and none of them run git', () => {
+  assert.equal(reviewCheckSuppressed({ args: ['--no-review-check'], env: {} }), '--no-review-check');
+  assert.equal(reviewCheckSuppressed({ args: [], env: { DECKLIGHT_NO_REVIEW_CHECK: '1' } }),
+    'DECKLIGHT_NO_REVIEW_CHECK is set');
+  assert.equal(reviewCheckSuppressed({ args: [], env: { CI: 'true' } }), 'CI');
+  assert.equal(reviewCheckSuppressed({ args: [], env: {} }), false);
+});
+
+test('a suppressed check makes ZERO git calls', async (t) => {
+  const { dir, deck } = fixture();
+  t.after(() => rmTemp(dir));
+  // the caller's contract: consult the switch, and only then call. Proven by
+  // handing reviewsWaiting a run() that fails the test if it is ever reached.
+  const never = () => { assert.fail('git was run despite the check being suppressed'); };
+  const suppressed = reviewCheckSuppressed({ args: [], env: { CI: '1' } });
+  assert.ok(suppressed);
+  if (!suppressed) await reviewsWaiting(deck, { run: never });
+});

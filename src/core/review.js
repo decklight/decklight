@@ -64,7 +64,8 @@ export function createReview({
   let el = null;
   let rows = [];
   let sel = 0;
-  let armed = null;        // the comment id a second ⏎ would resolve
+  let armed = null;        // the comment id a second R would resolve
+  let armedSubmit = false; // S pressed once — the next S pushes the review
   let probed = null;       // the review server's base, '' for same-origin, null for none
 
   const slidesNow = () => indexSlides(sections(), { titleOf, bodyOf });
@@ -94,7 +95,18 @@ export function createReview({
       const r = await fetch(from);
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || 'unreadable');
-      return { records: j.records ?? [], skipped: j.skipped ?? 0, can: base !== null ? 'comment' : 'resolve' };
+      const state = { records: j.records ?? [], skipped: j.skipped ?? 0, can: base !== null ? 'comment' : 'resolve' };
+      // The author also hears what reviews are WAITING on the remote — rows
+      // the server reads on demand, behind this very keypress, and remembers
+      // for a minute. A reviewer's overlay has no author server and skips it.
+      if (state.can === 'resolve') {
+        try {
+          const ir = await fetch(`${authorBase() ?? ''}/edit/review/incoming`);
+          const ij = await ir.json();
+          if (ij?.ok) state.incoming = ij;
+        } catch { /* the section simply is not there */ }
+      }
+      return state;
     } catch (e) {
       debugLog('review', `could not read comments: ${String(e.message || e)}`);
       return { records: [], skipped: 0, can: 'none', error: String(e.message || e) };
@@ -140,6 +152,25 @@ export function createReview({
       box.append(input, send);
       card.append(box);
       setTimeout(() => input.focus(), 0);
+    }
+
+    // What reviewers have SENT that is not merged yet — before the local
+    // list, because it is the thing the author does not already know.
+    if (state.incoming) {
+      const inc = state.incoming;
+      if (inc.state === 'ok' && inc.reviews?.length) {
+        const boxI = el_('div', 'rv-incoming');
+        for (const v of inc.reviews) {
+          boxI.append(el_('div', 'rv-inc-row',
+            `↓ ${v.who} · ${v.comments} comment${v.comments === 1 ? '' : 's'} waiting · ${v.branch}`));
+        }
+        boxI.append(el_('div', 'rv-inc-how',
+          `take one in:  git merge origin/${inc.reviews[0].branch}`));
+        card.append(boxI);
+      } else if (inc.state && !['ok', 'none', 'no-repo', 'untracked', 'no-remote', 'suppressed'].includes(inc.state)) {
+        // a FAILED check is said out loud — never rendered as "none waiting"
+        card.append(el_('div', 'rv-inc-how', `incoming reviews: not checked — ${inc.state}`));
+      }
     }
 
     const list = el_('div', 'rv-list');
@@ -190,9 +221,25 @@ export function createReview({
       list.append(row);
     }
     card.append(list);
+
+    // The way out of the room. A review that stays on the reviewer's laptop is
+    // a review that did not happen — so the door to sending it lives in the
+    // same overlay the comments were written in.
+    if (state.can === 'comment') {
+      const row = el_('div', `rv-submit${armedSubmit ? ' rv-arm' : ''}`, armedSubmit
+        ? 'push this review to the author? S again to confirm · Esc backs out'
+        : 'S sends this review to the author (a review/… branch on the remote)');
+      row.setAttribute('role', 'button');
+      row.tabIndex = 0;
+      row.addEventListener('click', () => submitAll());
+      card.append(row);
+    }
+
     card.append(el_('div', 'rec-hint', state.can === 'resolve'
       ? '⏎ jumps to the slide · R resolves · Esc closes'
-      : '⏎ jumps to the slide · Esc closes'));
+      : state.can === 'comment'
+        ? '⏎ jumps to the slide · S submits the review · Esc closes'
+        : '⏎ jumps to the slide · Esc closes'));
     select(Math.min(sel, Math.max(0, rows.length - 1)));
   }
 
@@ -248,10 +295,31 @@ export function createReview({
     render(await load());
   }
 
+  /** Push the review — armed, then confirmed, then the SERVER does the git. */
+  async function submitAll() {
+    const base = await reviewBase();
+    if (base === null) { toast('nothing here can submit — run: decklight review <deck>'); return; }
+    if (!armedSubmit) { armedSubmit = true; render(await load()); return; }
+    armedSubmit = false;
+    try {
+      const r = await fetch(`${base}/review/submit`, { method: 'POST' });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      toast(`review pushed → ${j.branch}`);
+      debugLog('review', `submitted ${j.comments} comment(s) to ${j.branch}`);
+    } catch (e) {
+      // The server's refusal carries the way forward (no remote, nothing to
+      // send) — the toast is where the reviewer is looking.
+      toast(`could not submit — ${String(e.message || e)}`);
+    }
+    render(await load());
+  }
+
   async function open() {
     if (el) return close();
     dismissOthers();
     armed = null;
+    armedSubmit = false;
     sel = 0;
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-review';
@@ -266,6 +334,7 @@ export function createReview({
     el?.remove();
     el = null;
     armed = null;
+    armedSubmit = false;
   }
 
   overlays.register({
@@ -276,7 +345,11 @@ export function createReview({
       if (e.key === 'Escape') {
         // Escape backs out of an arm before it closes the overlay — the same
         // two-step every other confirming surface here uses.
-        if (armed) { armed = null; load().then((s) => el && render(s)); return true; }
+        if (armed || armedSubmit) {
+          armed = null; armedSubmit = false;
+          load().then((s) => el && render(s));
+          return true;
+        }
         close();
         return true;
       }
@@ -289,6 +362,7 @@ export function createReview({
         // else it jumps, which is what the hint says it does.
         case 'Enter': (armed && rows[sel]?.id === armed) ? resolve() : jump(); break;
         case 'r': case 'R': resolve(); break;
+        case 's': case 'S': submitAll(); break;
         case 'm': case 'M': close(); break;
         default: return false;
       }
@@ -300,5 +374,13 @@ export function createReview({
   // the first thing that should be on screen.
   if (params?.has?.('review')) setTimeout(() => { if (!overlays.active()) open(); }, 700);
 
-  return { open, close, isOpen: () => !!el };
+  // `submit` opens the overlay with the send row already armed — the palette's
+  // "Submit review…" is a statement of intent, so the only question left is
+  // the confirmation.
+  return {
+    open,
+    close,
+    isOpen: () => !!el,
+    submit: async () => { if (!el) await open(); armedSubmit = true; if (el) render(await load()); },
+  };
 }

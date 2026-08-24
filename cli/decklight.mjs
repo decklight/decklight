@@ -114,9 +114,11 @@ Commands:
   review   leave comments on somebody's deck, anchored to slides and carried by git
            (writes <deck>.review.jsonl beside it; never touches the deck itself)
            EXAMPLE: decklight review talk.html   (then M in the deck)
+           \`review submit\` pushes them to a review/<you>-<date> branch (--pr opens one)
   comments what reviewers said, resolved against the deck as it is now — a comment
            whose slide moved is found anyway, and one whose slide is gone is still shown
-           EXAMPLE: decklight comments talk.html   (--import to take in a reviewer's file)
+           EXAMPLE: decklight comments talk.html   (--import to take in a reviewer's file,
+           --incoming to see what reviews are waiting on the remote)
   present  play a deck you did not author — read-only over localhost, under a CSP header;
            prints what the file will execute, and strips what it cannot account for
            EXAMPLE: decklight present talk.html   (no editing surface, nothing is written)
@@ -317,7 +319,7 @@ switch (cmd) {
   }
   case 'comments': {
     const { commentsMain } = await import('./comments.mjs');
-    process.exitCode = commentsMain(rest);
+    process.exitCode = await commentsMain(rest);
     break;
   }
   case 'present': {
