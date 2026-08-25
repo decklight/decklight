@@ -1833,7 +1833,7 @@ export function createNarration({
         <div class="rec-line">${saved} / ${total} slide${total === 1 ? '' : 's'} ${where}</div>
         <div class="rec-line">${next}</div>
         ${useTrackRow(dir)}
-        <div class="rec-hint">Enter or Esc to close</div>`;
+        ${doneHint(dir)}`;
       wireUseTrack(card, dir, { ext: 'wav', label: data.label, ...(data.segmented ? { segments: true } : {}) });
     }
   }
@@ -2186,6 +2186,26 @@ export function createNarration({
     return authorBase() == null || !dir ? ''
       : '<div class="narr-row narr-sel rec-use" role="button" tabindex="0">Use this track in the deck</div>';
   }
+  /**
+   * The card's not-yet-accepted "Use this track" row, or null.
+   *
+   * Enter on a done card goes HERE first, and only closes when there is
+   * nothing left to accept. The old binding closed unconditionally — with a
+   * hint that said so — which walked every keyboard user straight past the
+   * offer, stranding a finished recording the deck never learns about: N
+   * lists only configured tracks, so there is no later door.
+   */
+  function pendingUseTrack(el) {
+    const btn = el?.querySelector('.rec-use');
+    return btn && !btn.classList.contains('rec-done') && !btn.classList.contains('rec-failed')
+      ? btn : null;
+  }
+  /** The done-card hint, honest about what Enter does on THIS card. */
+  function doneHint(dir) {
+    return authorBase() == null || !dir
+      ? '<div class="rec-hint">Enter or Esc to close</div>'
+      : '<div class="rec-hint">⏎ uses this track in the deck · Esc closes</div>';
+  }
   function wireUseTrack(card, dir, cfg) {
     const btn = card?.querySelector('.rec-use');
     if (!btn) return;
@@ -2482,7 +2502,7 @@ export function createNarration({
         ? ' — <strong>segments</strong> is what makes your voice step the builds.'
         : '.'}</div>
       ${useTrackRow(dir)}
-      <div class="rec-hint">Enter or Esc to close</div>`;
+      ${doneHint(dir)}`;
     wireUseTrack(card, dir, { ext: 'wav', label: data.label, ...(segmented ? { segments: true } : {}) });
   }
 
@@ -2634,6 +2654,7 @@ export function createNarration({
       if (e.key === 'Escape') closeMicRecorder();
       else if (e.key === 'Enter') {
         if (micView === 'intro' && !micUnavailable() && micEl?.querySelector('.narr-row')) startMicRecording();
+        else if (pendingUseTrack(micEl)) pendingUseTrack(micEl).click();
         else if (micView !== 'saving') closeMicRecorder();
       } else return false;
       return true;
@@ -2650,6 +2671,7 @@ export function createNarration({
       if (e.key === 'Escape') closeRecordDialog();
       else if (e.key === 'Enter') {
         if (recView === 'confirm') startRecording();
+        else if (pendingUseTrack(recEl)) pendingUseTrack(recEl).click();
         else if (recView !== 'progress') closeRecordDialog();
       } else return false;
       return true;
