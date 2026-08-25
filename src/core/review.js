@@ -66,6 +66,10 @@ export function createReview({
   let sel = 0;
   let armed = null;        // the comment id a second R would resolve
   let armedSubmit = false; // S pressed once — the next S pushes the review
+  let armedTake = null;    // the branch a second T would take into the sidecar
+  let armedAnchor = null;  // the comment id a second A would move to this slide
+  let incomingNow = [];    // the waiting reviews as last rendered — T's targets
+  let context = null;      // {id, data} — an orphan's "what it said", unfolded
   let probed = null;       // the review server's base, '' for same-origin, null for none
 
   const slidesNow = () => indexSlides(sections(), { titleOf, bodyOf });
@@ -121,11 +125,61 @@ export function createReview({
   };
   const who = (r) => (r.by ? r.by.replace(/\s*<[^>]*>$/, '') : 'someone');
 
+  /**
+   * One comment as a row — the same anatomy for a local comment and an
+   * incoming one, because they are the same thing at different distances.
+   * Registers the row for arrow/⏎ selection and returns the node.
+   */
+  function commentRow(c, slides, { branch = null } = {}) {
+    const anchor = resolveAnchor(c, slides);
+    const row = el_('div', `rv-row${c.resolved ? ' rv-resolved' : ''}${branch ? ' rv-inc' : ''}`);
+    row.setAttribute('role', 'option');
+    const head = el_('div', 'rv-head');
+    head.append(el_('span', 'rv-slide', anchor.slide ? `slide ${anchor.slide}` : 'slide gone'));
+    head.append(el_('span', 'rv-who', who(c)));
+    // WHICH VERSION this was written against. The anchor answers whether the
+    // SLIDE is still the slide; this answers which deck they were reading,
+    // and neither implies the other — a slide can be untouched in a deck that
+    // has moved a long way since somebody looked at it.
+    if (c.deck) head.append(el_('span', 'rv-at', `@${c.deck}`));
+    if (anchor.movedFrom) head.append(el_('span', 'rv-moved', `was ${anchor.movedFrom}`));
+    if (c.resolved) head.append(el_('span', 'rv-tick', '✓'));
+    row.append(head);
+    row.append(el_('div', 'rv-body', c.body ?? ''));
+    const note = VERDICT_NOTE[anchor.verdict];
+    if (note) row.append(el_('div', 'rv-note', `⚠ ${note}`));
+    for (const r of c.replies) {
+      row.append(el_('div', 'rv-reply', `↳ ${who(r)}: ${r.body ?? ''}`));
+    }
+    // An orphan, unfolded: what the slide SAID when the comment was written.
+    // The objection back under the prose it was about — most orphans dissolve
+    // right here, into a resolve.
+    if (context?.id === c.id) {
+      const d = context.data;
+      row.append(el_('div', 'rv-then', d.known
+        ? `what it said — slide ${d.slide}${d.title ? ` · ${d.title}` : ''}${d.deck ? ` · @${d.deck}` : ''}:\n${d.text || '(nothing)'}`
+        : `cannot show what it said — ${d.why}`));
+    }
+    if (armed === c.id) {
+      row.append(el_('div', 'rv-arm', 'resolve this comment? ⏎ again to confirm · Esc to back out'));
+    }
+    if (armedAnchor === c.id) {
+      row.append(el_('div', 'rv-arm',
+        `move this comment to slide ${instance.state.slide} (the one on screen)? A again to confirm · Esc backs out`));
+    }
+    const entry = { id: c.id, slide: anchor.slide, node: row, resolved: !!c.resolved, branch };
+    row.addEventListener('click', () => { select(rows.indexOf(entry)); jump(); });
+    rows.push(entry);
+    return row;
+  }
+
   function render(state) {
     const card = el.querySelector('.narr-card');
     card.replaceChildren();
     const slides = slidesNow();
     const here = instance.state.slide;
+    rows = [];
+    incomingNow = (state.incoming?.state === 'ok' && state.incoming.reviews) || [];
 
     card.append(el_('div', 'narr-head',
       state.can === 'comment' ? 'review · M closes' : 'review comments · M closes'));
@@ -154,18 +208,28 @@ export function createReview({
       setTimeout(() => input.focus(), 0);
     }
 
-    // What reviewers have SENT that is not merged yet — before the local
-    // list, because it is the thing the author does not already know.
+    // What reviewers have SENT that is not taken in yet — before the local
+    // list, because it is the thing the author does not already know. Not a
+    // count and a git command: the COMMENTS themselves, anchored against the
+    // deck as it is now, walkable like any others. T takes a whole review
+    // into the deck's own sidecar — a by-id merge, so twice changes nothing —
+    // and nobody is asked to run git (the merge/PR path still works; it is
+    // simply not the doorway any more).
     if (state.incoming) {
       const inc = state.incoming;
       if (inc.state === 'ok' && inc.reviews?.length) {
         const boxI = el_('div', 'rv-incoming');
         for (const v of inc.reviews) {
-          boxI.append(el_('div', 'rv-inc-row',
-            `↓ ${v.who} · ${v.comments} comment${v.comments === 1 ? '' : 's'} waiting · ${v.branch}`));
+          const armedHere = armedTake === v.branch;
+          boxI.append(el_('div', `rv-inc-row${armedHere ? ' rv-arm' : ''}`, armedHere
+            ? `take ${v.who}’s review into the deck’s comments? T again to confirm · Esc backs out`
+            : `↓ ${v.who} · ${v.comments} comment${v.comments === 1 ? '' : 's'} waiting · ${v.branch} — T takes it in`));
+          for (const c of foldReview(v.records ?? [])) {
+            // what is WAITING is what is still open in that review
+            if (c.resolved) continue;
+            boxI.append(commentRow(c, slides, { branch: v.branch }));
+          }
         }
-        boxI.append(el_('div', 'rv-inc-how',
-          `take one in:  git merge origin/${inc.reviews[0].branch}`));
         card.append(boxI);
       } else if (inc.state && !['ok', 'none', 'no-repo', 'untracked', 'no-remote', 'suppressed'].includes(inc.state)) {
         // a FAILED check is said out loud — never rendered as "none waiting"
@@ -176,7 +240,6 @@ export function createReview({
     const list = el_('div', 'rv-list');
     list.setAttribute('role', 'listbox');
     const comments = foldReview(state.records);
-    rows = [];
     if (state.error) {
       list.append(el_('div', 'rv-none', `could not read the comments — ${state.error}`));
     } else if (!comments.length) {
@@ -191,35 +254,7 @@ export function createReview({
     // open first, then resolved — the ones still asking something are the ones
     // somebody has to do something about
     const order = [...comments].sort((a, b) => Number(!!a.resolved) - Number(!!b.resolved));
-    for (const c of order) {
-      const anchor = resolveAnchor(c, slides);
-      const row = el_('div', `rv-row${c.resolved ? ' rv-resolved' : ''}`);
-      row.setAttribute('role', 'option');
-      const head = el_('div', 'rv-head');
-      head.append(el_('span', 'rv-slide', anchor.slide ? `slide ${anchor.slide}` : 'slide gone'));
-      head.append(el_('span', 'rv-who', who(c)));
-      // WHICH VERSION this was written against. The anchor answers whether the
-      // SLIDE is still the slide; this answers which deck they were reading,
-      // and neither implies the other — a slide can be untouched in a deck that
-      // has moved a long way since somebody looked at it.
-      if (c.deck) head.append(el_('span', 'rv-at', `@${c.deck}`));
-      if (anchor.movedFrom) head.append(el_('span', 'rv-moved', `was ${anchor.movedFrom}`));
-      if (c.resolved) head.append(el_('span', 'rv-tick', '✓'));
-      row.append(head);
-      row.append(el_('div', 'rv-body', c.body ?? ''));
-      const note = VERDICT_NOTE[anchor.verdict];
-      if (note) row.append(el_('div', 'rv-note', `⚠ ${note}`));
-      for (const r of c.replies) {
-        row.append(el_('div', 'rv-reply', `↳ ${who(r)}: ${r.body ?? ''}`));
-      }
-      if (armed === c.id) {
-        row.append(el_('div', 'rv-arm', 'resolve this comment? ⏎ again to confirm · Esc to back out'));
-      }
-      row.addEventListener('click', () => { select(rows.indexOf(entry)); jump(); });
-      const entry = { id: c.id, slide: anchor.slide, node: row, resolved: !!c.resolved };
-      rows.push(entry);
-      list.append(row);
-    }
+    for (const c of order) list.append(commentRow(c, slides));
     card.append(list);
 
     // The way out of the room. A review that stays on the reviewer's laptop is
@@ -236,7 +271,9 @@ export function createReview({
     }
 
     card.append(el_('div', 'rec-hint', state.can === 'resolve'
-      ? '⏎ jumps to the slide · R resolves · Esc closes'
+      ? (incomingNow.length
+        ? '⏎ jumps (on a gone slide: shows what it said) · R resolves · A moves here · T takes a review in · Esc closes'
+        : '⏎ jumps (on a gone slide: shows what it said) · R resolves · A moves here · Esc closes')
       : state.can === 'comment'
         ? '⏎ jumps to the slide · S submits the review · Esc closes'
         : '⏎ jumps to the slide · Esc closes'));
@@ -249,9 +286,58 @@ export function createReview({
   }
   function jump() {
     const r = rows[sel];
-    if (!r?.slide) return;
+    if (!r) return;
+    // An orphan has nowhere to jump TO — so ⏎ shows where it pointed: the
+    // slide's content at the commit the comment was written against.
+    if (!r.slide) { toggleContext(r); return; }
     instance.goto(r.slide, 0, { force: true });
     close();
+  }
+
+  /** Unfold (or fold) an orphan's "what it said", from the author server. */
+  async function toggleContext(r) {
+    if (context?.id === r.id) { context = null; render(await load()); return; }
+    const base = authorBase();
+    if (base == null) { toast('only the author server can look that far back'); return; }
+    try {
+      const res = await fetch(`${base}/edit/review/at?id=${encodeURIComponent(r.id)}`);
+      const j = await res.json();
+      if (!j?.ok) throw new Error(j?.error || `HTTP ${res.status}`);
+      context = { id: r.id, data: j };
+    } catch (e) {
+      context = { id: r.id, data: { known: false, why: String(e.message || e) } };
+    }
+    render(await load());
+  }
+
+  /**
+   * A — move the selected comment to the slide ON SCREEN, armed then
+   * confirmed. The reconciliation for a slide deleted or rewritten past what
+   * fingerprint + title can find: an append-only `anchor` op, so the
+   * reviewer's original line is never edited and a union merge stays safe.
+   */
+  async function anchorHere() {
+    const r = rows[sel];
+    if (!r || r.resolved) return;
+    const base = authorBase();
+    if (base == null) return;
+    if (armedAnchor !== r.id) { armedAnchor = r.id; armed = null; render(await load()); return; }
+    armedAnchor = null;
+    // an incoming comment is taken in BY acting on it, same as resolve
+    if (r.branch && !(await postTake(r.branch))) { render(await load()); return; }
+    const here = instance.state.slide;
+    const at = slidesNow()[here - 1];
+    try {
+      const res = await fetch(`${base}/edit/review`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ op: 'anchor', re: r.id, slide: here, title: at?.title, fp: at?.fp }),
+      });
+      if (!(await res.json())?.ok) throw new Error('refused');
+      toast(`moved to slide ${here}`);
+      context = null;
+    } catch (e) { toast(`could not move that — ${String(e.message || e)}`); }
+    render(await load());
   }
 
   async function submit(text, slide, anchor) {
@@ -275,6 +361,45 @@ export function createReview({
     }
   }
 
+  /** POST one review's intake; true on success. Toasts either way. */
+  async function postTake(branch) {
+    try {
+      const r = await fetch(`${authorBase() ?? ''}/edit/review/take`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ branch }),
+      });
+      const j = await r.json();
+      if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+      toast(`took in ${j.added} record${j.added === 1 ? '' : 's'} — they are the deck's comments now`);
+      debugLog('review', `took in ${branch} (+${j.added})`);
+      return true;
+    } catch (e) {
+      toast(`could not take that review in — ${String(e.message || e)}`);
+      return false;
+    }
+  }
+
+  /**
+   * T — take a waiting review into the deck's sidecar, armed then confirmed.
+   *
+   * The target is the review the SELECTED row belongs to; with nothing
+   * incoming selected and exactly one review waiting, that one. Writing is
+   * outward-visible (a commit), so it gets the same two-step everything else
+   * that writes gets.
+   */
+  async function takeReview() {
+    const branch = rows[sel]?.branch ?? (incomingNow.length === 1 ? incomingNow[0].branch : null);
+    if (!branch) {
+      if (incomingNow.length) toast('select a comment in the review you want to take in');
+      return;
+    }
+    if (armedTake !== branch) { armedTake = branch; render(await load()); return; }
+    armedTake = null;
+    await postTake(branch);
+    render(await load());
+  }
+
   /** Resolve, armed then confirmed — the house rule for anything that writes. */
   async function resolve() {
     const r = rows[sel];
@@ -283,6 +408,10 @@ export function createReview({
     armed = null;
     const base = authorBase();
     if (base == null) return;
+    // An incoming comment is taken in BY acting on it: a resolve written
+    // against a record that lives only on a remote branch would be an answer
+    // to a question the local file never asked.
+    if (r.branch && !(await postTake(r.branch))) { render(await load()); return; }
     try {
       const res = await fetch(`${base}/edit/review`, {
         method: 'POST',
@@ -320,6 +449,9 @@ export function createReview({
     dismissOthers();
     armed = null;
     armedSubmit = false;
+    armedTake = null;
+    armedAnchor = null;
+    context = null;
     sel = 0;
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-review';
@@ -335,6 +467,9 @@ export function createReview({
     el = null;
     armed = null;
     armedSubmit = false;
+    armedTake = null;
+    armedAnchor = null;
+    context = null;
   }
 
   overlays.register({
@@ -345,8 +480,8 @@ export function createReview({
       if (e.key === 'Escape') {
         // Escape backs out of an arm before it closes the overlay — the same
         // two-step every other confirming surface here uses.
-        if (armed || armedSubmit) {
-          armed = null; armedSubmit = false;
+        if (armed || armedSubmit || armedTake || armedAnchor) {
+          armed = null; armedSubmit = false; armedTake = null; armedAnchor = null;
           load().then((s) => el && render(s));
           return true;
         }
@@ -363,6 +498,8 @@ export function createReview({
         case 'Enter': (armed && rows[sel]?.id === armed) ? resolve() : jump(); break;
         case 'r': case 'R': resolve(); break;
         case 's': case 'S': submitAll(); break;
+        case 't': case 'T': takeReview(); break;
+        case 'a': case 'A': anchorHere(); break;
         case 'm': case 'M': close(); break;
         default: return false;
       }

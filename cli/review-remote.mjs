@@ -36,7 +36,9 @@
 import { basename, dirname, resolve } from 'node:path';
 
 import { runGit, classifyFailure } from './upstream.mjs';
-import { parseReview } from './review-store.mjs';
+import { existsSync, readFileSync } from 'node:fs';
+
+import { parseReview, mergeById, reviewPathFor } from './review-store.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
 
 /** Every review branch a remote has. A literal, not built from anything. */
@@ -59,11 +61,17 @@ export function remoteNameProblem(remote) {
  * caller prints "not checked — CI" instead of nothing, because a silent skip
  * and "no reviews waiting" look identical to the reader and mean opposite
  * things. UNCHECKED IS ITS OWN ANSWER AND NEVER A PASS.
+ *
+ * `ci: false` is the ON-DEMAND surface's setting (the M overlay's route):
+ * the explicit switches mean "never touch the network for reviews" and kill
+ * every surface, but `CI` exists to silence the UNASKED startup fetch — a
+ * route somebody exercises deliberately, from a test or a script, must still
+ * answer there, or "works on my machine" becomes literal.
  */
-export function reviewCheckSuppressed({ args = [], env = process.env } = {}) {
+export function reviewCheckSuppressed({ args = [], env = process.env, ci = true } = {}) {
   if (args.includes('--no-review-check')) return '--no-review-check';
   if (env.DECKLIGHT_NO_REVIEW_CHECK) return 'DECKLIGHT_NO_REVIEW_CHECK is set';
-  if (env.CI) return 'CI';
+  if (ci && env.CI) return 'CI';
   return false;
 }
 
@@ -129,6 +137,12 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
   const storeName = basename(full).replace(/\.html?$/i, '') + '.review.jsonl';
   const inRepo = `${prefix.ok ? prefix.stdout : ''}${storeName}`;
 
+  // What the AUTHOR already has. "Waiting" means "holds records you do not":
+  // a review fully taken in — by the overlay, by --import, by an actual merge
+  // — must stop nagging, and the by-id merge is the one arbiter of that.
+  const storePath = reviewPathFor(full);
+  const mine = existsSync(storePath) ? parseReview(readFileSync(storePath, 'utf8')).records : [];
+
   const reviews = [];
   for (const branch of branches) {
     // `<ref>:<path>` is one argument and both halves are DATA here — the ref
@@ -151,10 +165,16 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
     // Nothing OPEN means nothing waiting: a branch of resolves is history, not
     // a review the author still owes attention.
     if (!open.length) continue;
+    // …and nothing NEW means nothing waiting either: every record already in
+    // the local sidecar is a review the author absorbed, however it arrived.
+    if (!mergeById(mine, records).added) continue;
     const stamp = await run(['log', '-1', '--format=%aI', ref], { cwd });
     reviews.push({
       branch,
       ...describeBranch(branch),
+      // The comments themselves ride along: the overlay renders them — the
+      // records ARE the review, and a count was only ever a placeholder.
+      records,
       comments: open.length,
       // Raw, unlike `comments`: a reply here may answer a comment living in
       // ANOTHER branch (each reviewer clones from main), and the fold — scoped

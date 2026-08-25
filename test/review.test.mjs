@@ -89,6 +89,46 @@ test('a duplicate id is the same comment arriving twice, not two comments', () =
   assert.equal(foldReview(records).length, 1);
 });
 
+test('an anchor op MOVES a comment — the reconciliation for a rewritten slide', () => {
+  const slides = [
+    { slide: 1, title: 'Intro', fp: 'aaaa' },
+    { slide: 2, title: 'The point, remade', fp: 'bbbb' },
+  ];
+  // written against a slide that no longer exists in any recognisable form
+  const records = [
+    { id: 'c1', by: 'Ana', slide: 3, title: 'The point', fp: 'dead', body: 'sharpen this' },
+  ];
+  assert.equal(resolveAnchor(foldReview(records)[0], slides).verdict, 'orphaned', 'the setup must be an orphan');
+
+  // the author, standing on slide 2, moves it there — an APPENDED op
+  records.push({ op: 'anchor', re: 'c1', slide: 2, title: 'The point, remade', fp: 'bbbb', at: 't1', by: 'Gilles' });
+  const moved = foldReview(records)[0];
+  const anchor = resolveAnchor(moved, slides);
+  assert.equal(anchor.verdict, 'exact', 'an anchored comment resolves like one written there');
+  assert.equal(anchor.slide, 2);
+  assert.equal(moved.anchored.by, 'Gilles');
+  // the original line was never edited — the log still carries where the
+  // REVIEWER wrote it
+  assert.equal(records[0].slide, 3);
+
+  // last anchor wins, like a resolve
+  records.push({ op: 'anchor', re: 'c1', slide: 1, title: 'Intro', fp: 'aaaa', at: 't2', by: 'Gilles' });
+  assert.equal(resolveAnchor(foldReview(records)[0], slides).slide, 1);
+
+  // an anchor pointing at nothing is dropped, same as a stray resolve
+  records.push({ op: 'anchor', re: 'zz', slide: 1, at: 't3', by: 'x' });
+  assert.equal(foldReview(records).length, 1);
+});
+
+test('replaying an import does not duplicate anchor ops — the tuple is the identity', () => {
+  const a = [{ id: 'c1', body: 'x' }, { op: 'anchor', re: 'c1', slide: 2, at: 't1', by: 'G' }];
+  const again = mergeById(mergeById([], a).records, a);
+  assert.equal(again.added, 0, 'the same anchor op arrived twice');
+  // …while a DIFFERENT anchor of the same comment is a new statement
+  const later = mergeById(again.records, [{ op: 'anchor', re: 'c1', slide: 5, at: 't2', by: 'G' }]);
+  assert.equal(later.added, 1);
+});
+
 test('a reply or resolve pointing at nothing is dropped, not crashed on', () => {
   // Half a thread can arrive on its own — someone forwards part of a file.
   const { records } = parseReview([

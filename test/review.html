@@ -70,9 +70,36 @@
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (u.endsWith('/edit/review/incoming')) {
-        return new Response(JSON.stringify({ ok: true, state: 'ok', reviews: [
-          { branch: 'review/ana-2026-08-25', who: 'ana', when: '2026-08-25', comments: 2, replies: 0, at: '2026-08-25T09:00:00Z' },
-        ] }), { status: 200, headers: { 'content-type': 'application/json' } });
+        // after a take, the review stops waiting — the honest-subset rule
+        const reviews = window.__taken ? [] : [{
+          branch: 'review/ana-2026-08-25', who: 'ana', when: '2026-08-25',
+          comments: 2, replies: 0, at: '2026-08-25T09:00:00Z',
+          records: [
+            { id: 'in1', at: '2026-08-25T09:00:00Z', by: 'Ana Ruiz <ana@x>', slide: 2,
+              title: 'Why this matters', fp: window.__fp2 ?? 'nope', body: 'Incoming: tighten this.' },
+            { id: 'in2', at: '2026-08-25T09:01:00Z', by: 'Ana Ruiz <ana@x>', slide: 1,
+              title: 'Intro', body: 'Incoming: strong start.' },
+          ],
+        }];
+        return new Response(JSON.stringify({ ok: true, state: reviews.length ? 'ok' : 'none', reviews }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (u.includes('/edit/review/at?')) {
+        window.__atCalls = (window.__atCalls || 0) + 1;
+        return new Response(JSON.stringify({ ok: true, known: true, deck: 'abc1234', slide: 3,
+          title: 'Cut me', text: 'Cut me doomed' }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      if (u.endsWith('/edit/review/take')) {
+        const req_ = JSON.parse(opts.body);
+        window.__takeCalls = (window.__takeCalls || 0) + 1;
+        window.__taken = req_.branch;
+        // the server's half: the records land in the local store
+        window.__store.push(
+          JSON.stringify({ id: 'in1', at: '2026-08-25T09:00:00Z', by: 'Ana Ruiz <ana@x>', slide: 2, title: 'Why this matters', fp: window.__fp2 ?? 'nope', body: 'Incoming: tighten this.' }),
+          JSON.stringify({ id: 'in2', at: '2026-08-25T09:01:00Z', by: 'Ana Ruiz <ana@x>', slide: 1, title: 'Intro', body: 'Incoming: strong start.' }));
+        return new Response(JSON.stringify({ ok: true, added: 2 }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (u.endsWith('/review/comments') || u.endsWith('/edit/review')) {
         if (opts?.method === 'POST') {
@@ -143,6 +170,8 @@
         const was = idx();
         window.__store = seeded.map((l) => l
           .replace('__FP1__', was[0].fp).replace('__FP2__', was[1].fp).replace('__FP3__', was[2].fp));
+        // the incoming mock anchors its first comment to THIS deck's slide 2
+        window.__fp2 = was[1].fp;
 
         if (mode === 'reviewer') {
           // A reviewer: the composer is there, and what it posts carries the
@@ -226,7 +255,41 @@
           r.orphanNotRepinned = r.rows.some((t) => /slide gone/.test(t) && /Agreed, cut this/.test(t));
           // a reply hangs off its parent rather than standing alone
           r.replyNested = r.rows.some((t) => /Or slide 1 is wrong/.test(t) && /This contradicts/.test(t));
+          // ⏎ on the ORPHAN has nowhere to go — it unfolds what the slide
+          // SAID at the commit the comment was written against
+          const orphanIdx = rowText().findIndex((t) => /slide gone/.test(t));
+          for (let i = 0; i < 12; i++) {
+            const on = card.querySelector('.rv-sel');
+            if (on && /slide gone/.test(on.textContent)) break;
+            press('ArrowDown'); await wait(50);
+          }
+          press('Enter');
+          await until(() => card.querySelector('.rv-then'));
+          r.orphanUnfolds = /what it said — slide 3 · Cut me/.test(card.querySelector('.rv-then')?.textContent ?? '')
+            && /Cut me doomed/.test(card.querySelector('.rv-then')?.textContent ?? '');
+          r.unfoldedNotClosed = !!document.querySelector('.decklight-review');
+
+          // A moves it to the slide ON SCREEN — armed, then confirmed, an
+          // APPENDED anchor op, and the row re-resolves where it now points
+          press('a');
+          await until(() => card.querySelector('.rv-arm'));
+          r.anchorArmedNotFired = !window.__posted.some((p) => p.op === 'anchor');
+          press('a');
+          await until(() => window.__posted.some((p) => p.op === 'anchor'));
+          const anch = window.__posted.find((p) => p.op === 'anchor');
+          r.anchorIsAnAppend = anch && anch.re === 'bb2' && Number.isInteger(anch.slide)
+            && typeof anch.fp === 'string';
+          // the store's fold now finds it: the row stops saying "slide gone"
+          await until(() => ![...card.querySelectorAll('.rv-row')].some((n) => /slide gone/.test(n.textContent)));
+          r.orphanRepinnedAfterAnchor = ![...card.querySelectorAll('.rv-row')]
+            .some((n) => /slide gone/.test(n.textContent));
+
           // ⏎ goes to where the slide IS now, not where it was
+          for (let i = 0; i < 12; i++) {
+            const on = card.querySelector('.rv-sel');
+            if (on && /Nice opening/.test(on.textContent)) break;
+            press('ArrowUp'); await wait(50);
+          }
           const target = [...card.querySelectorAll('.rv-row')].find((n) => /Nice opening/.test(n.textContent));
           target.click();
           await wait(80);
@@ -234,7 +297,9 @@
           r.jumpedToWhereItIsNow = r.jumpedTo === 2;
 
           r.PASS = r.foundTheMovedSlide && r.flaggedTheEdited && r.orphanNotRepinned
-            && r.replyNested && r.jumpedToWhereItIsNow;
+            && r.replyNested && r.jumpedToWhereItIsNow && r.orphanUnfolds
+            && r.unfoldedNotClosed && r.anchorArmedNotFired && r.anchorIsAnAppend
+            && r.orphanRepinnedAfterAnchor;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
         }
@@ -246,21 +311,51 @@
           await until(() => card.querySelectorAll('.rv-row').length >= 2);
           r.noComposerForAnAuthor = !card.querySelector('.rv-input');
           r.saysResolveIsThere = /R resolves/.test(card.querySelector('.rec-hint')?.textContent ?? '');
-          // what reviewers sent that is not merged yet, above the local list
+          // what reviewers sent that is not taken in yet, above the local
+          // list — the COMMENTS, not a count and a git command
           const incoming = await until(() => card.querySelector('.rv-incoming'));
           r.incomingShown = !!incoming;
           r.incomingSaysWhoAndHowMany = /ana · 2 comments waiting · review\/ana-2026-08-25/
             .test(incoming?.textContent ?? '');
-          r.incomingSaysHowToTakeIn = /git merge origin\/review\/ana-2026-08-25/.test(incoming?.textContent ?? '');
+          r.incomingShowsTheComments = /Incoming: tighten this\./.test(incoming?.textContent ?? '')
+            && /Incoming: strong start\./.test(incoming?.textContent ?? '');
+          r.noGitCommandAsked = !/git merge/.test(incoming?.textContent ?? '');
+          // an incoming comment is anchored against the deck AS IT IS NOW and
+          // ⏎ jumps to it like any local row
+          const incRow = [...incoming.querySelectorAll('.rv-row.rv-inc')]
+            .find((n) => /tighten this/.test(n.textContent));
+          incRow.click();
+          await wait(100);
+          r.incomingJumps = deck.state.slide === 2;
+          press('m');   // the click closed the overlay — reopen for the T flow
+          const card2 = await until(() => document.querySelector('.decklight-review .narr-card'));
+          await until(() => card2.querySelector('.rv-incoming'));
+          // T is ARMED, then confirmed — a take writes a commit
+          const sel_ = () => card2.querySelector('.rv-sel');
+          for (let i = 0; i < 8 && !sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(50); }
+          press('t');
+          await until(() => card2.querySelector('.rv-inc-row.rv-arm'));
+          r.takeArmedNotFired = !window.__takeCalls;
+          press('t');
+          await until(() => window.__takeCalls);
+          r.tookInOnSecond = window.__takeCalls === 1 && window.__taken === 'review/ana-2026-08-25';
+          // …and afterwards the review stops waiting and the comments are LOCAL
+          await until(() => !card2.querySelector('.rv-incoming'));
+          r.takenStopsWaiting = !card2.querySelector('.rv-incoming');
+          r.takenNowLocal = [...card2.querySelectorAll('.rv-row:not(.rv-inc)')]
+            .some((n) => /Incoming: tighten this/.test(n.textContent));
 
+          // The resolve two-step, on the overlay as it is NOW — the take
+          // emptied the incoming section, so the arrows walk local rows again
+          // (`card` from before the reopen is a detached node; card2 is live).
           press('ArrowDown');   // off whichever row was selected first
           press('r');
-          r.armedNotFired = !!(await until(() => card.querySelector('.rv-arm')));
+          r.armedNotFired = !!(await until(() => card2.querySelector('.rv-arm')));
           r.nothingPostedYet = window.__posted.length === 0;
           // Escape backs out of the arm WITHOUT closing — the house two-step
           press('Escape');
           await wait(120);
-          r.escapeDisarmedNotClosed = !card.querySelector('.rv-arm')
+          r.escapeDisarmedNotClosed = !card2.querySelector('.rv-arm')
             && !!document.querySelector('.decklight-review');
 
           press('r');
@@ -275,7 +370,9 @@
           r.PASS = r.noComposerForAnAuthor && r.saysResolveIsThere && r.armedNotFired
             && r.nothingPostedYet && r.escapeDisarmedNotClosed && r.resolvedOnSecond
             && r.enterDidNotCloseOrJump && r.resolveIsAnAppend && r.incomingShown
-            && r.incomingSaysWhoAndHowMany && r.incomingSaysHowToTakeIn;
+            && r.incomingSaysWhoAndHowMany && r.incomingShowsTheComments && r.noGitCommandAsked
+            && r.incomingJumps && r.takeArmedNotFired && r.tookInOnSecond
+            && r.takenStopsWaiting && r.takenNowLocal;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
         }

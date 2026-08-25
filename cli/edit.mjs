@@ -56,7 +56,9 @@ import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
 import { classifyScripts } from './audit.mjs';
-import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
+import { reviewPathFor, parseReview, serializeRecord, mergeById, newId } from './review-store.mjs';
+import { foldReview } from '../tools/review-anchor.mjs';
+import { indexDeckFile, slideTextOf, knowsCommit } from './comments.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
 import { reviewsWaiting, reviewLine, reviewCheckSuppressed } from './review-remote.mjs';
@@ -1026,7 +1028,9 @@ export async function editMain(args, { onListen = null } = {}) {
       // The 60s cache is what keeps a nervous author tapping M from turning
       // one gesture into a fetch storm; the off switches still win outright.
       if (req.method === 'GET' && url.pathname === '/edit/review/incoming') {
-        const skipped = reviewCheckSuppressed({ args });
+        // ci: false — this fetch is ASKED FOR, behind the keypress that
+        // opened the overlay; only the explicit switches silence it.
+        const skipped = reviewCheckSuppressed({ args, ci: false });
         if (skipped) return json(200, { ok: true, state: 'suppressed', reason: skipped, reviews: [] });
         if (!incomingCache || Date.now() - incomingCache.at > 60_000) {
           const r = await reviewsWaiting(deckPath);
@@ -1077,12 +1081,75 @@ export async function editMain(args, { onListen = null } = {}) {
       // Point the deck at a track the recorder just wrote. The one manual step
       // in a flow that is otherwise a key and an arrow — and this server
       // already owns the file, so it can take that step too.
+      if (req.method === 'GET' && url.pathname === '/edit/review/at') {
+        // The orphan's context: what the slide SAID when the comment was
+        // written — `comments --at`, served, so the overlay can put the dead
+        // slide's prose under the objection that was about it. Read-only, all
+        // local (the commit is already in this clone or the answer is "not
+        // here"), and gated exactly as the CLI gates it.
+        const id = url.searchParams.get('id') ?? '';
+        if (!/^[a-z0-9]{1,12}$/.test(id)) return json(400, { ok: false, error: 'bad comment id' });
+        const store = reviewPathFor(deckPath);
+        if (!existsSync(store)) return json(404, { ok: false, error: 'no comments here' });
+        const c = foldReview(parseReview(readFileSync(store, 'utf8')).records).find((x) => x.id === id);
+        if (!c) return json(404, { ok: false, error: `no comment [${id}]` });
+        if (!c.deck) return json(200, { ok: true, known: false, why: 'written outside a repository — there is no earlier version to show' });
+        if (!gitOn || !knowsCommit(c.deck, root)) {
+          return json(200, { ok: true, known: false, why: `this clone does not have ${c.deck}` });
+        }
+        try {
+          const thenHtml = deckAt(deckPath, c.deck, root);
+          const wasAt = indexDeckFile(thenHtml)[(c.slide ?? 0) - 1] ?? null;
+          return json(200, {
+            ok: true,
+            known: true,
+            deck: c.deck,
+            slide: c.slide ?? null,
+            title: wasAt?.title ?? null,
+            text: slideTextOf(thenHtml, c.slide) || '',
+          });
+        } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/review/take') {
+        // Take a waiting review into the deck's own sidecar — the overlay's T.
+        // No git merge, no checkout, nothing pushed: a by-id merge into ONE
+        // local file, committed like any other comment, so taking the same
+        // review twice changes nothing. The branch name is looked up in what
+        // the incoming reader LISTED — it is data here, never an argument, and
+        // the records written are the ones the overlay just showed.
+        const { branch } = JSON.parse(body || '{}');
+        const listed = incomingCache?.r?.reviews?.find((v) => v.branch === branch);
+        if (!listed) return json(400, { ok: false, error: 'not a review this deck is waiting on — press M again to refresh' });
+        const store = reviewPathFor(deckPath);
+        const mine = existsSync(store) ? parseReview(readFileSync(store, 'utf8')).records : [];
+        const { records: mergedIn, added } = mergeById(mine, listed.records ?? []);
+        if (added) {
+          try { writeFileSync(store, mergedIn.map(serializeRecord).join('\n') + '\n'); }
+          catch (e) { return json(500, { ok: false, error: oneline(e) }); }
+          if (gitOn) {
+            gitAutocommit(store, root, commitSubject(
+              `review: take in ${added} record(s) from ${branch}`, 'review: take in a review'));
+          }
+        }
+        // the waiting list just changed — the cache must not keep saying so
+        incomingCache = null;
+        console.log(`  review: took in ${added} record(s) from ${branch}`);
+        return json(200, { ok: true, added });
+      }
       if (req.method === 'POST' && url.pathname === '/edit/review') {
-        const { op, re, body: text } = JSON.parse(body || '{}');
+        const { op, re, body: text, slide, title, fp } = JSON.parse(body || '{}');
         if (typeof re !== 'string' || !/^[a-z0-9]{1,12}$/.test(re)) {
           return json(400, { ok: false, error: 'bad comment id' });
         }
-        if (op !== 'resolve' && !(typeof text === 'string' && text.trim() && text.length <= 4000)) {
+        if (op === 'anchor') {
+          // moving a comment to the slide the author is looking at — the
+          // reconciliation for a slide that was deleted or rewritten past
+          // what fingerprint + title can find
+          const n = Number(slide);
+          if (!Number.isInteger(n) || n < 1 || n > 9999) return json(400, { ok: false, error: 'an anchor needs a slide' });
+          if (title !== undefined && (typeof title !== 'string' || title.length > 500)) return json(400, { ok: false, error: 'bad title' });
+          if (fp !== undefined && (typeof fp !== 'string' || !/^[0-9a-f]{1,16}$/.test(fp))) return json(400, { ok: false, error: 'bad fingerprint' });
+        } else if (op !== 'resolve' && !(typeof text === 'string' && text.trim() && text.length <= 4000)) {
           return json(400, { ok: false, error: 'a reply needs something in it' });
         }
         const store = reviewPathFor(deckPath);
@@ -1092,9 +1159,19 @@ export async function editMain(args, { onListen = null } = {}) {
         let at = null;
         try { at = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(); }
         catch { at = null; }
-        const rec = op === 'resolve'
-          ? { op: 'resolve', re, at: new Date().toISOString(), by: reviewerName() }
-          : {
+        const rec = op === 'anchor'
+          ? {
+            op: 'anchor',
+            re,
+            slide: Number(slide),
+            ...(title !== undefined ? { title } : {}),
+            ...(fp !== undefined ? { fp } : {}),
+            at: new Date().toISOString(),
+            by: reviewerName(),
+          }
+          : op === 'resolve'
+            ? { op: 'resolve', re, at: new Date().toISOString(), by: reviewerName() }
+            : {
             id: newId(),
             at: new Date().toISOString(),
             by: reviewerName(),
@@ -1105,11 +1182,14 @@ export async function editMain(args, { onListen = null } = {}) {
         try { appendFileSync(store, `${serializeRecord(rec)}\n`); }
         catch (e) { return json(500, { ok: false, error: oneline(e) }); }
         if (gitOn) {
-          gitAutocommit(store, root, op === 'resolve'
-            ? commitSubject(`review: resolve ${re}`, 'review: resolve a comment')
-            : commitSubject(`review: reply to ${re}`, 'review: a reply'));
+          gitAutocommit(store, root, op === 'anchor'
+            ? commitSubject(`review: move ${re} to slide ${rec.slide}`, 'review: re-anchor a comment')
+            : op === 'resolve'
+              ? commitSubject(`review: resolve ${re}`, 'review: resolve a comment')
+              : commitSubject(`review: reply to ${re}`, 'review: a reply'));
         }
-        console.log(`  review: ${op === 'resolve' ? `resolved ${re}` : `replied to ${re}`}`);
+        console.log(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}`
+          : op === 'resolve' ? `resolved ${re}` : `replied to ${re}`}`);
         return json(200, { ok: true });
       }
       if (req.method === 'POST' && url.pathname === '/edit/narration') {
