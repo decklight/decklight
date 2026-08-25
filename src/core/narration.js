@@ -968,9 +968,16 @@ export function createNarration({
       // before it must not fire after it.
       narrAudio.onended = () => { if (gen === segGen) advanceFrom(sl, step, { mode: 'file', endOfSlide: true }); };
     }
-    narrAudio.onerror = () => fileFailed(sl, file);
-    narrAudio.play().catch(() => {
-      toast('🔇 the browser blocked audio — click the deck once, then V');
+    // The same split playRecorded makes: NotAllowedError is autoplay policy
+    // and a click fixes it; any other rejection is the SOURCE failing, and
+    // telling somebody to click the deck at a missing file sends them to fix
+    // the wrong thing. onerror usually reports source failures first — the
+    // dedupe keeps one failure from toasting twice.
+    let saidFailed = false;
+    narrAudio.onerror = () => { saidFailed = true; fileFailed(sl, file); };
+    narrAudio.play().catch((e) => {
+      if (e?.name === 'NotAllowedError') toast('🔇 the browser blocked audio — click the deck once, then V');
+      else if (!saidFailed) fileFailed(sl, file);
     });
   }
 

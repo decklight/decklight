@@ -207,7 +207,42 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     }
     let body = readFileSync(file);
     if (rewriteHtml && type === MIME['.html']) body = Buffer.from(rewriteHtml(body.toString('utf8'), file), 'utf8');
-    res.writeHead(200, { 'content-type': type ?? 'application/octet-stream', 'cache-control': 'no-cache' });
+    const headers = {
+      'content-type': type ?? 'application/octet-stream',
+      'cache-control': 'no-cache',
+      // Media elements are the reason both of these exist. A browser asks for
+      // audio and video with `Range: bytes=…`, and a server that answers 200,
+      // chunked, with no Content-Length gives the media stack a stream of
+      // unknown size: duration reads Infinity, seeking is impossible, and
+      // real Chrome — stricter than a bare fetch — can refuse the source
+      // outright, which surfaced as "no narration for slide 1" pointing at a
+      // file that was sitting right there.
+      'accept-ranges': 'bytes',
+      'content-length': body.length,
+    };
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+    if (range && (range[1] || range[2])) {
+      // One range, which is all a media element ever sends. Malformed or
+      // multipart ranges fall through to the plain 200 — RFC 7233 allows
+      // ignoring Range entirely, so partial support must never invent a 416
+      // for a request a full response satisfies.
+      const start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+      if (start <= end && start < body.length) {
+        const slice = body.subarray(start, end + 1);
+        res.writeHead(206, {
+          ...headers,
+          'content-length': slice.length,
+          'content-range': `bytes ${start}-${end}/${body.length}`,
+        });
+        res.end(slice);
+        return true;
+      }
+      res.writeHead(416, { 'content-range': `bytes */${body.length}` });
+      res.end();
+      return true;
+    }
+    res.writeHead(200, headers);
     res.end(body);
     return true;
   };
