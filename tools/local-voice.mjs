@@ -41,45 +41,80 @@ export const SAPI_LIST = [
 ];
 
 /**
+ * The novelty and 1990s-formant roster — the voices everybody calls "the
+ * robots". They ship on every Mac, they sort ALPHABETICALLY FIRST (Albert,
+ * Agnes, Bad News…), and modern `say -v '?'` no longer prints the (Premium)/
+ * (Enhanced) markers the old ranking leaned on — which is how Albert became
+ * the default narrator on a machine with a hundred better voices. Named
+ * explicitly so they land in "average" no matter what the listing says.
+ */
+export const SAY_ROBOTS = new Set([
+  'Agnes', 'Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos',
+  'Deranged', 'Fred', 'Good News', 'Hysterical', 'Jester', 'Junior', 'Kathy',
+  'Organ', 'Pipe Organ', 'Princess', 'Ralph', 'Superstar', 'Trinoid', 'Victoria',
+  'Whisper', 'Wobble', 'Zarvox',
+]);
+
+/**
  * Rank a macOS voice by how good it is likely to sound.
  *
  * The roster mixes twenty years of engines — 1990s formant voices sit in the
- * same list as this year's neural ones — and picking the first alphabetically
- * means picking Agnes. The parenthesised tier is macOS's own label, and a
- * Personal Voice (the one the user recorded themselves, Apple's
- * accessibility/Apple-Intelligence-era feature) outranks everything.
+ * same list as this year's neural ones. Siri voices are the best `say` can do
+ * and rank with a Personal Voice (the one the user recorded themselves); on
+ * current macOS they are recognisable only by their SAMPLE sentence
+ * ("Hi, I'm Siri!"), the name markers having disappeared from the listing.
+ * The robots are pinned to "average" by name — see SAY_ROBOTS.
  */
-export function sayTier(name) {
+export function sayTier(name, sample = '') {
   if (/\(Personal Voice\)/i.test(name)) return 0;
-  if (/\(Premium\)/i.test(name)) return 1;
-  if (/\(Neural\)|\(Siri\)/i.test(name)) return 1;
+  if (/^Siri\b|\(Siri\)/i.test(name) || /I[’']m Siri/i.test(sample)) return 0;
+  if (/\(Premium\)|\(Neural\)/i.test(name)) return 1;
   if (/\(Enhanced\)/i.test(name)) return 2;
+  if (SAY_ROBOTS.has(name.replace(/\s*\(.*\)$/, '').trim())) return 4;
   return 3;
 }
 
-const TIER_LABEL = ['personal voice', 'premium', 'enhanced', 'built-in'];
+/**
+ * What each tier is CALLED where a person is choosing: the categories, not
+ * the engine trivia. Two tiers share "good" and two share "average" — the
+ * ranking stays finer than the vocabulary so the sort still puts an Enhanced
+ * voice above a plain one and a plain one above a robot.
+ */
+export const TIER_LABEL = ['best', 'good', 'good', 'average', 'average'];
 
 /**
  * Parse `say -v '?'`.
  *
  * A voice NAME may contain spaces and a parenthesised tier, so the locale — the
  * one token that always looks like `en_US` and always precedes the `#` — is the
- * anchor, not a column position.
+ * anchor, not a column position. The sample sentence after the `#` rides along:
+ * on current macOS it is the only place a Siri voice says what it is.
+ *
+ * A Siri row that shares its display NAME with a non-Siri row is DROPPED:
+ * `say -v` addresses voices by name, so the Siri variant behind a duplicate
+ * name cannot actually be selected, and a picker row that plays a different
+ * voice than it names would be a lie. A Siri voice under its own name
+ * ("Siri Voice 4") is kept, and is the best thing in the list.
  */
 export function parseSayVoices(stdout, { lang } = {}) {
   const out = [];
   for (const line of String(stdout ?? '').split('\n')) {
-    const m = /^(.*?)\s{2,}([a-z]{2}(?:[-_][A-Za-z0-9]{2,8})*)\s*#/.exec(line)
-      ?? /^(.*?)\s+([a-z]{2}[-_][A-Z]{2})\s+#/.exec(line);
+    const m = /^(.*?)\s{2,}([a-z]{2}(?:[-_][A-Za-z0-9]{2,8})*)\s*#\s*(.*)$/.exec(line)
+      ?? /^(.*?)\s+([a-z]{2}[-_][A-Z]{2})\s+#\s*(.*)$/.exec(line);
     if (!m) continue;
     const name = m[1].trim();
     if (!name) continue;
-    out.push({ name, locale: m[2].replace('-', '_'), tier: sayTier(name) });
+    const sample = (m[3] ?? '').trim();
+    out.push({ name, locale: m[2].replace('-', '_'), tier: sayTier(name, sample), sample });
   }
+  // the unaddressable Siri duplicates (see above)
+  const names = new Map();
+  for (const v of out) names.set(v.name, (names.get(v.name) ?? 0) + 1);
+  const kept = out.filter((v) => !(names.get(v.name) > 1 && /I[’']m Siri/i.test(v.sample)));
   const want = (lang ?? 'en').slice(0, 2).toLowerCase();
   // English (or the asked-for language) first, then by tier: a machine whose
   // best voice speaks Italian should not narrate an English deck with it
-  return out.sort((a, b) =>
+  return kept.sort((a, b) =>
     (a.locale.startsWith(want) ? 0 : 1) - (b.locale.startsWith(want) ? 0 : 1)
     || a.tier - b.tier
     || a.name.localeCompare(b.name));
@@ -173,7 +208,18 @@ export function detectLocalVoice({
     if (voices.length) {
       return {
         engine: 'say', voices,
-        label: `macOS ${TIER_LABEL[voices[0].tier]}: ${voices[0].name}`,
+        label: `macOS ${TIER_LABEL[voices[0].tier]} voice: ${voices[0].name}`,
+        // The one upgrade worth suggesting: Siri voices are the best thing
+        // `say` can produce and a free download away — but only a person can
+        // click through to them, so this rides the caveat channel (the
+        // bridge's startup line, the picker's toast) rather than pretending
+        // to be automatable.
+        ...(voices.some((v) => v.tier === 0) ? {} : {
+          caveat: 'the best voices here are Siri’s, a free download: System Settings '
+            + '→ Accessibility → Spoken Content → System Voice → Manage Voices… '
+            + '(open it with: open "x-apple.systempreferences:com.apple.preference.universalaccess") '
+            + '— then restart decklight tts',
+        }),
       };
     }
     return { engine: null, why: 'macOS `say` is installed but reported no voices', suggest: PIPER_SUGGEST };

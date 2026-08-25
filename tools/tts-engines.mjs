@@ -51,7 +51,7 @@ import {
   createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
 } from './elevenlabs-tts.mjs';
-import { detectLocalVoice, sayArgs, sapiArgs } from './local-voice.mjs';
+import { detectLocalVoice, sayArgs, sapiArgs, TIER_LABEL } from './local-voice.mjs';
 
 export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs', 'say', 'sapi'];
 /** The two engines that are already on the machine — nothing to install. */
@@ -418,7 +418,17 @@ export function createEngine({
     return {
       name: engine, model: pick, needsProject: false, stylable: false,
       cost: 'free · offline · already on this machine',
-      voices: (detected.voices ?? []).map((v) => [v.name, v.locale || 'system']),
+      // the picker's second column says what a voice IS — its quality
+      // category first (best · good · average), then the locale — because the
+      // roster mixes this year's neural voices with 1990s robots under names
+      // that reveal nothing
+      voices: (detected.voices ?? []).map((v) => [
+        v.name,
+        [Number.isInteger(v.tier) ? TIER_LABEL[v.tier] : null, v.locale || 'system'].filter(Boolean).join(' · '),
+      ]),
+      // "download a Siri voice" rides the same channel every engine caveat
+      // does: the bridge's startup line and the deck's toast on switching
+      ...(detected.caveat ? { caveat: detected.caveat } : {}),
       synth: createNative({
         kind: engine, voice: pick, shell: detected.shell, voices: detected.voices ?? [],
       }),

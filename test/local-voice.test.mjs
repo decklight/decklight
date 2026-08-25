@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import assert from 'node:assert/strict';
 
 import {
-  parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs,
+  parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs, TIER_LABEL,
   detectLocalVoice, ollamaRunning, OLLAMA_NOTE, onPath, probe,
 } from '../tools/local-voice.mjs';
 import { planServices, voiceModelOffer } from '../cli/dev.mjs';
@@ -50,11 +50,39 @@ test('a deck in another language gets that language\'s voices first', () => {
   assert.equal(parseSayVoices(SAY, { lang: 'it-IT' })[0].name, 'Alice');
 });
 
-test('the tiers macOS itself labels are the ones we rank', () => {
+test('voices rank by quality category: best · good · average, robots pinned to average', () => {
   assert.equal(sayTier('Gilles (Personal Voice)'), 0);
   assert.equal(sayTier('Ava (Premium)'), 1);
   assert.equal(sayTier('Daniel (Enhanced)'), 2);
-  assert.equal(sayTier('Agnes'), 3);
+  assert.equal(sayTier('Samantha'), 3, 'a plain modern voice is average, above the robots');
+  // the robots: they sort alphabetically FIRST and the modern listing carries
+  // no quality markers — without the roster, Albert narrates your deck
+  for (const bot of ['Agnes', 'Albert', 'Zarvox', 'Bad News', 'Whisper']) {
+    assert.equal(sayTier(bot), 4, `${bot} is a robot and belongs in average, last`);
+  }
+  // Siri is the best say can do — named, or recognisable only by its sample
+  assert.equal(sayTier('Siri Voice 4'), 0);
+  assert.equal(sayTier('Aman (English (India))', 'Hi, I’m Siri!'), 0);
+  // the categories collapse finer ranks into the three words a person needs
+  assert.equal(TIER_LABEL[0], 'best');
+  assert.equal(TIER_LABEL[1], 'good');
+  assert.equal(TIER_LABEL[2], 'good');
+  assert.equal(TIER_LABEL[3], 'average');
+  assert.equal(TIER_LABEL[4], 'average');
+});
+
+test('a Siri voice hiding behind a duplicate name is dropped, not offered as a lie', () => {
+  // current macOS lists a downloaded Siri voice under the SAME display name as
+  // the regular voice, distinguished only by its sample sentence — and `say -v`
+  // addresses by name, so the Siri variant cannot actually be selected. A row
+  // that would play a different voice than it names must not exist.
+  const listing = 'Aman (English (India)) en_IN    # Hello! My name is Aman.\n'
+    + 'Aman (English (India)) en_IN    # Hi, I’m Siri!\n'
+    + 'Siri Voice 4        en_US    # Hi, I’m Siri!\n';
+  const v = parseSayVoices(listing);
+  assert.equal(v.filter((x) => x.name === 'Aman (English (India))').length, 1, 'the duplicate survived');
+  assert.equal(v[0].name, 'Siri Voice 4', 'a Siri voice under its OWN name is kept, and wins');
+  assert.equal(v[0].tier, 0);
 });
 
 test('Windows natural voices outrank the desktop ones', () => {
@@ -82,7 +110,22 @@ test('macOS is detected through say, and reports what it found', () => {
   const d = detectLocalVoice({ platform: 'darwin', hasBin: (b) => b === 'say', exec: () => SAY });
   assert.equal(d.engine, 'say');
   assert.equal(d.voices[0].name, 'Gilles (Personal Voice)');
-  assert.match(d.label, /^macOS personal voice: Gilles/);
+  assert.match(d.label, /^macOS best voice: Gilles/);
+  assert.equal(d.caveat, undefined, 'a machine with a best-tier voice needs no download hint');
+});
+
+test('a machine with no Siri voice is told where the best ones are', () => {
+  // no Personal Voice, no Siri — the caveat rides the same channel every
+  // engine caveat does (the bridge banner, the deck's toast), and names both
+  // the Settings path and the command that opens it
+  const plain = 'Samantha            en_US    # Hello! My name is Samantha.\n'
+    + 'Albert              en_US    # Hello! My name is Albert.\n';
+  const d = detectLocalVoice({ platform: 'darwin', hasBin: (b) => b === 'say', exec: () => plain });
+  assert.match(d.caveat, /Siri/);
+  assert.match(d.caveat, /Manage Voices/);
+  assert.match(d.caveat, /open "x-apple\.systempreferences:com\.apple\.preference\.universalaccess"/);
+  assert.equal(d.voices[0].name, 'Samantha', 'average beats a robot for the default');
+  assert.match(d.label, /^macOS average voice: Samantha/);
 });
 
 test('Windows is detected through PowerShell, whichever one is installed', () => {
