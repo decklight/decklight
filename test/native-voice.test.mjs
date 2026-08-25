@@ -19,7 +19,7 @@ import { createEngine } from '../tools/tts-engines.mjs';
 import { sayArgs, sapiArgs } from '../tools/local-voice.mjs';
 
 const ROSTER = [
-  { name: 'Albert', locale: 'en_US', tier: 3 },
+  { name: 'Albert', locale: 'en_US', tier: 4 },
   { name: 'Samantha', locale: 'en_US', tier: 3 },
   { name: 'Daniel', locale: 'en_GB', tier: 3 },
 ];
@@ -48,7 +48,10 @@ test('sapi selects the voice too, with the name escaped for PowerShell', () => {
 
 test('the engine reports the roster the machine has, not a built-in list', () => {
   const engine = sayEngine();
-  assert.deepEqual(engine.voices, [['Albert', 'en_US'], ['Samantha', 'en_US'], ['Daniel', 'en_GB']]);
+  // the second column is what a person needs at the moment of choosing: the
+  // quality category first, then the locale
+  assert.deepEqual(engine.voices,
+    [['Albert', 'average · en_US'], ['Samantha', 'average · en_US'], ['Daniel', 'average · en_GB']]);
   assert.equal(engine.stylable, false, 'a system voice takes no delivery instruction');
   assert.equal(engine.model, 'Albert', 'the startup voice is the first the OS ranked');
 });
