@@ -70,3 +70,18 @@ export function putBlob(git, treeish, pathParts, blobSha) {
   }
   return mktree(git, kept);
 }
+
+/**
+ * The commit a remote ref points at, fetched into FETCH_HEAD — or null when
+ * the remote has no such ref.
+ *
+ * The other half of pushing without a checkout: the PARENT, as the REMOTE has
+ * it. `ls-remote` first so a missing ref is an answer rather than a fetch
+ * error, then a destination-less fetch, so no local ref is created or moved —
+ * FETCH_HEAD is a file, not a ref, and nothing in the repository changes.
+ */
+export function remoteHead(git, remote, ref) {
+  if (!git(['ls-remote', remote, ref])) return null;
+  git(['fetch', '--quiet', remote, ref]);
+  return git(['rev-parse', 'FETCH_HEAD']);
+}

@@ -18,7 +18,7 @@ import { childEnv, rmTemp, writeFakeBin } from './helpers.mjs';
 import http from 'node:http';
 
 import {
-  setNarrationConfig, narrationLiteral, initArgument,
+  upsertNarrationTrack, narrationLiteral, initArgument,
   setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
 } from '../cli/edit.mjs';
@@ -57,11 +57,11 @@ const boot = (init) => '<!doctype html><div class="decklight"><section><h1>x</h1
 /** DECK has no boot call; the narration route needs one to edit. */
 const BOOT_DECK = boot;
 const initOf = (html) => html.match(/<script>([^<]*)<\/script>/g).pop().replace(/<\/?script>/g, '').trim();
-const TRACK = { files: 'voiceover', ext: 'wav', segments: true };
+const TRACK = { label: 'Mine', dir: 'voiceover', ext: 'wav', segments: true };
 
 test('the narration config is written into the deck, whatever shape it was in', () => {
-  const set = (init) => initOf(setNarrationConfig(boot(init), TRACK));
-  const want = "narration: { files: 'voiceover', ext: 'wav', segments: true }";
+  const set = (init) => initOf(upsertNarrationTrack(boot(init), TRACK));
+  const want = "narration: { files: [{ label: 'Mine', dir: 'voiceover', ext: 'wav', segments: true }] }";
 
   // an empty config, and no config at all
   assert.equal(set('Decklight.init({});'), `Decklight.init({ ${want} });`);
@@ -71,12 +71,12 @@ test('the narration config is written into the deck, whatever shape it was in', 
   // …and the scaffolder's own assigned form
   assert.match(set('const deck = Decklight.init({});'), /^const deck = Decklight/);
 
-  // an existing narration key is REPLACED, not duplicated — re-recording into
-  // a second folder must not leave the deck naming both
+  // an existing narration key is EXTENDED, never duplicated and never thrown
+  // away — a second voice is exactly when a multi-track deck exists
   const twice = set("Decklight.init({ narration: { files: 'old', ext: 'm4a' }, theme: 'x' });");
   assert.equal(twice.match(/narration:/g).length, 1);
-  assert.match(twice, /files: 'voiceover'/);
-  assert.doesNotMatch(twice, /'old'/);
+  assert.match(twice, /dir: 'voiceover'/);
+  assert.match(twice, /dir: 'old'/, 'the earlier track is kept, as a list entry');
   assert.match(twice, /theme: 'x'/, 'the rest of the config survives');
 });
 
@@ -84,49 +84,50 @@ test('the config walker is not fooled by braces and parens inside strings', () =
   // The reason this is a walker and not a regex. Both of these are things a
   // real deck contains, and a bracket-counting regex reads them as structure —
   // which would splice the config into the middle of somebody's title.
-  const set = (init) => initOf(setNarrationConfig(boot(init), TRACK));
+  const set = (init) => initOf(upsertNarrationTrack(boot(init), TRACK));
   assert.match(set("Decklight.init({ title: 'Acme (Inc)' });"), /title: 'Acme \(Inc\)'/);
   assert.match(set("Decklight.init({ title: 'a } b' });"), /title: 'a \} b'/);
   // a `narration:` nested inside another key is not this object's key
   const nested = set("Decklight.init({ character: { narration: 1 }, theme: 'x' });");
   assert.match(nested, /character: \{ narration: 1 \}/, 'the nested key is left alone');
-  assert.match(nested, /narration: \{ files: 'voiceover'/, 'and a real top-level one is added');
+  assert.match(nested, /narration: \{ files: \[\{ label: 'Mine'/, 'and a real top-level one is added');
 });
 
 test('the config walker is not fooled by comments either', () => {
   // A commented-out earlier track is exactly what an author leaves behind, and
   // a walker that skips strings but not comments FINDS that key: the splice
   // lands inside the comment, the UI says ✓, and the deck plays nothing.
-  const set = (init) => initOf(setNarrationConfig(boot(init), TRACK));
+  const set = (init) => initOf(upsertNarrationTrack(boot(init), TRACK));
+  const REAL = /narration: \{ files: \[\{ label: 'Mine'/;
 
   const block = set("Decklight.init({ theme: 'x', /* narration: { files: 'old' }, */ });");
   assert.match(block, /\/\* narration: \{ files: 'old' \}, \*\//, 'the comment is left exactly as written');
-  assert.match(block, /narration: \{ files: 'voiceover'/, 'the real key is added OUTSIDE it');
+  assert.match(block, REAL, 'the real key is added OUTSIDE it');
   const line = set("Decklight.init({\n  theme: 'x',\n  // narration: { files: 'old' },\n});");
   assert.match(line, /\/\/ narration: \{ files: 'old' \},/, 'the line comment survives');
-  assert.match(line, /narration: \{ files: 'voiceover'/);
+  assert.match(line, REAL);
 
   // an unbalanced ')' in a comment must not end the init argument early —
   // a splice into a truncated span lands mid-expression and corrupts the deck
   const paren = set("Decklight.init({ theme: 'x' /* ) */ });");
-  assert.match(paren, /narration: \{ files: 'voiceover'/);
+  assert.match(paren, REAL);
   assert.match(paren, /\/\* \) \*\//, 'the comment is untouched');
 
   // and a key SUFFIX is not the key: the old prefix guard matched ^ at every
   // slice, so `mynarration:` was found at its own `n`
   const suffix = set("Decklight.init({ mynarration: 1, theme: 'x' });");
   assert.match(suffix, /mynarration: 1/, 'the impostor key is left alone');
-  assert.match(suffix, /narration: \{ files: 'voiceover'/, 'the real key is added beside it');
+  assert.match(suffix, REAL, 'the real key is added beside it');
 });
 
 test('a config built outside the init call is refused, never guessed at', () => {
   // `const cfg = {…}; Decklight.init(cfg)` has nothing at the call site to
   // edit. Guessing which `cfg`, in which scope, is how an editor corrupts a
   // file — so this returns null and the card keeps printing the line.
-  assert.equal(setNarrationConfig(boot('const cfg = { theme: 1 }; Decklight.init(cfg);'), TRACK), null);
-  assert.equal(setNarrationConfig(boot('Decklight.init(window.CFG);'), TRACK), null);
+  assert.equal(upsertNarrationTrack(boot('const cfg = { theme: 1 }; Decklight.init(cfg);'), TRACK), null);
+  assert.equal(upsertNarrationTrack(boot('Decklight.init(window.CFG);'), TRACK), null);
   // and a deck with no boot call at all
-  assert.equal(setNarrationConfig('<div class="decklight"></div>', TRACK), null);
+  assert.equal(upsertNarrationTrack('<div class="decklight"></div>', TRACK), null);
   assert.equal(initArgument('<div class="decklight"></div>'), null);
 });
 

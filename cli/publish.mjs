@@ -33,7 +33,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { makeFail, runMain } from './util.mjs';
 import { isMain } from '../tools/args.mjs';
-import { putBlob } from './git-tree.mjs';
+import { putBlob, remoteHead } from './git-tree.mjs';
+import { ownerRepo } from './git.mjs';
 import { TARGETS, schemaFor, envVarsFor, envAnswers, deploy } from '../tools/publish-targets.mjs';
 import { checkAnswers } from './wizard.mjs';
 
@@ -48,12 +49,10 @@ const fail = makeFail('publish');
  *   …/owner/owner.github.io           → https://owner.github.io/
  */
 export function pagesUrl(remoteUrl) {
-  const m = (remoteUrl || '').trim().match(
-    /^(?:https?:\/\/(?:[^/@]+@)?|git@|ssh:\/\/git@)github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/i,
-  );
-  if (!m) return null;
-  const owner = m[1].toLowerCase();
-  const repo = m[2];
+  const at = ownerRepo(remoteUrl);
+  if (!at) return null;
+  const owner = at.owner.toLowerCase();
+  const repo = at.repo;
   if (repo.toLowerCase() === `${owner}.github.io`) return `https://${owner}.github.io/`;
   return `https://${owner}.github.io/${repo}/`;
 }
@@ -256,11 +255,7 @@ if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 
 // A second publish parents on the branch as the REMOTE has it — fetched
 // fresh, so two machines publishing the same deck append to one history.
-let parent = null;
-if (git(['ls-remote', remote, `refs/heads/${branch}`])) {
-  git(['fetch', '--quiet', remote, `refs/heads/${branch}`]);
-  parent = git(['rev-parse', 'FETCH_HEAD']);
-}
+const parent = remoteHead(git, remote, `refs/heads/${branch}`);
 
 // The tree builders live in cli/git-tree.mjs now — `review submit` needs the
 // same ones, and neither git's `name/` sort order nor the `--full-tree` scoping

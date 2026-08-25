@@ -185,6 +185,21 @@ export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${ba
 // update-check.mjs established. SPEC REVIEW states the contract; anything
 // else that wants to fetch unasked argues there, not here.
 
+/**
+ * `owner/repo` from a GitHub remote URL, or null for anything else.
+ *
+ * THE one parser — `pagesUrl` (cli/publish.mjs) derives the Pages site from it
+ * and `review submit` hands it to `gh --repo`. It lived in both files as the
+ * same regex for a while, which is exactly how one copy grows a spelling the
+ * other refuses.
+ */
+export function ownerRepo(remoteUrl) {
+  const m = (remoteUrl || '').trim().match(
+    /^(?:https?:\/\/(?:[^/@]+@)?|git@|ssh:\/\/git@)github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/i,
+  );
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+
 /** The env every remote-touching git call runs under. See the note above. */
 export function noPromptEnv(env = process.env) {
   const { GIT_ASKPASS, SSH_ASKPASS, ...rest } = env;
