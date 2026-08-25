@@ -47,7 +47,7 @@
 
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, watch, existsSync } from 'node:fs';
-import { resolve, relative, sep, basename } from 'node:path';
+import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
@@ -769,7 +769,15 @@ export async function editMain(args, { onListen = null } = {}) {
   };
 
   let pending = null;
-  watch(deckPath, () => {
+  // The DIRECTORY, not the file. A path watch follows the inode, and an
+  // atomic write — temp file + rename, which is how an agent's editor and
+  // most careful tools save — replaces the inode: the watcher then sits deaf
+  // on the old one, and every later edit, restore included, reloads nobody.
+  // Found in 0.7.0 manual testing as "restore worked but the deck kept
+  // showing the old slides". A directory watch names the entry that changed
+  // and survives any number of replacements.
+  watch(dirname(deckPath), (kind, filename) => {
+    if (filename && filename !== basename(deckPath)) return;
     clearTimeout(pending);
     pending = setTimeout(() => {
       clients.raw('data: reload\n\n');
