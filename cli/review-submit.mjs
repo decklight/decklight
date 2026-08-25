@@ -39,9 +39,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
 import { makeFail } from './util.mjs';
-import { noPromptEnv, oneline } from './git.mjs';
+import { noPromptEnv, oneline, ownerRepo } from './git.mjs';
 import { refProblem } from './marketplace.mjs';
-import { putBlob } from './git-tree.mjs';
+import { putBlob, remoteHead } from './git-tree.mjs';
 import { reviewPathFor, parseReview } from './review-store.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
 import { reviewerIdentity } from './review.mjs';
@@ -89,18 +89,9 @@ export function branchName(identity, when = new Date()) {
   return `review/${slugUser(identity)}-${day}`;
 }
 
-/**
- * `owner/repo` from a GitHub remote, or null.
- *
- * The regex is `pagesUrl`'s (cli/publish.mjs), which has always captured both
- * and thrown them away. `--pr` needs them as `gh`'s `--repo`.
- */
-export function ownerRepo(remoteUrl) {
-  const m = (remoteUrl || '').trim().match(
-    /^(?:https?:\/\/(?:[^/@]+@)?|git@|ssh:\/\/git@)github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?\/?$/i,
-  );
-  return m ? { owner: m[1], repo: m[2] } : null;
-}
+// The GitHub-remote parser moved to cli/git.mjs — `pagesUrl` shares it now.
+// Re-exported so this module keeps answering for the thing `--pr` needs.
+export { ownerRepo } from './git.mjs';
 
 /**
  * The compare URL a reviewer can hand somebody when there is no `gh`.
@@ -168,12 +159,8 @@ export function submitReview(deckPath, {
   // The parent, as the REMOTE has it. The review branch if it is already there
   // (a second submit today appends to this morning's), else the branch this
   // deck sits on, so the diff is the comments and nothing else.
-  const remoteHead = (ref) => {
-    if (!git(['ls-remote', remote, ref])) return null;
-    git(['fetch', '--quiet', remote, ref]);
-    return git(['rev-parse', 'FETCH_HEAD']);
-  };
-  let parent = remoteHead(`refs/heads/${branch}`);
+  const head = (ref) => remoteHead(git, remote, ref);
+  let parent = head(`refs/heads/${branch}`);
   const resubmit = Boolean(parent);
   // The branch the review is OF — reviewing a deck on branchA means the pull
   // request must target branchA, or its diff shows branchA's own commits
@@ -192,7 +179,7 @@ export function submitReview(deckPath, {
       if (up) upstreamRef = `refs/heads/${up.split('/').slice(1).join('/')}`;
     } catch { upstreamRef = null; }
     if (upstreamRef) {
-      const at = remoteHead(upstreamRef);
+      const at = head(upstreamRef);
       if (at) {
         base = upstreamRef.slice('refs/heads/'.length);
         if (!parent) parent = at;
@@ -204,11 +191,11 @@ export function submitReview(deckPath, {
     // never pushed. The remote's own default branch is the right base then:
     // it is what a pull request would diff against anyway.
     try {
-      const head = exec('git', ['ls-remote', '--symref', remote, 'HEAD'],
+      const sym = exec('git', ['ls-remote', '--symref', remote, 'HEAD'],
         { cwd, encoding: 'utf8', env: noPromptEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-      const m = /^ref:\s+(refs\/heads\/\S+)\s+HEAD/m.exec(head);
+      const m = /^ref:\s+(refs\/heads\/\S+)\s+HEAD/m.exec(sym);
       if (m) {
-        const at = remoteHead(m[1]);
+        const at = head(m[1]);
         if (at) {
           base = m[1].slice('refs/heads/'.length);
           if (!parent) parent = at;

@@ -409,35 +409,6 @@ export function upsertNarrationTrack(html, track) {
   return splice(nvalAt, nvalAt + nval.length, body);
 }
 
-export function setNarrationConfig(html, cfg) {
-  const arg = initArgument(html);
-  if (!arg) return null;
-  const raw = html.slice(arg.start, arg.end);
-  const literal = narrationLiteral(cfg);
-  const splice = (from, to, text) => html.slice(0, from) + text + html.slice(to);
-
-  // `Decklight.init()` — nothing passed at all
-  if (!raw.trim()) return splice(arg.start, arg.end, `{ narration: ${literal} }`);
-  // anything that is not an object literal: an identifier, a call, a spread of
-  // something declared elsewhere. Not ours to rewrite.
-  const open = raw.indexOf('{');
-  if (open === -1 || raw.slice(0, open).trim()) return null;
-  const close = raw.lastIndexOf('}');
-  if (close < open) return null;
-
-  const obj = raw.slice(open, close + 1);
-  const found = objectKey(obj, 'narration');
-  if (found) {
-    return splice(arg.start + open + found.valueFrom, arg.start + open + found.to, ` ${literal}`);
-  }
-  // no narration key yet — add one, keeping whatever else is configured
-  const inner = obj.slice(1, -1);
-  const body = inner.trim()
-    ? `{ narration: ${literal},${inner.replace(/^\s*\n?/, inner.includes('\n') ? '\n' : ' ')}}`
-    : `{ narration: ${literal} }`;
-  return splice(arg.start + open, arg.start + close + 1, body);
-}
-
 export const BUILD_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight', 'none'];
 
 /**

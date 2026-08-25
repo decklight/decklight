@@ -325,13 +325,24 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
    * not moved — because a line that appears on every comment is a line nobody
    * reads by the third one.
    */
+  // Memoized by hash: `knowsCommit` and `commitsSince` are a git process
+  // each, and a reviewed deck repeats the same few hashes across dozens of
+  // comments — without this, listing 50 comments spawned up to 100 gits to
+  // learn perhaps three answers.
+  const againstCache = new Map();
   const against = (c) => {
     if (!c.deck) return '';
-    if (!inRepo || !knowsCommit(c.deck, deckDir)) return ` · against ${c.deck}`;
-    const n = commitsSince(c.deck, deckDir);
-    if (n === null) return ` · against ${c.deck}`;
-    return n === 0 ? ` · against ${c.deck} (still current)`
-      : ` · against ${c.deck}, ${n} commit${n === 1 ? '' : 's'} ago`;
+    if (againstCache.has(c.deck)) return againstCache.get(c.deck);
+    let line;
+    if (!inRepo || !knowsCommit(c.deck, deckDir)) line = ` · against ${c.deck}`;
+    else {
+      const n = commitsSince(c.deck, deckDir);
+      line = n === null ? ` · against ${c.deck}`
+        : n === 0 ? ` · against ${c.deck} (still current)`
+          : ` · against ${c.deck}, ${n} commit${n === 1 ? '' : 's'} ago`;
+    }
+    againstCache.set(c.deck, line);
+    return line;
   };
 
   const printOne = (c, indent = '    ') => {

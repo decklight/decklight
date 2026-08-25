@@ -5,7 +5,7 @@
 /**
  * decklight — the Decklight command line.
  *
- *   decklight cast     record a terminal cast from a YAML script (alias: rec)
+ *   decklight cast     record a terminal cast from a YAML script
  *   decklight refresh  re-run embedded scripts, rewrite drifted casts
  *   decklight export   convert a cast to asciicast v2
  *   decklight pdf      render a deck to a PDF — one slide per page, no print dialog
