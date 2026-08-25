@@ -608,10 +608,34 @@ SSH and pipes (exit 0 when the question was answered, including "none"; 1 when i
 startup check is a fetch the author did not type: it is the **named, sanctioned exception** to "never a fetch
 you did not ask for", kept to the update-check shape, and switched off by any of `--no-review-check`,
 `DECKLIGHT_NO_REVIEW_CHECK`, or `CI` — each reporting the *reason* it was skipped, because a silent skip and "no
-reviews waiting" look identical and mean opposite things. A check that could not run is a **named failure
+reviews waiting" look identical and mean opposite things. The explicit switches silence **every** surface —
+they mean "never touch the network for reviews" — while `CI` silences only the unasked startup fetch: a route
+somebody exercises deliberately must still answer there. A check that could not run is a **named failure
 state and never renders as "none waiting"** — unchecked is its own answer and never a pass. The `refs/heads/review/*`
 glob is a frozen constant in the source; nothing derived from a deck, a request, or a reviewer's choices
 reaches a refspec position.
+
+**Intake is the deck, not a git command.** The `M` overlay's incoming section shows the waiting reviews'
+**comments themselves** — anchored against the deck as it is now, walkable and jumpable like local ones — and
+`T` (armed, then confirmed) takes a whole review into the deck's own sidecar: `POST /edit/review/take`, a
+**by-id merge into one local file**, committed like any other comment. Taking twice changes nothing, no
+checkout or working tree is touched, and nothing is pushed. Resolving an incoming comment takes its review in
+first — a resolve written against a record the local file never held would be an answer to a question nobody
+asked. "Waiting" means **holds records the local sidecar does not**: a review absorbed by `T`, by `--import`,
+or by an actual `git merge` stops nagging identically, because the by-id merge is the one arbiter. The
+union-merge/pull-request path remains fully supported — it is simply no longer the doorway.
+
+**A comment on a slide that no longer exists is reconciled, never stranded.** An orphan is still listed last
+and never silently re-pinned — but `⏎` on it (with nowhere to jump) unfolds **what the slide said** at the
+commit the comment was written against (`GET /edit/review/at`, the `--at` machinery served), putting the
+objection back under the prose it was about; most orphans dissolve into a resolve right there. For a slide
+rewritten past what fingerprint + title can find, `A` **moves the comment to the slide on screen** (armed,
+then confirmed): an appended `{op:"anchor", re, slide, title, fp}` record — the third member of the
+append-only op family, beside resolve and reply. The fold applies the **latest** anchor before resolution, so
+the moved comment reads as if written there (`exact`), while the reviewer's original line is never edited —
+which is what keeps `merge=union` and a replayed `--import` safe; an op's identity is its tuple, so arriving
+twice is one line. `movedFrom` keeps pointing at where the reviewer wrote it: that history is the comment's,
+not the anchor's.
 
 **In the deck, `M`** opens one overlay whose powers depend on which server answered: a review server means the
 composer is there, on the slide you are looking at; an author server means rows can be resolved; with neither,

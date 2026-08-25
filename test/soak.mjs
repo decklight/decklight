@@ -234,10 +234,10 @@ const ports = new Set();
  * port is never guessed: `author` plans its child's URL with a literal 0, so
  * the caller passes the SPECIFIC line to match rather than a bare 127.0.0.1:N.
  */
-function startServer(args, re, { timeoutMs = 20000 } = {}) {
+function startServer(args, re, { timeoutMs = 20000, cwd = PROJECT } = {}) {
   const argv = [DL.bin, ...args];
   const child = spawn(argv[0], argv.slice(1),
-    { cwd: PROJECT, env: env(), stdio: ['pipe', 'pipe', 'pipe'], shell: DL.shell });
+    { cwd, env: env(), stdio: ['pipe', 'pipe', 'pipe'], shell: DL.shell });
   kids.add(child);
   let log = '';
   child.stdout.on('data', (c) => { log += c; });
@@ -1404,6 +1404,41 @@ try {
     must(new RegExp(`${rbranch}  4 comments`).test(heard.all),
       `--incoming did not list the waiting review: ${heard.all}`);
     must(!/no reviews/.test(heard.all), 'a waiting review rendered as none');
+
+    // …and the author takes it in FROM THE DECK: the overlay's T is a POST
+    // to the author server, a by-id merge into the local sidecar — no git
+    // merge is ever asked of anyone. Through the installed binary, over HTTP,
+    // which is the only place this path runs whole.
+    const asrv = await startServer(
+      ['author', 'reviewed.html', '--port', '0', '--no-git'],
+      /decklight author on http:\/\/127\.0\.0\.1:(\d+)/, { cwd: author2 });
+    // CI=1 (the runner's env) silences only the UNASKED startup line — this
+    // route is behind the keypress that opens M, and must answer anywhere
+    const inc = await (await fetch(`${asrv.base}/edit/review/incoming`)).json();
+    must(inc.ok === true && inc.state === 'ok',
+      `incoming answered ${JSON.stringify(inc).slice(0, 200)}`);
+    must(inc.reviews?.[0]?.records?.some((x) => x.body === 'One more before sending.'),
+      'the incoming records did not carry the comments');
+    const take = await (await fetch(`${asrv.base}/edit/review/take`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ branch: inc.reviews[0].branch }),
+    })).json();
+    // added is the DELTA, not the branch's total: this clone already carries
+    // the first three comments through main's history (the reviewer committed
+    // as-you-go before pushing), so the take adds exactly the one record the
+    // hub never saw — the by-id merge counting precisely is the point.
+    must(take.ok === true && take.added === 1, `take answered ${JSON.stringify(take)}`);
+    must(existsSync(join(author2, 'reviewed.review.jsonl')), 'the sidecar did not land');
+    must(readFileSync(join(author2, 'reviewed.review.jsonl'), 'utf8').includes('One more before sending.'),
+      'the taken comments are not in the sidecar');
+    // taking twice changes nothing, and the review stops waiting
+    const inc2 = await (await fetch(`${asrv.base}/edit/review/incoming`)).json();
+    must(!(inc2.reviews ?? []).length, `a taken review kept waiting: ${JSON.stringify(inc2).slice(0, 200)}`);
+    asrv.child.kill('SIGTERM');
+    must(await waitExit(asrv.child, 5000), 'author did not exit on SIGTERM');
+    const heardAfter = dl(['comments', 'reviewed.html', '--incoming'], { cwd: author2 });
+    must(/no reviews waiting/.test(heardAfter.all), `--incoming still nags after the take: ${heardAfter.all}`);
 
     // and a remote that stops existing is a NAMED failure, never "none"
     spawnSync('git', ['remote', 'set-url', 'origin', join(SPACE, 'gone.git')], { cwd: author2, encoding: 'utf8' });

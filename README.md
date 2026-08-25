@@ -116,7 +116,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight record deck.html` | record the narration in **your own voice** — the deck reads you its notes one ⟨CLICK⟩ at a time, and `→` ends a beat *and* reveals the next build, so your voice paces the deck (`cast` records a terminal, `record` records you) |
 | `decklight review deck.html` | **leave comments on somebody's deck**, anchored to slides — a comment survives the slide moving, and says so when its slide changed or is gone |
 | `decklight review submit deck.html` | **send the review back** — pushes the comments (one file, never your own commits) to a `review/<you>-<date>` branch; `--pr` opens the pull request |
-| `decklight comments deck.html` | read what reviewers said, resolved against the deck as it is now (`--import` takes in a file from a reviewer with no clone; `--incoming` lists the reviews waiting on the remote) |
+| `decklight comments deck.html` | read what reviewers said, resolved against the deck as it is now (`--import` takes in a file from a reviewer with no clone; `--incoming` lists the reviews waiting on the remote — `M` in the deck reads and takes them in) |
 | `decklight history deck.html` | what decklight committed, which commits exist only on this machine, and how to push them |
 | `decklight restore deck.html` | list the commits that touched a deck, and put it back to any of them |
 | `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
@@ -144,7 +144,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `S` | speaker view (again: rehearse cue cards) |
 | `T` | theme picker (type to filter) · `⌃T` generate a theme |
 | `V` | narration on/off · `⇧V` records it in a synthesized voice · `⇧R` records it in yours |
-| `M` | review comments — what reviewers said, `⏎` jumps to the slide, `S` submits the review |
+| `M` | review comments — what reviewers said (incoming reviews included), `⏎` jumps to the slide, `S` submits a review, `T` takes one in |
 | `H` | the deck's history — every version previewed live, `⏎` restores one |
 | `/` | command palette · `G` find a slide |
 | `?` | help overlay — every key |

@@ -154,10 +154,11 @@ async function listIncoming(deckPath, { remote, name, out, err }) {
         + `${v.unreadable ? ` (${v.unreadable} unreadable line${v.unreadable === 1 ? '' : 's'})` : ''}`
         + ` · ${v.who}${v.at ? ` · ${ago(v.at)}` : ''}\n`);
     }
-    // The intake is plain git on purpose: merging the branch brings the
-    // sidecar through the union merge, which is what the format is FOR.
-    out.write(`\ntake one in:  git merge ${remote}/${r.reviews[0].branch}`
-      + `   then read it:  decklight comments ${name}\n`);
+    // The deck is the doorway: M shows these comments and T takes a review
+    // in. Plain git still works — merging the branch brings the sidecar
+    // through the union merge — for whoever prefers the terminal end to end.
+    out.write(`\ntake them in:  decklight author ${name}  then M in the deck`
+      + `   (or: git merge ${remote}/${r.reviews[0].branch})\n`);
     return 0;
   }
   if (r.state === 'none') { out.write(`no reviews waiting on ${remote}\n`); return 0; }

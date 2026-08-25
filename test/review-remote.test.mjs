@@ -19,6 +19,7 @@ import { rmTemp } from './helpers.mjs';
 import {
   reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem,
 } from '../cli/review-remote.mjs';
+import { parseReview, mergeById, serializeRecord, reviewPathFor } from '../cli/review-store.mjs';
 import { submitReview } from '../cli/review-submit.mjs';
 
 const gitIn = (dir) => (...args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
@@ -92,6 +93,9 @@ test('reviewsWaiting finds every review of THIS deck, newest first, and nothing 
   assert.equal(r.reviews.find((x) => x.who === 'ana').comments, 2);
   const bo = r.reviews.find((x) => x.who === 'bo');
   assert.equal(bo.comments, 1, 'a reply is not a comment');
+  // the records ride along — the overlay renders THEM, a count was a placeholder
+  assert.ok(r.reviews.find((x) => x.who === 'ana').records.some((rec) => rec.body === 'first'),
+    'the comments themselves did not travel');
   assert.equal(bo.replies, 1);
   assert.equal(bo.branch, 'review/bo-2026-08-24');
   // the review of another deck, and the unrelated branch, are both absent
@@ -115,6 +119,27 @@ test('the fetch lands where a plain `git fetch` would, and nowhere new', async (
   // and the author's own checkout is untouched by looking
   assert.equal(g('status', '--porcelain'), '');
   assert.equal(g('rev-parse', '--abbrev-ref', 'HEAD'), 'main');
+});
+
+test('a review already taken in stops waiting, however it was taken', async (t) => {
+  const { dir, deck } = fixture();
+  t.after(() => rmTemp(dir));
+  const before = await reviewsWaiting(deck);
+  assert.deepEqual(before.reviews.map((x) => x.who), ['bo', 'ana']);
+
+  // the author takes ana's review in — the by-id merge the overlay's T and
+  // --import both perform; HOW it arrived must not matter to "waiting"
+  const store = reviewPathFor(deck);
+  const mine = fs.existsSync(store) ? parseReview(fs.readFileSync(store, 'utf8')).records : [];
+  const ana = before.reviews.find((x) => x.who === 'ana');
+  const { records } = mergeById(mine, ana.records);
+  fs.writeFileSync(store, records.map(serializeRecord).join('\n') + '\n');
+
+  const after = await reviewsWaiting(deck);
+  assert.deepEqual(after.reviews.map((x) => x.who), ['bo'], 'a taken review kept nagging');
+  // …and taking it in TWICE would add nothing, which is the property that
+  // makes the filter safe to compute this way
+  assert.equal(mergeById(parseReview(fs.readFileSync(store, 'utf8')).records, ana.records).added, 0);
 });
 
 test('a resolved comment is not "waiting", and an all-resolved branch is not a review', async (t) => {
@@ -216,6 +241,11 @@ test('every off switch names itself, and none of them run git', () => {
     'DECKLIGHT_NO_REVIEW_CHECK is set');
   assert.equal(reviewCheckSuppressed({ args: [], env: { CI: 'true' } }), 'CI');
   assert.equal(reviewCheckSuppressed({ args: [], env: {} }), false);
+  // the on-demand surface: CI silences only the unasked startup fetch — the
+  // explicit switches still kill every surface
+  assert.equal(reviewCheckSuppressed({ args: [], env: { CI: 'true' }, ci: false }), false);
+  assert.equal(reviewCheckSuppressed({ args: ['--no-review-check'], env: { CI: 'true' }, ci: false }), '--no-review-check');
+  assert.equal(reviewCheckSuppressed({ args: [], env: { DECKLIGHT_NO_REVIEW_CHECK: '1' }, ci: false }), 'DECKLIGHT_NO_REVIEW_CHECK is set');
 });
 
 test('a suppressed check makes ZERO git calls', async (t) => {

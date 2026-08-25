@@ -144,8 +144,10 @@ export function foldReview(records) {
   const byId = new Map();
   const replies = [];
   const resolves = [];
+  const anchors = [];
   for (const r of records) {
     if (r.op === 'resolve') { resolves.push(r); continue; }
+    if (r.op === 'anchor') { anchors.push(r); continue; }
     if (r.re) { replies.push(r); continue; }
     // A duplicate id is the same comment arriving twice (an import, a union
     // merge that saw both sides). First one wins; it is the same text.
@@ -157,6 +159,22 @@ export function foldReview(records) {
     // Last resolve wins, but only over another resolve — a comment resolved and
     // then resolved again by somebody else is still resolved.
     if (c) c.resolved = { at: r.at ?? null, by: r.by ?? null };
+  }
+  // An anchor op MOVES a comment: the author, standing where the content
+  // lives now, re-pins a comment whose slide was deleted or rewritten past
+  // recognition. Applied after the fold and last-wins like a resolve, it
+  // replaces the anchor triple wholesale — slide, title, fingerprint — so
+  // resolveAnchor sees the comment as if it had been written there, while the
+  // original line is never edited (that would break merge=union). `movedFrom`
+  // keeps pointing at where the REVIEWER wrote it: that history is the
+  // comment's, not the anchor's.
+  for (const r of anchors) {
+    const c = byId.get(r.re);
+    if (!c || !Number.isInteger(r.slide)) continue;
+    c.slide = r.slide;
+    c.title = r.title ?? null;
+    c.fp = r.fp ?? null;
+    c.anchored = { at: r.at ?? null, by: r.by ?? null };
   }
   return [...byId.values()];
 }
