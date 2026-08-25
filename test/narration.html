@@ -747,10 +747,17 @@
           const useBtn = card?.querySelector('.rec-use');
           r.offeredToUseIt = !!useBtn;
           if (useBtn) {
-            useBtn.click();
+            // The KEYBOARD path, not a click: Enter on the done card used to
+            // close it — walking straight past this offer, with a hint that
+            // said to — and a recording the deck never learns about has no
+            // later door (N lists only configured tracks). Enter must accept
+            // FIRST and close only when nothing is left to accept.
+            r.hintSaysEnterUsesIt = /⏎ uses this track/.test(card?.textContent ?? '');
+            press('Enter', document.body);
             for (let i = 0; i < 200 && !/now plays this track|couldn/.test(useBtn.textContent); i++) {
               await new Promise((ok) => setTimeout(ok, 20));
             }
+            r.enterDidNotClose = !!document.querySelector('.decklight-record');
             r.useResult = useBtn.textContent;
             r.wroteTheConfig = window.__narrationWritten.slice();
             r.saidItWorked = /now plays this track/.test(useBtn.textContent);
@@ -784,7 +791,7 @@
             r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes
               && r.carriedAudio && r.dirIsRight && r.saidWhere && r.wroteABeatPerClick
               && r.noBeatsForAOneBreathSlide && r.beatsCarriedAudio && r.namedSegments
-              && r.offeredToUseIt
+              && r.offeredToUseIt && r.hintSaysEnterUsesIt && r.enterDidNotClose
               && (params.has('badconfig')
                 ? r.explainedTheRefusal && !r.wroteTheConfig.length
                 : r.saidItWorked && r.configMatchedTheCard);
