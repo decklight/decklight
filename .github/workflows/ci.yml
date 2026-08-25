@@ -110,10 +110,19 @@ jobs:
       # --test-timeout turns a HANG into a named failure. Both runs here died to
       # the job timeout after 29 minutes of SILENCE with no clue which file was
       # stuck: node --test reports a file only when it finishes, so a file that
-      # never finishes reports nothing at all. 120s is far above the slowest
-      # legitimate test (~12s) and far below this job's own limit.
+      # never finishes reports nothing at all.
+      #
+      # 300s, not 120s. The budget is per FILE (process isolation makes each
+      # file one top-level test), and 120s was sized to the slowest test on a
+      # HEALTHY runner (~12s). A loaded windows-latest runs the whole suite
+      # several times slower: on 2026-08-24 three consecutive runs each killed
+      # a different, perfectly green file at exactly 120000ms (dev.test.mjs,
+      # local-voice.test.mjs among them) — a flake lottery that blocked four
+      # PRs. Five minutes still converts a real hang into a named failure well
+      # inside the job's 30, and no longer fails files for being slow somewhere
+      # slow.
       - name: unit tests
-        run: npm test -- --test-timeout=120000
+        run: npm test -- --test-timeout=300000
 
   # `npm test` answers "does the code run there". This asks the other question
   # (#309): does it LOOK right there. They are different investigations, and the
