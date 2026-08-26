@@ -227,7 +227,12 @@
               // this mode guards only exists past the fold.
               : mode === 'scroll'
                 ? { engine: 'say', model: 'Albert', stylable: false,
-                  voices: Array.from({ length: 120 }, (_, i) => [`Voice ${String(i + 1).padStart(3, '0')}`, 'system']) }
+                  // triples, like the real say engine sends: a quality group
+                  // as the structured third element — 2 best, 3 good, and a
+                  // long tail of average, which is the shape of a real Mac
+                  voices: Array.from({ length: 120 }, (_, i) => [
+                    `Voice ${String(i + 1).padStart(3, '0')}`, 'system',
+                    i < 2 ? 'best' : i < 5 ? 'good' : 'average']) }
               : { engine: 'mock', model: 'mock', stylable: true, voices: [['Alnilam', 'firm']] };
         return new Response(JSON.stringify({ ok: true, ...roster }),
           { status: 200, headers: { 'content-type': 'application/json' } });
@@ -901,6 +906,13 @@
           };
           r.rows = document.querySelectorAll('.narr-row').length;
           r.scrollable = card.scrollHeight > card.clientHeight;
+          // the shelves: one labelled separator per quality group, in rank
+          // order — and NONE of them selectable (they are not .narr-row, so
+          // the highlight can never land on furniture)
+          r.groups = [...document.querySelectorAll('.narr-group')].map((n) => n.textContent);
+          r.groupsAreShelves = r.groups.join(',') === 'best,good,average';
+          r.groupsNotSelectable = !document.querySelector('.narr-group.narr-sel')
+            && r.rows === 121;   // 120 voices + the engine row, separators uncounted
           r.visibleThroughout = true;
           for (let i = 0; i < 60; i++) {
             press('ArrowDown', document.body);
@@ -919,7 +931,7 @@
           r.hoverHeldStill = card.scrollTop === before;
 
           r.PASS = r.rows > 60 && r.scrollable && r.visibleThroughout
-            && r.scrolled && r.hoverHeldStill;
+            && r.scrolled && r.hoverHeldStill && r.groupsAreShelves && r.groupsNotSelectable;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

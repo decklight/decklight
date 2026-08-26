@@ -418,13 +418,16 @@ export function createEngine({
     return {
       name: engine, model: pick, needsProject: false, stylable: false,
       cost: 'free · offline · already on this machine',
-      // the picker's second column says what a voice IS — its quality
-      // category first (best · good · average), then the locale — because the
-      // roster mixes this year's neural voices with 1990s robots under names
-      // that reveal nothing
+      // [name, flavor, group]: the quality category travels as a STRUCTURED
+      // third element (best · good · average) and the picker draws it as a
+      // labelled separator over each shelf — the roster mixes this year's
+      // neural voices with 1990s robots under names that reveal nothing. The
+      // flavor stays the locale alone; repeating the category on every row
+      // was the suffix wallpaper the separators replace.
       voices: (detected.voices ?? []).map((v) => [
         v.name,
-        [Number.isInteger(v.tier) ? TIER_LABEL[v.tier] : null, v.locale || 'system'].filter(Boolean).join(' · '),
+        v.locale || 'system',
+        Number.isInteger(v.tier) ? TIER_LABEL[v.tier] : undefined,
       ]),
       // "download a Siri voice" rides the same channel every engine caveat
       // does: the bridge's startup line and the deck's toast on switching
