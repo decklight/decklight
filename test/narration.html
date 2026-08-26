@@ -967,8 +967,25 @@
           r.othersExpand = rowTexts().some((t) => /Kyoko/.test(t))
             && !rowTexts().some((t) => /other languages \(5\)/.test(t));
 
+          // ▶ warms only what is ON SCREEN: after the folds expanded above,
+          // fold back is impossible this open — so re-open the picker fresh
+          // and preview from the folded state. The prefetch must reach the
+          // visible average voices and never the folded tails (~176 rows of
+          // background `say` on a real Mac).
+          press('n', document.body); await new Promise((ok) => setTimeout(ok, 200)); // close
+          press('n', document.body); await new Promise((ok) => setTimeout(ok, 500)); // reopen, folded
+          const before = bodies.length;
+          document.querySelectorAll('.narr-prev-btn:not(.narr-reset-btn)')[0].click();
+          for (let i = 0; i < 100 && bodies.length < before + 3; i++) await new Promise((ok) => setTimeout(ok, 30));
+          const warmed = [...new Set(bodies.slice(before).map((b) => b.voice))];
+          r.warmed = warmed;
+          r.warmedOnlyVisible = warmed.length >= 3
+            && warmed.every((v) => ['Daniel', 'Karen', 'Samantha'].includes(v));
+          r.foldedStayedCold = !warmed.some((v) => /Albert|Kyoko|Zarvox|Alice/.test(v));
+
           r.PASS = r.foldedTight && r.shelvesShown && r.tailsFolded
-            && r.installRowShown && r.installPosted && r.noveltyExpands && r.othersExpand;
+            && r.installRowShown && r.installPosted && r.noveltyExpands && r.othersExpand
+            && r.warmedOnlyVisible && r.foldedStayedCold;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

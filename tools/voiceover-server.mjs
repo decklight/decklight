@@ -36,6 +36,9 @@
 // stepping back through slides replays instantly and costs nothing.
 
 import { createServer } from 'node:http';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 
 /**
@@ -181,6 +184,42 @@ export async function ttsMain(args) {
   // engine's audio under another's voice — the cache survives the switch, and
   // switching back replays instantly rather than re-billing.
   const cache = new Map();
+  // The DISK half of the cache, for the engines whose synthesis is free and
+  // local (say, sapi, piper): a machine's own voice saying the same sentence
+  // is the same audio tomorrow, and a voice's identity — its name, which is
+  // exactly what `say -v` selects by — is stable per machine. Warming 184
+  // previews took ~6 minutes of background `say`; it should cost that once
+  // per machine, not once per bridge. Cloud engines stay memory-only: their
+  // output drifts with server models, and a stale clip that sounds unlike
+  // today's voice is worse than a re-bill of one preview sentence.
+  const DISK_CACHED = new Set(['say', 'sapi', 'piper']);
+  const cacheDir = join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'decklight', 'tts');
+  const diskPath = (key) => join(cacheDir, `${key}.wav`);
+  const diskRead = (key) => {
+    if (!DISK_CACHED.has(engine.name)) return null;
+    try {
+      const wav = readFileSync(diskPath(key));
+      return { wav, usage: { chars: 0, cost: 0, note: 'cached on disk' } };
+    } catch { return null; }
+  };
+  const diskWrite = (key, wav) => {
+    if (!DISK_CACHED.has(engine.name)) return;
+    try { mkdirSync(cacheDir, { recursive: true }); writeFileSync(diskPath(key), wav); }
+    catch { /* a cache that cannot write is a cache, not a failure */ }
+  };
+  // Bounded at startup, oldest first: a per-sentence cache grows forever and
+  // a silent 10 GB in ~/.cache is not a cache, it is a leak with a euphemism.
+  try {
+    const entries = readdirSync(cacheDir)
+      .filter((f) => f.endsWith('.wav'))
+      .map((f) => ({ f, ...statSync(join(cacheDir, f)) }))
+      .sort((a, b) => a.mtimeMs - b.mtimeMs);
+    let total = entries.reduce((sum, e) => sum + e.size, 0);
+    for (const e of entries) {
+      if (total <= 400 * 1024 * 1024) break;
+      try { unlinkSync(join(cacheDir, e.f)); total -= e.size; } catch { break; }
+    }
+  } catch { /* no cache dir yet */ }
 
   // What the bridge could become, and what stands in the way. The options the
   // deck's picker draws (SPEC `NARRATION`).
@@ -319,11 +358,20 @@ export async function ttsMain(args) {
         // it silently became undiffable and unreviewable.
         const key = createHash('sha256')
           .update([engine.name, voice, style, text].join('\u0000')).digest('hex');
-        const fresh = !cache.has(key);
+        let fresh = !cache.has(key);
+        if (fresh) {
+          const onDisk = diskRead(key);
+          if (onDisk) {
+            cache.set(key, onDisk);
+            fresh = false;
+            console.log(`  ${engine.name} ${picked}: ${text.length} chars · cached on disk`);
+          }
+        }
         if (fresh) {
           process.stdout.write(`  ${engine.name} ${picked}: ${text.length} chars … `);
           const t0 = Date.now();
           cache.set(key, await engine.synth(text, { voice, style }));
+          diskWrite(key, cache.get(key).wav);
           const u = cache.get(key).usage;
           // `cost` is OPTIONAL, and an installed engine is why (SPEC
           // ENGINE_UNITS): the six built-ins all happen to report one, so
