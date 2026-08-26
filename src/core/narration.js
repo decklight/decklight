@@ -58,6 +58,27 @@ export function pauseSeconds(raw) {
 }
 
 /**
+ * Seconds between SENTENCES of live narration — the breath a reader takes at
+ * a full stop, which a chain of separately synthesized clips otherwise lacks.
+ *
+ * A default (0.25s) that can be overridden, and overridden to ZERO: the
+ * slide's `data-narration-sentence-pause` wins when present (so "0" means
+ * no pause, unlike pauseSeconds' absent-means-none), then the deck's
+ * `narration.sentencePause`, then the default. Anything unparseable falls
+ * through to the next tier rather than to silence, so a typo in a config
+ * costs the default breath, not the feature.
+ */
+export const SENTENCE_PAUSE_S = 0.25;
+export function sentencePauseFor(attr, cfg) {
+  if (attr !== undefined && attr !== null && String(attr).trim() !== '') {
+    const n = Number(attr);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  if (typeof cfg === 'number' && Number.isFinite(cfg) && cfg >= 0) return cfg;
+  return SENTENCE_PAUSE_S;
+}
+
+/**
  * Wire narration to a deck.
  *
  * `ctx` carries the engine's furniture (`root`, `stage`, `config`, `params`,
@@ -509,6 +530,26 @@ export function createNarration({
   // Honored at play time for live and recorded tracks alike — never baked
   // into a recording, exactly like its end-of-slide sibling.
   const beatPause = (sl) => pauseSeconds(instance._sections[sl - 1]?.dataset.narrationBeatPause);
+  // data-narration-sentence-pause="0.5" · narration: { sentencePause } · 0.25s:
+  // the breath between two sentences of one beat. See sentencePauseFor.
+  const sentencePause = (sl) => sentencePauseFor(
+    instance._sections[sl - 1]?.dataset.narrationSentencePause, config.narration?.sentencePause);
+  /**
+   * Hold `seconds`, the way every narration pause holds: P stops the clock
+   * rather than eating the wait (paused time is not spent time), and a stale
+   * generation — manual navigation, V — ends it. Resolves false when the
+   * caller must not go on.
+   */
+  async function holdFor(seconds, stale) {
+    if (!(seconds > 0)) return !narrPaused && !stale();
+    for (let left = seconds * 1000; left > 0;) {
+      if (stale()) return false;
+      const t0 = Date.now();
+      await new Promise((r) => setTimeout(r, Math.min(150, left)));
+      if (!narrPaused) left -= Date.now() - t0;
+    }
+    return !narrPaused && !stale();
+  }
   // ── lookahead buffer ──────────────────────────────────────────────────
   // While live narration is ON, keep the next LIVE_LOOKAHEAD segments
   // synthesized in the background. Low priority by construction: ONE
@@ -635,15 +676,8 @@ export function createNarration({
     // rather than quietly running out behind a ⏸. Returns false when the
     // wait went stale and the caller must not advance.
     const held = async (seconds, what) => {
-      if (seconds <= 0) return !narrPaused && !stale();
-      debugLog('narr', `slide ${sl} — holding ${seconds}s before ${what}`);
-      for (let left = seconds * 1000; left > 0;) {
-        if (stale()) return false;
-        const t0 = Date.now();
-        await new Promise((r) => setTimeout(r, Math.min(150, left)));
-        if (!narrPaused) left -= Date.now() - t0;
-      }
-      return !narrPaused && !stale();
+      if (seconds > 0) debugLog('narr', `slide ${sl} — holding ${seconds}s before ${what}`);
+      return holdFor(seconds, stale);
     };
     const rec = instance._records[sl - 1];
     if (!endOfSlide && step < (rec ? rec.groups.length : 0)) {
@@ -735,6 +769,10 @@ export function createNarration({
           return;
         }
         spoke++;
+        // The breath at the full stop. Between sentences only — the beat and
+        // slide pauses own what comes after the last one — and gated exactly
+        // like them, so P holds it and a keypress mid-breath wins.
+        if (i < sentences.length - 1 && !(await holdFor(sentencePause(sl), stale))) return;
       }
       if (stale()) return;
       // Nothing spoken, but words to speak: the audio never played, so the deck
@@ -1931,7 +1969,10 @@ export function createNarration({
   // played (or warmed by the lookahead buffer) is reused as-is — only the
   // sentences never spoken get synthesized. Clips are joined with short
   // silences (breath between sentences, a longer beat between builds).
-  const SENT_GAP_S = 0.15;
+  // Between sentences a recording breathes exactly as the live voice does —
+  // sentencePause(sl), the same default and the same overrides — so ⇧V's take
+  // and the live chain pace a slide identically. Between BEATS the gap is
+  // fixed: it stands in for the ⟨CLICK⟩ a presenter would have taken.
   const SEG_GAP_S = 0.35;
   function stitchWav(chunks, rate) {
     const dataLen = chunks.reduce((n, c) => n + c.length, 0);
@@ -2002,7 +2043,7 @@ export function createNarration({
         const buf = await clip.blob.arrayBuffer();
         if (chunks.length === 0) rate = new DataView(buf).getUint32(24, true) || 24000;
         // a folded segment still gets a SEGMENT-sized breath, not a sentence one
-        else chunks.push(silencePcm(rate, i === 0 || segStarts.has(i) ? SEG_GAP_S : SENT_GAP_S));
+        else chunks.push(silencePcm(rate, i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl)));
         const pcm = new Uint8Array(buf.slice(44));
         chunks.push(pcm);
         // …and the same audio again, into the beat it belongs to
@@ -2011,7 +2052,7 @@ export function createNarration({
         if (file == null) continue;
         let list = beats.get(file);
         if (!list) beats.set(file, list = []);
-        if (list.length) list.push(silencePcm(rate, SENT_GAP_S));
+        if (list.length) list.push(silencePcm(rate, sentencePause(sl)));
         list.push(pcm);
       }
     }
@@ -2044,7 +2085,7 @@ export function createNarration({
             sentenceKey(sl, step, i), fetchLiveSentence(sl, step, i), sentences[i]);
           if (run !== recRun) return null;
           if (!tl) continue;
-          parts.push({ timeline: tl, gap: parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : SENT_GAP_S) : 0 });
+          parts.push({ timeline: tl, gap: parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl)) : 0 });
           // …and into the beat's own timeline, gapped exactly as its WAV is:
           // sentence gaps inside a beat, and never the segment gap that
           // separates beats. A sidecar cut differently from the audio it is
@@ -2054,7 +2095,7 @@ export function createNarration({
           if (file == null) continue;
           let list = beats.get(file);
           if (!list) beats.set(file, list = []);
-          list.push({ timeline: tl, gap: list.length ? SENT_GAP_S : 0 });
+          list.push({ timeline: tl, gap: list.length ? sentencePause(sl) : 0 });
         }
       }
     } catch {
