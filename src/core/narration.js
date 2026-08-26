@@ -251,6 +251,7 @@ export function createNarration({
   // thirty star names — and a picker offering 29 voices that silently do nothing
   // is a lie. /ping tells us; until it answers, the built-in roster stands.
   const PING_URL = LIVE_URL.replace(/\/tts\/?$/, '/ping');
+  const VOICES_INSTALL_URL = LIVE_URL.replace(/\/tts\/?$/, '/voices/install');
   // The bridge speaks with ONE engine, but it can be told to speak with another
   // (SPEC `NARRATION`) — so which one is a choice the deck can make, not just a
   // fact it reads. These two are the same route in its read and write forms.
@@ -259,6 +260,11 @@ export function createNarration({
   let liveVoices = GEMINI_VOICES;
   let liveStylable = true;  // only gemini takes a delivery instruction
   let liveEngine = null;
+  let liveCaveat = null;   // the engine's standing note — say's Siri hint rides here
+  // Which collapsed voice shelves this OPEN of the picker has unfolded. Never
+  // persisted, cleared on close: a tail of 140 foreign voices should be one
+  // row again tomorrow.
+  const narrExpanded = new Set();
   let livePing = null;
   // The menu, and whether we have asked for it. Not cached across picker opens
   // like the roster is: a presenter who exported a key and restarted the bridge
@@ -296,6 +302,7 @@ export function createNarration({
   function adoptBridge(p) {
     if (!p) return null;
     liveEngine = p.engine ?? null;
+    liveCaveat = typeof p.caveat === 'string' ? p.caveat : null;
     if (Array.isArray(p.voices) && p.voices.length) liveVoices = p.voices;
     liveStylable = p.stylable !== false;
     if (liveVoices.length && !liveVoices.some(([n]) => n === liveCfg.voice)) {
@@ -1603,24 +1610,63 @@ export function createNarration({
       });
       wrap.append(test, reset);
       card.appendChild(wrap);
-      liveVoices.forEach(([name, flavor, group]) => narrRows.push({
-        text: name,
-        flavor,
-        // the third element is optional and structured: a quality group the
-        // engine vouches for ('best' · 'good' · 'average'). Engines that send
-        // pairs — every bridge before this, gemini's star roster — group
-        // nothing and render exactly as before.
-        group: group ?? null,
-        preview: { voice: name, style: '', prefetch: 'voices' },
-        cur: narrSet?.live && liveCfg.voice === name,
-        // chirp and piper have no delivery-instruction channel, so there is no
-        // tone to pick — committing the voice IS the whole choice
-        commit: () => {
-          liveDraft = name;
-          if (liveStylable) return renderNarr('tones');
-          applyLive(liveEngine ?? 'plain', '');
-        },
-      }));
+      // The one actionable absence: a say roster with no best-tier voice is a
+      // Mac whose finest voices are a free download away. The row lives ON
+      // the shelf where they would appear — where somebody choosing actually
+      // looks — not only in a startup line long scrolled off.
+      if (liveEngine === 'say' && liveCaveat && !liveVoices.some(([, , g]) => g === 'best')) {
+        narrRows.push({
+          text: '⬇ Get Siri voices — free download',
+          flavor: 'opens System Settings',
+          group: 'best',
+          commit: () => {
+            fetch(VOICES_INSTALL_URL, { method: 'POST' })
+              .then((r) => r.json())
+              .then((j) => { if (!j?.ok) throw new Error(j?.error || 'refused'); })
+              .then(() => toast('System Settings opened — download a Siri voice, then restart decklight tts', 5200))
+              .catch(() => toast(liveCaveat, 6000));
+          },
+        });
+      }
+      // Two shelves fold to one row each: the novelty tail (robots and
+      // personas) and every voice in another language. ~165 of a real Mac's
+      // 184 rows — the reason "which voice is good here" was unanswerable.
+      // Expanding is per-open (see narrExpanded); the toggle row is an
+      // ordinary .narr-row, so selection stays in lockstep with narrRows.
+      const COLLAPSIBLE = ['novelty', 'other languages'];
+      const folded = new Set();
+      liveVoices.forEach(([name, flavor, group]) => {
+        if (group && COLLAPSIBLE.includes(group) && !narrExpanded.has(group)) {
+          if (!folded.has(group)) {
+            folded.add(group);
+            const count = liveVoices.filter(([, , g]) => g === group).length;
+            narrRows.push({
+              text: `‣ ${group === 'novelty' ? 'novelty voices' : group} (${count})`,
+              toggle: true,
+              cur: false,
+              commit: () => { narrExpanded.add(group); renderNarr('voices'); },
+            });
+          }
+          return;
+        }
+        narrRows.push({
+          text: name,
+          flavor,
+          // the third element is optional and structured: a quality group the
+          // engine vouches for. Engines that send pairs — every bridge before
+          // this, gemini's star roster — group nothing and render as before.
+          group: group ?? null,
+          preview: { voice: name, style: '', prefetch: 'voices' },
+          cur: narrSet?.live && liveCfg.voice === name,
+          // chirp and piper have no delivery-instruction channel, so there is
+          // no tone to pick — committing the voice IS the whole choice
+          commit: () => {
+            liveDraft = name;
+            if (liveStylable) return renderNarr('tones');
+            applyLive(liveEngine ?? 'plain', '');
+          },
+        });
+      });
     } else if (view === 'tones') {
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone · ▶ previews`;
       TONES.forEach((t) => {
@@ -1685,6 +1731,7 @@ export function createNarration({
       }
       const el = document.createElement('div');
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '')
+        + (row.toggle ? ' narr-toggle' : '')
         + (row.blocked || row.blocked === '' ? ' narr-blocked' : '');
       const label = document.createElement('span');
       label.className = 'narr-row-label';
@@ -1787,6 +1834,7 @@ export function createNarration({
   function closeNarrPicker() {
     narrEl?.remove();
     narrEl = null;
+    narrExpanded.clear();  // the collapsed shelves fold back for the next open
     charProbed = false; // next open re-probes the lipsync bridge
   }
 

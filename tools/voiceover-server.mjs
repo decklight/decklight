@@ -36,6 +36,20 @@
 // stepping back through slides replays instantly and costs nothing.
 
 import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+
+/**
+ * The one exec a deck may trigger: open macOS's voice-download pane.
+ *
+ * The argv is a FROZEN CONSTANT — no byte of any request reaches it — and it
+ * opens a System Settings pane and nothing else; the download itself stays a
+ * human clicking through, which is the point of the pane. `exec` is injected
+ * so the test can assert the argv without a Settings window opening mid-suite.
+ */
+export const VOICE_SETTINGS_URI = 'x-apple.systempreferences:com.apple.preference.universalaccess';
+export function openVoiceSettings(exec = execFile) {
+  exec('open', [VOICE_SETTINGS_URI], () => { /* fire and forget — Settings owns the rest */ });
+}
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { resolveEngine, engineBlocker, engineMenu, engineStatus, ENGINES } from './tts-engines.mjs';
@@ -202,8 +216,28 @@ export async function ttsMain(args) {
         engine: engine.name,
         model: engine.model,
         stylable: engine.stylable, // gemini alone can be told HOW to say it
+        // the engine's standing note — for `say` with no Siri voice this is
+        // the download hint, and the picker keys its install row off it
+        ...(engine.caveat ? { caveat: engine.caveat } : {}),
         voices,                    // piper speaks one voice, not the star roster
       }));
+    }
+    // ── the one exec a deck may trigger: open the voice-download pane ──
+    // Darwin only, loopback only (like every route here), and the argv is a
+    // FROZEN CONSTANT — no byte of the request reaches it. It opens a System
+    // Settings pane and does nothing else; the download itself stays a human
+    // clicking, which is the whole point of the pane.
+    if (req.method === 'POST' && req.url === '/voices/install') {
+      if (process.platform !== 'darwin') { res.writeHead(404); return res.end(); }
+      try {
+        openVoiceSettings();
+        console.log('  voices: opened System Settings → Accessibility (download a Siri voice, then restart me)');
+        res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        res.writeHead(500, { ...CORS, 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ ok: false, error: String(e?.message ?? e) }));
+      }
     }
     // ── which engine is speaking, and what else could (SPEC `NARRATION`) ──
     if (req.method === 'GET' && req.url === '/engines') {

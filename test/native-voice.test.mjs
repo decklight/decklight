@@ -22,6 +22,7 @@ const ROSTER = [
   { name: 'Albert', locale: 'en_US', tier: 4 },
   { name: 'Samantha', locale: 'en_US', tier: 3 },
   { name: 'Daniel', locale: 'en_GB', tier: 3 },
+  { name: 'Alice', locale: 'it_IT', tier: 3 },
 ];
 const detect = () => ({ engine: 'say', voices: ROSTER, label: 'macOS built-in: Albert' });
 
@@ -50,9 +51,15 @@ test('the engine reports the roster the machine has, not a built-in list', () =>
   const engine = sayEngine();
   // [name, flavor, group]: the quality category is a STRUCTURED third element
   // — the picker draws it as a labelled separator over each shelf — and the
-  // flavor stays the locale alone
-  assert.deepEqual(engine.voices,
-    [['Albert', 'en_US', 'average'], ['Samantha', 'en_US', 'average'], ['Daniel', 'en_GB', 'average']]);
+  // flavor stays the locale alone. Deck-language voices get quality shelves;
+  // every other locale shares ONE tail group, because shelving 140 foreign
+  // voices by quality answers a question nobody browsing this deck asked.
+  assert.deepEqual(engine.voices, [
+    ['Albert', 'en_US', 'novelty'],
+    ['Samantha', 'en_US', 'average'],
+    ['Daniel', 'en_GB', 'average'],
+    ['Alice', 'it_IT', 'other languages'],
+  ]);
   assert.equal(engine.stylable, false, 'a system voice takes no delivery instruction');
   assert.equal(engine.model, 'Albert', 'the startup voice is the first the OS ranked');
 });
@@ -108,4 +115,13 @@ test('an empty roster does not lock the engine out of speaking', async (t) => {
   const out = await engine.synth('hello', { voice: 'Samantha' }).catch(() => null);
   if (!out) return t.skip('no working `say` on this machine');
   assert.ok(out.wav.length);
+});
+
+test('the install route\'s one exec is a frozen argv, opening a Settings pane and nothing else', async () => {
+  const { openVoiceSettings, VOICE_SETTINGS_URI } = await import('../tools/voiceover-server.mjs');
+  const calls = [];
+  openVoiceSettings((bin, args) => calls.push([bin, args]));
+  assert.deepEqual(calls, [['open', ['x-apple.systempreferences:com.apple.preference.universalaccess']]]);
+  // the URI the caveat prints and the one the route opens must be the same door
+  assert.equal(VOICE_SETTINGS_URI, 'x-apple.systempreferences:com.apple.preference.universalaccess');
 });
