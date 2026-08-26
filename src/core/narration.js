@@ -502,6 +502,13 @@ export function createNarration({
   // A diagram the room has to actually look at, a punchline, the beat before a
   // new section. `hold` wins on a slide carrying both: infinite beats finite.
   const narrationPause = (sl) => pauseSeconds(instance._sections[sl - 1]?.dataset.narrationPause);
+  // data-narration-beat-pause="0.5": the same breath BETWEEN builds — each
+  // bullet lands, holds, and only then does the voice reveal the next. The
+  // slide-end pause never applied here: builds revealed the instant a beat's
+  // audio ended, which reads as the deck talking over its own punctuation.
+  // Honored at play time for live and recorded tracks alike — never baked
+  // into a recording, exactly like its end-of-slide sibling.
+  const beatPause = (sl) => pauseSeconds(instance._sections[sl - 1]?.dataset.narrationBeatPause);
   // ── lookahead buffer ──────────────────────────────────────────────────
   // While live narration is ON, keep the next LIVE_LOOKAHEAD segments
   // synthesized in the background. Low priority by construction: ONE
@@ -618,28 +625,34 @@ export function createNarration({
     const stale = () => gen !== segGen || !narrating || modeNow() !== mode
       || instance.state.slide !== sl || instance.state.step !== step;
     if (narrPaused || stale()) return;
-    const rec = instance._records[sl - 1];
-    if (!endOfSlide && step < (rec ? rec.groups.length : 0)) { instance.next(); return; }
-    if (narrationHolds(sl) || sl >= instance.state.totalSlides) return;
-    // The beat this slide asked for. Waited rather than slept through: P must
+    // The hold both pauses share. Waited rather than slept through: P must
     // HOLD it, not eat it — a bare timer firing while paused would come back
     // to the narrPaused guard and drop the advance on the floor, leaving the
     // deck parked when the presenter resumes. Same shape as the sentence
     // chain's pause gate, and the same segGen guard as the silent beats,
-    // so manual navigation mid-pause still wins.
-    const pause = narrationPause(sl);
-    if (pause > 0) {
-      debugLog('narr', `slide ${sl} — holding ${pause}s before the next slide`);
-      // Paused time is not spent time: the beat stops with the deck and picks
-      // up where it left off, rather than quietly running out behind a ⏸.
-      for (let left = pause * 1000; left > 0;) {
-        if (stale()) return;
+    // so manual navigation mid-pause still wins. Paused time is not spent
+    // time: the hold stops with the deck and picks up where it left off,
+    // rather than quietly running out behind a ⏸. Returns false when the
+    // wait went stale and the caller must not advance.
+    const held = async (seconds, what) => {
+      if (seconds <= 0) return !narrPaused && !stale();
+      debugLog('narr', `slide ${sl} — holding ${seconds}s before ${what}`);
+      for (let left = seconds * 1000; left > 0;) {
+        if (stale()) return false;
         const t0 = Date.now();
         await new Promise((r) => setTimeout(r, Math.min(150, left)));
         if (!narrPaused) left -= Date.now() - t0;
       }
-      if (narrPaused || stale()) return;
+      return !narrPaused && !stale();
+    };
+    const rec = instance._records[sl - 1];
+    if (!endOfSlide && step < (rec ? rec.groups.length : 0)) {
+      if (!(await held(beatPause(sl), 'the next build'))) return;
+      instance.next();
+      return;
     }
+    if (narrationHolds(sl) || sl >= instance.state.totalSlides) return;
+    if (!(await held(narrationPause(sl), 'the next slide'))) return;
     instance.goto(sl + 1, 0);
   }
   async function playLive() {

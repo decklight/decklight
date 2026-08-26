@@ -100,7 +100,7 @@ const stalled = [];
 let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'sayshelves', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
-  'segments', 'segfold', 'segmiss', 'segnav', 'plainrec', 'segmanifest', 'segsigned',
+  'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record']) {
   const [m, extra] = mode.split('&');
   // Timed, and printed even on success (#323). This harness boots a browser per
@@ -172,6 +172,13 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ${r.rows} rows, card scrolls=${r.scrollable}`
       + ` · selection stayed in view=${r.visibleThroughout}${r.lostAt ? ` (lost at ↓${r.lostAt})` : ''}`
       + ` · list scrolled=${r.scrolled} · hover held still=${r.hoverHeldStill}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'beatpause') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} held after the clip=${r.heldAfterClip}`
+      + ` · advanced once the hold elapsed=${r.advancedAfterHold}`
+      + ` · still ran itself to the end=${r.reachedTheEnd}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

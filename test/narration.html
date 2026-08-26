@@ -279,7 +279,7 @@
     const manifestDeck = mode === 'manifest' || mode === 'expired' || segManifest;
     // The tracks whose files pace the deck — and `plainrec`, the same slides on
     // a track that did NOT opt in, which must behave exactly as it always has.
-    const segmentModes = ['segments', 'segfold', 'segmiss', 'segnav'];
+    const segmentModes = ['segments', 'segfold', 'segmiss', 'segnav', 'beatpause'];
     const segmentDeck = segmentModes.includes(mode);
     const plainDeck = mode === 'plainrec';
     const recordedDeck = mode === 'recorded' || mode === 'hint' || mode === 'switch'
@@ -491,6 +491,32 @@
             r.asked = asked();
             r.PASS = r.playedTheWholeSlide && r.didNotAdvance
               && r.steppedWithoutRestarting && r.stepped && r.noComplaint;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
+
+          if (mode === 'beatpause') {
+            // data-narration-beat-pause: the breath BETWEEN builds. Each beat's
+            // clip ends (~300ms) and the deck must HOLD ~400ms more before
+            // revealing the next build — a beat that advances at clip-end is
+            // the behaviour this attribute exists to change, and a beat that
+            // never advances is a hang.
+            deck._sections[4].dataset.narrationBeatPause = '0.4';
+            // clips are 10ms here, so nearly everything on the clock IS the
+            // hold: at 250ms the beat's audio is long over and the deck must
+            // still be on step 0; by 650ms the 400ms hold has elapsed and the
+            // next build is on screen
+            await wait(250);
+            r.heldAfterClip = deck.state.slide === 5 && deck.state.step === 0;
+            await wait(400);
+            r.advancedAfterHold = deck.state.slide === 5 && deck.state.step === 1;
+            // …and the track still runs itself out — the pause delays beats,
+            // it must not strand the deck
+            await wait(2000);
+            r.reachedTheEnd = deck.state.slide === 7;
+            r.asked = asked();
+            r.inOrder = r.asked.slice(0, 3).join('|') === [1, 2, 3].map((k) => `${V}slide-05-0${k}.m4a`).join('|');
+            r.PASS = r.heldAfterClip && r.advancedAfterHold && r.reachedTheEnd && r.inOrder;
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
           }
