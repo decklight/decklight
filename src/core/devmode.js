@@ -95,9 +95,15 @@ export function shortAge(when) {
  */
 export function agentChipText(job, now = Date.now()) {
   if (!job || !job.agent) return null;
+  // What the agent is DOING rides along when the server has heard: a run
+  // used to be a timer and nothing else, which after twenty seconds reads
+  // as "stuck" whether or not it is. The activity is somebody else's text —
+  // the caller renders it with textContent, never markup.
+  const doing = typeof job.activity === 'string' && job.activity.trim()
+    ? ` — ${job.activity.trim().slice(0, 60)}` : '';
   const started = Number(job.startedAt);
-  if (!Number.isFinite(started) || started <= 0 || started > now) return job.agent;
-  return `${job.agent} · ${elapsedLabel(now - started)}`;
+  if (!Number.isFinite(started) || started <= 0 || started > now) return `${job.agent}${doing}`;
+  return `${job.agent} · ${elapsedLabel(now - started)}${doing}`;
 }
 
 // ── "you have not pushed any of this" ─────────────────────────────────────

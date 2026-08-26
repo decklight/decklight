@@ -49,7 +49,7 @@ import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, watch, existsSync } from 'node:fs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
-import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent } from './agents.mjs';
+import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, claudeActivity } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
@@ -804,8 +804,42 @@ export async function editMain(args, { onListen = null } = {}) {
     const child = spawn(cmd.bin, cmd.args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
     let tail = '';
     const keep = (chunk) => { tail = (tail + chunk).slice(-4000); };
-    child.stdout.on('data', keep);
-    child.stderr.on('data', keep);
+    // The clue the chip shows. An agent run used to be a timer and nothing
+    // else — ten minutes of "is it stuck?" with no way to tell. claude's
+    // stream-json narrates every tool call, so those become activity events
+    // on the same SSE channel the start/done events already ride; any other
+    // agent gets its last non-empty stdout line, throttled, which is what a
+    // person watching the terminal would glance at anyway.
+    let resultText = null;
+    let lastSaid = 0;
+    const say = (text) => {
+      if (!text || !agentJob) return;
+      agentJob.activity = text;   // /edit/ping carries it across a reload
+      broadcast('agent', { state: 'activity', agent: cmd.name, text });
+      console.log(`  agent: ${text}`);
+    };
+    if (cmd.stream === 'claude-json') {
+      let buf = '';
+      child.stdout.on('data', (chunk) => {
+        buf += chunk;
+        for (let nl = buf.indexOf('\n'); nl !== -1; nl = buf.indexOf('\n')) {
+          const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+          const clue = claudeActivity(line);
+          if (clue?.activity) say(clue.activity);
+          else if (clue?.result != null) resultText = clue.result;
+        }
+      });
+      child.stderr.on('data', keep);
+    } else {
+      child.stdout.on('data', (chunk) => {
+        keep(chunk);
+        const now = Date.now();
+        if (now - lastSaid < 800) return;
+        const line = String(chunk).split('\n').map((l) => l.trim()).filter(Boolean).pop();
+        if (line) { lastSaid = now; say(line.slice(0, 80)); }
+      });
+      child.stderr.on('data', keep);
+    }
     const timeout = setTimeout(() => child.kill('SIGTERM'), 10 * 60 * 1000);
     child.on('error', (e) => {
       clearTimeout(timeout);
@@ -827,7 +861,9 @@ export async function editMain(args, { onListen = null } = {}) {
       agentJob = null;
       broadcast('agent', {
         state: 'done', agent: cmd.name, ok: code === 0, changed, code,
-        tail: tail.trim().split('\n').slice(-6).join('\n').slice(-600),
+        // the agent's own words when the stream carried them — raw stream-json
+        // stdout is a wall of JSON nobody should be shown
+        tail: (resultText ?? tail.trim().split('\n').slice(-6).join('\n')).slice(-600),
       });
       console.log(`  agent: ${cmd.name} exited (${code}) — deck ${changed ? 'changed' : 'unchanged'}`);
     });

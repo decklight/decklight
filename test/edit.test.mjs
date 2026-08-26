@@ -262,7 +262,9 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
   assert.equal(claude.args[0], '-p');
   assert.match(claude.args[1], /deck\.html/, 'the prompt names the file');
   assert.match(claude.args[1], /center slide 2/, 'the prompt carries the instruction');
-  assert.deepEqual(claude.args.slice(2), ['--permission-mode', 'acceptEdits']);
+  assert.deepEqual(claude.args.slice(2),
+    ['--permission-mode', 'acceptEdits', '--output-format', 'stream-json', '--verbose'],
+    'acceptEdits plus the stream that narrates the run');
 
   const codex = agentCommand('codex', 'x', 'deck.html', { hasBin: () => true });
   assert.deepEqual(codex.args.slice(0, 2), ['exec', '--full-auto']);
