@@ -131,6 +131,17 @@ export const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(
  * plain version — the tag is the whole truth there. A dirty tree says so,
  * because a build nobody can reproduce should not look like one somebody can.
  */
+/**
+ * `git describe --tags --long --dirty=.dirty` → {tag, commits, commit, dirty},
+ * or null for anything that does not parse (no tags, not a repo, garbage).
+ * Shared by build.mjs (stamping a tarball) and the banner's live path (a
+ * checkout), so the two can never learn different spellings.
+ */
+export function parseDescribe(desc) {
+  const m = /^v?(.+)-(\d+)-g([0-9a-f]+?)(\.dirty)?$/.exec(String(desc ?? '').trim());
+  return m ? { tag: m[1], commits: Number(m[2]), commit: m[3], dirty: !!m[4] } : null;
+}
+
 export function versionLine(version, info) {
   if (!info || !Number.isInteger(info.commits) || !info.commit) return `decklight ${version}`;
   if (info.commits === 0 && !info.dirty) return `decklight ${version}`;
