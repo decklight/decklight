@@ -119,3 +119,20 @@ export function wrongRecorder(cmd, file) {
 }
 
 export const scriptSafe = (s) => s.replace(/<\/script/gi, '<\\/script').replace(/<!--/g, '<\\u0021--');
+
+/**
+ * The banner's version, with the build's provenance when the build recorded
+ * any (dist/build-info.json, written by build.mjs from `git describe`).
+ *
+ * `0.6.0+30.gd3307f4` — semver build-metadata syntax, so anything matching
+ * "decklight 0.6.0" still matches, and the "+30" answers the question three
+ * identically-named sandbox repacks in one afternoon could not: WHICH 0.6.0
+ * is this? A release build (zero commits past the tag, clean) shows the
+ * plain version — the tag is the whole truth there. A dirty tree says so,
+ * because a build nobody can reproduce should not look like one somebody can.
+ */
+export function versionLine(version, info) {
+  if (!info || !Number.isInteger(info.commits) || !info.commit) return `decklight ${version}`;
+  if (info.commits === 0 && !info.dirty) return `decklight ${version}`;
+  return `decklight ${version}+${info.commits}.g${info.commit}${info.dirty ? '.dirty' : ''}`;
+}

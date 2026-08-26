@@ -1622,6 +1622,30 @@ test('record opens the deck on the server it just started, with the recorder arm
     'http://127.0.0.1:9001/decks/talk.html?record&dir=audio%2Ftake%202');
 });
 
+test('the banner says WHICH build of a version this is', async () => {
+  const { versionLine } = await import('../cli/util.mjs');
+  // a release build is exactly the tag — the plain version is the whole truth
+  assert.equal(versionLine('0.6.0', { tag: '0.6.0', commits: 0, commit: 'abc1234', dirty: false }),
+    'decklight 0.6.0');
+  // a dev build names its distance and its sha — semver build metadata, so
+  // anything matching "decklight 0.6.0" still matches
+  assert.equal(versionLine('0.6.0', { tag: '0.6.0', commits: 30, commit: 'd3307f4', dirty: false }),
+    'decklight 0.6.0+30.gd3307f4');
+  // a dirty tree says so: a build nobody can reproduce must not look like one
+  // somebody can — release builds included
+  assert.equal(versionLine('0.6.0', { commits: 30, commit: 'd3307f4', dirty: true }),
+    'decklight 0.6.0+30.gd3307f4.dirty');
+  assert.equal(versionLine('0.6.0', { commits: 0, commit: 'abc1234', dirty: true }),
+    'decklight 0.6.0+0.gabc1234.dirty');
+  // no stamp (an old tarball, a build outside a clone) — plain, never invented
+  assert.equal(versionLine('0.6.0', null), 'decklight 0.6.0');
+  assert.equal(versionLine('0.6.0', { commits: 'x', commit: 'abc' }), 'decklight 0.6.0');
+
+  // and the real CLI prints a banner that parses as exactly one of the two
+  const r = spawnSync(process.execPath, [CLI, '--version'], { encoding: 'utf8', env: childEnv() });
+  assert.match(r.stdout.trim(), /^decklight \d+\.\d+\.\d+(?:\+\d+\.g[0-9a-f]+(?:\.dirty)?)?$/);
+});
+
 test('a flag value before the deck is never mistaken for the deck', async () => {
   // `opt()` reads a flag's value without consuming it, so every dispatch that
   // finds "the first thing not starting with -" used to find the VALUE of a
