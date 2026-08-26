@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
 
 import {
-  hintApplies, pauseSeconds, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
+  hintApplies, pauseSeconds, sentencePauseFor, SENTENCE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack,
 } from '../src/core/narration.js';
 
@@ -271,4 +271,18 @@ test('no narration configured is no tracks, never a throw', () => {
   for (const cfg of [undefined, null, {}, { files: null }, { files: '' }]) {
     assert.deepEqual(narrationTracks(cfg), [], JSON.stringify(cfg));
   }
+});
+
+test('the breath between sentences: a default, overridable per deck and per slide — to zero', () => {
+  assert.equal(SENTENCE_PAUSE_S, 0.25);
+  assert.equal(sentencePauseFor(undefined, undefined), 0.25, 'nothing said → the default');
+  assert.equal(sentencePauseFor(undefined, 0.5), 0.5, 'the deck config overrides');
+  assert.equal(sentencePauseFor(undefined, 0), 0, '…and may switch it off');
+  assert.equal(sentencePauseFor('1', 0.5), 1, 'the slide attribute outranks the deck');
+  assert.equal(sentencePauseFor('0', 0.5), 0, 'an explicit "0" on the slide is zero, not absent');
+  // a typo falls through to the next tier, never to silence: a mistyped
+  // config costs the default breath, not the feature
+  assert.equal(sentencePauseFor('lots', 0.5), 0.5);
+  assert.equal(sentencePauseFor('', 'fast'), 0.25);
+  assert.equal(sentencePauseFor('-1', -3), 0.25);
 });

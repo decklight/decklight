@@ -1140,6 +1140,37 @@
           return;
         }
 
+        if (mode === 'sentpause') {
+          // The breath between two sentences of one beat: on by default
+          // (0.25s), and "0" on the slide switches it off. Clips are 10ms, so
+          // slide 1's two sentences finish in ~20ms of audio — everything
+          // else on the clock is the breath.
+          const seen = [];
+          deck.on('slide', () => seen.push({ n: deck.state.slide, at: Date.now() }));
+          const t0 = Date.now();
+          deck.toggleNarration();                                // V
+          await new Promise((ok) => setTimeout(ok, 1500));
+          const left1 = seen.find((x) => x.n === 2);
+          r.defaultTook = left1 ? left1.at - t0 : null;
+          r.breathedByDefault = r.defaultTook !== null && r.defaultTook >= 230;
+          deck.toggleNarration();                                // V off
+          await new Promise((ok) => setTimeout(ok, 100));
+
+          // the same slide with the breath switched off
+          deck._sections[0].dataset.narrationSentencePause = '0';
+          deck.goto(1, 0);
+          seen.length = 0;
+          const t1 = Date.now();
+          deck.toggleNarration();
+          await new Promise((ok) => setTimeout(ok, 1500));
+          const left2 = seen.find((x) => x.n === 2);
+          r.zeroTook = left2 ? left2.at - t1 : null;
+          r.zeroMeansNoBreath = r.zeroTook !== null && r.zeroTook < 200;
+          r.PASS = r.breathedByDefault && r.zeroMeansNoBreath;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
         if (mode === 'pause') {
           // data-narration-pause: the slide holds its beat, then the deck
           // carries on by itself. Both halves matter — a beat that never ends
