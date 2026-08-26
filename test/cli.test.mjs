@@ -1623,7 +1623,18 @@ test('record opens the deck on the server it just started, with the recorder arm
 });
 
 test('the banner says WHICH build of a version this is', async () => {
-  const { versionLine } = await import('../cli/util.mjs');
+  const { versionLine, parseDescribe } = await import('../cli/util.mjs');
+  // one parse, shared by the build stamp and the banner's live path — the two
+  // sources must never learn different spellings
+  assert.deepEqual(parseDescribe('v0.6.0-32-g1cb0996'),
+    { tag: '0.6.0', commits: 32, commit: '1cb0996', dirty: false });
+  assert.deepEqual(parseDescribe('v0.6.0-32-g1cb0996.dirty'),
+    { tag: '0.6.0', commits: 32, commit: '1cb0996', dirty: true });
+  assert.deepEqual(parseDescribe('0.6.0-0-gabc1234'),
+    { tag: '0.6.0', commits: 0, commit: 'abc1234', dirty: false });
+  assert.equal(parseDescribe('fatal: no names found'), null);
+  assert.equal(parseDescribe(''), null);
+  assert.equal(parseDescribe(null), null);
   // a release build is exactly the tag — the plain version is the whole truth
   assert.equal(versionLine('0.6.0', { tag: '0.6.0', commits: 0, commit: 'abc1234', dirty: false }),
     'decklight 0.6.0');
@@ -1644,6 +1655,18 @@ test('the banner says WHICH build of a version this is', async () => {
   // and the real CLI prints a banner that parses as exactly one of the two
   const r = spawnSync(process.execPath, [CLI, '--version'], { encoding: 'utf8', env: childEnv() });
   assert.match(r.stdout.trim(), /^decklight \d+\.\d+\.\d+(?:\+\d+\.g[0-9a-f]+(?:\.dirty)?)?$/);
+
+  // …and in a CHECKOUT (this repo is one) the banner is git's LIVE answer,
+  // never the stamp: dist/ survives `git checkout`, so a stale stamp once
+  // named a feature-branch build while main was the thing actually running
+  const live = spawnSync('git', ['describe', '--tags', '--long', '--dirty=.dirty'],
+    { cwd: path.dirname(CLI), encoding: 'utf8' }).stdout.trim();
+  const info = parseDescribe(live);
+  if (info) {
+    const { version } = JSON.parse(fs.readFileSync(path.resolve(path.dirname(CLI), '../package.json'), 'utf8'));
+    assert.equal(r.stdout.trim(), versionLine(version, info),
+      'the banner and live git describe disagree — the stamp leaked through');
+  }
 });
 
 test('a flag value before the deck is never mistaken for the deck', async () => {

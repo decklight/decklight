@@ -32,8 +32,8 @@
  * this dispatcher is the documented entry point).
  */
 
-import { readFileSync } from 'node:fs';
-import { versionLine } from './util.mjs';
+import { readFileSync, existsSync } from 'node:fs';
+import { versionLine, parseDescribe } from './util.mjs';
 
 const GLOBAL_HELP = `decklight — author, record, and package Decklight presentations
 
@@ -143,12 +143,25 @@ let rest = argv.slice(1);
 const { version } = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
-// which BUILD of that version — commits past the release tag and the sha,
-// baked in by build.mjs; absent (old tarball, no clone at build time) the
-// plain version is the whole truth
+// which BUILD of that version — commits past the release tag and the sha.
+// TWO sources, strictly ordered: a git CHECKOUT answers live (one ~10ms
+// describe, dev machines only), because the stamped dist/build-info.json
+// describes the tree at BUILD time and dist/ survives `git checkout` — a
+// stale stamp once named the feature-branch build while main was the thing
+// actually running, which is the exact misdirection this banner exists to
+// prevent. A tarball ships no .git, pays nothing, and reads the stamp its
+// build froze beside the code — there the two cannot diverge.
 let buildInfo = null;
-try { buildInfo = JSON.parse(readFileSync(new URL('../dist/build-info.json', import.meta.url), 'utf8')); }
-catch { buildInfo = null; }
+if (existsSync(new URL('../.git', import.meta.url))) {
+  try {
+    const { execFileSync } = await import('node:child_process');
+    buildInfo = parseDescribe(execFileSync('git', ['describe', '--tags', '--long', '--dirty=.dirty'],
+      { cwd: new URL('..', import.meta.url), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));
+  } catch { buildInfo = null; }   // a tagless clone: plain is the whole truth
+} else {
+  try { buildInfo = JSON.parse(readFileSync(new URL('../dist/build-info.json', import.meta.url), 'utf8')); }
+  catch { buildInfo = null; }
+}
 const banner = versionLine(version, buildInfo);
 
 if (!cmd || cmd === '--help' || cmd === '-h') globalHelp();

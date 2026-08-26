@@ -11,6 +11,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
+import { parseDescribe } from './cli/util.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const playerPath = resolve(here, 'src/terminal/player.mjs');
@@ -138,12 +139,8 @@ await build({
 try {
   const desc = execFileSync('git', ['describe', '--tags', '--long', '--dirty=.dirty'],
     { cwd: here, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  const m = /^v?(.+)-(\d+)-g([0-9a-f]+?)(\.dirty)?$/.exec(desc);
-  if (m) {
-    writeFileSync(resolve(here, 'dist/build-info.json'), JSON.stringify({
-      tag: m[1], commits: Number(m[2]), commit: m[3], dirty: !!m[4],
-    }) + '\n');
-  }
+  const info = parseDescribe(desc);
+  if (info) writeFileSync(resolve(here, 'dist/build-info.json'), JSON.stringify(info) + '\n');
 } catch { /* not a clone — the plain version is the whole truth */ }
 
 const kb = (f) => (statSync(resolve(here, f)).size / 1024).toFixed(1) + ' KB';
