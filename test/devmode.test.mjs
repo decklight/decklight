@@ -105,6 +105,16 @@ test('a running job says who, and for how long', () => {
   assert.equal(agentChipText({ agent: 'claude', startedAt: now - 83_000 }, now), 'claude · 1:23');
 });
 
+test('…and WHAT it is doing, once the server has heard', () => {
+  const now = 1_000_000;
+  assert.equal(agentChipText({ agent: 'claude', startedAt: now - 83_000, activity: 'editing talk.html' }, now),
+    'claude · 1:23 — editing talk.html');
+  // a clueless run is just the timer, exactly as before
+  assert.equal(agentChipText({ agent: 'claude', startedAt: now - 83_000, activity: '   ' }, now), 'claude · 1:23');
+  // somebody else's text is bounded, not trusted with the whole chip
+  assert.equal(agentChipText({ agent: 'claude', activity: 'x'.repeat(200) }, now), `claude — ${'x'.repeat(60)}`);
+});
+
 test('the clock comes from the SERVER, so a reload does not restart it', () => {
   // startedAt rides in the `agent` start event and in /edit/ping. A page that
   // reloaded mid-run must show the true elapsed time — a job outlives the page,

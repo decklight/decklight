@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENTS, agentCommand, detectAgents, installedAgents, expandArgs,
   preferredAgent, setPreferredAgent, agentUnavailable, agentConfigPath,
-  shimTarget, spawnSpec, whichBin,
+  shimTarget, spawnSpec, whichBin, claudeActivity,
 } from '../cli/agents.mjs';
 import { validateManifest, REFERENCE_ONLY, INSTALL_HINT } from '../cli/marketplace.mjs';
 import { listUnits, unitPath } from '../cli/units.mjs';
@@ -339,7 +339,28 @@ test('the Windows spawn is node + the script + the agent\'s own argv, in that or
     assert.equal(cmd.args[0], 'C:\\bin\\cli.js');
     assert.equal(cmd.args[1], '-p', "the agent's own flags follow, unchanged");
     assert.match(cmd.args[2], /centre slide 2/);
-    assert.deepEqual(cmd.args.slice(3), ['--permission-mode', 'acceptEdits']);
+    assert.deepEqual(cmd.args.slice(3),
+      ['--permission-mode', 'acceptEdits', '--output-format', 'stream-json', '--verbose'],
+      'acceptEdits plus the stream that narrates the run');
     assert.equal(cmd.name, 'claude');
   } finally { rmTemp(home); }
+});
+
+test('claude\'s stream narrates the run — each tool call becomes a clue', () => {
+  const line = (o) => JSON.stringify(o);
+  const tool = (name, input) => line({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } });
+  assert.deepEqual(claudeActivity(tool('Edit', { file_path: '/x/y/talk.html' })), { activity: 'editing talk.html' });
+  assert.deepEqual(claudeActivity(tool('Read', { file_path: 'SPEC.md' })), { activity: 'reading SPEC.md' });
+  assert.deepEqual(claudeActivity(tool('Bash', { command: 'npm test -- --grep slide' })),
+    { activity: 'running: npm test -- --grep slide' });
+  assert.deepEqual(claudeActivity(tool('Grep', { pattern: 'data-build' })), { activity: 'searching for data-build' });
+  assert.deepEqual(claudeActivity(tool('WebSearch', { query: 'x' })), { activity: 'WebSearch…' });
+  // the final answer is the done-toast's text — never the raw JSON wall
+  assert.deepEqual(claudeActivity(line({ type: 'result', result: 'Removed the bullet.' })),
+    { result: 'Removed the bullet.' });
+  // system chatter, plain text blocks, and garbage are silence, not errors
+  assert.equal(claudeActivity(line({ type: 'system', subtype: 'init' })), null);
+  assert.equal(claudeActivity(line({ type: 'assistant', message: { content: [{ type: 'text', text: 'hm' }] } })), null);
+  assert.equal(claudeActivity('not json at all'), null);
+  assert.equal(claudeActivity(''), null);
 });

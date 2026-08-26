@@ -30,8 +30,13 @@ export const AGENTS = [
   {
     name: 'claude', label: 'Claude Code', bin: 'claude',
     // -p is print (headless) mode; acceptEdits lets it write the deck file
-    // without an interactive approval it has no TTY to ask on.
-    args: (prompt) => ['-p', prompt, '--permission-mode', 'acceptEdits'],
+    // without an interactive approval it has no TTY to ask on. stream-json
+    // (which requires --verbose) narrates the run as it happens — each tool
+    // call is a line — so the deck's chip can say WHAT the agent is doing
+    // instead of only how long it has been doing it.
+    args: (prompt) => ['-p', prompt, '--permission-mode', 'acceptEdits',
+      '--output-format', 'stream-json', '--verbose'],
+    stream: 'claude-json',
     // no --permission-mode: an ASK is read-only by construction, and a
     // commit-message call has no business being able to edit the deck.
     ask: (prompt) => ['-p', prompt],
@@ -357,5 +362,44 @@ export function agentCommand(name, instruction, deck, { env = process.env, hasBi
     args: [...how.prefix, ...agent.args(prompt, deck)],
     label: agent.label,
     name: agent.name,
+    // which stream dialect stdout speaks, if any — the server's activity
+    // parser keys off it, and agents without one still get the generic
+    // last-line clue
+    stream: agent.stream ?? null,
   };
+}
+
+/**
+ * One line of claude's stream-json → a short human clue, or null.
+ *
+ * `{activity}` while the run is going ("editing talk.html", "running: npm
+ * test"), `{result}` when the final answer arrives — which is also the text
+ * the done-toast should carry, because with stream-json the raw stdout is a
+ * wall of JSON nobody should ever be shown. Unparseable lines are null, not
+ * errors: the stream carries system chatter this deliberately ignores.
+ */
+export function claudeActivity(line) {
+  let j;
+  try { j = JSON.parse(line); } catch { return null; }
+  if (j?.type === 'result') {
+    return { result: typeof j.result === 'string' ? j.result : '' };
+  }
+  if (j?.type !== 'assistant') return null;
+  for (const block of j.message?.content ?? []) {
+    if (block?.type !== 'tool_use') continue;
+    const file = block.input?.file_path ? String(block.input.file_path).split(/[/\\]/).pop() : null;
+    switch (block.name) {
+      case 'Edit': case 'Write': case 'MultiEdit': case 'NotebookEdit':
+        return { activity: `editing ${file ?? 'the deck'}` };
+      case 'Read':
+        return { activity: `reading ${file ?? 'a file'}` };
+      case 'Bash':
+        return { activity: `running: ${String(block.input?.command ?? '').slice(0, 48) || 'a command'}` };
+      case 'Grep': case 'Glob':
+        return { activity: `searching for ${String(block.input?.pattern ?? '').slice(0, 40) || '…'}` };
+      default:
+        return { activity: `${block.name}…` };
+    }
+  }
+  return null;
 }

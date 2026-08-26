@@ -130,7 +130,10 @@ export function createEditMode({
           es.addEventListener('agent', (ev) => {
             try {
               const d = JSON.parse(ev.data);
-              if (d.state === 'start') {
+              if (d.state === 'activity') {
+                if (agentBusy) { agentBusy.activity = d.text; paintAgentChip(); }
+                debugLog('agent', `activity: ${d.text}`);
+              } else if (d.state === 'start') {
                 agentBusy = d;
                 paintAgentChip();
                 toast(`🤖 ${d.agent} is editing the deck…`, 2200);
