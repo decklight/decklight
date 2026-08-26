@@ -415,6 +415,15 @@ export function createEngine({
     const detected = detect({ lang });
     const pick = voice ?? detected.voices?.[0]?.name;
     if (!pick) throw new Error(detected.why ?? `no ${engine} voices on this machine`);
+    // The deck's language decides which voices get quality shelves; the rest
+    // share ONE group at the tail — contiguous by construction, because
+    // parseSayVoices sorts language first. ~140 of a real Mac's rows are
+    // other languages, and shelving them by quality answered a question
+    // nobody browsing an English deck was asking.
+    const want = (lang ?? 'en').slice(0, 2).toLowerCase();
+    const groupOf = (v) => (!Number.isInteger(v.tier) ? undefined
+      : (v.locale || '').toLowerCase().startsWith(want) ? TIER_LABEL[v.tier]
+        : 'other languages');
     return {
       name: engine, model: pick, needsProject: false, stylable: false,
       cost: 'free · offline · already on this machine',
@@ -424,11 +433,7 @@ export function createEngine({
       // neural voices with 1990s robots under names that reveal nothing. The
       // flavor stays the locale alone; repeating the category on every row
       // was the suffix wallpaper the separators replace.
-      voices: (detected.voices ?? []).map((v) => [
-        v.name,
-        v.locale || 'system',
-        Number.isInteger(v.tier) ? TIER_LABEL[v.tier] : undefined,
-      ]),
+      voices: (detected.voices ?? []).map((v) => [v.name, v.locale || 'system', groupOf(v)]),
       // "download a Siri voice" rides the same channel every engine caveat
       // does: the bridge's startup line and the deck's toast on switching
       ...(detected.caveat ? { caveat: detected.caveat } : {}),

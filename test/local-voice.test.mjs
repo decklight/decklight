@@ -50,25 +50,41 @@ test('a deck in another language gets that language\'s voices first', () => {
   assert.equal(parseSayVoices(SAY, { lang: 'it-IT' })[0].name, 'Alice');
 });
 
-test('voices rank by quality category: best · good · average, robots pinned to average', () => {
+test('voices rank by quality category, robots and personas shelved as novelty', () => {
   assert.equal(sayTier('Gilles (Personal Voice)'), 0);
   assert.equal(sayTier('Ava (Premium)'), 1);
   assert.equal(sayTier('Daniel (Enhanced)'), 2);
-  assert.equal(sayTier('Samantha'), 3, 'a plain modern voice is average, above the robots');
+  assert.equal(sayTier('Samantha'), 3, 'a plain modern voice is average, above the novelty tier');
   // the robots: they sort alphabetically FIRST and the modern listing carries
-  // no quality markers — without the roster, Albert narrates your deck
-  for (const bot of ['Agnes', 'Albert', 'Zarvox', 'Bad News', 'Whisper']) {
-    assert.equal(sayTier(bot), 4, `${bot} is a robot and belongs in average, last`);
+  // no quality markers — without the roster, Albert narrates your deck.
+  // Trinoids in the PLURAL is how modern macOS actually spells it; the
+  // singular alone let it rank as a plain voice.
+  for (const bot of ['Agnes', 'Albert', 'Zarvox', 'Bad News', 'Whisper', 'Trinoids']) {
+    assert.equal(sayTier(bot), 4, `${bot} is a robot and belongs in novelty, last`);
+  }
+  // the 2022 persona family: two locales each, mediocre by design, and
+  // alphabetically ahead of every classic — they shelve with the novelty
+  // voices so Samantha and Daniel float to where the eye lands
+  for (const who of ['Eddy (English (UK))', 'Flo (English (US))', 'Grandma (English (UK))',
+    'Grandpa (English (US))', 'Reed (English (UK))', 'Rocko (English (US))',
+    'Sandy (English (UK))', 'Shelley (English (US))']) {
+    assert.equal(sayTier(who), 4, `${who} is a persona and belongs in novelty`);
   }
   // Siri is the best say can do — named, or recognisable only by its sample
   assert.equal(sayTier('Siri Voice 4'), 0);
   assert.equal(sayTier('Aman (English (India))', 'Hi, I’m Siri!'), 0);
-  // the categories collapse finer ranks into the three words a person needs
-  assert.equal(TIER_LABEL[0], 'best');
-  assert.equal(TIER_LABEL[1], 'good');
-  assert.equal(TIER_LABEL[2], 'good');
-  assert.equal(TIER_LABEL[3], 'average');
-  assert.equal(TIER_LABEL[4], 'average');
+  // the categories collapse finer ranks into the words a person needs
+  assert.deepEqual(TIER_LABEL, ['best', 'good', 'good', 'average', 'novelty']);
+});
+
+test('an undownloaded Siri stub — a ((null)) artifact row — is never offered', () => {
+  // a Mac with Siri voices half-installed lists rows like `Aru ((null))`
+  // whose sample says "Hi, I'm Siri!" — `say -v` cannot select them, and a
+  // picker row that plays nothing (or something else) must not exist
+  const listing = 'Samantha            en_US    # Hello! My name is Samantha.\n'
+    + 'Aru ((null))        kk_KZ    # Hi, I’m Siri!\n';
+  const v = parseSayVoices(listing);
+  assert.deepEqual(v.map((x) => x.name), ['Samantha']);
 });
 
 test('a Siri voice hiding behind a duplicate name is dropped, not offered as a lie', () => {

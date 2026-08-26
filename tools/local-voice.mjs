@@ -50,9 +50,22 @@ export const SAPI_LIST = [
  */
 export const SAY_ROBOTS = new Set([
   'Agnes', 'Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles', 'Cellos',
+  // both spellings: modern macOS lists 'Trinoids', older docs say 'Trinoid' —
+  // the singular alone let the plural rank as a plain voice
   'Deranged', 'Fred', 'Good News', 'Hysterical', 'Jester', 'Junior', 'Kathy',
-  'Organ', 'Pipe Organ', 'Princess', 'Ralph', 'Superstar', 'Trinoid', 'Victoria',
-  'Whisper', 'Wobble', 'Zarvox',
+  'Organ', 'Pipe Organ', 'Princess', 'Ralph', 'Superstar', 'Trinoid', 'Trinoids',
+  'Victoria', 'Whisper', 'Wobble', 'Zarvox',
+]);
+
+/**
+ * The 2022-era character voices — two locales each, mediocre by design, and
+ * alphabetically ahead of every classic. They read as personas, not
+ * narrators, so they shelve with the novelty voices: on a real Mac they are
+ * most of what an alphabetical list shows first, which is how "which voice
+ * is good here" became unanswerable.
+ */
+export const SAY_PERSONAS = new Set([
+  'Eddy', 'Flo', 'Grandma', 'Grandpa', 'Reed', 'Rocko', 'Sandy', 'Shelley',
 ]);
 
 /**
@@ -70,7 +83,8 @@ export function sayTier(name, sample = '') {
   if (/^Siri\b|\(Siri\)/i.test(name) || /I[’']m Siri/i.test(sample)) return 0;
   if (/\(Premium\)|\(Neural\)/i.test(name)) return 1;
   if (/\(Enhanced\)/i.test(name)) return 2;
-  if (SAY_ROBOTS.has(name.replace(/\s*\(.*\)$/, '').trim())) return 4;
+  const bare = name.replace(/\s*\(.*\)$/, '').trim();
+  if (SAY_ROBOTS.has(bare) || SAY_PERSONAS.has(bare)) return 4;
   return 3;
 }
 
@@ -80,7 +94,7 @@ export function sayTier(name, sample = '') {
  * ranking stays finer than the vocabulary so the sort still puts an Enhanced
  * voice above a plain one and a plain one above a robot.
  */
-export const TIER_LABEL = ['best', 'good', 'good', 'average', 'average'];
+export const TIER_LABEL = ['best', 'good', 'good', 'average', 'novelty'];
 
 /**
  * Parse `say -v '?'`.
@@ -107,10 +121,13 @@ export function parseSayVoices(stdout, { lang } = {}) {
     const sample = (m[3] ?? '').trim();
     out.push({ name, locale: m[2].replace('-', '_'), tier: sayTier(name, sample), sample });
   }
-  // the unaddressable Siri duplicates (see above)
+  // the unaddressable Siri duplicates (see above), and the `((null))`
+  // artifacts an undownloaded Siri stub can leave in the listing — both are
+  // rows `say -v` cannot actually select, so neither may be offered
   const names = new Map();
   for (const v of out) names.set(v.name, (names.get(v.name) ?? 0) + 1);
-  const kept = out.filter((v) => !(names.get(v.name) > 1 && /I[’']m Siri/i.test(v.sample)));
+  const kept = out.filter((v) => !v.name.includes('((null))')
+    && !(names.get(v.name) > 1 && /I[’']m Siri/i.test(v.sample)));
   const want = (lang ?? 'en').slice(0, 2).toLowerCase();
   // English (or the asked-for language) first, then by tier: a machine whose
   // best voice speaks Italian should not narrate an English deck with it

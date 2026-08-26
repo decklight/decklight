@@ -209,6 +209,11 @@
         return new Response('', { status: 404 });
       }
       if (!u.startsWith(BRIDGE)) return realFetch(url, opts);
+      if (u.endsWith('/voices/install')) {
+        window.__installPosted = (window.__installPosted || 0) + 1;
+        return new Response(JSON.stringify({ ok: true }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/ping')) {
         // xss: the roster is somebody ELSE'S text — an ElevenLabs voice is
         // named by whoever shared it, and that name may be markup
@@ -225,6 +230,20 @@
               // A roster far taller than the card, which is the ordinary case
               // on a system voice: a Mac answers 184 names. The scrolling bug
               // this mode guards only exists past the fold.
+              : mode === 'sayshelves'
+                // a real Mac in miniature: a caveat (no Siri installed), a few
+                // classics, a novelty tail, a foreign tail — say-shaped triples
+                ? { engine: 'say', model: 'Samantha', stylable: false,
+                  caveat: 'the best voices here are Siri’s, a free download: System Settings → …',
+                  voices: [
+                    ['Daniel', 'en_GB', 'average'], ['Karen', 'en_AU', 'average'],
+                    ['Samantha', 'en_US', 'average'],
+                    ['Albert', 'en_US', 'novelty'], ['Bad News', 'en_US', 'novelty'],
+                    ['Eddy (English (UK))', 'en_GB', 'novelty'], ['Zarvox', 'en_US', 'novelty'],
+                    ['Alice', 'it_IT', 'other languages'], ['Amélie', 'fr_CA', 'other languages'],
+                    ['Anna', 'de_DE', 'other languages'], ['Kyoko', 'ja_JP', 'other languages'],
+                    ['Milena', 'ru_RU', 'other languages'],
+                  ] }
               : mode === 'scroll'
                 ? { engine: 'say', model: 'Albert', stylable: false,
                   // triples, like the real say engine sends: a quality group
@@ -885,6 +904,45 @@
 
           r.PASS = r.voiceRows.length > 0 && r.toneStepShown
             && r.toneLabels.includes('Super excited') && r.sentStyle === 'excited';
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'sayshelves') {
+          // ~184 rows folded to a handful: quality shelves for the deck's
+          // language, one toggle row per long tail, and the missing BEST
+          // voices as an actionable row where a chooser actually looks.
+          press('n', document.body);                       // no tracks → voices view
+          await new Promise((ok) => setTimeout(ok, 500));   // /ping answers, view repaints
+          const rowTexts = () => [...document.querySelectorAll('.narr-row')].map((n) => n.textContent);
+          // engine row + install row + 3 average + 2 toggles = 7
+          r.rows = document.querySelectorAll('.narr-row').length;
+          r.foldedTight = r.rows === 7;
+          r.groups = [...document.querySelectorAll('.narr-group')].map((n) => n.textContent);
+          r.shelvesShown = r.groups.includes('best') && r.groups.includes('average');
+          r.tailsFolded = rowTexts().some((t) => /novelty voices \(4\)/.test(t))
+            && rowTexts().some((t) => /other languages \(5\)/.test(t));
+
+          // the install row sits ON the best shelf and posts to the bridge
+          const install = [...document.querySelectorAll('.narr-row')]
+            .find((n) => /Get Siri voices/.test(n.textContent));
+          r.installRowShown = !!install;
+          install.click();
+          for (let i = 0; i < 100 && !window.__installPosted; i++) await new Promise((ok) => setTimeout(ok, 20));
+          r.installPosted = window.__installPosted === 1;
+
+          // a toggle expands IN PLACE — same open, no navigation
+          [...document.querySelectorAll('.narr-row')].find((n) => /novelty voices/.test(n.textContent)).click();
+          await new Promise((ok) => setTimeout(ok, 200));
+          r.noveltyExpands = rowTexts().filter((t) => /Albert|Bad News|Eddy|Zarvox/.test(t)).length === 4
+            && [...document.querySelectorAll('.narr-group')].some((n) => n.textContent === 'novelty');
+          [...document.querySelectorAll('.narr-row')].find((n) => /other languages/.test(n.textContent)).click();
+          await new Promise((ok) => setTimeout(ok, 200));
+          r.othersExpand = rowTexts().some((t) => /Kyoko/.test(t))
+            && !rowTexts().some((t) => /other languages \(5\)/.test(t));
+
+          r.PASS = r.foldedTight && r.shelvesShown && r.tailsFolded
+            && r.installRowShown && r.installPosted && r.noveltyExpands && r.othersExpand;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

@@ -99,7 +99,7 @@ const timings = [];
 const stalled = [];
 let slowest = 0;
 for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'scroll', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
+  'elevenlabsv3', 'scroll', 'sayshelves', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'plainrec', 'segmanifest', 'segsigned',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record']) {
   const [m, extra] = mode.split('&');
@@ -172,6 +172,13 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ${r.rows} rows, card scrolls=${r.scrollable}`
       + ` · selection stayed in view=${r.visibleThroughout}${r.lostAt ? ` (lost at ↓${r.lostAt})` : ''}`
       + ` · list scrolled=${r.scrolled} · hover held still=${r.hoverHeldStill}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'sayshelves') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} folded to ${r.rows} rows`
+      + ` · install row on BEST=${r.installRowShown} (opens Settings=${r.installPosted})`
+      + ` · novelty expands in place=${r.noveltyExpands} · other languages too=${r.othersExpand}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
