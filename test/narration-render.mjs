@@ -179,6 +179,7 @@ for (const mode of ['healthy', 'pause', 'pausenav', 'flaky', 'dead', 'keys', 'mo
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} folded to ${r.rows} rows`
       + ` · install row on BEST=${r.installRowShown} (opens Settings=${r.installPosted})`
       + ` · novelty expands in place=${r.noveltyExpands} · other languages too=${r.othersExpand}`
+      + ` · ▶ warmed only the visible rows=${r.warmedOnlyVisible && r.foldedStayedCold}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

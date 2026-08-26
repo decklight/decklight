@@ -1430,12 +1430,14 @@ export function createNarration({
       previewAudio.play().catch(() => { /* autoplay policy */ });
       debugLog('narr', `preview ${voice}${style ? ' · styled' : ''}`);
       if (prefetch === 'voices') {
-        // liveVoices, not GEMINI_VOICES (#348): the built-in roster is the
-        // fallback that stands only until /ping answers, and prefetching it on
-        // an engine that never had those voices means 30 synthesis calls for
-        // names it cannot say — free but pointless on piper or a system voice,
-        // and metered against your plan on ElevenLabs.
-        prefetchPreviews(text, liveVoices.map(([n]) => ({ voice: n, style: '' })), 'voices');
+        // The VISIBLE rows, not the whole roster (and not GEMINI_VOICES,
+        // #348: the built-in list is only the pre-ping fallback). liveVoices
+        // on a Mac is ~184 names, most of them folded behind the novelty and
+        // other-language toggles — warming those was six minutes of
+        // background `say` for shelves nobody had opened. Expanding a shelf
+        // re-renders, and the next ▶ warms what it revealed.
+        const visible = narrRows.filter((r) => r.preview).map((r) => ({ voice: r.preview.voice, style: '' }));
+        prefetchPreviews(text, visible, 'voices');
       } else if (prefetch === 'tones') {
         prefetchPreviews(text, TONES.map((t) => ({ voice, style: toneStyle(t) })), `tones:${voice}`);
       }
