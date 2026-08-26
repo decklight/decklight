@@ -48,10 +48,11 @@ test('sapi selects the voice too, with the name escaped for PowerShell', () => {
 
 test('the engine reports the roster the machine has, not a built-in list', () => {
   const engine = sayEngine();
-  // the second column is what a person needs at the moment of choosing: the
-  // quality category first, then the locale
+  // [name, flavor, group]: the quality category is a STRUCTURED third element
+  // — the picker draws it as a labelled separator over each shelf — and the
+  // flavor stays the locale alone
   assert.deepEqual(engine.voices,
-    [['Albert', 'average · en_US'], ['Samantha', 'average · en_US'], ['Daniel', 'average · en_GB']]);
+    [['Albert', 'en_US', 'average'], ['Samantha', 'en_US', 'average'], ['Daniel', 'en_GB', 'average']]);
   assert.equal(engine.stylable, false, 'a system voice takes no delivery instruction');
   assert.equal(engine.model, 'Albert', 'the startup voice is the first the OS ranked');
 });

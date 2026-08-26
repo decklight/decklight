@@ -1603,9 +1603,14 @@ export function createNarration({
       });
       wrap.append(test, reset);
       card.appendChild(wrap);
-      liveVoices.forEach(([name, flavor]) => narrRows.push({
+      liveVoices.forEach(([name, flavor, group]) => narrRows.push({
         text: name,
         flavor,
+        // the third element is optional and structured: a quality group the
+        // engine vouches for ('best' · 'good' · 'average'). Engines that send
+        // pairs — every bridge before this, gemini's star roster — group
+        // nothing and render exactly as before.
+        group: group ?? null,
         preview: { voice: name, style: '', prefetch: 'voices' },
         cur: narrSet?.live && liveCfg.voice === name,
         // chirp and piper have no delivery-instruction channel, so there is no
@@ -1662,7 +1667,22 @@ export function createNarration({
       narrSel = 0;
       return;
     }
+    // Group separators: a labelled hairline wherever the quality group
+    // changes, so "best" reads as a shelf rather than a suffix repeated down
+    // the column. NOT a .narr-row and NOT in narrRows — selection walks
+    // .narr-row elements in lockstep with narrRows, so a separator that
+    // joined either would put the highlight on furniture.
+    let lastGroup = null;
     narrRows.forEach((row, i) => {
+      if (row.group !== lastGroup) {
+        lastGroup = row.group ?? null;
+        if (row.group) {
+          const sep = document.createElement('div');
+          sep.className = 'narr-group';
+          sep.textContent = row.group;
+          card.appendChild(sep);
+        }
+      }
       const el = document.createElement('div');
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '')
         + (row.blocked || row.blocked === '' ? ' narr-blocked' : '');
