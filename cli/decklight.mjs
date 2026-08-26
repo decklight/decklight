@@ -33,6 +33,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { versionLine } from './util.mjs';
 
 const GLOBAL_HELP = `decklight — author, record, and package Decklight presentations
 
@@ -142,6 +143,13 @@ let rest = argv.slice(1);
 const { version } = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
+// which BUILD of that version — commits past the release tag and the sha,
+// baked in by build.mjs; absent (old tarball, no clone at build time) the
+// plain version is the whole truth
+let buildInfo = null;
+try { buildInfo = JSON.parse(readFileSync(new URL('../dist/build-info.json', import.meta.url), 'utf8')); }
+catch { buildInfo = null; }
+const banner = versionLine(version, buildInfo);
 
 if (!cmd || cmd === '--help' || cmd === '-h') globalHelp();
 // A newer decklight than the one npx pinned (#314). Read from a cache the last
@@ -152,7 +160,7 @@ const notice = updateNotice(version);
 refreshInBackground();
 
 if (cmd === '--version' || cmd === '-v' || cmd === 'version') {
-  process.stdout.write(`decklight ${version}\n`);
+  process.stdout.write(`${banner}\n`);
   if (notice) process.stderr.write(`${notice}\n`);
   process.exit(0);
 }
@@ -164,7 +172,7 @@ if (cmd === 'help') {
 
 // every real command announces the version it runs as — on stderr, so piped
 // output (export, bundle) stays clean
-process.stderr.write(`decklight ${version}\n`);
+process.stderr.write(`${banner}\n`);
 if (notice) process.stderr.write(`${notice}\n`);
 
 // When a parent supervises us (author runs the deck server and the bridges), go when it

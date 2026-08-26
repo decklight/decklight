@@ -10,6 +10,7 @@ import { existsSync, readFileSync, writeFileSync, statSync, readdirSync } from '
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const playerPath = resolve(here, 'src/terminal/player.mjs');
@@ -127,6 +128,23 @@ await build({
     .replace(/^body \{/m, '.decklight {');
   writeFileSync(resolve(here, 'dist/decklight.css'), core + termCss + mathCss);
 }
+
+// The build's provenance, baked in because a packed tarball ships no .git:
+// three sandbox repacks in one afternoon all called themselves "0.6.0", and
+// which build a bug lived in was anybody's guess. `git describe` against the
+// release tags; a build outside a clone, or before any tag exists, writes
+// nothing and the banner shows the plain version — absence is the honest
+// answer there, not a made-up zero.
+try {
+  const desc = execFileSync('git', ['describe', '--tags', '--long', '--dirty=.dirty'],
+    { cwd: here, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const m = /^v?(.+)-(\d+)-g([0-9a-f]+?)(\.dirty)?$/.exec(desc);
+  if (m) {
+    writeFileSync(resolve(here, 'dist/build-info.json'), JSON.stringify({
+      tag: m[1], commits: Number(m[2]), commit: m[3], dirty: !!m[4],
+    }) + '\n');
+  }
+} catch { /* not a clone — the plain version is the whole truth */ }
 
 const kb = (f) => (statSync(resolve(here, f)).size / 1024).toFixed(1) + ' KB';
 console.log(`decklight.js ${kb('dist/decklight.js')} · decklight.css ${kb('dist/decklight.css')}` +
