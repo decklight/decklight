@@ -63,6 +63,24 @@ test('`rec` is gone — no alias, no stub, and the two recorders name each other
   assert.match(help, /^ {2}record .*\n(?:.*\n)*?.*decklight cast records a terminal/m);
 });
 
+test('voiceover is a first-class command: routed, documented, and helps to stdout', () => {
+  // the gap a user hit — reaching for `decklight voiceover` and finding only
+  // `node tools/voiceover.mjs`. It spawns the standalone script (which cannot
+  // be imported), so the test is that dispatch, help, and refusal all work.
+  const help = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
+  assert.match(help, /^ {2}voiceover .*batch-synthesize/m, 'the command is listed');
+
+  const vh = spawnSync('node', [CLI, 'voiceover', '--help'], { encoding: 'utf8' });
+  assert.equal(vh.status, 0, '--help exits 0');
+  assert.match(vh.stdout, /decklight voiceover — batch-synthesize/, 'help goes to STDOUT');
+  assert.ok(vh.stdout.length > 40);
+
+  // no deck named → a NAMED refusal, not a stack (the #278 convention)
+  const bad = spawnSync('node', [CLI, 'voiceover'], { encoding: 'utf8' });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /decklight voiceover: name the deck/);
+});
+
 test('unknown subcommand exits 1 with the global help', () => {
   const r = spawnSync('node', [CLI, 'frobnicate'], { encoding: 'utf8' });
   assert.equal(r.status, 1);

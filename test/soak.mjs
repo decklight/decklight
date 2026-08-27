@@ -1457,11 +1457,12 @@ try {
     for (const cmd of ['init', 'import', 'bundle', 'upgrade', 'pdf', 'present', 'author', 'publish',
       'theme', 'marketplace', 'plugin', 'template', 'skills', 'importer', 'transform', 'engine',
       'voice', 'agent', 'extension', 'restore', 'cast', 'record', 'review', 'comments',
-      'tts', 'lipsync', 'video', 'report-bug', 'associate']) {
+      'tts', 'lipsync', 'video', 'voiceover', 'report-bug', 'associate']) {
       const r = dl([cmd, '--help']);
       must(r.stdout.length > 40, `${cmd} --help printed almost nothing to stdout`);
     }
     for (const [args, want] of [
+      [['voiceover'], /decklight voiceover: name the deck/],
       [['present', 'nope.html'], /present:/],
       [['import', 'deck.html'], /import:/],
       [['marketplace', 'add', SPACE], /marketplace add:/],

@@ -52,8 +52,33 @@ import { argReader } from './args.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 
 const args = process.argv.slice(2);
+
+const HELP = `decklight voiceover — batch-synthesize a deck's narration into a folder
+
+Usage:
+  decklight voiceover <deck.html> [-o <dir>] [--engine piper|chirp|gemini|elevenlabs]
+                      [--voice <name>] [--no-llm] [--reuse-text] [--keep-wav]
+
+The headless counterpart of the deck's \u21e7V: it reads each slide's speaker
+notes and writes one slide-NN.m4a per slide (plus a file per \u27e8CLICK\u27e9 beat)
+and a manifest.json into <dir>, so a deck can point at it with
+narration: { files: [{ label, dir, segments: true }] }.
+
+  -o <dir>       output folder (default: <deck>/voiceover)
+  --engine       piper (local, free, default) · chirp · gemini · elevenlabs
+  --voice        the engine's voice name (piper: a model name; elevenlabs: omit
+                 for the first of YOUR voices)
+  --no-llm       skip the local-LLM notes rewrite; voice the notes as written
+  --reuse-text   re-voice the existing slide-NN.txt without re-rolling the text
+                 — switch voices or engines without a new narration pass
+  --keep-wav     keep the lossless WAVs (tools/lipsync.mjs consumes them)
+
+Cloud engines need --project or $GOOGLE_CLOUD_PROJECT and application-default
+credentials; elevenlabs needs $ELEVENLABS_API_KEY. Audio is a build artifact.`;
+
+if (args.includes('--help') || args.includes('-h')) { console.log(HELP); process.exit(0); }
 const deckPath = args.find((a) => !a.startsWith('-'));
-if (!deckPath) { console.error('usage: voiceover.mjs <deck.html> [-o dir] [--engine piper|chirp|gemini|elevenlabs] [--voice name] [--no-llm] [--reuse-text]'); process.exit(1); }
+if (!deckPath) { console.error('decklight voiceover: name the deck to voice\n\n' + HELP); process.exit(1); }
 const { opt } = argReader(args);
 const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
 const engine = opt('--engine', 'piper');

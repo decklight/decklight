@@ -112,6 +112,9 @@ Commands:
            one ⟨CLICK⟩ beat at a time, and → ends a beat AND reveals the next build
            (this records YOU — decklight cast records a terminal)
            EXAMPLE: decklight record talk.html   (serves it: a microphone needs 127.0.0.1)
+  voiceover batch-synthesize the deck's narration into a folder with a live engine
+           (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's ⇧V
+           EXAMPLE: decklight voiceover talk.html -o voices/chirp --engine chirp --voice Achernar
   review   leave comments on somebody's deck, anchored to slides and carried by git
            (writes <deck>.review.jsonl beside it; never touches the deck itself)
            EXAMPLE: decklight review talk.html   (then M in the deck)
@@ -331,6 +334,18 @@ switch (cmd) {
   case 'record': {
     const { recordMain } = await import('./record.mjs');
     process.exitCode = await recordMain(rest);
+    break;
+  }
+  case 'voiceover': {
+    // tools/voiceover.mjs arg-parses and exits at LOAD (it cannot be imported
+    // — deck-html.mjs's note), so it is spawned, exactly as `video
+    // --voiceover` already spawns it. stdio inherited: its per-slide progress
+    // and cost lines are the whole point of running it in a terminal.
+    const { spawnSync } = await import('node:child_process');
+    const { fileURLToPath } = await import('node:url');
+    const script = fileURLToPath(new URL('../tools/voiceover.mjs', import.meta.url));
+    const r = spawnSync(process.execPath, [script, ...rest], { stdio: 'inherit' });
+    process.exitCode = r.status ?? 1;
     break;
   }
   case 'review': {
