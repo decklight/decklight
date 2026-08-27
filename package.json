@@ -38,6 +38,7 @@
     "prepare": "npm run build",
     "test": "node test/run.mjs",
     "verify": "npm run build && node test/verify.mjs",
+    "test:impact": "node tools/test-impact.mjs",
     "soak": "node test/soak.mjs",
     "cross-engine": "node test/cross-engine.mjs"
   },

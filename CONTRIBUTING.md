@@ -15,6 +15,34 @@ Decklight is plain JavaScript (ESM) with no runtime dependencies.
 - `npm run build` — bundle `src/index.js` → `dist/decklight.js`
 - `npm run verify` — build, then the render/lint harnesses (needs Chrome)
 - `npm run soak` — one end-to-end pass as a *user*, before a release (below)
+- `npm run test:impact` — which tests **this** change needs (below)
+
+### `npm run test:impact` — the edit-run loop
+
+`npm run verify` is ~200s and strictly serial: one headless browser at a time,
+and `narration-render` alone is a third of it. While you are iterating on one
+subsystem, most of that is waiting for harnesses that cannot see your change.
+
+```sh
+npm run test:impact                 # what would run, against origin/main
+npm run test:impact -- --run        # run it
+npm run test:impact -- --since main # compare against another ref
+npm run test:impact -- src/core/review.js   # ask about explicit paths
+```
+
+Editing `src/core/review.js` selects `review-render` alone — **8s instead of
+200s**. The map lives in `tools/test-impact.mjs`; add a rule when you add a
+harness, and `test/test-impact.test.mjs` will tell you if the two lists drift.
+
+Two things it deliberately does **not** do. It never picks unit tests: `npm test`
+is ~48s because node runs the 85 files in parallel, 38 of them finish under
+0.3s, and selecting a subset would save seconds while risking the one file that
+mattered — so the unit suite always runs whole. And a path the map does not
+recognise selects **every** harness, loudly: a picker that guesses "probably
+nothing" on an unfamiliar path turns an unrun suite into a green line.
+
+It is a developer shortcut, not a gate. CI runs everything, because the map is a
+claim about the code and the full suite is what notices when the claim is wrong.
 
 ### `npm run soak` — the release gate
 
