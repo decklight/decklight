@@ -50,7 +50,15 @@ import { execFile } from 'node:child_process';
  * so the test can assert the argv without a Settings window opening mid-suite.
  */
 export const VOICE_SETTINGS_URI = 'x-apple.systempreferences:com.apple.preference.universalaccess';
-export function openVoiceSettings(exec = execFile) {
+/** …and Windows' Narrator page, where "Add natural voices" lives. */
+export const WINDOWS_VOICE_SETTINGS_URI = 'ms-settings:easeofaccess-narrator';
+export function openVoiceSettings(exec = execFile, platform = process.platform) {
+  if (platform === 'win32') {
+    // `start` is a cmd builtin; the empty "" is its title argument, so the
+    // URI is never mistaken for one. Every token is a constant.
+    exec('cmd', ['/c', 'start', '""', WINDOWS_VOICE_SETTINGS_URI], () => { /* fire and forget */ });
+    return;
+  }
   exec('open', [VOICE_SETTINGS_URI], () => { /* fire and forget — Settings owns the rest */ });
 }
 import { createHash } from 'node:crypto';
@@ -267,10 +275,12 @@ export async function ttsMain(args) {
     // Settings pane and does nothing else; the download itself stays a human
     // clicking, which is the whole point of the pane.
     if (req.method === 'POST' && req.url === '/voices/install') {
-      if (process.platform !== 'darwin') { res.writeHead(404); return res.end(); }
+      if (process.platform !== 'darwin' && process.platform !== 'win32') { res.writeHead(404); return res.end(); }
       try {
         openVoiceSettings();
-        console.log('  voices: opened System Settings → Accessibility (download a Siri voice, then restart me)');
+        console.log(process.platform === 'win32'
+          ? '  voices: opened Settings → Accessibility → Narrator (add natural voices, then restart me)'
+          : '  voices: opened System Settings → Accessibility (download a Siri voice, then restart me)');
         res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
         return res.end(JSON.stringify({ ok: true }));
       } catch (e) {
