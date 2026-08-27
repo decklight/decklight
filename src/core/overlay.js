@@ -76,12 +76,14 @@ export function typeaheadKeydown(e, { query = '', onMove, onCommit, onType, onBa
  * Register in PRIORITY ORDER: when overlays somehow overlap, the one
  * registered first is the one the keyboard belongs to.
  *
- * An overlay is `{ isOpen(), close(), keydown(e) }`. `keydown` returns whether
- * it consumed the key — true means the deck calls preventDefault, false means
- * the key is simply dropped. Either way it never reaches the deck's own
- * shortcuts: an overlay that is up owns the keyboard whether or not it wanted
- * this particular key, which is what stops `o` from opening the overview
- * behind an open dialog.
+ * An overlay is `{ isOpen(), close(), keydown(e), modal? }`. `keydown` returns
+ * whether it consumed the key — true means the deck calls preventDefault, false
+ * means the key is dropped. By default an overlay that is up owns the keyboard
+ * whether or not it wanted this particular key, which is what stops `o` from
+ * opening the overview behind an open dialog. An overlay that sets
+ * `modal: false` instead lets the keys it did not consume fall through to the
+ * deck's own shortcuts — for a panel meant to sit BESIDE the slide (the docked
+ * review) rather than over it, so navigation still works while it is open.
  */
 export function createOverlays() {
   const entries = [];

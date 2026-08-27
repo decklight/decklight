@@ -646,6 +646,18 @@ same two-step (`S`, or the palette's "Submit review…"), and the browser never 
 pushing with the same code the typed subcommand runs.
 Rows are built as nodes, never `innerHTML` — a comment is somebody else's text that arrived over git. The
 author's server exposes the same store under the same append-only rule (`GET`/`POST /edit/review`).
+
+**The panel sits beside the slide, not over it.** Reviewing is writing about what is on screen, so the overlay
+is **non-modal**: it never dims or covers the deck. A small control in its header places it — **float**
+(a movable card, the default, dragged by its header), or docked **left**, **right**, or **bottom**, where it
+reserves a gutter (`--dock-left/right/bottom` on the root) and the stage reflows into what is left through the
+same `rescale` that fits the slide to the window. The placement is **remembered per deck** in `localStorage`,
+like the clock and the character. Because the panel is non-modal the deck keeps the keyboard: the panel owns
+the arrows only while you are working **in** it (your last click or focus was the card), and hands them back to
+the slides the moment you touch the deck — so you walk the deck with `←`/`→` while the panel stays up. The
+composer's target **follows the slide you are on while the box is empty, and locks to it once you start typing**
+(the label then says which slide it will land on and which you are merely viewing), so glancing at other slides
+mid-comment never silently moves where it is filed. `Esc` and `M` always close from either surface.
 **`decklight comments <deck.html>`** is the terminal reader: grouped by slide, each group carrying how it was
 found, orphans last, resolved ones counted rather than printed (`--all`, `--unresolved`).
 

@@ -1412,7 +1412,54 @@
 /* review comments (M) — SPEC REVIEW. Shares the narration card chrome; the
    list is rows of somebody else's prose, so it reads like a thread rather
    than a picker. */
-.decklight-review .narr-card { width: min(560px, 88vw); }
+/* Review is a NON-MODAL panel: it sits beside the slide — docked to an edge or
+   floating — never a dimming modal over it, so the content stays visible and the
+   deck stays navigable. The frame is click-through; only the card catches the
+   pointer, and the stage reflows away from a docked gutter via --dock-* (engine
+   rescale). */
+.decklight-review { background: none; backdrop-filter: none; display: block; pointer-events: none; }
+.decklight-review .narr-card { position: absolute; pointer-events: auto; width: min(560px, 88vw); }
+
+/* float — positioned by JS at left/top, dragged by its header */
+.decklight-review[data-dock="float"] .narr-card {
+  width: min(460px, 88vw);
+  max-height: 78vh;
+  box-shadow: 0 16px 50px rgba(0, 0, 0, .6);
+}
+/* left / right — a full-height column the stage reflows away from. border-box
+   so the card is exactly the gutter the stage was told to leave: content-box
+   added the 14px padding twice and the panel overhung the slide by 28px. */
+.decklight-review[data-dock="left"] .narr-card,
+.decklight-review[data-dock="right"] .narr-card {
+  box-sizing: border-box;
+  top: 0; bottom: 0; height: 100%;
+  width: var(--dock-size, 360px);
+  max-height: none; border-radius: 0;
+}
+.decklight-review[data-dock="right"] .narr-card { right: 0; box-shadow: -12px 0 40px rgba(0, 0, 0, .5); }
+.decklight-review[data-dock="left"]  .narr-card { left: 0;  box-shadow:  12px 0 40px rgba(0, 0, 0, .5); }
+/* bottom — a full-width tray */
+.decklight-review[data-dock="bottom"] .narr-card {
+  box-sizing: border-box;
+  left: 0; right: 0; bottom: 0;
+  width: auto; height: var(--dock-size, 320px);
+  max-height: none; border-radius: 0;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, .5);
+}
+
+/* the dock control lives in the header, which becomes a flex row */
+.decklight-review .narr-head { display: flex; align-items: center; gap: 8px; opacity: 1; }
+.decklight-review .rv-heading { flex: 1; opacity: .55; }
+.decklight-review .rv-dock-ctl { display: flex; gap: 2px; pointer-events: auto; }
+.decklight-review .rv-dock-btn {
+  font-size: 13px; line-height: 1; padding: 3px 5px;
+  border: 0; border-radius: 5px;
+  background: transparent; color: inherit;
+  opacity: .5; cursor: pointer;
+}
+.decklight-review .rv-dock-btn:hover { opacity: .9; background: rgba(255, 255, 255, .12); }
+.decklight-review .rv-dock-on { opacity: 1; background: rgba(255, 255, 255, .18); }
+.decklight-review .rv-close { font-size: 16px; margin-left: 2px; }
 .decklight-review .rv-compose { padding: 4px 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, .1); }
 .decklight-review .rv-on { font-size: 12px; opacity: .55; margin-bottom: 6px; }
 .decklight-review .rv-input { width: 100%; resize: vertical; margin-bottom: 6px; }

@@ -51,7 +51,7 @@
     const realFetch = window.fetch.bind(window);
     window.fetch = async (url, opts) => {
       const u = String(url);
-      const reviewer = mode === 'reviewer';
+      const reviewer = mode === 'reviewer' || mode === 'dock';
       if (u.endsWith('/review/ping')) {
         return reviewer
           ? new Response(JSON.stringify({ ok: true, name: 'review.html', review: true }),
@@ -218,6 +218,99 @@
             && r.anchoredToTheSlideOnScreen && r.listedAfterPosting
             && r.submitRowShown && r.submitArmedNotFired && r.submitEscapeDisarmed
             && r.stillNotFired && r.submittedOnSecond;
+          sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'dock') {
+          // The panel docks beside the slide instead of covering it: it reflows
+          // the stage, keeps the deck navigable, follows the current slide while
+          // the box is empty and locks once you type, and remembers its place.
+          deck.goto(1, 0);
+          await wait(50);
+          press('m');
+          const card = await until(() => document.querySelector('.decklight-review .narr-card'));
+          r.opened = !!card;
+          const rootEl = document.querySelector('.decklight');
+          const frame = document.querySelector('.decklight-review');
+          const stage = document.querySelector('.decklight-stage');
+
+          // opens floating (no dimming backdrop over the slide), not a modal
+          r.defaultFloat = frame.dataset.dock === 'float';
+          r.noBackdrop = getComputedStyle(frame).backgroundColor === 'rgba(0, 0, 0, 0)'
+            || getComputedStyle(frame).backgroundImage === 'none' && !/blur/.test(getComputedStyle(frame).backdropFilter || '');
+          const transformBefore = stage.style.transform;
+
+          // dock right → the stage reserves a gutter and shifts to fit beside it
+          const floatRect = card.getBoundingClientRect();
+          card.querySelector('.rv-dock-btn[data-mode="right"]').click();
+          await wait(50);
+          r.dockedRight = frame.dataset.dock === 'right';
+          r.reservedGutter = parseFloat(getComputedStyle(rootEl).getPropertyValue('--dock-right')) > 0;
+          r.stageReflowed = stage.style.transform !== transformBefore
+            && /translate\(-?\d/.test(stage.style.transform);
+
+          // THE PIXELS, not just the state. The first cut set the dock attribute
+          // and the gutter var correctly while the card stayed exactly where it
+          // had floated — inline left/top from the float placement outrank the
+          // stylesheet — so the stage reflowed away from a gutter nothing sat in.
+          // Assert where the card actually IS, and that it fills the gutter it
+          // was given rather than overhanging it (box-sizing).
+          const dockedRect = card.getBoundingClientRect();
+          r.cardActuallyMoved = Math.round(dockedRect.x) !== Math.round(floatRect.x)
+            || Math.round(dockedRect.y) !== Math.round(floatRect.y);
+          const gutterPx = parseFloat(getComputedStyle(rootEl).getPropertyValue('--dock-right'));
+          r.cardOnTheRightEdge = Math.abs(dockedRect.right - rootEl.clientWidth) <= 1;
+          r.cardFillsGutter = Math.abs(dockedRect.width - gutterPx) <= 1;
+          r.cardFullHeight = Math.abs(dockedRect.height - rootEl.clientHeight) <= 1;
+          // …and the slide it reflowed for must not sit under it
+          const stageRect = stage.getBoundingClientRect();
+          r.slideClearOfPanel = Math.round(stageRect.right) <= Math.round(dockedRect.left) + 1;
+
+          // remembered per deck
+          try {
+            r.persisted = JSON.parse(localStorage.getItem('decklight-review-dock:' + location.pathname))?.mode === 'right';
+          } catch (e) { r.persisted = false; }
+
+          // non-modal: a touch on the deck hands the arrows back to the slides,
+          // and the empty composer follows the slide you land on
+          document.querySelector('.decklight-stage section')
+            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+          const wasSlide = deck.state.slide;
+          press('ArrowRight');
+          await wait(40);
+          r.arrowNavigatedDeck = deck.state.slide === wasSlide + 1;
+          r.targetFollowedWhileEmpty = /on slide 2/.test(card.querySelector('.rv-on').textContent);
+
+          // …but once you start writing, walking the deck must NOT move the target
+          const input = card.querySelector('.rv-input');
+          input.value = 'a note about slide 2';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          document.querySelector('.decklight-stage section')
+            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+          press('ArrowRight');
+          await wait(40);
+          r.targetLockedWhileTyping = deck.state.slide === wasSlide + 2
+            && /on slide 2\b/.test(card.querySelector('.rv-on').textContent)
+            && /viewing 3/.test(card.querySelector('.rv-on').textContent);
+
+          // closing hands the stage its full width back
+          press('m');
+          await wait(30);
+          r.gutterReleased = !document.querySelector('.decklight-review')
+            && (getComputedStyle(rootEl).getPropertyValue('--dock-right').trim() === ''
+              || parseFloat(getComputedStyle(rootEl).getPropertyValue('--dock-right')) === 0);
+          // reopening returns to the remembered placement
+          press('m');
+          await wait(40);
+          r.restoredPlacement = document.querySelector('.decklight-review')?.dataset.dock === 'right';
+
+          r.PASS = r.opened && r.defaultFloat && r.dockedRight && r.reservedGutter
+            && r.stageReflowed && r.cardActuallyMoved && r.cardOnTheRightEdge
+            && r.cardFillsGutter && r.cardFullHeight && r.slideClearOfPanel
+            && r.persisted && r.arrowNavigatedDeck
+            && r.targetFollowedWhileEmpty && r.targetLockedWhileTyping
+            && r.gutterReleased && r.restoredPlacement;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
         }

@@ -880,6 +880,10 @@ export function init(userConfig = {}) {
       this._listeners.get(type).add(fn);
       return this;
     },
+    off(type, fn) {
+      this._listeners.get(type)?.delete(fn);
+      return this;
+    },
     _emit(type, detail) {
       (this._listeners.get(type) || []).forEach((fn) => fn(detail));
       root.dispatchEvent(new CustomEvent('decklight:' + type, { detail }));
@@ -1532,8 +1536,15 @@ export function init(userConfig = {}) {
     // priority order the long if-chain here used to encode.
     const top = overlays.active();
     if (top) {
-      if (top.keydown(e)) e.preventDefault();
-      return;
+      if (top.keydown(e)) { e.preventDefault(); return; }
+      // A modal overlay swallows even the keys it did not want — that is what
+      // stops `o` opening the overview behind an open dialog. A NON-modal one
+      // lets the rest fall through to the deck, so you can arrow through slides
+      // while the panel stays up beside them. `modal` may be a predicate: the
+      // docked review is modal only while you are working IN it, transparent
+      // while your last click was on the deck.
+      const modal = typeof top.modal === 'function' ? top.modal() : top.modal;
+      if (modal !== false) return;
     }
     // positional, so it cannot be a `case` in a switch over e.key
     if (isMsgKey(e)) { toggleMessages(); e.preventDefault(); return; }
@@ -1607,12 +1618,24 @@ export function init(userConfig = {}) {
   }, { passive: true });
 
   // ----- scaling -----------------------------------------------------------
+  // A docked panel (the review, so far) reserves a gutter by setting
+  // `--dock-left/right/bottom` on the root, in px. The stage then fits into what
+  // is LEFT and re-centres there: the fit divides by the reduced area, and the
+  // extra translate shifts the stage by half the asymmetry so it sits centred in
+  // the visible region rather than behind the panel. Zero when nothing is docked.
+  const dockPx = (name) => parseFloat(getComputedStyle(root).getPropertyValue(name)) || 0;
   function rescale() {
     const box = root.getBoundingClientRect();
-    const s = Math.min(box.width / config.width, box.height / config.height) || 1;
+    const dl = dockPx('--dock-left'), dr = dockPx('--dock-right'), db = dockPx('--dock-bottom');
+    const s = Math.min((box.width - dl - dr) / config.width,
+                       (box.height - db) / config.height) || 1;
     instance._scale = s;
-    stage.style.transform = `translate(-50%, -50%) scale(${s})`;
+    stage.style.transform =
+      `translate(-50%, -50%) translate(${(dl - dr) / 2}px, ${-db / 2}px) scale(${s})`;
   }
+  // Docked overlays call this after changing a `--dock-*` var: it is the same
+  // refit the ResizeObserver runs, but a var change is not a resize.
+  instance._reflow = () => { if (!printMode) rescale(); };
   if (!printMode) {
     new ResizeObserver(rescale).observe(root);
     rescale();
