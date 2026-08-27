@@ -17,9 +17,10 @@ import { rmTemp } from './helpers.mjs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  TAIL_SECONDS, LAST_STEP, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
+  TAIL_SECONDS, LAST_STEP, SLIDE_PAUSE_DEFAULT, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps,
 } from '../tools/video.mjs';
+import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
 // --- planTimeline -------------------------------------------------------------
 
@@ -116,13 +117,17 @@ test('extractHolds reads data-video-hold off each section, default elsewhere', (
   assert.deepEqual(extractHolds(html, 5), [5, 8, 5]);
 });
 
-test('extractPauses reads data-narration-pause off each section, 0 elsewhere', () => {
+test('extractPauses reads data-narration-pause off each section, the built-in hold elsewhere', () => {
   const html = `<div class="decklight">
     <section><h2>one</h2></section>
     <section data-narration-pause="2" data-layout="top"><h2>two</h2></section>
     <section data-narration="hold"><p data-narration-pause="9">an attr on CONTENT is not a slide beat</p></section>
   </div>`;
-  assert.deepEqual(extractPauses(html), [0, 2, 0]);
+  // a slide that says nothing breathes the runtime's default before it
+  // turns — the mp4 must hold exactly where the live deck holds
+  assert.deepEqual(extractPauses(html), [SLIDE_PAUSE_DEFAULT, 2, SLIDE_PAUSE_DEFAULT]);
+  assert.equal(SLIDE_PAUSE_DEFAULT, SLIDE_PAUSE_S,
+    'video.mjs and the runtime disagree about the built-in slide pause — src/ does not ship, so the constant is duplicated and this is its leash');
 });
 
 // --- ffmpeg arg builders --------------------------------------------------------
