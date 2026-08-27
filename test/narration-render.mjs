@@ -185,6 +185,8 @@ for (const mode of ['healthy', 'pause', 'sentpause', 'pausenav', 'flaky', 'dead'
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} held after the clip=${r.heldAfterClip}`
       + ` · advanced once the hold elapsed=${r.advancedAfterHold}`
       + ` · still ran itself to the end=${r.reachedTheEnd}`
+      + ` · deck-wide narration.beatPause held too=${r.deckWideHeld && r.deckWideAdvanced}`
+      + ` · a slide's "0" wins=${r.slideZeroWins}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

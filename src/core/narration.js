@@ -69,14 +69,22 @@ export function pauseSeconds(raw) {
  * costs the default breath, not the feature.
  */
 export const SENTENCE_PAUSE_S = 0.25;
-export function sentencePauseFor(attr, cfg) {
+/**
+ * Three tiers, one rule, every narration pause: the slide's attribute wins
+ * when present (and "0" means zero), then the deck's `narration.<key>`,
+ * then the built-in default. A value that does not parse falls through to
+ * the next tier rather than to silence — a typo costs the default, never the
+ * feature.
+ */
+export function pauseFor(attr, cfg, dflt) {
   if (attr !== undefined && attr !== null && String(attr).trim() !== '') {
     const n = Number(attr);
     if (Number.isFinite(n) && n >= 0) return n;
   }
   if (typeof cfg === 'number' && Number.isFinite(cfg) && cfg >= 0) return cfg;
-  return SENTENCE_PAUSE_S;
+  return dflt;
 }
+export const sentencePauseFor = (attr, cfg) => pauseFor(attr, cfg, SENTENCE_PAUSE_S);
 
 /**
  * Wire narration to a deck.
@@ -522,14 +530,19 @@ export function createNarration({
   // holds that many seconds after its last sentence before the deck moves on.
   // A diagram the room has to actually look at, a punchline, the beat before a
   // new section. `hold` wins on a slide carrying both: infinite beats finite.
-  const narrationPause = (sl) => pauseSeconds(instance._sections[sl - 1]?.dataset.narrationPause);
+  // Each pause resolves the same way (pauseFor): the slide's attribute, else
+  // the deck's `narration: { slidePause, beatPause, sentencePause }`, else the
+  // built-in default — 0 for the slide and beat holds, 0.25s between sentences.
+  const narrationPause = (sl) => pauseFor(
+    instance._sections[sl - 1]?.dataset.narrationPause, config.narration?.slidePause, 0);
   // data-narration-beat-pause="0.5": the same breath BETWEEN builds — each
   // bullet lands, holds, and only then does the voice reveal the next. The
   // slide-end pause never applied here: builds revealed the instant a beat's
   // audio ended, which reads as the deck talking over its own punctuation.
   // Honored at play time for live and recorded tracks alike — never baked
   // into a recording, exactly like its end-of-slide sibling.
-  const beatPause = (sl) => pauseSeconds(instance._sections[sl - 1]?.dataset.narrationBeatPause);
+  const beatPause = (sl) => pauseFor(
+    instance._sections[sl - 1]?.dataset.narrationBeatPause, config.narration?.beatPause, 0);
   // data-narration-sentence-pause="0.5" · narration: { sentencePause } · 0.25s:
   // the breath between two sentences of one beat. See sentencePauseFor.
   const sentencePause = (sl) => sentencePauseFor(

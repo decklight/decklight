@@ -516,7 +516,32 @@
             r.reachedTheEnd = deck.state.slide === 7;
             r.asked = asked();
             r.inOrder = r.asked.slice(0, 3).join('|') === [1, 2, 3].map((k) => `${V}slide-05-0${k}.m4a`).join('|');
-            r.PASS = r.heldAfterClip && r.advancedAfterHold && r.reachedTheEnd && r.inOrder;
+
+            // the DECK-WIDE tier: no attribute on the slide, `narration.beatPause`
+            // in the init config instead — the runtime reads the same object it
+            // was initialised with, so the same hold must appear
+            deck.toggleNarration();                     // V off
+            await wait(100);
+            delete deck._sections[4].dataset.narrationBeatPause;
+            cfg.narration.beatPause = 0.4;
+            deck.goto(5, 0);
+            await wait(20);
+            deck.toggleNarration();
+            await wait(250);
+            r.deckWideHeld = deck.state.slide === 5 && deck.state.step === 0;
+            await wait(400);
+            r.deckWideAdvanced = deck.state.slide === 5 && deck.state.step === 1;
+            // …and a slide's own "0" switches the deck-wide hold OFF
+            deck.toggleNarration();
+            await wait(100);
+            deck._sections[4].dataset.narrationBeatPause = '0';
+            deck.goto(5, 0);
+            await wait(20);
+            deck.toggleNarration();
+            await wait(250);
+            r.slideZeroWins = deck.state.step >= 1 || deck.state.slide > 5;
+            r.PASS = r.heldAfterClip && r.advancedAfterHold && r.reachedTheEnd && r.inOrder
+              && r.deckWideHeld && r.deckWideAdvanced && r.slideZeroWins;
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
           }
