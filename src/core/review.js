@@ -434,7 +434,15 @@ export function createReview({
     // slide's content at the commit the comment was written against.
     if (!r.slide) { toggleContext(r); return; }
     instance.goto(r.slide, 0, { force: true });
-    close();
+    // The panel STAYS. Closing was right when this was a modal covering the
+    // deck — the only way to see the slide you had just jumped to was to get
+    // the overlay out of the way. Beside the slide that reasoning inverts:
+    // walking a review is jump, read, jump, and a panel that dismissed itself
+    // on the first comment made you press M again for every one after it.
+    //
+    // Nothing more to do here: `force: true` means goto always emits `slide`,
+    // and the subscription open() holds moves the compose target — one path for
+    // "the deck went somewhere", whether it was an arrow key or this jump.
   }
 
   /** Unfold (or fold) an orphan's "what it said", from the author server. */

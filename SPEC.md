@@ -657,7 +657,10 @@ the arrows only while you are working **in** it (your last click or focus was th
 the slides the moment you touch the deck — so you walk the deck with `←`/`→` while the panel stays up. The
 composer's target **follows the slide you are on while the box is empty, and locks to it once you start typing**
 (the label then says which slide it will land on and which you are merely viewing), so glancing at other slides
-mid-comment never silently moves where it is filed. `Esc` and `M` always close from either surface.
+mid-comment never silently moves where it is filed. **Jumping to a comment's slide leaves the panel open** —
+it navigates the deck beside it and nothing else. Closing on the jump was right while the overlay covered the
+deck, because getting out of the way was the only way to see what you had jumped to; beside the slide that
+reasoning inverts, and walking a review is jump, read, jump. `Esc` and `M` always close from either surface.
 **`decklight comments <deck.html>`** is the terminal reader: grouped by slide, each group carrying how it was
 found, orphans last, resolved ones counted rather than printed (`--all`, `--unresolved`).
 

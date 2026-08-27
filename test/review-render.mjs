@@ -75,6 +75,7 @@ const run = (mode, extra = '') => resultsFrom(
     + ` · flagged the edited one=${r.flaggedTheEdited}`
     + ` · the deleted one is not re-pinned=${r.orphanNotRepinned}`
     + ` · ⏎ went where it is NOW=${r.jumpedToWhereItIsNow} (slide ${r.jumpedTo})`
+    + ` · the panel survives the jump=${r.panelSurvivedTheJump && r.secondJumpWorked}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
 }
 
