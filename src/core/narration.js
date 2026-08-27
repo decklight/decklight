@@ -1680,10 +1680,10 @@ export function createNarration({
       // Mac whose finest voices are a free download away. The row lives ON
       // the shelf where they would appear — where somebody choosing actually
       // looks — not only in a startup line long scrolled off.
-      if (liveEngine === 'say' && liveCaveat && !liveVoices.some(([, , g]) => g === 'best')) {
+      if ((liveEngine === 'say' || liveEngine === 'sapi') && liveCaveat && !liveVoices.some(([, , g]) => g === 'best')) {
         narrRows.push({
-          text: '⬇ Get Siri voices — free download',
-          flavor: 'opens System Settings',
+          text: liveEngine === 'sapi' ? '⬇ Get natural voices — free download' : '⬇ Get Siri voices — free download',
+          flavor: liveEngine === 'sapi' ? 'opens Settings → Narrator' : 'opens System Settings',
           group: 'best',
           commit: () => {
             fetch(VOICES_INSTALL_URL, { method: 'POST' })

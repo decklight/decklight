@@ -137,6 +137,77 @@ export function parseSayVoices(stdout, { lang } = {}) {
     || a.name.localeCompare(b.name));
 }
 
+/**
+ * The WinRT speech stack — where Windows' NATURAL voices live.
+ *
+ * `System.Speech` (SAPI_LIST above) is the 2006 API: it sees David, Zira and
+ * Mark, and it cannot see the neural voices Narrator and Edge use (Aria,
+ * Jenny, Guy — the ones that sound like a person). Those are exposed through
+ * `Windows.Media.SpeechSynthesis`, which Windows PowerShell 5.1 can reach by
+ * projecting the WinRT type. So the roster is asked for HERE first, and
+ * System.Speech is the fallback for a PowerShell that cannot project (pwsh 7
+ * without the SDK assemblies, or an old Windows).
+ *
+ * One voice per line: DisplayName, Language, Id — tab-separated, because a
+ * display name has spaces and parentheses in it.
+ */
+export const WINRT_LIST = [
+  '-NoProfile', '-NonInteractive', '-Command',
+  '$null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType=WindowsRuntime]; '
+  + '[Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices '
+  + '| ForEach-Object { $_.DisplayName + "`t" + $_.Language + "`t" + $_.Id }',
+];
+
+/** Rank a WinRT voice: the neural ones are the best Windows can do. */
+export function winrtTier(name, id = '') {
+  return /\bNatural\b/i.test(name) || /Natural|Neural/i.test(id) ? 0 : 3;
+}
+
+/** Parse WINRT_LIST's output — `name<TAB>lang<TAB>id` per line. */
+export function parseWinrtVoices(stdout, { lang } = {}) {
+  const out = [];
+  for (const line of String(stdout ?? '').split('\n')) {
+    const [name, language, id] = line.split('\t').map((x) => (x ?? '').trim());
+    if (!name || !language) continue;
+    out.push({ name, locale: language.replace('-', '_'), id: id || null, tier: winrtTier(name, id) });
+  }
+  const want = (lang ?? 'en').slice(0, 2).toLowerCase();
+  return out.sort((a, b) =>
+    (a.locale.toLowerCase().startsWith(want) ? 0 : 1) - (b.locale.toLowerCase().startsWith(want) ? 0 : 1)
+    || a.tier - b.tier
+    || a.name.localeCompare(b.name));
+}
+
+/**
+ * The PowerShell that makes the WinRT stack speak a line into a WAV file.
+ *
+ * `SynthesizeTextToStreamAsync` answers a WinRT stream that IS a RIFF/WAVE;
+ * it is bridged to a .NET stream and copied to the file whole. The one
+ * async hop is awaited through `AsTask` looked up by reflection — the
+ * projection has no `await` in PowerShell 5.1 — and a voice name this
+ * machine does not have THROWS rather than falling back to the default
+ * voice, the same rule `say` needed enforcing by hand.
+ */
+export function winrtArgs(text, voice, file) {
+  const q = (s) => `'${String(s).replace(/'/g, "''")}'`;   // PowerShell escaping
+  return ['-NoProfile', '-NonInteractive', '-Command',
+    '$null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType=WindowsRuntime]; '
+    + 'Add-Type -AssemblyName System.Runtime.WindowsRuntime; '
+    + '$asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { '
+    + "$_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and "
+    + "$_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]; "
+    + '$s = New-Object Windows.Media.SpeechSynthesis.SpeechSynthesizer; '
+    + (voice
+      ? `$v = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | Where-Object { $_.DisplayName -eq ${q(voice)} } | Select-Object -First 1; `
+        + `if (-not $v) { throw ('no voice named ' + ${q(voice)}) }; $s.Voice = $v; `
+      : '')
+    + `$op = $s.SynthesizeTextToStreamAsync(${q(text)}); `
+    + '$task = $asTask.MakeGenericMethod([Windows.Media.SpeechSynthesis.SpeechSynthesisStream]).Invoke($null, @($op)); '
+    + '$task.Wait(); $stream = $task.Result; '
+    + '$in = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($stream.GetInputStreamAt(0)); '
+    + `$out = [IO.File]::Create(${q(file)}); $in.CopyTo($out); $out.Dispose(); $in.Dispose(); $s.Dispose()`];
+}
+
 /** Parse the PowerShell voice list — one name per line. */
 export function parseSapiVoices(stdout) {
   return String(stdout ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
@@ -243,13 +314,33 @@ export function detectLocalVoice({
   }
 
   if (platform === 'win32') {
-    const shell = ['powershell.exe', 'pwsh.exe'].find((b) => hasBin(b));
+    // Windows PowerShell first: it is the one that projects WinRT types, and
+    // WinRT is where the natural voices are. pwsh (7+) cannot without the SDK
+    // assemblies, so it is the fallback shell — and System.Speech, which sees
+    // only the 2006 voices, the fallback API.
+    const shells = ['powershell.exe', 'pwsh.exe'].filter((b) => hasBin(b));
+    for (const shell of shells) {
+      let voices = [];
+      try { voices = parseWinrtVoices(exec(shell, WINRT_LIST), { lang }); } catch { /* not projectable here */ }
+      if (voices.length) {
+        return {
+          engine: 'sapi', api: 'winrt', shell, voices,
+          label: `Windows ${TIER_LABEL[voices[0].tier]} voice: ${voices[0].name}`,
+          ...(voices.some((v) => v.tier === 0) ? {} : {
+            caveat: 'the best voices here are Windows’ natural ones, a free download: Settings '
+              + '→ Accessibility → Narrator → Add natural voices '
+              + '(open it with: start ms-settings:easeofaccess-narrator) — then restart decklight tts',
+          }),
+        };
+      }
+    }
+    const shell = shells[0];
     if (shell) {
       let voices = [];
       try { voices = parseSapiVoices(exec(shell, SAPI_LIST)); } catch { /* treated as none */ }
       if (voices.length) {
         return {
-          engine: 'sapi', shell, voices,
+          engine: 'sapi', api: 'sapi', shell, voices,
           label: `Windows ${voices[0].tier === 1 ? 'natural' : 'built-in'} voice: ${voices[0].name}`,
         };
       }

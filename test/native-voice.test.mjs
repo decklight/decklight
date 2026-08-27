@@ -118,10 +118,17 @@ test('an empty roster does not lock the engine out of speaking', async (t) => {
 });
 
 test('the install route\'s one exec is a frozen argv, opening a Settings pane and nothing else', async () => {
-  const { openVoiceSettings, VOICE_SETTINGS_URI } = await import('../tools/voiceover-server.mjs');
+  const { openVoiceSettings, VOICE_SETTINGS_URI, WINDOWS_VOICE_SETTINGS_URI } = await import('../tools/voiceover-server.mjs');
   const calls = [];
-  openVoiceSettings((bin, args) => calls.push([bin, args]));
+  openVoiceSettings((bin, args) => calls.push([bin, args]), 'darwin');
   assert.deepEqual(calls, [['open', ['x-apple.systempreferences:com.apple.preference.universalaccess']]]);
+  // Windows: the Narrator page, where "Add natural voices" lives — every
+  // token a constant, the "" being `start`'s title argument so the URI can
+  // never be read as one
+  calls.length = 0;
+  openVoiceSettings((bin, args) => calls.push([bin, args]), 'win32');
+  assert.deepEqual(calls, [['cmd', ['/c', 'start', '""', 'ms-settings:easeofaccess-narrator']]]);
+  assert.equal(WINDOWS_VOICE_SETTINGS_URI, 'ms-settings:easeofaccess-narrator');
   // the URI the caveat prints and the one the route opens must be the same door
   assert.equal(VOICE_SETTINGS_URI, 'x-apple.systempreferences:com.apple.preference.universalaccess');
 });

@@ -51,7 +51,7 @@ import {
   createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
 } from './elevenlabs-tts.mjs';
-import { detectLocalVoice, sayArgs, sapiArgs, TIER_LABEL } from './local-voice.mjs';
+import { detectLocalVoice, sayArgs, sapiArgs, winrtArgs, TIER_LABEL } from './local-voice.mjs';
 
 export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs', 'say', 'sapi'];
 /** The two engines that are already on the machine — nothing to install. */
@@ -333,9 +333,12 @@ function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
  * Neither takes a delivery instruction, so both are `stylable: false` and the
  * picker skips the tone step, exactly as it does for piper and ElevenLabs.
  */
-function createNative({ kind, voice, shell = 'powershell.exe', voices = [] }) {
+function createNative({ kind, voice, shell = 'powershell.exe', voices = [], api = null }) {
   const bin = kind === 'say' ? 'say' : shell;
-  const build = kind === 'say' ? sayArgs : sapiArgs;
+  // on Windows the API decides the voices: WinRT sees the natural ones,
+  // System.Speech only the 2006 roster — detectLocalVoice chose, and the
+  // synthesis must speak through the same stack that listed the voice
+  const build = kind === 'say' ? sayArgs : api === 'winrt' ? winrtArgs : sapiArgs;
   // The roster this machine actually has, for the guard below. Held as names
   // because that is what the player sends and what `say -v` takes.
   const known = new Set(voices.map((v) => v?.name ?? v).filter(Boolean));
@@ -439,6 +442,7 @@ export function createEngine({
       ...(detected.caveat ? { caveat: detected.caveat } : {}),
       synth: createNative({
         kind: engine, voice: pick, shell: detected.shell, voices: detected.voices ?? [],
+        api: detected.api ?? null,
       }),
     };
   }

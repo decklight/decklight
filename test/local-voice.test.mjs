@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 
 import {
   parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs, TIER_LABEL,
+  parseWinrtVoices, winrtTier, winrtArgs, WINRT_LIST, SAPI_LIST,
   detectLocalVoice, ollamaRunning, OLLAMA_NOTE, onPath, probe,
 } from '../tools/local-voice.mjs';
 import { planServices, voiceModelOffer } from '../cli/dev.mjs';
@@ -325,4 +326,71 @@ test('a real detection runs on the machine it is running on', { skip: process.pl
   assert.ok(d.engine === 'say' || d.engine === 'sapi' || d.why,
     'either a voice was found, or there is a reason — never a silent null');
   if (d.engine) assert.ok(d.voices.length > 0, 'an engine with no voices is not an engine');
+});
+
+// ── the WinRT stack: where Windows' natural voices live ─────────────────────
+
+const WINRT = 'Microsoft David\ten-US\tHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech_OneCore\\Voices\\Tokens\\MSTTS_V110_enUS_DavidM\n'
+  + 'Microsoft Aria (Natural)\ten-US\tHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech_OneCore\\Voices\\Tokens\\MSTTS_V110_enUS_AriaNatural\n'
+  + 'Microsoft Hortense\tfr-FR\tHKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Speech_OneCore\\Voices\\Tokens\\MSTTS_V110_frFR_HortenseM\n';
+
+test('WinRT lists the natural voices, and they rank as the best Windows has', () => {
+  const v = parseWinrtVoices(WINRT);
+  assert.deepEqual(v.map((x) => x.name), ['Microsoft Aria (Natural)', 'Microsoft David', 'Microsoft Hortense'],
+    'natural first, then the classics, English before French');
+  assert.equal(v[0].tier, 0, 'a natural voice is best-tier — the closest Windows has to Siri');
+  assert.equal(v[1].tier, 3);
+  assert.equal(v[0].locale, 'en_US');
+  assert.equal(v[0].id.endsWith('AriaNatural'), true, 'the WinRT id rides along');
+  // a language ask reorders, like say
+  assert.equal(parseWinrtVoices(WINRT, { lang: 'fr' })[0].name, 'Microsoft Hortense');
+  // garbage, blank lines and tab-less lines are not voices
+  assert.equal(parseWinrtVoices('').length, 0);
+  assert.equal(parseWinrtVoices('Microsoft Aria Online (Natural) - English (United States)').length, 0,
+    'System.Speech-shaped output must not parse as a WinRT roster');
+  assert.equal(winrtTier('Microsoft Guy', 'MSTTS_V110_enUS_GuyNeural'), 0, 'neural in the id counts too');
+});
+
+test('the WinRT synthesis script names the voice, escapes the text, and refuses an unknown voice', () => {
+  const [, , , script] = winrtArgs("it's a 'quoted' word", 'Microsoft Aria (Natural)', 'C:\\o.wav');
+  assert.match(script, /Windows\.Media\.SpeechSynthesis\.SpeechSynthesizer/);
+  assert.match(script, /SynthesizeTextToStreamAsync\('it''s a ''quoted'' word'\)/, 'PowerShell doubles a quote');
+  assert.match(script, /DisplayName -eq 'Microsoft Aria \(Natural\)'/);
+  assert.match(script, /throw \('no voice named '/, 'an unknown name throws rather than speaking as the default');
+  assert.match(script, /AsStreamForRead/, 'the WinRT stream is bridged to .NET and copied whole');
+  assert.match(script, /\[IO\.File\]::Create\('C:\\o\.wav'\)/);
+  // no voice → no Voice assignment at all
+  assert.doesNotMatch(winrtArgs('hi', null, 'o.wav').at(-1), /DisplayName -eq/);
+  assert.deepEqual(WINRT_LIST.slice(0, 3), ['-NoProfile', '-NonInteractive', '-Command']);
+});
+
+test('Windows asks WinRT first and System.Speech only when it cannot project', () => {
+  const winrtFirst = detectLocalVoice({
+    platform: 'win32',
+    hasBin: (b) => b === 'powershell.exe' || b === 'pwsh.exe',
+    exec: (shell, args) => (args === WINRT_LIST ? WINRT : 'Microsoft David Desktop - English (United States)'),
+  });
+  assert.equal(winrtFirst.engine, 'sapi');
+  assert.equal(winrtFirst.api, 'winrt', 'the natural voices are behind WinRT');
+  assert.equal(winrtFirst.shell, 'powershell.exe', 'Windows PowerShell is the one that projects WinRT');
+  assert.equal(winrtFirst.voices[0].name, 'Microsoft Aria (Natural)');
+  assert.match(winrtFirst.label, /^Windows best voice: Microsoft Aria/);
+  assert.equal(winrtFirst.caveat, undefined, 'a machine with a natural voice needs no hint');
+
+  // WinRT lists only the classics → the hint says where the natural ones are
+  const classicsOnly = detectLocalVoice({
+    platform: 'win32', hasBin: (b) => b === 'powershell.exe',
+    exec: (shell, args) => (args === WINRT_LIST ? WINRT.split('\n').filter((l) => !/Natural/.test(l)).join('\n') : ''),
+  });
+  assert.equal(classicsOnly.api, 'winrt');
+  assert.match(classicsOnly.caveat, /Add natural voices/);
+  assert.match(classicsOnly.caveat, /start ms-settings:easeofaccess-narrator/);
+
+  // the projection fails (pwsh without the SDK) → System.Speech, as before
+  const fallback = detectLocalVoice({
+    platform: 'win32', hasBin: (b) => b === 'pwsh.exe',
+    exec: (shell, args) => { if (args === WINRT_LIST) throw new Error('Unable to find type'); return 'Microsoft Zira Desktop - English (United States)'; },
+  });
+  assert.equal(fallback.api, 'sapi');
+  assert.equal(fallback.voices[0].name, 'Microsoft Zira Desktop - English (United States)');
 });
