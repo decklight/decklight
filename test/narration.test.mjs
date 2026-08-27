@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
 
 import {
-  hintApplies, pauseSeconds, sentencePauseFor, SENTENCE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
+  hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack,
 } from '../src/core/narration.js';
 
@@ -285,4 +285,21 @@ test('the breath between sentences: a default, overridable per deck and per slid
   assert.equal(sentencePauseFor('lots', 0.5), 0.5);
   assert.equal(sentencePauseFor('', 'fast'), 0.25);
   assert.equal(sentencePauseFor('-1', -3), 0.25);
+});
+
+test('every pause resolves the same way: slide attribute › deck config › built-in default', () => {
+  // the slide and beat holds default to nothing…
+  assert.equal(pauseFor(undefined, undefined, 0), 0);
+  // …a deck-wide `narration: { slidePause, beatPause }` gives every slide one…
+  assert.equal(pauseFor(undefined, 1, 0), 1);
+  assert.equal(pauseFor(undefined, 0.5, 0), 0.5);
+  // …and a slide's own attribute outranks the deck — including to switch it OFF
+  assert.equal(pauseFor('2', 1, 0), 2);
+  assert.equal(pauseFor('0', 1, 0), 0, 'an explicit "0" on the slide is zero');
+  // a typo at either tier falls through, never to silence
+  assert.equal(pauseFor('soon', 1, 0), 1);
+  assert.equal(pauseFor('', 'long', 0), 0);
+  assert.equal(pauseFor('-2', -1, 0), 0);
+  // the sentence pause is the same function with a non-zero default
+  assert.equal(sentencePauseFor(undefined, undefined), SENTENCE_PAUSE_S);
 });
