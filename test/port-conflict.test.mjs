@@ -191,7 +191,10 @@ test('nextFreePort walks past a whole block of unavailable ports', async () => {
     assert.ok(free >= first, 'went backwards');
     // THE property: the answer walked past every port this test holds. That
     // is what nextFreePort promises, and it is checkable without a race.
-    const held = new Set(srvs.map((s) => s.address().port));
+    // only the servers that actually LISTEN hold a port: one whose listen
+    // failed (the port was already somebody else's) sits in srvs with no
+    // address — the Windows runner had exactly one of those
+    const held = new Set(srvs.map((s) => s.address()?.port).filter(Boolean));
     assert.equal(held.has(free), false, `nextFreePort returned ${free}, a port this test still holds`);
     // The old assertion re-bound `free` immediately and failed three times on
     // Windows CI: nextFreePort's probe binds and closes the socket, and
