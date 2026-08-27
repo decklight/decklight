@@ -50,6 +50,20 @@ const run = (mode, extra = '') => resultsFrom(
   }
 }
 
+// ── the panel docks beside the slide ──────────────────────────────────────
+{
+  const r = run('dock');
+  const ok = r.PASS === true;
+  if (!ok) bad++;
+  console.log(`${ok ? 'ok  ' : 'FAIL'} dock       opens floating=${r.defaultFloat}`
+    + ` · docks right & reflows the stage=${r.dockedRight && r.stageReflowed}`
+    + ` · deck still navigable=${r.arrowNavigatedDeck}`
+    + ` · target follows then locks=${r.targetFollowedWhileEmpty && r.targetLockedWhileTyping}`
+    + ` · gutter released on close=${r.gutterReleased}`
+    + ` · placement remembered=${r.persisted && r.restoredPlacement}`
+    + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+}
+
 // ── the deck moves under the comments ─────────────────────────────────────
 {
   const r = run('moved', '&seed');

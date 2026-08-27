@@ -17,7 +17,7 @@
 // somebody reading the deck before the talk, writing to its author — so it
 // persists, and the two must not be confused in the vocabulary either.
 
-import { closeOnBackdrop, selectInList } from './overlay.js';
+import { selectInList } from './overlay.js';
 // The anchor lives in tools/ because the CLI needs it too and src/ is not in
 // the published package. Re-exported here so a browser-side caller has one
 // place to look, and inlined by esbuild like any other import.
@@ -71,6 +71,116 @@ export function createReview({
   let incomingNow = [];    // the waiting reviews as last rendered — T's targets
   let context = null;      // {id, data} — an orphan's "what it said", unfolded
   let probed = null;       // the review server's base, '' for same-origin, null for none
+  let composeSlide = 1;    // the slide a new comment lands on — follows the deck
+                           // while the box is empty, locks once you start typing
+  let engaged = false;     // last surface the user touched: the panel, or the deck
+  let onSlide = null;      // the slide-change subscription held while open
+  let onResize = null;     // the viewport listener that re-sizes the gutter
+  let onSurface = null;    // pointerdown/focusin router for `engaged`
+
+  // Where the panel sits. A movable float (default) or docked to an edge so the
+  // slide you are commenting on stays in view and navigable. Remembered per deck,
+  // exactly like the clock and the character (hud.js / character.js).
+  const dockKey = 'decklight-review-dock:' + location.pathname;
+  const dock = { mode: 'float', x: null, y: null };
+  try {
+    const s = JSON.parse(localStorage.getItem(dockKey));
+    if (s?.mode) { dock.mode = s.mode; dock.x = s.x ?? null; dock.y = s.y ?? null; }
+  } catch { /* first run, or storage denied — the default float is fine */ }
+  const persistDock = () => {
+    try { localStorage.setItem(dockKey, JSON.stringify(dock)); } catch { /* ignore */ }
+  };
+  const DOCK_GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓' };
+
+  // The gutter a docked panel reserves, in px — the same figure drives the
+  // panel's own width/height (CSS var) and the stage's inset (root var), so the
+  // slide reflows into exactly what is left. Viewport-relative, re-read on resize.
+  const gutter = () => ({
+    w: Math.min(360, Math.round(root.clientWidth * 0.32)),
+    h: Math.min(320, Math.round(root.clientHeight * 0.40)),
+  });
+
+  /** Reserve the stage gutter for the current mode (or clear it for float). */
+  function reserveGutter() {
+    if (!el) return;
+    el.dataset.dock = dock.mode;
+    const g = gutter();
+    root.style.setProperty('--dock-left', dock.mode === 'left' ? g.w + 'px' : '0px');
+    root.style.setProperty('--dock-right', dock.mode === 'right' ? g.w + 'px' : '0px');
+    root.style.setProperty('--dock-bottom', dock.mode === 'bottom' ? g.h + 'px' : '0px');
+    el.style.setProperty('--dock-size',
+      dock.mode === 'bottom' ? g.h + 'px' : g.w + 'px');
+    instance._reflow?.();
+    if (dock.mode === 'float') placeCard();
+  }
+
+  /** Float only: clamp the card to the viewport at its remembered position. */
+  function placeCard() {
+    const card = el?.querySelector('.narr-card');
+    if (!card || dock.mode !== 'float') return;
+    const w = card.offsetWidth || 460, h = card.offsetHeight || 400;
+    let x = dock.x, y = dock.y;
+    if (x == null || y == null) { x = root.clientWidth - w - 24; y = 24; }
+    x = Math.max(8, Math.min(x, root.clientWidth - w - 8));
+    y = Math.max(8, Math.min(y, root.clientHeight - h - 8));
+    dock.x = x; dock.y = y;
+    card.style.left = x + 'px';
+    card.style.top = y + 'px';
+  }
+
+  /** Switch placement from a header button — persist, reflow, no full re-render. */
+  function setDock(mode) {
+    dock.mode = mode;
+    persistDock();
+    reserveGutter();
+    el?.querySelectorAll('.rv-dock-btn').forEach(
+      (b) => b.classList.toggle('rv-dock-on', b.dataset.mode === mode));
+    const head = el?.querySelector('.narr-head');
+    if (head) head.style.cursor = mode === 'float' ? 'move' : '';
+  }
+
+  /** Drag the float card by its header. Docked modes ignore it. */
+  function startDrag(e, head) {
+    if (dock.mode !== 'float' || e.button != null && e.button !== 0) return;
+    if (e.target.closest('.rv-dock-ctl')) return;   // the buttons, not a drag
+    const card = el.querySelector('.narr-card');
+    if (!card) return;
+    e.preventDefault();
+    const sx = e.clientX, sy = e.clientY;
+    const ox = parseFloat(card.style.left) || 0, oy = parseFloat(card.style.top) || 0;
+    const move = (ev) => {
+      const w = card.offsetWidth, h = card.offsetHeight;
+      dock.x = Math.max(8, Math.min(ox + ev.clientX - sx, root.clientWidth - w - 8));
+      dock.y = Math.max(8, Math.min(oy + ev.clientY - sy, root.clientHeight - h - 8));
+      card.style.left = dock.x + 'px';
+      card.style.top = dock.y + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      persistDock();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  }
+
+  /** The compose target's label — names the slide, and flags a locked target. */
+  function composeLabel() {
+    const slides = slidesNow();
+    const t = slides[composeSlide - 1]?.title;
+    const here = instance.state.slide;
+    const base = `on slide ${composeSlide}${t ? ` · ${t}` : ''}`;
+    return here === composeSlide ? base : `${base} · viewing ${here}`;
+  }
+
+  /** Slide changed under an open panel: follow it if the box is empty. */
+  function updateComposeTarget() {
+    if (!el) return;
+    const input = el.querySelector('.rv-input');
+    if (input && !input.value.trim()) composeSlide = instance.state.slide;
+    const on = el.querySelector('.rv-on');
+    if (on) on.textContent = composeLabel();
+  }
 
   const slidesNow = () => indexSlides(sections(), { titleOf, bodyOf });
 
@@ -181,21 +291,42 @@ export function createReview({
     rows = [];
     incomingNow = (state.incoming?.state === 'ok' && state.incoming.reviews) || [];
 
-    card.append(el_('div', 'narr-head',
-      state.can === 'comment' ? 'review · M closes' : 'review comments · M closes'));
+    const head = el_('div', 'narr-head');
+    head.append(el_('span', 'rv-heading', state.can === 'comment' ? 'review' : 'review comments'));
+    const ctl = el_('div', 'rv-dock-ctl');
+    for (const m of ['float', 'left', 'right', 'bottom']) {
+      const b = el_('button', 'rv-dock-btn' + (dock.mode === m ? ' rv-dock-on' : ''), DOCK_GLYPH[m]);
+      b.dataset.mode = m;
+      b.title = m === 'float' ? 'float (movable)' : `dock ${m}`;
+      b.setAttribute('aria-label', m === 'float' ? 'float' : `dock ${m}`);
+      b.addEventListener('click', () => setDock(m));
+      ctl.append(b);
+    }
+    const x = el_('button', 'rv-dock-btn rv-close', '×');
+    x.title = 'close (M)';
+    x.setAttribute('aria-label', 'close');
+    x.addEventListener('click', close);
+    ctl.append(x);
+    head.append(ctl);
+    head.style.cursor = dock.mode === 'float' ? 'move' : '';
+    head.addEventListener('pointerdown', (e) => startDrag(e, head));
+    card.append(head);
 
     // The composer, when there is somewhere to send it. On the slide you are
     // looking at, because that is the one you are talking about.
     if (state.can === 'comment') {
+      composeSlide = here;
       const box = el_('div', 'rv-compose');
-      box.append(el_('div', 'rv-on', `on slide ${here}${slides[here - 1]?.title ? ` · ${slides[here - 1].title}` : ''}`));
+      box.append(el_('div', 'rv-on', composeLabel()));
       const input = el_('textarea', 'narr-input rv-input');
       input.placeholder = 'what you want the author to know…';
       input.rows = 3;
       const send = el_('div', 'narr-row narr-sel rv-send', 'Leave this comment');
       send.setAttribute('role', 'button');
       send.tabIndex = 0;
-      const post = () => submit(input.value, here, slides[here - 1]);
+      // The target is read at SEND time, not render time: while you type it is
+      // locked to composeSlide, and you may have walked the deck to other slides.
+      const post = () => submit(input.value, composeSlide, slidesNow()[composeSlide - 1]);
       send.addEventListener('click', post);
       input.addEventListener('keydown', (e) => {
         // ⌘/⌃⏎ posts, which is what every composer in every tool does; a bare
@@ -203,9 +334,13 @@ export function createReview({
         if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); }
         e.stopPropagation();   // the deck must not advance while somebody types
       });
+      // Clearing the box hands the target back to whatever slide is on screen.
+      input.addEventListener('input', () => { if (!input.value.trim()) updateComposeTarget(); });
       box.append(input, send);
       card.append(box);
-      setTimeout(() => input.focus(), 0);
+      // Float pops up to be written in, so it takes focus; a docked panel sits
+      // beside the deck for browsing, so it leaves the keyboard on the slides.
+      if (dock.mode === 'float') setTimeout(() => input.focus(), 0);
     }
 
     // What reviewers have SENT that is not taken in yet — before the local
@@ -278,6 +413,8 @@ export function createReview({
         ? '⏎ jumps to the slide · S submits the review · Esc closes'
         : '⏎ jumps to the slide · Esc closes'));
     select(Math.min(sel, Math.max(0, rows.length - 1)));
+    // The card's height just changed; a floating one re-clamps into view.
+    placeCard();
   }
 
   function select(i) {
@@ -455,9 +592,22 @@ export function createReview({
     sel = 0;
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-review';
+    el.dataset.dock = dock.mode;
     el.innerHTML = '<div class="narr-card" role="dialog" aria-label="Review comments"></div>';
-    closeOnBackdrop(el, close);
     root.appendChild(el);
+    // Which surface the keyboard belongs to follows the last thing you touched:
+    // a click (or focus) inside the panel makes its list keys live; one on the
+    // deck hands the arrows back to the slides. Float opens focused, so start
+    // engaged there; a docked panel opens with the deck still in charge.
+    engaged = dock.mode === 'float';
+    onSurface = (e2) => { engaged = !!el && el.contains(e2.target); };
+    document.addEventListener('pointerdown', onSurface, true);
+    document.addEventListener('focusin', onSurface, true);
+    onSlide = () => updateComposeTarget();
+    instance.on?.('slide', onSlide);
+    onResize = () => reserveGutter();
+    window.addEventListener('resize', onResize);
+    reserveGutter();
     render({ records: [], skipped: 0, can: 'none' });
     await authorReady();
     if (el) render(await load());
@@ -470,13 +620,33 @@ export function createReview({
     armedTake = null;
     armedAnchor = null;
     context = null;
+    engaged = false;
+    // Hand the stage its full width back and refit the slide.
+    root.style.removeProperty('--dock-left');
+    root.style.removeProperty('--dock-right');
+    root.style.removeProperty('--dock-bottom');
+    instance._reflow?.();
+    if (onSlide) instance.off?.('slide', onSlide), onSlide = null;
+    if (onResize) window.removeEventListener('resize', onResize), onResize = null;
+    if (onSurface) {
+      document.removeEventListener('pointerdown', onSurface, true);
+      document.removeEventListener('focusin', onSurface, true);
+      onSurface = null;
+    }
   }
 
   overlays.register({
     isOpen: () => !!el,
     close,
+    // Modal only while you are working IN the panel — then it owns the keyboard
+    // like any dialog. When your last touch was the deck it goes transparent, so
+    // arrows walk the slides beside it (see the dispatch in engine.js).
+    modal: () => engaged,
     keydown(e) {
       const typing = /^(input|textarea)$/i.test(e.target?.tagName ?? '');
+      // Esc and M always answer; every other key is the panel's only while it is
+      // the engaged surface — otherwise it falls through to the deck.
+      if (e.key !== 'Escape' && !(e.key === 'm' || e.key === 'M') && !engaged) return false;
       if (e.key === 'Escape') {
         // Escape backs out of an arm before it closes the overlay — the same
         // two-step every other confirming surface here uses.
