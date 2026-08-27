@@ -58,6 +58,7 @@ import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html
 import { classifyScripts } from './audit.mjs';
 import { reviewPathFor, parseReview, serializeRecord, mergeById, newId } from './review-store.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
+import { recordingImpact, impactWarning, slidesFromFiles } from '../tools/recording-impact.mjs';
 import { indexDeckFile, slideTextOf, knowsCommit } from './comments.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
@@ -337,6 +338,45 @@ export function trackLiteral(track) {
  *
  * Returns the new HTML, or null when there is no literal here to edit.
  */
+/**
+ * The local track directories a deck's `narration.files` names, in order.
+ *
+ * A directory track is a folder of recorded audio; a `manifest`/cloud entry
+ * has no local `dir` and is not one. Uses the same init walkers upsert does,
+ * so it reads exactly the config the deck actually runs — the `files: 'x'`
+ * one-string form counts too. Returns `[]` for a deck with no narration, a
+ * config built outside the call, or a manifest-only track.
+ */
+export function configuredTrackDirs(html) {
+  const arg = initArgument(html);
+  if (!arg) return [];
+  const raw = html.slice(arg.start, arg.end);
+  const open = raw.indexOf('{');
+  if (open === -1 || raw.slice(0, open).trim()) return [];
+  const obj = raw.slice(open, raw.lastIndexOf('}') + 1);
+  const narr = objectKey(obj, 'narration');
+  if (!narr) return [];
+  const nval = obj.slice(narr.valueFrom, narr.to).trim();
+  if (!nval.startsWith('{')) return [];
+  const files = objectKey(nval, 'files');
+  if (!files) return [];
+  const fval = nval.slice(files.valueFrom, files.to).trim();
+  const dirs = [];
+  if (fval.startsWith('[')) {
+    for (const e of arrayEntries(fval)) {
+      const entry = fval.slice(e.from, e.to);
+      // a `dir` names a folder; a `manifest` entry is cloud and has none
+      const m = /\bdir\s*:\s*(['"`])([^'"`]*)\1/.exec(entry);
+      if (m && !/\bmanifest\s*:/.test(entry)) dirs.push(m[2]);
+    }
+  } else {
+    // the one-string form: files: 'voiceover'
+    const m = /^(['"`])([^'"`]*)\1$/.exec(fval);
+    if (m) dirs.push(m[2]);
+  }
+  return dirs;
+}
+
 export function upsertNarrationTrack(html, track) {
   const arg = initArgument(html);
   if (!arg) return null;
@@ -858,14 +898,35 @@ export async function editMain(args, { onListen = null } = {}) {
         const subject = commitSubject(message ?? prompt, `decklight: ${cmd.name} edited ${basename(deckPath)}`);
         if (gitAutocommit(deckPath, root, subject)) console.log(`  git: committed "${subject}"`);
       }
+      // Did the edit orphan, stale, or reshape a recording? A track is
+      // minutes of somebody's own voice, and a whole-deck rewrite can drop the
+      // config that plays it or the notes it reads with nothing on screen to
+      // say so — this is where before/after both exist, so it is where the
+      // word is said. A warning, never a block: the file is already written,
+      // Z takes it back, and the audio never left the disk.
+      let recordingWarning = null;
+      if (changed) {
+        try {
+          const impact = recordingImpact(before, after, {
+            dirsOf: configuredTrackDirs,
+            recordedSlides: (dir) => {
+              try { return slidesFromFiles(readdirSync(resolve(dirname(deckPath), dir))); }
+              catch { return []; }
+            },
+          });
+          recordingWarning = impactWarning(impact);
+        } catch { recordingWarning = null; }   // a warning that throws is worse than none
+      }
       agentJob = null;
       broadcast('agent', {
         state: 'done', agent: cmd.name, ok: code === 0, changed, code,
         // the agent's own words when the stream carried them — raw stream-json
         // stdout is a wall of JSON nobody should be shown
         tail: (resultText ?? tail.trim().split('\n').slice(-6).join('\n')).slice(-600),
+        ...(recordingWarning ? { recordingWarning } : {}),
       });
       console.log(`  agent: ${cmd.name} exited (${code}) — deck ${changed ? 'changed' : 'unchanged'}`);
+      if (recordingWarning) console.log(`  ${recordingWarning}`);
     });
     return cmd;
   }

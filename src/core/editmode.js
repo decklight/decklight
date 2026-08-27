@@ -145,6 +145,13 @@ export function createEditMode({
                 toast(d.changed ? `🤖 ${d.agent} edited the deck — Z undoes${status}`
                   : `🤖 ${d.agent} finished — no changes${status}`, 3000);
                 debugLog('agent', `${d.agent} done ok=${d.ok} changed=${d.changed}${status}`);
+                // A recording the edit orphaned or staled — held longer and on
+                // its own line, because it is the one thing here you might act
+                // on and it is easy to miss behind the ordinary "edited" toast.
+                if (typeof d.recordingWarning === 'string') {
+                  toast(d.recordingWarning, 9000);
+                  debugLog('agent', d.recordingWarning);
+                }
               }
             } catch { /* malformed event */ }
           });
