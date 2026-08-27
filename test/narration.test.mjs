@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
 
 import {
-  hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
+  hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack,
 } from '../src/core/narration.js';
 
@@ -302,4 +302,13 @@ test('every pause resolves the same way: slide attribute › deck config › bui
   assert.equal(pauseFor('-2', -1, 0), 0);
   // the sentence pause is the same function with a non-zero default
   assert.equal(sentencePauseFor(undefined, undefined), SENTENCE_PAUSE_S);
+});
+
+test('the built-in rhythm: 0.25s between sentences, 0.5s between builds, 1s before the slide turns', () => {
+  assert.equal(SENTENCE_PAUSE_S, 0.25);
+  assert.equal(BEAT_PAUSE_S, 0.5);
+  assert.equal(SLIDE_PAUSE_S, 1);
+  // opt-OUT, not opt-in: a slide or a deck can still say zero
+  assert.equal(pauseFor('0', undefined, SLIDE_PAUSE_S), 0);
+  assert.equal(pauseFor(undefined, 0, BEAT_PAUSE_S), 0);
 });

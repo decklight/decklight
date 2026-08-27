@@ -355,6 +355,15 @@
       localStorage.setItem('decklight-tips-off', '1');
     } catch { /* ignore */ }
 
+    // The built-in rhythm is now 0.5s between builds and 1s before a slide
+    // turns. Every timing assertion in this file predates that and counts on
+    // an unpaused deck, so the harness opts OUT deck-wide — exactly as a deck
+    // would — and the modes that test the pauses themselves set what they
+    // measure. `pausedefaults` is the one mode that deletes nothing and
+    // asserts the built-in rhythm as shipped.
+    if (mode !== 'pausedefaults') {
+      cfg.narration = { ...(cfg.narration ?? {}), beatPause: 0, slidePause: 0 };
+    }
     const deck = Decklight.init(cfg);
 
     // The message shortcut has to reach the presenter WHEREVER they are: mid-talk,
@@ -1161,6 +1170,24 @@
           r.stayedPut = deck.state.slide === slideBefore;
           r.nowRecorded = JSON.parse(localStorage.getItem(key)).dir === 'voices';
           r.PASS = r.liveWasSpeaking && r.pickerListedTrack && r.stayedPut && r.nowRecorded;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'pausedefaults') {
+          // The rhythm a deck gets by saying NOTHING: 1s before slide 1 turns
+          // (its two 10ms sentences plus a 0.25s breath end within ~300ms, so
+          // the rest of the clock is the hold). Measured, because a default
+          // is a promise every deck inherits.
+          const seen = [];
+          deck.on('slide', () => seen.push({ n: deck.state.slide, at: Date.now() }));
+          const t0 = Date.now();
+          deck.toggleNarration();
+          await new Promise((ok) => setTimeout(ok, 3000));
+          const left1 = seen.find((x) => x.n === 2);
+          r.slideTurnTook = left1 ? left1.at - t0 : null;
+          r.slideHeldOneSecond = r.slideTurnTook !== null && r.slideTurnTook >= 1200 && r.slideTurnTook < 2500;
+          r.PASS = r.slideHeldOneSecond;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

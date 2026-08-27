@@ -70,6 +70,15 @@ export function pauseSeconds(raw) {
  */
 export const SENTENCE_PAUSE_S = 0.25;
 /**
+ * The built-in rhythm: half a second between builds, a full second before the
+ * slide turns. A deck that says nothing breathes like a person reading it —
+ * the pauses are opt-OUT ("0" on a slide, or 0 in the deck config), not
+ * opt-in, because a deck that talks straight through its own punctuation is
+ * the behaviour nobody asks for on purpose.
+ */
+export const BEAT_PAUSE_S = 0.5;
+export const SLIDE_PAUSE_S = 1;
+/**
  * Three tiers, one rule, every narration pause: the slide's attribute wins
  * when present (and "0" means zero), then the deck's `narration.<key>`,
  * then the built-in default. A value that does not parse falls through to
@@ -532,9 +541,10 @@ export function createNarration({
   // new section. `hold` wins on a slide carrying both: infinite beats finite.
   // Each pause resolves the same way (pauseFor): the slide's attribute, else
   // the deck's `narration: { slidePause, beatPause, sentencePause }`, else the
-  // built-in default — 0 for the slide and beat holds, 0.25s between sentences.
+  // built-in default — 1s before the slide turns, 0.5s between builds, 0.25s
+  // between sentences.
   const narrationPause = (sl) => pauseFor(
-    instance._sections[sl - 1]?.dataset.narrationPause, config.narration?.slidePause, 0);
+    instance._sections[sl - 1]?.dataset.narrationPause, config.narration?.slidePause, SLIDE_PAUSE_S);
   // data-narration-beat-pause="0.5": the same breath BETWEEN builds — each
   // bullet lands, holds, and only then does the voice reveal the next. The
   // slide-end pause never applied here: builds revealed the instant a beat's
@@ -542,7 +552,7 @@ export function createNarration({
   // Honored at play time for live and recorded tracks alike — never baked
   // into a recording, exactly like its end-of-slide sibling.
   const beatPause = (sl) => pauseFor(
-    instance._sections[sl - 1]?.dataset.narrationBeatPause, config.narration?.beatPause, 0);
+    instance._sections[sl - 1]?.dataset.narrationBeatPause, config.narration?.beatPause, BEAT_PAUSE_S);
   // data-narration-sentence-pause="0.5" · narration: { sentencePause } · 0.25s:
   // the breath between two sentences of one beat. See sentencePauseFor.
   const sentencePause = (sl) => sentencePauseFor(
@@ -2069,10 +2079,11 @@ export function createNarration({
         list.push(pcm);
       }
     }
-    // …and the slide's own beat, if it asked for one, so a recorded track
-    // breathes exactly where the live take it was stitched from does.
-    const pause = narrationPause(sl);
-    if (chunks.length && pause > 0) chunks.push(silencePcm(rate, pause));
+    // NO trailing slide pause in the file. advanceFrom holds it at play time
+    // for recorded tracks exactly as for live ones, so baking it here as well
+    // held every slide twice — a latent double-hold that surfaced the moment
+    // the pause gained a non-zero default. The same rule the beat files
+    // already followed, now for the whole-slide file too.
     return {
       wav: chunks.length ? stitchWav(chunks, rate) : null,
       segments: [...beats].map(([file, list]) => ({ file, wav: stitchWav(list, rate) })),
@@ -2115,13 +2126,10 @@ export function createNarration({
       debugLog('lipsync', `slide ${sl}: viseme sidecar skipped (bridge unreachable)`);
       return null;
     }
-    // the trailing beat too — an empty timeline behind a gap, which
-    // concatTimelines renders as a closed mouth for exactly that long. The WAV
-    // and the sidecar must agree on every silence or the lip-sync drifts.
-    // (Only on the whole-slide timeline: the beat files carry no trailing
-    // pause either, for the same reason.)
-    const pause = narrationPause(sl);
-    if (parts.length && pause > 0) parts.push({ timeline: { cues: [], duration: 0 }, gap: pause });
+    // No trailing pause on the timeline either: the WAV carries none (see
+    // stitchSlideWav), and the sidecar must agree with the WAV on every
+    // silence or the lip-sync drifts. The hold happens at play time, when the
+    // audio has already ended and the mouth is already closed.
     return {
       slide: parts.length ? concatTimelines(parts) : null,
       segments: [...beats].map(([file, list]) => ({ file, timeline: concatTimelines(list) })),
@@ -2714,9 +2722,9 @@ export function createNarration({
       // does and needs a breath added, while a human take already contains
       // every pause the person took. Adding 0.35s to each would only make the
       // whole-slide file drag exactly where the segmented one does not.
+      // …and no trailing slide pause either: advanceFrom holds it at play
+      // time, and a take that carried it as well held every slide twice.
       const chunks = takes.flatMap((t) => t.pcm);
-      const pause = narrationPause(sl);
-      if (chunks.length && pause > 0) chunks.push(silencePcm(rate, pause));
       if (await saveRecording(sl, 'wav', stitchWav(chunks, rate), dir)) toDisk++;
       files++;
       if (run !== micRun) return;

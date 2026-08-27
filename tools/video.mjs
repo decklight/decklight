@@ -109,19 +109,31 @@ export function extractHolds(html, defaultHold) {
 }
 
 /**
- * Per-slide narration beat: data-narration-pause="2" on the section, else 0.
+ * The runtime's built-in hold before a slide turns (SLIDE_PAUSE_S in
+ * src/core/narration.js — not imported, because src/ does not ship in the
+ * package; test/video.test.mjs pins the two equal). An exported mp4 must
+ * breathe where the live deck does, and the live deck now breathes here by
+ * default.
+ */
+export const SLIDE_PAUSE_DEFAULT = 1;
+
+/**
+ * Per-slide narration beat: data-narration-pause="2" on the section, else
+ * the built-in default above.
  *
  * The recorded mirror of the live rule (PRESENTING): src/core/narration.js
  * holds that many seconds after a slide's last sentence before moving on, and
  * an exported mp4 must breathe in the same places the deck does. Read off the
  * raw open tag, like extractHolds, so the same attribute appearing in a
- * slide's CONTENT cannot be mistaken for the slide's own.
+ * slide's CONTENT cannot be mistaken for the slide's own. (The deck-wide
+ * `narration.slidePause` config tier is not read here: it lives inside the
+ * boot call, and this reads sections, not scripts.)
  */
 export function extractPauses(html) {
   return sectionBodies(html).map((sec) => {
     const tag = sec.slice(0, sec.indexOf('>'));
     const m = tag.match(/data-narration-pause="([\d.]+)"/);
-    return m ? Number(m[1]) : 0;
+    return m ? Number(m[1]) : SLIDE_PAUSE_DEFAULT;
   });
 }
 
