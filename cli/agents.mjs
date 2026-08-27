@@ -351,6 +351,12 @@ export function agentCommand(name, instruction, deck, { env = process.env, hasBi
   if (!agent) return null;
   const prompt = `Edit the Decklight deck file "${deck}" — a single-file HTML presentation ` +
     '(one top-level <section> per slide; see SPEC.md or the decklight skill if present). ' +
+    // Prevention, paired with the server's detection: a track is minutes of a
+    // recorded voice, and "rewrite the voiceover" reads like license to
+    // replace the init call wholesale. Say the config is load-bearing.
+    'Preserve the deck\'s existing narration config (the `narration` key of ' +
+    'Decklight.init, which points at recorded audio) and any `data-narration-*` ' +
+    'attributes on sections, unless the change is explicitly about them. ' +
     `Apply this change, editing the file in place: ${instruction}`;
   // The spawn spec, not the bare name: on Windows an npm-installed agent is a
   // batch shim, and `prefix` is the script node has to be handed for the
