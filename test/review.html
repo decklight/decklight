@@ -388,9 +388,20 @@
           await wait(80);
           r.jumpedTo = deck.state.slide;
           r.jumpedToWhereItIsNow = r.jumpedTo === 2;
+          // …and the panel is STILL THERE. It used to close on the jump, which
+          // was right while it was a modal covering the deck and wrong the
+          // moment it sat beside it: walking a review is jump, read, jump, and
+          // a panel that dismissed itself meant pressing M again for every
+          // comment after the first.
+          r.panelSurvivedTheJump = !!document.querySelector('.decklight-review .narr-card');
+          // a second jump works without reopening anything — the actual symptom
+          const other = [...card.querySelectorAll('.rv-row')].find((n) => /contradicts/.test(n.textContent));
+          if (other) { other.click(); await wait(80); }
+          r.secondJumpWorked = !!document.querySelector('.decklight-review .narr-card');
 
           r.PASS = r.foundTheMovedSlide && r.flaggedTheEdited && r.orphanNotRepinned
-            && r.replyNested && r.jumpedToWhereItIsNow && r.orphanUnfolds
+            && r.replyNested && r.jumpedToWhereItIsNow
+            && r.panelSurvivedTheJump && r.secondJumpWorked && r.orphanUnfolds
             && r.unfoldedNotClosed && r.anchorArmedNotFired && r.anchorIsAnAppend
             && r.orphanRepinnedAfterAnchor;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
@@ -420,8 +431,13 @@
           incRow.click();
           await wait(100);
           r.incomingJumps = deck.state.slide === 2;
-          press('m');   // the click closed the overlay — reopen for the T flow
-          const card2 = await until(() => document.querySelector('.decklight-review .narr-card'));
+          // The panel STAYS on a jump now, so there is nothing to reopen — this
+          // step used to be `press('m')` with the comment "the click closed the
+          // overlay". An incoming row is the case that made the old behaviour
+          // worst: you jump to see what Ana meant and lose the list of what else
+          // she said.
+          r.panelStayedAfterIncomingJump = !!document.querySelector('.decklight-review .narr-card');
+          const card2 = card;   // same live node — the jump did not replace it
           await until(() => card2.querySelector('.rv-incoming'));
           // T is ARMED, then confirmed — a take writes a commit
           const sel_ = () => card2.querySelector('.rv-sel');
@@ -439,8 +455,7 @@
             .some((n) => /Incoming: tighten this/.test(n.textContent));
 
           // The resolve two-step, on the overlay as it is NOW — the take
-          // emptied the incoming section, so the arrows walk local rows again
-          // (`card` from before the reopen is a detached node; card2 is live).
+          // emptied the incoming section, so the arrows walk local rows again.
           press('ArrowDown');   // off whichever row was selected first
           press('r');
           r.armedNotFired = !!(await until(() => card2.querySelector('.rv-arm')));
@@ -464,7 +479,8 @@
             && r.nothingPostedYet && r.escapeDisarmedNotClosed && r.resolvedOnSecond
             && r.enterDidNotCloseOrJump && r.resolveIsAnAppend && r.incomingShown
             && r.incomingSaysWhoAndHowMany && r.incomingShowsTheComments && r.noGitCommandAsked
-            && r.incomingJumps && r.takeArmedNotFired && r.tookInOnSecond
+            && r.incomingJumps && r.panelStayedAfterIncomingJump
+            && r.takeArmedNotFired && r.tookInOnSecond
             && r.takenStopsWaiting && r.takenNowLocal;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
