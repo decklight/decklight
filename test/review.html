@@ -242,12 +242,30 @@
           const transformBefore = stage.style.transform;
 
           // dock right → the stage reserves a gutter and shifts to fit beside it
+          const floatRect = card.getBoundingClientRect();
           card.querySelector('.rv-dock-btn[data-mode="right"]').click();
           await wait(50);
           r.dockedRight = frame.dataset.dock === 'right';
           r.reservedGutter = parseFloat(getComputedStyle(rootEl).getPropertyValue('--dock-right')) > 0;
           r.stageReflowed = stage.style.transform !== transformBefore
             && /translate\(-?\d/.test(stage.style.transform);
+
+          // THE PIXELS, not just the state. The first cut set the dock attribute
+          // and the gutter var correctly while the card stayed exactly where it
+          // had floated — inline left/top from the float placement outrank the
+          // stylesheet — so the stage reflowed away from a gutter nothing sat in.
+          // Assert where the card actually IS, and that it fills the gutter it
+          // was given rather than overhanging it (box-sizing).
+          const dockedRect = card.getBoundingClientRect();
+          r.cardActuallyMoved = Math.round(dockedRect.x) !== Math.round(floatRect.x)
+            || Math.round(dockedRect.y) !== Math.round(floatRect.y);
+          const gutterPx = parseFloat(getComputedStyle(rootEl).getPropertyValue('--dock-right'));
+          r.cardOnTheRightEdge = Math.abs(dockedRect.right - rootEl.clientWidth) <= 1;
+          r.cardFillsGutter = Math.abs(dockedRect.width - gutterPx) <= 1;
+          r.cardFullHeight = Math.abs(dockedRect.height - rootEl.clientHeight) <= 1;
+          // …and the slide it reflowed for must not sit under it
+          const stageRect = stage.getBoundingClientRect();
+          r.slideClearOfPanel = Math.round(stageRect.right) <= Math.round(dockedRect.left) + 1;
 
           // remembered per deck
           try {
@@ -288,7 +306,9 @@
           r.restoredPlacement = document.querySelector('.decklight-review')?.dataset.dock === 'right';
 
           r.PASS = r.opened && r.defaultFloat && r.dockedRight && r.reservedGutter
-            && r.stageReflowed && r.persisted && r.arrowNavigatedDeck
+            && r.stageReflowed && r.cardActuallyMoved && r.cardOnTheRightEdge
+            && r.cardFillsGutter && r.cardFullHeight && r.slideClearOfPanel
+            && r.persisted && r.arrowNavigatedDeck
             && r.targetFollowedWhileEmpty && r.targetLockedWhileTyping
             && r.gutterReleased && r.restoredPlacement;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);

@@ -57,6 +57,8 @@ const run = (mode, extra = '') => resultsFrom(
   if (!ok) bad++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} dock       opens floating=${r.defaultFloat}`
     + ` · docks right & reflows the stage=${r.dockedRight && r.stageReflowed}`
+    + ` · the card really moves to the edge and fills it=${r.cardActuallyMoved && r.cardOnTheRightEdge && r.cardFillsGutter && r.cardFullHeight}`
+    + ` · slide clear of the panel=${r.slideClearOfPanel}`
     + ` · deck still navigable=${r.arrowNavigatedDeck}`
     + ` · target follows then locks=${r.targetFollowedWhileEmpty && r.targetLockedWhileTyping}`
     + ` · gutter released on close=${r.gutterReleased}`

@@ -1426,9 +1426,12 @@
   max-height: 78vh;
   box-shadow: 0 16px 50px rgba(0, 0, 0, .6);
 }
-/* left / right — a full-height column the stage reflows away from */
+/* left / right — a full-height column the stage reflows away from. border-box
+   so the card is exactly the gutter the stage was told to leave: content-box
+   added the 14px padding twice and the panel overhung the slide by 28px. */
 .decklight-review[data-dock="left"] .narr-card,
 .decklight-review[data-dock="right"] .narr-card {
+  box-sizing: border-box;
   top: 0; bottom: 0; height: 100%;
   width: var(--dock-size, 360px);
   max-height: none; border-radius: 0;
@@ -1437,6 +1440,7 @@
 .decklight-review[data-dock="left"]  .narr-card { left: 0;  box-shadow:  12px 0 40px rgba(0, 0, 0, .5); }
 /* bottom — a full-width tray */
 .decklight-review[data-dock="bottom"] .narr-card {
+  box-sizing: border-box;
   left: 0; right: 0; bottom: 0;
   width: auto; height: var(--dock-size, 320px);
   max-height: none; border-radius: 0;

@@ -110,6 +110,12 @@ export function createReview({
     root.style.setProperty('--dock-bottom', dock.mode === 'bottom' ? g.h + 'px' : '0px');
     el.style.setProperty('--dock-size',
       dock.mode === 'bottom' ? g.h + 'px' : g.w + 'px');
+    // Float positions the card with INLINE left/top, and an inline style beats
+    // the stylesheet: leaving them set pinned a docked panel to wherever it last
+    // floated while the stage dutifully reflowed away from an empty gutter.
+    // Docking hands the placement back to the CSS.
+    const card = el.querySelector('.narr-card');
+    if (card && dock.mode !== 'float') { card.style.left = ''; card.style.top = ''; }
     instance._reflow?.();
     if (dock.mode === 'float') placeCard();
   }
