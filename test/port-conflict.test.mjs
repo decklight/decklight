@@ -189,7 +189,27 @@ test('nextFreePort walks past a whole block of unavailable ports', async () => {
   try {
     const free = await nextFreePort(first);
     assert.ok(free >= first, 'went backwards');
-    assert.equal(await canBind(free), true, `nextFreePort returned ${free}, which cannot be bound`);
+    // THE property: the answer walked past every port this test holds. That
+    // is what nextFreePort promises, and it is checkable without a race.
+    // only the servers that actually LISTEN hold a port: one whose listen
+    // failed (the port was already somebody else's) sits in srvs with no
+    // address — the Windows runner had exactly one of those
+    const held = new Set(srvs.map((s) => s.address()?.port).filter(Boolean));
+    assert.equal(held.has(free), false, `nextFreePort returned ${free}, a port this test still holds`);
+    // The old assertion re-bound `free` immediately and failed three times on
+    // Windows CI: nextFreePort's probe binds and closes the socket, and
+    // Windows can hold a just-closed port for a beat — so "cannot be bound"
+    // was the runner's socket teardown, not a wrong answer. A brief retry
+    // separates the two: a port genuinely taken by another process stays
+    // taken, a port mid-teardown frees in milliseconds. (The function's
+    // contract is inherently look-then-bind; its callers bind at once and
+    // handle a loss themselves — listenTakingOverIfNeeded.)
+    let bindable = false;
+    for (let i = 0; i < 10 && !bindable; i++) {
+      bindable = await canBind(free);
+      if (!bindable) await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(bindable, true, `nextFreePort returned ${free}, which stayed unbindable for 500ms`);
   } finally {
     for (const s of srvs) await new Promise((r) => s.close(r));
   }
