@@ -123,9 +123,31 @@ for (const name of SKIP) {
   }
 }
 
+/**
+ * Run only these harnesses — the door `tools/test-impact.mjs` comes in by.
+ *
+ * The opposite of VERIFY_SKIP and deliberately a different word: SKIP subtracts
+ * from a full run and its result is still "verify", ONLY selects a subset and
+ * its result is NOT. So a restricted run says so in the summary, and nothing
+ * that reads this output can mistake `ok` for "the suite passed" — the same
+ * rule the ingredients label follows, where unchecked is its own answer.
+ *
+ * It shares SKIP's validation because a typo naming no harness would otherwise
+ * run NOTHING and exit 0, which is the one failure a verification step must
+ * never have.
+ */
+const ONLY = (process.env.VERIFY_ONLY ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+for (const name of ONLY) {
+  if (!HARNESSES.includes(name)) {
+    process.stdout.write(`verify: VERIFY_ONLY names "${name}", which is not a harness\n`);
+    process.exit(2);
+  }
+}
+const SELECTED = ONLY.length ? HARNESSES.filter((h) => ONLY.includes(h)) : HARNESSES;
+
 const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
 const results = [];
-for (const name of HARNESSES) {
+for (const name of SELECTED) {
   if (SKIP.has(name)) {
     results.push({ name, ok: true, skipped: true, ms: 0 });
     process.stdout.write(`\n─── ${name} — SKIPPED by VERIFY_SKIP ${'─'.repeat(Math.max(0, 30 - name.length))}\n`);
@@ -148,7 +170,7 @@ for (const name of HARNESSES) {
 rmSync(HOME, { recursive: true, force: true });
 
 const failed = results.filter((r) => !r.ok);
-process.stdout.write(`\n─── verify ${'─'.repeat(56)}\n`);
+process.stdout.write(`\n─── verify${ONLY.length ? ' (SELECTION — not the whole suite)' : ''} ${'─'.repeat(56)}\n`);
 // The timings are the report, not decoration: this suite runs on machines
 // nobody can attach to, and "which harness costs the time" is otherwise a
 // question only a cancelled log could have answered.
@@ -163,5 +185,12 @@ if (failed.length) {
   process.exit(1);
 }
 const ran = results.filter((r) => !r.skipped).length;
-process.stdout.write(`\nverify: all ${ran} harnesses passed`
-  + `${ran < results.length ? ` · ${results.length - ran} skipped by VERIFY_SKIP: ${[...SKIP].join(', ')}` : ''}\n`);
+// "all N passed" is a sentence about the SUITE, and under VERIFY_ONLY it would
+// be a sentence about a list somebody chose. Say which it is, and name what was
+// not run — a selection that reads like a full pass is how a green line comes
+// to mean less than the reader thinks.
+process.stdout.write(ONLY.length
+  ? `\nverify: ${ran} SELECTED harness${ran === 1 ? '' : 'es'} passed — `
+    + `${HARNESSES.length - results.length} not run (this is not a full verify)\n`
+  : `\nverify: all ${ran} harnesses passed`
+    + `${ran < results.length ? ` · ${results.length - ran} skipped by VERIFY_SKIP: ${[...SKIP].join(', ')}` : ''}\n`);
