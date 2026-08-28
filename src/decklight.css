@@ -1060,6 +1060,40 @@
    messages top-left, so this can be persistent without ever covering them.
    Quiet by construction — it reports rather than asks, and nothing about a
    background job should compete with the slide. */
+/* The commit chip (SPEC PRESENTING) — "this is not committed", said once.
+   Bottom-RIGHT, not centre: the agent chip owns the centre and the two can be
+   up at the same time (an agent edit is exactly what leaves work uncommitted).
+   Clickable, because a statement you can act on should be actionable where it
+   is, and the deck's own keyboard help is one key away. */
+.decklight-commit-chip {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 42;
+  background: rgba(0, 0, 0, .72);
+  color: #fff;
+  font: 500 13px/1 var(--font-mono, monospace);
+  font-variant-numeric: tabular-nums;
+  padding: 7px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .16);
+}
+.decklight-commit-chip:hover { background: rgba(0, 0, 0, .85); }
+.decklight-commit-chip:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: 2px; }
+
+/* The commit window. Shares the narration card chrome like every other
+   overlay; only the composer's own rows are new. */
+.decklight-commit .narr-card { width: min(520px, 88vw); }
+.decklight-commit .cm-what { padding: 2px 12px 8px; font-size: 12px; opacity: .6; }
+.decklight-commit .cm-input { width: calc(100% - 24px); margin: 0 12px 8px; resize: vertical; }
+.decklight-commit .cm-row { display: flex; gap: 8px; padding: 0 12px 4px; }
+.decklight-commit .cm-row .narr-row { flex: 1; text-align: center; border-radius: 8px; }
+.decklight-commit .cm-go { background: rgba(122, 214, 163, .16); color: #7cd6a3; }
+.decklight-commit .cm-go:hover { background: rgba(122, 214, 163, .26); }
+.decklight-commit .cm-write { background: rgba(255, 255, 255, .08); }
+.decklight-commit .cm-write:hover { background: rgba(255, 255, 255, .16); }
+
 .decklight-agent-chip {
   position: absolute;
   left: 50%;

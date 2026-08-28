@@ -17,7 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
-import { agentChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
+import { agentChipText, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { hljs } from '../code/code.js';
 
@@ -84,6 +84,164 @@ export function createEditMode({
     agentChip.title = agentBusy.prompt ? `asked: ${agentBusy.prompt}` : '';
     if (!agentTick) agentTick = setInterval(paintAgentChip, 1000);
   }
+  // ── the commit chip and the commit window (SPEC PRESENTING) ─────────────────
+  // The deck no longer commits itself on a clock; a snapshot does the saving
+  // and this does the asking. The chip is a statement, not a modal: it never
+  // takes the keyboard, and clicking it (or K) opens the window where the
+  // message is written.
+  let commitNow = null;   // last {dirty, lines, sinceMs, nag, canWrite, messages}
+  let commitChip = null;
+  function paintCommitChip() {
+    const text = commitChipText(commitNow);
+    if (!text) { commitChip?.remove(); commitChip = null; return; }
+    if (!commitChip) {
+      commitChip = document.createElement('div');
+      commitChip.className = 'decklight-commit-chip';
+      commitChip.setAttribute('role', 'status');
+      commitChip.setAttribute('aria-live', 'polite');
+      commitChip.tabIndex = 0;
+      const open = () => openCommit();
+      commitChip.addEventListener('click', open);
+      commitChip.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+      root.appendChild(commitChip);
+    }
+    commitChip.textContent = `⌥ ${text}`;
+    commitChip.title = 'commit this — the work is snapshotted either way';
+  }
+  /** Ask the server what is uncommitted, then paint. */
+  async function refreshCommit() {
+    // `editAvailable`, not a truthy base: '' IS the base for a deck served over
+    // http, where every fetch is same-origin — the flag is what says whether a
+    // server answered (see the note on editBase above).
+    if (!editAvailable) return null;
+    try {
+      const r = await fetch(editBase + '/edit/commit');
+      const j = await r.json();
+      if (j?.ok) { commitNow = j; paintCommitChip(); return j; }
+    } catch { /* the chip simply says nothing */ }
+    return null;
+  }
+
+  /**
+   * The commit window: what changed, what to call it, and one button.
+   *
+   * A real overlay rather than a prompt() because the message is the point —
+   * it wants room, a second look, and the option of asking the agent for a
+   * first draft. With `--commit-messages` on, that draft is fetched the moment
+   * the window opens, so the common case is: press K, read the sentence, press
+   * ⌘⏎. The box is EDITABLE the whole time; a generated subject is a proposal.
+   */
+  let commitEl = null;
+  let commitAsking = false;
+  function closeCommit() { commitEl?.remove(); commitEl = null; commitAsking = false; }
+  async function openCommit() {
+    if (commitEl) return closeCommit();
+    if (!editAvailable) { toast(needsDevMode('committing', location), 3200); return; }
+    const state = (await refreshCommit()) ?? commitNow;
+    if (!state?.canWrite) { toast('this session is not committing — start author with --git', 3000); return; }
+    if (!state.dirty) { toast('nothing to commit — the deck matches its last commit', 2400); return; }
+    dismissOthers();
+    commitEl = document.createElement('div');
+    commitEl.className = 'decklight-narr decklight-commit';
+    commitEl.innerHTML = '<div class="narr-card" role="dialog" aria-label="Commit"></div>';
+    closeOnBackdrop(commitEl, closeCommit);
+    root.appendChild(commitEl);
+    const card = commitEl.querySelector('.narr-card');
+
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    head.textContent = 'commit';
+    const what = document.createElement('div');
+    what.className = 'cm-what';
+    const n = Number(state.lines) || 0;
+    const mins = Math.floor((Number(state.sinceMs) || 0) / 60000);
+    what.textContent = `${n ? `${n} line${n === 1 ? '' : 's'}` : 'changes'} in ${state.deck || 'the deck'}`
+      + (mins >= 1 ? `, ${mins >= 60 ? `${Math.floor(mins / 60)}h` : `${mins}m`} old` : '');
+    const input = document.createElement('textarea');
+    input.className = 'narr-input cm-input';
+    input.rows = 3;
+    input.placeholder = 'what changed, in one line…';
+    const row = document.createElement('div');
+    row.className = 'cm-row';
+    const write = document.createElement('div');
+    write.className = 'narr-row narr-sel cm-write';
+    write.setAttribute('role', 'button');
+    write.tabIndex = 0;
+    write.textContent = state.messages ? 'writing one…' : 'write one for me';
+    const go = document.createElement('div');
+    go.className = 'narr-row narr-sel cm-go';
+    go.setAttribute('role', 'button');
+    go.tabIndex = 0;
+    go.textContent = 'Commit';
+    row.append(write, go);
+    const hint = document.createElement('div');
+    hint.className = 'rec-hint';
+    hint.textContent = '⌘⏎ commits · Esc closes — the work is snapshotted either way';
+    card.append(head, what, input, row, hint);
+    setTimeout(() => input.focus(), 0);
+
+    // The agent's draft. Never overwrites what you have already typed: it is a
+    // proposal, and a proposal that eats your sentence is not one.
+    const ask = async () => {
+      if (commitAsking) return;
+      commitAsking = true;
+      write.textContent = 'writing one…';
+      try {
+        const r = await fetch(editBase + '/edit/commit/subject', { method: 'POST' });
+        const j = await r.json();
+        if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        if (!commitEl) return;
+        if (j.subject && !input.value.trim()) input.value = j.subject;
+        write.textContent = j.subject ? 'write another' : 'nothing to say about it';
+      } catch (e) {
+        if (commitEl) write.textContent = `couldn't — ${String(e.message || e).slice(0, 40)}`;
+      } finally { commitAsking = false; }
+    };
+    write.addEventListener('click', ask);
+    if (state.messages) ask();     // pre-generated when the option is on
+
+    const commit = async () => {
+      const message = input.value.trim();
+      if (!message) { input.focus(); return; }
+      go.textContent = 'committing…';
+      try {
+        const r = await fetch(editBase + '/edit/commit', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message }),
+        });
+        const j = await r.json();
+        if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
+        closeCommit();
+        commitNow = j.committed ? { ...j, nag: false } : commitNow;
+        paintCommitChip();
+        toast(j.committed ? `committed — "${j.subject}"` : 'nothing to commit', 2600);
+        debugLog('git', j.committed ? `commit: ${j.subject}` : 'commit: nothing to do');
+      } catch (e) {
+        go.textContent = `couldn't commit — ${String(e.message || e).slice(0, 40)}`;
+      }
+    };
+    go.addEventListener('click', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+      e.stopPropagation();
+    });
+    overlaysCommit ??= overlays.register({
+      isOpen: () => !!commitEl,
+      close: closeCommit,
+      keydown(e) {
+        if (e.key === 'Escape') { closeCommit(); return true; }
+        if (/^(input|textarea)$/i.test(e.target?.tagName ?? '')) return false;
+        if (e.key === 'Enter') { commitEl?.querySelector('.cm-go')?.click(); return true; }
+        if (e.key === 'k' || e.key === 'K') { closeCommit(); return true; }
+        return false;
+      },
+    });
+  }
+  let overlaysCommit = null;
+
   // Resolves when the probe has finished asking — WIRED UP OR NOT. `available()`
   // is false for both "no server" and "have not asked yet", and a caller that
   // cannot tell those apart makes the wrong choice for the wrong reason: the
@@ -120,6 +278,9 @@ export function createEditMode({
           // hears it immediately rather than waiting for the next commit.
           const pushMsg = pushToastText(j.remote);
           if (pushMsg) { pushToastShown = true; toast(pushMsg, 4200); }
+          // What is uncommitted, as of this load: a deck reopened mid-session
+          // shows the chip immediately instead of waiting for the next tick.
+          if (j.commit) { commitNow = j.commit; paintCommitChip(); }
           agentBusy = j.agentBusy || null; // an agent may already be mid-run across a reload
           if (agentBusy) toast(`${agentBusy.agent} is editing the deck…`, 2000);
           // The chip is restored too, with the SERVER's startedAt — a reload
@@ -127,6 +288,13 @@ export function createEditMode({
           paintAgentChip();
           const es = new EventSource(base + '/edit/events');
           es.onmessage = () => location.reload();
+          es.addEventListener('commit', (ev) => {
+            try {
+              commitNow = JSON.parse(ev.data);
+              paintCommitChip();
+              debugLog('git', `uncommitted: ${commitNow.lines} lines`);
+            } catch { /* the chip keeps whatever it last knew */ }
+          });
           es.addEventListener('agent', (ev) => {
             try {
               const d = JSON.parse(ev.data);
@@ -1315,5 +1483,7 @@ export function createEditMode({
     settled: () => { if (printMode || params.has('embedded')) probeSettled(); return settled; },
     /** Its origin ('' when the deck is served BY the edit server). */
     base: () => editBase,
+    /** K: the commit window — what changed, what to call it, one button. */
+    commit: { open: openCommit, close: closeCommit, state: () => commitNow },
   };
 }

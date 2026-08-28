@@ -435,7 +435,9 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
         deck.tips.set(true);
       }
       recs.push(rec('clockdefault', !document.querySelector('.decklight-clock')));
-      press('k');
+      // K is the commit window now; the clock kept the palette row and this
+      // API, which is what the palette row calls.
+      deck.toggleClock();
       const clock = document.querySelector('.decklight-clock');
       recs.push(rec('clockshown', !!clock));
       recs.push(rec('clockwall', /^\d{2}:\d{2}$/.test(clock?.querySelector('.clk-time')?.textContent ?? '')));
@@ -443,7 +445,7 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
       deck.next(); // the FIRST advance starts the talk…
       await new Promise((r) => setTimeout(r, 2400)); // virtual time — instant in CI
       recs.push(rec('clockruns', clock?.querySelector('.clk-elapsed')?.textContent ?? ''));
-      press('k');
+      deck.toggleClock();
       recs.push(rec('clockoff', !document.querySelector('.decklight-clock')));
       deck.prev(); // …restore the step the other assertions dumped
       // progress bar (J) — same shape as the clock: off, on, tracks, off.

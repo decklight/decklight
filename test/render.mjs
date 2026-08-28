@@ -77,11 +77,11 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   // test/narration.test.mjs, and the live pill itself in narration-render.mjs)
   check('no voice-over hint on a deck with no track', /decklight-narr-hint/.test(html), false);
   check('clock: off by default', s.clockdefault, 'true');
-  check('clock: K shows it', s.clockshown, 'true');
+  check('clock: the palette row shows it', s.clockshown, 'true');
   check('clock: wall time is HH:MM', s.clockwall, 'true');
   check('clock: elapsed idle until the first advance', s.clockidle, '+00:00');
   check('clock: elapsed runs from the first advance', s.clockruns, '+00:02');
-  check('clock: K again removes it', s.clockoff, 'true');
+  check('clock: calling it again removes it', s.clockoff, 'true');
   check('progress bar: off by default', s.progressdefault, 'true');
   check('progress bar: J shows it', s.progressshown, 'true');
   check('progress bar: width tracks the position (slide 1 ≠ last, last = full)', s.progresstracks, 'true');

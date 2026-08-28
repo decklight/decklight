@@ -23,9 +23,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  MAX_DIFF, MAX_SLIDES_NAMED, amendSubject, amendable, changeDiff, changedSlides,
+  MAX_DIFF, MAX_SLIDES_NAMED, PREF_KEY, amendSubject, amendable, changeDiff, changedSlides,
   deckOutline, deckTitle, describeCommit, messagePrompt, messagesLine, parseHunks,
-  subjectFrom,
+  planCommitMessages, rememberPref, storedPref, subjectFrom,
 } from '../cli/commit-message.mjs';
 import { AGENTS, agentAsk } from '../cli/agents.mjs';
 
@@ -413,4 +413,55 @@ test('the startup line names the agent and that diffs leave the machine', () => 
   assert.match(on, /claude/);
   assert.match(on, /diffs/, 'the line does not say what is sent');
   assert.match(messagesLine(null), /needs an agent/);
+});
+
+// ── the answer, asked once and remembered ────────────────────────────────
+//
+// `--commit-messages` sends the deck's diffs to an agent, so decklight has
+// never inferred that permission from what is on PATH. It still does not: the
+// default became yes for the QUESTION, not for the feature. Everything below
+// is about that distinction — nobody is opted in without answering.
+
+test('the flag outranks everything, in both directions', () => {
+  assert.equal(planCommitMessages({ args: ['--commit-messages'], stored: false }).action, 'on');
+  assert.equal(planCommitMessages({ args: ['--no-commit-messages'], stored: true }).action, 'off');
+});
+
+test('a stored answer is used without asking again', () => {
+  assert.equal(planCommitMessages({ stored: true, tty: true, agents: 1 }).action, 'on');
+  assert.equal(planCommitMessages({ stored: false, tty: true, agents: 1 }).action, 'off');
+});
+
+test('the question is asked only where it could be answered AND could work', () => {
+  const base = { creatingRepo: true, agents: 1, tty: true };
+  assert.equal(planCommitMessages(base).action, 'ask');
+  // no TTY: nobody to answer, so nothing is turned on. A headless run must
+  // never start sending diffs somewhere because a default said yes.
+  assert.equal(planCommitMessages({ ...base, tty: false }).action, 'skip');
+  // no agent: the switch is wired to nothing, so offering it is offering a lie
+  assert.equal(planCommitMessages({ ...base, agents: 0 }).action, 'skip');
+  // an EXISTING repository is never interrupted with a new question
+  assert.equal(planCommitMessages({ ...base, creatingRepo: false }).action, 'skip');
+});
+
+test('the answer round-trips through the repository it is about', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-pref-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+
+  // unset is NULL, not false: `git config --get` exits 1 for a missing key and
+  // the git helper throws on that, so this is the case that must not blow up.
+  assert.equal(storedPref(dir), null, 'an unasked repository claimed an answer');
+  assert.equal(rememberPref(dir, true), true);
+  assert.equal(storedPref(dir), true);
+  assert.equal(execFileSync('git', ['config', '--get', PREF_KEY], { cwd: dir, encoding: 'utf8' }).trim(),
+    'true', 'the answer is not readable with plain git');
+  rememberPref(dir, false);
+  assert.equal(storedPref(dir), false);
+});
+
+test('a repository that cannot be written costs a question, never a crash', () => {
+  const boom = () => { throw new Error('read-only config'); };
+  assert.equal(rememberPref('/nowhere', true, { run: boom }), false);
+  assert.equal(storedPref('/nowhere', { run: boom }), null);
 });

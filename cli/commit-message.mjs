@@ -29,6 +29,7 @@
  */
 
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { basename, relative } from 'node:path';
 import { agentAsk } from './agents.mjs';
 import { commitSubject, git } from './git.mjs';
@@ -342,9 +343,133 @@ export async function describeCommit({
   return amendSubject(cwd, sha, subject, { run }) ? subject : null;
 }
 
+/**
+ * A subject for work that is NOT COMMITTED YET — what the commit overlay's
+ * "write one for me" button asks for.
+ *
+ * The same prompt, the same read-only argv, the same cap and the same stated
+ * truncation as `describeCommit`; three things differ, and each is because
+ * there is no commit yet:
+ *
+ *   the diff is `git diff HEAD` rather than `git show <sha>`;
+ *   the deck is read FROM DISK, because the working tree is the subject here
+ *     (in describeCommit reading from disk would name a slide the commit does
+ *     not contain — here it is the only honest source);
+ *   nothing is amended. It returns the sentence and the caller decides — a
+ *     person is looking at a text box, and putting words in it is the most
+ *     this is allowed to do.
+ *
+ * Returns null for every failure, exactly like its sibling: no agent, nothing
+ * changed, a timeout, an answer that was not a subject. The overlay then shows
+ * an empty box, which is the state it was in anyway.
+ */
+export async function describeWorking({
+  cwd, deckPath, deckRel, template, agent = null,
+  env = process.env, timeoutMs = ASK_TIMEOUT_MS, run = git, exec = ask,
+  resolve = agentAsk, read = null,
+} = {}) {
+  const deck = basename(deckPath);
+  const cmd = resolve(agent, 'x', { env });
+  if (!cmd) return null;
+  const rel = deckRel || relative(cwd, deckPath) || deck;
+
+  let out_;
+  try { out_ = run(['diff', '--unified=1', 'HEAD', '--', rel], cwd) ?? ''; }
+  catch { return null; }
+  if (!out_.trim()) return null;
+  const truncated = out_.length > MAX_DIFF;
+  const diff = truncated ? out_.slice(0, MAX_DIFF) : out_;
+
+  let html = '';
+  try { html = (read ?? readFileSync)(deckPath, 'utf8'); } catch { /* headings are optional */ }
+  const prompt = messagePrompt({
+    deck, template, diff, truncated,
+    title: deckTitle(html),
+    slides: changedSlides(html, diff),
+  });
+  const spawned = resolve(agent, prompt, { env });
+  if (!spawned) return null;
+  let answer;
+  try { answer = await exec(spawned, cwd, timeoutMs); }
+  catch { return null; }
+  if (answer == null) return null;
+  const found = subjectFrom(answer);
+  if (!found) return null;
+  const subject = commitSubject(found, template);
+  return subject === template ? null : subject;
+}
+
 /** The startup line: what is on, who does it, and what leaves the machine. */
 export function messagesLine(agentName) {
   return agentName
     ? `git: ${agentName} writes the commit subjects — the deck's diffs are sent to it`
     : 'git: --commit-messages needs an agent on PATH — subjects stay generic';
 }
+
+/**
+ * Where the answer lives: git's own config, in the repository it is about.
+ *
+ * The setting only means anything when there IS a repository — it describes
+ * what happens to that repository's commits — so git config is where it
+ * belongs rather than a file decklight invents. It is per-repo, it survives,
+ * and it is inspectable and reversible with the tool the user already knows:
+ * `git config decklight.commit-messages false`.
+ */
+export const PREF_KEY = 'decklight.commit-messages';
+
+/**
+ * The stored answer: true, false, or null when nobody has been asked yet.
+ *
+ * `git config --get` EXITS 1 for a key that is not set, and `git()` throws on a
+ * non-zero exit — so the unset case, which is every first run, arrives here as
+ * an exception rather than an empty string. Unreadable and unset are the same
+ * answer: nobody has said, so ask (or stay off).
+ */
+export function storedPref(cwd, { run = git } = {}) {
+  let v = '';
+  try { v = (run(['config', '--get', PREF_KEY], cwd) ?? '').trim(); } catch { return null; }
+  return v === 'true' ? true : v === 'false' ? false : null;
+}
+
+/**
+ * Remember the answer, so the next session does not ask again.
+ *
+ * Never fatal: this is a convenience, and a repository that refuses the write
+ * (a read-only config, a worktree in a strange state) should cost the user a
+ * repeated question, not a failed startup.
+ */
+export function rememberPref(cwd, on, { run = git } = {}) {
+  try { run(['config', PREF_KEY, on ? 'true' : 'false'], cwd); return true; } catch { return false; }
+}
+
+/**
+ * Whether to ask, and what the answer already is.
+ *
+ * Asked ONCE, at the moment a repository is created — the same moment the
+ * autocommit itself is offered, because that is when the commits this governs
+ * come into existence. An existing repository is never interrupted to be asked
+ * a new question; it uses the flag.
+ *
+ * The default is YES, and that is a defensible default only because it is a
+ * QUESTION. The permission is still explicitly given by a person who was told
+ * what leaves the machine — decklight still never infers it from what happens
+ * to be on PATH, which is the rule `lipsync --veo` follows. So: no agent
+ * installed, or no TTY to answer, means no question and no feature.
+ */
+export function planCommitMessages({
+  args = [], tty = false, agents = 0, creatingRepo = false, stored = null,
+} = {}) {
+  if (args.includes('--no-commit-messages')) return { action: 'off' };
+  if (args.includes('--commit-messages')) return { action: 'on' };
+  if (stored !== null) return { action: stored ? 'on' : 'off' };
+  // Nothing to drive it, nothing to write the subjects with: the feature is
+  // unavailable, and offering it would be offering a switch wired to nothing.
+  if (!agents) return { action: 'skip' };
+  if (!creatingRepo) return { action: 'skip' };
+  return { action: tty ? 'ask' : 'skip' };
+}
+
+/** The question, worded so the cost is on screen before the answer is given. */
+export const ASK_MESSAGES =
+  '  let an agent write your commit subjects instead of "autosave"?'
+  + ' (sends the deck\'s diffs to it) [Y/n] ';

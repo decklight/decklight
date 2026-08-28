@@ -133,3 +133,28 @@ export function pushToastText(remote, { shown = false, threshold = 10 } = {}) {
   if (!n || n < threshold) return null;
   return `↑${n} commits are only on this machine — H shows them`;
 }
+
+// ── "this is not committed" ───────────────────────────────────────────────
+//
+// The cadence used to commit the deck every few minutes, and the log filled
+// with `decklight: autosave talk.html`. Now a silent snapshot carries the
+// safety (cli/commit-flow.mjs, refs/decklight/wip) and the COMMIT is asked
+// for — once per stretch of uncommitted work, by this chip.
+
+/**
+ * The chip's text, or null for "say nothing". Pure.
+ *
+ * It speaks only when the server has already decided to ask (`nag`), which is
+ * where the once-per-episode rule lives — the same discipline `pushToastText`
+ * keeps, and for the same reason: a nudge that reappears on a timer is a nudge
+ * people turn off.
+ */
+export function commitChipText(state) {
+  if (!state || !state.nag || !state.dirty || !state.canWrite) return null;
+  const mins = Math.floor((Number(state.sinceMs) || 0) / 60000);
+  const age = mins >= 60 ? ` · ${Math.floor(mins / 60)}h`
+    : mins >= 1 ? ` · ${mins}m` : '';
+  const n = Number(state.lines) || 0;
+  const what = n ? `${n} line${n === 1 ? '' : 's'}` : 'changes';
+  return `${what} uncommitted${age} — K commits`;
+}

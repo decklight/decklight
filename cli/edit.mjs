@@ -505,7 +505,10 @@ export function createHistory(limit = 200) {
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
 import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
-import { describeCommit, messagesLine } from './commit-message.mjs';
+import {
+  describeCommit, describeWorking, messagesLine, rememberPref, storedPref,
+} from './commit-message.mjs';
+import { WIP_REF, deckDirty, nagText, planNag, snapshotWip, wipLine } from './commit-flow.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 /** Who the author is, from git's own answer — see cli/review.mjs. */
@@ -529,11 +532,13 @@ export async function editMain(args, { onListen = null } = {}) {
   element edit mode (E, then right-click an element), undo/redo (Z/⇧Z), agent asks (A)
   a taken --port offers to take over that session (on a TTY) or moves on to
   the next free one
-  --git            auto-commit the deck on a regular basis (creates the repo if needed)
+  --git            keep the deck in git (creates the repo if needed): a silent
+                   snapshot on refs/decklight/wip, and K commits when you say so
   --no-git         never touch git (default outside a repository)
-  --commit-every N autocommit cadence in seconds (timer mode)             [300]
-  --git-mode M     when to commit: timer (a cadence), agent (one commit per
-                   agent edit, with the agent's own message), off      [timer]
+  --commit-every N cadence in seconds, timer mode only                    [300]
+  --git-mode M     agent  one commit per agent edit, plus whatever K commits
+                   timer  the old five-minute cadence, bookends included
+                   off    never commit                                  [agent]
   --agent <name>   preferred AI agent for A (default: first one detected)
   the server binds 127.0.0.1 only; for a phone remote use decklight present`);
     return;
@@ -581,10 +586,14 @@ export async function editMain(args, { onListen = null } = {}) {
   const wantGit = args.includes('--git');
   const commitEvery = Math.max(5, Number(opt('--commit-every', 300)) || 300);
   // --commit-messages: an agent writes the subject decklight would otherwise
-  // template. Opt-in, because it sends the deck's diffs to whichever agent CLI
-  // is installed and most of them are cloud-backed — a permission decklight
-  // does not infer from what happens to be on PATH.
-  const wantMessages = args.includes('--commit-messages');
+  // template. Still never inferred from what happens to be on PATH — but the
+  // permission can have been GIVEN already: `init` (and author's own first-run
+  // git offer) asks once, when the repository is created, and stores the answer
+  // in that repository's git config. The flag on the command line outranks it
+  // in both directions, so a stored yes is still one `--no-commit-messages`
+  // away from off for a single session.
+  const wantMessages = args.includes('--no-commit-messages') ? false
+    : args.includes('--commit-messages') || storedPref(process.cwd()) === true;
 
   /**
    * Every commit decklight authors ITSELF goes through here — the cadence, the
@@ -606,6 +615,9 @@ export async function editMain(args, { onListen = null } = {}) {
       ? gitAutocommit(deckPath, root)
       : gitAutocommit(deckPath, root, message);
     if (!made) return false;
+    // Whatever wrote it — the overlay, an agent, a bookend — this stretch of
+    // uncommitted work is over, so the nag re-arms for the NEXT one.
+    resetEpisode();
     const sha = lastCommitSha;
     if (wantMessages && sha) {
       const template = message ?? `decklight: autosave ${basename(deckPath)}`;
@@ -615,9 +627,52 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     return true;
   }
-  // timer (default, unchanged) · agent (one commit per agent edit) · off
+  // timer (the old cadence) · agent (one commit per agent edit, the default) · off
   const gitMode = resolveGitMode(args);
   let gitOn = false;
+
+  // ── the commit watch (cli/commit-flow.mjs) ──────────────────────────────
+  // How often the snapshot is refreshed and the nag rule re-read. Far shorter
+  // than the old commit cadence because nothing here writes history: a tick is
+  // one `git diff --numstat` and, when the deck moved, one loose commit object.
+  // The NAG is governed by its own rule, not by this interval — see planNag.
+  const WATCH_EVERY_MS = 30_000;
+  let dirtySince = 0;      // when this stretch of uncommitted work began
+  let dirtyLines = 0;      // how much of the deck differs from HEAD
+  let nagged = false;      // the episode latch: asked once, then quiet
+  let nagDismissed = false;
+  let lastWip = null;      // the snapshot sha, so the ping can prove it exists
+  /** A commit happened: this stretch of uncommitted work is over. */
+  const resetEpisode = () => {
+    dirtySince = 0; dirtyLines = 0; nagged = false; nagDismissed = false;
+  };
+  /**
+   * Re-read what is uncommitted, right now.
+   *
+   * Anything ANSWERING A QUESTION calls this rather than reporting the last
+   * tick's numbers. The tick is 30s apart, and K is pressed the moment after an
+   * edit: a cached "clean" would refuse to commit work that plainly exists,
+   * which is the worst possible answer from the button whose whole job is to
+   * commit it. The nag latch is deliberately untouched here — measuring is not
+   * asking.
+   */
+  const measureDirty = () => {
+    const d = deckDirty(root, deckRel);
+    if (!d.dirty) { dirtySince = 0; dirtyLines = 0; return d; }
+    if (!dirtySince) dirtySince = Date.now();
+    dirtyLines = d.lines;
+    return d;
+  };
+  /** What the deck knows about uncommitted work — ping and SSE both send this. */
+  const commitState = () => ({
+    dirty: dirtySince > 0,
+    lines: dirtyLines,
+    sinceMs: dirtySince ? Date.now() - dirtySince : 0,
+    nag: nagged && !nagDismissed,
+    wip: lastWip,
+    canWrite: gitOn && gitMode !== 'off',
+    messages: wantMessages,
+  });
   if (!noGit && (wantGit || inGitRepo(root))) {
     if (!inGitRepo(root)) {
       try {
@@ -629,26 +684,87 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     if (inGitRepo(root)) {
       gitOn = true;
-      ownCommit(`decklight: start editing ${basename(deckPath)}`);
-      // The cadence is the backstop, and it runs in agent mode too: an agent
-      // job only ever sees edits IT made, so hand edits — and any agent driven
-      // from outside the A flow — would otherwise reach git only via the
-      // Ctrl-C bookend, which a crash skips. It is held back while a job is in
-      // flight so nothing commits a half-finished agent run.
+      // An answer given on the command line becomes the repository's answer,
+      // once. This is what makes the first-run question (dev.mjs, asked before
+      // the repository existed and so with nowhere to write) stick: the next
+      // session reads it back instead of asking again. Only when nothing is
+      // stored yet — a later `--no-commit-messages` is one session's override,
+      // not a silent change to what the repository has been told.
+      if (storedPref(root) === null
+          && (args.includes('--commit-messages') || args.includes('--no-commit-messages'))) {
+        rememberPref(root, wantMessages);
+      }
+      // The session bookends are the cadence's siblings: generic subjects for
+      // moments nobody described, and in the default mode the snapshot covers
+      // what they were covering. THE FIRST COMMIT IS NOT ONE OF THEM. A
+      // repository decklight just created has no commits at all, and a deck git
+      // has never seen is in no commit — in both cases there is no HEAD for the
+      // snapshot to parent on and nothing in git to recover, so this commit is
+      // how the deck ENTERS history rather than an autosave of it.
+      const opening = deckDirty(root, deckRel);
+      if (gitMode === 'timer') ownCommit(`decklight: start editing ${basename(deckPath)}`);
+      else if (opening.firstCommit || opening.untracked) ownCommit(`decklight: add ${basename(deckPath)}`);
+      else { measureDirty(); lastWip = snapshotWip(root, deckPath, deckRel) ?? lastWip; }
+      // The cadence no longer WRITES HISTORY. It used to commit every
+      // --commit-every seconds, and what that produced was a column of
+      // `decklight: autosave talk.html` in which no commit marked anything —
+      // a backup wearing a history's clothes. The two jobs are now separate:
+      // the tick takes a silent snapshot (refs/decklight/wip, off every branch)
+      // so a crash still costs nothing, and asks ONCE per stretch of
+      // uncommitted work whether you want to commit it. `--git-mode timer`
+      // keeps the old cadence for anyone who wants the wall back.
       setInterval(() => {
-        if (shouldCommit(gitMode, { kind: 'timer', agentBusy: !!agentJob })) ownCommit();
-      }, commitEvery * 1000).unref();
-      console.log(gitMode === 'agent'
-        ? `  git: committing ${deckRel} once per agent edit with the agent's own message, every ${commitEvery}s otherwise (and on Ctrl-C)`
-        : `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`);
+        if (agentJob) return;              // never mid-run: see shouldCommit
+        if (gitMode === 'timer') {
+          if (shouldCommit(gitMode, { kind: 'timer' })) ownCommit();
+          return;
+        }
+        commitWatchTick();
+      }, gitMode === 'timer' ? commitEvery * 1000 : WATCH_EVERY_MS).unref();
+      console.log(gitMode === 'timer'
+        ? `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`
+        : wipLine(deckRel));
     }
   }
+  /**
+   * One tick: refresh the snapshot, and decide whether to ask.
+   *
+   * Order matters. The snapshot is taken FIRST and unconditionally, because it
+   * is the safety net and must not depend on any nag rule being right. Only
+   * then is the question considered — and `planNag` answers it once per episode,
+   * so an ignored nag stays ignored instead of becoming a five-minute alarm.
+   */
+  function commitWatchTick() {
+    const d = measureDirty();
+    if (!d.dirty) { resetEpisode(); return; }
+    lastWip = snapshotWip(root, deckPath, deckRel) ?? lastWip;
+    if (planNag({ dirty: true, lines: dirtyLines, sinceMs: Date.now() - dirtySince, nagged, dismissed: nagDismissed })) {
+      nagged = true;
+      broadcast('commit', commitState());
+      console.log(`  git: ${nagText({ lines: dirtyLines, sinceMs: Date.now() - dirtySince })}`
+        + ' — K in the deck commits it');
+    }
+  }
+
   const finalCommit = () => {
     if (!gitOn) return;
     // Not ownCommit: this runs inside the SIGINT handler and the process exits
     // immediately after, so there is no later for an amend to arrive in. The
     // bookend keeps its literal subject, which is true anyway.
-    gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`);
+    if (gitMode === 'timer') {
+      gitAutocommit(deckPath, root, `decklight: stop editing ${basename(deckPath)}`);
+    } else {
+      // Committing work you deliberately did not commit would be the cadence
+      // again, wearing an exit for a hat. The snapshot is refreshed instead —
+      // one last time, synchronously, so the newest bytes are safe — and the
+      // uncommitted work is NAMED on the way out rather than swallowed.
+      const d = deckDirty(root, deckRel);
+      if (d.dirty) {
+        snapshotWip(root, deckPath, deckRel);
+        console.log(`  git: ${deckRel} has uncommitted changes — they are safe on`
+          + ` ${WIP_REF.replace('refs/', '')} (git show decklight/wip:${deckRel})`);
+      }
+    }
     // The last moment anyone is looking. Synchronous and fetch-free on purpose:
     // this runs inside the SIGINT handler, and a network call there would hang
     // a Ctrl-C — the worst possible place to hang.
@@ -967,7 +1083,37 @@ export async function editMain(args, { onListen = null } = {}) {
           preferredAgent: agentPref ?? null,
           agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt },
           wizards: await configurableEngines(),
+          // What is uncommitted, so a deck that loads mid-session shows the
+          // chip without waiting for the next tick to broadcast one.
+          commit: (gitOn && measureDirty(), commitState()),
         });
+      }
+      // ── committing on the author's word (SPEC PRESENTING) ─────────────────
+      // What is uncommitted, right now. The overlay opens on this rather than
+      // on whatever the last SSE event said, because K can be pressed at any
+      // moment and a stale count is a lie about what you are agreeing to.
+      if (req.method === 'GET' && url.pathname === '/edit/commit') {
+        if (gitOn) measureDirty();     // the answer must be about NOW, not the last tick
+        return json(200, { ok: true, ...commitState(), deck: deckRel });
+      }
+      // A subject for work that is not committed yet — the overlay's "write one
+      // for me". Gated on the same permission as every other diff that leaves
+      // the machine: no `--commit-messages`, no ask.
+      if (req.method === 'POST' && url.pathname === '/edit/commit/subject') {
+        if (!wantMessages) {
+          return json(403, { ok: false, error: 'commit subjects are not enabled — decklight author --commit-messages' });
+        }
+        const subject = await describeWorking({
+          cwd: root, deckPath, deckRel, agent: agentPref,
+          template: `decklight: autosave ${basename(deckPath)}`,
+        });
+        return json(200, { ok: true, subject: subject ?? null });
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/commit/dismiss') {
+        // Not the same as committing: the work stays uncommitted and the
+        // snapshot keeps running. It only means "stop asking about THIS one".
+        nagDismissed = true;
+        return json(200, { ok: true, ...commitState() });
       }
       if (req.method === 'GET' && url.pathname === '/edit/events') {
         clients.add(req, res, CORS);
@@ -1115,6 +1261,28 @@ export async function editMain(args, { onListen = null } = {}) {
       let body = '';
       if (req.method === 'POST') {
         for await (const chunk of req) { body += chunk; if (body.length > 1e6) throw new Error('too large'); }
+      }
+      // The commit the author asked for. The subject is THEIRS — typed, or an
+      // agent's sentence they looked at and kept — so it goes through
+      // `commitSubject` like every other message that reaches a command line
+      // (one line, capped, never a leading `-`) and nothing else rewrites it:
+      // `describeCommit`'s amend is for messages decklight authored, and this
+      // one has an author.
+      if (req.method === 'POST' && url.pathname === '/edit/commit') {
+        if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — start author with --git' });
+        let msg = '';
+        try { msg = String(JSON.parse(body || '{}').message ?? '').trim(); } catch { /* below */ }
+        if (!msg) return json(400, { ok: false, error: 'a commit needs a message' });
+        const subject = commitSubject(msg, `decklight: autosave ${basename(deckPath)}`);
+        // gitAutocommit reports false for "nothing to commit", which is not an
+        // error: it is the answer to pressing K twice.
+        const made = gitAutocommit(deckPath, root, subject);
+        if (!made) return json(200, { ok: true, committed: false, ...commitState() });
+        resetEpisode();
+        console.log(`  git: committed ${deckRel} — "${subject}"`);
+        return json(200, {
+          ok: true, committed: true, subject, ...history.counts(), ...commitState(),
+        });
       }
       // ── review comments (SPEC REVIEW) ─────────────────────────────
       // The author's side of `decklight review`. The same file, the same
