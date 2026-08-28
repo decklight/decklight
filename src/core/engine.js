@@ -572,7 +572,10 @@ export function init(userConfig = {}) {
       { label: `Laser pointer ${hud.annotator?.tool === 'laser' ? 'off' : 'on'}`, hint: '⇧W', alias: 'ink dot glow point at', run: () => toggleInk('laser') },
       { label: 'Debug log', hint: 'D', alias: 'console events state', run: toggleDebug },
       { label: `Captions ${narration.status().captionsOn ? 'off' : 'on'}`, hint: 'C', alias: 'cc subtitles closed caption', run: toggleCaptions },
-      { label: `Clock ${hud.status().clockOn ? 'off' : 'on'}`, hint: 'K', alias: 'time elapsed timer talk wall watch', run: toggleClock },
+      // The clock lost K to the commit window and lives HERE now — searchable
+      // by every word somebody would look for it under, with no key to forget.
+      { label: `Clock ${hud.status().clockOn ? 'off' : 'on'}`, alias: 'time elapsed timer talk wall watch clock', run: toggleClock },
+      { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: `Narration ${narration.status().paused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
@@ -1411,7 +1414,7 @@ export function init(userConfig = {}) {
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>
-      <tr><td>K</td><td>clock — wall time + elapsed talk</td></tr>
+      <tr><td>K</td><td>commit — what changed, and what to call it</td></tr>
       <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
       <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (author mode; R too)</td></tr>
       <tr><td>M</td><td>review comments — what reviewers said, ⏎ jumps to the slide</td></tr>
@@ -1557,7 +1560,7 @@ export function init(userConfig = {}) {
       case 'b': case 'B': toggleBlackout(); break;
       case 'd': case 'D': toggleDebug(); break;
       case 'c': case 'C': toggleCaptions(); break;
-      case 'k': case 'K': toggleClock(); break;
+      case 'k': case 'K': editmode.commit.open(); break;
       case 'j': case 'J': toggleProgress(); break;
       case 'h': case 'H': editmode.history.open(); break;
       case 'p': case 'P': toggleNarrPause(); break;
@@ -1786,7 +1789,7 @@ export function init(userConfig = {}) {
     setProgressBar: (el) => { progressBar = el; },
   });
   const { toggleClock, toggleProgress, toggleInk, toggleTranscript } = hud;
-  instance.toggleClock = toggleClock;       // K programmatically
+  instance.toggleClock = toggleClock;       // the palette's Clock row, and API callers
   instance.toggleProgress = toggleProgress; // J programmatically
 
   // ── dev-server features (editmode.js) ────────────────────────────────────

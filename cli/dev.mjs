@@ -57,11 +57,11 @@ const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 878
   --lipsync-port N  lip-sync bridge (visemes + talking head)          [8789]
   --no-tts          don't start the voice bridge
   --no-lipsync      don't start the lip-sync bridge
-  --git / --no-git  auto-commit the deck on a cadence / never touch git
-  --git-mode M      when to commit: timer (a cadence), agent (one commit per
-                    agent edit, with the agent's own message), off     [timer]
+  --git / --no-git  keep the deck in git (snapshot + K commits) / never touch git
+  --git-mode M      when to commit: agent (one per agent edit, and whenever you
+                    press K), timer (the old five-minute cadence), off  [agent]
                     (no repo + no flag: author ASKS whether to create one)
-  --commit-every N  autocommit cadence in seconds                     [300]
+  --commit-every N  cadence in seconds, timer mode only                [300]
   --commit-messages an agent writes the commit subjects instead of the generic
                     "autosave" — reads each commit's diff and amends the subject
                     afterwards, so the commit itself is never delayed or risked.

@@ -29,6 +29,7 @@
  */
 
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { basename, relative } from 'node:path';
 import { agentAsk } from './agents.mjs';
 import { commitSubject, git } from './git.mjs';
@@ -340,6 +341,62 @@ export async function describeCommit({
   // to itself is a rewrite for no reason.
   if (subject === template) return null;
   return amendSubject(cwd, sha, subject, { run }) ? subject : null;
+}
+
+/**
+ * A subject for work that is NOT COMMITTED YET — what the commit overlay's
+ * "write one for me" button asks for.
+ *
+ * The same prompt, the same read-only argv, the same cap and the same stated
+ * truncation as `describeCommit`; three things differ, and each is because
+ * there is no commit yet:
+ *
+ *   the diff is `git diff HEAD` rather than `git show <sha>`;
+ *   the deck is read FROM DISK, because the working tree is the subject here
+ *     (in describeCommit reading from disk would name a slide the commit does
+ *     not contain — here it is the only honest source);
+ *   nothing is amended. It returns the sentence and the caller decides — a
+ *     person is looking at a text box, and putting words in it is the most
+ *     this is allowed to do.
+ *
+ * Returns null for every failure, exactly like its sibling: no agent, nothing
+ * changed, a timeout, an answer that was not a subject. The overlay then shows
+ * an empty box, which is the state it was in anyway.
+ */
+export async function describeWorking({
+  cwd, deckPath, deckRel, template, agent = null,
+  env = process.env, timeoutMs = ASK_TIMEOUT_MS, run = git, exec = ask,
+  resolve = agentAsk, read = null,
+} = {}) {
+  const deck = basename(deckPath);
+  const cmd = resolve(agent, 'x', { env });
+  if (!cmd) return null;
+  const rel = deckRel || relative(cwd, deckPath) || deck;
+
+  let out_;
+  try { out_ = run(['diff', '--unified=1', 'HEAD', '--', rel], cwd) ?? ''; }
+  catch { return null; }
+  if (!out_.trim()) return null;
+  const truncated = out_.length > MAX_DIFF;
+  const diff = truncated ? out_.slice(0, MAX_DIFF) : out_;
+
+  let html = '';
+  try { html = (read ?? readFileSync)(deckPath, 'utf8'); } catch { /* headings are optional */ }
+  const prompt = messagePrompt({
+    deck, template, diff, truncated,
+    title: deckTitle(html),
+    slides: changedSlides(html, diff),
+  });
+  const spawned = resolve(agent, prompt, { env });
+  if (!spawned) return null;
+  let answer;
+  try { answer = await exec(spawned, cwd, timeoutMs); }
+  catch { return null; }
+  if (answer == null) return null;
+  const found = subjectFrom(answer);
+  if (!found) return null;
+  const subject = commitSubject(found, template);
+  return subject === template ? null : subject;
 }
 
 /** The startup line: what is on, who does it, and what leaves the machine. */
