@@ -1512,6 +1512,12 @@
 .decklight-review .rv-body { margin-top: 3px; white-space: pre-wrap; }
 .decklight-review .rv-note { margin-top: 4px; font-size: 12px; color: #ffcf8b; }
 .decklight-review .rv-reply { margin: 4px 0 0 12px; font-size: 13px; opacity: .8; white-space: pre-wrap; }
+/* A review you are finished with. Struck through rather than hidden: the mark
+   is reversible (T again), and its comments stay readable after the fact. */
+.decklight-review .rv-done { opacity: .45; }
+.decklight-review .rv-inc-row.rv-done,
+.decklight-review .rv-row.rv-done .rv-body { text-decoration: line-through; }
+
 .decklight-review .rv-arm {
   margin-top: 6px;
   padding: 6px 8px;

@@ -1405,10 +1405,11 @@ try {
       `--incoming did not list the waiting review: ${heard.all}`);
     must(!/no reviews/.test(heard.all), 'a waiting review rendered as none');
 
-    // …and the author takes it in FROM THE DECK: the overlay's T is a POST
-    // to the author server, a by-id merge into the local sidecar — no git
-    // merge is ever asked of anyone. Through the installed binary, over HTTP,
-    // which is the only place this path runs whole.
+    // …and the author marks it DONE from the deck: the overlay's T is a POST
+    // to the author server that writes one git-config mark. Nothing is copied
+    // — the whole point — so what this proves is that the review stops waiting
+    // while the sidecar stays exactly as it was. Through the installed binary,
+    // over HTTP, which is the only place this path runs whole.
     const asrv = await startServer(
       ['author', 'reviewed.html', '--port', '0', '--no-git'],
       /decklight author on http:\/\/127\.0\.0\.1:(\d+)/, { cwd: author2 });
@@ -1419,26 +1420,34 @@ try {
       `incoming answered ${JSON.stringify(inc).slice(0, 200)}`);
     must(inc.reviews?.[0]?.records?.some((x) => x.body === 'One more before sending.'),
       'the incoming records did not carry the comments');
-    const take = await (await fetch(`${asrv.base}/edit/review/take`, {
+    const sidecarBefore = existsSync(join(author2, 'reviewed.review.jsonl'))
+      ? readFileSync(join(author2, 'reviewed.review.jsonl'), 'utf8') : null;
+    const done = await (await fetch(`${asrv.base}/edit/review/done`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ branch: inc.reviews[0].branch }),
+      body: JSON.stringify({ branch: inc.reviews[0].branch, done: true }),
     })).json();
-    // added is the DELTA, not the branch's total: this clone already carries
-    // the first three comments through main's history (the reviewer committed
-    // as-you-go before pushing), so the take adds exactly the one record the
-    // hub never saw — the by-id merge counting precisely is the point.
-    must(take.ok === true && take.added === 1, `take answered ${JSON.stringify(take)}`);
-    must(existsSync(join(author2, 'reviewed.review.jsonl')), 'the sidecar did not land');
-    must(readFileSync(join(author2, 'reviewed.review.jsonl'), 'utf8').includes('One more before sending.'),
-      'the taken comments are not in the sidecar');
-    // taking twice changes nothing, and the review stops waiting
+    must(done.ok === true && done.done === true, `done answered ${JSON.stringify(done)}`);
+    // NOTHING WAS COPIED: the sidecar is byte-identical, and the reviewer's
+    // comment never became one of the author's own.
+    const sidecarAfter = existsSync(join(author2, 'reviewed.review.jsonl'))
+      ? readFileSync(join(author2, 'reviewed.review.jsonl'), 'utf8') : null;
+    must(sidecarAfter === sidecarBefore, 'marking a review done wrote to the sidecar');
+    must(!(sidecarAfter ?? '').includes('One more before sending.'),
+      "the reviewer's comment was merged into the author's own file");
+    // the mark is git config in THIS clone, readable with plain git
+    const mark = spawnSync('git', ['config', '--get', `decklight-review.${inc.reviews[0].branch}.done`],
+      { cwd: author2, encoding: 'utf8' });
+    must(mark.stdout.trim() === 'true', `the mark is not in git config: ${JSON.stringify(mark.stdout)}`);
+    // …and the review is still LISTED (so it can be reopened) but not waiting
     const inc2 = await (await fetch(`${asrv.base}/edit/review/incoming`)).json();
-    must(!(inc2.reviews ?? []).length, `a taken review kept waiting: ${JSON.stringify(inc2).slice(0, 200)}`);
+    must((inc2.reviews ?? []).length === 1 && inc2.reviews[0].done === true,
+      `a done review vanished instead of being struck through: ${JSON.stringify(inc2).slice(0, 200)}`);
+    must(inc2.state === 'none', `a done review kept nagging: ${JSON.stringify(inc2).slice(0, 120)}`);
     asrv.child.kill('SIGTERM');
     must(await waitExit(asrv.child, 5000), 'author did not exit on SIGTERM');
     const heardAfter = dl(['comments', 'reviewed.html', '--incoming'], { cwd: author2 });
-    must(/no reviews waiting/.test(heardAfter.all), `--incoming still nags after the take: ${heardAfter.all}`);
+    must(/no reviews waiting/.test(heardAfter.all), `--incoming still nags after the mark: ${heardAfter.all}`);
 
     // and a remote that stops existing is a NAMED failure, never "none"
     spawnSync('git', ['remote', 'set-url', 'origin', join(SPACE, 'gone.git')], { cwd: author2, encoding: 'utf8' });

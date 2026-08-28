@@ -615,15 +615,26 @@ state and never renders as "none waiting"** — unchecked is its own answer and 
 glob is a frozen constant in the source; nothing derived from a deck, a request, or a reviewer's choices
 reaches a refspec position.
 
-**Intake is the deck, not a git command.** The `M` overlay's incoming section shows the waiting reviews'
-**comments themselves** — anchored against the deck as it is now, walkable and jumpable like local ones — and
-`T` (armed, then confirmed) takes a whole review into the deck's own sidecar: `POST /edit/review/take`, a
-**by-id merge into one local file**, committed like any other comment. Taking twice changes nothing, no
-checkout or working tree is touched, and nothing is pushed. Resolving an incoming comment takes its review in
-first — a resolve written against a record the local file never held would be an answer to a question nobody
-asked. "Waiting" means **holds records the local sidecar does not**: a review absorbed by `T`, by `--import`,
-or by an actual `git merge` stops nagging identically, because the by-id merge is the one arbiter. The
-union-merge/pull-request path remains fully supported — it is simply no longer the doorway.
+**A review is an inbox item, not something to merge.** The `M` overlay lists every review branch the remote has
+and shows its **comments themselves** — anchored against the deck as it is now, walkable and jumpable like local
+ones — and `T` marks a review **done**, or takes the mark back off. Nothing is copied. An earlier design had `T`
+merge a reviewer's records into the author's own sidecar so that "have I dealt with this?" had an answer; that
+was a great deal of machinery for a yes/no, and it made somebody else's remarks indistinguishable from your own
+the moment you looked at them. You read a review, you walk its comments, and you are finished with it.
+
+The mark lives in **this clone's git config** — `[decklight-review "<branch>"] done` — private, never pushed,
+and reversible with the tool the author already has (`git config --unset`). An inbox is not shared state. The
+branch is the *subsection* because git's dotted form reads the last segment as the key, and a branch name
+contains slashes that only a subsection may hold. A done review is **still listed**, struck through and sorted
+after the rest, precisely so it can be un-marked; what changes is that it stops counting as waiting, so the
+startup line and the count fall silent on work already dealt with. `--import` still ends a review the old way:
+a branch whose every record the local sidecar already holds has plainly been dealt with, whatever put them
+there.
+
+Incoming comments are therefore **read-only**. `R` resolves and `A` re-anchors your **own** comments — the ones
+in the local sidecar — and say so when pointed at a review branch's row: a resolve written against a record
+this file never held would be an answer to a question it never asked. The union-merge/pull-request path remains
+fully supported for anyone who wants the records themselves; it is simply not what the overlay does.
 
 **A comment on a slide that no longer exists is reconciled, never stranded.** An orphan is still listed last
 and never silently re-pinned — but `⏎` on it (with nowhere to jump) unfolds **what the slide said** at the

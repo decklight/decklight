@@ -56,13 +56,13 @@ import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
 import { classifyScripts } from './audit.mjs';
-import { reviewPathFor, parseReview, serializeRecord, mergeById, newId } from './review-store.mjs';
+import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
 import { recordingImpact, impactWarning, slidesFromFiles } from '../tools/recording-impact.mjs';
 import { indexDeckFile, slideTextOf, knowsCommit } from './comments.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
-import { reviewsWaiting, reviewLine, reviewCheckSuppressed } from './review-remote.mjs';
+import { reviewsWaiting, reviewLine, reviewCheckSuppressed, setReviewDone } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
 // The `/edit/*` surface answers loopback only — but "loopback" is the wrong
@@ -1383,31 +1383,26 @@ export async function editMain(args, { onListen = null } = {}) {
           });
         } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
       }
-      if (req.method === 'POST' && url.pathname === '/edit/review/take') {
-        // Take a waiting review into the deck's own sidecar — the overlay's T.
-        // No git merge, no checkout, nothing pushed: a by-id merge into ONE
-        // local file, committed like any other comment, so taking the same
-        // review twice changes nothing. The branch name is looked up in what
-        // the incoming reader LISTED — it is data here, never an argument, and
-        // the records written are the ones the overlay just showed.
-        const { branch } = JSON.parse(body || '{}');
+      if (req.method === 'POST' && url.pathname === '/edit/review/done') {
+        // Mark a review finished with, or take the mark off. NOTHING IS COPIED.
+        // This replaced `take`, which merged somebody else's comments into the
+        // author's own sidecar so that "have I dealt with this?" had an answer
+        // — a lot of machinery for a yes/no, and it made a reviewer's remarks
+        // indistinguishable from your own the moment you looked at them. A
+        // review is an inbox item: you read it, you walk it, you are done.
+        //
+        // The branch is looked up in what the incoming reader LISTED, so it is
+        // data here and never an argument, exactly as `take` required.
+        const { branch, done = true } = JSON.parse(body || '{}');
         const listed = incomingCache?.r?.reviews?.find((v) => v.branch === branch);
-        if (!listed) return json(400, { ok: false, error: 'not a review this deck is waiting on — press M again to refresh' });
-        const store = reviewPathFor(deckPath);
-        const mine = existsSync(store) ? parseReview(readFileSync(store, 'utf8')).records : [];
-        const { records: mergedIn, added } = mergeById(mine, listed.records ?? []);
-        if (added) {
-          try { writeFileSync(store, mergedIn.map(serializeRecord).join('\n') + '\n'); }
-          catch (e) { return json(500, { ok: false, error: oneline(e) }); }
-          if (gitOn) {
-            gitAutocommit(store, root, commitSubject(
-              `review: take in ${added} record(s) from ${branch}`, 'review: take in a review'));
-          }
+        if (!listed) return json(400, { ok: false, error: 'not a review this deck knows about — press M again to refresh' });
+        if (!setReviewDone(root, branch, !!done)) {
+          return json(500, { ok: false, error: 'could not write the mark to git config' });
         }
-        // the waiting list just changed — the cache must not keep saying so
+        // the list just changed shape — the cache must not keep the old marks
         incomingCache = null;
-        console.log(`  review: took in ${added} record(s) from ${branch}`);
-        return json(200, { ok: true, added });
+        console.log(`  review: ${branch} ${done ? 'marked done' : 'reopened'}`);
+        return json(200, { ok: true, branch, done: !!done });
       }
       if (req.method === 'POST' && url.pathname === '/edit/review') {
         const { op, re, body: text, slide, title, fp } = JSON.parse(body || '{}');

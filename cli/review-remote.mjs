@@ -34,6 +34,7 @@
 // time it is an argument.
 
 import { basename, dirname, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { runGit, classifyFailure } from './upstream.mjs';
 import { existsSync, readFileSync } from 'node:fs';
@@ -137,9 +138,12 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
   const storeName = basename(full).replace(/\.html?$/i, '') + '.review.jsonl';
   const inRepo = `${prefix.ok ? prefix.stdout : ''}${storeName}`;
 
-  // What the AUTHOR already has. "Waiting" means "holds records you do not":
-  // a review fully taken in — by the overlay, by --import, by an actual merge
-  // — must stop nagging, and the by-id merge is the one arbiter of that.
+  // "Waiting" used to mean "holds records your sidecar does not", because the
+  // overlay MERGED a review into that sidecar and the by-id merge was the
+  // arbiter of doneness. Nothing is copied any more, so that test would call
+  // every review waiting forever. A review is an inbox item now: it waits until
+  // you mark it done, and `--import` still ends it the old way — a review whose
+  // records all sit in the local file has plainly been dealt with.
   const storePath = reviewPathFor(full);
   const mine = existsSync(storePath) ? parseReview(readFileSync(storePath, 'utf8')).records : [];
 
@@ -165,9 +169,13 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
     // Nothing OPEN means nothing waiting: a branch of resolves is history, not
     // a review the author still owes attention.
     if (!open.length) continue;
-    // …and nothing NEW means nothing waiting either: every record already in
-    // the local sidecar is a review the author absorbed, however it arrived.
+    // …nor does a review whose every record the local sidecar already holds:
+    // that is `--import`, or a real merge, and it has plainly been dealt with.
     if (!mergeById(mine, records).added) continue;
+    // The mark this clone keeps. Done reviews are still REPORTED — the overlay
+    // strikes them through so they can be unmarked — but they are not waiting,
+    // so they never reach the startup line or the count.
+    const done = reviewDone(cwd, branch);
     const stamp = await run(['log', '-1', '--format=%aI', ref], { cwd });
     reviews.push({
       branch,
@@ -182,6 +190,7 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
       replies: records.filter((r) => r.re && !r.op).length,
       unreadable: skipped,
       at: stamp.ok ? stamp.stdout : null,
+      done,
     });
   }
   // Newest first: an author wants the review that just arrived, not the one from
@@ -195,7 +204,11 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
     const [aAt, aWhen] = key(a); const [bAt, bWhen] = key(b);
     return bAt.localeCompare(aAt) || bWhen.localeCompare(aWhen);
   });
-  return { state: reviews.length ? 'ok' : 'none', reviews, reason: null };
+  // `state` is about what still WANTS attention. Done reviews stay in the list
+  // — the overlay strikes them through so they can be unmarked — but a session
+  // where every review is done is a session with nothing waiting, and must say
+  // so rather than nagging about work already finished.
+  return { state: reviews.some((r) => !r.done) ? 'ok' : 'none', reviews, reason: null };
 }
 
 /**
@@ -209,9 +222,12 @@ export async function reviewsWaiting(deckPath, { remote = 'origin', run = runGit
 export function reviewLine(result, { deck = '' } = {}) {
   const { state, reviews } = result ?? {};
   if (state === 'ok') {
-    const n = reviews.length;
-    const total = reviews.reduce((sum, r) => sum + r.comments, 0);
-    const who = reviews.slice(0, 3).map((r) => r.who).join(', ');
+    // Only what is not marked done: the line is the nag, and a review you have
+    // finished with must not appear in it.
+    const open = reviews.filter((r) => !r.done);
+    const n = open.length;
+    const total = open.reduce((sum, r) => sum + r.comments, 0);
+    const who = open.slice(0, 3).map((r) => r.who).join(', ');
     return `reviews: ${total} comment${total === 1 ? '' : 's'} waiting`
       + ` from ${who}${n > 3 ? ` +${n - 3} more` : ''}`
       + `${deck ? ` — decklight comments ${deck} --incoming` : ''}`;
@@ -225,4 +241,50 @@ export function reviewLine(result, { deck = '' } = {}) {
   // NOT "no reviews": this is the sentence that keeps a failed check from
   // reading like an all-clear.
   return `reviews: not checked — ${how}`;
+}
+
+// ── a review you are finished with ────────────────────────────────────────
+//
+// Reviews used to be MERGED into the author's own sidecar (`T`, take-in), and
+// "waiting" meant "holds records your file does not". That put somebody else's
+// comments into your file to answer the question "have I dealt with this yet?",
+// which is a lot of machinery for a yes/no — and it made a reviewer's remarks
+// indistinguishable from your own the moment you looked at them.
+//
+// A review is an INBOX ITEM. You read it, you walk its comments, and you are
+// done with it. So "done" is a mark, kept per branch, and nothing is copied.
+//
+// It lives in the repository's own git config, like `decklight.commit-messages`:
+// private to this clone (an inbox is not shared state), never pushed, and
+// inspectable and reversible with the tool the user already has —
+// `git config --unset decklight.review-done.<branch>`.
+
+/**
+ * The config key a branch's mark lives under.
+ *
+ * The branch is the SUBSECTION — `[decklight-review "review/ana-2026-08-25"]
+ * done = true` — and it has to be. git's dotted form reads the last segment as
+ * the key and everything between as the subsection, so
+ * `decklight.review-done.review/ana-…` is rejected outright (`invalid key`):
+ * a branch name contains slashes and dots, and only a subsection may. This is
+ * the one shape that survives every branch name a reviewer can produce.
+ */
+export const doneKey = (branch) => `decklight-review.${branch}.done`;
+
+/** Is this review marked done in THIS clone? */
+export function reviewDone(cwd, branch, { run = null, exec = execFileSync } = {}) {
+  const g = run ?? ((args) => exec('git', args, { cwd, encoding: 'utf8' }).trim());
+  // `--get` exits 1 for an unset key and the helper throws on that — unset and
+  // unreadable are the same answer here: not done.
+  try { return g(['config', '--get', doneKey(branch)]) === 'true'; } catch { return false; }
+}
+
+/** Mark it done, or take the mark off. Never fatal: a mark is a convenience. */
+export function setReviewDone(cwd, branch, done, { run = null, exec = execFileSync } = {}) {
+  const g = run ?? ((args) => exec('git', args, { cwd, encoding: 'utf8' }).trim());
+  try {
+    if (done) g(['config', doneKey(branch), 'true']);
+    else g(['config', '--unset', doneKey(branch)]);
+    return true;
+  } catch { return false; }
 }
