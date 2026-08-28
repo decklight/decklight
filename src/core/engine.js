@@ -1414,7 +1414,7 @@ export function init(userConfig = {}) {
       <tr><td>C</td><td>captions (follow the voice)</td></tr>
       <tr><td>W</td><td>pen — draw on the slide (⌫ clears)</td></tr>
       <tr><td>⇧W</td><td>laser pointer</td></tr>
-      <tr><td>K</td><td>commit — what changed, and what to call it</td></tr>
+      <tr><td>K</td><td>commit — what changed, and what to call it (⌘K / ⌃K also works while typing)</td></tr>
       <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
       <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (author mode; R too)</td></tr>
       <tr><td>M</td><td>review comments — what reviewers said, ⏎ jumps to the slide</td></tr>
@@ -1520,6 +1520,23 @@ export function init(userConfig = {}) {
     // The position is the shortcut; the character is an accident.
     if (isMsgKey(e) && (e.metaKey || e.ctrlKey || e.altKey)) {
       toggleMessages();
+      e.preventDefault();
+      return;
+    }
+    // ⌘K / ⌃K — commit. The alias for the bare K below, and it earns its place
+    // ABOVE the typing guard for the same reason the messages key does: the
+    // moment you most want to commit is the moment you have just finished
+    // typing, and a notes editor swallowing the shortcut would send you hunting
+    // for the mouse. Inside the commit window's own box it toggles the window,
+    // which is what K does everywhere else.
+    //
+    // ⌘K is the shortcut JetBrains has meant by "commit" for twenty years, and
+    // the browser's own ⌘K (focus the search bar) is exactly what preventDefault
+    // is for. Shift is excluded rather than ignored: ⌘⇧K is the web console in
+    // Firefox, and taking a devtools key from someone debugging a deck would be
+    // a poor trade for an alias.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+      editmode.commit.open();
       e.preventDefault();
       return;
     }

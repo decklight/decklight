@@ -226,6 +226,12 @@ export function createEditMode({
     go.addEventListener('click', commit);
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commit(); }
+      // ⌘K reaches the deck even from in here, so the shortcut that opened this
+      // window also closes it. Everything else is stopped: the box is a typing
+      // surface and the deck must not advance under it — but a modifier combo
+      // is not typing, and swallowing the one key the header advertises would
+      // make the alias a one-way door.
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) return;
       e.stopPropagation();
     });
     overlaysCommit ??= overlays.register({
