@@ -48,7 +48,10 @@ import {
 } from './skill-content.mjs';
 import { THEMES_DIR, themeCss, runtimeCss, runtimeJs } from './pkg.mjs';
 import { TARGETS, detectedTargets, installGlobalSkill, display } from './skills.mjs';
-import { onPath } from './agents.mjs';
+import { onPath, detectAgents } from './agents.mjs';
+import {
+  ASK_MESSAGES, planCommitMessages, rememberPref, storedPref,
+} from './commit-message.mjs';
 import { escapeHtml } from './edit.mjs';
 import {
   classifyRemoteError, createRepo, foreignWarning, git as gitRun, inGitRepo, isIdentityError,
@@ -683,6 +686,22 @@ unless --no-skill is given. The deck file is only touched with --force.
     // would only offer what is on. The line names the flag that turns it off.
     note("  commits land one per agent edit, with the agent's own message"
       + ' (--git-mode timer for a plain cadence)');
+    // …and the OTHER half of what those commits say. Asked here, once, because
+    // this is the moment the commits it governs start existing — and asked at
+    // all, rather than defaulted silently, because the answer sends the deck's
+    // diffs to an agent. Default yes; a person still has to let it through.
+    const msgs = planCommitMessages({
+      args: argv, tty, agents: detectAgents().length, creatingRepo: true,
+      stored: storedPref(root),
+    });
+    if (msgs.action === 'ask' || msgs.action === 'on' || msgs.action === 'off') {
+      const on = msgs.action === 'ask' ? await askYes(ASK_MESSAGES, true) : msgs.action === 'on';
+      rememberPref(root, on);
+      note(on
+        ? '  commit subjects are written by an agent, from the diff'
+        + ' (git config decklight.commit-messages false turns it off)'
+        : '  commit subjects stay generic (--commit-messages turns it on)');
+    }
   }
   else if (action === 'hint') note('  git: no repository here — pass --git to create one and auto-commit the deck');
 

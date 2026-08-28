@@ -505,7 +505,7 @@ export function createHistory(limit = 200) {
 // re-exported so long-standing importers (init, the tests) keep finding it
 // where edit grew it.
 import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
-import { describeCommit, messagesLine } from './commit-message.mjs';
+import { describeCommit, messagesLine, rememberPref, storedPref } from './commit-message.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 /** Who the author is, from git's own answer — see cli/review.mjs. */
@@ -581,10 +581,14 @@ export async function editMain(args, { onListen = null } = {}) {
   const wantGit = args.includes('--git');
   const commitEvery = Math.max(5, Number(opt('--commit-every', 300)) || 300);
   // --commit-messages: an agent writes the subject decklight would otherwise
-  // template. Opt-in, because it sends the deck's diffs to whichever agent CLI
-  // is installed and most of them are cloud-backed — a permission decklight
-  // does not infer from what happens to be on PATH.
-  const wantMessages = args.includes('--commit-messages');
+  // template. Still never inferred from what happens to be on PATH — but the
+  // permission can have been GIVEN already: `init` (and author's own first-run
+  // git offer) asks once, when the repository is created, and stores the answer
+  // in that repository's git config. The flag on the command line outranks it
+  // in both directions, so a stored yes is still one `--no-commit-messages`
+  // away from off for a single session.
+  const wantMessages = args.includes('--no-commit-messages') ? false
+    : args.includes('--commit-messages') || storedPref(process.cwd()) === true;
 
   /**
    * Every commit decklight authors ITSELF goes through here — the cadence, the
@@ -629,6 +633,16 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     if (inGitRepo(root)) {
       gitOn = true;
+      // An answer given on the command line becomes the repository's answer,
+      // once. This is what makes the first-run question (dev.mjs, asked before
+      // the repository existed and so with nowhere to write) stick: the next
+      // session reads it back instead of asking again. Only when nothing is
+      // stored yet — a later `--no-commit-messages` is one session's override,
+      // not a silent change to what the repository has been told.
+      if (storedPref(root) === null
+          && (args.includes('--commit-messages') || args.includes('--no-commit-messages'))) {
+        rememberPref(root, wantMessages);
+      }
       ownCommit(`decklight: start editing ${basename(deckPath)}`);
       // The cadence is the backstop, and it runs in agent mode too: an agent
       // job only ever sees edits IT made, so hand edits — and any agent driven

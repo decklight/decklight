@@ -348,3 +348,71 @@ export function messagesLine(agentName) {
     ? `git: ${agentName} writes the commit subjects — the deck's diffs are sent to it`
     : 'git: --commit-messages needs an agent on PATH — subjects stay generic';
 }
+
+/**
+ * Where the answer lives: git's own config, in the repository it is about.
+ *
+ * The setting only means anything when there IS a repository — it describes
+ * what happens to that repository's commits — so git config is where it
+ * belongs rather than a file decklight invents. It is per-repo, it survives,
+ * and it is inspectable and reversible with the tool the user already knows:
+ * `git config decklight.commit-messages false`.
+ */
+export const PREF_KEY = 'decklight.commit-messages';
+
+/**
+ * The stored answer: true, false, or null when nobody has been asked yet.
+ *
+ * `git config --get` EXITS 1 for a key that is not set, and `git()` throws on a
+ * non-zero exit — so the unset case, which is every first run, arrives here as
+ * an exception rather than an empty string. Unreadable and unset are the same
+ * answer: nobody has said, so ask (or stay off).
+ */
+export function storedPref(cwd, { run = git } = {}) {
+  let v = '';
+  try { v = (run(['config', '--get', PREF_KEY], cwd) ?? '').trim(); } catch { return null; }
+  return v === 'true' ? true : v === 'false' ? false : null;
+}
+
+/**
+ * Remember the answer, so the next session does not ask again.
+ *
+ * Never fatal: this is a convenience, and a repository that refuses the write
+ * (a read-only config, a worktree in a strange state) should cost the user a
+ * repeated question, not a failed startup.
+ */
+export function rememberPref(cwd, on, { run = git } = {}) {
+  try { run(['config', PREF_KEY, on ? 'true' : 'false'], cwd); return true; } catch { return false; }
+}
+
+/**
+ * Whether to ask, and what the answer already is.
+ *
+ * Asked ONCE, at the moment a repository is created — the same moment the
+ * autocommit itself is offered, because that is when the commits this governs
+ * come into existence. An existing repository is never interrupted to be asked
+ * a new question; it uses the flag.
+ *
+ * The default is YES, and that is a defensible default only because it is a
+ * QUESTION. The permission is still explicitly given by a person who was told
+ * what leaves the machine — decklight still never infers it from what happens
+ * to be on PATH, which is the rule `lipsync --veo` follows. So: no agent
+ * installed, or no TTY to answer, means no question and no feature.
+ */
+export function planCommitMessages({
+  args = [], tty = false, agents = 0, creatingRepo = false, stored = null,
+} = {}) {
+  if (args.includes('--no-commit-messages')) return { action: 'off' };
+  if (args.includes('--commit-messages')) return { action: 'on' };
+  if (stored !== null) return { action: stored ? 'on' : 'off' };
+  // Nothing to drive it, nothing to write the subjects with: the feature is
+  // unavailable, and offering it would be offering a switch wired to nothing.
+  if (!agents) return { action: 'skip' };
+  if (!creatingRepo) return { action: 'skip' };
+  return { action: tty ? 'ask' : 'skip' };
+}
+
+/** The question, worded so the cost is on screen before the answer is given. */
+export const ASK_MESSAGES =
+  '  let an agent write your commit subjects instead of "autosave"?'
+  + ' (sends the deck\'s diffs to it) [Y/n] ';

@@ -27,6 +27,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
+import { ASK_MESSAGES, planCommitMessages } from './commit-message.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import {
   ENGINES as TTS_ENGINES, PIPER_DEFAULT_VOICE, piperModelDir, engineStatus,
@@ -137,7 +138,10 @@ export function planServices({
     args: [deck, '--port', editPort,
       ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
       ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode'),
-      ...(has('--commit-messages') ? ['--commit-messages'] : [])],
+      // BOTH directions travel: the first-run question can answer no, and a no
+      // that did not reach the server would be a question asked and ignored.
+      ...(has('--commit-messages') ? ['--commit-messages'] : []),
+      ...(has('--no-commit-messages') ? ['--no-commit-messages'] : [])],
     url: `http://127.0.0.1:${editPort}/${deck ?? ''}`,
   });
 
@@ -343,6 +347,21 @@ export async function devMain(args) {
       if (yes && !args.includes('--git-mode') && detectAgents().length) {
         const mode = await rl.question("  commit once per agent edit, with the agent's own message, instead of on a timer? [y/N] ");
         if (/^y/i.test(mode.trim())) args = [...args, '--git-mode', 'agent'];
+      }
+      // The other half of what those commits say. Same moment, same reason as
+      // init's: the repository is being created right now, so this is when the
+      // commits it governs start existing. Default yes — but still a question,
+      // because the answer sends the deck's diffs to an agent.
+      if (yes) {
+        const msgs = planCommitMessages({
+          args, tty: true, agents: detectAgents().length, creatingRepo: true,
+          stored: null,   // the repo does not exist yet, so nothing is stored
+        });
+        if (msgs.action === 'ask') {
+          const a = (await rl.question(ASK_MESSAGES)).trim();
+          if (!/^n/i.test(a)) args = [...args, '--commit-messages'];
+          else args = [...args, '--no-commit-messages'];
+        }
       }
       rl.close();
       plan = planServices({ args, saved: loadTtsConfig() });
