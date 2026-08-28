@@ -70,10 +70,12 @@
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (u.endsWith('/edit/review/incoming')) {
-        // after a take, the review stops waiting — the honest-subset rule
-        const reviews = window.__taken ? [] : [{
+        // A done review is still LISTED — struck through, so it can be
+        // un-done — it simply stops counting as waiting.
+        const reviews = [{
           branch: 'review/ana-2026-08-25', who: 'ana', when: '2026-08-25',
           comments: 2, replies: 0, at: '2026-08-25T09:00:00Z',
+          done: window.__done === 'review/ana-2026-08-25',
           records: [
             { id: 'in1', at: '2026-08-25T09:00:00Z', by: 'Ana Ruiz <ana@x>', slide: 2,
               title: 'Why this matters', fp: window.__fp2 ?? 'nope', body: 'Incoming: tighten this.' },
@@ -81,7 +83,7 @@
               title: 'Intro', body: 'Incoming: strong start.' },
           ],
         }];
-        return new Response(JSON.stringify({ ok: true, state: reviews.length ? 'ok' : 'none', reviews }),
+        return new Response(JSON.stringify({ ok: true, state: reviews.some((v) => !v.done) ? 'ok' : 'none', reviews }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (u.includes('/edit/review/at?')) {
@@ -90,15 +92,13 @@
           title: 'Cut me', text: 'Cut me doomed' }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/edit/review/take')) {
+      if (u.endsWith('/edit/review/done')) {
         const req_ = JSON.parse(opts.body);
-        window.__takeCalls = (window.__takeCalls || 0) + 1;
-        window.__taken = req_.branch;
-        // the server's half: the records land in the local store
-        window.__store.push(
-          JSON.stringify({ id: 'in1', at: '2026-08-25T09:00:00Z', by: 'Ana Ruiz <ana@x>', slide: 2, title: 'Why this matters', fp: window.__fp2 ?? 'nope', body: 'Incoming: tighten this.' }),
-          JSON.stringify({ id: 'in2', at: '2026-08-25T09:01:00Z', by: 'Ana Ruiz <ana@x>', slide: 1, title: 'Intro', body: 'Incoming: strong start.' }));
-        return new Response(JSON.stringify({ ok: true, added: 2 }),
+        window.__doneCalls = (window.__doneCalls || 0) + 1;
+        // the server's half: the mark is remembered, and NOTHING is copied into
+        // the local store — that is the whole point of the change
+        window.__done = req_.done ? req_.branch : null;
+        return new Response(JSON.stringify({ ok: true, branch: req_.branch, done: !!req_.done }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (u.endsWith('/review/comments') || u.endsWith('/edit/review')) {
@@ -415,7 +415,7 @@
           await until(() => card.querySelectorAll('.rv-row').length >= 2);
           r.noComposerForAnAuthor = !card.querySelector('.rv-input');
           r.saysResolveIsThere = /R resolves/.test(card.querySelector('.rec-hint')?.textContent ?? '');
-          // what reviewers sent that is not taken in yet, above the local
+          // what reviewers sent, above the local list — the COMMENTS
           // list — the COMMENTS, not a count and a git command
           const incoming = await until(() => card.querySelector('.rv-incoming'));
           r.incomingShown = !!incoming;
@@ -439,24 +439,32 @@
           r.panelStayedAfterIncomingJump = !!document.querySelector('.decklight-review .narr-card');
           const card2 = card;   // same live node — the jump did not replace it
           await until(() => card2.querySelector('.rv-incoming'));
-          // T is ARMED, then confirmed — a take writes a commit
+          // T marks the whole review done. NOT a two-step: the result is
+          // visible the instant it lands (the rows strike through) and pressing
+          // T again undoes it, so there is nothing an arm would protect.
           const sel_ = () => card2.querySelector('.rv-sel');
           for (let i = 0; i < 8 && !sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(50); }
           press('t');
-          await until(() => card2.querySelector('.rv-inc-row.rv-arm'));
-          r.takeArmedNotFired = !window.__takeCalls;
+          await until(() => window.__doneCalls);
+          r.markedDoneOnce = window.__doneCalls === 1 && window.__done === 'review/ana-2026-08-25';
+          // NOTHING WAS COPIED — the point of dropping take-in. The local store
+          // must be exactly what it was.
+          r.nothingImported = !window.__store.some((l) => /Incoming: tighten this/.test(l));
+          // still listed, struck through, so it can be un-done
+          const doneRow = await until(() => card2.querySelector('.rv-inc-row.rv-done'));
+          r.doneStillListed = !!doneRow && /T reopens it/.test(doneRow.textContent);
+          r.doneCommentsStruck = card2.querySelectorAll('.rv-row.rv-inc.rv-done').length >= 1;
+          // …and T again takes the mark off
           press('t');
-          await until(() => window.__takeCalls);
-          r.tookInOnSecond = window.__takeCalls === 1 && window.__taken === 'review/ana-2026-08-25';
-          // …and afterwards the review stops waiting and the comments are LOCAL
-          await until(() => !card2.querySelector('.rv-incoming'));
-          r.takenStopsWaiting = !card2.querySelector('.rv-incoming');
-          r.takenNowLocal = [...card2.querySelectorAll('.rv-row:not(.rv-inc)')]
-            .some((n) => /Incoming: tighten this/.test(n.textContent));
+          await until(() => window.__doneCalls === 2);
+          r.reopened = window.__done === null
+            && !!(await until(() => !card2.querySelector('.rv-inc-row.rv-done')));
 
-          // The resolve two-step, on the overlay as it is NOW — the take
-          // emptied the incoming section, so the arrows walk local rows again.
-          press('ArrowDown');   // off whichever row was selected first
+          // The resolve two-step, on a LOCAL row: an incoming comment lives on
+          // somebody else's branch and nothing copies it here, so it is
+          // read-only — resolving it would answer a question this file never
+          // asked. Walk to a row that is not .rv-inc.
+          for (let i = 0; i < 12 && sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(40); }
           press('r');
           r.armedNotFired = !!(await until(() => card2.querySelector('.rv-arm')));
           r.nothingPostedYet = window.__posted.length === 0;
@@ -480,8 +488,8 @@
             && r.enterDidNotCloseOrJump && r.resolveIsAnAppend && r.incomingShown
             && r.incomingSaysWhoAndHowMany && r.incomingShowsTheComments && r.noGitCommandAsked
             && r.incomingJumps && r.panelStayedAfterIncomingJump
-            && r.takeArmedNotFired && r.tookInOnSecond
-            && r.takenStopsWaiting && r.takenNowLocal;
+            && r.markedDoneOnce && r.nothingImported && r.doneStillListed
+            && r.doneCommentsStruck && r.reopened;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
         }

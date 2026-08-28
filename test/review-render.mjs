@@ -88,6 +88,8 @@ const run = (mode, extra = '') => resultsFrom(
     + ` · R arms rather than fires=${r.armedNotFired} (nothing sent=${r.nothingPostedYet})`
     + ` · Esc disarms without closing=${r.escapeDisarmedNotClosed}`
     + ` · a resolve is an append=${r.resolveIsAnAppend}`
+    + ` · T marks done without importing=${r.markedDoneOnce && r.nothingImported}`
+    + ` · struck through and reopenable=${r.doneStillListed && r.doneCommentsStruck && r.reopened}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
 }
 

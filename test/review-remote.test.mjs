@@ -12,12 +12,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 
 import {
-  reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem,
+  reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem, doneKey, reviewDone, setReviewDone,
 } from '../cli/review-remote.mjs';
 import { parseReview, mergeById, serializeRecord, reviewPathFor } from '../cli/review-store.mjs';
 import { submitReview } from '../cli/review-submit.mjs';
@@ -257,4 +258,51 @@ test('a suppressed check makes ZERO git calls', async (t) => {
   const suppressed = reviewCheckSuppressed({ args: [], env: { CI: '1' } });
   assert.ok(suppressed);
   if (!suppressed) await reviewsWaiting(deck, { run: never });
+});
+
+// ── a review you are finished with ────────────────────────────────────────
+//
+// Take-in is gone: nothing copies a reviewer's comments into the author's own
+// sidecar. A review is an inbox item now, and "done" is a mark kept per branch
+// in THIS clone's git config — private, never pushed, reversible with plain git.
+
+test('the mark round-trips through the repository, and starts unset', (t) => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'dl-done-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  const branch = 'review/ana-2026-08-25';
+
+  assert.equal(reviewDone(dir, branch), false, 'an unasked branch claimed to be done');
+  assert.equal(setReviewDone(dir, branch, true), true);
+  assert.equal(reviewDone(dir, branch), true);
+  // readable with the tool the user already has — that is the point of git config
+  assert.equal(execFileSync('git', ['config', '--get', doneKey(branch)],
+    { cwd: dir, encoding: 'utf8' }).trim(), 'true');
+  // …and un-markable
+  assert.equal(setReviewDone(dir, branch, false), true);
+  assert.equal(reviewDone(dir, branch), false, 'the mark could not be taken off');
+});
+
+test('a repository that cannot be written costs a mark, never a crash', () => {
+  const boom = () => { throw new Error('read-only'); };
+  assert.equal(reviewDone('/nowhere', 'review/x', { run: boom }), false);
+  assert.equal(setReviewDone('/nowhere', 'review/x', true, { run: boom }), false);
+});
+
+test('done reviews are still listed, but nothing is waiting', () => {
+  // `state` drives the nag — the startup line and the count. A session where
+  // every review is marked done must say nothing, while the overlay keeps
+  // showing them struck through so they can be reopened.
+  const line = reviewLine({ state: 'none', reviews: [{ branch: 'review/a', who: 'ana', comments: 2, done: true }] });
+  assert.equal(line, null, 'a review already dealt with still nagged');
+  const still = reviewLine({
+    state: 'ok',
+    reviews: [
+      { branch: 'review/a', who: 'ana', comments: 2, done: true },
+      { branch: 'review/b', who: 'bo', comments: 3, done: false },
+    ],
+  }, { deck: 'talk.html' });
+  assert.match(still, /3 comments waiting/, 'the done review was counted into the nag');
+  assert.match(still, /from bo/);
+  assert.doesNotMatch(still, /ana/, 'the done reviewer was named in the nag');
 });

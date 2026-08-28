@@ -66,9 +66,8 @@ export function createReview({
   let sel = 0;
   let armed = null;        // the comment id a second R would resolve
   let armedSubmit = false; // S pressed once — the next S pushes the review
-  let armedTake = null;    // the branch a second T would take into the sidecar
   let armedAnchor = null;  // the comment id a second A would move to this slide
-  let incomingNow = [];    // the waiting reviews as last rendered — T's targets
+  let incomingNow = [];    // every listed review, done ones included — T's targets
   let context = null;      // {id, data} — an orphan's "what it said", unfolded
   let probed = null;       // the review server's base, '' for same-origin, null for none
   let composeSlide = 1;    // the slide a new comment lands on — follows the deck
@@ -246,9 +245,12 @@ export function createReview({
    * incoming one, because they are the same thing at different distances.
    * Registers the row for arrow/⏎ selection and returns the node.
    */
-  function commentRow(c, slides, { branch = null } = {}) {
+  function commentRow(c, slides, { branch = null, done = false } = {}) {
     const anchor = resolveAnchor(c, slides);
-    const row = el_('div', `rv-row${c.resolved ? ' rv-resolved' : ''}${branch ? ' rv-inc' : ''}`);
+    // `rv-done` strikes the row through: the review it belongs to is finished
+    // with. Still rendered, still jumpable — a done review is kept so it can be
+    // un-done, and so its comments stay readable after the fact.
+    const row = el_('div', `rv-row${c.resolved ? ' rv-resolved' : ''}${branch ? ' rv-inc' : ''}${done ? ' rv-done' : ''}`);
     row.setAttribute('role', 'option');
     const head = el_('div', 'rv-head');
     head.append(el_('span', 'rv-slide', anchor.slide ? `slide ${anchor.slide}` : 'slide gone'));
@@ -295,7 +297,11 @@ export function createReview({
     const slides = slidesNow();
     const here = instance.state.slide;
     rows = [];
-    incomingNow = (state.incoming?.state === 'ok' && state.incoming.reviews) || [];
+    // Every review the server listed, done ones included — `state` says whether
+    // anything is WAITING (the nag), not what exists. Filtering by it here left
+    // T unable to reopen the review it had just marked done: the list it reads
+    // the current mark from had gone empty.
+    incomingNow = state.incoming?.reviews ?? [];
 
     const head = el_('div', 'narr-head');
     head.append(el_('span', 'rv-heading', state.can === 'comment' ? 'review' : 'review comments'));
@@ -349,26 +355,35 @@ export function createReview({
       if (dock.mode === 'float') setTimeout(() => input.focus(), 0);
     }
 
-    // What reviewers have SENT that is not taken in yet — before the local
-    // list, because it is the thing the author does not already know. Not a
-    // count and a git command: the COMMENTS themselves, anchored against the
-    // deck as it is now, walkable like any others. T takes a whole review
-    // into the deck's own sidecar — a by-id merge, so twice changes nothing —
-    // and nobody is asked to run git (the merge/PR path still works; it is
-    // simply not the doorway any more).
+    // What reviewers have SENT — above the local list, because it is the thing
+    // the author does not already know. Not a count and a git command: the
+    // COMMENTS themselves, anchored against the deck as it is now and walkable
+    // like any others. NOTHING IS COPIED HERE: these rows are read-only, T
+    // marks the whole review done, and the mark is git config in this clone.
+    // (The merge/PR path still works for anyone who wants the records; it is
+    // simply not what this overlay does.)
     if (state.incoming) {
       const inc = state.incoming;
-      if (inc.state === 'ok' && inc.reviews?.length) {
+      // Rendered whenever there ARE reviews, not only when something is
+      // waiting: `state` answers "should this nag?" (the startup line, the
+      // count) and goes to 'none' once every review is marked done — but a done
+      // review has to stay on screen, struck through, or there is no way to
+      // un-mark it. Every failure state returns no reviews, so this is enough.
+      if (inc.reviews?.length) {
         const boxI = el_('div', 'rv-incoming');
-        for (const v of inc.reviews) {
-          const armedHere = armedTake === v.branch;
-          boxI.append(el_('div', `rv-inc-row${armedHere ? ' rv-arm' : ''}`, armedHere
-            ? `take ${v.who}’s review into the deck’s comments? T again to confirm · Esc backs out`
-            : `↓ ${v.who} · ${v.comments} comment${v.comments === 1 ? '' : 's'} waiting · ${v.branch} — T takes it in`));
+        // Reviews still to read first, the ones you are done with after them —
+        // an inbox sorts that way, and a done review is kept rather than hidden
+        // precisely so it can be un-done.
+        const ordered = [...inc.reviews].sort((a, b) => Number(a.done) - Number(b.done));
+        for (const v of ordered) {
+          const n = `${v.comments} comment${v.comments === 1 ? '' : 's'}`;
+          boxI.append(el_('div', `rv-inc-row${v.done ? ' rv-done' : ''}`, v.done
+            ? `✓ ${v.who} · ${n} · ${v.branch} — T reopens it`
+            : `↓ ${v.who} · ${n} waiting · ${v.branch} — T marks it done`));
           for (const c of foldReview(v.records ?? [])) {
             // what is WAITING is what is still open in that review
             if (c.resolved) continue;
-            boxI.append(commentRow(c, slides, { branch: v.branch }));
+            boxI.append(commentRow(c, slides, { branch: v.branch, done: v.done }));
           }
         }
         card.append(boxI);
@@ -413,7 +428,7 @@ export function createReview({
 
     card.append(el_('div', 'rec-hint', state.can === 'resolve'
       ? (incomingNow.length
-        ? '⏎ jumps (on a gone slide: shows what it said) · R resolves · A moves here · T takes a review in · Esc closes'
+        ? '⏎ jumps · R resolves · A moves here · T marks a review done · Esc closes'
         : '⏎ jumps (on a gone slide: shows what it said) · R resolves · A moves here · Esc closes')
       : state.can === 'comment'
         ? '⏎ jumps to the slide · S submits the review · Esc closes'
@@ -474,8 +489,8 @@ export function createReview({
     if (base == null) return;
     if (armedAnchor !== r.id) { armedAnchor = r.id; armed = null; render(await load()); return; }
     armedAnchor = null;
-    // an incoming comment is taken in BY acting on it, same as resolve
-    if (r.branch && !(await postTake(r.branch))) { render(await load()); return; }
+    // Same as resolve: a comment on a review branch is not ours to move.
+    if (r.branch) { toast('this comment is on a review branch — only your own comments can be moved'); return; }
     const here = instance.state.slide;
     const at = slidesNow()[here - 1];
     try {
@@ -512,42 +527,39 @@ export function createReview({
     }
   }
 
-  /** POST one review's intake; true on success. Toasts either way. */
-  async function postTake(branch) {
+  /**
+   * T — mark the selected review done, or take the mark off.
+   *
+   * NOTHING IS COPIED. This replaced "take in", which merged a reviewer's
+   * comments into the author's own sidecar so that "have I dealt with this?"
+   * had an answer — a lot of machinery for a yes/no, and it made somebody
+   * else's remarks indistinguishable from your own the moment you looked at
+   * them. A review is an inbox item: read it, walk it, mark it done.
+   *
+   * No arming, unlike everything else here: the two-step is for writes you
+   * cannot see the result of, and this one is visible the instant it lands (the
+   * rows go struck through) and is undone by pressing T again.
+   */
+  async function toggleDone() {
+    const branch = rows[sel]?.branch ?? (incomingNow.length === 1 ? incomingNow[0].branch : null);
+    if (!branch) {
+      if (incomingNow.length) toast('select a comment in the review you want to mark done');
+      return;
+    }
+    const was = incomingNow.find((v) => v.branch === branch)?.done ?? false;
     try {
-      const r = await fetch(`${authorBase() ?? ''}/edit/review/take`, {
+      const r = await fetch(`${authorBase() ?? ''}/edit/review/done`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ branch }),
+        body: JSON.stringify({ branch, done: !was }),
       });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-      toast(`took in ${j.added} record${j.added === 1 ? '' : 's'} — they are the deck's comments now`);
-      debugLog('review', `took in ${branch} (+${j.added})`);
-      return true;
+      toast(j.done ? `${branch} — done` : `${branch} — reopened`);
+      debugLog('review', `${branch} ${j.done ? 'done' : 'reopened'}`);
     } catch (e) {
-      toast(`could not take that review in — ${String(e.message || e)}`);
-      return false;
+      toast(`could not mark that review — ${String(e.message || e)}`);
     }
-  }
-
-  /**
-   * T — take a waiting review into the deck's sidecar, armed then confirmed.
-   *
-   * The target is the review the SELECTED row belongs to; with nothing
-   * incoming selected and exactly one review waiting, that one. Writing is
-   * outward-visible (a commit), so it gets the same two-step everything else
-   * that writes gets.
-   */
-  async function takeReview() {
-    const branch = rows[sel]?.branch ?? (incomingNow.length === 1 ? incomingNow[0].branch : null);
-    if (!branch) {
-      if (incomingNow.length) toast('select a comment in the review you want to take in');
-      return;
-    }
-    if (armedTake !== branch) { armedTake = branch; render(await load()); return; }
-    armedTake = null;
-    await postTake(branch);
     render(await load());
   }
 
@@ -559,10 +571,11 @@ export function createReview({
     armed = null;
     const base = authorBase();
     if (base == null) return;
-    // An incoming comment is taken in BY acting on it: a resolve written
-    // against a record that lives only on a remote branch would be an answer
-    // to a question the local file never asked.
-    if (r.branch && !(await postTake(r.branch))) { render(await load()); return; }
+    // An incoming comment lives on somebody else's branch and nothing copies
+    // it here any more, so there is no local record to resolve — a resolve
+    // written against one would answer a question this file never asked.
+    // Reviews are finished with as a whole instead: T marks the branch done.
+    if (r.branch) { toast('this comment is on a review branch — T marks the whole review done'); return; }
     try {
       const res = await fetch(`${base}/edit/review`, {
         method: 'POST',
@@ -600,7 +613,6 @@ export function createReview({
     dismissOthers();
     armed = null;
     armedSubmit = false;
-    armedTake = null;
     armedAnchor = null;
     context = null;
     sel = 0;
@@ -631,7 +643,6 @@ export function createReview({
     el = null;
     armed = null;
     armedSubmit = false;
-    armedTake = null;
     armedAnchor = null;
     context = null;
     engaged = false;
@@ -664,8 +675,8 @@ export function createReview({
       if (e.key === 'Escape') {
         // Escape backs out of an arm before it closes the overlay — the same
         // two-step every other confirming surface here uses.
-        if (armed || armedSubmit || armedTake || armedAnchor) {
-          armed = null; armedSubmit = false; armedTake = null; armedAnchor = null;
+        if (armed || armedSubmit || armedAnchor) {
+          armed = null; armedSubmit = false; armedAnchor = null;
           load().then((s) => el && render(s));
           return true;
         }
@@ -682,7 +693,7 @@ export function createReview({
         case 'Enter': (armed && rows[sel]?.id === armed) ? resolve() : jump(); break;
         case 'r': case 'R': resolve(); break;
         case 's': case 'S': submitAll(); break;
-        case 't': case 'T': takeReview(); break;
+        case 't': case 'T': toggleDone(); break;
         case 'a': case 'A': anchorHere(); break;
         case 'm': case 'M': close(); break;
         default: return false;
