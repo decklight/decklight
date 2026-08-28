@@ -94,6 +94,25 @@
         if (u.includes('/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
         if (u.includes('/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
       }
+      // The commit window (K, and its ⌘K/⌃K alias) needs an author server for
+      // editAvailable, plus the two routes it actually calls. `messages:false`
+      // so no agent is asked to draft a subject — the shortcut is what is under
+      // test here, not the drafting.
+      if (HARNESS_MODE === 'commit') {
+        if (u.includes('/edit/ping')) {
+          return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
+            commit: { dirty: true, lines: 7, sinceMs: 0, nag: false, canWrite: true, messages: false } });
+        }
+        if (u.includes('/edit/commit') && (init?.method ?? 'GET') === 'GET') {
+          return json({ ok: true, dirty: true, lines: 7, sinceMs: 0, nag: false,
+            canWrite: true, messages: false, deck: 'engine.html' });
+        }
+        if (u.includes('/edit/commit')) {
+          window.__committed = JSON.parse(init?.body ?? '{}').message;
+          return json({ ok: true, committed: true, subject: window.__committed,
+            undo: 0, redo: 0, dirty: false, lines: 0, sinceMs: 0, nag: false, canWrite: true });
+        }
+      }
       if (HARNESS_MODE === 'browse') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/theme/browse')) return json(FAKE_BROWSE);
@@ -418,6 +437,51 @@
 
         r.PASS = r.pickerUp && r.paletteUp && r.pickerGone && r.finderUp && r.finderGone;
       }
+      if (mode === 'commit') {
+        // K opens the commit window; ⌘K and ⌃K are aliases for it, and ⌘⏎ / ⌃⏎
+        // commit the message. The two conventions this borrows from: ⌘K is what
+        // JetBrains has meant by "commit" for twenty years, ⌘⏎ is what VS Code
+        // and every GUI client mean by "send this".
+        const O = '.decklight-commit';
+        await settle();                       // let /edit/ping resolve
+        press('k');
+        await settle();
+        r.bareKopens = !!document.querySelector(`${O} .narr-card`);
+        r.bareKtoggles = (press('k'), await settle(), !document.querySelector(O));
+
+        // ⌘K — the alias, from closed
+        press('k', { metaKey: true });
+        await settle();
+        r.metaKopens = !!document.querySelector(`${O} .narr-card`);
+        // …and it reaches the deck FROM INSIDE the message box, so the shortcut
+        // that opened the window also closes it. The box stops every other key
+        // (the deck must not advance while you type), which is exactly the trap
+        // this asserts against.
+        document.querySelector('.cm-input')?.focus();
+        document.querySelector('.cm-input')
+          ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true, cancelable: true }));
+        await settle();
+        r.metaKclosesFromTheBox = !document.querySelector(O);
+
+        // ⌃K — the same alias for Windows and Linux
+        press('k', { ctrlKey: true });
+        await settle();
+        r.ctrlKopens = !!document.querySelector(`${O} .narr-card`);
+
+        // ⌘⏎ commits what is typed, and the message is the author's own
+        const box = document.querySelector('.cm-input');
+        box.value = 'tighten the closing slide';
+        box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle();
+        r.cmdEnterCommits = window.__committed === 'tighten the closing slide';
+        r.closesAfterCommitting = !document.querySelector(O);
+
+        r.PASS = r.bareKopens && r.bareKtoggles && r.metaKopens && r.metaKclosesFromTheBox
+          && r.ctrlKopens && r.cmdEnterCommits && r.closesAfterCommitting;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'restore') {
         const O = '.decklight-restore', ROW = '.tp-row', SEL = 'tp-selected';
         await settle();                       // let /edit/ping resolve
