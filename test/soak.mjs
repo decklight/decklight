@@ -71,7 +71,7 @@ import { findChrome } from '../tools/chrome.mjs';
 import { fingerprint } from '../src/core/review.js';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-html.mjs';
-import { ffprobeArgs, TAIL_SECONDS } from '../tools/video.mjs';
+import { ffprobeArgs, SLIDE_PAUSE_DEFAULT, TAIL_SECONDS } from '../tools/video.mjs';
 import {
   cliCommand, npmCommand, gitFileUrl, narrator, narrateArgs, unverifiedPlatform,
 } from './soak-platform.mjs';
@@ -598,7 +598,17 @@ try {
 
   await step('the installed bin reports its version', () => {
     const r = dl(['--version']);
-    must(r.stdout.trim() === `decklight ${version}`, `stdout was ${JSON.stringify(r.stdout)}`);
+    // The VERSION must be exact; the build stamp after it may or may not be
+    // there. `versionLine` (cli/util.mjs) prints a bare `decklight <version>`
+    // only on a tag with a clean tree, and `decklight <version>+<n>.g<sha>`
+    // — plus `.dirty` — anywhere else. Insisting on the bare form made this
+    // step fail on every commit that was not a release, which is every commit
+    // anyone runs the soak on while developing: the release gate could only be
+    // run at the one moment it no longer taught you anything. Asserting the
+    // version and the SHAPE of the suffix keeps what this step is for (the
+    // installed bin is the version we just packed) without that.
+    const stamped = new RegExp(`^decklight ${version.replace(/\./g, '\\.')}(\\+\\d+\\.g[0-9a-f]+(\\.dirty)?)?$`);
+    must(stamped.test(r.stdout.trim()), `stdout was ${JSON.stringify(r.stdout)}`);
     // --version returns before the `decklight <v>` stderr banner every other
     // command prints; a regression that moved the banner up shows here.
     must(r.stderr === '', `--version wrote to stderr: ${JSON.stringify(r.stderr)}`);
@@ -833,9 +843,18 @@ try {
     // Not asserted here: the `start editing` bookend. gitAutocommit no-ops on a
     // clean tree, and init has just committed — so the opening bookend
     // correctly commits nothing. What it means for git to be ON is the line
-    // author prints, and the closing bookend in step 17, which does have work.
-    must(/git: committing deck\.html .* every 5s/.test(authorSrv.log()),
+    // author prints.
+    //
+    // That line changed when the cadence stopped writing history: it used to
+    // say "auto-committing deck.html every 5s" and now names the snapshot and
+    // the key that commits. `--commit-every` is still passed above because it
+    // still governs `--git-mode timer`, and a run that silently ignored it
+    // would be worth catching — but in the default mode the honest line is
+    // this one.
+    must(/git: committing deck\.html when you say so/.test(authorSrv.log()),
       'author did not announce the commit policy it was given');
+    must(/decklight\/wip/.test(authorSrv.log()),
+      'author did not say where the work is snapshotted');
   });
 
   await step('a slide is added by writing the file', async () => {
@@ -957,29 +976,65 @@ try {
     must(again.body.committed === false, 'a clean tree produced a second commit');
   });
 
-  await step('the autosave cadence fires', async () => {
+  await step('the cadence snapshots instead of committing', async () => {
+    // This step used to wait for `decklight: autosave deck.html` to appear in
+    // the log. The cadence does not write history any anymore: it takes a silent
+    // snapshot on refs/decklight/wip and asks once, so what has to be true is
+    // the opposite — the work is RECOVERABLE and the log is UNTOUCHED.
+    const before = git(['rev-list', '--count', 'HEAD']).trim();
     await postJson(authorSrv.base, '/edit/notes', { slide: 1, text: 'touched for the timer' });
-    // --commit-every 5 is the floor max(5, …) allows; 3× that before failing.
-    await until('an autosave commit', () => git(['log', '--format=%s']).includes('decklight: autosave deck.html'),
-      { ms: 15000, every: 500 });
+    // the watch interval follows --commit-every (5s here); 3× before failing
+    await until('a wip snapshot carrying the edit', () => {
+      const r = spawnSync('git', ['show', 'refs/decklight/wip:deck.html'],
+        { cwd: PROJECT, encoding: 'utf8' });
+      return r.status === 0 && r.stdout.includes('touched for the timer');
+    }, { ms: 15000, every: 500 });
+    must(git(['rev-list', '--count', 'HEAD']).trim() === before,
+      'the cadence committed — it is supposed to snapshot and stay out of the log');
+    must(!git(['log', '--format=%s']).includes('decklight: autosave'),
+      'an autosave commit appeared');
+    // …and the snapshot is off every branch, so it never reaches a log or a push
+    must(git(['log', '--branches', '--format=%s']).indexOf('wip snapshot') === -1,
+      'the snapshot is on a branch');
+    // …and then the author commits it, which is the only way history grows now.
+    // Made here, through the deck's own route, because `restore` two steps down
+    // needs three commits to walk and used to help itself to whatever the
+    // cadence had piled up. A step that needs history has to make it.
+    const kept = await postJson(authorSrv.base, '/edit/commit',
+      { message: 'soak: a second point to come back to' });
+    must(kept.body.committed === true, `the second commit returned ${JSON.stringify(kept.body)}`);
   });
 
   await step('author exits cleanly and lets go', async () => {
     const hist = await (await get(authorSrv.base, '/edit/history')).json();
-    must(hist.ok && hist.entries.length >= 3, `history had ${hist.entries?.length} entries`);
+    // CONTENT, not a count. This asked for three entries back when the cadence
+    // manufactured them; the log now holds only commits somebody meant, so the
+    // number is small and will change again the moment a step commits once
+    // more. What matters is that the history overlay can see the commit this
+    // session actually made.
+    must(hist.ok && hist.entries.length >= 2, `history had ${hist.entries?.length} entries`);
+    must(hist.entries.some((e) => /soak: three slides, edited/.test(e.subject ?? '')),
+      'the history overlay cannot see the commit this session made');
     // Leave real work uncommitted on purpose: the closing bookend's whole job
     // is that quitting does not lose the last thing you typed.
     await postJson(authorSrv.base, '/edit/notes', { slide: 2, text: 'typed just before quitting' });
     must(git(['status', '--porcelain', '--', 'deck.html']).trim() !== '', 'the setup for this step did not dirty the deck');
 
+    const before = git(['rev-list', '--count', 'HEAD']).trim();
     await post(authorSrv.base, '/edit/shutdown', {}).catch(() => {});   // it hangs up as it exits
     must(await waitExit(authorSrv.child, 8000), 'author did not exit after /edit/shutdown');
-    must(git(['log', '-1', '--format=%s']).trim() === 'decklight: stop editing deck.html',
-      'the closing bookend commit is missing');
-    must(git(['status', '--porcelain', '--', 'deck.html']).trim() === '',
-      'quitting left the last edit uncommitted');
-    must(git(['show', 'HEAD:deck.html']).includes('typed just before quitting'),
-      'the closing commit does not contain the last edit');
+    // Quitting no longer COMMITS what you did not commit — that was the cadence
+    // wearing an exit for a hat, and it is where the wall of `decklight: stop
+    // editing` came from. What must still be true is that nothing is LOST: the
+    // snapshot is refreshed on the way out and holds the last thing typed.
+    must(git(['rev-list', '--count', 'HEAD']).trim() === before,
+      'quitting committed work the author had not committed');
+    must(git(['status', '--porcelain', '--', 'deck.html']).trim() !== '',
+      'quitting silently committed or reverted the last edit');
+    const wip = spawnSync('git', ['show', 'refs/decklight/wip:deck.html'],
+      { cwd: PROJECT, encoding: 'utf8' });
+    must(wip.status === 0 && wip.stdout.includes('typed just before quitting'),
+      'the last edit is not recoverable from the snapshot');
     must((await isPortOpen(authorSrv.port)) === false, 'the edit port is still bound — an orphan survived');
     authorSrv = null;
   });
@@ -996,12 +1051,23 @@ try {
     must(list.all.includes(commits[0].slice(0, 7)), 'the listing does not name the tip');
     const first = commits.at(-1);
 
-    const tip = deck();
+    // What the tip COMMIT holds, not what is on disk. This step now arrives
+    // with a dirty deck — quitting stopped committing what you did not commit —
+    // and restoring forward to a commit can only ever reproduce that commit,
+    // never the uncommitted line sitting on top of it. Comparing against the
+    // working file made the assertion about the previous step's leftovers.
+    const tip = git(['show', `${commits[0]}:deck.html`]);
     dl(['restore', 'deck.html', first]);
     must(sectionBodies(deck()).length === 2, 'the deck did not go back to what init wrote');
     must(!deck().includes('Soak slide'), 'the slide added during the session survived the restore');
     const back = git(['rev-list', 'HEAD']).trim().split('\n').filter(Boolean);
-    must(back.length === commits.length + 1, 'restoring did not commit — history was rewritten');
+    // GREW, not "grew by exactly one". Quitting no longer commits what you did
+    // not commit, so this step now arrives with a dirty deck — and restore says
+    // what it does about that ("uncommitted changes committed first — they are
+    // in the list too"), which is a second commit. The property being pinned is
+    // that going back ADDS to history and never rewrites it; the exact count is
+    // an artifact of what the previous step happened to leave behind.
+    must(back.length > commits.length, 'restoring did not commit — history was rewritten');
     must(back.includes(commits[0]), 'the commit restored away from is gone from the history');
 
     dl(['restore', 'deck.html', commits[0]]);
@@ -1107,7 +1173,14 @@ try {
     must(after.all.includes('identical to this install'), 'the upgraded runtime still is not this install');
     locateSlide(deck(), 3);   // throws if the added slide did not survive
     must(deck().includes('edited by the soak'), 'the element edit did not survive the upgrade');
-    must(deck().includes('typed just before quitting'), 'the last edit did not survive the upgrade');
+    // NOT asserted any more: 'typed just before quitting'. That line was never
+    // committed — quitting stopped committing what you did not commit — and the
+    // step before this one deliberately restored the deck to an earlier commit,
+    // so it is correctly absent from the file. It is not lost: it lives in the
+    // restore's own commit and on refs/decklight/wip, both checked where they
+    // belong (steps 27 and 28). What THIS step is about is that an upgrade
+    // rewrites the runtime and leaves the content alone, which the two
+    // assertions above say.
   });
 
   await step('a deck from an older decklight upgrades', () => {
@@ -1615,10 +1688,15 @@ try {
     // and carries a two-item build, so it is three frames of --hold — narrated
     // slides are timed by their voice, silent ones by the knob, in one film.
     const silent = 1 * 3;
-    const expected = spoken + TAIL_SECONDS + silent;
+    // …plus the breath before the slide turns. A narrated deck holds after the
+    // voice stops (SLIDE_PAUSE_DEFAULT, the film's half of the runtime's
+    // SLIDE_PAUSE_S) — added when narration learned to breathe, and unnoticed
+    // here because this step sat behind a gate that stopped at step 3. Taken
+    // from video.mjs rather than written as `1`, so the two cannot drift.
+    const expected = spoken + TAIL_SECONDS + SLIDE_PAUSE_DEFAULT + silent;
     must(Math.abs(seconds - expected) < 0.75,
       `expected ~${expected.toFixed(2)}s (${spoken.toFixed(2)}s of voice + ${TAIL_SECONDS}s tail`
-      + ` + ${silent}s of built slide), got ${seconds}s`);
+      + ` + ${SLIDE_PAUSE_DEFAULT}s slide pause + ${silent}s of built slide), got ${seconds}s`);
     // And the track is audible. The silent render above measures below -60 dB;
     // if this one did too, the voice never reached the mux.
     const db = meanVolumeDb(out);
