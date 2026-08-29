@@ -75,7 +75,9 @@
         const reviews = [{
           branch: 'review/ana-2026-08-25', who: 'ana', when: '2026-08-25',
           comments: 2, replies: 0, at: '2026-08-25T09:00:00Z',
-          done: window.__done === 'review/ana-2026-08-25',
+          doneIds: [...(window.__doneIds || [])],
+          done: ['in1', 'in2'].every((x) => (window.__doneIds || new Set()).has(x)),
+          waiting: ['in1', 'in2'].filter((x) => !(window.__doneIds || new Set()).has(x)).length,
           records: [
             { id: 'in1', at: '2026-08-25T09:00:00Z', by: 'Ana Ruiz <ana@x>', slide: 2,
               title: 'Why this matters', fp: window.__fp2 ?? 'nope', body: 'Incoming: tighten this.' },
@@ -95,10 +97,11 @@
       if (u.endsWith('/edit/review/done')) {
         const req_ = JSON.parse(opts.body);
         window.__doneCalls = (window.__doneCalls || 0) + 1;
-        // the server's half: the mark is remembered, and NOTHING is copied into
-        // the local store — that is the whole point of the change
-        window.__done = req_.done ? req_.branch : null;
-        return new Response(JSON.stringify({ ok: true, branch: req_.branch, done: !!req_.done }),
+        // the server's half: ONE comment's mark is remembered, and nothing is
+        // copied into the local store — that is the whole point of the change
+        window.__doneIds = window.__doneIds || new Set();
+        if (req_.done) window.__doneIds.add(req_.id); else window.__doneIds.delete(req_.id);
+        return new Response(JSON.stringify({ ok: true, branch: req_.branch, id: req_.id, done: !!req_.done }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (u.endsWith('/review/comments') || u.endsWith('/edit/review')) {
@@ -178,15 +181,23 @@
           // anchor the author will need to find this slide again.
           deck.goto(2, 0);
           await wait(50);
+          // ⇧M composes, M reads — two moments, two surfaces. The composer used
+          // to sit at the top of the list, which put a text box above twenty
+          // comments you were trying to read.
+          press('M', document.body, { shiftKey: true });
+          const compose = await until(() => document.querySelector('.decklight-compose .narr-card'));
+          r.composerShown = !!compose;
+          r.saysWhichSlide = /on slide 2 · Why this matters/.test(compose?.querySelector('.rv-on')?.textContent ?? '');
+          // M itself carries no composer any more
+          const input = await until(() => compose.querySelector('.rv-input'));
+
+          input.value = 'This contradicts slide 1.';
+          compose.querySelector('.rv-send').click();
+          await wait(120);
           press('m');
           const card = await until(() => document.querySelector('.decklight-review .narr-card'));
           r.opened = !!card;
-          const input = await until(() => card.querySelector('.rv-input'));
-          r.composerShown = !!input;
-          r.saysWhichSlide = /on slide 2 · Why this matters/.test(card.querySelector('.rv-on')?.textContent ?? '');
-
-          input.value = 'This contradicts slide 1.';
-          card.querySelector('.rv-send').click();
+          r.readingSurfaceHasNoComposer = !card.querySelector('.rv-input');
           await until(() => window.__posted.length);
           r.posted = window.__posted[0];
           r.anchoredToTheSlideOnScreen = r.posted?.slide === 2
@@ -214,7 +225,7 @@
           await until(() => window.__submitCalls);
           r.submittedOnSecond = window.__submitCalls === 1;
 
-          r.PASS = r.opened && r.composerShown && r.saysWhichSlide
+          r.PASS = r.opened && r.composerShown && r.saysWhichSlide && r.readingSurfaceHasNoComposer
             && r.anchoredToTheSlideOnScreen && r.listedAfterPosting
             && r.submitRowShown && r.submitArmedNotFired && r.submitEscapeDisarmed
             && r.stillNotFired && r.submittedOnSecond;
@@ -272,27 +283,17 @@
             r.persisted = JSON.parse(localStorage.getItem('decklight-review-dock:' + location.pathname))?.mode === 'right';
           } catch (e) { r.persisted = false; }
 
-          // non-modal: a touch on the deck hands the arrows back to the slides,
-          // and the empty composer follows the slide you land on
+          // non-modal: a touch on the deck hands the arrows back to the slides.
+          // (The composer's old "follow the slide, lock once you type" dance
+          // went with the composer — ⇧M opens a card for the slide you are on,
+          // so there is no target to drift while you browse.)
           document.querySelector('.decklight-stage section')
             .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
           const wasSlide = deck.state.slide;
           press('ArrowRight');
           await wait(40);
           r.arrowNavigatedDeck = deck.state.slide === wasSlide + 1;
-          r.targetFollowedWhileEmpty = /on slide 2/.test(card.querySelector('.rv-on').textContent);
-
-          // …but once you start writing, walking the deck must NOT move the target
-          const input = card.querySelector('.rv-input');
-          input.value = 'a note about slide 2';
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          document.querySelector('.decklight-stage section')
-            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-          press('ArrowRight');
-          await wait(40);
-          r.targetLockedWhileTyping = deck.state.slide === wasSlide + 2
-            && /on slide 2\b/.test(card.querySelector('.rv-on').textContent)
-            && /viewing 3/.test(card.querySelector('.rv-on').textContent);
+          r.panelHasNoComposer = !card.querySelector('.rv-input');
 
           // closing hands the stage its full width back
           press('m');
@@ -308,8 +309,7 @@
           r.PASS = r.opened && r.defaultFloat && r.dockedRight && r.reservedGutter
             && r.stageReflowed && r.cardActuallyMoved && r.cardOnTheRightEdge
             && r.cardFillsGutter && r.cardFullHeight && r.slideClearOfPanel
-            && r.persisted && r.arrowNavigatedDeck
-            && r.targetFollowedWhileEmpty && r.targetLockedWhileTyping
+            && r.persisted && r.arrowNavigatedDeck && r.panelHasNoComposer
             && r.gutterReleased && r.restoredPlacement;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
@@ -414,12 +414,14 @@
           const card = await until(() => document.querySelector('.decklight-review .narr-card'));
           await until(() => card.querySelectorAll('.rv-row').length >= 2);
           r.noComposerForAnAuthor = !card.querySelector('.rv-input');
-          r.saysResolveIsThere = /R resolves/.test(card.querySelector('.rec-hint')?.textContent ?? '');
+          r.saysResolveIsThere = /R marks one done/.test(card.querySelector('.rec-hint')?.textContent ?? '');
           // what reviewers sent, above the local list — the COMMENTS
           // list — the COMMENTS, not a count and a git command
           const incoming = await until(() => card.querySelector('.rv-incoming'));
           r.incomingShown = !!incoming;
-          r.incomingSaysWhoAndHowMany = /ana · 2 comments waiting · review\/ana-2026-08-25/
+          // the heading names the source and counts what is LEFT, because
+          // doneness is per comment now
+          r.incomingSaysWhoAndHowMany = /ana — 2 of 2 left · review\/ana-2026-08-25/
             .test(incoming?.textContent ?? '');
           r.incomingShowsTheComments = /Incoming: tighten this\./.test(incoming?.textContent ?? '')
             && /Incoming: strong start\./.test(incoming?.textContent ?? '');
@@ -439,26 +441,28 @@
           r.panelStayedAfterIncomingJump = !!document.querySelector('.decklight-review .narr-card');
           const card2 = card;   // same live node — the jump did not replace it
           await until(() => card2.querySelector('.rv-incoming'));
-          // T marks the whole review done. NOT a two-step: the result is
-          // visible the instant it lands (the rows strike through) and pressing
-          // T again undoes it, so there is nothing an arm would protect.
+          // R marks ONE comment done — not the whole review, and not a
+          // two-step: a reviewer's comment is marked in this clone's git config,
+          // which is private and one keypress from undone, so there is nothing
+          // an arm would protect.
           const sel_ = () => card2.querySelector('.rv-sel');
           for (let i = 0; i < 8 && !sel_()?.classList.contains('rv-inc'); i++) { press('ArrowDown'); await wait(50); }
-          press('t');
+          press('r');
           await until(() => window.__doneCalls);
-          r.markedDoneOnce = window.__doneCalls === 1 && window.__done === 'review/ana-2026-08-25';
-          // NOTHING WAS COPIED — the point of dropping take-in. The local store
-          // must be exactly what it was.
+          r.markedOneDone = window.__doneCalls === 1 && window.__doneIds.size === 1;
+          // NOTHING WAS COPIED — the point of dropping take-in
           r.nothingImported = !window.__store.some((l) => /Incoming: tighten this/.test(l));
-          // still listed, struck through, so it can be un-done
-          const doneRow = await until(() => card2.querySelector('.rv-inc-row.rv-done'));
-          r.doneStillListed = !!doneRow && /T reopens it/.test(doneRow.textContent);
-          r.doneCommentsStruck = card2.querySelectorAll('.rv-row.rv-inc.rv-done').length >= 1;
-          // …and T again takes the mark off
-          press('t');
+          // the OTHER comment in that review is untouched: this is per comment
+          r.onlyOneMarked = !!(await until(() =>
+            card2.querySelectorAll('.rv-row.rv-inc.rv-done').length === 1
+            && card2.querySelectorAll('.rv-row.rv-inc:not(.rv-done)').length === 1));
+          // the source heading counts what is LEFT rather than the whole review
+          r.headingCountsLeft = /1 of 2 left/.test(card2.querySelector('.rv-src')?.textContent ?? '');
+          // …and R again reopens it
+          press('r');
           await until(() => window.__doneCalls === 2);
-          r.reopened = window.__done === null
-            && !!(await until(() => !card2.querySelector('.rv-inc-row.rv-done')));
+          r.reopened = window.__doneIds.size === 0
+            && !!(await until(() => !card2.querySelector('.rv-row.rv-inc.rv-done')));
 
           // The resolve two-step, on a LOCAL row: an incoming comment lives on
           // somebody else's branch and nothing copies it here, so it is
@@ -488,8 +492,8 @@
             && r.enterDidNotCloseOrJump && r.resolveIsAnAppend && r.incomingShown
             && r.incomingSaysWhoAndHowMany && r.incomingShowsTheComments && r.noGitCommandAsked
             && r.incomingJumps && r.panelStayedAfterIncomingJump
-            && r.markedDoneOnce && r.nothingImported && r.doneStillListed
-            && r.doneCommentsStruck && r.reopened;
+            && r.markedOneDone && r.nothingImported && r.onlyOneMarked
+            && r.headingCountsLeft && r.reopened;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
         }

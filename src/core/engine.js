@@ -522,7 +522,8 @@ export function init(userConfig = {}) {
     const has = (fn) => typeof fn === 'function';
     const all = [
       { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
-      { label: 'Review comments…', hint: 'M', alias: 'feedback remarks reviewer notes critique comment', run: () => review.open() },
+      { label: 'Comments…', hint: 'M', alias: 'feedback remarks reviewer notes critique review read', run: () => review.open() },
+      { label: 'Leave a comment…', hint: '⇧M', alias: 'comment note remark feedback add write say', run: () => review.compose() },
       { label: 'Submit review…', hint: 'S', alias: 'send review push comments submit feedback', run: () => review.submit() },
       { label: 'History… (dev)', hint: 'H', alias: 'restore version rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
@@ -1417,7 +1418,8 @@ export function init(userConfig = {}) {
       <tr><td>K</td><td>commit — what changed, and what to call it (⌘K / ⌃K also works while typing)</td></tr>
       <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
       <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (author mode; R too)</td></tr>
-      <tr><td>M</td><td>review comments — what reviewers said, ⏎ jumps to the slide</td></tr>
+      <tr><td>M</td><td>comments — yours and every review's, grouped by who said them, ⏎ jumps</td></tr>
+      <tr><td>⇧M</td><td>leave a comment on the slide you are looking at</td></tr>
       <tr><td>P</td><td>pause / resume narration</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
@@ -1586,7 +1588,9 @@ export function init(userConfig = {}) {
       case 'g': case 'G': openSlideFinder(); break;
       // M is free because the module menu that held it was removed — the
       // finder does both of its jobs (see the `modules` harness mode).
-      case 'm': case 'M': review.open(); break;
+      // M reads what people said; ⇧M says something — the same split every
+      // other shift-variant here makes (⇧R records, ⇧V the record dialog).
+      case 'm': case 'M': if (e.shiftKey) review.compose(); else review.open(); break;
       // R is history's other door — kept because it is in people's fingers.
       // ⇧R records YOUR voice; bare R stays history, which is in people's fingers.
       case 'r': case 'R': if (e.shiftKey) openMicRecorder(); else editmode.history.open(); break;

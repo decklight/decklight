@@ -52,7 +52,7 @@ import { exitWhenOrphaned } from './supervise.mjs';
 const USAGE = `usage: decklight review <deck.html> [--port 8790] [--no-open] [--no-git]
   open somebody's deck and leave comments on it, anchored to slides
 
-  M in the deck opens the composer (or / → "Leave a review comment…"); the
+  ⇧M in the deck leaves a comment (M reads them all, or / → "Leave a comment…"); the
   comment is attached to the slide you are looking at, and remembers enough
   about it to find that slide again after the deck has moved on
 
