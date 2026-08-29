@@ -204,3 +204,55 @@ test('a deck with no HEAD to parent on reports the case that needs a real commit
   assert.equal(snapshotWip(dir, path.join(dir, 'talk.html'), 'talk.html'), null,
     'a snapshot was written with no HEAD — it would have no parent');
 });
+
+// ── the snapshot can never hold the server ───────────────────────────────
+//
+// This runs on a timer, on the event loop, and execFileSync blocks that loop
+// for exactly as long as the child takes. A git that never returns therefore
+// costs the whole author server — still listening, answering nothing — and,
+// because a file:// deck probes the author port, every headless render on the
+// machine with it. Found for real: `git hash-object -w --stdin` wedged for
+// eight hours with a dead server behind it.
+
+test('the snapshot never feeds a deck down a pipe', (t) => {
+  // The deadlock was `--stdin`: a 700 KB deck written into a pipe whose reader
+  // stopped reading. The path form has no pipe to deadlock on, so the fix is
+  // structural rather than a longer timeout — assert the shape, not the hope.
+  const { dir, rel, abs } = repo(t);
+  fs.writeFileSync(abs, '<section><h1>piped?</h1></section>\n');
+  const seen = [];
+  const exec = (bin, args, opts) => {
+    seen.push({ args, hadInput: opts?.input !== undefined, timeout: opts?.timeout });
+    return execFileSync(bin, args, opts);
+  };
+  assert.ok(snapshotWip(dir, abs, rel, { exec }));
+
+  const hash = seen.find((c) => c.args[0] === 'hash-object');
+  assert.ok(hash, 'no hash-object call was made');
+  assert.ok(!hash.args.includes('--stdin'), 'the deck is still being fed down a pipe');
+  assert.ok(hash.args.includes(abs), 'hash-object was not given the file to read itself');
+  // …and EVERY call is bounded, not just that one
+  for (const c of seen) {
+    assert.ok(Number.isFinite(c.timeout) && c.timeout > 0,
+      `git ${c.args[0]} runs with no timeout — one that hangs takes the server with it`);
+  }
+});
+
+test('a git that hangs costs a tick, not the session', (t) => {
+  // What the caller must see when a call blows the cap: null, promptly, with
+  // the session intact — the safety net failing the way a safety net should.
+  const { dir, rel, abs } = repo(t);
+  const exec = (bin, args, opts) => {
+    if (args[0] === 'hash-object') {
+      const e = new Error('spawnSync git ETIMEDOUT');
+      e.errno = -60; e.code = 'ETIMEDOUT';
+      throw e;
+    }
+    return execFileSync(bin, args, opts);
+  };
+  const at = Date.now();
+  assert.equal(snapshotWip(dir, abs, rel, { exec }), null, 'a timed-out git was not survived');
+  assert.ok(Date.now() - at < 2000, 'the failure did not return promptly');
+  // the repository is untouched: no half-written ref, nothing on a branch
+  assert.equal(deckDirty(dir, rel).dirty, false);
+});
