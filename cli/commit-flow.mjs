@@ -33,8 +33,6 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { git } from './git.mjs';
 import { putBlob } from './git-tree.mjs';
 
 /** The ref the snapshot lives on — outside every branch, on purpose. */
@@ -42,6 +40,18 @@ export const WIP_REF = 'refs/decklight/wip';
 
 /** How long uncommitted work may sit before the nag, and how much may change. */
 export const NAG_AFTER_MS = 10 * 60 * 1000;
+
+/**
+ * How long any single git call in the watch may take before it is killed.
+ *
+ * The watch runs on the event loop. An unbounded `execFileSync` there is not a
+ * slow snapshot, it is a dead server — so every call this file makes carries a
+ * cap, and a git that blows through it costs one tick.
+ */
+export const GIT_TIMEOUT_MS = 10_000;
+/** `git`, but it can never hold the server for longer than the cap. */
+const boundedGit = (args, cwd) =>
+  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: GIT_TIMEOUT_MS }).trim();
 export const NAG_AFTER_LINES = 40;
 
 /**
@@ -56,7 +66,7 @@ export const NAG_AFTER_LINES = 40;
  * happened) counts as dirty with unknown size: there is something to commit,
  * and no numstat can say how much.
  */
-export function deckDirty(cwd, deckRel, { run = git } = {}) {
+export function deckDirty(cwd, deckRel, { run = boundedGit } = {}) {
   let out;
   try { out = run(['diff', '--numstat', 'HEAD', '--', deckRel], cwd); }
   catch { return { dirty: true, lines: 0, firstCommit: true }; }
@@ -89,15 +99,26 @@ export function deckDirty(cwd, deckRel, { run = git } = {}) {
  * — quietly, leaving everything else working. A repository mid-rebase, a
  * detached HEAD, a missing object: the editing session carries on.
  */
-export function snapshotWip(cwd, deckPath, deckRel, { exec = execFileSync, read = readFileSync } = {}) {
+export function snapshotWip(cwd, deckPath, deckRel, { exec = execFileSync, timeout = GIT_TIMEOUT_MS } = {}) {
   // git-tree's helpers take `(args, input)` — `mktree` FEEDS ITS ENTRIES ON
   // STDIN, so an adapter that drops the second argument writes an empty tree
   // and reports success. The snapshot then holds a commit with nothing in it,
   // which is the one failure this whole file exists to prevent.
-  const g = (args, input) => exec('git', args, { cwd, encoding: 'utf8', input }).trim();
+  //
+  // EVERY call is bounded. This runs on a timer, on the server's event loop,
+  // and `execFileSync` blocks it for as long as the child takes — so a git that
+  // never returns does not cost a snapshot, it costs the whole author server:
+  // still listening, answering nothing, until somebody kills it. That is not a
+  // hypothetical. `git hash-object -w --stdin` was found wedged for eight hours
+  // with the server dead behind it, and because a `file://` deck probes the
+  // author port, it silently broke every headless render on the machine too.
+  const g = (args, input) => exec('git', args, { cwd, encoding: 'utf8', input, timeout }).trim();
   try {
     const head = g(['rev-parse', 'HEAD']);
-    const blob = g(['hash-object', '-w', '--stdin'], read(deckPath));
+    // The PATH form, not `--stdin`. Handing git a 700 KB deck down a pipe is a
+    // deadlock waiting for a slow reader; letting it open the file itself has
+    // no pipe to deadlock on, and is what wedged above.
+    const blob = g(['hash-object', '-w', '--', deckPath]);
     const tree = putBlob(g, `${head}^{tree}`, deckRel.split(/[/\\]/).filter(Boolean), blob);
     const sha = g(['commit-tree', tree, '-p', head, '-m',
       `decklight: wip snapshot of ${deckRel}`]);
