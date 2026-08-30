@@ -18,7 +18,7 @@ import path from 'node:path';
 import { rmTemp } from './helpers.mjs';
 
 import {
-  reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem, doneKey, reviewDone, setReviewDone,
+  reviewsWaiting, reviewLine, describeBranch, reviewCheckSuppressed, remoteNameProblem, doneComments, doneKey, setCommentDone, usableId,
 } from '../cli/review-remote.mjs';
 import { parseReview, mergeById, serializeRecord, reviewPathFor } from '../cli/review-store.mjs';
 import { submitReview } from '../cli/review-submit.mjs';
@@ -260,49 +260,77 @@ test('a suppressed check makes ZERO git calls', async (t) => {
   if (!suppressed) await reviewsWaiting(deck, { run: never });
 });
 
-// ── a review you are finished with ────────────────────────────────────────
+// ── a comment you are finished with ──────────────────────────────────────
 //
-// Take-in is gone: nothing copies a reviewer's comments into the author's own
-// sidecar. A review is an inbox item now, and "done" is a mark kept per branch
-// in THIS clone's git config — private, never pushed, reversible with plain git.
+// Doneness is per COMMENT, and where the mark lives follows who owns it: your
+// own comments already have `{op:'resolve'}` in the sidecar, which travels; a
+// reviewer's live on their branch, which is not yours to write, so the mark is
+// private git config in this clone.
 
-test('the mark round-trips through the repository, and starts unset', (t) => {
+test('a comment mark round-trips, and does not touch its neighbours', (t) => {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'dl-done-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   execFileSync('git', ['init', '-q'], { cwd: dir });
   const branch = 'review/ana-2026-08-25';
 
-  assert.equal(reviewDone(dir, branch), false, 'an unasked branch claimed to be done');
-  assert.equal(setReviewDone(dir, branch, true), true);
-  assert.equal(reviewDone(dir, branch), true);
-  // readable with the tool the user already has — that is the point of git config
-  assert.equal(execFileSync('git', ['config', '--get', doneKey(branch)],
+  assert.deepEqual([...doneComments(dir, branch)], [], 'an unmarked review claimed marks');
+  assert.equal(setCommentDone(dir, branch, 'aa1', true), true);
+  assert.equal(setCommentDone(dir, branch, 'bb2', true), true);
+  assert.deepEqual([...doneComments(dir, branch)].sort(), ['aa1', 'bb2']);
+  // readable with plain git — the point of keeping it there
+  assert.equal(execFileSync('git', ['config', '--get', doneKey(branch, 'aa1')],
     { cwd: dir, encoding: 'utf8' }).trim(), 'true');
-  // …and un-markable
-  assert.equal(setReviewDone(dir, branch, false), true);
-  assert.equal(reviewDone(dir, branch), false, 'the mark could not be taken off');
+  // …and one comes off without taking the other with it
+  assert.equal(setCommentDone(dir, branch, 'aa1', false), true);
+  assert.deepEqual([...doneComments(dir, branch)], ['bb2']);
+  // a different review is a different subsection entirely
+  assert.deepEqual([...doneComments(dir, 'review/bo-2026-01-01')], []);
+});
+
+test('an id that could not be a config key is refused, never handed to git', () => {
+  // Ids are minted `[a-z0-9]{1,12}`, but a comment arrives from a file somebody
+  // else wrote. A key git rejects is a silent no-op, which would read as "marked".
+  assert.equal(usableId('aa1'), true);
+  assert.equal(usableId('../evil'), false);
+  assert.equal(usableId('has space'), false);
+  assert.equal(usableId(''), false);
+  assert.equal(usableId(null), false);
+  assert.equal(setCommentDone('/nowhere', 'review/x', '../evil', true), false);
+});
+
+test('the whole-review mark the first version wrote still counts', (t) => {
+  // `[decklight-review "<branch>"] done = true` shipped, briefly. Somebody may
+  // have marked a review with it, and silently un-marking their work to
+  // simplify the reader would be a poor trade.
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'dl-legacy-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  execFileSync('git', ['init', '-q'], { cwd: dir });
+  const branch = 'review/old-2026-01-01';
+  execFileSync('git', ['config', `decklight-review.${branch}.done`, 'true'], { cwd: dir });
+  const records = [{ id: 'x1' }, { id: 'x2' }];
+  assert.deepEqual([...doneComments(dir, branch, { records })].sort(), ['x1', 'x2']);
 });
 
 test('a repository that cannot be written costs a mark, never a crash', () => {
   const boom = () => { throw new Error('read-only'); };
-  assert.equal(reviewDone('/nowhere', 'review/x', { run: boom }), false);
-  assert.equal(setReviewDone('/nowhere', 'review/x', true, { run: boom }), false);
+  assert.deepEqual([...doneComments('/nowhere', 'review/x', { run: boom })], []);
+  assert.equal(setCommentDone('/nowhere', 'review/x', 'aa1', true, { run: boom }), false);
 });
 
-test('done reviews are still listed, but nothing is waiting', () => {
-  // `state` drives the nag — the startup line and the count. A session where
-  // every review is marked done must say nothing, while the overlay keeps
-  // showing them struck through so they can be reopened.
-  const line = reviewLine({ state: 'none', reviews: [{ branch: 'review/a', who: 'ana', comments: 2, done: true }] });
-  assert.equal(line, null, 'a review already dealt with still nagged');
-  const still = reviewLine({
+test('the nag counts COMMENTS left, not whole reviews', () => {
+  // Half a long review finished has to say so — counting reviews would call it
+  // untouched until the last comment went.
+  const line = reviewLine({
     state: 'ok',
     reviews: [
-      { branch: 'review/a', who: 'ana', comments: 2, done: true },
-      { branch: 'review/b', who: 'bo', comments: 3, done: false },
+      { branch: 'review/a', who: 'ana', comments: 5, waiting: 2, done: false },
+      { branch: 'review/b', who: 'bo', comments: 3, waiting: 3, done: false },
+      { branch: 'review/c', who: 'cy', comments: 4, waiting: 0, done: true },
     ],
   }, { deck: 'talk.html' });
-  assert.match(still, /3 comments waiting/, 'the done review was counted into the nag');
-  assert.match(still, /from bo/);
-  assert.doesNotMatch(still, /ana/, 'the done reviewer was named in the nag');
+  assert.match(line, /5 comments waiting/, 'the count did not follow the marks');
+  assert.match(line, /from ana, bo/);
+  assert.doesNotMatch(line, /cy/, 'a finished review was named in the nag');
+  // and nothing waiting says nothing at all
+  assert.equal(reviewLine({ state: 'none', reviews: [{ branch: 'review/a', who: 'ana', comments: 2, waiting: 0, done: true }] }), null);
 });

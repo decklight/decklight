@@ -615,26 +615,29 @@ state and never renders as "none waiting"** — unchecked is its own answer and 
 glob is a frozen constant in the source; nothing derived from a deck, a request, or a reviewer's choices
 reaches a refspec position.
 
-**A review is an inbox item, not something to merge.** The `M` overlay lists every review branch the remote has
-and shows its **comments themselves** — anchored against the deck as it is now, walkable and jumpable like local
-ones — and `T` marks a review **done**, or takes the mark back off. Nothing is copied. An earlier design had `T`
-merge a reviewer's records into the author's own sidecar so that "have I dealt with this?" had an answer; that
-was a great deal of machinery for a yes/no, and it made somebody else's remarks indistinguishable from your own
-the moment you looked at them. You read a review, you walk its comments, and you are finished with it.
+**Reading and writing are two keys.** `M` shows every comment there is — yours and each review branch's —
+**grouped by who said it**, one heading per source, open first and finished ones struck through below them
+inside their group. `⇧M` leaves a comment on the slide you are looking at, in a card of its own that also lists
+**what is already said about that slide**, so a point is not made twice. The composer used to live at the top of
+`M`, which put a text box above twenty comments you were trying to read — and, worse, appeared only when a
+`decklight review` server answered, so an author leaving themselves a note had to start a second server on a
+second port in a mode that would not let them edit the slide they were commenting on. `author` now takes a
+comment through the same append-only route it already used for resolves, and both servers build the record with
+the same `reviewRecord`, so a union merge never meets two shapes of one thing.
 
-The mark lives in **this clone's git config** — `[decklight-review "<branch>"] done` — private, never pushed,
-and reversible with the tool the author already has (`git config --unset`). An inbox is not shared state. The
-branch is the *subsection* because git's dotted form reads the last segment as the key, and a branch name
-contains slashes that only a subsection may hold. A done review is **still listed**, struck through and sorted
-after the rest, precisely so it can be un-marked; what changes is that it stops counting as waiting, so the
-startup line and the count fall silent on work already dealt with. `--import` still ends a review the old way:
-a branch whose every record the local sidecar already holds has plainly been dealt with, whatever put them
-there.
-
-Incoming comments are therefore **read-only**. `R` resolves and `A` re-anchors your **own** comments — the ones
-in the local sidecar — and say so when pointed at a review branch's row: a resolve written against a record
-this file never held would be an answer to a question it never asked. The union-merge/pull-request path remains
-fully supported for anyone who wants the records themselves; it is simply not what the overlay does.
+**Doneness is per comment, and where the mark lives follows who owns it.** Your own comments already had a way
+to be finished with — the append-only `{op:"resolve"}` record, which travels, so a reviewer can see you dealt
+with their point; "done" is not a second state beside it, it IS that record. A reviewer's comments live on their
+branch, which is not yours to write, so the mark is kept in **this clone's git config**
+(`[decklight-review "<branch>"] done-<id>`): private, never pushed, reversible with `git config --unset`, and a
+comment id is checked against the shape a config key allows before it becomes one. `R` marks the selected
+comment either way — armed then confirmed for your own, because that append is shared and cannot be taken back;
+immediately for a reviewer's, because a private mark is one keypress from undone and an arm protects nothing.
+A review branch stops counting as waiting when every one of its open comments is marked, so finishing half of a
+long review leaves the other half on screen and in the count. Marking one **re-sorts** it below the open ones,
+so the selection follows the comment by id rather than by position — otherwise `R` pressed twice would mark a
+second comment instead of un-marking the first. Nothing is ever copied: the merge/PR path still works for
+anyone who wants the records themselves; it is simply not what this overlay does.
 
 **A comment on a slide that no longer exists is reconciled, never stranded.** An orphan is still listed last
 and never silently re-pinned — but `⏎` on it (with nowhere to jump) unfolds **what the slide said** at the

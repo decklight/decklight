@@ -57,12 +57,15 @@ import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html
 // about which <script> is the init call
 import { classifyScripts } from './audit.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
+// The arbiters of what a comment IS, shared with the review server so two
+// writers cannot put two shapes into one union-merged file.
+import { commentProblem, reviewRecord } from './review.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
 import { recordingImpact, impactWarning, slidesFromFiles } from '../tools/recording-impact.mjs';
 import { indexDeckFile, slideTextOf, knowsCommit } from './comments.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
 import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
-import { reviewsWaiting, reviewLine, reviewCheckSuppressed, setReviewDone } from './review-remote.mjs';
+import { reviewsWaiting, reviewLine, reviewCheckSuppressed, setCommentDone } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
 // The `/edit/*` surface answers loopback only — but "loopback" is the wrong
@@ -1390,28 +1393,62 @@ export async function editMain(args, { onListen = null } = {}) {
         } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
       }
       if (req.method === 'POST' && url.pathname === '/edit/review/done') {
-        // Mark a review finished with, or take the mark off. NOTHING IS COPIED.
-        // This replaced `take`, which merged somebody else's comments into the
-        // author's own sidecar so that "have I dealt with this?" had an answer
-        // — a lot of machinery for a yes/no, and it made a reviewer's remarks
-        // indistinguishable from your own the moment you looked at them. A
-        // review is an inbox item: you read it, you walk it, you are done.
+        // Mark ONE of a reviewer's comments done, or take the mark off. Their
+        // comments live on their branch, which is not ours to write, so the
+        // mark is kept in this clone's git config — private, never pushed.
+        // Your OWN comments do not come through here at all: they already have
+        // a way to be finished with, the append-only `resolve` record below,
+        // which travels so the reviewer can see you dealt with their point.
         //
         // The branch is looked up in what the incoming reader LISTED, so it is
-        // data here and never an argument, exactly as `take` required.
-        const { branch, done = true } = JSON.parse(body || '{}');
+        // data here and never an argument; the id is shape-checked before it
+        // becomes half of a config key.
+        const { branch, id, done = true } = JSON.parse(body || '{}');
         const listed = incomingCache?.r?.reviews?.find((v) => v.branch === branch);
         if (!listed) return json(400, { ok: false, error: 'not a review this deck knows about — press M again to refresh' });
-        if (!setReviewDone(root, branch, !!done)) {
+        if (!listed.records?.some((r) => r.id === id)) {
+          return json(400, { ok: false, error: 'no such comment in that review' });
+        }
+        if (!setCommentDone(root, branch, id, !!done)) {
           return json(500, { ok: false, error: 'could not write the mark to git config' });
         }
         // the list just changed shape — the cache must not keep the old marks
         incomingCache = null;
-        console.log(`  review: ${branch} ${done ? 'marked done' : 'reopened'}`);
-        return json(200, { ok: true, branch, done: !!done });
+        console.log(`  review: ${branch} ${id} ${done ? 'marked done' : 'reopened'}`);
+        return json(200, { ok: true, branch, id, done: !!done });
       }
       if (req.method === 'POST' && url.pathname === '/edit/review') {
         const { op, re, body: text, slide, title, fp } = JSON.parse(body || '{}');
+        // A NEW comment — no `op`, no `re`. The author leaving one on their own
+        // deck (⇧M), which until now only a `decklight review` server could
+        // take: the composer was gated on one answering, so an author had to
+        // start a second server on a second port, in a mode that would not let
+        // them edit the slide they were commenting on.
+        //
+        // Same file, same append-only rule, same record shape — through
+        // `commentProblem` and `reviewRecord`, which review.mjs already exports
+        // and which are the arbiters of what a comment is. Two servers writing
+        // two shapes into one union-merged file is how a store stops parsing.
+        if (op === undefined && re === undefined) {
+          const input = { body: text, slide, title, fp };
+          const bad = commentProblem(input);
+          if (bad) return json(400, { ok: false, error: bad });
+          let deckAt = null;
+          try { deckAt = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(); }
+          catch { deckAt = null; }
+          const rec = reviewRecord(input, {
+            by: reviewerName(), at: new Date().toISOString(), deck: deckAt, id: newId(),
+          });
+          const store_ = reviewPathFor(deckPath);
+          try { appendFileSync(store_, `${serializeRecord(rec)}\n`); }
+          catch (e) { return json(500, { ok: false, error: oneline(e) }); }
+          if (gitOn) {
+            gitAutocommit(store_, root,
+              commitSubject(`review: ${rec.body}`, `review: a comment on ${basename(deckPath)}`));
+          }
+          console.log(`  review: comment on slide ${rec.slide} → ${basename(store_)}`);
+          return json(200, { ok: true, id: rec.id });
+        }
         if (typeof re !== 'string' || !/^[a-z0-9]{1,12}$/.test(re)) {
           return json(400, { ok: false, error: 'bad comment id' });
         }

@@ -60,7 +60,7 @@ const run = (mode, extra = '') => resultsFrom(
     + ` · the card really moves to the edge and fills it=${r.cardActuallyMoved && r.cardOnTheRightEdge && r.cardFillsGutter && r.cardFullHeight}`
     + ` · slide clear of the panel=${r.slideClearOfPanel}`
     + ` · deck still navigable=${r.arrowNavigatedDeck}`
-    + ` · target follows then locks=${r.targetFollowedWhileEmpty && r.targetLockedWhileTyping}`
+    + ` · no composer in the reading panel=${r.panelHasNoComposer}`
     + ` · gutter released on close=${r.gutterReleased}`
     + ` · placement remembered=${r.persisted && r.restoredPlacement}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
@@ -88,8 +88,9 @@ const run = (mode, extra = '') => resultsFrom(
     + ` · R arms rather than fires=${r.armedNotFired} (nothing sent=${r.nothingPostedYet})`
     + ` · Esc disarms without closing=${r.escapeDisarmedNotClosed}`
     + ` · a resolve is an append=${r.resolveIsAnAppend}`
-    + ` · T marks done without importing=${r.markedDoneOnce && r.nothingImported}`
-    + ` · struck through and reopenable=${r.doneStillListed && r.doneCommentsStruck && r.reopened}`
+    + ` · R marks ONE done without importing=${r.markedOneDone && r.nothingImported}`
+    + ` · only that one, heading counts what is left=${r.onlyOneMarked && r.headingCountsLeft}`
+    + ` · reopens=${r.reopened}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
 }
 

@@ -17,7 +17,11 @@
 // somebody reading the deck before the talk, writing to its author — so it
 // persists, and the two must not be confused in the vocabulary either.
 
-import { selectInList } from './overlay.js';
+// `closeOnBackdrop` is for the COMPOSE card only. The comments panel is
+// deliberately click-through — it sits beside the slide and must not eat a
+// click meant for the deck — but a card you are typing into is a dialog, and
+// clicking away from one closes it everywhere else in this codebase.
+import { closeOnBackdrop, selectInList } from './overlay.js';
 // The anchor lives in tools/ because the CLI needs it too and src/ is not in
 // the published package. Re-exported here so a browser-side caller has one
 // place to look, and inlined by esbuild like any other import.
@@ -49,9 +53,14 @@ import {
 // wants to read the same list. Splitting them into two overlays would have made
 // the common half twice.
 //
-//   a review server  → the composer is there: say something about this slide
-//   an author server → rows can be resolved
+//   a review server  → your comments go to it, and `review submit` can push them
+//   an author server → the same file, plus every review branch waiting on the
+//                      remote, and a reviewer's comment can be marked done here
 //   neither          → the list still reads, and says where comments come from
+//
+// TWO KEYS, not one surface: M reads (grouped by who said it), ⇧M writes (a card
+// for the slide on screen, with what is already said about it). The composer
+// used to sit at the top of the list, above the comments you were reading.
 //
 // Rows are built as NODES, never innerHTML. A comment is somebody else's text
 // arriving over git — the same reasoning the history overlay records for commit
@@ -70,10 +79,7 @@ export function createReview({
   let incomingNow = [];    // every listed review, done ones included — T's targets
   let context = null;      // {id, data} — an orphan's "what it said", unfolded
   let probed = null;       // the review server's base, '' for same-origin, null for none
-  let composeSlide = 1;    // the slide a new comment lands on — follows the deck
-                           // while the box is empty, locks once you start typing
   let engaged = false;     // last surface the user touched: the panel, or the deck
-  let onSlide = null;      // the slide-change subscription held while open
   let onResize = null;     // the viewport listener that re-sizes the gutter
   let onSurface = null;    // pointerdown/focusin router for `engaged`
 
@@ -167,24 +173,6 @@ export function createReview({
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-  }
-
-  /** The compose target's label — names the slide, and flags a locked target. */
-  function composeLabel() {
-    const slides = slidesNow();
-    const t = slides[composeSlide - 1]?.title;
-    const here = instance.state.slide;
-    const base = `on slide ${composeSlide}${t ? ` · ${t}` : ''}`;
-    return here === composeSlide ? base : `${base} · viewing ${here}`;
-  }
-
-  /** Slide changed under an open panel: follow it if the box is empty. */
-  function updateComposeTarget() {
-    if (!el) return;
-    const input = el.querySelector('.rv-input');
-    if (input && !input.value.trim()) composeSlide = instance.state.slide;
-    const on = el.querySelector('.rv-on');
-    if (on) on.textContent = composeLabel();
   }
 
   const slidesNow = () => indexSlides(sections(), { titleOf, bodyOf });
@@ -285,13 +273,19 @@ export function createReview({
       row.append(el_('div', 'rv-arm',
         `move this comment to slide ${instance.state.slide} (the one on screen)? A again to confirm · Esc backs out`));
     }
-    const entry = { id: c.id, slide: anchor.slide, node: row, resolved: !!c.resolved, branch };
+    const entry = { id: c.id, slide: anchor.slide, node: row, resolved: !!c.resolved, branch, done };
     row.addEventListener('click', () => { select(rows.indexOf(entry)); jump(); });
     rows.push(entry);
     return row;
   }
 
   function render(state) {
+    // The comment the cursor was on, by id. Rows are rebuilt from scratch on
+    // every render and they MOVE: marking one done sinks it below the open ones
+    // in its group, so an index-based restore quietly lands you on a different
+    // comment — and R, pressed twice to toggle, would mark a second one instead
+    // of un-marking the first.
+    const wasOn = rows[sel]?.id ?? null;
     const card = el.querySelector('.narr-card');
     card.replaceChildren();
     const slides = slidesNow();
@@ -304,7 +298,7 @@ export function createReview({
     incomingNow = state.incoming?.reviews ?? [];
 
     const head = el_('div', 'narr-head');
-    head.append(el_('span', 'rv-heading', state.can === 'comment' ? 'review' : 'review comments'));
+    head.append(el_('span', 'rv-heading', 'comments'));
     const ctl = el_('div', 'rv-dock-ctl');
     for (const m of ['float', 'left', 'right', 'bottom']) {
       const b = el_('button', 'rv-dock-btn' + (dock.mode === m ? ' rv-dock-on' : ''), DOCK_GLYPH[m]);
@@ -324,66 +318,41 @@ export function createReview({
     head.addEventListener('pointerdown', (e) => startDrag(e, head));
     card.append(head);
 
-    // The composer, when there is somewhere to send it. On the slide you are
-    // looking at, because that is the one you are talking about.
-    if (state.can === 'comment') {
-      composeSlide = here;
-      const box = el_('div', 'rv-compose');
-      box.append(el_('div', 'rv-on', composeLabel()));
-      const input = el_('textarea', 'narr-input rv-input');
-      input.placeholder = 'what you want the author to know…';
-      input.rows = 3;
-      const send = el_('div', 'narr-row narr-sel rv-send', 'Leave this comment');
-      send.setAttribute('role', 'button');
-      send.tabIndex = 0;
-      // The target is read at SEND time, not render time: while you type it is
-      // locked to composeSlide, and you may have walked the deck to other slides.
-      const post = () => submit(input.value, composeSlide, slidesNow()[composeSlide - 1]);
-      send.addEventListener('click', post);
-      input.addEventListener('keydown', (e) => {
-        // ⌘/⌃⏎ posts, which is what every composer in every tool does; a bare
-        // ⏎ is a newline, because a comment is prose and often more than a line
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); }
-        e.stopPropagation();   // the deck must not advance while somebody types
-      });
-      // Clearing the box hands the target back to whatever slide is on screen.
-      input.addEventListener('input', () => { if (!input.value.trim()) updateComposeTarget(); });
-      box.append(input, send);
-      card.append(box);
-      // Float pops up to be written in, so it takes focus; a docked panel sits
-      // beside the deck for browsing, so it leaves the keyboard on the slides.
-      if (dock.mode === 'float') setTimeout(() => input.focus(), 0);
-    }
-
-    // What reviewers have SENT — above the local list, because it is the thing
-    // the author does not already know. Not a count and a git command: the
-    // COMMENTS themselves, anchored against the deck as it is now and walkable
-    // like any others. NOTHING IS COPIED HERE: these rows are read-only, T
-    // marks the whole review done, and the mark is git config in this clone.
-    // (The merge/PR path still works for anyone who wants the records; it is
-    // simply not what this overlay does.)
+    // What reviewers have SENT — above your own, because it is the thing you do
+    // not already know. Not a count and a git command: the COMMENTS themselves,
+    // anchored against the deck as it is now and walkable like any others.
+    //
+    // GROUPED BY SOURCE, one heading per review branch (and one below for your
+    // own), because "who said this" is the first thing you want when four
+    // people have read the same deck — and because doneness is per comment now,
+    // a half-finished review has to show which half.
+    //
+    // NOTHING IS COPIED. A reviewer's comments stay on their branch; R marks one
+    // done in this clone's git config. (The merge/PR path still works for anyone
+    // who wants the records; it is simply not what this overlay does.)
     if (state.incoming) {
       const inc = state.incoming;
       // Rendered whenever there ARE reviews, not only when something is
-      // waiting: `state` answers "should this nag?" (the startup line, the
-      // count) and goes to 'none' once every review is marked done — but a done
-      // review has to stay on screen, struck through, or there is no way to
-      // un-mark it. Every failure state returns no reviews, so this is enough.
+      // waiting: `state` answers "should this nag?" and goes to 'none' once
+      // everything is marked — but a done comment has to stay on screen,
+      // struck through, or there is no way to un-mark it.
       if (inc.reviews?.length) {
         const boxI = el_('div', 'rv-incoming');
-        // Reviews still to read first, the ones you are done with after them —
-        // an inbox sorts that way, and a done review is kept rather than hidden
-        // precisely so it can be un-done.
+        // Reviews still to read first, the ones you are finished with after —
+        // an inbox sorts that way.
         const ordered = [...inc.reviews].sort((a, b) => Number(a.done) - Number(b.done));
         for (const v of ordered) {
-          const n = `${v.comments} comment${v.comments === 1 ? '' : 's'}`;
-          boxI.append(el_('div', `rv-inc-row${v.done ? ' rv-done' : ''}`, v.done
-            ? `✓ ${v.who} · ${n} · ${v.branch} — T reopens it`
-            : `↓ ${v.who} · ${n} waiting · ${v.branch} — T marks it done`));
-          for (const c of foldReview(v.records ?? [])) {
-            // what is WAITING is what is still open in that review
-            if (c.resolved) continue;
-            boxI.append(commentRow(c, slides, { branch: v.branch, done: v.done }));
+          const doneIds = new Set(v.doneIds ?? []);
+          const open = foldReview(v.records ?? []).filter((c) => !c.resolved);
+          const left = open.filter((c) => !doneIds.has(c.id)).length;
+          boxI.append(el_('div', `rv-src${v.done ? ' rv-done' : ''}`, v.done
+            ? `✓ ${v.who} — all ${open.length} done · ${v.branch}`
+            : `↓ ${v.who} — ${left} of ${open.length} left · ${v.branch}`));
+          // Open first, done struck through below them: the mark is reversible,
+          // so a finished comment is moved out of the way rather than hidden.
+          const inOrder = [...open].sort((a, b) => Number(doneIds.has(a.id)) - Number(doneIds.has(b.id)));
+          for (const c of inOrder) {
+            boxI.append(commentRow(c, slides, { branch: v.branch, done: doneIds.has(c.id) }));
           }
         }
         card.append(boxI);
@@ -407,8 +376,21 @@ export function createReview({
       list.append(el_('div', 'rv-skipped', `${state.skipped} line(s) could not be read and were skipped`));
     }
 
-    // open first, then resolved — the ones still asking something are the ones
-    // somebody has to do something about
+    // Its own heading, so the grouping reads the same way all the way down: a
+    // reviewer's branch, then another's, then this — the comments that are in
+    // the deck's own sidecar. Only when there is an incoming section to tell it
+    // apart FROM; on a deck nobody has reviewed, one heading over one list is
+    // furniture.
+    if (state.incoming?.reviews?.length && comments.length) {
+      const openLocal = comments.filter((c) => !c.resolved).length;
+      list.append(el_('div', 'rv-src', openLocal
+        ? `✎ your comments — ${openLocal} of ${comments.length} left`
+        : `✓ your comments — all ${comments.length} done`));
+    }
+    // Open first, then resolved — the ones still asking something are the ones
+    // somebody has to do something about. Resolved IS done here: your own
+    // comments already had a way to be finished with, and a second state beside
+    // it would be two names for one thing.
     const order = [...comments].sort((a, b) => Number(!!a.resolved) - Number(!!b.resolved));
     for (const c of order) list.append(commentRow(c, slides));
     card.append(list);
@@ -428,12 +410,13 @@ export function createReview({
 
     card.append(el_('div', 'rec-hint', state.can === 'resolve'
       ? (incomingNow.length
-        ? '⏎ jumps · R resolves · A moves here · T marks a review done · Esc closes'
-        : '⏎ jumps (on a gone slide: shows what it said) · R resolves · A moves here · Esc closes')
+        ? '⏎ jumps · R marks one done (again reopens a reviewer\'s) · A moves here · Esc closes'
+        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done · A moves here · Esc closes')
       : state.can === 'comment'
         ? '⏎ jumps to the slide · S submits the review · Esc closes'
         : '⏎ jumps to the slide · Esc closes'));
-    select(Math.min(sel, Math.max(0, rows.length - 1)));
+    const back = wasOn === null ? -1 : rows.findIndex((r) => r.id === wasOn);
+    select(back >= 0 ? back : Math.min(sel, Math.max(0, rows.length - 1)));
     // The card's height just changed; a floating one re-clamps into view.
     placeCard();
   }
@@ -509,10 +492,17 @@ export function createReview({
   async function submit(text, slide, anchor) {
     const body = String(text ?? '').trim();
     if (!body) return;
-    const base = await reviewBase();
-    if (base === null) return;
+    // Whichever server is here takes it. A reviewer's goes to the review
+    // server; an author's to their own — same file, same append-only rule, same
+    // record shape (the two servers share `reviewRecord`, so a union merge of
+    // both never meets two shapes of the same thing).
+    const rbase = await reviewBase();
+    const where = rbase !== null
+      ? { url: `${rbase}/review/comments`, mine: false }
+      : authorBase() != null ? { url: `${authorBase()}/edit/review`, mine: true } : null;
+    if (!where) return;
     try {
-      const r = await fetch(`${base}/review/comments`, {
+      const r = await fetch(where.url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ slide, title: anchor?.title, fp: anchor?.fp, body }),
@@ -521,61 +511,54 @@ export function createReview({
       if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
       toast(`comment left on slide ${slide}`);
       debugLog('review', `comment ${j.id} on slide ${slide}`);
-      render(await load());
+      // …and repaint the list only if it is up. ⇧M can post with M closed,
+      // and `render` reads `el` — this used to be reachable only from inside
+      // the list, which is exactly the assumption that stops being true.
+      if (el) render(await load());
     } catch (e) {
       toast(`could not leave that comment — ${String(e.message || e)}`);
     }
   }
 
   /**
-   * T — mark the selected review done, or take the mark off.
+   * R — one comment, finished with. What that MEANS depends on whose it is,
+   * and the difference is ownership rather than taste:
    *
-   * NOTHING IS COPIED. This replaced "take in", which merged a reviewer's
-   * comments into the author's own sidecar so that "have I dealt with this?"
-   * had an answer — a lot of machinery for a yes/no, and it made somebody
-   * else's remarks indistinguishable from your own the moment you looked at
-   * them. A review is an inbox item: read it, walk it, mark it done.
+   *   yours          an append-only `resolve` record in the deck's own sidecar.
+   *                  It travels, so the reviewer can see you dealt with their
+   *                  point. Irreversible-ish (the log only grows), so it keeps
+   *                  the house two-step: armed, then confirmed.
    *
-   * No arming, unlike everything else here: the two-step is for writes you
-   * cannot see the result of, and this one is visible the instant it lands (the
-   * rows go struck through) and is undone by pressing T again.
+   *   a reviewer's   their comments live on their branch, which is not ours to
+   *                  write. A private mark in this clone's git config instead —
+   *                  and because it is private and one keypress from undone, it
+   *                  fires immediately. An arm protects you from a write you
+   *                  cannot take back; this is not one.
    */
-  async function toggleDone() {
-    const branch = rows[sel]?.branch ?? (incomingNow.length === 1 ? incomingNow[0].branch : null);
-    if (!branch) {
-      if (incomingNow.length) toast('select a comment in the review you want to mark done');
-      return;
-    }
-    const was = incomingNow.find((v) => v.branch === branch)?.done ?? false;
-    try {
-      const r = await fetch(`${authorBase() ?? ''}/edit/review/done`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ branch, done: !was }),
-      });
-      const j = await r.json();
-      if (!j?.ok) throw new Error(j?.error || `HTTP ${r.status}`);
-      toast(j.done ? `${branch} — done` : `${branch} — reopened`);
-      debugLog('review', `${branch} ${j.done ? 'done' : 'reopened'}`);
-    } catch (e) {
-      toast(`could not mark that review — ${String(e.message || e)}`);
-    }
-    render(await load());
-  }
-
-  /** Resolve, armed then confirmed — the house rule for anything that writes. */
   async function resolve() {
     const r = rows[sel];
-    if (!r || r.resolved) return;
-    if (armed !== r.id) { armed = r.id; render(await load()); return; }
-    armed = null;
+    if (!r) return;
     const base = authorBase();
     if (base == null) return;
-    // An incoming comment lives on somebody else's branch and nothing copies
-    // it here any more, so there is no local record to resolve — a resolve
-    // written against one would answer a question this file never asked.
-    // Reviews are finished with as a whole instead: T marks the branch done.
-    if (r.branch) { toast('this comment is on a review branch — T marks the whole review done'); return; }
+    // Somebody else's comment: toggle the local mark, no arming, reversible.
+    if (r.branch) {
+      try {
+        const res = await fetch(`${base}/edit/review/done`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ branch: r.branch, id: r.id, done: !r.done }),
+        });
+        const j = await res.json();
+        if (!j?.ok) throw new Error(j?.error || 'refused');
+        toast(j.done ? 'done' : 'reopened');
+        debugLog('review', `${r.branch} ${r.id} ${j.done ? 'done' : 'reopened'}`);
+      } catch (e) { toast(`could not mark that — ${String(e.message || e)}`); }
+      render(await load());
+      return;
+    }
+    if (r.resolved) return;
+    if (armed !== r.id) { armed = r.id; render(await load()); return; }
+    armed = null;
     try {
       const res = await fetch(`${base}/edit/review`, {
         method: 'POST',
@@ -608,6 +591,83 @@ export function createReview({
     render(await load());
   }
 
+  /**
+   * ⇧M — say something about the slide on screen.
+   *
+   * Its own overlay, and its own key, because reading and writing are different
+   * moments. The composer used to live at the top of the list, which put a text
+   * box above twenty comments you were trying to read, and — worse — only
+   * appeared when a `decklight review` server answered. An author leaving
+   * themselves a note had to start a second server on a second port, in a mode
+   * that would not let them edit the slide they were commenting on.
+   *
+   * WHAT IS ALREADY SAID about this slide rides along, because the thing you
+   * most want to know before adding a comment is whether somebody has already made the
+   * point. Everyone's: your own sidecar and every review branch, the same
+   * grouping M uses, filtered to this slide.
+   */
+  let composeEl = null;
+  function closeCompose() { composeEl?.remove(); composeEl = null; }
+  async function openCompose() {
+    if (composeEl) return closeCompose();
+    const base = await reviewBase();
+    const author = authorBase();
+    if (base === null && author == null) {
+      toast('nothing here can take a comment — decklight author, or decklight review');
+      return;
+    }
+    dismissOthers();
+    close();                       // one review surface at a time
+    const here = instance.state.slide;
+    composeEl = document.createElement('div');
+    composeEl.className = 'decklight-narr decklight-compose';
+    composeEl.innerHTML = '<div class="narr-card" role="dialog" aria-label="Leave a comment"></div>';
+    closeOnBackdrop(composeEl, closeCompose);
+    root.appendChild(composeEl);
+    const card = composeEl.querySelector('.narr-card');
+    const slides = slidesNow();
+
+    card.append(el_('div', 'narr-head', 'leave a comment'));
+    card.append(el_('div', 'rv-on', `on slide ${here}${slides[here - 1]?.title ? ` · ${slides[here - 1].title}` : ''}`));
+    const input = el_('textarea', 'narr-input rv-input');
+    input.placeholder = 'what you want remembered about this slide…';
+    input.rows = 3;
+    const send = el_('div', 'narr-row narr-sel rv-send', 'Leave this comment');
+    send.setAttribute('role', 'button');
+    send.tabIndex = 0;
+    const post = async () => {
+      if (!input.value.trim()) { input.focus(); return; }
+      await submit(input.value, here, slides[here - 1]);
+      closeCompose();
+    };
+    send.addEventListener('click', post);
+    input.addEventListener('keydown', (e) => {
+      // ⌘/⌃⏎ posts, which is what every composer in every tool does; a bare ⏎
+      // is a newline, because a comment is prose and often more than a line.
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); }
+      e.stopPropagation();         // the deck must not advance while somebody types
+    });
+    card.append(input, send);
+    card.append(el_('div', 'rec-hint', '⌘⏎ leaves it · Esc closes · M reads them all'));
+    setTimeout(() => input.focus(), 0);
+
+    // …and what is already said about THIS slide, so a point is not made twice.
+    const said = await load();
+    if (!composeEl) return;
+    const mine = foldReview(said.records ?? []).filter((c) => !c.resolved
+      && resolveAnchor(c, slides).slide === here);
+    const theirs = (said.incoming?.reviews ?? []).flatMap((v) => foldReview(v.records ?? [])
+      .filter((c) => !c.resolved && resolveAnchor(c, slides).slide === here)
+      .map((c) => ({ c, who: v.who })));
+    if (!mine.length && !theirs.length) return;
+    const already = el_('div', 'rv-already');
+    already.append(el_('div', 'rv-src',
+      `already on this slide — ${mine.length + theirs.length}`));
+    for (const c of mine) already.append(el_('div', 'rv-said', `${who(c)}: ${c.body}`));
+    for (const { c, who: w } of theirs) already.append(el_('div', 'rv-said', `${w}: ${c.body}`));
+    card.append(already);
+  }
+
   async function open() {
     if (el) return close();
     dismissOthers();
@@ -629,8 +689,6 @@ export function createReview({
     onSurface = (e2) => { engaged = !!el && el.contains(e2.target); };
     document.addEventListener('pointerdown', onSurface, true);
     document.addEventListener('focusin', onSurface, true);
-    onSlide = () => updateComposeTarget();
-    instance.on?.('slide', onSlide);
     onResize = () => reserveGutter();
     window.addEventListener('resize', onResize);
     reserveGutter();
@@ -651,7 +709,6 @@ export function createReview({
     root.style.removeProperty('--dock-right');
     root.style.removeProperty('--dock-bottom');
     instance._reflow?.();
-    if (onSlide) instance.off?.('slide', onSlide), onSlide = null;
     if (onResize) window.removeEventListener('resize', onResize), onResize = null;
     if (onSurface) {
       document.removeEventListener('pointerdown', onSurface, true);
@@ -660,6 +717,17 @@ export function createReview({
     }
   }
 
+  // Registered BEFORE the list, so a compose card that is up owns the keyboard
+  // while it is: it is the thing you are typing into.
+  overlays.register({
+    isOpen: () => !!composeEl,
+    close: closeCompose,
+    keydown(e) {
+      if (e.key === 'Escape') { closeCompose(); return true; }
+      // everything else belongs to the textarea, which stops its own keys
+      return false;
+    },
+  });
   overlays.register({
     isOpen: () => !!el,
     close,
@@ -693,7 +761,6 @@ export function createReview({
         case 'Enter': (armed && rows[sel]?.id === armed) ? resolve() : jump(); break;
         case 'r': case 'R': resolve(); break;
         case 's': case 'S': submitAll(); break;
-        case 't': case 'T': toggleDone(); break;
         case 'a': case 'A': anchorHere(); break;
         case 'm': case 'M': close(); break;
         default: return false;
@@ -713,6 +780,8 @@ export function createReview({
     open,
     close,
     isOpen: () => !!el,
+    /** ⇧M — say something about the slide on screen. */
+    compose: openCompose,
     submit: async () => { if (!el) await open(); armedSubmit = true; if (el) render(await load()); },
   };
 }
