@@ -637,6 +637,12 @@ export async function editMain(args, { onListen = null } = {}) {
   // one `git diff --numstat` and, when the deck moved, one loose commit object.
   // The NAG is governed by its own rule, not by this interval — see planNag.
   const WATCH_EVERY_MS = 30_000;
+  // …but never slower than the cadence the author asked for. `--commit-every`
+  // governs `--git-mode timer` outright; in the default mode it is still the
+  // knob for "how often should decklight look at my deck", so a tighter number
+  // tightens the snapshot too. Without this the interval was a constant nobody
+  // could reach, which is also what made it untestable end to end.
+  const watchEveryMs = Math.min(commitEvery * 1000, WATCH_EVERY_MS);
   let dirtySince = 0;      // when this stretch of uncommitted work began
   let dirtyLines = 0;      // how much of the deck differs from HEAD
   let nagged = false;      // the episode latch: asked once, then quiet
@@ -720,7 +726,7 @@ export async function editMain(args, { onListen = null } = {}) {
           return;
         }
         commitWatchTick();
-      }, gitMode === 'timer' ? commitEvery * 1000 : WATCH_EVERY_MS).unref();
+      }, gitMode === 'timer' ? commitEvery * 1000 : watchEveryMs).unref();
       console.log(gitMode === 'timer'
         ? `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`
         : wipLine(deckRel));
