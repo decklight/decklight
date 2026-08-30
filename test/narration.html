@@ -756,12 +756,20 @@
         }
 
         if (recording) {
-          // ⇧V used to hand every stitched slide to the browser, which is how a
-          // recorded deck ended up as slide-NN.wav in the OS download folder —
-          // never the deck's, and `bundle` reads no other. With an author
-          // server up, every file must go through it instead.
+          // The recorder used to hand every stitched slide to the browser, which
+          // is how a recorded deck ended up as slide-NN.wav in the OS download
+          // folder — never the deck's, and `bundle` reads no other. With an
+          // author server up, every file must go through it instead.
+          //
+          // Opened the way a person now reaches it: V → Record this deck… →
+          // the synthesized voice. It had its own shortcut (⇧V) and nobody
+          // found it; the keys were rationalised and the shortcut went.
           await new Promise((ok) => setTimeout(ok, 400));   // /edit/ping answers
-          press('V', document.body, { shiftKey: true });
+          deck.narration.openPicker('record');
+          await new Promise((ok) => setTimeout(ok, 100));
+          [...document.querySelectorAll('.decklight-narr .narr-row')]
+            .find((n) => /synthesized voice/.test(n.textContent))?.click();
+          await new Promise((ok) => setTimeout(ok, 100));
           r.dialogOpens = !!document.querySelector('.decklight-record');
           // the target lands asynchronously (the server is asked what exists),
           // so the card names the folder a moment after it opens
@@ -937,7 +945,7 @@
           // gemini, then send each preset as its SHORT v3 cue, never the long
           // gemini-shaped prose (tools/elevenlabs-tts.mjs turns that into the
           // bracketed audio tag actually sent to ElevenLabs).
-          press('n', document.body);                       // no tracks → voices view
+          deck.narration.openPicker('voices');             // the roster, as the palette opens it
           await new Promise((ok) => setTimeout(ok, 500));   // /ping answers, view repaints
           let picker = document.querySelector('.decklight-narr');
           let rows = [...(picker?.querySelectorAll('.narr-row') ?? [])];
@@ -972,7 +980,7 @@
           // ~184 rows folded to a handful: quality shelves for the deck's
           // language, one toggle row per long tail, and the missing BEST
           // voices as an actionable row where a chooser actually looks.
-          press('n', document.body);                       // no tracks → voices view
+          deck.narration.openPicker('voices');             // the roster, as the palette opens it
           await new Promise((ok) => setTimeout(ok, 500));   // /ping answers, view repaints
           const rowTexts = () => [...document.querySelectorAll('.narr-row')].map((n) => n.textContent);
           // engine row + install row + 3 average + 2 toggles = 7
@@ -1006,8 +1014,8 @@
           // and preview from the folded state. The prefetch must reach the
           // visible average voices and never the folded tails (~176 rows of
           // background `say` on a real Mac).
-          press('n', document.body); await new Promise((ok) => setTimeout(ok, 200)); // close
-          press('n', document.body); await new Promise((ok) => setTimeout(ok, 500)); // reopen, folded
+          deck.narration.openPicker(); await new Promise((ok) => setTimeout(ok, 200)); // close
+          deck.narration.openPicker('voices'); await new Promise((ok) => setTimeout(ok, 500)); // reopen, folded
           const before = bodies.length;
           document.querySelectorAll('.narr-prev-btn:not(.narr-reset-btn)')[0].click();
           for (let i = 0; i < 100 && bodies.length < before + 3; i++) await new Promise((ok) => setTimeout(ok, 30));
@@ -1030,7 +1038,7 @@
           // moves without scrolling walks off the bottom and you are choosing
           // blind from about row 15 on — the list looks frozen and the
           // highlight is simply gone.
-          press('n', document.body);                       // no tracks → voices view
+          deck.narration.openPicker('voices');             // the roster, as the palette opens it
           await new Promise((ok) => setTimeout(ok, 500));   // /ping answers, view repaints
           const card = document.querySelector('.narr-card');
           const inView = () => {
@@ -1105,7 +1113,7 @@
           // named with markup must land in the rows as TEXT — the picker runs
           // in the deck's origin, and in author mode that origin can reach the
           // edit server, so a parsed name would be code execution.
-          press('n', document.body);                 // no tracks → voices view
+          deck.narration.openPicker('voices');       // the roster, as the palette opens it
           await new Promise((ok) => setTimeout(ok, 500));   // /ping answers, view repaints
           const picker = document.querySelector('.decklight-narr');
           const labels = [...(picker?.querySelectorAll('.narr-row-label') ?? [])];
@@ -1150,14 +1158,13 @@
           // (`!narrSet?.live`) protected this by accident; the mode comparison
           // protects it on purpose — and this is the test that notices if a
           // refactor loses it.
-          deck.toggleNarration();                              // V — live speaks
+          deck.toggleNarration();                              // the voice starts (⎵ does this)
           await new Promise((ok) => setTimeout(ok, 700));      // mid-sentence
           const slideBefore = deck.state.slide;
           r.liveWasSpeaking = bodies.length > 0;
 
-          // the picker's own commit path: N → the recorded track's row
-          deck.editmodeHooks?.noop;                            // (no-op; keyboard path below)
-          press('n', document.body);
+          // the picker's own commit path: V → the recorded track's row
+          press('v', document.body);
           await new Promise((ok) => setTimeout(ok, 400));
           const rows = [...document.querySelectorAll('.narr-row')];
           const trackRow = rows.find((el) => /Test/.test(el.textContent));

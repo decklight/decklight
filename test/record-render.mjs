@@ -330,7 +330,11 @@ check('done', took.finished === true && /takes\//.test(took.card ?? '')
 // ── run 2: the browser says no ─────────────────────────────────────────────
 const blocked = await run('blocked', 'denied');
 check('refusal', /microphone was blocked/.test(blocked.card ?? '')
-  && /⇧R/.test(blocked.card ?? '')
+  // …and says HOW to try again. It used to name ⇧R; recording lives in the
+  // narration panel now, so the refusal has to name the route that exists —
+  // a card that tells you to press a freed key is worse than one that says
+  // nothing, because it reads as a bug in the microphone.
+  && /Record this deck/.test(blocked.card ?? '')
   && blocked.recordedNothing === true && !existsSync(path.join(tmp, 'denied')),
 `explains and offers a retry=${/microphone was blocked/.test(blocked.card ?? '')}`
   + ` · wrote nothing=${!existsSync(path.join(tmp, 'denied'))}`);

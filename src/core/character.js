@@ -47,7 +47,7 @@ export function cueAt(timeline, t) {
 }
 
 // Concatenate per-sentence timelines into one slide timeline — the viseme
-// counterpart of the ⇧V WAV stitcher, using the SAME gap values so the JSON
+// counterpart of the synthesized recorder's WAV stitcher, using the SAME gap values so the JSON
 // lines up with the stitched audio sample-for-sample. parts:
 // [{ timeline, gap }] with gap = silence seconds BEFORE the part.
 export function concatTimelines(parts) {

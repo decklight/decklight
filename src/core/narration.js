@@ -6,7 +6,7 @@
 // sentence pipeline and its lookahead buffer, pause and speed, the captions
 // that are the same words in text, the lip-synced character, the N picker
 // (tracks → voices → tones → character) with its audition clips, and the
-// ⇧V pass that records the whole deck offline.
+// synthesized pass that records the whole deck offline.
 //
 // It is one subject even though it is several dialogs: every one of them
 // reads or writes the same playback state, and the caption bar is literally
@@ -109,7 +109,7 @@ export const sentencePauseFor = (attr, cfg) => pauseFor(attr, cfg, SENTENCE_PAUS
  * after editmode's probe answers, and editmode is built after this. It returns
  * the prefix to post to — **`''` for a same-origin server, which is the common
  * case and is not the same as absent** — or `null` when the deck is not being
- * authored, which is what sends ⇧V's recordings back down the download path.
+ * authored, which is what sends the synthesized recorder's output back down the download path.
  */
 /**
  * `config.narration` as a list of TRACKS.
@@ -118,7 +118,7 @@ export const sentencePauseFor = (attr, cfg) => pauseFor(attr, cfg, SENTENCE_PAUS
  * form used to drop everything beside the directory — so
  * `narration: { files: 'voiceover', ext: 'wav' }` produced `{label, dir}` with
  * no `ext`, and the deck went looking for `slide-01.m4a`. That line is not a
- * hypothetical: it is what the ⇧V recorder prints on its own done card and what
+ * hypothetical: it is what the synthesized recorder prints on its own done card and what
  * SPEC tells authors to write, so the documented way to play back a recording
  * resolved the wrong extension and failed as a missing file.
  *
@@ -164,7 +164,7 @@ export function segmentFileIndex(segs) {
  *
  * `file` is the 1-based file number from `segmentFileIndex`, or **null** for a
  * slide the tool would not have segmented at all (fewer than two beats with
- * words in them). That slide is one take, `slide-NN.wav`, exactly as ⇧V and
+ * words in them). That slide is one take, `slide-NN.wav`, exactly as the synthesized recorder and
  * tools/voiceover.mjs write it — a single-beat slide is not a segmented slide.
  *
  * Empty segments are dropped: `⟨CLICK⟩ A` is a beat before any words, and there
@@ -256,8 +256,8 @@ export function createNarration({
   let ttsSpend = 0;
   // ── narration (V) + picker (N) — SPEC PRESENTING ────────────────────────────────
   // Two sources, one V toggle. RECORDED: pre-rendered per-slide audio
-  // (tools/voiceover.mjs, or ⇧V below; config.narration.files = '<dir>' or
-  // [{ label, dir, ext }, …] — ext defaults to 'm4a', ⇧V recordings are
+  // (tools/voiceover.mjs, or the synthesized recorder below; config.narration.files = '<dir>' or
+  // [{ label, dir, ext }, …] — ext defaults to 'm4a', the synthesized recorder recordings are
   // 'wav'). LIVE: synthesized on the fly per slide through the local bridge
   // (`decklight tts`) — pick a voice and, on an engine that can be told HOW
   // to say it (gemini, always; elevenlabs only with --tts-model eleven_v3),
@@ -265,7 +265,7 @@ export function createNarration({
   // style) and the next slide is prefetched while the current one plays. N
   // opens the picker (tracks → voices → tones → custom-tone input); choice
   // persists per deck.
-  // ⇧V, live voice only: downloads every slide's narration as slide-NN.wav
+  // the synthesized recorder, live voice only: downloads every slide's narration as slide-NN.wav
   // STITCHED FROM THE SENTENCE CACHE (already-heard clips are free; only
   // unheard sentences synthesize), so the deck can later run RECORDED with
   // that set instead of depending on the bridge.
@@ -304,6 +304,12 @@ export function createNarration({
   // row again tomorrow.
   const narrExpanded = new Set();
   let livePing = null;
+  // Did a bridge ever answer? `livePing` is a promise and Space cannot wait on
+  // one: a keypress has to decide NOW whether this deck has a voice. So the
+  // answer is recorded as it lands, and until it does an un-probed bridge
+  // simply means Space keeps advancing — the honest reading of "we do not know
+  // yet", and never a swallowed keypress.
+  let liveFound = false;
   // The menu, and whether we have asked for it. Not cached across picker opens
   // like the roster is: a presenter who exported a key and restarted the bridge
   // must see that on the next open, not the answer from before they fixed it.
@@ -321,6 +327,7 @@ export function createNarration({
         // takes over. Said out loud, because a voice changing on its own is
         // exactly the kind of thing that should never be silent. adoptBridge
         // holds that rule, because a mid-session engine swap needs it too.
+        liveFound = true;
         adoptBridge(p);
         debugLog('tts', `bridge: ${p.engine} · ${p.model} · ${liveVoices.length} voice(s)`
           + (liveStylable ? '' : ' · no style'));
@@ -411,7 +418,7 @@ export function createNarration({
   const character = createCharacter({ root, config, debugLog, toast });
   // slide|voice|style → PROMISE of a blob URL. Caching the promise (not the
   // resolved URL) dedups concurrent misses: the prefetch and a play (or a
-  // ⇧V recording pass) for the same slide share one POST instead of racing
+  // the synthesized recorder recording pass) for the same slide share one POST instead of racing
   // two and leaking the loser's blob URL. Failures evict themselves so a
   // bridge hiccup isn't cached forever.
   const liveCache = new Map();
@@ -427,7 +434,7 @@ export function createNarration({
     const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
     return t.split('⟨CLICK⟩').map((s) => s.replace(/\s+/g, ' ').trim());
   }
-  // resolves { url, blob }: playback needs the object URL, the ⇧V stitcher
+  // resolves { url, blob }: playback needs the object URL, the the synthesized recorder stitcher
   // needs the raw bytes — one cache serves both
   function synthLive(text, key, label) {
     if (!text) return Promise.resolve(null);
@@ -485,7 +492,7 @@ export function createNarration({
    * is what preserves the author's words; the warning below is what tells them
    * the two counts disagree.
    *
-   * `segStarts` marks which sentences begin a folded segment, so the ⇧V
+   * `segStarts` marks which sentences begin a folded segment, so the synthesized recorder
    * stitcher can put a segment-sized silence there rather than a sentence one —
    * a recorded take breathes exactly where the live one does.
    */
@@ -648,7 +655,7 @@ export function createNarration({
   let chainActive = false; // a chain (sentences or segment files) is running for chainGen
   let chainGen = 0;
   function toggleNarrPause() {
-    if (!narrating) { toast('narration is off — V starts it'); return; }
+    if (!narrating) { toast('narration is off — ⎵ starts it'); return; }
     narrPaused = !narrPaused;
     if (narrPaused) {
       narrAudio?.pause();
@@ -657,7 +664,7 @@ export function createNarration({
     } else if (!chainActive) {
       playLive(); // nothing parked (e.g. paused on a silent beat) — re-arm
     } // else: the parked chain's pause-gate resumes on its own
-    toast(narrPaused ? '⏸ narration paused — P resumes' : '▶ narration resumed');
+    toast(narrPaused ? '⏸ narration paused — ⎵ resumes' : '▶ narration resumed');
     debugLog('narr', narrPaused ? 'paused' : 'resumed');
     updateDebugState();
   }
@@ -929,7 +936,7 @@ export function createNarration({
    *      — no new config and no new I/O.
    *   3. a directory track that opted in with `segments: true`. Opt-in because
    *      the runtime cannot see the folder and must not guess — and because a
-   *      ⇧V track must NOT become self-driving by accident: stitchSlideWav
+   *      the synthesized recorder track must NOT become self-driving by accident: stitchSlideWav
    *      bakes `data-narration-pause` into the WAV, and advanceFrom honours the
    *      same pause again, so every beat would play twice.
    *   4. otherwise no — today's behaviour, byte for byte.
@@ -997,7 +1004,7 @@ export function createNarration({
   function slideFileUrl(n) {
     if (narrSet.manifest) return manifestSlideUrl(loaded?.data, narrSet.manifest, n);
     // state.slide and the files are BOTH 1-based (slide-01 = first section).
-    // ext defaults to the pre-render tool's .m4a; ⇧V-recorded sets are .wav.
+    // ext defaults to the pre-render tool's .m4a; the synthesized recorder-recorded sets are .wav.
     return `${narrSet.dir}/slide-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
   }
   /**
@@ -1205,8 +1212,32 @@ export function createNarration({
     debugLog('narr', msg);
     syncSoundBtn();
   }
+  /**
+   * ⎵ (and P) — the whole verb: start, pause, resume.
+   *
+   * These used to be two keys and three states: V started and stopped, P froze
+   * and unfroze, and which one you wanted depended on a mode you could not see.
+   * Space is the verb now, and it means the obvious thing at every point —
+   * nothing playing starts it, something playing pauses it, something paused
+   * resumes it. Stopping outright is no longer a key: pausing is what a
+   * presenter actually wants mid-talk, and the picker (V) is where a track is
+   * turned off.
+   */
+  function playPause() {
+    if (narrating) return toggleNarrPause();
+    return toggleNarration();
+  }
+  /** Does this deck have a voice at all? Answered SYNCHRONOUSLY — see liveFound. */
+  const hasVoice = () => narrSets.length > 0 || narrating || narrPaused || liveFound;
   async function toggleNarration() {
-    if (!narrSet) { openNarrPicker(narrSets.length ? 'tracks' : 'voices'); return; }
+    // V is the picker now, so a deck with nothing chosen says so rather than
+    // silently opening a different overlay than the key advertises.
+    if (!narrSet) {
+      toast(narrSets.length || liveFound
+        ? 'no voice chosen — V picks one'
+        : 'no narration here — V shows what is available');
+      return;
+    }
     if (narrating) return stopNarration();
     // However the voice was started — V, the touch sound button, the pill, the
     // ?voiceover gesture — this viewer now knows the deck talks. The hint has
@@ -1223,7 +1254,7 @@ export function createNarration({
     if (!await ensureTrack()) return;
     narrating = true;
     const what = narrSet.live ? `⚡ ${liveCfg.voice} · ${liveCfg.tone}` : narrSet.label;
-    toast(`🔊 ${what} — V stops · N picks`);
+    toast(`🔊 ${what} — ⎵ pauses · V picks`);
     debugLog('narr', `on — ${what}`);
     playSlideFile();
     syncSoundBtn();
@@ -1397,7 +1428,8 @@ export function createNarration({
     else if (narrView === 'tones') renderNarr('voices');
     else if (narrView === 'engines') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('character');
-    else if ((narrView === 'voices' || narrView === 'character') && narrSets.length) renderNarr('tracks');
+    else if (narrView === 'record') renderNarr('tracks');
+    else if (narrView === 'voices' || narrView === 'character') renderNarr('tracks');
     else closeNarrPicker();
   }
   let charProbed = false; // one bridge probe per picker open
@@ -1554,6 +1586,61 @@ export function createNarration({
         text: '🧑 Character — animated narrator…',
         cur: character.mode !== 'off',
         commit: () => renderNarr('character'),
+      });
+      // Recording used to be two shortcuts nobody found — the synthesized recorder and the your-voice recorder, one of
+      // which was not even in the keyboard help. It is a thing you do TO this
+      // deck's narration, so it belongs beside the track it produces.
+      narrRows.push({
+        text: '🎙 Record this deck…',
+        flavor: narrSets.some((t) => !t.live) ? 're-record, or add another take' : 'write the audio to a folder',
+        commit: () => renderNarr('record'),
+      });
+      // The two knobs that used to be keys and nothing else. They stay keys —
+      // C and < / > still work — but a panel that claims to hold everything
+      // about the voice cannot leave them out of it.
+      narrRows.push({
+        text: `${captionsOn ? '☑' : '☐'} Captions — follow the voice on screen`,
+        flavor: 'C',
+        toggle: true,
+        commit: () => { toggleCaptions(); renderNarr('tracks'); },
+      });
+      narrRows.push({
+        text: `⏩ Speed — ${narrRate}×`,
+        flavor: '< slower · > faster',
+        toggle: true,
+        commit: () => { changeNarrRate(narrRate >= 2 ? -1.75 : 0.25); renderNarr('tracks'); },
+      });
+    } else if (view === 'record') {
+      head.textContent = 'record this deck — writes wav files beside it';
+      // Each row carries its own reason for being unavailable rather than
+      // toasting one after the fact: the synthesized recorder used to refuse AFTER you pressed it.
+      // A blocked row REFUSES IN PLACE. `blocked` dims the label and prints the
+      // reason, but `commitNarrRow` fires whatever commit it is given — the
+      // convention in this file is that each commit guards itself (switchEngine
+      // does the same for a bridge that is not ready). Without the guard these
+      // would close the picker and only then refuse, which is exactly the
+      // after-the-fact toast that moving recording in here was meant to end.
+      const micWhy = micUnavailable();
+      narrRows.push({
+        text: '🎤 With your voice — read it aloud, beat by beat',
+        flavor: micWhy ? '' : 'the deck turns pages as you speak',
+        blocked: micWhy || null,
+        commit: () => {
+          if (micWhy) return toast(micWhy, 5000);
+          closeNarrPicker();
+          openMicRecorder();
+        },
+      });
+      const liveWhy = narrSet?.live ? null : 'pick a live voice first — ⚡ Live voice, above';
+      narrRows.push({
+        text: '🔊 With the synthesized voice — unattended',
+        flavor: liveWhy ? '' : `speaks every slide as ${liveCfg.voice}`,
+        blocked: liveWhy,
+        commit: () => {
+          if (liveWhy) return toast(liveWhy, 5000);
+          closeNarrPicker();
+          openRecordDialog();
+        },
       });
     } else if (view === 'character') {
       head.textContent = 'character — an animated narrator lip-syncs the voice';
@@ -1902,7 +1989,12 @@ export function createNarration({
       closeOnBackdrop(narrEl, closeNarrPicker);
       root.appendChild(narrEl);
     }
-    renderNarr(view ?? (narrSets.length ? 'tracks' : 'voices'));
+    // Always the home view, even with no tracks configured. It used to skip
+    // straight to the voice roster when the list was empty, which made sense
+    // when the view WAS the list — but it now holds the live voice, the
+    // character, recording, captions and speed, and a deck with no track yet is
+    // exactly the deck whose owner needs to find "Record this deck…".
+    renderNarr(view ?? 'tracks');
     // ask the bridge what it can speak, and repaint if the answer changes the
     // list under the user — but only while they are still looking at it
     probeLive().then((p) => { if (p && narrEl && narrView === 'voices') renderNarr('voices'); });
@@ -1914,7 +2006,7 @@ export function createNarration({
     charProbed = false; // next open re-probes the lipsync bridge
   }
 
-  // ⇧V: batch-record the whole deck offline with the current live voice/tone.
+  // the synthesized recorder: batch-record the whole deck offline with the current live voice/tone.
   // Reuses fetchLive/liveCache (so the recorded slides also warm live
   // playback) and drives each blob straight into a browser download —
   // no server-side write, no zip dependency. The progress card's ETA is a
@@ -1993,7 +2085,7 @@ export function createNarration({
   // sentences never spoken get synthesized. Clips are joined with short
   // silences (breath between sentences, a longer beat between builds).
   // Between sentences a recording breathes exactly as the live voice does —
-  // sentencePause(sl), the same default and the same overrides — so ⇧V's take
+  // sentencePause(sl), the same default and the same overrides — so the synthesized recorder's take
   // and the live chain pace a slide identically. Between BEATS the gap is
   // fixed: it stands in for the ⟨CLICK⟩ a presenter would have taken.
   const SEG_GAP_S = 0.35;
@@ -2041,7 +2133,7 @@ export function createNarration({
    * have been: `wav` is `slide-NN.wav`, which tools/lipsync.mjs, tools/video.mjs
    * and any deck that never opted in all understand, and `segments` is one
    * `slide-NN-KK.wav` per ⟨CLICK⟩ beat, which is what lets the recording pace
-   * the builds (PRESENTING). ⇧R already wrote both; this is ⇧V catching up, so
+   * the builds (PRESENTING). the mic recorder already wrote both; this is the synthesized one catching up, so
    * that the layout on disk says nothing about which recorder made it.
    *
    * The beat files deliberately differ from their slice of the whole-slide file
@@ -2417,7 +2509,7 @@ export function createNarration({
           if (run !== recRun) return;
           saved++;
           // …and one file per ⟨CLICK⟩ beat, so a synthesized track paces the
-          // builds exactly as a track recorded with ⇧R does. Same layout from
+          // builds exactly as a track recorded with the your-voice recorder does. Same layout from
           // both recorders — the files on disk say nothing about which one
           // made them (PRESENTING).
           for (const beat of take.segments) {
@@ -2476,9 +2568,9 @@ export function createNarration({
   }
 
 
-  // ── ⇧R: record YOUR OWN voice, one ⟨CLICK⟩ beat at a time — SPEC PRESENTING ──
+  // ── the your-voice recorder: record YOUR OWN voice, one ⟨CLICK⟩ beat at a time — SPEC PRESENTING ──
   //
-  // ⇧V records the deck in a synthesized voice. This records it in yours, and
+  // the synthesized recorder records the deck in a synthesized voice. This records it in yours, and
   // the difference that matters is not the timbre — it is that a human take has
   // no natural boundaries. A TTS run knows where a segment ends because it
   // synthesized it; a person talking does not, and asking them afterwards to
@@ -2490,7 +2582,7 @@ export function createNarration({
   // one file and the reveal of the next build — the same gesture you will make
   // when you present it, which is exactly why the timing comes out right.
   //
-  // Capture is WebAudio → Int16 PCM → the same `stitchWav` ⇧V uses. Not
+  // Capture is WebAudio → Int16 PCM → the same `stitchWav` the synthesized recorder uses. Not
   // MediaRecorder (webm/opus is a format nothing else in this toolchain reads),
   // and not an AudioWorklet: a worklet's module has to be fetched from a URL,
   // which on a zero-dependency single-file runtime means a blob: URL, and
@@ -2525,13 +2617,13 @@ export function createNarration({
   function micWhy(e) {
     const n = e?.name ?? '';
     if (n === 'NotAllowedError' || n === 'SecurityError') {
-      return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then press ⇧R again.';
+      return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then open it again from V → Record this deck…';
     }
     if (n === 'NotFoundError' || n === 'OverconstrainedError') {
-      return 'no microphone was found. Plug one in, or pick one as the system input, then press ⇧R again.';
+      return 'no microphone was found. Plug one in, or pick one as the system input, then open it again from V → Record this deck…';
     }
     if (n === 'NotReadableError') {
-      return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and press ⇧R again.';
+      return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and open it again from V → Record this deck…';
     }
     return `the microphone could not be opened (${escapeHtml(String(e?.message || n || e))}).`;
   }
@@ -2844,7 +2936,7 @@ export function createNarration({
         case 'ArrowUp': selectNarrRow(narrSel - 1, { scroll: true }); break;
         case 'Enter': commitNarrRow(); break;
         case 'Escape': narrBack(); break;
-        case 'n': case 'N': closeNarrPicker(); break;
+        case 'v': case 'V': closeNarrPicker(); break;   // the key that opened it
         default: return false;
       }
       return true;
@@ -2853,6 +2945,8 @@ export function createNarration({
 
   return {
     character,
+    /** ⎵ and P — start, pause, resume. The whole verb, in one place. */
+    playPause,
     toggleNarration,
     toggleNarrPause,
     changeNarrRate,
@@ -2873,6 +2967,10 @@ export function createNarration({
       voice: liveCfg.voice,
       tone: liveCfg.tone,
       hasTracks: narrSets.length > 0,
+      // Does this deck have a voice at all? Space asks before deciding whether
+      // it belongs to the narration or to the deck, so it can never be a
+      // promise — see `liveFound`.
+      hasVoice: hasVoice(),
       spend: ttsSpend,
     }),
   };

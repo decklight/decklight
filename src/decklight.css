@@ -1338,7 +1338,7 @@
   outline: none;
 }
 
-/* offline recording (⇧V) — shares .decklight-narr's card chrome */
+/* offline recording (V → Record… → synthesized) — shares .decklight-narr's card chrome */
 .decklight-record .narr-card { width: min(400px, 82vw); }
 .decklight-record .rec-line { padding: 4px 12px; opacity: .85; }
 .decklight-record .rec-hint { padding: 10px 12px 2px; opacity: .5; font-size: 12px; }
@@ -1355,8 +1355,8 @@
   transition: width 200ms ease;
 }
 
-/* live recording (⇧R) — the card is a TELEPROMPTER, so it is wider than the
-   ⇧V one and the line you are reading is the largest thing on it. Everything
+/* live recording (V → Record… → your voice) — the card is a TELEPROMPTER, so it is wider than the
+   synthesized one and the line you are reading is the largest thing on it. Everything
    else on the card is chrome around that one sentence. */
 .decklight-mic .narr-card { width: min(640px, 90vw); }
 .decklight-mic .rec-where { font-size: 12px; opacity: .55; letter-spacing: .04em; }
