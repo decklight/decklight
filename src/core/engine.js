@@ -1404,7 +1404,7 @@ export function init(userConfig = {}) {
     helpEl.className = 'decklight-help';
     helpEl.innerHTML = `<div class="help-card"><h3>Keyboard</h3><table>
       <tr><td>→ / PageDown</td><td>next build / slide</td></tr>
-      <tr><td>⎵</td><td>narration play / pause — on a deck with a voice; otherwise it advances</td></tr>
+      <tr><td>⎵</td><td>pause / resume the voice while it is speaking — otherwise it advances</td></tr>
       <tr><td>← / PageUp</td><td>previous</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
@@ -1572,12 +1572,18 @@ export function init(userConfig = {}) {
     // positional, so it cannot be a `case` in a switch over e.key
     if (isMsgKey(e)) { toggleMessages(); e.preventDefault(); return; }
     switch (e.key) {
-      // ⎵ belongs to the VOICE on a deck that has one — start, pause, resume —
-      // and to the deck on every deck that does not. → and PageDown always
-      // advance, so the universal shortcut is never actually taken away; it is
-      // shared with the thing a narrated deck is mostly doing.
+      // ⎵ belongs to the voice only WHILE THE VOICE IS IN PLAY — pausing it,
+      // resuming it — and to the deck at every other moment, including on a
+      // deck that carries a track nobody has started. It can therefore never
+      // start the narration, which is the point: presenting a narrated deck by
+      // hand is ordinary, and a ⎵ that began talking over the presenter would
+      // be a derailment in front of an audience rather than a stumble.
+      //
+      // Nothing is lost by the narrowing. A playing track advances the deck
+      // itself, so ⎵ is free exactly when the voice wants it, and starting stays
+      // deliberate: P, or V's panel.
       case ' ':
-        if (narration.status().hasVoice) narration.playPause();
+        if (narration.status().voiceInPlay) narration.playPause();
         else instance.next();
         break;
       case 'ArrowRight': case 'PageDown': instance.next(); break;

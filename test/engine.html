@@ -444,34 +444,55 @@
         r.PASS = r.pickerUp && r.paletteUp && r.pickerGone && r.finderUp && r.finderGone;
       }
       if (mode === 'narration' || mode === 'nonarration') {
-        // ⎵ is the voice's key on a deck that HAS a voice, and the deck's on
-        // one that does not. That conditional is the whole risk of the change:
-        // space is the most universal shortcut in any presentation tool, so a
-        // deck with no narration has to behave exactly as it always did.
+        // ⎵ takes the key only WHILE THE VOICE IS IN PLAY. `narration` runs on a
+        // deck that carries a track — and asserts that ⎵ still ADVANCES until
+        // the voice is actually started, which is the case that matters most:
+        // presenting a narrated deck by hand is ordinary, and a ⎵ that began
+        // narrating over the presenter would be a derailment in front of an
+        // audience. `nonarration` is the same assertion on a deck with no track
+        // at all, so neither kind can regress into taking the key early.
         const voiced = mode === 'narration';
         await settle();
         const at = () => deck.state.slide;
-        r.startedOn = at();
+
+        // 1 · with the voice NOT started, ⎵ is the deck's, on both decks
+        const from = at();
         press(' ');
         await settle();
         await new Promise((ok) => setTimeout(ok, 300));
-        r.spaceAdvanced = at() > r.startedOn;
-        r.spacePlayed = !!deck.narration.status().narrating;
-        // the deck's own advance keys never change, on either kind of deck
+        r.spaceAdvancesWhenIdle = at() > from;
+        r.spaceDidNotStartTheVoice = !deck.narration.status().narrating;
+
+        // 2 · the deck's own advance keys never change either way
         const before = at();
         press('ArrowRight');
         await settle();
         r.arrowStillAdvances = at() > before;
 
-        if (voiced) {
-          // …and ⎵ again pauses rather than starting over
-          press(' ');
-          await settle();
-          r.spacePaused = !!deck.narration.status().paused;
-          r.PASS = !r.spaceAdvanced && r.spacePlayed && r.spacePaused && r.arrowStillAdvances;
-        } else {
-          r.PASS = r.spaceAdvanced && !r.spacePlayed && r.arrowStillAdvances;
+        if (!voiced) {
+          r.PASS = r.spaceAdvancesWhenIdle && r.spaceDidNotStartTheVoice && r.arrowStillAdvances;
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
         }
+
+        // 3 · start it deliberately — P, the unconditional verb — and only THEN
+        //     does ⎵ belong to the voice
+        press('p');
+        await settle();
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.pStartsTheVoice = !!deck.narration.status().narrating;
+        const mid = at();
+        press(' ');
+        await settle();
+        r.spacePausesOncePlaying = !!deck.narration.status().paused;
+        r.spaceDidNotAdvanceWhilePlaying = at() === mid;
+        press(' ');
+        await settle();
+        r.spaceResumes = !deck.narration.status().paused;
+
+        r.PASS = r.spaceAdvancesWhenIdle && r.spaceDidNotStartTheVoice
+          && r.arrowStillAdvances && r.pStartsTheVoice && r.spacePausesOncePlaying
+          && r.spaceDidNotAdvanceWhilePlaying && r.spaceResumes;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

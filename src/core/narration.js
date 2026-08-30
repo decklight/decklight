@@ -1227,8 +1227,24 @@ export function createNarration({
     if (narrating) return toggleNarrPause();
     return toggleNarration();
   }
-  /** Does this deck have a voice at all? Answered SYNCHRONOUSLY — see liveFound. */
-  const hasVoice = () => narrSets.length > 0 || narrating || narrPaused || liveFound;
+  /**
+   * Is the voice IN PLAY right now? The question ⎵ asks before taking the key.
+   *
+   * Deliberately narrower than "does this deck have narration". That was the
+   * first rule, and it had a failure mode much worse than the one it was
+   * guarding against: a deck that merely CARRIES a track gave ⎵ to the voice,
+   * so a presenter giving a live talk from a narrated deck — advancing by hand,
+   * as people do — would press ⎵ to move on and start the narration talking
+   * over themselves, in front of an audience. An unexpected pause is a stumble;
+   * an unexpected voice is a derailment.
+   *
+   * So ⎵ can never START the voice. It belongs to the narration only while the
+   * narration is actually running or parked, and that is exactly when the deck
+   * does not need ⎵ for anything else: a playing track advances the deck
+   * itself. Starting stays a deliberate act — P, or V's panel — and P remains
+   * the unconditional verb from any state.
+   */
+  const voiceInPlay = () => narrating || narrPaused;
   async function toggleNarration() {
     // V is the picker now, so a deck with nothing chosen says so rather than
     // silently opening a different overlay than the key advertises.
@@ -2967,10 +2983,10 @@ export function createNarration({
       voice: liveCfg.voice,
       tone: liveCfg.tone,
       hasTracks: narrSets.length > 0,
-      // Does this deck have a voice at all? Space asks before deciding whether
-      // it belongs to the narration or to the deck, so it can never be a
-      // promise — see `liveFound`.
-      hasVoice: hasVoice(),
+      // Is the voice in play? ⎵ asks this before deciding whether the key is
+      // the narration's or the deck's — so it can never be a promise, and it is
+      // deliberately NOT "does this deck have narration": see voiceInPlay.
+      voiceInPlay: voiceInPlay(),
       spend: ttsSpend,
     }),
   };

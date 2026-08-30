@@ -135,11 +135,12 @@ test('the narration keys are the ones the rationalisation settled on', () => {
   assert.ok(bound.has(' '), 'space is no longer a case in the key switch');
   assert.ok(bound.has('v') && bound.has('V'), 'V is not bound');
   assert.ok(!bound.has('n') && !bound.has('N'), 'N is bound again — it was freed');
-  assert.match(SRC, /case ' ':[\s\S]{0,400}hasVoice/,
-    'space no longer asks whether the deck has a voice before taking the key');
+  assert.match(SRC, /case ' ':[\s\S]{0,600}voiceInPlay/,
+    'space no longer asks whether the VOICE IS IN PLAY before taking the key — '
+    + 'the wider "deck has a voice" test let it start narration over a presenter');
   // …and the help says so
   const help = helpRows();
-  assert.ok(help.some((r) => r.key === '⎵' && /narration/i.test(r.what)),
+  assert.ok(help.some((r) => r.key === '⎵' && /voice|narration/i.test(r.what)),
     'the help does not explain what space does');
   assert.ok(help.some((r) => r.key === 'V' && /narration/i.test(r.what)),
     'the help does not explain what V opens');
