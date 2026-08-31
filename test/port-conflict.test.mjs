@@ -115,6 +115,7 @@ test('a stranger is offered, and DECLINING is the default answer', async () => {
   const port = await resolvePortConflict(9111, {
     ask: async (q) => { asked.push(q); return '\n'; },        // just pressing return
     stranger: () => ({ pid: 999999, command: 'Python' }),
+    identify: async () => null,                              // nobody of ours is there
     log: () => {},
   });
   assert.match(asked[0] ?? '', /\[k\]ill pid 999999/, 'the offer does not name the pid');
@@ -127,6 +128,11 @@ test('a declining bridge explains BOTH sides have to move, and starts nothing', 
   const port = await resolvePortConflict(8787, {
     kind: 'bridge',
     stranger: () => ({ pid: 14006, command: 'Python' }),
+    // Never probe the real 8787: on a machine with a live bridge this test
+    // took the `reuse` path and failed, while CI — where nothing listens —
+    // went green. A test that only fails on the developer's laptop is worse
+    // than no test.
+    identify: async () => null,
     log: (l) => said.push(l),
   });
   assert.equal(port, null, 'a refused bridge must not be handed a port to bind');

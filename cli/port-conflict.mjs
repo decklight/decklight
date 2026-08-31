@@ -194,12 +194,20 @@ export function planPortConflict({ tty = false, identified = null, stranger = nu
  */
 export async function resolvePortConflict(port, {
   host = '127.0.0.1', ask, log = () => {}, kind = 'edit', stranger = identifyStranger,
+  identify = null,
 } = {}) {
   // Ours, whichever kind: an edit server answers /edit/ping, a bridge answers
   // /ping. Asking only the first reported every bridge as a stranger.
-  const identified = kind === 'bridge'
-    ? await identifyBridge(port, host)
-    : (await identifyEditServer(port, host)) ?? await identifyBridge(port, host);
+  //
+  // Injectable for the same reason `stranger` is: this REALLY CONNECTS to the
+  // port, so a test naming a plausible number is at the mercy of whatever the
+  // developer happens to be running. That is not hypothetical — the refusal
+  // test named 8787, and passed everywhere except on a machine with a live
+  // voice bridge on it, which is every machine this feature is for.
+  const whoIsThere = identify ?? ((p, h) => (kind === 'bridge'
+    ? identifyBridge(p, h)
+    : identifyEditServer(p, h).then((e) => e ?? identifyBridge(p, h))));
+  const identified = await whoIsThere(port, host);
   const other = identified ? null : stranger(port);
   const action = planPortConflict({ tty: Boolean(ask), identified, stranger: other, kind });
 
