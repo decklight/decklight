@@ -1289,8 +1289,25 @@
           return;
         }
 
-        deck.toggleNarration();                                  // V
-        await new Promise((ok) => setTimeout(ok, 3000));         // let the chain run
+        deck.toggleNarration();                                  // P — the voice starts
+        // `healthy` asks whether the voice carries the deck to the LAST slide,
+        // so it waits until that happens rather than for a fixed 3s and a
+        // hope. A slow runner made four slides take longer than the budget and
+        // the harness reported "slide 2/4 · 0 failed" — every synthesis fine,
+        // the deck simply mid-journey. A wall-clock budget for a variable
+        // amount of work is a test that gets less true as CI gets busier.
+        //
+        // The other modes assert the deck did NOT move, so they still wait the
+        // whole window: for them a longer wait is a STRONGER claim, and there
+        // is nothing to poll for.
+        if (mode === 'healthy') {
+          const until = Date.now() + 20000;
+          while (Date.now() < until && deck.state.slide !== deck.state.totalSlides) {
+            await new Promise((ok) => setTimeout(ok, 100));
+          }
+        } else {
+          await new Promise((ok) => setTimeout(ok, 3000));       // let the chain run
+        }
 
         r.mode = mode;
         r.slide = deck.state.slide;

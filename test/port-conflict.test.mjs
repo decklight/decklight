@@ -181,7 +181,16 @@ test('nextFreePort walks past a whole block of unavailable ports', async () => {
   // 66992 and Node refused the listen with ERR_SOCKET_BAD_PORT on a Windows
   // runner — arithmetic that happens to land low enough on the machine you
   // wrote it on is the shape of bug this whole file is about.
-  const first = 49200 + Math.floor(Math.random() * 200) * 8;
+  //
+  // AND BELOW EVERY EPHEMERAL RANGE, which is the other half. 49200 was inside
+  // Windows' dynamic range (49152–65535, and macOS uses the same), so the OS
+  // itself was handing those ports out to any outbound connection on the
+  // runner: nextFreePort probed one, found it free, returned it, and the OS
+  // gave it to a transient socket before the assertion could bind it. That
+  // reads as "nextFreePort returned a port it cannot bind" and is really "you
+  // asked for a port out of the pool the kernel allocates from". 20000 is
+  // under Windows' and macOS's 49152 and under Linux's 32768.
+  const first = 20000 + Math.floor(Math.random() * 200) * 8;
   assert.ok(first + RUN < 65536, `base ${first} would run past the port range`);
   for (let p = first; p < first + RUN; p++) {
     const s = createTcpServer();
