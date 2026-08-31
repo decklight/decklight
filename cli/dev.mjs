@@ -471,25 +471,33 @@ export async function devMain(args) {
    * so nothing — an error included — can land above the URL; printed straight
    * away once it is out.
    */
-  function say(line, hold = !banner.done) {
-    if (hold && !banner.done) banner.held.push(line);
-    else process.stderr.write(`${line}\n`);
+  function say(line) {
+    // Never a caller's choice. It was one, and the caller that passed its own
+    // answer got it wrong in the one case that mattered: the LAST service to
+    // exit computed "nobody is waiting" and printed straight away, while the
+    // flush timer it had just armed was still mid-flight — so its line landed
+    // above the banner it was supposed to sit under.
+    if (banner.done) process.stderr.write(`${line}\n`);
+    else banner.held.push(line);
   }
 
   function flushBanner() {
     if (banner.done) return;
     banner.done = true;
     clearTimeout(banner.timer);
+    // Held output goes FIRST, and the banner closes. Everything in here is a
+    // child explaining itself — a bridge saying why it stood aside, a service
+    // saying why it exited — and an explanation belongs before the summary it
+    // explains. It also keeps the promise that matters: whatever was said on
+    // the way up, the deck's url is still the last line on screen.
+    for (const l of banner.held) process.stdout.write(`${l}\n`);
+    banner.held.length = 0;
     if (banner.url) {
       const rows = [...banner.rows].map(([key, text]) => ({ key, text }));
       for (const l of renderBanner({ deck, url: banner.url, keys: banner.keys, rows, color: tty })) {
         process.stdout.write(`${l}\n`);
       }
     }
-    // Ordinary child output held back during startup — errors and warnings
-    // included, which is why it is flushed rather than dropped.
-    for (const l of banner.held) process.stdout.write(`${l}\n`);
-    banner.held.length = 0;
   }
 
   /**
@@ -577,15 +585,14 @@ export async function devMain(args) {
       // the banner must not sit on the URL waiting for it. This is the common
       // case, not a pathological one: a voice bridge that stands aside because
       // another already serves its port exits 0, seconds into startup.
-      const stillWaiting = (banner.waiting.delete(svc.tag), banner.waiting.size > 0);
       if (svc.name === 'edit') {
         // the deck server is the one service author cannot run without
-        say(`${paint(svc.tag)} exited (${code}) — stopping decklight author`, stillWaiting);
+        say(`${paint(svc.tag)} exited (${code}) — stopping decklight author`);
         flushBanner();
         shutdown(code ?? 1);
       } else {
-        say(`${paint(svc.tag)} exited (${code}) — carrying on without it; the deck degrades on its own`, stillWaiting);
-        if (!stillWaiting) settle(svc.tag);
+        say(`${paint(svc.tag)} exited (${code}) — carrying on without it; the deck degrades on its own`);
+        settle(svc.tag);   // settle() does the delete and the "is anyone left" itself
       }
     });
   }
