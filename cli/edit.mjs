@@ -51,6 +51,21 @@ import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, claudeActivity } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
+import { readyLine } from './banner.mjs';
+
+/**
+ * Say a startup fact.
+ *
+ * Under author (DECKLIGHT_BANNER) it becomes a row on the one banner author
+ * prints, so it cannot land above the URL. Run standalone — `decklight edit` —
+ * it prints the line it always printed, which is why every call passes both:
+ * the SHORT text a banner row wants, and the full sentence a bare terminal
+ * needs because it has no banner to sit under.
+ */
+const startup = (key, text, human) => {
+  if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key, text }));
+  else console.log(human);
+};
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
@@ -740,9 +755,13 @@ export async function editMain(args, { onListen = null } = {}) {
         }
         commitWatchTick();
       }, gitMode === 'timer' ? commitEvery * 1000 : watchEveryMs).unref();
-      console.log(gitMode === 'timer'
-        ? `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`
-        : wipLine(deckRel));
+      startup('git',
+        gitMode === 'timer'
+          ? `auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`
+          : 'commits on your word · snapshot on decklight/wip',
+        gitMode === 'timer'
+          ? `  git: auto-committing ${deckRel} every ${commitEvery}s (and on Ctrl-C)`
+          : wipLine(deckRel));
     }
   }
   /**
@@ -801,7 +820,8 @@ export async function editMain(args, { onListen = null } = {}) {
   const agents = detectAgents();
   if (agents.length) {
     const mark = (a) => a.name + (a.name === agentPref ? ' (preferred)' : '') + (a.installed ? ' (installed)' : '');
-    console.log(`  agents: ${agents.map(mark).join(', ')} — “Ask agent” (A) is live`);
+    startup('agents', agents.map(mark).join(', '),
+      `  agents: ${agents.map(mark).join(', ')} — “Ask agent” (A) is live`);
   }
   // A remembered agent that is not on this machine is said ONCE, at startup,
   // rather than discovered at the moment someone presses A mid-talk.
@@ -814,7 +834,9 @@ export async function editMain(args, { onListen = null } = {}) {
   // git lines because it names the agent, and the roster is only resolved now.
   if (gitOn && wantMessages) {
     const who = agents.find((a) => a.name === agentPref) ?? agents[0];
-    console.log(`  ${messagesLine(who?.name ?? null)}`);
+    startup('git',
+      who?.name ? `${who.name} writes the subjects` : '--commit-messages needs an agent on PATH',
+      `  ${messagesLine(who?.name ?? null)}`);
   }
 
   // ── live reload: watch the deck, broadcast SSE (debounced — editors fire
@@ -1785,7 +1807,15 @@ export async function editMain(args, { onListen = null } = {}) {
   // WHICH port it ended up on (a taken --port moves to the next free one) and
   // to print its own banner instead of the authoring one.
   if (onListen) onListen({ port: actual, deckUrl, server });
-  else console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
+  else if (process.env.DECKLIGHT_BANNER) {
+    // The port is reported rather than assumed: `listenTakingOverIfNeeded` can
+    // land somewhere other than the port author resolved, and the URL on the
+    // banner has to be the one that actually answers.
+    console.log(readyLine({
+      url: `http://127.0.0.1:${actual}${deckUrl}`,
+      keys: 'E edit · L layouts · Z undo · A agent · Ctrl-C stops',
+    }));
+  } else console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
 
   // Did somebody review this deck? Asked ONCE, after the last startup line,
   // detached and never awaited — the update-check shape: nothing about it can
@@ -1797,12 +1827,12 @@ export async function editMain(args, { onListen = null } = {}) {
   if (!onListen) {
     const skipped = reviewCheckSuppressed({ args });
     if (skipped) {
-      console.log(`  reviews: not checked — ${skipped}`);
+      startup('reviews', `not checked — ${skipped}`, `  reviews: not checked — ${skipped}`);
     } else {
       reviewsWaiting(deckPath)
         .then((r) => {
           const line = reviewLine(r, { deck: relative(process.cwd(), deckPath) || basename(deckPath) });
-          if (line) console.log(`  ${line}`);
+          if (line) startup('reviews', line.replace(/^reviews:\s*/, ''), `  ${line}`);
         })
         .catch(() => {});
     }

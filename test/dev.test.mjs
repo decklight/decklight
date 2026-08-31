@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { planServices, inGitRepo, voiceSetupOffer } from '../cli/dev.mjs';
 import { LEASH, onLeash, leashEnv, exitWhenOrphaned } from '../cli/supervise.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
+import { DECK_URL_RE } from '../cli/banner.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -214,7 +215,7 @@ test('author refuses --remote out loud and names the command that replaced it', 
   assert.match(r.stderr, /decklight present deck\.html --remote/,
     'and names it with the deck already filled in');
   // it must not have started anything before deciding
-  assert.doesNotMatch(r.stdout, /decklight author on http/);
+  assert.doesNotMatch(r.stdout, DECK_URL_RE);
 });
 
 test('the agent roster is part of the plan — the big three included', () => {
@@ -395,7 +396,7 @@ test('SIGKILL to author takes the deck server with it — no orphan holding the 
   dev.stderr.on('data', (c) => { out += c; });
 
   const [, spawned] = await waitFor('the deck server to announce its port',
-    async () => out.match(/decklight author on http:\/\/127\.0\.0\.1:(\d+)/), () => out);
+    async () => out.match(DECK_URL_RE), () => out);
   const port = Number(spawned);
   assert.equal(await isPortOpen(port), true, 'the deck server is up');
 

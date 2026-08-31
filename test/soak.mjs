@@ -72,6 +72,7 @@ import { fingerprint } from '../src/core/review.js';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-html.mjs';
 import { ffprobeArgs, SLIDE_PAUSE_DEFAULT, TAIL_SECONDS } from '../tools/video.mjs';
+import { DECK_URL_RE } from '../cli/banner.mjs';
 import {
   cliCommand, npmCommand, gitFileUrl, narrator, narrateArgs, unverifiedPlatform,
 } from './soak-platform.mjs';
@@ -834,7 +835,7 @@ try {
   await step('author starts and takes the repo', async () => {
     authorSrv = await startServer(
       ['author', 'deck.html', '--port', '0', '--git', '--commit-every', '5'],
-      /decklight author on http:\/\/127\.0\.0\.1:(\d+)/,
+      DECK_URL_RE,
     );
     const ping = await (await get(authorSrv.base, '/edit/ping')).json();
     must(ping.ok === true && ping.name === 'deck.html', `ping said ${JSON.stringify(ping)}`);
@@ -851,7 +852,10 @@ try {
     // still governs `--git-mode timer`, and a run that silently ignored it
     // would be worth catching — but in the default mode the honest line is
     // this one.
-    must(/git: committing deck\.html when you say so/.test(authorSrv.log()),
+    // The policy is a banner ROW now, not a sentence of its own — shorter,
+    // because the banner puts it beside every other fact about this session
+    // rather than in a paragraph competing with the url.
+    must(/commits on your word/.test(authorSrv.log()),
       'author did not announce the commit policy it was given');
     must(/decklight\/wip/.test(authorSrv.log()),
       'author did not say where the work is snapshotted');
@@ -1485,7 +1489,7 @@ try {
     // over HTTP, which is the only place this path runs whole.
     const asrv = await startServer(
       ['author', 'reviewed.html', '--port', '0', '--no-git'],
-      /decklight author on http:\/\/127\.0\.0\.1:(\d+)/, { cwd: author2 });
+      DECK_URL_RE, { cwd: author2 });
     // CI=1 (the runner's env) silences only the UNASKED startup line — this
     // route is behind the keypress that opens M, and must answer anywhere
     const inc = await (await fetch(`${asrv.base}/edit/review/incoming`)).json();

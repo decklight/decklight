@@ -21,6 +21,7 @@ import {
 } from '../tools/tts-setup.mjs';
 import { piperDownloadCmd, piperDownloadLine } from '../tools/tts-engines.mjs';
 import { writeFakePiper } from './helpers.mjs';
+import { DECK_URL_RE } from '../cli/banner.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -411,7 +412,10 @@ test('`decklight author` on a TTY offers the same setup where it would skip the 
       text += chunk;
       answer('offer', /set up live narration now\? \(V \/ N in the deck use it\) \[Y\/n\]/, '\n');
       answer('engine', /engine \[1\]/, '\n');
-      answer('int', /decklight tts bridge on http/, '\x03');
+      // NOT the bridge's own line: under author it prints no sentence, it
+      // reports a row. The banner's url is the signal that everything is
+      // up, and being last is the one thing it is guaranteed to be.
+      answer('int', DECK_URL_RE, '\x03');
     });
     child.stderr.on('data', (c) => { text += c; });
     const kill = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`timed out:\n${text}`)); }, 45_000);
@@ -420,7 +424,15 @@ test('`decklight author` on a TTY offers the same setup where it would skip the 
   });
 
   assert.match(out, /no voice engine configured — set up live narration now\?/);
-  assert.match(out, /decklight tts bridge on http/, 'the bridge joined the same author session');
+  // ESCAPES INTERLEAVE WITH THE TEXT, so match a stripped copy rather than
+  // trying to spell them. author dims the banner's label and resets before the
+  // value — `\x1b[2mvoice  \x1b[0m  piper · …` — so `/voice\s+piper/` cannot
+  // match, and the assertion fails on a line a person reading the log would
+  // swear says exactly that. This is the second time that shape bit here; the
+  // first was the url pattern, and the answer there was to spell the escapes.
+  // Stripping them is the answer that keeps working for the next assertion.
+  const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
+  assert.match(plain, /voice\s+piper · en_US-ryan-high/, 'the bridge joined the same author session');
   assert.doesNotMatch(out, /voice\s+skipped/, 'no skip line once setup completed');
   assert.deepEqual(loadTtsConfig({ HOME: home }), { engine: 'piper', voice: 'en_US-ryan-high' });
 });

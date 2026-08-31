@@ -43,6 +43,7 @@ import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader, isMain } from './args.mjs';
 import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
+import { readyLine } from '../cli/banner.mjs';
 
 const run = promisify(execFile);
 
@@ -337,7 +338,8 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   if (asked === null) process.exit(0);
   server.listen(asked, '127.0.0.1', () => {
     const what = [visemeOk && 'visemes (rhubarb)', ...videoEngines.map((e) => `video (${e})`)].filter(Boolean).join(' · ');
-    console.log(`decklight lipsync bridge on http://127.0.0.1:${port} — ${what} — Ctrl-C stops`);
+    if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key: 'lips', text: `${what} — on :${port}` }));
+    else console.log(`decklight lipsync bridge on http://127.0.0.1:${port} — ${what} — Ctrl-C stops`);
     if (veo) {
       console.log(`veo: ${veo.model} · ${veo.seconds}s — each portrait is animated ONCE (billed), `
         + 'then wav2lip re-syncs that clip locally for every sentence');

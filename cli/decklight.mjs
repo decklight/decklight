@@ -187,9 +187,15 @@ if (cmd === 'help') {
 }
 
 // every real command announces the version it runs as — on stderr, so piped
-// output (export, bundle) stays clean
-process.stderr.write(`${banner}\n`);
-if (notice) process.stderr.write(`${notice}\n`);
+// output (export, bundle) stays clean.
+//
+// EXCEPT under author, which spawns this same CLI two or three times: the
+// parent has already said which version everything runs as, and repeating it
+// once per child was the first third of author's startup wall.
+if (!process.env.DECKLIGHT_BANNER) {
+  process.stderr.write(`${banner}\n`);
+  if (notice) process.stderr.write(`${notice}\n`);
+}
 
 // When a parent supervises us (author runs the deck server and the bridges), go when it
 // goes — a SIGKILLed parent never gets to reap its children. No-op otherwise.

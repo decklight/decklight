@@ -39,6 +39,7 @@ import { detectLocalVoice, OLLAMA_NOTE } from '../tools/local-voice.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
+import { nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
 
 const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 // The deck server's entry since `edit` stopped being a command: its module,
@@ -435,6 +436,110 @@ export async function devMain(args) {
   const children = new Map();
   let shuttingDown = false;
 
+  // ── the startup banner ────────────────────────────────────────────────────
+  // Children report a row and author prints all of them at once, so the URL is
+  // last no matter which server woke up first (cli/banner.mjs says why).
+  //
+  // WHEN to print is the only hard part. Waiting for every service is wrong —
+  // one that never comes up would hold the URL hostage — and printing on the
+  // first fact is wrong too, since the rest arrive milliseconds later. So:
+  // settle after a short quiet gap, with a hard cap in case a child is slow or
+  // silent. The review check is the late one on purpose (edit.mjs fires it
+  // detached, after listening), and GRACE is sized for it; if it misses, it
+  // prints under the banner as its own row rather than delaying the URL.
+  // The cap is generous because it is the LAST resort, not the schedule: in the
+  // normal case every service reports and the banner goes out on the grace
+  // timer, well inside a second. The cap only matters when a child is silent,
+  // and then waiting is the right thing anyway — that row is missing from the
+  // banner either way, and a fast wrong banner is not better than a slow right
+  // one by four seconds.
+  const BANNER_CAP_MS = 5000;
+  const BANNER_GRACE_MS = 350;
+  const banner = {
+    done: false, held: [], rows: new Map(),
+    url: editSvc?.url ?? null, keys: null, timer: null, start: Date.now(),
+    // Who still owes us a row. The voice bridge enumerates the machine's
+    // voices before it can say what it is, which takes longer than any grace
+    // window worth having — so the banner waits on NAMES, not on a clock.
+    waiting: new Set(run.map((svc) => svc.tag)),
+  };
+
+  const bannerRow = (key, text) => `  ${tty ? `${DIM}${key}${RESET}` : key}  ${text}`;
+
+  /**
+   * A line from author itself. Held while the banner is still being assembled,
+   * so nothing — an error included — can land above the URL; printed straight
+   * away once it is out.
+   */
+  function say(line) {
+    // Never a caller's choice. It was one, and the caller that passed its own
+    // answer got it wrong in the one case that mattered: the LAST service to
+    // exit computed "nobody is waiting" and printed straight away, while the
+    // flush timer it had just armed was still mid-flight — so its line landed
+    // above the banner it was supposed to sit under.
+    if (banner.done) process.stderr.write(`${line}\n`);
+    else banner.held.push(line);
+  }
+
+  function flushBanner() {
+    if (banner.done) return;
+    banner.done = true;
+    clearTimeout(banner.timer);
+    // Held output goes FIRST, and the banner closes. Everything in here is a
+    // child explaining itself — a bridge saying why it stood aside, a service
+    // saying why it exited — and an explanation belongs before the summary it
+    // explains. It also keeps the promise that matters: whatever was said on
+    // the way up, the deck's url is still the last line on screen.
+    for (const l of banner.held) process.stdout.write(`${l}\n`);
+    banner.held.length = 0;
+    if (banner.url) {
+      const rows = [...banner.rows].map(([key, text]) => ({ key, text }));
+      for (const l of renderBanner({ deck, url: banner.url, keys: banner.keys, rows, color: tty })) {
+        process.stdout.write(`${l}\n`);
+      }
+    }
+  }
+
+  /**
+   * A service has said its piece. Print once nobody is still owed, and keep a
+   * short grace after that for the genuinely late — the review check fires
+   * detached, after the deck server is already listening.
+   */
+  function settle(tag) {
+    banner.waiting.delete(tag);
+    const delay = nextFlushDelay({
+      waiting: banner.waiting.size,
+      elapsed: Date.now() - banner.start,
+      cap: BANNER_CAP_MS,
+      grace: BANNER_GRACE_MS,
+    });
+    if (delay === null) return;
+    clearTimeout(banner.timer);
+    banner.timer = setTimeout(flushBanner, delay);
+    banner.timer.unref?.();
+  }
+
+  function collect(tag, fact) {
+    if (fact.url) banner.url = fact.url;
+    if (fact.keys) banner.keys = fact.keys;
+    if (!fact.key || !fact.text) { if (fact.url) settle(tag); return; }
+    if (banner.done) {
+      // Arrived after the banner went out — still worth saying, in the shape
+      // it would have had, rather than swallowed for being late.
+      process.stdout.write(`${bannerRow(fact.key, fact.text)}\n`);
+      return;
+    }
+    // Two facts can share a key — `git` is both "commits on your word" and
+    // "claude writes the subjects", reported by different parts of the child.
+    // They join into one row rather than the later one erasing the earlier.
+    const had = banner.rows.get(fact.key);
+    banner.rows.set(fact.key, had && had !== fact.text ? `${had} · ${fact.text}` : fact.text);
+    settle(tag);
+  }
+  // Even if no child ever reports, the URL must still appear.
+  banner.timer = setTimeout(flushBanner, BANNER_CAP_MS);
+  banner.timer.unref?.();
+
   // Children write their own startup/progress lines; prefix each so three
   // servers in one terminal stay readable.
   const pipe = (stream, tag, out) => {
@@ -444,7 +549,16 @@ export async function devMain(args) {
       buf += chunk;
       const lines = buf.split('\n');
       buf = lines.pop() ?? '';
-      for (const line of lines) out.write(`${paint(tag)} ${line}\n`);
+      for (const line of lines) {
+        // A startup FACT is for the banner, never for the terminal — it is the
+        // child saying "here is my row", not "here is a line to show someone".
+        const fact = parseReady(line);
+        if (fact) { collect(tag, fact); continue; }
+        // Anything else is ordinary output. Before the banner it is held back
+        // so nothing lands above the URL; after, it streams as it always did.
+        if (!banner.done) banner.held.push(`${paint(tag)} ${line}`);
+        else out.write(`${paint(tag)} ${line}\n`);
+      }
     });
   };
 
@@ -455,7 +569,10 @@ export async function devMain(args) {
     // never reached shutdown() below.
     const child = spawn(process.execPath, [svc.entry, ...svc.args], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: leashEnv(),
+      // DECKLIGHT_BANNER is how a child knows its startup lines belong to
+      // somebody else's banner. Unset — `decklight edit`, `decklight tts` run
+      // straight — and it prints exactly what it always printed.
+      env: { ...leashEnv(), DECKLIGHT_BANNER: '1' },
     });
     children.set(svc.name, child);
     pipe(child.stdout, svc.tag, process.stdout);
@@ -464,19 +581,29 @@ export async function devMain(args) {
     child.on('exit', (code) => {
       children.delete(svc.name);
       if (shuttingDown) return;
+      // It owes no row now — a dead process is never going to report one, and
+      // the banner must not sit on the URL waiting for it. This is the common
+      // case, not a pathological one: a voice bridge that stands aside because
+      // another already serves its port exits 0, seconds into startup.
       if (svc.name === 'edit') {
         // the deck server is the one service author cannot run without
-        console.error(`${paint(svc.tag)} exited (${code}) — stopping decklight author`);
+        say(`${paint(svc.tag)} exited (${code}) — stopping decklight author`);
+        flushBanner();
         shutdown(code ?? 1);
       } else {
-        console.error(`${paint(svc.tag)} exited (${code}) — carrying on without it; the deck degrades on its own`);
+        say(`${paint(svc.tag)} exited (${code}) — carrying on without it; the deck degrades on its own`);
+        settle(svc.tag);   // settle() does the delete and the "is anyone left" itself
       }
     });
   }
 
-  for (const s of skip) console.log(note(`  ${s.name.padEnd(8)} skipped — ${s.why}`));
-  if (!agents.length) console.log(note('  agents   none detected — install claude, codex, or bob to ask an agent from the deck (A)'));
-  console.log(note('  Ctrl-C stops everything.\n'));
+  // author's own facts join the children's rather than printing above them.
+  // `Ctrl-C stops everything` is gone: the banner's key line already says it,
+  // and saying it twice was most of why this block read as a wall.
+  if (skip.length) banner.rows.set('skipped', skip.map((s) => `${s.name} — ${s.why}`).join(' · '));
+  // Only when there are none — otherwise the edit child names them, and its
+  // row (which knows which is preferred and which is installed) wins.
+  if (!agents.length) banner.rows.set('agents', 'none — install claude, codex, or bob to ask one from the deck (A)');
 
   function shutdown(code = 0) {
     if (shuttingDown) return;
