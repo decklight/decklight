@@ -424,9 +424,15 @@ test('`decklight author` on a TTY offers the same setup where it would skip the 
   });
 
   assert.match(out, /no voice engine configured — set up live narration now\?/);
-  // The bridge's presence is now a banner ROW naming the engine it settled
-  // on, not a url of its own — author prints the only url worth clicking.
-  assert.match(out, /voice\s+piper · en_US-ryan-high/, 'the bridge joined the same author session');
+  // ESCAPES INTERLEAVE WITH THE TEXT, so match a stripped copy rather than
+  // trying to spell them. author dims the banner's label and resets before the
+  // value — `\x1b[2mvoice  \x1b[0m  piper · …` — so `/voice\s+piper/` cannot
+  // match, and the assertion fails on a line a person reading the log would
+  // swear says exactly that. This is the second time that shape bit here; the
+  // first was the url pattern, and the answer there was to spell the escapes.
+  // Stripping them is the answer that keeps working for the next assertion.
+  const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
+  assert.match(plain, /voice\s+piper · en_US-ryan-high/, 'the bridge joined the same author session');
   assert.doesNotMatch(out, /voice\s+skipped/, 'no skip line once setup completed');
   assert.deepEqual(loadTtsConfig({ HOME: home }), { engine: 'piper', voice: 'en_US-ryan-high' });
 });
