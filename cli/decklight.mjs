@@ -19,9 +19,9 @@
  *   decklight template install deck templates for `init --from`
  *   decklight importer install import adapters for formats decklight cannot read itself
  *   decklight transform install build-time transforms, run via `bundle --transform <name>`
- *   decklight engine   install a speech engine beyond the six built in — the N picker then offers it
+ *   decklight engine   install a speech engine beyond the six built in — the V picker then offers it
  *   decklight extension check a transform file — the marketplace admission gate, not a bundle step
- *   decklight voice    add a marketplace voice to the N picker — a reference, never a model
+ *   decklight voice    add a marketplace voice to the V picker — a reference, never a model
  *   decklight agent    teach A a coding agent beyond the built-in roster — a descriptor, never code
  *   decklight tts      serve the live voice bridge (on-the-fly Gemini narration)
  *   decklight lipsync  serve the lip-sync bridge (character visemes + talking-head video)

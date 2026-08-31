@@ -29,7 +29,7 @@ import { gcloudToken, validProjectId } from './gemini-tts.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV, apiKey as elevenLabsKey } from './elevenlabs-tts.mjs';
 
 // The picker's preview default (SPEC PRESENTING) — the wizard's proof is the same
-// audio the deck's N picker previews.
+// audio the deck's V picker previews.
 export const TEST_SENTENCE = 'Hey, this is Decklight';
 
 /** The saved answers live at ~/.config/decklight/tts.json — $XDG_CONFIG_HOME honored. */

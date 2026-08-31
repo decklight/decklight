@@ -1166,7 +1166,7 @@ string` pass the other two code-carrying kinds export:
 ```js
 export default function createEngine(opts) {
   return {
-    name, voices,                       // the roster the N picker offers
+    name, voices,                       // the roster the V picker offers
     stylable,                           // may the tone step be shown for it?
     synth(text, { voice, style }) {},   // → { wav, usage }
   };

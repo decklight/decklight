@@ -4,7 +4,7 @@
 // The deck's voice, and everything that hangs off it: the two narration
 // sources (recorded files, live synthesis through the local bridge), the
 // sentence pipeline and its lookahead buffer, pause and speed, the captions
-// that are the same words in text, the lip-synced character, the N picker
+// that are the same words in text, the lip-synced character, the V picker
 // (tracks → voices → tones → character) with its audition clips, and the
 // synthesized pass that records the whole deck offline.
 //
@@ -454,7 +454,7 @@ export function createNarration({
   // Animated lip-synced character (SPEC PRESENTING): an overlay whose mouth follows
   // the narration. Live mode rides the sentence pipeline below (prefetch in
   // the lookahead worker, beginSentence per clip); recorded mode loads
-  // slide-NN sidecar files. Configured in the N picker ("Character…").
+  // slide-NN sidecar files. Configured in the V picker ("Character…").
   const character = createCharacter({ root, config, debugLog, toast });
   // slide|voice|style → PROMISE of a blob URL. Caching the promise (not the
   // resolved URL) dedups concurrent misses: the prefetch and a play (or a
@@ -689,7 +689,7 @@ export function createNarration({
   // are mutually exclusive at any instant, and sharing the counter is what
   // makes a track switch cancel whatever was in flight — two counters would
   // leave each mode blind to the other's cancellation, which is exactly the
-  // bug that appears when the N picker swaps live→recorded mid-sentence.
+  // bug that appears when the V picker swaps live→recorded mid-sentence.
   let segGen = 0; // cancels pending silent-beat timers and stale onended
   let narrPaused = false;     // P — freezes audio, captions and auto-advance
   let chainActive = false; // a chain (sentences or segment files) is running for chainGen
