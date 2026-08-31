@@ -123,7 +123,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML (`--sign` attests it, `--deck` wraps it as `.decklight`) |
 | `decklight publish deck.html` | bundle and push to GitHub Pages — signed by default; Netlify and Vercel install as targets |
 | `decklight pdf deck.html` | one slide per page, at its own size, in its theme — no print dialog |
-| `decklight voiceover deck.html` | batch-synthesize the narration into a folder with a live engine (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's `⇧V` |
+| `decklight voiceover deck.html` | batch-synthesize the narration into a folder with a live engine (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's `V → Record this deck…` |
 | `decklight video deck.html` | render to one narrated mp4 — ⟨CLICK⟩ segments narrate the builds (`--voiceover` synthesizes the narration first) |
 | `decklight theme check\|add` | validate a theme against the token contract, or install one into a deck |
 | `decklight marketplace add owner/repo` | register a catalog — cloned once with **your** git credentials (so a private one works), then read from disk |
@@ -135,7 +135,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait |
 | `decklight report-bug` | gather the version + environment facts a bug report needs, and print the issue URL |
 
-`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings), `present` and `lipsync` in [SPEC PRESENTING](SPEC.md#presenting--presenting--output). (`decklight dev` still works as a hidden alias for `author`.) Drive a deck programmatically with the [JS API](SPEC.md#js_api--public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
+`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings), `present` and `lipsync` in [SPEC PRESENTING](SPEC.md#presenting--presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#js_api--public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
 
 ## Keys
 
@@ -144,8 +144,9 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `→` `←` `Space` | next / previous build or slide |
 | `S` | speaker view (again: rehearse cue cards) |
 | `T` | theme picker (type to filter) · `⌃T` generate a theme |
-| `V` | narration on/off · `⇧V` records it in a synthesized voice · `⇧R` records it in yours |
-| `M` | review comments — what reviewers said (incoming reviews included), `⏎` jumps to the slide, `S` submits a review, `T` takes one in |
+| `⎵` | plays / pauses / resumes the voice once one is chosen — otherwise it advances, as always |
+| `V` | everything about the voice: tracks · live voice · character · record this deck · captions · speed |
+| `M` | review comments, grouped by who said them — `⏎` jumps to the slide, `R` marks one done · `⇧M` writes one |
 | `H` | the deck's history — every version previewed live, `⏎` restores one |
 | `/` | command palette · `G` find a slide |
 | `?` | help overlay — every key |

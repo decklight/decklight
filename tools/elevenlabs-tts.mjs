@@ -5,7 +5,7 @@
 //
 // The other three engines offer a fixed roster: Google's thirty star names, or
 // whichever piper model is on disk. ElevenLabs is the one whose roster is your
-// account's, so a voice you cloned shows up in the deck's N picker beside the
+// account's, so a voice you cloned shows up in the deck's V picker beside the
 // stock ones. That is the whole reason it is here, and it is why this engine
 // alone fetches its voices instead of shipping them: they are not knowable
 // until someone's key is in hand.

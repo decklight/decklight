@@ -397,7 +397,7 @@ export async function devMain(args) {
   if (voiceSetupOffer(plan) && process.stdin.isTTY && process.stdout.isTTY) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     try {
-      const answer = await rl.question('  no voice engine configured — set up live narration now? (V / N in the deck use it) [Y/n] ');
+      const answer = await rl.question('  no voice engine configured — set up live narration now? (V in the deck uses it) [Y/n] ');
       if (!/^n/i.test(answer.trim())) {
         const result = await runSetupWizard({ ask: (q) => rl.question(q) });
         if (result) {

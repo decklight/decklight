@@ -1499,12 +1499,29 @@ try {
       'the incoming records did not carry the comments');
     const sidecarBefore = existsSync(join(author2, 'reviewed.review.jsonl'))
       ? readFileSync(join(author2, 'reviewed.review.jsonl'), 'utf8') : null;
-    const done = await (await fetch(`${asrv.base}/edit/review/done`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ branch: inc.reviews[0].branch, done: true }),
-    })).json();
-    must(done.ok === true && done.done === true, `done answered ${JSON.stringify(done)}`);
+    // ONE COMMENT AT A TIME, which is what #420 made this route: a review is
+    // finished by finishing its comments, exactly as pressing R down the list
+    // does. This step used to post the branch alone — #416's whole-branch mark
+    // — and kept passing nobody's attention because the soak is a release gate
+    // run by hand rather than a CI job, so the API moved and the gate did not.
+    const reviewBranch = inc.reviews[0].branch;
+    const ids = (inc.reviews[0].records ?? []).map((r) => r.id);
+    must(ids.length > 0 && ids.every(Boolean), `the incoming records carry no ids: ${JSON.stringify(ids)}`);
+    // RE-READ BEFORE EACH MARK, because marking one drops the server's cached
+    // listing (the marks it holds are now stale) and the route answers only
+    // for a review it has listed. That is the deck's own loop — src/core/
+    // review.js does `render(await load())` after every R — so a soak that
+    // marked in a batch was standing in for a client nobody ships.
+    let done;
+    for (const id of ids) {
+      await (await fetch(`${asrv.base}/edit/review/incoming`)).json();
+      done = await (await fetch(`${asrv.base}/edit/review/done`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ branch: reviewBranch, id, done: true }),
+      })).json();
+      must(done.ok === true, `done answered ${JSON.stringify(done)} for ${id}`);
+    }
     // NOTHING WAS COPIED: the sidecar is byte-identical, and the reviewer's
     // comment never became one of the author's own.
     const sidecarAfter = existsSync(join(author2, 'reviewed.review.jsonl'))
@@ -1513,9 +1530,13 @@ try {
     must(!(sidecarAfter ?? '').includes('One more before sending.'),
       "the reviewer's comment was merged into the author's own file");
     // the mark is git config in THIS clone, readable with plain git
-    const mark = spawnSync('git', ['config', '--get', `decklight-review.${inc.reviews[0].branch}.done`],
+    // one key per comment (cli/review-remote.mjs doneKey), not one per review
+    const mark = spawnSync('git', ['config', '--get-regexp', `^decklight-review\\.${reviewBranch}\\.done-`],
       { cwd: author2, encoding: 'utf8' });
-    must(mark.stdout.trim() === 'true', `the mark is not in git config: ${JSON.stringify(mark.stdout)}`);
+    const marked = mark.stdout.trim().split('\n').filter(Boolean);
+    must(marked.length === ids.length,
+      `expected ${ids.length} marks in git config, got ${marked.length}: ${JSON.stringify(mark.stdout)}`);
+    must(marked.every((l) => l.endsWith(' true')), `a mark is not "true": ${JSON.stringify(mark.stdout)}`);
     // …and the review is still LISTED (so it can be reopened) but not waiting
     const inc2 = await (await fetch(`${asrv.base}/edit/review/incoming`)).json();
     must((inc2.reviews ?? []).length === 1 && inc2.reviews[0].done === true,

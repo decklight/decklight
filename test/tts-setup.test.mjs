@@ -410,7 +410,7 @@ test('`decklight author` on a TTY offers the same setup where it would skip the 
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk) => {
       text += chunk;
-      answer('offer', /set up live narration now\? \(V \/ N in the deck use it\) \[Y\/n\]/, '\n');
+      answer('offer', /set up live narration now\? \(V in the deck uses it\) \[Y\/n\]/, '\n');
       answer('engine', /engine \[1\]/, '\n');
       // NOT the bridge's own line: under author it prints no sentence, it
       // reports a row. The banner's url is the signal that everything is

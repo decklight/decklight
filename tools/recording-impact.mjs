@@ -9,7 +9,7 @@
 // reads. An agent asked to "rewrite the voiceover" reasonably rewrote the
 // whole `Decklight.init` call and dropped the config with it — every
 // recording orphaned, the WAVs still on disk but nothing playing them, and no
-// sign until you press N and the track is gone. That actually happened.
+// sign until you press V and the track is gone. That actually happened.
 //
 // So an edit that changes what recordings mean is worth a word. Three shapes:
 //

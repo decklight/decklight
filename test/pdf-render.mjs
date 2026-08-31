@@ -69,6 +69,12 @@ const check = (label, got, want, extra = '') => {
 // makes one page or it makes two, and there is nowhere for the error to hide.
 for (const n of [1, 3, 12]) {
   const file = deck(n);
+  // Announced BEFORE the render, not after, because the only failure this
+  // harness has ever had on CI was a silent one: it cleared 1 and 3 slides in
+  // eleven seconds, stalled somewhere inside the twelve-slide render, and was
+  // killed at its budget having printed nothing about where it was. A line
+  // here costs nothing and turns the next occurrence into evidence.
+  console.log(`     rendering ${n} slide(s)…`);
   const { n: got, boxes } = pages(file, 'print');
   check(`plain: ${n} slide(s)`, got, n, ` · ${boxes.join(' ')}`);
   if (n === 3 && !boxes.every((b) => /960 540/.test(b))) {
@@ -78,8 +84,10 @@ for (const n of [1, 3, 12]) {
 }
 
 // 12 slides, 3 to a page
+console.log('     rendering 12 slide(s) as a handout…');
 check('handout: 12 slides', pages(deck(12), 'print=handout').n, 4);
 // 12 slides, one per page
+console.log('     rendering 12 slide(s) with notes…');
 check('notes: 12 slides', pages(deck(12), 'print=notes').n, 12);
 
 if (bad) { console.error('pdf-render: FAILED'); process.exit(1); }
