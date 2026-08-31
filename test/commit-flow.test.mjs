@@ -298,4 +298,12 @@ test('author survives a deck git has never seen, with commit-messages on', async
   assert.match(out, /decklight author on http/, `the server never came up:\n${out}`);
   // and the opening commit it was in the middle of is really there
   assert.match(g('log', '--oneline'), /decklight: add talk-pt\.html/);
+
+  // STOP IT HERE, and wait for it to actually be gone. `repo()` registered its
+  // rmSync first, so on Windows the directory was removed while this child
+  // still held handles inside it — `EBUSY: resource busy or locked, rmdir`,
+  // and the failure names the temp dir rather than anything about the bug
+  // under test. A kill in a t.after cannot fix that: it would run after the
+  // cleanup it needs to precede.
+  await new Promise((done) => { child.once('exit', done); child.kill('SIGKILL'); });
 });
