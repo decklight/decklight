@@ -17,6 +17,7 @@ import { rmTemp } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { isPortOpen, identifyEditServer, nextFreePort, planPortConflict, resolvePortConflict, canBind } from '../cli/port-conflict.mjs';
+import { DECK_URL_RE } from '../cli/banner.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -63,6 +64,9 @@ async function startEdit(t, port = 0, extraArgs = []) {
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
+  // NOT the banner's DECK_URL_RE: this is the edit server run bare, the way
+  // `decklight edit` runs it, and a bare child still prints its own sentence.
+  // The banner only exists when author is the one doing the printing.
   const [, actual] = await waitFor(() => out, /decklight author on http:\/\/127\.0\.0\.1:(\d+)/);
   return { child, dir, port: Number(actual), log: () => out };
 }
@@ -250,7 +254,7 @@ test('`decklight author` bumps the edit port on conflict instead of crashing', a
   dev.stderr.on('data', (c) => { out += c; });
 
   await waitFor(() => out, /already in use/);
-  const [, bumped] = await waitFor(() => out, /decklight author on http:\/\/127\.0\.0\.1:(\d+)/);
+  const [, bumped] = await waitFor(() => out, DECK_URL_RE);
   assert.notEqual(Number(bumped), a.port);
   assert.equal(dev.exitCode, null, 'author never gave up');
 });

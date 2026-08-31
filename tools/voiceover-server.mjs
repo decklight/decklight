@@ -68,6 +68,7 @@ import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
 import { argReader, isMain } from './args.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 import { installedVoices } from '../cli/units.mjs';
+import { readyLine } from '../cli/banner.mjs';
 
 export async function ttsMain(args) {
   if (args.includes('--help')) {
@@ -440,10 +441,18 @@ export async function ttsMain(args) {
     // `cost` is optional (SPEC ENGINE_UNITS) — an installed engine that
     // quotes no list price says nothing here rather than "(undefined)".
     const price = engine.cost ? ` (${engine.cost})` : '';
-    console.log(`decklight tts bridge on http://127.0.0.1:${bound} — ${engine.name} · ${engine.model}${price} — Ctrl-C stops`);
-    // Stated here, once, where the presenter is still choosing — not
-    // discovered mid-talk when the delivery already varied more than expected.
-    if (engine.caveat) console.log(`  ${engine.caveat}`);
+    // Under author this is a banner ROW, not a line: author prints one block
+    // ending in the DECK's url, and a bridge url above it is the wrong thing
+    // to click. Standalone, the bridge is the whole program and says so.
+    if (process.env.DECKLIGHT_BANNER) {
+      console.log(readyLine({ key: 'voice', text: `${engine.name} · ${engine.model}${price} — on :${bound}` }));
+      if (engine.caveat) console.log(readyLine({ key: 'voice', text: engine.caveat }));
+    } else {
+      console.log(`decklight tts bridge on http://127.0.0.1:${bound} — ${engine.name} · ${engine.model}${price} — Ctrl-C stops`);
+      // Stated here, once, where the presenter is still choosing — not
+      // discovered mid-talk when the delivery already varied more than expected.
+      if (engine.caveat) console.log(`  ${engine.caveat}`);
+    }
     // piper loads a ~120 MB model on start; do it now, while the deck is still
     // being opened, so the first sentence isn't a 13-second silence
     if (engine.synth.warm) {
