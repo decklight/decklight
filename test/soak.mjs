@@ -852,7 +852,10 @@ try {
     // still governs `--git-mode timer`, and a run that silently ignored it
     // would be worth catching — but in the default mode the honest line is
     // this one.
-    must(/git: committing deck\.html when you say so/.test(authorSrv.log()),
+    // The policy is a banner ROW now, not a sentence of its own — shorter,
+    // because the banner puts it beside every other fact about this session
+    // rather than in a paragraph competing with the url.
+    must(/commits on your word/.test(authorSrv.log()),
       'author did not announce the commit policy it was given');
     must(/decklight\/wip/.test(authorSrv.log()),
       'author did not say where the work is snapshotted');

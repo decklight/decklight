@@ -21,6 +21,7 @@ import {
 } from '../tools/tts-setup.mjs';
 import { piperDownloadCmd, piperDownloadLine } from '../tools/tts-engines.mjs';
 import { writeFakePiper } from './helpers.mjs';
+import { DECK_URL_RE } from '../cli/banner.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -411,7 +412,10 @@ test('`decklight author` on a TTY offers the same setup where it would skip the 
       text += chunk;
       answer('offer', /set up live narration now\? \(V \/ N in the deck use it\) \[Y\/n\]/, '\n');
       answer('engine', /engine \[1\]/, '\n');
-      answer('int', /decklight tts bridge on http/, '\x03');
+      // NOT the bridge's own line: under author it prints no sentence, it
+      // reports a row. The banner's url is the signal that everything is
+      // up, and being last is the one thing it is guaranteed to be.
+      answer('int', DECK_URL_RE, '\x03');
     });
     child.stderr.on('data', (c) => { text += c; });
     const kill = setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`timed out:\n${text}`)); }, 45_000);
@@ -420,7 +424,9 @@ test('`decklight author` on a TTY offers the same setup where it would skip the 
   });
 
   assert.match(out, /no voice engine configured — set up live narration now\?/);
-  assert.match(out, /decklight tts bridge on http/, 'the bridge joined the same author session');
+  // The bridge's presence is now a banner ROW naming the engine it settled
+  // on, not a url of its own — author prints the only url worth clicking.
+  assert.match(out, /voice\s+piper · en_US-ryan-high/, 'the bridge joined the same author session');
   assert.doesNotMatch(out, /voice\s+skipped/, 'no skip line once setup completed');
   assert.deepEqual(loadTtsConfig({ HOME: home }), { engine: 'piper', voice: 'en_US-ryan-high' });
 });
