@@ -1224,11 +1224,22 @@
           const trackRow = rows.find((el) => /Test/.test(el.textContent));
           r.pickerListedTrack = !!trackRow;
           trackRow?.click();
+          // THE SWITCH is the instant the question starts being asked, so the
+          // slide is read HERE and not before the picker was opened. The guard
+          // is about an advance that survives the switch; an advance the live
+          // chain made legitimately while somebody was still choosing a row is
+          // not that, and counting it failed this on slow Windows runners
+          // three times in a row for a reason that had nothing to do with the
+          // guard.
+          const atSwitch = deck.state.slide;
           // long enough for the orphaned live chain's sentence to end and its
           // advance — if the guard failed — to fire
           await new Promise((ok) => setTimeout(ok, 2500));
 
-          r.stayedPut = deck.state.slide === slideBefore;
+          r.stayedPut = deck.state.slide === atSwitch;
+          // kept for the report: if these differ, the chain advanced while the
+          // picker was open, which is legal but worth seeing in the log
+          r.advancedWhileChoosing = atSwitch !== slideBefore;
           r.nowRecorded = JSON.parse(localStorage.getItem(key)).dir === 'voices';
           r.PASS = r.liveWasSpeaking && r.pickerListedTrack && r.stayedPut && r.nowRecorded;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
