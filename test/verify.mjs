@@ -92,8 +92,21 @@ const HARNESS_TIMEOUT_MS = Number(process.env.VERIFY_TIMEOUT_MS ?? 10 * 60 * 100
  * cap is that a HANG names itself quickly, and that stays true for the other
  * sixteen harnesses. If this list grows past a couple of entries, the answer is
  * to split the harness rather than to keep widening the exception.
+ *
+ * The ×3 above was sized when this harness had SEVENTEEN modes. It now has
+ * thirty-six, and the run that forced this number up was not a hang either:
+ * every mode it reached passed, and it was killed on total elapsed with modes
+ * still to go — the same shape as before, one doubling later. At the ~18s per
+ * mode that runner managed, thirty-six of them need about 650s against a 540s
+ * cap, so ×5 is headroom rather than a new floor.
+ *
+ * THE REAL ANSWER IS TO SPLIT THIS HARNESS, and that is now overdue rather
+ * than hypothetical: a single browser-per-mode harness that has doubled once
+ * will double again, and each doubling is another number edited here instead
+ * of a cost removed. Written down as debt rather than quietly paid a third
+ * time.
  */
-const BUDGET = { 'narration-render': 3 };
+const BUDGET = { 'narration-render': 5 };
 // `record-render` is the other shape again: it runs on the REAL clock, because
 // an AudioContext cannot be fast-forwarded, so its cost is the wall time of the
 // take it records (~6s here) plus two cold browsers. Well inside the base cap —
