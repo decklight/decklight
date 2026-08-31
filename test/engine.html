@@ -176,7 +176,13 @@
       localStorage.setItem('decklight-tips-off', '1');
     } catch { /* ignore */ }
 
-    const deck = Decklight.init({});
+    // The `narration` mode needs a deck that HAS a voice — that is the whole
+    // condition ⎵ branches on. A files track is enough and needs no bridge; the
+    // clips themselves never load here, because what is under test is which key
+    // does what, not whether audio decodes.
+    const deck = Decklight.init(HARNESS_MODE === 'narration'
+      ? { narration: { files: [{ label: 'Test voice', dir: 'voices/t', ext: 'wav' }] } }
+      : {});
 
     const press = (k, opts = {}) => document.body.dispatchEvent(
       new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
@@ -437,6 +443,112 @@
 
         r.PASS = r.pickerUp && r.paletteUp && r.pickerGone && r.finderUp && r.finderGone;
       }
+      if (mode === 'narration' || mode === 'nonarration') {
+        // ⎵ takes the key only WHILE THE VOICE IS IN PLAY. `narration` runs on a
+        // deck that carries a track — and asserts that ⎵ still ADVANCES until
+        // the voice is actually started, which is the case that matters most:
+        // presenting a narrated deck by hand is ordinary, and a ⎵ that began
+        // narrating over the presenter would be a derailment in front of an
+        // audience. `nonarration` is the same assertion on a deck with no track
+        // at all, so neither kind can regress into taking the key early.
+        const voiced = mode === 'narration';
+        await settle();
+        const at = () => deck.state.slide;
+
+        // 1 · with the voice NOT started, ⎵ is the deck's, on both decks
+        const from = at();
+        press(' ');
+        await settle();
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.spaceAdvancesWhenIdle = at() > from;
+        r.spaceDidNotStartTheVoice = !deck.narration.status().narrating;
+
+        // 2 · the deck's own advance keys never change either way
+        const before = at();
+        press('ArrowRight');
+        await settle();
+        r.arrowStillAdvances = at() > before;
+
+        if (!voiced) {
+          r.PASS = r.spaceAdvancesWhenIdle && r.spaceDidNotStartTheVoice && r.arrowStillAdvances;
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        // 3 · start it deliberately — P, the unconditional verb — and only THEN
+        //     does ⎵ belong to the voice
+        press('p');
+        await settle();
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.pStartsTheVoice = !!deck.narration.status().narrating;
+        const mid = at();
+        press(' ');
+        await settle();
+        r.spacePausesOncePlaying = !!deck.narration.status().paused;
+        r.spaceDidNotAdvanceWhilePlaying = at() === mid;
+        press(' ');
+        await settle();
+        r.spaceResumes = !deck.narration.status().paused;
+
+        r.PASS = r.spaceAdvancesWhenIdle && r.spaceDidNotStartTheVoice
+          && r.arrowStillAdvances && r.pStartsTheVoice && r.spacePausesOncePlaying
+          && r.spaceDidNotAdvanceWhilePlaying && r.spaceResumes;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'panel') {
+        // V is the one narration key: the panel holds the track, the voice, the
+        // character, recording, captions and speed. N, ⇧V and ⇧R are freed.
+        await settle();
+        press('v');
+        await settle();
+        const card = document.querySelector('.decklight-narr .narr-card');
+        r.vOpensPanel = !!card;
+        const rowText = () => [...document.querySelectorAll('.decklight-narr .narr-row')]
+          .map((n) => n.textContent);
+        r.panelOffersRecording = rowText().some((t) => /Record this deck/.test(t));
+        r.panelOffersCaptions = rowText().some((t) => /Captions/.test(t));
+        r.panelOffersSpeed = rowText().some((t) => /Speed/.test(t));
+        // the record row drills into its own view, with both recorders
+        const rec = [...document.querySelectorAll('.decklight-narr .narr-row')]
+          .find((n) => /Record this deck/.test(n.textContent));
+        rec.click();
+        await settle();
+        r.recordViewLists = rowText().some((t) => /With your voice/.test(t))
+          && rowText().some((t) => /synthesized voice/.test(t));
+        // The synthesized row is BLOCKED here — this deck has no live voice —
+        // and a blocked row must refuse in place, with its reason, rather than
+        // closing the panel and refusing afterwards. `commitNarrRow` fires any
+        // commit it is handed, so the guard has to be in the row itself.
+        const synth = [...document.querySelectorAll('.decklight-narr .narr-row')]
+          .find((n) => /synthesized voice/.test(n.textContent));
+        r.blockedRowSaysWhy = !!synth && /narr-blocked/.test(synth.className)
+          && /pick a live voice first/.test(synth.textContent);
+        synth.click();
+        await settle();
+        r.blockedRowKeptThePanel = !!document.querySelector('.decklight-narr')
+          && !document.querySelector('.decklight-record');
+        // Esc walks back to the tracks view rather than closing outright
+        press('Escape');
+        await settle();
+        r.escapeGoesBack = rowText().some((t) => /Record this deck/.test(t));
+        // V closes it — the key that opened it
+        press('v');
+        await settle();
+        r.vCloses = !document.querySelector('.decklight-narr');
+        // …and the freed keys do nothing
+        press('n');
+        await settle();
+        r.nDoesNothing = !document.querySelector('.decklight-narr');
+        r.PASS = r.vOpensPanel && r.panelOffersRecording && r.panelOffersCaptions
+          && r.panelOffersSpeed && r.recordViewLists && r.blockedRowSaysWhy
+          && r.blockedRowKeptThePanel && r.escapeGoesBack
+          && r.vCloses && r.nDoesNothing;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'commit') {
         // K opens the commit window; ⌘K and ⌃K are aliases for it, and ⌘⏎ / ⌃⏎
         // commit the message. The two conventions this borrows from: ⌘K is what

@@ -524,7 +524,7 @@ export function init(userConfig = {}) {
       { label: 'Find slide…', hint: 'G', alias: 'search grep goto module chapter jump', run: () => { openSlideFinder(); if (palQuery) setFinderQuery(palQuery); } },
       { label: 'Comments…', hint: 'M', alias: 'feedback remarks reviewer notes critique review read', run: () => review.open() },
       { label: 'Leave a comment…', hint: '⇧M', alias: 'comment note remark feedback add write say', run: () => review.compose() },
-      { label: 'Submit review…', hint: 'S', alias: 'send review push comments submit feedback', run: () => review.submit() },
+      { label: 'Submit review…', alias: 'send review push comments submit feedback', run: () => review.submit() },
       { label: 'History… (dev)', hint: 'H', alias: 'restore version rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: themes.openPicker },
@@ -550,16 +550,20 @@ export function init(userConfig = {}) {
       { label: 'Redo deck edit (dev)', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') },
       { label: 'Ask agent… (dev)', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk },
       { label: 'Messages', hint: '`', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
-      { label: `Narration ${narration.status().narrating ? 'off' : 'on'}`, hint: 'V', run: toggleNarration },
-      { label: 'Narration track…', hint: 'N', alias: 'voice audio', run: () => openNarrPicker('tracks') },
-      { label: 'Live voice…', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
-      { label: 'Character…', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
+      // One verb, one panel. These used to be V (on/off), N (the picker), P
+      // (pause) and two ⇧ shortcuts, with nothing in the naming saying which
+      // was which — and one of the shortcuts was not in the keyboard help.
+      { label: `Narration ${narration.status().paused ? 'resume' : narration.status().narrating ? 'pause' : 'play'}`,
+        hint: '⎵', alias: 'play pause resume voice narration speak start stop', run: () => narration.playPause() },
+      { label: 'Narration…', hint: 'V', alias: 'voice audio track picker settings', run: () => openNarrPicker('tracks') },
+      { label: 'Live voice…', hint: 'V', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
+      { label: 'Character…', hint: 'V', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
+      { label: 'Record this deck…', hint: 'V', alias: 'record narrate microphone mic voice wav offline batch teleprompter',
+        run: () => openNarrPicker('record') },
       { label: `Character solo ${character.solo ? 'off' : 'on'}`, alias: 'centre center stage narrator only fullscreen avatar', run: () => narration.applySolo(!character.solo) },
       // Named as a PAIR, differing only where it matters: "offline" described
       // how the old one was made, not what you got, and read as the opposite
       // of nothing once a second recorder existed.
-      { label: 'Record narration (synthesized voice)…', hint: '⇧V', alias: 'export download batch wav tts offline', run: openRecordDialog },
-      { label: 'Record narration (your voice)…', hint: '⇧R', alias: 'microphone mic narrate teleprompter speak record voice', run: openMicRecorder },
       { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
       { label: 'Speaker view', hint: 'S', run: () => {
@@ -579,7 +583,6 @@ export function init(userConfig = {}) {
       { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
-      { label: `Narration ${narration.status().paused ? 'resume' : 'pause'}`, hint: 'P', alias: 'pause resume voice', run: toggleNarrPause },
       { label: 'Edit speaker notes…', alias: 'edit mode notes write right-click background', run: toggleEditor },
       { label: `Element edit mode ${editmode.elementEditOn() ? 'off' : 'on'} (dev)`, hint: 'E', alias: 'right-click remove delete html content build animation entrance effect context menu', run: toggleElementEdit },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
@@ -1104,7 +1107,7 @@ export function init(userConfig = {}) {
   };
 
   // ----- helpers -----------------------------------------------------------
-  // Hand the browser a URL and a filename. The transcript export, the ⇧V
+  // Hand the browser a URL and a filename. The transcript export, the the synthesized recorder
   // recorder and nothing else — but those two live in different modules now,
   // so the seven lines belong to neither.
   function downloadFromUrl(url, filename) {
@@ -1400,14 +1403,13 @@ export function init(userConfig = {}) {
     helpEl = document.createElement('div');
     helpEl.className = 'decklight-help';
     helpEl.innerHTML = `<div class="help-card"><h3>Keyboard</h3><table>
-      <tr><td>→ / Space</td><td>next build / slide</td></tr>
-      <tr><td>←</td><td>previous</td></tr>
+      <tr><td>→ / PageDown</td><td>next build / slide</td></tr>
+      <tr><td>⎵</td><td>pause / resume the voice while it is speaking — otherwise it advances</td></tr>
+      <tr><td>← / PageUp</td><td>previous</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
       <tr><td>S</td><td>speaker view (again: rehearse mode)</td></tr>
-      <tr><td>V</td><td>narration on/off</td></tr>
-      <tr><td>N</td><td>narration track</td></tr>
-      <tr><td>⇧V</td><td>record offline narration (live voice)</td></tr>
+      <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
@@ -1417,13 +1419,13 @@ export function init(userConfig = {}) {
       <tr><td>⇧W</td><td>laser pointer</td></tr>
       <tr><td>K</td><td>commit — what changed, and what to call it (⌘K / ⌃K also works while typing)</td></tr>
       <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
-      <tr><td>H</td><td>history — commits, slides and diff per version, ⏎ restores one (author mode; R too)</td></tr>
+      <tr><td>H / R</td><td>history — commits, slides and diff per version, ⏎ restores one (author mode)</td></tr>
       <tr><td>M</td><td>comments — yours and every review's, grouped by who said them, ⏎ jumps</td></tr>
       <tr><td>⇧M</td><td>leave a comment on the slide you are looking at</td></tr>
-      <tr><td>P</td><td>pause / resume narration</td></tr>
+      <tr><td>P</td><td>narration play / pause — ⎵'s alias</td></tr>
       <tr><td>F</td><td>fullscreen</td></tr>
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
-      <tr><td>/</td><td>command palette (find, themes, everything)</td></tr>
+      <tr><td>/</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
       <tr><td>E</td><td>element edit mode — right-click a slide element (author mode)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
@@ -1433,8 +1435,7 @@ export function init(userConfig = {}) {
       <tr><td>A</td><td>ask an AI agent to edit the deck (author mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
-      <tr><td>?</td><td>this help</td></tr>
-      <tr><td>/</td><td>command palette — “Welcome to Decklight” reopens the intro</td></tr></table></div>`;
+      <tr><td>?</td><td>this help</td></tr></table></div>`;
     helpEl.addEventListener('click', toggleHelp);
     root.appendChild(helpEl);
   }
@@ -1571,7 +1572,21 @@ export function init(userConfig = {}) {
     // positional, so it cannot be a `case` in a switch over e.key
     if (isMsgKey(e)) { toggleMessages(); e.preventDefault(); return; }
     switch (e.key) {
-      case 'ArrowRight': case ' ': case 'PageDown': instance.next(); break;
+      // ⎵ belongs to the voice only WHILE THE VOICE IS IN PLAY — pausing it,
+      // resuming it — and to the deck at every other moment, including on a
+      // deck that carries a track nobody has started. It can therefore never
+      // start the narration, which is the point: presenting a narrated deck by
+      // hand is ordinary, and a ⎵ that began talking over the presenter would
+      // be a derailment in front of an audience rather than a stumble.
+      //
+      // Nothing is lost by the narrowing. A playing track advances the deck
+      // itself, so ⎵ is free exactly when the voice wants it, and starting stays
+      // deliberate: P, or V's panel.
+      case ' ':
+        if (narration.status().voiceInPlay) narration.playPause();
+        else instance.next();
+        break;
+      case 'ArrowRight': case 'PageDown': instance.next(); break;
       case 'ArrowLeft': case 'PageUp': instance.prev(); break;
       case 'Home': instance.goto(1, 0); break;
       case 'End': instance.goto(instance.state.totalSlides, 0); break;
@@ -1582,22 +1597,21 @@ export function init(userConfig = {}) {
       case 'k': case 'K': editmode.commit.open(); break;
       case 'j': case 'J': toggleProgress(); break;
       case 'h': case 'H': editmode.history.open(); break;
-      case 'p': case 'P': toggleNarrPause(); break;
+      case 'p': case 'P': narration.playPause(); break;   // ⎵'s alias
       // G = go/grep — a direct slide-finder key. Deliberately NOT ⌘F:
       // browser find is sacred, and / already belongs to the palette.
       case 'g': case 'G': openSlideFinder(); break;
       // M is free because the module menu that held it was removed — the
       // finder does both of its jobs (see the `modules` harness mode).
       // M reads what people said; ⇧M says something — the same split every
-      // other shift-variant here makes (⇧R records, ⇧V the record dialog).
+      // other shift-variant here makes (the your-voice recorder records, the synthesized recorder the record dialog).
       case 'm': case 'M': if (e.shiftKey) review.compose(); else review.open(); break;
       // R is history's other door — kept because it is in people's fingers.
-      // ⇧R records YOUR voice; bare R stays history, which is in people's fingers.
-      case 'r': case 'R': if (e.shiftKey) openMicRecorder(); else editmode.history.open(); break;
+      // the your-voice recorder records YOUR voice; bare R stays history, which is in people's fingers.
+      case 'r': case 'R': editmode.history.open(); break;
       case 'e': case 'E': toggleElementEdit(); break;
       case 'f': case 'F': toggleFullscreen(); break;
-      case 'v': case 'V': if (e.shiftKey) openRecordDialog(); else toggleNarration(); break;
-      case 'n': case 'N': openNarrPicker(); break;
+      case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
       case 's': case 'S': {
         // first S opens the speaker view; S again toggles speak ⇄ rehearse
         const w = instance.__speakerWin;
@@ -1742,14 +1756,14 @@ export function init(userConfig = {}) {
   // ── narration (narration.js) ─────────────────────────────────────────────
   // The deck's voice and everything that hangs off it: recorded and live
   // tracks, the sentence pipeline, captions, the lip-synced character, the N
-  // picker and the ⇧V offline recorder. It reaches back into two pieces of
+  // picker and the the synthesized recorder offline recorder. It reaches back into two pieces of
   // chrome the engine owns and it invalidates — the mute button and the D
   // panel's status line — and the engine reads its playback state back
   // through status().
   const narration = createNarration({
     root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
     syncSoundBtn, updateDebugState, downloadFromUrl,
-    // ⇧V writes its slide-NN.wav next to the deck when there is a server that
+    // the synthesized recorder writes its slide-NN.wav next to the deck when there is a server that
     // owns the deck file; a thunk because editmode is built below this, and its
     // probe has not answered yet either way.
     authorBase: () => (editmode?.available() ? editmode.base() : null),
@@ -1762,7 +1776,14 @@ export function init(userConfig = {}) {
     openRecordDialog, openMicRecorder, notesSegs,
   } = narration;
   const openNarrPicker = narration.openPicker;
-  instance.toggleNarration = toggleNarration;               // V, programmatic
+  instance.toggleNarration = toggleNarration;               // programmatic start/stop
+  // The voice, for API callers and the render harnesses — a curated surface
+  // like `instance.tips` and `instance.restore`, not the whole module.
+  instance.narration = {
+    playPause: () => narration.playPause(),
+    openPicker: (view) => narration.openPicker(view),
+    status: () => narration.status(),
+  };
   // `decklight record deck.html` opens the deck HERE — the whole point of that
   // command being that a microphone needs a secure context and file:// is not
   // one. Deferred a beat so the first slide has landed and the welcome card (a
