@@ -69,11 +69,73 @@ async function startEdit(t, port = 0, extraArgs = []) {
 
 // ── planPortConflict: pure decision table ──────────────────────────────────
 
-test('planPortConflict: only asks when there is a TTY AND an identified decklight server', () => {
+test('planPortConflict: only asks when there is a TTY AND somebody to name', () => {
+  const py = { pid: 123, command: 'Python' };
+  // NOTHING is ever killed unattended. author spawns its bridges with a piped
+  // stdin, so these rows are the ones that matter most: no TTY, no question,
+  // and certainly no signal.
   assert.equal(planPortConflict({ tty: false, identified: null }), 'bump');
   assert.equal(planPortConflict({ tty: false, identified: { name: 'x.html' } }), 'bump');
-  assert.equal(planPortConflict({ tty: true, identified: null }), 'bump');
+  assert.equal(planPortConflict({ tty: false, stranger: py }), 'bump');
+  // ours, and stoppable cleanly
   assert.equal(planPortConflict({ tty: true, identified: { name: 'x.html' } }), 'ask');
+  // somebody ELSE's: nameable, so it can be offered — never assumed
+  assert.equal(planPortConflict({ tty: true, stranger: py }), 'ask-stranger');
+  // a port held by something we cannot name at all just moves
+  assert.equal(planPortConflict({ tty: true, identified: null, stranger: null }), 'bump');
+});
+
+test('a BRIDGE never bumps — the deck only ever knocks on the one port', () => {
+  const py = { pid: 123, command: 'Python' };
+  const bridge = { name: 'the say voice bridge', bridge: true };
+  const b = (o) => planPortConflict({ ...o, kind: 'bridge' });
+  // This is the whole point of `kind`. src/core/narration.js hardcodes
+  // 127.0.0.1:8787 and src/core/character.js hardcodes :8789; author passes
+  // --tts-port to the bridge and never tells the deck. A bridge that moved
+  // would bind a port nothing calls, and the deck would report "no live
+  // voice" with nothing on screen to explain why — quieter than the crash
+  // this replaced, and worse.
+  for (const row of [
+    { tty: false, identified: null, stranger: py },
+    { tty: false, identified: null, stranger: null },
+    { tty: true, identified: null, stranger: null },
+  ]) assert.equal(b(row), 'refuse', `bumped instead of refusing: ${JSON.stringify(row)}`);
+  // ours, already answering on that port: stand aside, do not start a second
+  assert.equal(b({ tty: false, identified: bridge }), 'reuse');
+  // with a terminal the offer is still made, for both kinds of occupant
+  assert.equal(b({ tty: true, identified: bridge }), 'ask');
+  assert.equal(b({ tty: true, stranger: py }), 'ask-stranger');
+});
+
+test('a stranger is offered, and DECLINING is the default answer', async () => {
+  // The prompt ends `[k/D]`: anything that is not a `k` means "leave it be".
+  // Killing a process decklight cannot identify must be typed on purpose —
+  // it may be somebody's dev server with unsaved work in it.
+  const asked = [];
+  const port = await resolvePortConflict(9111, {
+    ask: async (q) => { asked.push(q); return '\n'; },        // just pressing return
+    stranger: () => ({ pid: 999999, command: 'Python' }),
+    log: () => {},
+  });
+  assert.match(asked[0] ?? '', /\[k\]ill pid 999999/, 'the offer does not name the pid');
+  assert.match(asked[0] ?? '', /\[k\/D\]/, 'the safe answer is not the default');
+  assert.notEqual(port, 9111, 'declining kept the contested port');
+});
+
+test('a declining bridge explains BOTH sides have to move, and starts nothing', async () => {
+  const said = [];
+  const port = await resolvePortConflict(8787, {
+    kind: 'bridge',
+    stranger: () => ({ pid: 14006, command: 'Python' }),
+    log: (l) => said.push(l),
+  });
+  assert.equal(port, null, 'a refused bridge must not be handed a port to bind');
+  const all = said.join('\n');
+  assert.match(all, /Python \(pid 14006\)/, 'it does not name who has the port');
+  // The escape hatch is only real if both halves are named: moving the bridge
+  // alone leaves the deck knocking on 8787 forever.
+  assert.match(all, /--port/, 'it does not say how to move the bridge');
+  assert.match(all, /liveUrl/, 'it does not say the deck has to be told too');
 });
 
 // ── isPortOpen / nextFreePort: work against ANY occupant, not just decklight ──
