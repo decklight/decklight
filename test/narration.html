@@ -230,7 +230,7 @@
               // A roster far taller than the card, which is the ordinary case
               // on a system voice: a Mac answers 184 names. The scrolling bug
               // this mode guards only exists past the fold.
-              : mode === 'sayshelves'
+              : (mode === 'sayshelves' || mode === 'filter')
                 // a real Mac in miniature: a caveat (no Siri installed), a few
                 // classics, a novelty tail, a foreign tail — say-shaped triples
                 ? { engine: 'say', model: 'Samantha', stylable: false,
@@ -972,6 +972,60 @@
 
           r.PASS = r.voiceRows.length > 0 && r.toneStepShown
             && r.toneLabels.includes('Super excited') && r.sentStyle === 'excited';
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'filter') {
+          // The filter box. A say roster is ~184 names and ~165 of them sit
+          // behind two folded shelves, so the two things that matter are that
+          // typing narrows, and that a match is never left inside a fold.
+          deck.narration.openPicker('voices');
+          await new Promise((ok) => setTimeout(ok, 500));
+          const rowTexts = () => [...document.querySelectorAll('.narr-row')].map((n) => n.textContent);
+          const named = (re) => rowTexts().filter((t) => re.test(t)).length;
+          const box = document.querySelector('.narr-filter');
+          r.boxExists = !!box;
+          // focused on open — arriving here means you are looking for something
+          r.focusedOnOpen = document.activeElement === box;
+
+          const type = async (v) => {
+            const el = document.querySelector('.narr-filter');
+            el.value = v;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            await new Promise((ok) => setTimeout(ok, 150));
+          };
+
+          // a bare term matches the NAME or the LANGUAGE
+          await type('fr');
+          r.bareFindsLang = named(/Amélie/) === 1;
+          r.bareCount = rowTexts().filter((t) => /fr_CA|fr_FR/.test(t)).length;
+
+          // and it reaches INSIDE a folded shelf: Amélie lives under
+          // "other languages (5)", which must not still be a fold
+          r.foldOpened = !rowTexts().some((t) => /other languages \(\d+\)/.test(t));
+
+          // lang: drops the name half
+          await type('lang:fr');
+          r.langOnly = named(/Amélie/) === 1 && named(/Daniel|Karen|Samantha/) === 0;
+
+          // accents are not something anybody types
+          await type('amelie');
+          r.accentBlind = named(/Amélie/) === 1;
+
+          // nothing matches → a row that says so, and ⏎ on it must not throw
+          await type('zzzznope');
+          r.emptySays = rowTexts().some((t) => /no voice matches/.test(t));
+          try {
+            document.querySelector('.narr-row.narr-blocked')?.click();
+            r.deadEndSafe = true;
+          } catch { r.deadEndSafe = false; }
+
+          // clearing brings the whole roster back, folds and all
+          await type('');
+          r.clearedRefolds = rowTexts().some((t) => /other languages \(5\)/.test(t));
+          r.PASS = r.boxExists && r.focusedOnOpen && r.bareFindsLang && r.foldOpened
+            && r.langOnly && r.accentBlind && r.emptySays && r.deadEndSafe && r.clearedRefolds;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

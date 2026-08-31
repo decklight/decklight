@@ -1338,6 +1338,18 @@
   outline: none;
 }
 
+/* The voice filter sits above the preview sentence and holds the keyboard from
+   the moment the view opens: a say roster is ~184 names, and looking for one is
+   why anybody is on this screen. It is the only input here that gets focus
+   without being clicked, so it is the only one that shows a focus ring — a
+   caret blinking in an unmarked box is how you get somebody typing a voice name
+   into the preview sentence. */
+.decklight-narr .narr-filter-row { margin-top: 2px; }
+.decklight-narr .narr-filter:focus {
+  border-color: rgba(255, 255, 255, .42);
+  background: rgba(255, 255, 255, .1);
+}
+
 /* offline recording (V → Record… → synthesized) — shares .decklight-narr's card chrome */
 .decklight-record .narr-card { width: min(400px, 82vw); }
 .decklight-record .rec-line { padding: 4px 12px; opacity: .85; }

@@ -99,7 +99,7 @@ const timings = [];
 const stalled = [];
 let slowest = 0;
 for (const mode of ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'scroll', 'sayshelves', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
+  'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record']) {
   const [m, extra] = mode.split('&');
@@ -193,6 +193,14 @@ for (const mode of ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav'
       + ` · still ran itself to the end=${r.reachedTheEnd}`
       + ` · deck-wide narration.beatPause held too=${r.deckWideHeld && r.deckWideAdvanced}`
       + ` · a slide's "0" wins=${r.slideZeroWins}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'filter') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} box focused on open=${r.focusedOnOpen}`
+      + ` · "fr" found the French voice=${r.bareFindsLang} and opened the fold it hid in=${r.foldOpened}`
+      + ` · lang:fr dropped the names=${r.langOnly} · accent-blind=${r.accentBlind}`
+      + ` · empty says so=${r.emptySays} · clearing refolds=${r.clearedRefolds}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
