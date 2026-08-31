@@ -5,6 +5,130 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.7.0
+
+58 commits since 0.6.0. The release where a deck stops being something you write
+alone. 0.6.0 made the deck's own history readable; 0.7.0 adds the other person —
+a reviewer whose comments live in git and are read, answered and resolved from
+inside the deck — and gives the voice one key instead of four.
+
+### Review, from both ends (SPEC `REVIEW`)
+
+`decklight review deck.html` opens somebody else's deck read-only and lets you
+comment on it. Comments are **anchored to slides and carried by git** in a
+`<deck>.review.jsonl` sidecar, never in the deck itself: a reviewer's opinion is
+not an edit, and the file the author owns is the file the author wrote. Each
+comment records which version of the deck it was written against, so one whose
+slide has since moved is found anyway and one whose slide is gone is still
+shown, with what that slide said at the time.
+
+`decklight review submit` pushes them as a `review/<who>-<date>` branch — a
+branch, not a patch, so the author hears it waiting the next time `author`
+starts, and `--pr` opens the pull request. The compare URL is computed against
+the branch the review was written on, never against main.
+
+In the deck, **`M` reads and `⇧M` writes**. M lists everything grouped by who
+said it, a heading per review branch and then your own, open comments first and
+finished ones struck through inside their group; `⏎` jumps to a comment's slide
+and the panel stays open, because closing it made every comment cost a keypress
+to get back. `R` marks ONE comment done — immediately on somebody else's, armed
+and confirmed on your own, because that resolve is appended to a file that
+travels. Nothing is copied and nothing is merged: the mark is git config, and
+the reviewer's file is untouched.
+
+The panel **docks** beside the slide or under it rather than covering it, and
+the slide reflows into what is left, because writing a comment about a slide you
+cannot see was the whole difficulty.
+
+### Your own voice (SPEC `NARRATION`)
+
+`decklight record` reads you the deck's notes one ⟨CLICK⟩ beat at a time and
+records you saying them, `→` ending a beat and revealing the next build. A track
+is a **folder named after the voice that made it**, so several takes coexist and
+the deck is pointed at one of them rather than at a filename convention.
+
+A recorded track can now pace the builds, not just the slides: one file per beat
+means step k is revealed when segment k ends, which is the build-synced pacing
+the live voice already had, from a recording. `publish-voices` uploads and signs
+those beats alongside the slides, and lip-sync gets a viseme sidecar per beat so
+the mouth stops drifting.
+
+### The deck breathes
+
+Narration used to run sentences together at whatever pace the engine chose.
+There is now a rhythm with three tiers and one rule for all of them: 0.25 s at a
+full stop, 0.5 s between builds, 1 s before the slide turns — overridable per
+slide with `data-narration-*-pause`, deck-wide through `Decklight.init`, and to
+zero. The attribute always outranks the deck.
+
+### One key for the voice (SPEC `PRESENTING`)
+
+There were four: `V` toggled narration, `N` opened the picker, `⇧V` and `⇧R`
+recorded. Two of them were about *doing* narration and two about *configuring*
+it, and nothing in the naming said which.
+
+Now **`⎵` plays, pauses and resumes**, and **`V` is the only key that configures
+anything** — tracks, live voice, character, recording, captions, speed, all one
+panel. `N`, `⇧V` and `⇧R` are gone; recording is a row in the panel rather than
+a shortcut nobody found. `P` remains as `⎵`'s unconditional alias.
+
+`⎵` **never starts a voice nobody chose**: on a deck that merely carries a track
+it advances exactly as it always did, because a presenter walking their own
+slides must not have the space bar taken by a voice they did not ask for. A unit
+test parses the keymap, the palette and the help table and fails when they stop
+agreeing, which is what stops that drift returning.
+
+### A roster you can choose from
+
+A `say` roster is 184 names on a Mac. They are now **ranked** best · good ·
+average with the robots last, shelved under separators, and the ~165 in other
+languages and the novelty tail fold to one row each — and a **filter** at the
+top of the picker takes a name or a language: `fr` matches Amélie and Fred both,
+`lang:fr` drops the names, and filtering opens every shelf so a match is never
+left inside a fold. Previews warm only what is on screen, once per machine.
+
+**Windows speaks through WinRT**, where its natural voices live, rather than the
+SAPI voices that are all the old path could reach.
+
+### Committing on your word (SPEC `PRESENTING`)
+
+The cadence stopped committing. What it produced was a column of
+`decklight: autosave talk.html` in which no commit marked anything — a backup
+wearing a history's clothes. The two jobs are now separate: a **silent snapshot**
+rides on `refs/decklight/wip`, a real commit object on no branch that `git log`
+never shows and a push never carries, so a crash costs
+`git show decklight/wip:deck.html` rather than an afternoon; and the **history**
+is a commit you ask for. `K` (or `⌘K`) opens a window with the diff and a message
+an agent has already drafted, `⌘⏎` commits. One nag per stretch of uncommitted
+work, never a timer — an unanswered nag is an answer. `--git-mode timer` brings
+the old cadence back.
+
+### author says one thing
+
+`decklight author` printed eight lines from three processes in whatever order
+they woke up, so the URL you are meant to click landed wherever it landed —
+routinely under the voice bridge's URL, which is also a URL and the wrong one.
+It now prints **one banner**, a short row per service, and the deck's URL last
+and highlighted. Children report a fact rather than printing a line; run on
+their own they print exactly what they always did.
+
+A **taken port is a sentence, not a stack trace**. An edit server whose port is
+busy offers to take the session over or moves and says where. A **bridge never
+moves**: the deck hardcodes `127.0.0.1:8787`, so a bridge on any other port is a
+bridge nothing talks to — it stands aside for one already serving that port, or
+declines and names who has it. Nothing is ever killed without a terminal to ask
+on.
+
+### Elsewhere
+
+Adding a second deck to a repo that already had one no longer dies before the
+server starts. A hung `git` costs a snapshot tick rather than the author server,
+which used to take every headless render on the machine down with it. Live
+reload survives the deck being atomically replaced. An agent chip says *what*
+the agent is doing, not only for how long. `decklight voiceover` is a
+first-class command. `decklight rec` is `decklight cast`. Media gets real byte
+ranges. `npm run test:impact` runs only the harnesses a change can reach.
+
 ## 0.6.0
 
 28 commits since 0.5.0. The release where the deck's history stopped being
