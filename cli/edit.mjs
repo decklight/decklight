@@ -547,6 +547,16 @@ export async function editMain(args, { onListen = null } = {}) {
     return;
   }
   const { opt } = argReader(args);
+
+  // DECLARED HERE, not down with the rest of the agent wiring, because
+  // `ownCommit` closes over it and editMain CALLS ownCommit synchronously —
+  // the opening commit, taken when git has never seen this deck. Left where it
+  // reads better, that call ran while this binding was still in its temporal
+  // dead zone and `decklight author` died on a ReferenceError before the
+  // server ever came up. It needed both halves to show: a deck git does not
+  // know, and commit-messages on (only that path reads `agentPref`), which is
+  // why adding a SECOND deck to a repo was the way to find it.
+  let agentPref = opt('--agent') ?? preferredAgent();
   const port = Number(opt('--port', 8788));
   // Refused out loud, not ignored (PRESENT#REMOTE). Someone typing --remote
   // wants a clicker; silently binding loopback would leave them holding a phone
@@ -788,7 +798,6 @@ export async function editMain(args, { onListen = null } = {}) {
   // ── AI agents — one-shot editing tasks from the player (A) ─────────────
   // Precedence, like every other saved choice: the flag wins, then what was
   // remembered (#125), then the first detected agent.
-  let agentPref = opt('--agent') ?? preferredAgent();
   const agents = detectAgents();
   if (agents.length) {
     const mark = (a) => a.name + (a.name === agentPref ? ' (preferred)' : '') + (a.installed ? ' (installed)' : '');

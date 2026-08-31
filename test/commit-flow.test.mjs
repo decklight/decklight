@@ -17,9 +17,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   NAG_AFTER_LINES, NAG_AFTER_MS, WIP_REF, deckDirty, nagText, planNag, snapshotWip, wipLine,
 } from '../cli/commit-flow.mjs';
+
+// A URL pathname is not a filesystem path (it percent-encodes, and on Windows
+// it leads with a slash) — the repo has a test that says so.
+const EDIT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../cli/edit.mjs');
 
 function repo(t, { deckDir = '' } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-flow-'));
@@ -255,4 +260,42 @@ test('a git that hangs costs a tick, not the session', (t) => {
   assert.ok(Date.now() - at < 2000, 'the failure did not return promptly');
   // the repository is untouched: no half-written ref, nothing on a branch
   assert.equal(deckDirty(dir, rel).dirty, false);
+});
+
+// ── the opening commit actually runs ────────────────────────────────────────
+
+test('author survives a deck git has never seen, with commit-messages on', async (t) => {
+  // THE BUG: `ownCommit` closes over `agentPref`, and editMain calls ownCommit
+  // synchronously to make the opening commit for an untracked deck — while
+  // that binding was still in its temporal dead zone. `decklight author` died
+  // on a ReferenceError before the server came up.
+  //
+  // It needed BOTH halves to show, which is why it survived: a deck git does
+  // not know yet, AND commit-messages on, since only that path reads
+  // `agentPref`. Adding a second deck to a repo that already had one is the
+  // ordinary thing that does both — and it is what a person translating their
+  // talk does.
+  const { dir, g } = repo(t);
+  g('config', 'decklight.commit-messages', 'true');
+  fs.writeFileSync(path.join(dir, 'talk-pt.html'), '<section><h1>Um</h1></section>\n');
+
+  const { spawn } = await import('node:child_process');
+  const child = spawn(process.execPath, [EDIT, 'talk-pt.html', '--port', '0'],
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline
+    && !/decklight author on http/.test(out)
+    && child.exitCode === null) await new Promise((r) => setTimeout(r, 100));
+
+  assert.doesNotMatch(out, /ReferenceError/, `the server crashed on startup:\n${out}`);
+  assert.equal(child.exitCode, null, `the server exited (${child.exitCode}):\n${out}`);
+  assert.match(out, /decklight author on http/, `the server never came up:\n${out}`);
+  // and the opening commit it was in the middle of is really there
+  assert.match(g('log', '--oneline'), /decklight: add talk-pt\.html/);
 });
