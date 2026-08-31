@@ -7,7 +7,7 @@ carrying the same notes in prose.
 
 ## 0.7.0
 
-58 commits since 0.6.0. The release where a deck stops being something you write
+59 commits since 0.6.0. The release where a deck stops being something you write
 alone. 0.6.0 made the deck's own history readable; 0.7.0 adds the other person —
 a reviewer whose comments live in git and are read, answered and resolved from
 inside the deck — and gives the voice one key instead of four.
