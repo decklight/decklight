@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { READY, ROW_ORDER, nextFlushDelay, parseReady, readyLine, renderBanner } from '../cli/banner.mjs';
+import { DECK_URL_RE, READY, ROW_ORDER, nextFlushDelay, parseReady, readyLine, renderBanner } from '../cli/banner.mjs';
 
 const URL = 'http://127.0.0.1:8788/talk.html';
 const base = { deck: 'talk.html', url: URL, keys: 'E edit · Ctrl-C stops' };
@@ -106,4 +106,22 @@ test('the banner waits on names, not on a clock', () => {
   // The cap is a ceiling on the total wait, not an extra delay on top of it.
   assert.equal(nextFlushDelay({ waiting: 0, elapsed: 4900, cap: 5000, grace: 350 }), 100);
   assert.equal(nextFlushDelay({ waiting: 0, elapsed: 9000, cap: 5000 }), 0, 'a negative delay');
+});
+
+test('DECK_URL_RE finds the port in BOTH the piped and the coloured banner', () => {
+  // Everything watching author's output uses this. The piped form is what most
+  // harnesses see; the coloured form is what anything driven through a pty
+  // sees, and it is the one that broke — the reset closing the ▸ sits between
+  // the arrow and the space, so a pattern demanding whitespace first matched
+  // every piped harness and no pty one.
+  const of = (color) => renderBanner({
+    deck: 'talk.html', url: 'http://127.0.0.1:8788/talk.html', keys: 'E edit', color,
+  }).find((l) => l.includes('http'));
+
+  for (const color of [false, true]) {
+    const line = of(color);
+    const m = DECK_URL_RE.exec(line);
+    assert.ok(m, `no match with color=${color}: ${JSON.stringify(line)}`);
+    assert.equal(m[1], '8788', `wrong port with color=${color}`);
+  }
 });

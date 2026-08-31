@@ -116,6 +116,10 @@ export function nextFlushDelay({ waiting = 0, elapsed = 0, cap = 5000, grace = 3
  * contract, and it lives next to the code that prints it.
  *
  * Group 1 is the port. Tolerant of the colour codes a terminal gets and a pipe
- * does not, so it matches whichever way author was run.
+ * does not, so it matches whichever way author was run — and the escapes and
+ * the space INTERLEAVE: the reset that closes the ▸ lands between the arrow
+ * and the space before the url. A pattern that expected the whitespace first
+ * matched every piped harness and none of the ones driven through a pty,
+ * which is a single test and a 45-second timeout rather than a failure.
  */
-export const DECK_URL_RE = /\u25b8\s*(?:\x1b\[[0-9;]*m)*http:\/\/127\.0\.0\.1:(\d+)/;
+export const DECK_URL_RE = /\u25b8(?:\s|\x1b\[[0-9;]*m)*http:\/\/127\.0\.0\.1:(\d+)/;
