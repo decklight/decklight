@@ -15,7 +15,7 @@ import { notesSegments } from '../tools/deck-html.mjs';
 
 import {
   hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
-  proposeTrack,
+  proposeTrack, parseVoiceQuery, voiceMatches,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -311,4 +311,66 @@ test('the built-in rhythm: 0.25s between sentences, 0.5s between builds, 1s befo
   // opt-OUT, not opt-in: a slide or a deck can still say zero
   assert.equal(pauseFor('0', undefined, SLIDE_PAUSE_S), 0);
   assert.equal(pauseFor(undefined, 0, BEAT_PAUSE_S), 0);
+});
+
+// ── the voice picker's filter ───────────────────────────────────────────────
+// A say roster is ~184 names on a real Mac, most of them folded behind two
+// shelves. The filter is how you find one; these are the queries somebody
+// actually types.
+
+// [name, locale] exactly as the bridge sends them (tools/tts-engines.mjs puts
+// the locale in the flavor slot).
+const ROSTER = [
+  ['Amélie', 'fr_CA'], ['Thomas', 'fr_FR'], ['Aurelie', 'fr_FR'],
+  ['Fred', 'en_US'], ['Frederik', 'da_DK'], ['Karen', 'en_AU'],
+  ['Daniel', 'en_GB'], ['Ting-Ting', 'zh_CN'], ['Xander', 'nl_NL'],
+];
+const hits = (q) => ROSTER.filter(([n, l]) => voiceMatches(n, l, q)).map(([n]) => n);
+
+test('a bare term matches the name OR the language, because both get typed', () => {
+  // The whole point of the union: `fr` is what somebody hunting a French voice
+  // types, and it must not come back with only Fred.
+  assert.deepEqual(hits('fr'), ['Amélie', 'Thomas', 'Aurelie', 'Fred', 'Frederik']);
+  assert.deepEqual(hits('kar'), ['Karen']);
+  assert.deepEqual(hits('en'), ['Fred', 'Karen', 'Daniel'], 'Xander has no "en" in it, nor does nl_NL');
+});
+
+test('lang: drops the name half, and anchors', () => {
+  assert.deepEqual(hits('lang:fr'), ['Amélie', 'Thomas', 'Aurelie'], 'Fred survived a language filter');
+  assert.deepEqual(hits('lang:en'), ['Fred', 'Karen', 'Daniel']);
+  assert.deepEqual(hits('lang:fr_ca'), ['Amélie'], 'a full locale should still work');
+  // ANCHORED at the front, which is what stops a region answering for a
+  // language: `us` is in en_US, but nobody means "the US language".
+  assert.deepEqual(hits('lang:us'), [], 'a region matched as if it were a language');
+  assert.deepEqual(hits('lang:cn'), [], 'zh_CN answered to its region');
+  // A short prefix is still a legitimate prefix — nl_NL is a Dutch voice
+  assert.deepEqual(hits('lang:n'), ['Xander']);
+});
+
+test('accents and case are not something anybody types', () => {
+  assert.deepEqual(hits('amelie'), ['Amélie']);
+  assert.deepEqual(hits('AMÉLIE'), ['Amélie']);
+  assert.deepEqual(hits('ting'), ['Ting-Ting']);
+  // `-` and `_` are the same separator, so fr-CA finds fr_CA
+  assert.deepEqual(hits('lang:fr-ca'), ['Amélie']);
+});
+
+test('terms are ANDed, so a language and a name compose', () => {
+  assert.deepEqual(hits('lang:fr am'), ['Amélie']);
+  assert.deepEqual(hits('lang:fr zzz'), []);
+  assert.deepEqual(hits('  lang:en   dan  '), ['Daniel'], 'stray whitespace changed the answer');
+});
+
+test('an empty filter keeps the whole roster, and so does a half-typed lang:', () => {
+  assert.equal(hits('').length, ROSTER.length);
+  assert.equal(hits('   ').length, ROSTER.length);
+  // Mid-type: `lang:` alone must not empty the list under somebody's hands
+  assert.equal(hits('lang:').length, ROSTER.length);
+  assert.deepEqual(parseVoiceQuery('lang:'), []);
+});
+
+test('parseVoiceQuery says which kind of term each one is', () => {
+  assert.deepEqual(parseVoiceQuery('fr'), [{ any: 'fr' }]);
+  assert.deepEqual(parseVoiceQuery('lang:FR'), [{ lang: 'fr' }]);
+  assert.deepEqual(parseVoiceQuery('lang:fr kar'), [{ lang: 'fr' }, { any: 'kar' }]);
 });

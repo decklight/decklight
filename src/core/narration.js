@@ -172,6 +172,46 @@ export function segmentFileIndex(segs) {
  *
  * Pure, and the one place the recorder decides what it is recording.
  */
+/**
+ * Fold a name or a locale down to what somebody actually types.
+ *
+ * Accents go (nobody types the é in Amélie to find her), case goes, and `-`
+ * becomes `_` so `fr-CA` and `fr_CA` are the same query. Everything the voice
+ * filter compares passes through here, on both sides.
+ */
+const foldVoiceText = (s) => String(s ?? '')
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/-/g, '_')
+  .toLowerCase();
+
+/**
+ * The picker's filter box, parsed. Terms are whitespace-separated and ANDed.
+ *
+ * A bare term matches the NAME OR THE LOCALE, because both are obvious first
+ * attempts: somebody hunting a French voice types `fr`, and somebody hunting
+ * Karen types `kar`, and a box that served only one of them would be wrong
+ * half the time. `lang:fr` drops the name half for when the union is noisy —
+ * `fr` alone also finds Fred and Frederik.
+ */
+export function parseVoiceQuery(query) {
+  return foldVoiceText(query).split(/\s+/).filter(Boolean)
+    .map((t) => (t.startsWith('lang:') ? { lang: t.slice(5) } : { any: t }))
+    // `lang:` with nothing after it is somebody mid-type, not a filter that
+    // should empty the list under them
+    .filter((t) => t.lang !== '');
+}
+
+/** Does this voice survive the filter? An empty filter keeps everything. */
+export function voiceMatches(name, locale, query) {
+  const terms = Array.isArray(query) ? query : parseVoiceQuery(query);
+  if (!terms.length) return true;
+  const n = foldVoiceText(name);
+  const l = foldVoiceText(locale);
+  // A locale term anchors — `lang:en` must not match `zh_HK` through some
+  // stray "en" in the middle of a tag.
+  return terms.every((t) => (t.lang !== undefined ? l.startsWith(t.lang) : n.includes(t.any) || l.includes(t.any)));
+}
+
 export function recordPlan(segs, steps = 0) {
   const parts = (segs ?? []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim());
   const index = segmentFileIndex(parts);
@@ -1477,6 +1517,11 @@ export function createNarration({
   // background, so auditioning the roster becomes instant.
   const PREVIEW_DEFAULT = 'Hey, this is Decklight';
   let previewText = PREVIEW_DEFAULT;
+  // The voices filter, and whether the box still holds the keyboard. Filtering
+  // re-renders the whole view on every keystroke, which destroys the input —
+  // so who has focus is state, not something the DOM can be asked afterwards.
+  let narrFilter = '';
+  let narrFilterFocus = false;
   let previewAudio = null;
   const previewDefaultCache = new Map();
   let previewCustomCache = new Map();
@@ -1570,7 +1615,12 @@ export function createNarration({
     });
   }
   function renderNarr(view) {
+    const cameFrom = narrView;
     narrView = view;
+    // ARRIVING here means you are looking for something, so the box takes the
+    // keyboard. Re-rendering because you typed does not re-decide that — it is
+    // already true, and re-deciding would fight the ArrowDown that just left.
+    if (view === 'voices' && cameFrom !== 'voices') narrFilterFocus = true;
     const card = narrEl.querySelector('.narr-card');
     card.innerHTML = '';
     const head = document.createElement('div');
@@ -1752,7 +1802,15 @@ export function createNarration({
         commit: () => switchEngine(e),
       }));
     } else if (view === 'voices') {
-      head.textContent = 'live voice — pick a voice · ▶ previews';
+      // Parsed once, up here, because it decides the heading, the roster, and
+      // whether the collapsed shelves stay collapsed.
+      const terms = parseVoiceQuery(narrFilter);
+      const shown = terms.length
+        ? liveVoices.filter(([name, flavor]) => voiceMatches(name, flavor, terms))
+        : liveVoices;
+      head.textContent = terms.length
+        ? `live voice — ${shown.length} of ${liveVoices.length} · ▶ previews`
+        : 'live voice — pick a voice · ▶ previews';
       // The engine sits ABOVE the voice and decides the whole roster, so it
       // belongs here rather than a level up: this is the screen where you
       // notice the names are not the ones you wanted. Never in the way — it is
@@ -1763,6 +1821,40 @@ export function createNarration({
         cur: false,
         commit: () => renderNarr('engines'),
       });
+      // A roster is ~184 names on a real Mac. The box is focused on open
+      // because arriving here means you are looking for something.
+      const fwrap = document.createElement('div');
+      fwrap.className = 'narr-preview-row narr-filter-row';
+      const filter = document.createElement('input');
+      filter.className = 'narr-input narr-filter';
+      filter.value = narrFilter;
+      filter.placeholder = 'Filter voices — try fr, or lang:fr';
+      filter.setAttribute('aria-label', 'Filter voices by name or language');
+      filter.addEventListener('input', () => {
+        narrFilter = filter.value;
+        narrFilterFocus = true;
+        renderNarr('voices');
+      });
+      filter.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          // Clear first, leave second: Escape on a filtered list means "show
+          // me everything again" far more often than "close this".
+          if (narrFilter) { narrFilter = ''; narrFilterFocus = true; renderNarr('voices'); }
+          else narrBack();
+          e.preventDefault();
+        } else if (e.key === 'ArrowDown' || e.key === 'Enter') {
+          // Hand the keyboard to the list. The filter stays as typed — this
+          // is moving INTO the result, not dismissing the query.
+          narrFilterFocus = false;
+          filter.blur();
+          selectNarrRow(0, { scroll: true });
+          e.preventDefault();
+        }
+        e.stopPropagation();
+      });
+      fwrap.appendChild(filter);
+      card.appendChild(fwrap);
+
       const wrap = document.createElement('div');
       wrap.className = 'narr-preview-row';
       const test = document.createElement('input');
@@ -1814,11 +1906,14 @@ export function createNarration({
       // ordinary .narr-row, so selection stays in lockstep with narrRows.
       const COLLAPSIBLE = ['novelty', 'other languages'];
       const folded = new Set();
-      liveVoices.forEach(([name, flavor, group]) => {
-        if (group && COLLAPSIBLE.includes(group) && !narrExpanded.has(group)) {
+      shown.forEach(([name, flavor, group]) => {
+        // A FILTER OPENS EVERY SHELF. ~165 of those 184 rows live behind the
+        // two folded ones, so a match left inside a fold is a match the filter
+        // failed to surface — which is the one job it has.
+        if (!terms.length && group && COLLAPSIBLE.includes(group) && !narrExpanded.has(group)) {
           if (!folded.has(group)) {
             folded.add(group);
-            const count = liveVoices.filter(([, , g]) => g === group).length;
+            const count = shown.filter(([, , g]) => g === group).length;
             narrRows.push({
               text: `‣ ${group === 'novelty' ? 'novelty voices' : group} (${count})`,
               toggle: true,
@@ -1846,6 +1941,14 @@ export function createNarration({
           },
         });
       });
+      if (terms.length && !shown.length) {
+        narrRows.push({
+          text: 'no voice matches',
+          flavor: 'Esc clears the filter · lang:fr narrows to a language',
+          blocked: true,
+          commit: () => {},   // a dead end, but ⏎ on it must not throw
+        });
+      }
     } else if (view === 'tones') {
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone · ▶ previews`;
       TONES.forEach((t) => {
@@ -1952,6 +2055,13 @@ export function createNarration({
     // 90 rows down is otherwise a picker that looks like it forgot.
     const cur = narrRows.findIndex((r) => r.cur);
     selectNarrRow(Math.max(0, cur), { scroll: true });
+    // Last, because selectNarrRow scrolls and a focus() before it would be
+    // undone. The caret goes to the END: this input is rebuilt on every
+    // keystroke, and a caret that reset to 0 would type the query backwards.
+    if (narrFilterFocus) {
+      const box = card.querySelector('.narr-filter');
+      if (box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }
+    }
   }
   /**
    * Ask the bridge to speak with a different engine, for this session only.
@@ -2019,6 +2129,8 @@ export function createNarration({
     narrEl?.remove();
     narrEl = null;
     narrExpanded.clear();  // the collapsed shelves fold back for the next open
+    narrFilter = '';       // and the filter goes with them — same reasoning
+    narrFilterFocus = false;
     charProbed = false; // next open re-probes the lipsync bridge
   }
 
