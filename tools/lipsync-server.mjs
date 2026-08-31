@@ -31,6 +31,8 @@
 // and the player's 10-sentence lookahead only ever pays for new sentences.
 
 import { createServer } from 'node:http';
+import { createInterface } from 'node:readline/promises';
+import { canBind, resolvePortConflict } from '../cli/port-conflict.mjs';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, statSync, copyFileSync } from 'node:fs';
@@ -56,6 +58,30 @@ function makeQueue(width) {
     fn().then(res, rej).finally(() => { active--; next(); });
   };
   return (fn) => new Promise((res, rej) => { waiting.push({ fn, res, rej }); next(); });
+}
+
+/** One line from the terminal, for the taken-port question. Closed straight after. */
+async function askLine(prompt) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  // EOF ANSWERS THE SAFE WAY. `rl.question` never settles if the input closes
+  // first (a Ctrl-D, a terminal whose stdin is a spent pipe), and an unsettled
+  // promise here aborted the bridge through the top-level handler — reported to
+  // the user as "this one is a bug, please report it", over a question about a
+  // port. An empty answer is the declining answer everywhere it is read.
+  try {
+    return await new Promise((resolve) => {
+      // `line` is registered FIRST and readline emits it before `close`, so a
+      // key that was actually typed always beats the EOF that follows it. The
+      // two racing as promises did not: a piped `k\n` lost to the close and
+      // read as a decline, which is a terrible way to lose a keystroke.
+      let answered = false;
+      const done = (v) => { if (!answered) { answered = true; resolve(v); } };
+      rl.once('line', done);
+      rl.once('close', () => done(''));
+      rl.setPrompt(prompt);
+      rl.prompt();
+    });
+  } finally { rl.close(); }
 }
 
 export async function lipsyncMain(args) {
@@ -275,7 +301,41 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     res.end();
   });
 
-  server.listen(port, '127.0.0.1', () => {
+  // A TAKEN PORT IS NOT A CRASH. Without this the bind threw EADDRINUSE as an
+  // unhandled 'error' event: a raw Node stack trace in the middle of author's
+  // startup output, which reads as decklight falling over when the truth is
+  // that something else has the port. The edit server has resolved conflicts
+  // for a long time (cli/port-conflict.mjs) — the bridges simply never called
+  // it, so they were the one place the deck could still look broken.
+  //
+  // On a TTY it names the occupant and offers a choice; anywhere else — and
+  // author spawns these with a piped stdin, so that is the usual case — it
+  // moves to the next free port and says so. The player finds the bridge by
+  // probing, so a moved port costs nothing.
+  // `canBind`, NOT `isPortOpen`: this file's own note says why, and getting it
+  // wrong the first time proved the point. `isPortOpen` CONNECTS, answering "is
+  // somebody there" — a listener that never accepts (backlog full, or a socket
+  // opened and ignored) refuses the connect and reads as free, and then the
+  // bind fails anyway. "May I have this port" is a different question and only
+  // a trial bind answers it.
+  //
+  // `--port 0` is "let the OS pick", which cannot conflict — resolving it would
+  // turn a deliberate 0 into port 1. Only a REAL port that is taken gets the
+  // question; everything else binds exactly as before.
+  const asked = port && !(await canBind(port))
+    ? await resolvePortConflict(port, {
+      kind: 'bridge',
+      ask: process.stdin.isTTY && process.stdout.isTTY ? askLine : undefined,
+      log: console.log,
+    })
+    : port;
+  // null is "stand down" — either a bridge is already serving this port, or
+  // somebody else holds it and this one cannot move (the deck only ever calls
+  // the one number). Exiting is the honest outcome: author prints "carrying on
+  // without it" and the deck degrades where you can see it, instead of a
+  // bridge running somewhere nothing will ever knock.
+  if (asked === null) process.exit(0);
+  server.listen(asked, '127.0.0.1', () => {
     const what = [visemeOk && 'visemes (rhubarb)', ...videoEngines.map((e) => `video (${e})`)].filter(Boolean).join(' · ');
     console.log(`decklight lipsync bridge on http://127.0.0.1:${port} — ${what} — Ctrl-C stops`);
     if (veo) {
