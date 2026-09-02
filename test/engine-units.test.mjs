@@ -71,7 +71,12 @@ function installEngine(home, body = NO_COST_ENGINE) {
 /** Start the real bridge on an ephemeral port; resolve once it prints its URL. */
 async function startBridge(t, home, engine = 'azure-tts') {
   const child = spawn(process.execPath, [CLI, 'tts', '--engine', engine, '--port', '0'], {
-    env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'],
+    // XDG_CACHE_HOME with the rest: the bridge caches every engine's synthesis
+    // on disk now, so without this a second run of this file answers from the
+    // developer's real ~/.cache and asserts on 'cached on disk' instead of the
+    // engine's own usage note — a suite that passes once and then never again.
+    env: { ...process.env, DECKLIGHT_HOME: home, XDG_CACHE_HOME: path.join(home, 'cache') },
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
   t.after(() => child.kill('SIGKILL'));
   let out = '';

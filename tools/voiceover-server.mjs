@@ -32,16 +32,16 @@
 // first, so /ping and /voices await that lookup rather than guessing.
 //
 // CORS is wide open (decks run on file://, origin "null") — the server binds
-// 127.0.0.1 only. Responses are cached in memory by (text, voice, style), so
-// stepping back through slides replays instantly and costs nothing.
+// 127.0.0.1 only. Responses are cached in memory AND on disk (tools/tts-cache.mjs)
+// by (engine, model, format, voice, style, text), so stepping back through
+// slides replays instantly, a restarted bridge replays for free, and
+// `decklight voiceover` reuses whatever this bridge already said.
 
 import { createServer } from 'node:http';
 import { createInterface } from 'node:readline/promises';
 import { canBind, resolvePortConflict } from '../cli/port-conflict.mjs';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { execFile } from 'node:child_process';
+import { cacheHome, clipKey, createTtsCache, extFor } from './tts-cache.mjs';
 
 /**
  * The one exec a deck may trigger: open macOS's voice-download pane.
@@ -63,7 +63,6 @@ export function openVoiceSettings(exec = execFile, platform = process.platform) 
   }
   exec('open', [VOICE_SETTINGS_URI], () => { /* fire and forget — Settings owns the rest */ });
 }
-import { createHash } from 'node:crypto';
 import { resolveEngine, engineBlocker, engineMenu, engineStatus, ENGINES } from './tts-engines.mjs';
 import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
 import { argReader, isMain } from './args.mjs';
@@ -100,6 +99,7 @@ export async function ttsMain(args) {
     console.log(`usage: decklight tts [--port 8787] [--engine ${ENGINES.join('|')}|<installed>] [--project <id>]
                      [--tts-model id] [--location global] [--voice name] [--data-dir dir] [--lang en-US]
                      [--tts-format pcm|mp3] [--tts-stability creative|natural|robust] [--setup]
+                     [--no-cache]
 
   gemini  gemini-2.5-pro-tts (default) or --tts-model gemini-2.5-flash-tts — Vertex AI, best
           delivery, the only engine that honors a style instruction. No free tier.
@@ -114,12 +114,19 @@ export async function ttsMain(args) {
           the picker's tone step appears for.
           --tts-stability creative|natural|robust — how hard v3 follows a tag (v3 only;
           refused on any other model rather than silently doing nothing).
-          --tts-format mp3 if your plan has no PCM output (costs you ⇧V and lip-sync).
+          --tts-format mp3 if your plan has no PCM output (costs you the panel's
+          Record this deck… and lip-sync, both of which read WAV).
 
   <installed>  any engine from a marketplace (decklight engine add <name>) — --engine
           takes its name like any of the six above, and the picker treats it the same.
 
   project also read from $GOOGLE_CLOUD_PROJECT (gemini and chirp only)
+
+  cache   every synthesis is kept in ${cacheHome()} under a key made of
+          (engine, model, format, voice, style, text), so a restarted bridge
+          replays for free and 'decklight voiceover' reuses what you already
+          previewed instead of paying for it twice. Oldest clips are dropped
+          past 400 MB. --no-cache re-synthesizes everything, for a fresh take.
 
   first run: with nothing configured on a terminal, tts asks a few guided
   questions (engine, prerequisites, one test synthesis) and saves the answers
@@ -218,42 +225,16 @@ export async function ttsMain(args) {
   // engine's audio under another's voice — the cache survives the switch, and
   // switching back replays instantly rather than re-billing.
   const cache = new Map();
-  // The DISK half of the cache, for the engines whose synthesis is free and
-  // local (say, sapi, piper): a machine's own voice saying the same sentence
-  // is the same audio tomorrow, and a voice's identity — its name, which is
-  // exactly what `say -v` selects by — is stable per machine. Warming 184
-  // previews took ~6 minutes of background `say`; it should cost that once
-  // per machine, not once per bridge. Cloud engines stay memory-only: their
-  // output drifts with server models, and a stale clip that sounds unlike
-  // today's voice is worse than a re-bill of one preview sentence.
-  const DISK_CACHED = new Set(['say', 'sapi', 'piper']);
-  const cacheDir = join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'decklight', 'tts');
-  const diskPath = (key) => join(cacheDir, `${key}.wav`);
-  const diskRead = (key) => {
-    if (!DISK_CACHED.has(engine.name)) return null;
-    try {
-      const wav = readFileSync(diskPath(key));
-      return { wav, usage: { chars: 0, cost: 0, note: 'cached on disk' } };
-    } catch { return null; }
-  };
-  const diskWrite = (key, wav) => {
-    if (!DISK_CACHED.has(engine.name)) return;
-    try { mkdirSync(cacheDir, { recursive: true }); writeFileSync(diskPath(key), wav); }
-    catch { /* a cache that cannot write is a cache, not a failure */ }
-  };
-  // Bounded at startup, oldest first: a per-sentence cache grows forever and
-  // a silent 10 GB in ~/.cache is not a cache, it is a leak with a euphemism.
-  try {
-    const entries = readdirSync(cacheDir)
-      .filter((f) => f.endsWith('.wav'))
-      .map((f) => ({ f, ...statSync(join(cacheDir, f)) }))
-      .sort((a, b) => a.mtimeMs - b.mtimeMs);
-    let total = entries.reduce((sum, e) => sum + e.size, 0);
-    for (const e of entries) {
-      if (total <= 400 * 1024 * 1024) break;
-      try { unlinkSync(join(cacheDir, e.f)); total -= e.size; } catch { break; }
-    }
-  } catch { /* no cache dir yet */ }
+  // The DISK half (tools/tts-cache.mjs), for EVERY engine including the paid
+  // ones. Warming 184 say previews took ~6 minutes of background synthesis and
+  // should cost that once per machine rather than once per bridge — and an
+  // ElevenLabs sentence should be paid for once per sentence, not once per
+  // process, which is what a memory-only cache charged for a preview here and
+  // a batch recording ten minutes later. The MODEL is in the key, so a cloud
+  // engine changing its model underneath us is a miss rather than a stale clip.
+  // `--no-cache` opts out for a deliberate re-roll.
+  const disk = createTtsCache({ enabled: !args.includes('--no-cache') });
+  disk.prune();
 
   // What the bridge could become, and what stands in the way. The options the
   // deck's picker draws (SPEC `NARRATION`).
@@ -387,18 +368,16 @@ export async function ttsMain(args) {
         const { text, voice: picked, style } = JSON.parse((await readBody(req)).toString());
         if (!text?.trim()) { res.writeHead(400, CORS); return res.end('no text'); }
         const voice = refIds.get(picked) ?? picked;
-        // NUL joins the fields so they cannot run together (a style ending in a
-        // space and a text starting with one must not hash like their neighbours)
-        // — but written as an ESCAPE, not a raw byte. This file used to carry
-        // literal NULs, and git calls any file with one in its first 8 KB binary:
-        // it silently became undiffable and unreviewable.
-        const key = createHash('sha256')
-          .update([engine.name, voice, style, text].join('\u0000')).digest('hex');
+        // The key is the SAME function `decklight voiceover` hashes with, and
+        // that is the point: a sentence previewed here and then batch-recorded
+        // is one synthesis, not two identical bills (SPEC `NARRATION`).
+        const ext = extFor(engine.synth.mimeType ?? 'audio/wav');
+        const key = clipKey(engine, { voice, style, text });
         let fresh = !cache.has(key);
         if (fresh) {
-          const onDisk = diskRead(key);
-          if (onDisk) {
-            cache.set(key, onDisk);
+          const bytes = disk.read(key, ext);
+          if (bytes) {
+            cache.set(key, { wav: bytes, usage: { chars: 0, cost: 0, note: 'cached on disk' } });
             fresh = false;
             console.log(`  ${engine.name} ${picked}: ${text.length} chars · cached on disk`);
           }
@@ -407,7 +386,7 @@ export async function ttsMain(args) {
           process.stdout.write(`  ${engine.name} ${picked}: ${text.length} chars … `);
           const t0 = Date.now();
           cache.set(key, await engine.synth(text, { voice, style }));
-          diskWrite(key, cache.get(key).wav);
+          disk.write(key, cache.get(key).wav, ext);
           const u = cache.get(key).usage;
           // `cost` is OPTIONAL, and an installed engine is why (SPEC
           // ENGINE_UNITS): the six built-ins all happen to report one, so
