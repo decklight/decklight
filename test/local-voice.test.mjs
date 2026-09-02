@@ -15,7 +15,7 @@ import {
   parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs, TIER_LABEL,
   parseWinrtVoices, winrtTier, winrtArgs, WINRT_LIST, SAPI_LIST,
   detectLocalVoice, ollamaRunning, OLLAMA_NOTE, onPath, probe,
-  withoutSupersededPlain, PLAIN_TIER,
+  withoutSupersededPlain, plainName, PLAIN_TIER,
 } from '../tools/local-voice.mjs';
 import { planServices, voiceModelOffer } from '../cli/dev.mjs';
 import { ENGINES, NATIVE_ENGINES } from '../tools/tts-engines.mjs';
@@ -397,16 +397,41 @@ test('Windows asks WinRT first and System.Speech only when it cannot project', (
 });
 
 
-test('a locale\'s plain voice goes only when that locale has better', () => {
-  // Ava (Premium) and Gilles (Personal Voice) are en_US, so en_US's plain
-  // Samantha is a worse version of a row already on the list. it_IT's Alice is
-  // plain too — and is Italian's ONLY voice, so she stays: a bar that empties
-  // a language has made the deck unnarratable in it to make a point.
+test('a plain voice goes only when the SAME voice is there at a better build', () => {
+  // `Daniel` and `Daniel (Enhanced)` are one voice offered twice; the worse
+  // row is not a choice. `Samantha` is a different voice that merely happens
+  // to share a language with a Premium one, and she stays.
   const roster = parseSayVoices(`Ava (Premium)       en_US    # Hello! My name is Ava.
 Samantha            en_US    # Hello! My name is Samantha.
-Alice               it_IT    # Salve, mi chiamo Alice.`);
+Daniel (Enhanced)   en_GB    # Hello! My name is Daniel.
+Daniel              en_GB    # Hello! My name is Daniel.`);
   const kept = withoutSupersededPlain(roster).map((v) => v.name);
-  assert.deepEqual(kept, ['Ava (Premium)', 'Alice']);
+  assert.ok(!kept.includes('Daniel'), 'the duplicate build survived');
+  assert.ok(kept.includes('Daniel (Enhanced)'));
+  assert.ok(kept.includes('Samantha'),
+    'a distinct voice was deleted for sharing a language with a Premium one');
+});
+
+test('the match is per LOCALE — a namesake in another language supersedes nothing', () => {
+  const roster = parseSayVoices(`Thomas (Enhanced)   fr_FR    # Bonjour, je m'appelle Thomas.
+Thomas              en_US    # Hello! My name is Thomas.`);
+  // (order is parseSayVoices' — asked-for language first; what matters here is
+  // that both survive)
+  assert.deepEqual(
+    withoutSupersededPlain(roster).map((v) => v.name).sort(),
+    ['Thomas', 'Thomas (Enhanced)'],
+  );
+});
+
+test('only a QUALITY suffix marks a better build, not any parenthesis', () => {
+  // `Aman (English (India))` is a novelty voice whose suffix names a language.
+  // Treating any trailing parenthetical as a quality marker would have it
+  // supersede the plain `Aman` — a robot deleting a real voice.
+  assert.equal(plainName('Daniel (Enhanced)'), 'Daniel');
+  assert.equal(plainName('Audrey (Premium)'), 'Audrey');
+  assert.equal(plainName('Gilles (Personal Voice)'), 'Gilles');
+  assert.equal(plainName('Eddy (English (UK))'), 'Eddy (English (UK))');
+  assert.equal(plainName('Aman (English (India))'), 'Aman (English (India))');
 });
 
 test('the novelty shelf is NOT this function\'s business — the picker folds it', () => {
@@ -419,27 +444,22 @@ test('the novelty shelf is NOT this function\'s business — the picker folds it
 Zarvox              en_US    # Hello! My name is Zarvox.
 Agnes               en_US    # Isn't it nice to have a computer that will talk to you?`);
   const kept = withoutSupersededPlain(roster).map((v) => v.name);
-  assert.ok(kept.includes('Zarvox'), 'a robot was cut by the wrong layer');
-  assert.ok(kept.includes('Agnes'));
-  assert.equal(kept.length, 3, 'the cut is the plain shelf and nothing else');
+  assert.equal(kept.length, 3, 'the cut is same-named duplicates and nothing else');
+  assert.ok(kept.includes('Zarvox') && kept.includes('Agnes'));
 });
 
-test('a language whose best voice is plain keeps it rather than showing nothing', () => {
+test('a language whose only voice is plain keeps it — nothing supersedes it', () => {
   const only = parseSayVoices('Alice               it_IT    # Salve, mi chiamo Alice.');
   assert.equal(only[0].tier, PLAIN_TIER, 'a plain compact voice is the average shelf');
   assert.deepEqual(withoutSupersededPlain(only).map((v) => v.name), ['Alice']);
 });
 
-test('the voice the bridge booted with survives, even superseded in its own locale', () => {
-  // `--voice Samantha` is a choice, not a mistake: hiding it would leave the
+test('the voice the bridge booted with survives, duplicate or not', () => {
+  // `--voice Daniel` is a choice, not a mistake: hiding it would leave the
   // picker unable to show what is currently speaking.
-  const roster = parseSayVoices(`Ava (Premium)       en_US    # Hello! My name is Ava.
-Samantha            en_US    # Hello! My name is Samantha.
-Karen               en_AU    # Hello! My name is Karen.`);
-  const kept = withoutSupersededPlain(roster, { keep: 'Samantha' }).map((v) => v.name);
-  assert.ok(kept.includes('Samantha'));
-  // en_AU has nothing better than Karen, so she was never at risk
-  assert.ok(kept.includes('Karen'));
+  const roster = parseSayVoices(`Daniel (Enhanced)   en_GB    # Hello! My name is Daniel.
+Daniel              en_GB    # Hello! My name is Daniel.`);
+  assert.ok(withoutSupersededPlain(roster, { keep: 'Daniel' }).map((v) => v.name).includes('Daniel'));
 });
 
 test('a roster that never scored passes through — this ranks, it does not invent', () => {

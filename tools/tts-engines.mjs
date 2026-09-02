@@ -450,14 +450,14 @@ export function createEngine({
       // neural voices with 1990s robots under names that reveal nothing. The
       // flavor stays the locale alone; repeating the category on every row
       // was the suffix wallpaper the separators replace.
-      // One cut, and only one: a locale's PLAIN compact voice goes when that
-      // locale has a Premium or Enhanced one, because a worse version of the
-      // row above it is not a choice. The robots and personas stay — the
-      // picker folds those to a single expandable row already, which is the
-      // same noise handled where it can be UNDONE. `pick` survives the cut
-      // regardless, because it may have been named on the command line. The
-      // GUARD below keeps the FULL roster: hiding a voice must not turn saying
-      // it into an error.
+      // One cut, and only one: `Daniel` goes when `Daniel (Enhanced)` is on
+      // the same list, because that is one voice offered twice and the worse
+      // row is not a choice. Everything else stays — the robots and personas
+      // because the picker already folds them to a single EXPANDABLE row, and
+      // a voice like Samantha because sharing a language with a Premium one
+      // does not make her a duplicate of it. `pick` survives regardless: it
+      // may have been named on the command line. The GUARD below keeps the
+      // FULL roster — hiding a voice must not turn saying it into an error.
       voices: withoutSupersededPlain(detected.voices ?? [], { keep: pick })
         .map((v) => [v.name, v.locale || 'system', groupOf(v)]),
       // "download a Siri voice" rides the same channel every engine caveat
