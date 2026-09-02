@@ -15,6 +15,7 @@ import {
   parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs, TIER_LABEL,
   parseWinrtVoices, winrtTier, winrtArgs, WINRT_LIST, SAPI_LIST,
   detectLocalVoice, ollamaRunning, OLLAMA_NOTE, onPath, probe,
+  withoutSupersededPlain, PLAIN_TIER,
 } from '../tools/local-voice.mjs';
 import { planServices, voiceModelOffer } from '../cli/dev.mjs';
 import { ENGINES, NATIVE_ENGINES } from '../tools/tts-engines.mjs';
@@ -393,4 +394,57 @@ test('Windows asks WinRT first and System.Speech only when it cannot project', (
   });
   assert.equal(fallback.api, 'sapi');
   assert.equal(fallback.voices[0].name, 'Microsoft Zira Desktop - English (United States)');
+});
+
+
+test('a locale\'s plain voice goes only when that locale has better', () => {
+  // Ava (Premium) and Gilles (Personal Voice) are en_US, so en_US's plain
+  // Samantha is a worse version of a row already on the list. it_IT's Alice is
+  // plain too — and is Italian's ONLY voice, so she stays: a bar that empties
+  // a language has made the deck unnarratable in it to make a point.
+  const roster = parseSayVoices(`Ava (Premium)       en_US    # Hello! My name is Ava.
+Samantha            en_US    # Hello! My name is Samantha.
+Alice               it_IT    # Salve, mi chiamo Alice.`);
+  const kept = withoutSupersededPlain(roster).map((v) => v.name);
+  assert.deepEqual(kept, ['Ava (Premium)', 'Alice']);
+});
+
+test('the novelty shelf is NOT this function\'s business — the picker folds it', () => {
+  // THE DESIGN. Keeping only best+good takes a real Mac from 201 rows to 59
+  // and deletes the novelty shelf outright — leaving src/core/narration.js
+  // with expand/collapse machinery (COLLAPSIBLE) for a shelf that can no
+  // longer exist. The fold is the same noise handled where it can be UNDONE,
+  // so somebody who wants the robot still gets the robot.
+  const roster = parseSayVoices(`Ava (Premium)       en_US    # Hello! My name is Ava.
+Zarvox              en_US    # Hello! My name is Zarvox.
+Agnes               en_US    # Isn't it nice to have a computer that will talk to you?`);
+  const kept = withoutSupersededPlain(roster).map((v) => v.name);
+  assert.ok(kept.includes('Zarvox'), 'a robot was cut by the wrong layer');
+  assert.ok(kept.includes('Agnes'));
+  assert.equal(kept.length, 3, 'the cut is the plain shelf and nothing else');
+});
+
+test('a language whose best voice is plain keeps it rather than showing nothing', () => {
+  const only = parseSayVoices('Alice               it_IT    # Salve, mi chiamo Alice.');
+  assert.equal(only[0].tier, PLAIN_TIER, 'a plain compact voice is the average shelf');
+  assert.deepEqual(withoutSupersededPlain(only).map((v) => v.name), ['Alice']);
+});
+
+test('the voice the bridge booted with survives, even superseded in its own locale', () => {
+  // `--voice Samantha` is a choice, not a mistake: hiding it would leave the
+  // picker unable to show what is currently speaking.
+  const roster = parseSayVoices(`Ava (Premium)       en_US    # Hello! My name is Ava.
+Samantha            en_US    # Hello! My name is Samantha.
+Karen               en_AU    # Hello! My name is Karen.`);
+  const kept = withoutSupersededPlain(roster, { keep: 'Samantha' }).map((v) => v.name);
+  assert.ok(kept.includes('Samantha'));
+  // en_AU has nothing better than Karen, so she was never at risk
+  assert.ok(kept.includes('Karen'));
+});
+
+test('a roster that never scored passes through — this ranks, it does not invent', () => {
+  // SAPI and WinRT voices carry no tier; cutting them would need a judgement
+  // this function has no basis for.
+  const sapi = parseSapiVoices('Microsoft David Desktop - English (United States)\nMicrosoft Zira Desktop - English (United States)');
+  assert.equal(withoutSupersededPlain(sapi).length, sapi.length);
 });

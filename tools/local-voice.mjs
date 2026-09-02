@@ -97,6 +97,61 @@ export function sayTier(name, sample = '') {
 export const TIER_LABEL = ['best', 'good', 'good', 'average', 'novelty'];
 
 /**
+ * The `average` shelf — the plain compact voice every locale ships.
+ *
+ * Derived from TIER_LABEL rather than written as 3, so inserting a shelf moves
+ * this with it instead of silently re-pointing it at the wrong one.
+ */
+export const PLAIN_TIER = TIER_LABEL.indexOf('average');
+
+/**
+ * Drop a locale's plain compact voice WHEN THAT LOCALE HAS BETTER.
+ *
+ * This is deliberately the narrowest useful cut, and the story of what it is
+ * NOT is the story of the design.
+ *
+ * The obvious version — keep only `best` and `good` — takes a real Mac from
+ * 201 rows to 59 and reads as a huge win, right up until you notice it deletes
+ * the novelty shelf entirely (130 of those 201) and leaves the picker with
+ * expand/collapse machinery for a shelf that can no longer exist. The picker
+ * ALREADY solves the noise: `novelty` and `other languages` fold to one
+ * expandable row each (src/core/narration.js, `COLLAPSIBLE`), which is the
+ * same problem solved where it is REVERSIBLE — a fold you can open, rather
+ * than a roster that never mentions Zarvox again. Someone who wants the robot
+ * is entitled to the robot.
+ *
+ * So the fold keeps novelty and this keeps only the cut the fold cannot make,
+ * because it is not about noise at all: a plain compact voice sitting beside a
+ * Premium one in the SAME language is not a choice, it is a worse version of
+ * the row above it. fr_FR holding Audrey (Premium) drops its four plain rows;
+ * de_DE, whose best IS Anna, keeps Anna — a bar that empties a language has
+ * made the deck unnarratable in it to make a point.
+ *
+ * `keep` names one voice that survives regardless: the one the bridge booted
+ * with may have been asked for by name, and a picker that cannot show what is
+ * currently speaking is worse than a noisy one.
+ *
+ * Voices with no tier (the SAPI and WinRT rosters, which never scored) pass
+ * through untouched: this ranks, it does not invent.
+ */
+export function withoutSupersededPlain(voices = [], { keep } = {}) {
+  const best = new Map();
+  for (const v of voices) {
+    if (!Number.isInteger(v?.tier)) continue;
+    const k = (v.locale || '').toLowerCase();
+    if (!best.has(k) || v.tier < best.get(k)) best.set(k, v.tier);
+  }
+  return voices.filter((v) => {
+    if (!Number.isInteger(v?.tier)) return true;
+    // Only the plain shelf is ever cut. Novelty is the picker's fold to make.
+    if (v.tier !== PLAIN_TIER) return true;
+    if (keep && v.name === keep) return true;
+    const k = (v.locale || '').toLowerCase();
+    return (best.get(k) ?? PLAIN_TIER) >= PLAIN_TIER;
+  });
+}
+
+/**
  * Parse `say -v '?'`.
  *
  * A voice NAME may contain spaces and a parenthesised tier, so the locale — the

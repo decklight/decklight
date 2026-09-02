@@ -51,7 +51,9 @@ import {
   createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
 } from './elevenlabs-tts.mjs';
-import { detectLocalVoice, sayArgs, sapiArgs, winrtArgs, TIER_LABEL } from './local-voice.mjs';
+import {
+  detectLocalVoice, sayArgs, sapiArgs, winrtArgs, TIER_LABEL, withoutSupersededPlain,
+} from './local-voice.mjs';
 
 export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs', 'say', 'sapi'];
 /** The two engines that are already on the machine — nothing to install. */
@@ -448,7 +450,16 @@ export function createEngine({
       // neural voices with 1990s robots under names that reveal nothing. The
       // flavor stays the locale alone; repeating the category on every row
       // was the suffix wallpaper the separators replace.
-      voices: (detected.voices ?? []).map((v) => [v.name, v.locale || 'system', groupOf(v)]),
+      // One cut, and only one: a locale's PLAIN compact voice goes when that
+      // locale has a Premium or Enhanced one, because a worse version of the
+      // row above it is not a choice. The robots and personas stay — the
+      // picker folds those to a single expandable row already, which is the
+      // same noise handled where it can be UNDONE. `pick` survives the cut
+      // regardless, because it may have been named on the command line. The
+      // GUARD below keeps the FULL roster: hiding a voice must not turn saying
+      // it into an error.
+      voices: withoutSupersededPlain(detected.voices ?? [], { keep: pick })
+        .map((v) => [v.name, v.locale || 'system', groupOf(v)]),
       // "download a Siri voice" rides the same channel every engine caveat
       // does: the bridge's startup line and the deck's toast on switching
       ...(detected.caveat ? { caveat: detected.caveat } : {}),
