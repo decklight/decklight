@@ -409,6 +409,12 @@ export function createEngine({
     const m = voice ?? PIPER_DEFAULT_VOICE;
     return {
       name: 'piper', model: m, needsProject: false, stylable: false,
+      // piper's synth takes only text: the model is loaded once and a
+      // per-sentence voice request does nothing. The clip cache keys on the
+      // MODEL for this engine and ignores the asked-for voice, or two runs
+      // under different --voice models would collide on one key (SPEC
+      // `NARRATION`).
+      voiceIsFixed: true,
       cost: 'free · offline',
       voices: [[m, 'local']],
       synth: createPiper({ voice: m, dataDir }),
@@ -429,6 +435,12 @@ export function createEngine({
         : 'other languages');
     return {
       name: engine, model: pick, needsProject: false, stylable: false,
+      // `model` here is the voice this process BOOTED with, not a model — and
+      // createNative honours a different voice per sentence, so the boot voice
+      // says nothing about how a given clip sounds. The cache keys on the
+      // spoken voice alone; including this would file one sentence in one
+      // voice under as many names as there are bridges (SPEC `NARRATION`).
+      modelIsDefaultVoice: true,
       cost: 'free · offline · already on this machine',
       // [name, flavor, group]: the quality category travels as a STRUCTURED
       // third element (best · good · average) and the picker draws it as a

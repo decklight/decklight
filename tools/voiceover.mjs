@@ -48,6 +48,7 @@ import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createEngine } from './tts-engines.mjs';
+import { clipKey, createTtsCache, extFor } from './tts-cache.mjs';
 import { argReader } from './args.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 
@@ -58,8 +59,9 @@ const HELP = `decklight voiceover — batch-synthesize a deck's narration into a
 Usage:
   decklight voiceover <deck.html> [-o <dir>] [--engine piper|chirp|gemini|elevenlabs]
                       [--voice <name>] [--no-llm] [--reuse-text] [--keep-wav]
+                      [--no-cache]
 
-The headless counterpart of the deck's \u21e7V: it reads each slide's speaker
+The headless counterpart of the deck's V \u2192 Record this deck\u2026: it reads each slide's speaker
 notes and writes one slide-NN.m4a per slide (plus a file per \u27e8CLICK\u27e9 beat)
 and a manifest.json into <dir>, so a deck can point at it with
 narration: { files: [{ label, dir, segments: true }] }.
@@ -72,6 +74,12 @@ narration: { files: [{ label, dir, segments: true }] }.
   --reuse-text   re-voice the existing slide-NN.txt without re-rolling the text
                  — switch voices or engines without a new narration pass
   --keep-wav     keep the lossless WAVs (tools/lipsync.mjs consumes them)
+  --no-cache     re-synthesize every slide, ignoring the shared clip cache
+
+Synthesis is cached on disk (~/.cache/decklight/tts) under a key made of
+(engine, model, format, voice, style, text) — the SAME key the live bridge
+uses, so a sentence you previewed in the deck is recorded here for free
+instead of being billed a second time.
 
 Cloud engines need --project or $GOOGLE_CLOUD_PROJECT and application-default
 credentials; elevenlabs needs $ELEVENLABS_API_KEY. Audio is a build artifact.`;
@@ -95,6 +103,7 @@ const model = opt('--model', 'qwen3:30b-a3b');
 const useLlm = !args.includes('--no-llm');
 const reuseText = args.includes('--reuse-text');
 const keepWav = args.includes('--keep-wav');
+const useCache = !args.includes('--no-cache');
 
 // one factory, three engines — the same ones the live bridge speaks with
 let tts;
@@ -174,12 +183,71 @@ function narrate(text, slideNo) {
 }
 
 // ── synthesize ────────────────────────────────────────────────────────────────
-// Incremental: the manifest stores a hash of (engine, voice, style, text) per
-// slide, so a rerun only synthesizes slides whose narration actually changed.
+// TWO layers of reuse, and they answer different questions.
+//
+// The MANIFEST answers "is this folder already correct?" — a hash per slide,
+// so a rerun re-synthesizes only the slides whose narration actually changed
+// and leaves the rest of the .m4a files alone.
+//
+// The CLIP CACHE (tools/tts-cache.mjs) answers "has anyone, ever, paid for
+// these exact words?" — it is keyed by content rather than by folder, so it
+// survives a different -o, a deleted manifest, and above all the process
+// boundary: the live bridge fills the same cache while you preview the deck,
+// and this run collects it. An ElevenLabs deck used to be billed twice for
+// that, once in the browser and once here.
+//
+// Both keys carry the same fields, and the reason is one bug rather than two:
+// anything that changes the AUDIO must change the key. `model` is in them
+// because `--tts-model eleven_v3` is a different voice performance of the same
+// words, and a hash without it skipped the slide and kept the old take. STYLE
+// is in them only when the engine can act on it — every engine but gemini and
+// ElevenLabs v3 ignores the instruction entirely, and letting a style the
+// engine never read change the hash would miss the bridge's own clip for no
+// audible reason.
 mkdirSync(outDir, { recursive: true });
 let totalCost = 0;
-const slideHash = (text) =>
-  createHash('sha256').update(`${engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
+const audioExt = extFor(tts.synth.mimeType ?? 'audio/wav');
+const clips = createTtsCache({ enabled: useCache });
+clips.prune();
+// `--voice` omitted on ElevenLabs means "the first of your voices", and the
+// deck's picker offers that same roster in that same order — so the name is
+// resolved HERE, for the key. Left undefined it would hash differently from
+// the identical sentence the bridge just synthesized, and the cross-process
+// reuse this cache exists for would silently never hit.
+let keyVoice = voice;
+if (!keyVoice && tts.listVoices) {
+  try { keyVoice = (await tts.listVoices())[0]?.name; } catch { /* keep it undefined */ }
+}
+
+/** `tts.synth`, but a sentence anyone has already paid for is free. */
+async function synth(text) {
+  const key = clipKey(tts, { voice: keyVoice, style, text });
+  const hit = clips.read(key, audioExt);
+  if (hit) return { wav: hit, usage: { chars: 0, cost: 0 }, cached: true };
+  const out = await tts.synth(text, { voice, style });
+  clips.write(key, out.wav, audioExt);
+  return { ...out, cached: false };
+}
+// The manifest hash is the CLIP KEY, shortened: one definition of "the same
+// audio", so the folder-level skip and the content-level cache can never
+// disagree about whether a slide changed.
+const slideHash = (text) => clipKey(tts, { voice: keyVoice, style, text }).slice(0, 16);
+// ONE-TIME MIGRATION. The hash above gained `model` and lost the style no
+// engine reads, so every folder recorded before this change hashes differently
+// — and a folder that hashes differently is re-synthesized in full. That audio
+// is not stale; it is exactly what today's key describes, and re-rolling it
+// would hand an ElevenLabs user a bill for clips already on their disk.
+//
+// So a slide matching the OLD formula is accepted once and re-stamped. The
+// gate is `prev.model === undefined`: only a manifest written before this
+// change lacks that field, so the allowance cannot be claimed twice, and a
+// later `--tts-model` switch is a genuine miss again. The one case it lets
+// through is changing the model in the SAME run as the upgrade — narrow, and
+// `--no-cache` is the way out of it.
+const legacyHash = (text) => createHash('sha256')
+  .update(`${engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
+const preDatesModel = (m) => m && m.model === undefined
+  && m.engine === engine && m.voice === voice && m.style === style;
 let prev = null;
 try {
   const m = JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8'));
@@ -201,7 +269,8 @@ for (let i = 0; i < slides.length; i++) {
   writeFileSync(txt, text);
   const hash = slideHash(text);
   manifest.push({ file: `slide-${n}.m4a`, hash });
-  if (prev?.slides?.[i]?.hash === hash && existsSync(m4a)) {
+  const stamped = prev?.slides?.[i]?.hash;
+  if ((stamped === hash || (preDatesModel(prev) && stamped === legacyHash(text))) && existsSync(m4a)) {
     // Carry the segments across, or an unchanged slide loses its build sync on
     // the next rerun: the audio is still on disk and the manifest is the only
     // thing that knows it is there.
@@ -218,13 +287,15 @@ for (let i = 0; i < slides.length; i++) {
   // path, since its prior text is one script rather than segments.
   const segs = prior ? null : segmented[i];
   let usage = { cost: 0 };
+  let cachedBeats = 0;
   if (segs) {
     const parts = [];
     for (let k = 0; k < segs.length; k++) {
       const kk = String(k + 1).padStart(2, '0');
       const sWav = join(outDir, `slide-${n}-${kk}.wav`);
       const sM4a = join(outDir, `slide-${n}-${kk}.m4a`);
-      const out = await tts.synth(segs[k], { voice, style });
+      const out = await synth(segs[k]);
+      if (out.cached) cachedBeats++;
       writeFileSync(sWav, out.wav);
       // The beat's own words, beside its own audio — tools/lipsync.mjs hands
       // this to Rhubarb as the dialog hint, and a hint for the whole slide
@@ -242,7 +313,8 @@ for (let i = 0; i < slides.length; i++) {
     rmSync(list, { force: true });
     manifest[i].segments = parts.map((p) => ({ file: p.file }));
   } else {
-    const out = await tts.synth(text, { voice, style });
+    const out = await synth(text);
+    if (out.cached) cachedBeats++;
     writeFileSync(wav, out.wav);
     usage = out.usage ?? { cost: 0 };
     toAac(wav, m4a);
@@ -250,15 +322,20 @@ for (let i = 0; i < slides.length; i++) {
   }
   totalCost += usage.cost ?? 0;
   const costNote = usage.cost ? ` · ~$${usage.cost.toFixed(4)}` : '';
+  // "cached" is worth a word: on a paid engine it is the difference between a
+  // rerun that costs nothing and one that quietly re-bills the whole deck
+  const cacheNote = cachedBeats
+    ? ` · ${segs ? `${cachedBeats}/${segs.length} ` : ''}cached`
+    : '';
   console.log(`  slide ${n}: ${text.length} chars → ${basename(m4a)}`
-    + `${segs ? ` (${segs.length} ⟨CLICK⟩ segments)` : ''}${costNote}`);
+    + `${segs ? ` (${segs.length} ⟨CLICK⟩ segments)` : ''}${cacheNote}${costNote}`);
   // crash-safe: persist progress after every slide so an interrupted run
   // resumes incrementally instead of re-synthesizing everything
   writeFileSync(join(outDir, 'manifest.json'),
-    JSON.stringify({ engine, voice, style, slides: manifest }, null, 1));
+    JSON.stringify({ engine, model: tts.model ?? null, voice, style, slides: manifest }, null, 1));
 }
 writeFileSync(join(outDir, 'manifest.json'),
-  JSON.stringify({ engine, voice, style, slides: manifest }, null, 1));
+  JSON.stringify({ engine, model: tts.model ?? null, voice, style, slides: manifest }, null, 1));
 // piper is held resident (§ createPiper) — without this the tool prints `done`
 // and then hangs on the live child process
 tts.synth.close?.();

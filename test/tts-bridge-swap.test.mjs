@@ -18,6 +18,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,8 +28,13 @@ const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../cli/d
 const PROJECT = 'decklight-test-project';
 
 async function startBridge(t, { engine = 'chirp', env = {} } = {}) {
+  // Every bridge in the suite gets its own cache home. The disk cache now
+  // covers every engine, so a bridge started without one writes into the
+  // developer's real ~/.cache and reads back from it on the next run.
+  const cache = mkdtempSync(path.join(tmpdir(), 'dl-swap-cache-'));
+  t.after(() => rmTemp(cache));
   const child = spawn(process.execPath, [CLI, 'tts', '--port', '0', '--engine', engine], {
-    env: { ...process.env, GOOGLE_CLOUD_PROJECT: PROJECT, ...env },
+    env: { ...process.env, GOOGLE_CLOUD_PROJECT: PROJECT, XDG_CACHE_HOME: cache, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
