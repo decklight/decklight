@@ -105,49 +105,64 @@ export const TIER_LABEL = ['best', 'good', 'good', 'average', 'novelty'];
 export const PLAIN_TIER = TIER_LABEL.indexOf('average');
 
 /**
- * Drop a locale's plain compact voice WHEN THAT LOCALE HAS BETTER.
+ * The quality suffix Apple appends to a voice that has a better build.
  *
- * This is deliberately the narrowest useful cut, and the story of what it is
- * NOT is the story of the design.
+ * Deliberately an ALLOW-LIST of the four markers sayTier scores on, not "a
+ * trailing parenthetical": plenty of voices carry one that says nothing about
+ * quality — `Eddy (English (UK))`, `Aman (English (India))` — and stripping
+ * those would have `Aman` superseded by a novelty voice of the same name.
+ */
+const QUALITY_SUFFIX = /\s*\((?:Personal Voice|Siri[^)]*|Premium|Neural|Enhanced)\)\s*$/i;
+
+/** `Daniel (Enhanced)` → `Daniel`; `Eddy (English (UK))` → unchanged. */
+export const plainName = (name) => String(name ?? '').replace(QUALITY_SUFFIX, '').trim();
+
+/**
+ * Drop a plain voice that is the SAME VOICE as a better one beside it.
  *
- * The obvious version — keep only `best` and `good` — takes a real Mac from
- * 201 rows to 59 and reads as a huge win, right up until you notice it deletes
- * the novelty shelf entirely (130 of those 201) and leaves the picker with
- * expand/collapse machinery for a shelf that can no longer exist. The picker
- * ALREADY solves the noise: `novelty` and `other languages` fold to one
- * expandable row each (src/core/narration.js, `COLLAPSIBLE`), which is the
- * same problem solved where it is REVERSIBLE — a fold you can open, rather
- * than a roster that never mentions Zarvox again. Someone who wants the robot
- * is entitled to the robot.
+ * A real Mac lists both `Daniel` and `Daniel (Enhanced)` in en_GB, and both
+ * `Audrey` and `Audrey (Premium)` in fr_FR. That is one voice offered twice at
+ * two build qualities, and the worse row is not a choice — nobody browsing a
+ * picker means "the compact Daniel, specifically". Twelve of this machine's
+ * 201 rows are that.
  *
- * So the fold keeps novelty and this keeps only the cut the fold cannot make,
- * because it is not about noise at all: a plain compact voice sitting beside a
- * Premium one in the SAME language is not a choice, it is a worse version of
- * the row above it. fr_FR holding Audrey (Premium) drops its four plain rows;
- * de_DE, whose best IS Anna, keeps Anna — a bar that empties a language has
- * made the deck unnarratable in it to make a point.
+ * The story of what this is NOT is the design.
  *
- * `keep` names one voice that survives regardless: the one the bridge booted
- * with may have been asked for by name, and a picker that cannot show what is
- * currently speaking is worse than a noisy one.
+ * The first cut kept only `best` and `good`, took the roster to 59 rows, and
+ * read as a far bigger win — until you notice it deletes the novelty shelf
+ * entirely (130 of the 201) and leaves src/core/narration.js holding
+ * expand/collapse machinery (`COLLAPSIBLE`) for a shelf that can no longer
+ * exist. The picker already folds `novelty` and `other languages` to one
+ * expandable row each, which is the same noise handled where it is
+ * REVERSIBLE — a fold you can open, rather than a roster that never mentions
+ * Zarvox again. Somebody who wants the robot is entitled to the robot.
  *
- * Voices with no tier (the SAPI and WinRT rosters, which never scored) pass
- * through untouched: this ranks, it does not invent.
+ * The second cut dropped a locale's plain voices whenever the LOCALE held
+ * anything better. That is one step too far, and the names say why: it takes
+ * `Daniel` (fine — `Daniel (Enhanced)` is right there) but it also takes
+ * `Samantha`, `Rishi`, `Aman`, `Tara` and `Jacques`, which have no
+ * better-quality namesake at all. They are distinct voices, deleted because
+ * some OTHER voice in their language happens to be Premium. Samantha is the
+ * most recognisable voice macOS has ever shipped.
+ *
+ * So the rule is a NAME match inside one locale, which is exactly the
+ * duplicate and nothing else. `keep` spares the voice the bridge booted with,
+ * which may have been named on the command line, and an untiered roster (SAPI,
+ * WinRT) passes through whole: this ranks, it does not invent.
  */
 export function withoutSupersededPlain(voices = [], { keep } = {}) {
-  const best = new Map();
+  // `locale\u0000name` of every voice that is a BETTER build of that name — the
+  // set a plain row has to be absent from to survive.
+  const better = new Set();
   for (const v of voices) {
-    if (!Number.isInteger(v?.tier)) continue;
-    const k = (v.locale || '').toLowerCase();
-    if (!best.has(k) || v.tier < best.get(k)) best.set(k, v.tier);
+    if (!Number.isInteger(v?.tier) || v.tier >= PLAIN_TIER) continue;
+    const bare = plainName(v.name);
+    if (bare && bare !== v.name) better.add(`${(v.locale || '').toLowerCase()}\u0000${bare}`);
   }
   return voices.filter((v) => {
-    if (!Number.isInteger(v?.tier)) return true;
-    // Only the plain shelf is ever cut. Novelty is the picker's fold to make.
-    if (v.tier !== PLAIN_TIER) return true;
+    if (!Number.isInteger(v?.tier) || v.tier !== PLAIN_TIER) return true;
     if (keep && v.name === keep) return true;
-    const k = (v.locale || '').toLowerCase();
-    return (best.get(k) ?? PLAIN_TIER) >= PLAIN_TIER;
+    return !better.has(`${(v.locale || '').toLowerCase()}\u0000${v.name}`);
   });
 }
 
