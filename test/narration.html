@@ -282,8 +282,12 @@
     const segmentModes = ['segments', 'segfold', 'segmiss', 'segnav', 'beatpause'];
     const segmentDeck = segmentModes.includes(mode);
     const plainDeck = mode === 'plainrec';
+    // `off` ships a recorded track and deliberately chooses NOTHING — it is the
+    // only mode that leaves localStorage alone, because the default is the
+    // thing under test.
+    const offDeck = mode === 'off';
     const recordedDeck = mode === 'recorded' || mode === 'hint' || mode === 'switch'
-      || segmentDeck || plainDeck;
+      || segmentDeck || plainDeck || offDeck;
 
     // ── the segmented half of the harness deck ──────────────────────────────
     // Appended rather than written into the markup above, so every OTHER mode
@@ -311,7 +315,11 @@
           : '<section><h2>Six</h2><aside class="notes">Slide six speaks, in one breath.</aside></section>'}
         <section><h2>Seven</h2></section>`);
     }
-    localStorage.setItem(key, JSON.stringify(
+    // `off` is the ONE mode that seeds no choice: it is testing what a deck
+    // does for somebody who has never picked, so writing a track here would
+    // erase the whole question.
+    if (offDeck) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(
       manifestDeck ? { track: MANIFEST_PATH }
         // `switch` STARTS live and swaps to the recorded track mid-sentence —
         // the persisted state must be the live one for the swap to be a swap
@@ -464,6 +472,83 @@
           r.stillOffersToRecord = !!card?.querySelector('.narr-row');
           r.PASS = r.opened && r.countedTheBeats && r.warned && r.namedTheCause
             && r.stillOffersToRecord;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (offDeck) {
+          // THE COMPLAINT this mode exists for, in the order it was made:
+          // "there should be a row to turn voiceover off, on by default", and
+          // "when I pick my voice, pressing start doesn't start narration, it
+          // just goes to the next slide".
+          const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+          const rowsNow = () => [...document.querySelectorAll('.decklight-narr .narr-row')];
+          const space = () => document.dispatchEvent(
+            new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+          const labels = () => rowsNow().map((el) => el.querySelector('.narr-row-label')?.textContent ?? '');
+
+          // 1 · a deck that SHIPS a track still arrives silent
+          r.offByDefault = deck.narration.status().track === null;
+
+          // 2 · and ⎵ is the deck's, not the voice's — it advances
+          deck.goto(1, 0);
+          await wait(20);
+          window.__audioSrcs.length = 0;
+          const before = deck.state.slide;
+          // the real key, not narration.playPause(): the whole point is which
+          // of the two ⎵ ROUTES to, and that decision lives in the engine's
+          // key handler (engine.js, `case ' '`)
+          space();
+          await wait(250);
+          r.spaceAdvancedWhileOff = deck.state.slide === before + 1 && window.__audioSrcs.length === 0;
+
+          // 3 · the Off row is FIRST and marked current
+          deck.narration.openPicker();
+          await wait(120);
+          r.rows = labels();
+          r.offRowFirst = /🔇/.test(r.rows[0] ?? '');
+          r.offRowIsCurrent = rowsNow()[0]?.classList.contains('narr-cur') === true;
+
+          // 4 · picking the track hands ⎵ to the voice — the second half of
+          //     the complaint, and the reason this is not just a new row
+          const trackRow = rowsNow().find((el, i) => i > 0 && /🔊/.test(labels()[i]));
+          trackRow?.click();
+          await wait(120);
+          r.pickedTrack = !!deck.narration.status().track;
+          r.spaceStartsAfterPick = deck.narration.status().voiceInPlay === true;
+          // back to a slide that HAS notes — ⎵ advanced us onto slide 2, which
+          // deliberately has none (nothing to say is not a failure), so leaving
+          // the deck there would prove only that silence is silent
+          deck.goto(1, 0);
+          await wait(20);
+          window.__audioSrcs.length = 0;
+          const slideBeforeSpeaking = deck.state.slide;
+          space();
+          await wait(300);
+          r.spokeOnSpace = window.__audioSrcs.length > 0;
+          r.spaceDidNotAdvance = deck.state.slide === slideBeforeSpeaking;
+
+          // 5 · Off again stops it and gives ⎵ back
+          deck.narration.openPicker();
+          await wait(120);
+          rowsNow()[0]?.click();
+          await wait(150);
+          r.offStopped = deck.narration.status().narrating === false;
+          r.offReturnedSpace = deck.narration.status().voiceInPlay === false;
+          const at = deck.state.slide;
+          window.__audioSrcs.length = 0;
+          space();
+          await wait(250);
+          r.spaceAdvancesAgain = deck.state.slide === at + 1 && window.__audioSrcs.length === 0;
+
+          // 6 · and OFF is remembered, so the next visit is not a surprise
+          r.persistedOff = (() => {
+            try { return JSON.parse(localStorage.getItem(key))?.off === true; } catch { return false; }
+          })();
+
+          r.PASS = r.offByDefault && r.spaceAdvancedWhileOff && r.offRowFirst && r.offRowIsCurrent
+            && r.pickedTrack && r.spaceStartsAfterPick && r.spokeOnSpace && r.spaceDidNotAdvance
+            && r.offStopped && r.offReturnedSpace && r.spaceAdvancesAgain && r.persistedOff;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

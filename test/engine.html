@@ -451,6 +451,11 @@
         // narrating over the presenter would be a derailment in front of an
         // audience. `nonarration` is the same assertion on a deck with no track
         // at all, so neither kind can regress into taking the key early.
+        //
+        // Since narration defaults to OFF, the `narration` deck arrives with a
+        // track SHIPPED but none CHOSEN — which is the state step 1 is really
+        // about, and the reason step 3 now has to pick one before P can start
+        // anything.
         const voiced = mode === 'narration';
         await settle();
         const at = () => deck.state.slide;
@@ -475,7 +480,19 @@
           return;
         }
 
-        // 3 · start it deliberately — P, the unconditional verb — and only THEN
+        // 3 · CHOOSE the track. Narration is off until somebody does, so this
+        //     is now the step that separates "the deck ships a voice" from
+        //     "this viewer wants it" — and step 1 above, unchanged, is what
+        //     proves the shipping alone does not take ⎵.
+        deck.narration.openPicker();
+        await settle();
+        const rows = [...document.querySelectorAll('.decklight-narr .narr-row')];
+        r.offRowIsCurrent = rows[0]?.classList.contains('narr-cur') === true;
+        rows.find((el) => /🔊/.test(el.textContent))?.click();
+        await settle();
+        r.trackChosen = !!deck.narration.status().track;
+
+        // 4 · start it deliberately — P, the unconditional verb — and only THEN
         //     does ⎵ belong to the voice
         press('p');
         await settle();
@@ -491,6 +508,7 @@
         r.spaceResumes = !deck.narration.status().paused;
 
         r.PASS = r.spaceAdvancesWhenIdle && r.spaceDidNotStartTheVoice
+          && r.offRowIsCurrent && r.trackChosen
           && r.arrowStillAdvances && r.pStartsTheVoice && r.spacePausesOncePlaying
           && r.spaceDidNotAdvanceWhilePlaying && r.spaceResumes;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

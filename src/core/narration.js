@@ -422,11 +422,24 @@ export function createNarration({
   const narrSets = narrationTracks(config.narration);
   const LIVE_TRACK = { live: true };
   let liveCfg = { voice: 'Alnilam', tone: TONES[0][0], style: TONES[0][1] };
-  let narrSet = narrSets[0] ?? null;
+  /**
+   * OFF until somebody picks, even on a deck that ships a recorded track.
+   *
+   * This used to be `narrSets[0]`, and a deck that merely CARRIED narration
+   * arrived with it selected. That is the wrong default twice over. A deck is
+   * opened to be read far more often than to be played, so the common case
+   * paid for the rare one; and it made "chosen" indistinguishable from
+   * "shipped", which is the distinction every other decision here needs —
+   * ⎵ takes the key only once a voice is genuinely chosen (see voiceInPlay),
+   * and it cannot tell a deliberate choice from a default it inherited.
+   *
+   * A track SAVED for this deck is a choice, and it is restored as one.
+   */
+  let narrSet = null;
   try {
     const saved = JSON.parse(localStorage.getItem(narrKey));
     if (saved?.live?.voice) { liveCfg = saved.live; narrSet = LIVE_TRACK; }
-    else {
+    else if (!saved?.off) {
       // `track` is the key a manifest track can also be named by; `dir` is what
       // every deck saved before manifests existed and still reads back
       const want = saved?.track ?? saved?.dir;
@@ -1278,13 +1291,20 @@ export function createNarration({
    * over themselves, in front of an audience. An unexpected pause is a stumble;
    * an unexpected voice is a derailment.
    *
-   * So ⎵ can never START the voice. It belongs to the narration only while the
-   * narration is actually running or parked, and that is exactly when the deck
-   * does not need ⎵ for anything else: a playing track advances the deck
-   * itself. Starting stays a deliberate act — P, or V's panel — and P remains
-   * the unconditional verb from any state.
+   * So the rule is CHOSEN, not merely present. A deck now arrives with
+   * narration off however much audio it ships (see narrSet), which is what
+   * makes the distinction real: `narrSet` is non-null only because somebody
+   * picked a track in V's panel, or picked one on a previous visit and had it
+   * restored. Both are deliberate, and after a deliberate choice ⎵ starting
+   * the voice is the obvious reading of the key rather than a derailment —
+   * which was the other half of the original complaint, that picking a voice
+   * and pressing ⎵ advanced the slide instead of speaking.
+   *
+   * A deck that merely CARRIES a track still keeps ⎵ for the deck, because
+   * carrying is no longer choosing. P remains the unconditional verb from any
+   * state, and the 🔇 Off row hands ⎵ back.
    */
-  const voiceInPlay = () => narrating || narrPaused;
+  const voiceInPlay = () => narrating || narrPaused || !!narrSet;
   async function toggleNarration() {
     // V is the picker now, so a deck with nothing chosen says so rather than
     // silently opening a different overlay than the key advertises.
@@ -1445,9 +1465,15 @@ export function createNarration({
     try {
       localStorage.setItem(narrKey, JSON.stringify(narrSet?.live
         ? { live: liveCfg }
-        // dir stays in the payload so a deck rolled back to an older runtime
-        // still finds its track; `track` is the one that also names a manifest
-        : { track: trackKey(narrSet), dir: narrSet?.dir }));
+        // `off` is written rather than left implied. An empty payload already
+        // reads back as off today, but only by accident of nothing matching;
+        // recording the choice means a later change to what "no choice" means
+        // cannot quietly start a deck talking that somebody switched off.
+        : narrSet
+          // dir stays in the payload so a deck rolled back to an older runtime
+          // still finds its track; `track` is the one that also names a manifest
+          ? { track: trackKey(narrSet), dir: narrSet.dir }
+          : { off: true }));
     } catch { /* ignore */ }
   }
   function applyLive(toneLabel, styleText) {
@@ -1629,6 +1655,25 @@ export function createNarration({
     narrRows = [];
     if (view === 'tracks') {
       head.textContent = 'narration';
+      // OFF first, and checked on a deck nobody has chosen for. It is the
+      // state the deck arrives in, so it reads as the top of a list of
+      // choices rather than an escape hatch at the bottom of one — and it is
+      // the row that hands ⎵ back to the deck (see voiceInPlay).
+      narrRows.push({
+        text: '🔇 Off — no voice',
+        flavor: narrSets.length || liveFound ? '⎵ advances the deck' : '',
+        cur: !narrSet,
+        commit: () => {
+          const spoke = narrating || narrPaused;
+          narrSet = null;
+          persistNarr();
+          closeNarrPicker();
+          // stopNarration toasts and resets the character; with nothing
+          // playing there is nothing to stop, so the row says so itself
+          if (spoke) stopNarration('🔇 narration off');
+          else toast('🔇 narration off');
+        },
+      });
       narrSets.forEach((t) => narrRows.push({
         // ☁ says the audio is not in this deck's folder; the countdown says
         // how long that will keep being true. Both come from the manifest
@@ -3075,6 +3120,30 @@ export function createNarration({
     character,
     /** ⎵ and P — start, pause, resume. The whole verb, in one place. */
     playPause,
+    /**
+     * "Play this deck's voice", for the two callers where ASKING IS CHOOSING.
+     *
+     * Narration defaults to off so that carrying a track is not choosing one
+     * (see narrSet) — but two entry points are themselves the choice, and both
+     * would otherwise land on "no voice chosen — V picks one":
+     *
+     *   `?voiceover` — the url is the request. Somebody built that link to
+     *   make the deck talk.
+     *
+     *   The touch sound button — a speaker icon has exactly one meaning, and
+     *   the phone tapping it has no V key to be redirected to. Telling a
+     *   touch viewer to press a key they do not have is the worst version of
+     *   this message.
+     *
+     * Not persisted, deliberately: both are one-visit requests. A link a
+     * viewer followed must not opt their own copy of the deck into talking
+     * every time they open it afterwards, and the button is one tap to repeat.
+     */
+    playDefault() {
+      if (narrating) return toggleNarration();   // the button stops it too
+      if (!narrSet) narrSet = narrSets[0] ?? (liveFound ? LIVE_TRACK : null);
+      if (narrSet) toggleNarration();
+    },
     toggleNarration,
     toggleNarrPause,
     changeNarrRate,
