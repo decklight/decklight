@@ -98,10 +98,16 @@ let bad = 0;
 const timings = [];
 const stalled = [];
 let slowest = 0;
-for (const mode of ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
+// One mode, by name, for iterating on it: `node test/narration-render.mjs off`.
+// The harness boots a browser PER MODE and there are 37 of them, so proving one
+// assertion used to cost the whole suite — which is how a mode gets added
+// without ever being watched fail.
+const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
+const MODES = ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
-  'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned',
-  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record']) {
+  'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
+  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record'];
+for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
   const [m, extra] = mode.split('&');
   // Timed, and printed even on success (#323). This harness boots a browser per
   // mode, so when it dies to its budget the useful question is WHICH mode was
@@ -248,6 +254,16 @@ for (const mode of ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav'
       + ` · in order=${r.inOrder} · nothing played twice=${r.stillNothingTwice}`
       + ` · still reached the end=${r.reachedTheEnd}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'off') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} a deck that SHIPS a track arrives silent=${r.offByDefault}`
+      + ` · \u2334 advances while off=${r.spaceAdvancedWhileOff}`
+      + ` · \u{1F507} row first=${r.offRowFirst} and current=${r.offRowIsCurrent}`
+      + ` · picking hands \u2334 to the voice=${r.spaceStartsAfterPick} (spoke=${r.spokeOnSpace})`
+      + ` · Off stops it=${r.offStopped} and gives \u2334 back=${r.spaceAdvancesAgain}`
+      + ` · remembered=${r.persistedOff}`
+      + (r.exception ? ` \u00b7 ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
   if (mode === 'plainrec') {

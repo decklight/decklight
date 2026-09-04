@@ -1580,8 +1580,10 @@ export function init(userConfig = {}) {
       // be a derailment in front of an audience rather than a stumble.
       //
       // Nothing is lost by the narrowing. A playing track advances the deck
-      // itself, so ⎵ is free exactly when the voice wants it, and starting stays
-      // deliberate: P, or V's panel.
+      // itself, so ⎵ is free exactly when the voice wants it — and CHOOSING is
+      // what makes the voice want it: narration is off until somebody picks a
+      // track in V's panel, so a deck that merely ships audio still gets ⎵ for
+      // the deck (see voiceInPlay, and the 🔇 Off row that hands it back).
       case ' ':
         if (narration.status().voiceInPlay) narration.playPause();
         else instance.next();
@@ -1858,13 +1860,16 @@ export function init(userConfig = {}) {
   instance.wizard = editmode.wizard;
   instance.toggleElementEdit = toggleElementEdit;           // E programmatically; author mode only
 
-  if (params.has('voiceover') && narration.status().track && !printMode) {
+  // `hasTracks`, not `track`: narration is OFF until somebody picks, so a deck
+  // that ships audio has no chosen track to test for — and `?voiceover` is
+  // itself the choosing (narration.playVoiceoverParam).
+  if (params.has('voiceover') && narration.status().hasTracks && !printMode) {
     // whichever gesture fires first must disarm the OTHER listener too, or
     // the survivor re-arms narration on the next key/click after V stops it
     const arm = () => {
       window.removeEventListener('pointerdown', arm);
       window.removeEventListener('keydown', arm);
-      if (!narration.status().narrating) toggleNarration();
+      if (!narration.status().narrating) narration.playDefault();
     };
     window.addEventListener('pointerdown', arm, { once: true });
     window.addEventListener('keydown', arm, { once: true });
@@ -1890,7 +1895,10 @@ export function init(userConfig = {}) {
       // swallow pointerdown so the ?voiceover first-gesture arm (on window)
       // doesn't fire on this very tap and immediately undo the toggle
       soundBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
-      soundBtn.addEventListener('click', () => toggleNarration());
+      // playDefault, not toggleNarration: narration is off until chosen, and
+      // a tap on a speaker icon IS the choosing — a phone has no V key to be
+      // sent to (narration.playDefault)
+      soundBtn.addEventListener('click', () => narration.playDefault());
       tc.appendChild(soundBtn);
       syncSoundBtn();
     }
