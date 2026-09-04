@@ -335,7 +335,21 @@ function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
  * Neither takes a delivery instruction, so both are `stylable: false` and the
  * picker skips the tone step, exactly as it does for piper and ElevenLabs.
  */
-function createNative({ kind, voice, shell = 'powershell.exe', voices = [], api = null }) {
+/**
+ * How long one sentence may take before the synthesizer is declared wedged.
+ *
+ * `say -o` renders far faster than real time — a whole slide's notes is a few
+ * seconds — so this is not a budget, it is a tripwire. The failure it exists
+ * for: macOS's speech server (speechsynthesisd) can deadlock under concurrent
+ * `say` calls, and the child then sits forever with no CPU and no output.
+ * Unbounded, that hung `decklight voiceover` indefinitely with no message,
+ * and hung the unit suite for eight minutes before anyone looked.
+ */
+export const NATIVE_TIMEOUT_MS = 60_000;
+
+function createNative({
+  kind, voice, shell = 'powershell.exe', voices = [], api = null, timeoutMs = NATIVE_TIMEOUT_MS,
+}) {
   const bin = kind === 'say' ? 'say' : shell;
   // on Windows the API decides the voices: WinRT sees the natural ones,
   // System.Speech only the 2006 roster — detectLocalVoice chose, and the
@@ -371,7 +385,11 @@ function createNative({ kind, voice, shell = 'powershell.exe', voices = [], api 
     const dir = mkdtempSync(join(tmpdir(), 'decklight-native-'));
     const file = join(dir, 'out.wav');
     try {
-      execFileSync(bin, build(line, pick, file), { stdio: ['ignore', 'ignore', 'pipe'] });
+      // SIGKILL, not the default SIGTERM: a wedged synthesizer is blocked in a
+      // syscall and a polite signal is exactly what it is not answering.
+      execFileSync(bin, build(line, pick, file), {
+        stdio: ['ignore', 'ignore', 'pipe'], timeout: timeoutMs, killSignal: 'SIGKILL',
+      });
       const wav = readFileSync(file);
       if (!wav.length) throw new Error(`${kind} produced no audio`);
       // `{ wav, usage }`, like every other engine and like this file's own
@@ -386,6 +404,15 @@ function createNative({ kind, voice, shell = 'powershell.exe', voices = [], api 
         usage: { model: pick ?? kind, chars: line.length, cost: 0, note: `${line.length} chars · local` },
       };
     } catch (e) {
+      // A timeout is not "synthesis failed": the words were fine, the daemon
+      // is stuck, and the fix is a restart of IT — say so, or the next thing
+      // the person tries is rewording the sentence.
+      if (e.code === 'ETIMEDOUT' || e.signal === 'SIGKILL') {
+        throw new Error(`${kind} hung for ${Math.round(timeoutMs / 1000)}s and was killed — `
+          + (kind === 'say'
+            ? 'macOS\'s speech synthesizer can deadlock under concurrent calls; retry, or restart it: killall speechsynthesisd'
+            : 'the speech stack is not answering; retry'));
+      }
       throw new Error(`${kind}: ${String(e.stderr ?? e.message).trim().split('\n')[0] || 'synthesis failed'}`);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -399,6 +426,9 @@ export function createEngine({
   // built — and its voice handling asserted — on a machine that is not the one
   // the test happens to run on.
   detect = detectLocalVoice,
+  // The wedge tripwire (NATIVE_TIMEOUT_MS), injectable so a test can prove it
+  // fires without waiting a minute for it to.
+  nativeTimeoutMs,
 } = {}) {
   if (!ENGINES.includes(engine)) {
     throw new Error(`unknown engine '${engine}' — use ${ENGINES.join(', ')},`
@@ -466,6 +496,7 @@ export function createEngine({
       synth: createNative({
         kind: engine, voice: pick, shell: detected.shell, voices: detected.voices ?? [],
         api: detected.api ?? null,
+        ...(nativeTimeoutMs ? { timeoutMs: nativeTimeoutMs } : {}),
       }),
     };
   }
