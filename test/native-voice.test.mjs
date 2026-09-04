@@ -15,6 +15,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createEngine } from '../tools/tts-engines.mjs';
 import { sayArgs, sapiArgs } from '../tools/local-voice.mjs';
 
@@ -115,6 +118,41 @@ test('an empty roster does not lock the engine out of speaking', async (t) => {
   const out = await engine.synth('hello', { voice: 'Samantha' }).catch(() => null);
   if (!out) return t.skip('no working `say` on this machine');
   assert.ok(out.wav.length);
+});
+
+test('a wedged synthesizer is killed and named, not waited on forever', async (t) => {
+  // THE BUG: macOS's speechsynthesisd can deadlock under concurrent `say`
+  // calls, and the child then sits with no CPU and no output. execFileSync had
+  // no timeout, so `decklight voiceover` hung indefinitely with no message —
+  // and so did the unit suite, for eight minutes, before anyone looked.
+  //
+  // A fake `say` on PATH that sleeps stands in for the wedge; the timeout is
+  // injected so the proof takes a second rather than a minute.
+  if (process.platform === 'win32') return t.skip('a POSIX shell script stands in for say');
+  const dir = mkdtempSync(join(tmpdir(), 'dl-wedged-say-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'say'), '#!/bin/sh\nsleep 30\n');
+  chmodSync(join(dir, 'say'), 0o755);
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}:${savedPath}`;
+  t.after(() => { process.env.PATH = savedPath; });
+
+  const engine = createEngine({
+    engine: 'say', voice: 'Samantha',
+    detect: () => ({ engine: 'say', voices: [{ name: 'Samantha' }] }),
+    nativeTimeoutMs: 800,
+  });
+  const t0 = Date.now();
+  await assert.rejects(
+    engine.synth('hello', { voice: 'Samantha' }),
+    (e) => {
+      assert.match(e.message, /hung for 1s and was killed/, 'the error does not say it was a hang');
+      assert.match(e.message, /killall speechsynthesisd/, 'the error does not say how to fix it');
+      return true;
+    },
+  );
+  const took = Date.now() - t0;
+  assert.ok(took < 5000, `waited ${took}ms — the timeout did not fire`);
 });
 
 test('the install route\'s one exec is a frozen argv, opening a Settings pane and nothing else', async () => {
