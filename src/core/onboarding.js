@@ -29,6 +29,7 @@
 // retires the card for good.
 
 import { closeOnBackdrop } from './overlay.js';
+import { readPref, writePref } from './prefs.js';
 
 /**
  * The tips, most basic first. Order IS the curriculum: a reader who opens ten
@@ -55,12 +56,8 @@ const TIPS_OFF_KEY = 'decklight-tips-off';
 
 // Storage is advisory here, never load-bearing: `file://` and private mode both
 // throw, and a deck that cannot remember what it has taught must still play.
-function read(key) {
-  try { return localStorage.getItem(key); } catch { return null; }
-}
-function write(key, value) {
-  try { localStorage.setItem(key, value); } catch { /* file:// or private mode */ }
-}
+const read = (key) => readPref(key);
+const write = (key, value) => { writePref(key, value); };
 
 /**
  * Wire the first-run welcome and the tip rotation to a deck.

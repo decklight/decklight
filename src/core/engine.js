@@ -28,6 +28,7 @@ import { createReview } from './review.js';
 import { createDebugLog } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
+import { readPref, writePref } from './prefs.js';
 
 const DEFAULTS = {
   transition: 'fade',
@@ -751,8 +752,7 @@ export function init(userConfig = {}) {
     }
     if (!params.has('embedded')) {
       try {
-        if (stack) localStorage.setItem(fontKey, String(fontIdx));
-        else localStorage.removeItem(fontKey);
+        writePref(fontKey, stack ? fontIdx : null);
       } catch { /* private mode */ }
     }
     if (remeasure) {
@@ -768,7 +768,7 @@ export function init(userConfig = {}) {
   try {
     // restore BEFORE the first sync so pinned titles measure the real font
     // (remeasure would touch the not-yet-created instance)
-    const savedFont = parseInt(localStorage.getItem(fontKey), 10);
+    const savedFont = parseInt(readPref(fontKey) ?? '', 10);
     if (savedFont > 0 && savedFont < FONTS.length) applyFont(savedFont, { silent: true, remeasure: false });
   } catch { /* ignore */ }
 

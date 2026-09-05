@@ -12,6 +12,7 @@
 
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { readPref, readJson, writePref, writeJson } from './prefs.js';
 
 /**
  * Wire the theme system to a deck.
@@ -81,7 +82,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // localStorage — per-origin; the .css download is the portable artifact.
   const CUSTOM_KEY = 'decklight-custom-themes';
   let customThemes = {};
-  try { customThemes = JSON.parse(localStorage.getItem(CUSTOM_KEY) || '{}') || {}; } catch { /* ignore */ }
+  customThemes = readJson(CUSTOM_KEY, {}) || {};
   let genStyle = null;   // <style data-generated> of the current roll
   let genTheme = null;   // { name, tokens } of the current (unsaved) roll
   const customStyles = {};
@@ -164,7 +165,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     // Embedded instances (e.g. picker preview iframes) must not persist; nor
     // can an unsaved generated autoname (it wouldn't resolve after reload).
     if (!params.has('embedded') && !unsavedGen) {
-      try { localStorage.setItem(themeKey, name); } catch { /* file:// or private mode */ }
+      writePref(themeKey, name);
     }
     if (!silent) toast(name);
     debugLog('theme', name);
@@ -269,13 +270,13 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const shipped = typeof __DECKLIGHT_THEMES__ !== 'undefined' ? __DECKLIGHT_THEMES__ : [];
     if (shipped.includes(name) || themeStyles.some((s) => s.dataset.theme === name)) name = 'custom-' + name;
     customThemes[name] = genTheme.tokens;
-    try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(customThemes)); } catch { /* private mode */ }
+    writeJson(CUSTOM_KEY, customThemes);
     const el = ensureTokenStyle(name, customThemes[name], 'custom');
     el.media = 'all';
     genStyle?.remove(); genStyle = null; genTheme = null;
     deactivateTokenStyles(el);
     if (!params.has('embedded')) {
-      try { localStorage.setItem(themeKey, name); } catch { /* ignore */ }
+      writePref(themeKey, name);
     }
     // Portable artifact: saved themes live in THIS browser's localStorage;
     // the .css file is what travels (drop it into themes/ and commit).
@@ -369,7 +370,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       } catch { /* malformed param — fall through to normal theme resolution */ }
     }
     let saved = null;
-    try { saved = localStorage.getItem(themeKey); } catch { /* ignore */ }
+    saved = readPref(themeKey);
     const requested = params.get('theme') || saved;
     if (requested) applyTheme(requested, true);
   }

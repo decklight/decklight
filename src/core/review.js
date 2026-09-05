@@ -22,6 +22,7 @@
 // click meant for the deck — but a card you are typing into is a dialog, and
 // clicking away from one closes it everywhere else in this codebase.
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { readJson, writeJson } from './prefs.js';
 // The anchor lives in tools/ because the CLI needs it too and src/ is not in
 // the published package. Re-exported here so a browser-side caller has one
 // place to look, and inlined by esbuild like any other import.
@@ -88,12 +89,13 @@ export function createReview({
   // exactly like the clock and the character (hud.js / character.js).
   const dockKey = 'decklight-review-dock:' + location.pathname;
   const dock = { mode: 'float', x: null, y: null };
-  try {
-    const s = JSON.parse(localStorage.getItem(dockKey));
+  {
+    // first run, or storage denied — either way the default float is fine
+    const s = readJson(dockKey);
     if (s?.mode) { dock.mode = s.mode; dock.x = s.x ?? null; dock.y = s.y ?? null; }
-  } catch { /* first run, or storage denied — the default float is fine */ }
+  }
   const persistDock = () => {
-    try { localStorage.setItem(dockKey, JSON.stringify(dock)); } catch { /* ignore */ }
+    writeJson(dockKey, dock);
   };
   const DOCK_GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓' };
 
