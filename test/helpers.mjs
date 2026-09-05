@@ -215,3 +215,23 @@ export function cli(args, { home, cwd, env = {}, input } = {}) {
   const out = r.status === 0 ? r.stdout : (r.stdout ?? '') + (r.stderr ?? '');
   return { code: r.status ?? 1, out, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
+
+/**
+ * Stop a child the way that lets its coverage reach the report.
+ *
+ * Twenty-five `t.after` hooks killed their server with SIGKILL. Correct for
+ * cleanup — a SIGKILL never leaves a zombie — and exactly wrong for coverage:
+ * V8 flushes a process's coverage on a clean exit, and SIGKILL is the one exit
+ * that is not clean, so every server the suite boots reported 0% of the code
+ * it ran. SIGTERM first (the servers exit(0) on it), and SIGKILL only if it
+ * has not gone in a moment. Resolves once the process is gone either way, so
+ * a t.after that awaits it never races the next test onto the same port.
+ */
+export function stop(child, { grace = 2000 } = {}) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((done) => {
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, grace);
+    child.once('exit', () => { clearTimeout(timer); done(); });
+    try { child.kill('SIGTERM'); } catch { clearTimeout(timer); done(); }
+  });
+}

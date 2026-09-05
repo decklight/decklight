@@ -23,7 +23,7 @@ import { claudeSkillMd, referenceDoc, reportBugSkillMd, agentsSection } from '..
 import { probe, environmentBlock, issuesUrl } from '../cli/report-bug.mjs';
 // `rec` needs node-pty (native) + js-yaml, both optional deps; skip the one
 // recording test when they're absent (e.g. CI installs with --omit=optional).
-import { optionalDepSkip as recSkip, childEnv, homeEnv, rmTemp } from './helpers.mjs';
+import { optionalDepSkip as recSkip, childEnv, homeEnv, rmTemp, stop } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -1719,7 +1719,7 @@ test('record serves the deck and prints the URL the browser is sent to', async (
   // --port 0 lets the OS pick, which is what makes it safe to run anywhere.
   const child = spawn(process.execPath, [CLI, 'record', 'talk.html', '--port', '0', '--dir', 'takes', '--no-open'],
     { cwd: dir, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(child));
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });

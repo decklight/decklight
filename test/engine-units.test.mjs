@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { rmTemp, tmp } from './helpers.mjs';
+import { rmTemp, tmp, stop } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -76,7 +76,7 @@ async function startBridge(t, home, engine = 'azure-tts') {
     env: { ...process.env, DECKLIGHT_HOME: home, XDG_CACHE_HOME: path.join(home, 'cache') },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => child.kill('SIGKILL'));
+  t.after(() => stop(child));
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });

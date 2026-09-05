@@ -37,6 +37,7 @@
     "build": "node build.mjs",
     "prepare": "npm run build",
     "test": "node test/run.mjs",
+    "coverage": "node test/run.mjs --experimental-test-coverage --test-coverage-include=src/core/** --test-coverage-include=cli/** --test-coverage-include=tools/**",
     "verify": "npm run build && node test/verify.mjs",
     "test:impact": "node tools/test-impact.mjs",
     "soak": "node test/soak.mjs",

@@ -86,6 +86,12 @@ async function askLine(prompt) {
 }
 
 export async function lipsyncMain(args) {
+  // A clean exit on SIGTERM, not the default abrupt one. Invisible in
+  // production, decisive under test: V8 writes a process's coverage only when
+  // it exits through process.exit, so a bridge the suite stops with SIGKILL —
+  // or an unhandled SIGTERM — reports NOTHING of the handler it ran. The edit
+  // and present servers already do this; voiceover-server does now too.
+  process.on('SIGTERM', () => process.exit(0));
   if (args.includes('--help')) {
     console.log(`usage: decklight lipsync [--port 8789] [--rhubarb <bin>]
   [--portrait <name=img.png>]...        portraits offered for video mode (first = default)

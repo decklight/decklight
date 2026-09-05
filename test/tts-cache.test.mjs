@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, stop } from './helpers.mjs';
 import { cacheKey, clipKey, createTtsCache, extFor } from '../tools/tts-cache.mjs';
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../cli/decklight.mjs');
@@ -36,7 +36,7 @@ function startBridge(t, env) {
     env: { ...process.env, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } });
+  t.after(() => stop(child));
   let log = '';
   child.stdout.on('data', (c) => { log += c; });
   child.stderr.on('data', (c) => { log += c; });

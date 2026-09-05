@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { stop } from './helpers.mjs';
 import {
   NAG_AFTER_LINES, NAG_AFTER_MS, WIP_REF, deckDirty, nagText, planNag, snapshotWip, wipLine,
 } from '../cli/commit-flow.mjs';
@@ -282,7 +283,7 @@ test('author survives a deck git has never seen, with commit-messages on', async
   const { spawn } = await import('node:child_process');
   const child = spawn(process.execPath, [EDIT, 'talk-pt.html', '--port', '0'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(child));
 
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
