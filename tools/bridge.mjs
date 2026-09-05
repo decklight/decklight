@@ -23,8 +23,31 @@ export const corsHeaders = (expose = '') => ({
  * abort mid-request rejects the stream, and unguarded that would crash the
  * whole bridge. Callers that want text `.toString()` the result.
  */
-export async function readBody(req) {
+/**
+ * The whole request body, as bytes.
+ *
+ * `max` is opt-in, and which callers set it is the design. The lipsync bridge
+ * receives a slide's WAV here and the TTS bridge a sentence; neither has a
+ * size a cap could sensibly name. The phone remote in cli/present.mjs does:
+ * it is the one route reachable from OFF this machine under --remote, its
+ * payloads are a few dozen bytes of "go to slide 7", and a body past 4 KB is
+ * not a bigger request, it is someone probing. So that caller passes `max`,
+ * and past it the socket is destroyed — no response, no 413 to time against,
+ * exactly what present.mjs did with its own reader before this shared one
+ * could — and the caller gets an error it can recognise and drop.
+ */
+export async function readBody(req, { max = Infinity } = {}) {
   const chunks = [];
-  for await (const c of req) chunks.push(c);
+  let size = 0;
+  for await (const c of req) {
+    size += c.length;
+    if (size > max) {
+      req.destroy();
+      const err = new Error(`request body past ${max} bytes`);
+      err.code = 'E2BIG';
+      throw err;
+    }
+    chunks.push(c);
+  }
   return Buffer.concat(chunks);
 }
