@@ -295,6 +295,25 @@ function reportMarkdownSlides(root) {
   });
 }
 
+/**
+ * The deep-link grammar, at module scope so it can be a unit test.
+ *
+ * `#/12/3` is slide 12, build step 3 — the only URL shape every shared link
+ * depends on. It lived inside init() reading location.hash directly, which
+ * made it testable only by loading a deck; it now takes the hash and stays
+ * silent about where it came from.
+ */
+export function hashOf(h) {
+  return (h || '').replace(/^#/, '');
+}
+
+/** `#/12/3` → { slide: 12, step: 3 }; `#/7` → step 0; anything else → null. */
+export function parseHash(hash) {
+  const m = hashOf(hash).match(/^\/(\d+)(?:\/(\d+))?/);
+  if (!m) return null;
+  return { slide: parseInt(m[1], 10), step: m[2] ? parseInt(m[2], 10) : 0 };
+}
+
 export function init(userConfig = {}) {
   const params = new URLSearchParams(location.search);
   const config = { ...DEFAULTS, ...userConfig };
@@ -1125,9 +1144,6 @@ export function init(userConfig = {}) {
     root.classList.remove('decklight-no-anim');
   }
 
-  function hashOf(h) {
-    return (h || '').replace(/^#/, '');
-  }
 
   // 90ms: long enough that a held arrow key produces one write instead of one
   // per repeat (key repeat is ~30ms once it starts), short enough that a single
@@ -1166,11 +1182,6 @@ export function init(userConfig = {}) {
     }
   }
 
-  function parseHash() {
-    const m = hashOf(location.hash).match(/^\/(\d+)(?:\/(\d+))?/);
-    if (!m) return null;
-    return { slide: parseInt(m[1], 10), step: m[2] ? parseInt(m[2], 10) : 0 };
-  }
 
   // ----- chrome ------------------------------------------------------------
   let progressBar = null; // mounted by the progress bar toggle (J), below
@@ -1697,7 +1708,7 @@ export function init(userConfig = {}) {
   if (config.hash && !printMode) {
     window.addEventListener('hashchange', () => {
       if (suppressHashChange) return;
-      const t = parseHash();
+      const t = parseHash(location.hash);
       if (t) instance.goto(t.slide, t.step, { force: true });
     });
   }
@@ -1931,7 +1942,7 @@ export function init(userConfig = {}) {
     return instance;
   }
 
-  const target = (config.hash && parseHash()) || { slide: 1, step: 0 };
+  const target = (config.hash && parseHash(location.hash)) || { slide: 1, step: 0 };
   instance._sections.forEach((s, i) => {
     if (i !== target.slide - 1) applyBuildState(instance._records[i], 0);
   });

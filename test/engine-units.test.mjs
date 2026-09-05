@@ -21,6 +21,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { rmTemp, tmp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hashOf, parseHash } from '../src/core/engine.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
@@ -145,4 +146,29 @@ test('a name that is neither built in nor installed names both ways out', async 
     assert.match(out, /no engine "nope" installed/);
     assert.match(out, /decklight engine add nope/);
   } finally { rmTemp(home); }
+});
+
+
+// ── the deep-link grammar, now a unit test rather than a loaded deck ─────────
+
+test('hashOf strips the one leading # and nothing else', () => {
+  assert.equal(hashOf('#/12/3'), '/12/3');
+  assert.equal(hashOf('/12/3'), '/12/3');
+  assert.equal(hashOf('##x'), '#x');
+  assert.equal(hashOf(''), '');
+  assert.equal(hashOf(null), '');
+  assert.equal(hashOf(undefined), '');
+});
+
+test('parseHash reads #/slide/step, defaults the step, and refuses everything else', () => {
+  assert.deepEqual(parseHash('#/12/3'), { slide: 12, step: 3 });
+  assert.deepEqual(parseHash('#/7'), { slide: 7, step: 0 });
+  assert.deepEqual(parseHash('/7'), { slide: 7, step: 0 });
+  // a longer path still yields the leading pair — a link that grew a suffix keeps working
+  assert.deepEqual(parseHash('#/12/3/whatever'), { slide: 12, step: 3 });
+  // a trailing slash is a link somebody hand-edited, not a different link
+  assert.deepEqual(parseHash('#/12/'), { slide: 12, step: 0 });
+  for (const bad of ['', '#', '#/', '#/x', '#slide-3', null, undefined]) {
+    assert.equal(parseHash(bad), null, JSON.stringify(bad));
+  }
 });

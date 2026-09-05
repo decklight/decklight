@@ -286,6 +286,62 @@ export function narrationTracks(narration) {
   return [track];
 }
 
+/**
+ * The pure core of the recorder and the live voice, at module scope.
+ *
+ * These lived inside createNarration and nothing about them needed to: no
+ * deck, no DOM, no state. What that cost was that the only way to assert any
+ * of them was a browser harness — thirty-seven modes of one, at that. A
+ * sentence boundary and a WAV header are unit tests, and now they are.
+ */
+
+/** Where the live voice breathes: sentence ends, with closing quotes kept on the sentence. */
+export function splitSentences(text) {
+  return ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? [])
+    .map((s) => s.trim()).filter(Boolean);
+}
+
+/** `47s`, `1m05s` — how the recorder's progress line says how long it has been. */
+export function fmtTime(ms) {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
+}
+
+/**
+ * One RIFF/WAVE container round `chunks` of 16-bit mono PCM at `rate`.
+ * A wrong field here is a file every player refuses; the header is 44 bytes
+ * and every one of them is asserted in test/narration.test.mjs.
+ */
+export function stitchWav(chunks, rate) {
+  const dataLen = chunks.reduce((n, c) => n + c.length, 0);
+  const h = new DataView(new ArrayBuffer(44));
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) h.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); h.setUint32(4, 36 + dataLen, true); w(8, 'WAVE');
+  w(12, 'fmt '); h.setUint32(16, 16, true); h.setUint16(20, 1, true); h.setUint16(22, 1, true);
+  h.setUint32(24, rate, true); h.setUint32(28, rate * 2, true); h.setUint16(32, 2, true); h.setUint16(34, 16, true);
+  w(36, 'data'); h.setUint32(40, dataLen, true);
+  return new Blob([h.buffer, ...chunks], { type: 'audio/wav' });
+}
+
+/** `seconds` of 16-bit mono silence at `rate` — the gap between beats. */
+export const silencePcm = (rate, seconds) => new Uint8Array(2 * Math.round(rate * seconds));
+
+/** Why the microphone would not open, said so a person can fix it. */
+export function micWhy(e) {
+  const n = e?.name ?? '';
+  if (n === 'NotAllowedError' || n === 'SecurityError') {
+    return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then open it again from V → Record this deck…';
+  }
+  if (n === 'NotFoundError' || n === 'OverconstrainedError') {
+    return 'no microphone was found. Plug one in, or pick one as the system input, then open it again from V → Record this deck…';
+  }
+  if (n === 'NotReadableError') {
+    return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and open it again from V → Record this deck…';
+  }
+  return `the microphone could not be opened (${escapeHtml(String(e?.message || n || e))}).`;
+}
+
+
 export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
   syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
@@ -521,10 +577,6 @@ export function createNarration({
   // sentences and every sentence is its own TTS call and cache entry — so
   // the first audio of a beat arrives after one short synthesis, not after
   // the whole paragraph renders.
-  function splitSentences(text) {
-    return ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? [])
-      .map((s) => s.trim()).filter(Boolean);
-  }
   /** Build steps this slide has: 0 = arrival, then one per `data-build` group. */
   const buildSteps = (sl) => (instance._records?.[sl - 1]?.groups.length ?? 0);
 
@@ -2207,10 +2259,6 @@ export function createNarration({
     const to = m[2] ? Number(m[2]) : from;
     return out.filter((sl) => sl >= from && sl <= to);
   }
-  function fmtTime(ms) {
-    const s = Math.round(ms / 1000);
-    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
-  }
   function renderRecordCard(view, data = {}) {
     recView = view;
     const card = recEl.querySelector('.narr-card');
@@ -2262,17 +2310,6 @@ export function createNarration({
   // and the live chain pace a slide identically. Between BEATS the gap is
   // fixed: it stands in for the ⟨CLICK⟩ a presenter would have taken.
   const SEG_GAP_S = 0.35;
-  function stitchWav(chunks, rate) {
-    const dataLen = chunks.reduce((n, c) => n + c.length, 0);
-    const h = new DataView(new ArrayBuffer(44));
-    const w = (o, s) => { for (let i = 0; i < s.length; i++) h.setUint8(o + i, s.charCodeAt(i)); };
-    w(0, 'RIFF'); h.setUint32(4, 36 + dataLen, true); w(8, 'WAVE');
-    w(12, 'fmt '); h.setUint32(16, 16, true); h.setUint16(20, 1, true); h.setUint16(22, 1, true);
-    h.setUint32(24, rate, true); h.setUint32(28, rate * 2, true); h.setUint16(32, 2, true); h.setUint16(34, 16, true);
-    w(36, 'data'); h.setUint32(40, dataLen, true);
-    return new Blob([h.buffer, ...chunks], { type: 'audio/wav' });
-  }
-  const silencePcm = (rate, seconds) => new Uint8Array(2 * Math.round(rate * seconds));
   /**
    * Which ⟨CLICK⟩ segment each run of a step's sentences came from.
    *
@@ -2787,19 +2824,6 @@ export function createNarration({
   const deckFileName = () => decodeURIComponent(location.pathname.split('/').pop() || 'deck.html');
 
   /** What went wrong when the browser refused, in the presenter's words. */
-  function micWhy(e) {
-    const n = e?.name ?? '';
-    if (n === 'NotAllowedError' || n === 'SecurityError') {
-      return 'the microphone was blocked. Allow it for this page (the ⚙ or 🎤 in the address bar), then open it again from V → Record this deck…';
-    }
-    if (n === 'NotFoundError' || n === 'OverconstrainedError') {
-      return 'no microphone was found. Plug one in, or pick one as the system input, then open it again from V → Record this deck…';
-    }
-    if (n === 'NotReadableError') {
-      return 'the microphone is busy — another app (a call, a recorder) is holding it. Close it and open it again from V → Record this deck…';
-    }
-    return `the microphone could not be opened (${escapeHtml(String(e?.message || n || e))}).`;
-  }
 
   // 24 kHz mono, matching every engine's output — a WAV lipsync.mjs and
   // video.mjs already read, at ~2.8 MB a minute rather than 5.8. Asked of the

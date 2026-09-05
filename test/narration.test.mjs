@@ -16,6 +16,7 @@ import { notesSegments } from '../tools/deck-html.mjs';
 import {
   hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack, parseVoiceQuery, voiceMatches,
+  splitSentences, fmtTime, stitchWav, silencePcm, micWhy,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -373,4 +374,76 @@ test('parseVoiceQuery says which kind of term each one is', () => {
   assert.deepEqual(parseVoiceQuery('fr'), [{ any: 'fr' }]);
   assert.deepEqual(parseVoiceQuery('lang:FR'), [{ lang: 'fr' }]);
   assert.deepEqual(parseVoiceQuery('lang:fr kar'), [{ lang: 'fr' }, { any: 'kar' }]);
+});
+
+
+// ── the pure core, lifted out of the closure so this file can reach it ───────
+
+test('a sentence ends at . ! ? or …, and a closing quote stays on its sentence', () => {
+  assert.deepEqual(splitSentences('One. Two! Three? Four…'), ['One.', 'Two!', 'Three?', 'Four…']);
+  // the quote belongs to the sentence it closes, not to the next one's start
+  assert.deepEqual(splitSentences('She said "go." Then left.'), ['She said "go."', 'Then left.']);
+  assert.deepEqual(splitSentences('(Aside.) Back.'), ['(Aside.)', 'Back.']);
+});
+
+test('a trailing fragment with no terminator is still a sentence — the last words are spoken', () => {
+  assert.deepEqual(splitSentences('First. and then some'), ['First.', 'and then some']);
+  assert.deepEqual(splitSentences('   '), []);
+  assert.deepEqual(splitSentences(undefined), []);
+  assert.deepEqual(splitSentences(null), []);
+});
+
+test('fmtTime reads as a person says it', () => {
+  assert.equal(fmtTime(0), '0s');
+  assert.equal(fmtTime(59_400), '59s');
+  assert.equal(fmtTime(60_000), '1m00s');
+  assert.equal(fmtTime(65_000), '1m05s');
+  assert.equal(fmtTime(3_661_000), '61m01s');
+});
+
+test('stitchWav writes a 44-byte RIFF header every player agrees on', async () => {
+  const rate = 24000;
+  const a = new Uint8Array([1, 2, 3, 4]), b = new Uint8Array([5, 6]);
+  const blob = stitchWav([a, b], rate);
+  assert.equal(blob.type, 'audio/wav');
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  assert.equal(buf.length, 44 + 6);
+  const h = new DataView(buf.buffer);
+  const tag = (o) => String.fromCharCode(...buf.slice(o, o + 4));
+  assert.equal(tag(0), 'RIFF');
+  assert.equal(h.getUint32(4, true), 36 + 6, 'RIFF size = 36 + data');
+  assert.equal(tag(8), 'WAVE');
+  assert.equal(tag(12), 'fmt ');
+  assert.equal(h.getUint32(16, true), 16, 'fmt chunk length');
+  assert.equal(h.getUint16(20, true), 1, 'PCM');
+  assert.equal(h.getUint16(22, true), 1, 'mono');
+  assert.equal(h.getUint32(24, true), rate);
+  assert.equal(h.getUint32(28, true), rate * 2, 'byte rate = rate × 2 (16-bit mono)');
+  assert.equal(h.getUint16(32, true), 2, 'block align');
+  assert.equal(h.getUint16(34, true), 16, 'bits per sample');
+  assert.equal(tag(36), 'data');
+  assert.equal(h.getUint32(40, true), 6, 'data length');
+  assert.deepEqual([...buf.slice(44)], [1, 2, 3, 4, 5, 6], 'chunks follow the header in order');
+});
+
+test('silencePcm is exactly `seconds` of 16-bit mono at `rate`, and it is silent', () => {
+  const s = silencePcm(24000, 0.5);
+  assert.equal(s.length, 2 * 12000);
+  assert.ok(s.every((x) => x === 0));
+  assert.equal(silencePcm(24000, 0).length, 0);
+});
+
+test('micWhy names the fix for each way a microphone refuses, and escapes the rest', () => {
+  const panel = /V → Record this deck…/;
+  assert.match(micWhy({ name: 'NotAllowedError' }), /blocked/);
+  assert.match(micWhy({ name: 'NotAllowedError' }), panel);
+  assert.match(micWhy({ name: 'SecurityError' }), /blocked/);
+  assert.match(micWhy({ name: 'NotFoundError' }), /no microphone was found/);
+  assert.match(micWhy({ name: 'OverconstrainedError' }), /no microphone was found/);
+  assert.match(micWhy({ name: 'NotReadableError' }), /busy/);
+  // an unknown error is quoted, and quoted SAFELY — this string lands in innerHTML
+  const odd = micWhy({ name: 'WeirdError', message: '<img src=x onerror=alert(1)>' });
+  assert.match(odd, /could not be opened/);
+  assert.doesNotMatch(odd, /<img/, 'an error message reached the card as markup');
+  assert.match(odd, /&lt;img/);
 });
