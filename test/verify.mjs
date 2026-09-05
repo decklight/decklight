@@ -41,10 +41,36 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const HOME = mkdtempSync(path.join(tmpdir(), 'decklight-verify-home-'));
 const env = { ...process.env, DECKLIGHT_HOME: HOME };
 
+/**
+ * narration-render is one page, 1,487 lines and 38 modes, and it has outgrown
+ * its budget twice (3× → 5×). The modes fall into five concerns that share
+ * almost nothing, so verify runs them as five harnesses over the same script
+ * — `narration-render.mjs` already takes a mode list — each with an ordinary
+ * budget. The next budget breach names a CONCERN, and a failure line says
+ * which of the five it came from rather than "narration-render".
+ *
+ * `narration-render` on its own is kept as an alias for all five, so
+ * tools/test-impact.mjs and anyone's muscle memory keep working.
+ */
+const NARRATION_GROUPS = {
+  live: ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'xss', 'switch', 'hint', 'hint&print'],
+  picker: ['roster', 'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'off', 'realsay'],
+  recorded: ['recorded', 'manifest', 'expired', 'plainrec', 'segmanifest', 'segsigned'],
+  segments: ['segoverflow', 'segments', 'segfold', 'segmiss', 'segnav', 'beatpause'],
+  record: ['record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record'],
+};
+const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-render:${g}`);
+
 const HARNESSES = [
   'render',
   'player-render',
-  'narration-render',
+  // spelled out, not spread: test/test-impact.test.mjs reads this list out of
+  // the source, and tools/test-impact.mjs must carry the same five
+  'narration-render:live',
+  'narration-render:picker',
+  'narration-render:recorded',
+  'narration-render:segments',
+  'narration-render:record',
   'record-render',
   'review-render',
   'character-render',
@@ -106,7 +132,13 @@ const HARNESS_TIMEOUT_MS = Number(process.env.VERIFY_TIMEOUT_MS ?? 10 * 60 * 100
  * of a cost removed. Written down as debt rather than quietly paid a third
  * time.
  */
-const BUDGET = { 'narration-render': 5 };
+// Four of the five narration groups run on the ordinary budget — that was the
+// point. `record` cannot: each of its six modes drives a real recorder with a
+// 120s in-page budget of its own, and the Windows runner (VERIFY_TIMEOUT_MS
+// 180s) killed the group at 180s on the first run while every other group
+// finished in under 95s. 4× is the six modes' worst case laid end to end,
+// and still less than the 5× the whole 38-mode file used to carry.
+const BUDGET = { 'narration-render:record': 4 };
 // `record-render` is the other shape again: it runs on the REAL clock, because
 // an AudioContext cannot be fast-forwarded, so its cost is the wall time of the
 // take it records (~6s here) plus two cold browsers. Well inside the base cap —
@@ -128,7 +160,8 @@ const budgetFor = (name) => HARNESS_TIMEOUT_MS * (BUDGET[name] ?? 1);
  * passed: a run that quietly dropped a harness would make "all 17 passed" a
  * sentence about the list rather than about the code.
  */
-const SKIP = new Set((process.env.VERIFY_SKIP ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+const expandAlias = (names) => names.flatMap((n) => (n === 'narration-render' ? NARRATION_HARNESSES : [n]));
+const SKIP = new Set(expandAlias((process.env.VERIFY_SKIP ?? '').split(',').map((s) => s.trim()).filter(Boolean)));
 for (const name of SKIP) {
   if (!HARNESSES.includes(name)) {
     process.stdout.write(`verify: VERIFY_SKIP names "${name}", which is not a harness\n`);
@@ -149,7 +182,7 @@ for (const name of SKIP) {
  * run NOTHING and exit 0, which is the one failure a verification step must
  * never have.
  */
-const ONLY = (process.env.VERIFY_ONLY ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const ONLY = expandAlias((process.env.VERIFY_ONLY ?? '').split(',').map((s) => s.trim()).filter(Boolean));
 for (const name of ONLY) {
   if (!HARNESSES.includes(name)) {
     process.stdout.write(`verify: VERIFY_ONLY names "${name}", which is not a harness\n`);
@@ -168,7 +201,10 @@ for (const name of SELECTED) {
   }
   process.stdout.write(`\n─── ${name} ${'─'.repeat(Math.max(0, 60 - name.length))}\n`);
   const at = Date.now();
-  const res = spawnSync(process.execPath, [path.join(here, `${name}.mjs`)],
+  // `narration-render:picker` is narration-render.mjs handed that group's modes
+  const [script, group] = name.split(':');
+  const modes = group ? NARRATION_GROUPS[group] : [];
+  const res = spawnSync(process.execPath, [path.join(here, `${script}.mjs`), ...modes],
     { stdio: 'inherit', timeout: budgetFor(name), env });
   const ms = Date.now() - at;
   const timedOut = res.error?.code === 'ETIMEDOUT';
