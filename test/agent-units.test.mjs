@@ -20,9 +20,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { rmTemp, tmp, cli } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,7 +35,6 @@ import { listUnits, unitPath } from '../cli/units.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
-const tmp = (p) => mkdtempSync(path.join(tmpdir(), `decklight-${p}-`));
 
 const DESCRIPTOR = {
   name: 'my-agent', type: 'agent', bin: 'my-agent',
@@ -54,12 +52,7 @@ function agentMarket(home, entry = DESCRIPTOR) {
   return root;
 }
 
-const run = (args, home) => {
-  try {
-    return { code: 0, out: execFileSync(process.execPath, [CLI, ...args],
-      { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] }) };
-  } catch (e) { return { code: e.status, out: `${e.stdout ?? ''}${e.stderr ?? ''}` }; }
-};
+const run = (args, home) => cli(args, { home });
 
 // ── the descriptor, and what a catalog may say ─────────────────────────────
 

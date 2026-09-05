@@ -12,9 +12,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, chmodSync, existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
+import { rmTemp, tmp as scratch } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,11 +29,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
 const CLI = path.join(ROOT, 'cli/decklight.mjs');
 
-const tmp = () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-wizard-'));
-  process.on('exit', () => rmTemp(dir));
-  return dir;
-};
+const tmp = () => scratch('wizard');
 
 const SCHEMA = {
   engine: 'elevenlabs',

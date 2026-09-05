@@ -15,9 +15,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { writeFileSync, existsSync } from 'node:fs';
+import { rmTemp, tmp, cli } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,7 +26,6 @@ import { reportLines } from '../cli/extension.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 
-const tmp = (p) => mkdtempSync(path.join(tmpdir(), `decklight-${p}-`));
 
 function transform(dir, name, body) {
   const file = path.join(dir, name);
@@ -35,13 +33,7 @@ function transform(dir, name, body) {
   return file;
 }
 
-const run = (args) => {
-  try {
-    return { code: 0, out: execFileSync(process.execPath, [CLI, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) };
-  } catch (e) {
-    return { code: e.status, out: `${e.stdout ?? ''}${e.stderr ?? ''}` };
-  }
-};
+const run = (args) => cli(args);
 
 // ── the lint ─────────────────────────────────────────────────────────────
 

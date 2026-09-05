@@ -18,10 +18,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, tmp, cli } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -44,10 +43,6 @@ const DECK = `<!doctype html>
 const GOOD_MANIFEST = { name: 'timer', slot: 'corner-br', needs: ['position'], version: '1.0.0' };
 const GOOD_SOURCE = 'decklight.on(function (s) { document.body.textContent = s.elapsed; });';
 
-const tmp = (prefix) => {
-  const d = mkdtempSync(path.join(tmpdir(), `decklight-${prefix}-`));
-  return d;
-};
 
 /** A config home with `plugins` installed into it. */
 function homeWith(plugins) {
@@ -339,17 +334,7 @@ test('strict mode does not strip the chrome it was handed', async (t) => {
 
 // ── the command ────────────────────────────────────────────────────────────
 
-const run = (args, home, opts = {}) => {
-  try {
-    return {
-      code: 0,
-      out: execFileSync(process.execPath, [CLI, 'plugin', ...args],
-        { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'], ...opts }),
-    };
-  } catch (e) {
-    return { code: e.status, out: `${e.stdout ?? ''}${e.stderr ?? ''}` };
-  }
-};
+const run = (args, home, opts = {}) => cli(['plugin', ...args], { home, ...opts });
 
 test('plugin list says which plugins read your speaker notes', () => {
   const home = homeWith({

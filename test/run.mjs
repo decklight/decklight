@@ -42,6 +42,26 @@ if (!files.length) {
 // `npm test -- --test-timeout=120000` worked on Node 26 and became
 // `Could not find 'D:\a\decklight\decklight\--test-timeout=120000'` on the
 // Node 20 this project promises in `engines`.
-const r = spawnSync(process.execPath, ['--test', ...process.argv.slice(2), ...files.map((f) => join('test', f))],
-  { stdio: 'inherit', cwd: join(here, '..') });
-process.exit(r.status ?? 1);
+// Two batches, not one. `node --test` runs every file in parallel, and six of
+// these boot a real TTS bridge or call the real `say`. macOS's speech server
+// (speechsynthesisd) deadlocks under concurrent `say` — a child with no CPU
+// and no output, which hung the suite for eight minutes before #431 made it a
+// sixty-second failure. A failure is still a flake. So the files that touch
+// the synthesizer run AFTER the rest, one at a time: ~15s more, and the only
+// nondeterminism in the suite is gone.
+const SERIAL = new Set([
+  'tts-cache.test.mjs', 'native-voice.test.mjs', 'local-voice.test.mjs',
+  'tts-setup.test.mjs', 'engine-units.test.mjs', 'tts-bridge-swap.test.mjs',
+]);
+const flags = process.argv.slice(2);
+const batch = (list, extra = []) => spawnSync(
+  process.execPath,
+  ['--test', ...flags, ...extra, ...list.map((f) => join('test', f))],
+  { stdio: 'inherit', cwd: join(here, '..') },
+).status ?? 1;
+
+const parallel = files.filter((f) => !SERIAL.has(f));
+const serial = files.filter((f) => SERIAL.has(f));
+const a = batch(parallel);
+const b = serial.length ? batch(serial, ['--test-concurrency=1']) : 0;
+process.exit(a || b);

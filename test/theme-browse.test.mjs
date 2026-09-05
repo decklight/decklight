@@ -18,10 +18,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, tmp as scratch } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -29,11 +28,7 @@ const ROOT = path.resolve(here, '..');
 const CLI = path.join(ROOT, 'cli/decklight.mjs');
 const EDIT = path.join(ROOT, 'cli/edit.mjs');
 
-const tmp = () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-browse-'));
-  process.on('exit', () => rmTemp(dir));
-  return dir;
-};
+const tmp = () => scratch('browse');
 
 const DECK = `<!doctype html>
 <html><head><title>T</title></head>

@@ -1,13 +1,16 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
+import { execFileSync, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 // Small fixtures several test files hand-rolled verbatim: the optional-dep and
 // Windows skip guards, and the stub rhubarb the viseme tests run instead of the
 // real binary.
 
 import { createRequire } from 'node:module';
-import { writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 // node-pty and js-yaml are optional (CLI recording only); a checkout without
 // them should SKIP the tests that need them, not fail. The value is a skip
@@ -163,4 +166,52 @@ export function rmTemp(dir) {
     // housekeeping is not, and a passing test must not fail on it.
     return false;
   }
+}
+
+/**
+ * A scratch directory, cleaned up for you.
+ *
+ * This was written fifteen times across the suite, in three shapes: a bare
+ * mkdtempSync that leaked the directory, a `process.on('exit')` that swept it
+ * at the end, and a `t.after` that swept it per test. One function, and the
+ * shape is chosen by whether you hand it the test context: with `t` the dir
+ * dies with the test, without it the dir dies with the process — never leaks.
+ */
+export function tmp(prefix, t) {
+  const dir = mkdtempSync(join(tmpdir(), `decklight-${prefix}-`));
+  if (t) t.after(() => rmTemp(dir));
+  else process.on('exit', () => rmTemp(dir));
+  return dir;
+}
+
+/** Is `bin` on PATH? `which`/`where`, never a version flag: some tools exit 1 on --version. */
+export function have(bin) {
+  try {
+    execFileSync(process.platform === 'win32' ? 'where' : 'which', [bin], { stdio: 'ignore' });
+    return true;
+  } catch { return false; }
+}
+
+/** `await wait(ms)` — for harnesses that watch a deck settle. */
+export const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+
+/**
+ * Run the CLI and report `{ code, out }` — the shape seven test files each
+ * re-derived from execFileSync's try/catch.
+ *
+ * The contract they all converged on, kept exactly: on success `out` is
+ * stdout; on failure `code` is the exit status and `out` is stdout + stderr,
+ * so an assertion can `match` a refusal wherever the CLI printed it. `home`
+ * sets DECKLIGHT_HOME (the config root the CLI reads), `cwd` and `env` pass
+ * through.
+ */
+export function cli(args, { home, cwd, env = {}, input } = {}) {
+  const CLI = join(dirname(fileURLToPath(import.meta.url)), '..', 'cli', 'decklight.mjs');
+  const r = spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf8', cwd, input,
+    env: { ...process.env, ...(home ? { DECKLIGHT_HOME: home } : {}), ...env },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const out = r.status === 0 ? r.stdout : (r.stdout ?? '') + (r.stderr ?? '');
+  return { code: r.status ?? 1, out, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }

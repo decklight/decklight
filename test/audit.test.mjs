@@ -10,9 +10,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, cli } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -289,11 +289,7 @@ test('the label states what is there and never grades it', () => {
 
 // ── the CI face ────────────────────────────────────────────────────────────
 
-const run = (args) => {
-  try {
-    return { code: 0, out: execFileSync(process.execPath, [CLI, ...args], { encoding: 'utf8', stdio: 'pipe' }) };
-  } catch (e) { return { code: e.status, out: String(e.stdout) + String(e.stderr) }; }
-};
+const run = (args) => cli(args);
 
 test('--check exits 0 on a deck that runs only the runtime', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-audit-'));

@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, tmp as scratch } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,7 +31,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const CLI = path.join(root, 'cli', 'decklight.mjs');
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-marketplace-'));
+const tmp = () => scratch('marketplace');
 
 /** A local marketplace repo: a dir with .decklight/marketplace.json. */
 function marketRepo(manifestText) {

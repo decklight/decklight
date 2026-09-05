@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { have } from './helpers.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hook = path.join(root, '.claude', 'hooks', 'pre-release-docs.sh');
@@ -28,10 +29,6 @@ const hook = path.join(root, '.claude', 'hooks', 'pre-release-docs.sh');
 // bash and jq are the hook's own dependencies, not decklight's — the runtime
 // has none and the CLI is Node-only. Where they are missing (Windows CI) the
 // hook cannot run at all, so neither can this.
-const have = (bin) => {
-  try { execFileSync(process.platform === 'win32' ? 'where' : 'which', [bin], { stdio: 'ignore' }); return true; }
-  catch { return false; }
-};
 const runnable = process.platform !== 'win32' && have('bash') && have('jq');
 
 /** Did the hook treat `cmd` as a release push? */

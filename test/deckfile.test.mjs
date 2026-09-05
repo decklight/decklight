@@ -12,9 +12,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { rmTemp, tmp as scratch } from './helpers.mjs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,11 +36,7 @@ const stubClient = {
   verify: async () => ({ identity: { subjectAlternativeName: 'me@example.com', extensions: { issuer: 'https://id.example' } } }),
 };
 
-const tmp = () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-deckfile-'));
-  process.on('exit', () => rmTemp(dir));
-  return dir;
-};
+const tmp = () => scratch('deckfile');
 
 const DECK = '<!doctype html><html><body><div class="decklight"><section><h2>A</h2></section></div>'
   + '<script>Decklight.init()</script></body></html>';

@@ -17,9 +17,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { rmTemp, tmp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,7 +26,6 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '..');
 const CLI = path.join(ROOT, 'cli/decklight.mjs');
 
-const tmp = (p) => mkdtempSync(path.join(tmpdir(), `decklight-${p}-`));
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
 
 /**
