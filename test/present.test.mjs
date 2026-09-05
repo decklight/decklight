@@ -13,7 +13,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync, r
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { CSP } from '../cli/present.mjs';
@@ -71,7 +71,7 @@ async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs =
   for (const k of Object.keys(childEnv)) if (childEnv[k] === undefined) delete childEnv[k];
   const child = spawn(process.execPath, [CLI, 'present', deck, '--port', '0', ...extraArgs],
     { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv });
-  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); });
+  t.after(async () => { await stop(child); rmTemp(dir); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
@@ -409,7 +409,7 @@ test('--port binds the port asked for, and Ctrl-C exits clean', { skip: noSignal
 
   const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', String(port)],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => child.kill('SIGKILL'));
+  t.after(() => stop(child));
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   await new Promise((resolve, reject) => {

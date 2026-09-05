@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, stop } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,7 +37,7 @@ async function startBridge(t, { engine = 'chirp', env = {} } = {}) {
     env: { ...process.env, GOOGLE_CLOUD_PROJECT: PROJECT, XDG_CACHE_HOME: cache, ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(child));
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });

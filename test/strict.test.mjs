@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, stop } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -143,7 +143,7 @@ function deckDir(html = CLEAN, name = 'talk.html') {
 async function startPresent(t, dir, { deck = 'talk.html', extraArgs = [] } = {}) {
   const child = spawn(process.execPath, [CLI, 'present', deck, '--port', '0', ...extraArgs],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); });
+  t.after(async () => { await stop(child); rmTemp(dir); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });

@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { rmTemp, tmp, cli } from './helpers.mjs';
+import { rmTemp, tmp, cli, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -237,7 +237,7 @@ function deckDir() {
 async function startPresent(t, dir, home, extraArgs = []) {
   const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', '0', ...extraArgs],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
-  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); rmTemp(home); });
+  t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
@@ -316,7 +316,7 @@ test('strict mode does not strip the chrome it was handed', async (t) => {
   const home = homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } });
   const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', '0'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
-  t.after(() => { child.kill('SIGKILL'); rmTemp(dir); rmTemp(home); });
+  t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {

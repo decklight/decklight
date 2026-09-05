@@ -12,7 +12,7 @@ import { execFileSync, spawnSync, spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { planServices, inGitRepo, voiceSetupOffer } from '../cli/dev.mjs';
@@ -362,7 +362,7 @@ test('a real child on a real pipe exits when the pipe closes, and lets go of its
   const child = spawn(process.execPath,
     [path.resolve(here, '../cli/edit.mjs'), 'deck.html', '--port', '0'],
     { cwd: dir, stdio: ['pipe', 'pipe', 'pipe'], env: leashEnv() });
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(child));
 
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
@@ -389,7 +389,7 @@ test('SIGKILL to author takes the deck server with it — no orphan holding the 
   const dev = spawn(process.execPath, [
     CLI, 'author', 'deck.html', '--port', '0', '--no-tts', '--no-lipsync', '--no-git',
   ], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { try { dev.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(dev));
 
   let out = '';
   dev.stdout.on('data', (c) => { out += c; });

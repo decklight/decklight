@@ -16,7 +16,7 @@ import { mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync } fro
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { childEnv, rmTemp } from './helpers.mjs';
+import { childEnv, rmTemp, stop } from './helpers.mjs';
 
 import { reviewRecord, commentProblem, reviewerIdentity } from '../cli/review.mjs';
 import { parseReview } from '../cli/review-store.mjs';
@@ -84,7 +84,7 @@ test('identity is git\'s answer, and its absence is not a refusal', () => {
 async function startReview(t, dir, extra = []) {
   const child = spawn(process.execPath, [CLI, 'review', 'talk.html', '--port', '0', '--no-open', ...extra],
     { cwd: dir, env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } });
+  t.after(() => stop(child));
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });

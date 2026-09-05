@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 import { createServer as createTcpServer } from 'node:net';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { rmTemp, tmp as scratch } from './helpers.mjs';
+import { rmTemp, tmp as scratch, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { isPortOpen, identifyEditServer, nextFreePort, planPortConflict, resolvePortConflict, canBind } from '../cli/port-conflict.mjs';
@@ -55,7 +55,7 @@ async function startEdit(t, port = 0, extraArgs = []) {
     cwd: dir,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(child));
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
@@ -320,7 +320,7 @@ test('`decklight author` bumps the edit port on conflict instead of crashing', a
   const dev = spawn(process.execPath, [
     CLI, 'author', 'deck.html', '--port', String(a.port), '--no-tts', '--no-lipsync', '--no-git',
   ], { cwd: devDir, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { try { dev.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(dev));
   let out = '';
   dev.stdout.on('data', (c) => { out += c; });
   dev.stderr.on('data', (c) => { out += c; });

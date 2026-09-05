@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, readFileSync, chmodSync, existsSync } from 'node:fs';
-import { rmTemp, tmp as scratch } from './helpers.mjs';
+import { rmTemp, tmp as scratch, stop } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -542,7 +542,7 @@ async function startAuthor(t, home) {
   const proc = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', '--no-git'], {
     cwd: dir, env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => proc.kill('SIGKILL'));
+  t.after(() => stop(proc));
   let out = '';
   proc.stdout.on('data', (c) => { out += c; });
   proc.stderr.on('data', (c) => { out += c; });

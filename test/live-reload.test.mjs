@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, stop } from './helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const EDIT = path.resolve(here, '../cli/edit.mjs');
@@ -31,7 +31,7 @@ test('a rename-replace does not kill live reload', async (t) => {
 
   const child = spawn(process.execPath, [EDIT, 'talk.html', '--port', '0', '--no-git', '--no-review-check'],
     { cwd: dir, env: { ...process.env, CI: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(child));
   let log = '';
   child.stdout.on('data', (c) => { log += c; });
   child.stderr.on('data', (c) => { log += c; });

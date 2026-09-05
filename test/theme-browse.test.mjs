@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { rmTemp, tmp as scratch } from './helpers.mjs';
+import { rmTemp, tmp as scratch, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -74,7 +74,7 @@ async function startAuthor(t, h) {
   const proc = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', '--no-git'], {
     cwd: dir, env: { ...process.env, DECKLIGHT_HOME: h }, stdio: ['ignore', 'pipe', 'pipe'],
   });
-  t.after(() => proc.kill('SIGKILL'));
+  t.after(() => stop(proc));
   let out = '';
   proc.stdout.on('data', (c) => { out += c; });
   proc.stderr.on('data', (c) => { out += c; });

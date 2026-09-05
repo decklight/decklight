@@ -13,7 +13,7 @@ import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { childEnv, rmTemp, writeFakeBin } from './helpers.mjs';
+import { childEnv, rmTemp, writeFakeBin, stop } from './helpers.mjs';
 
 import http from 'node:http';
 
@@ -302,7 +302,7 @@ const gone = (child) => new Promise((done) => {
 const tmp = (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-edit-'));
   t.after(async () => {
-    for (const c of kids) { try { c.kill('SIGKILL'); } catch { /* already gone */ } }
+    await Promise.all([...kids].map((c) => stop(c)));
     await Promise.all([...kids].map(gone));
     kids.clear();
     rmTemp(dir);
@@ -344,7 +344,7 @@ async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
   });
   kids.add(child);
   child.on('exit', () => kids.delete(child));
-  t.after(() => { try { child.kill('SIGKILL'); } catch { /* already gone */ } });
+  t.after(() => stop(child));
   let out = '';
   child.stdout.on('data', (c) => { out += c; });
   child.stderr.on('data', (c) => { out += c; });
