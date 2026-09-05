@@ -34,7 +34,7 @@ import { randomBytes } from 'node:crypto';
 import { argReader, isMain } from '../tools/args.mjs';
 import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded, withHeaders, isOwnOrigin } from './serve.mjs';
 import { createRemoteRelay } from './remote.mjs';
-import { corsHeaders } from '../tools/bridge.mjs';
+import { corsHeaders, readBody } from '../tools/bridge.mjs';
 
 // The phone is a different origin from the deck (a LAN address, not localhost),
 // so the remote's own endpoints need CORS. Nothing else here does — the deck is
@@ -749,8 +749,12 @@ export async function presentMain(args, { client } = {}) {
     // writes anything — the phone asks the deck to move, it never edits.
     let body = '';
     if (req.method === 'POST') {
-      req.on('data', (c) => { body += c; if (body.length > 4096) req.destroy(); });
-      req.on('end', () => {
+      // bridge.mjs's reader with the cap this route has always had: the phone
+      // remote is the one path reachable from off this machine, and a body
+      // past 4 KB is a probe, not a request — the socket is destroyed and the
+      // E2BIG never becomes a response
+      readBody(req, { max: 4096 }).then((bytes) => {
+        body = bytes.toString();
         try {
           if (relay.handle(req, res, url, body)) return;
         } catch {
@@ -760,7 +764,7 @@ export async function presentMain(args, { client } = {}) {
         }
         res.writeHead(405);
         res.end('method not allowed');
-      });
+      }).catch(() => { /* E2BIG: destroyed above; anything else: the socket is gone */ });
       return;
     }
     if (relay.handle(req, res, url, '')) return;
