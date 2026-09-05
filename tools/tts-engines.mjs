@@ -47,6 +47,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
+import { run, PROBE_MS } from './exec.mjs';
 import {
   createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
@@ -72,7 +73,7 @@ const onPath = (bin) => {
   } catch { return false; }
 };
 const canImportPiper = (py) => {
-  try { execFileSync(py, ['-c', 'import piper.download_voices'], { stdio: 'ignore' }); return true; }
+  try { run(py, ['-c', 'import piper.download_voices'], { stdio: 'ignore', timeout: PROBE_MS }); return true; }
   catch { return false; }
 };
 
@@ -186,7 +187,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * request would silently become several utterances.
  */
 function createPiper({ voice = PIPER_DEFAULT_VOICE, dataDir }) {
-  try { execFileSync('piper', ['--help'], { stdio: 'ignore' }); }
+  try { run('piper', ['--help'], { stdio: 'ignore', timeout: PROBE_MS }); }
   catch { throw new Error('piper not found — install with: uv tool install piper-tts'); }
   // A bare model NAME only resolves against a data dir — without one, piper
   // searches its own default and calls the voice missing even when it is

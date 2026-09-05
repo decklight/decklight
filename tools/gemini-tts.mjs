@@ -9,7 +9,7 @@
 // location pair is probed once (GA vs -preview, global vs us-central1) and
 // cached for the synth's lifetime.
 
-import { execFileSync } from 'node:child_process';
+import { run, NETWORK_MS } from './exec.mjs';
 
 /**
  * GCP project ids: 6–30 chars, lowercase, leading letter, no trailing hyphen.
@@ -38,8 +38,8 @@ export const GEMINI_VOICES = [
 // ADC, not `gcloud auth login` — a separate credential store, and the one every
 // Google client library reads. Shared with the Chirp engine (tools/tts-engines.mjs).
 export function gcloudToken() {
-  return execFileSync('gcloud', ['auth', 'application-default', 'print-access-token'],
-    { encoding: 'utf8' }).trim();
+  return run('gcloud', ['auth', 'application-default', 'print-access-token'],
+    { encoding: 'utf8', timeout: NETWORK_MS, why: 'gcloud is waiting on a login that expired, or on the network — run: gcloud auth application-default login' }).trim();
 }
 
 /**

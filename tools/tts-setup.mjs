@@ -27,6 +27,7 @@ import {
 } from './tts-engines.mjs';
 import { gcloudToken, validProjectId } from './gemini-tts.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV, apiKey as elevenLabsKey } from './elevenlabs-tts.mjs';
+import { run, NETWORK_MS } from './exec.mjs';
 
 // The picker's preview default (SPEC PRESENTING) — the wizard's proof is the same
 // audio the deck's V picker previews.
@@ -54,8 +55,8 @@ export function saveTtsConfig(config, env = process.env) {
 /** The project gcloud is configured with — the prefill when $GOOGLE_CLOUD_PROJECT is unset. */
 export function gcloudConfigProject() {
   try {
-    const out = execFileSync('gcloud', ['config', 'get-value', 'project'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const out = run('gcloud', ['config', 'get-value', 'project'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: NETWORK_MS }).trim();
     return out && !out.startsWith('(') ? out : null; // '(unset)' when none
   } catch { return null; }
 }

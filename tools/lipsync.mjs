@@ -27,11 +27,11 @@
 
 import { readFileSync, writeFileSync, existsSync, readdirSync, rmSync, renameSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader } from './args.mjs';
 import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
+import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -68,7 +68,7 @@ const veo = veoOn ? createVeo({
 }) : null;
 
 const have = (bin, flags = ['--version']) => {
-  try { execFileSync(bin, flags, { stdio: 'ignore' }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
+  try { run(bin, flags, { stdio: 'ignore', timeout: PROBE_MS }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
 };
 if (doVisemes && !have(rhubarb)) {
   console.error(`rhubarb not found — install https://github.com/DanielSWolf/rhubarb-lip-sync or pass --rhubarb <bin>`);
@@ -115,8 +115,8 @@ function toWav(stem) {
   if (existsSync(wav)) return { path: wav, tmp: false };
   const m4a = join(dir, `${stem}.m4a`);
   const tmp = join(dir, `${stem}.tmp.wav`);
-  if (ffmpegOk) execFileSync('ffmpeg', ['-y', '-i', m4a, tmp], { stdio: 'ignore' });
-  else execFileSync('afconvert', ['-f', 'WAVE', '-d', 'LEI16', m4a, tmp]);
+  if (ffmpegOk) run('ffmpeg', ['-y', '-i', m4a, tmp], { stdio: 'ignore', timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
+  else run('afconvert', ['-f', 'WAVE', '-d', 'LEI16', m4a, tmp], { timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
   return { path: tmp, tmp: true };
 }
 
