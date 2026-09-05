@@ -30,6 +30,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dumpDom, resultsFrom, timedOut } from './harness.mjs';
+import { spawn } from 'node:child_process';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const page = path.join(here, 'narration.html');
@@ -66,6 +67,37 @@ const MODE_WALL_MS = Number(process.env.NARRATION_MODE_TIMEOUT_MS ?? 90_000);
  * environmental and must fail — retrying until it works is how a real hang
  * becomes a green tick that takes twice as long.
  */
+/**
+ * A REAL `decklight tts --engine say` for the one mode that asserts the
+ * product rather than a stub. Resolves to { url, stop } or null when this
+ * machine cannot speak (no say: everywhere but macOS, and a mac runner with
+ * no voices) — the mode is then skipped, by name, not failed.
+ */
+async function bootSayBridge() {
+  if (process.platform !== 'darwin') return null;
+  const CLI = fileURLToPath(new URL('../cli/decklight.mjs', import.meta.url));
+  const child = spawn(process.execPath, [CLI, 'tts', '--engine', 'say', '--port', '0'],
+    { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, XDG_CACHE_HOME: `${process.env.TMPDIR ?? '/tmp'}/dl-realsay-cache` } });
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  const url = await new Promise((resolve) => {
+    const scan = setInterval(() => {
+      const m = out.match(/tts bridge on (http:\/\/127\.0\.0\.1:\d+)/);
+      if (m) { clearInterval(scan); resolve(m[1]); }
+    }, 25);
+    child.on('exit', () => { clearInterval(scan); resolve(null); });
+    setTimeout(() => { clearInterval(scan); resolve(null); }, 20_000);
+  });
+  const stop = () => new Promise((ok) => {
+    child.once('exit', ok);
+    child.kill('SIGTERM');
+    setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 3000).unref();
+  });
+  if (!url) { await stop(); return null; }
+  return { url, stop };
+}
+
 function run(mode, extra = '') {
   // quietStderr: a headless Chrome on a machine with no D-Bus/UPower prints
   // pages of unrelated noise that would bury the actual result
@@ -106,9 +138,14 @@ const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const MODES = ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
-  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record'];
+  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
   const [m, extra] = mode.split('&');
+  let bridge = null;
+  if (m === 'realsay') {
+    bridge = await bootSayBridge();
+    if (!bridge) { console.log(`skip realsay   no say bridge on this machine`); continue; }
+  }
   // Timed, and printed even on success (#323). This harness boots a browser per
   // mode, so when it dies to its budget the useful question is WHICH mode was
   // slow — and the run that prompted this said only "KILLED after 180s", with
@@ -116,7 +153,8 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
   // simply grown. A number per mode makes the next occurrence readable from the
   // log alone, and makes drift visible before it becomes a failure.
   const at = Date.now();
-  const r = run(m, extra ? `&${extra}` : '');
+  const r = run(m, (extra ? `&${extra}` : '') + (bridge ? `&bridge=${encodeURIComponent(bridge.url)}` : ''));
+  if (bridge) await bridge.stop();
   const took = Date.now() - at;
   slowest = Math.max(slowest, took);
   timings.push([mode, took]);
@@ -254,6 +292,14 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
       + ` · in order=${r.inOrder} · nothing played twice=${r.stillNothingTwice}`
       + ` · still reached the end=${r.reachedTheEnd}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'realsay') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} a REAL say bridge · ${r.rowCount} rows · shelf=${r.hasShelf}`
+      + ` · Samantha offered=${r.samantha} · other languages folded=${r.othersFolded}`
+      + ` · ${r.betterBuilds} Enhanced/Premium builds, plain twins left=${JSON.stringify(r.plainTwinsLeft)}`
+      + (ok ? '' : `\n           rows: ${(r.sample ?? []).join(' | ')}\n           groups: ${JSON.stringify(r.groups)}`)
+      + (r.exception ? ` \u00b7 ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
   if (mode === 'off') {

@@ -136,7 +136,12 @@
       ],
     });
 
-    const BRIDGE = 'http://127.0.0.1:8899';
+    // `?bridge=http://127.0.0.1:N` points the deck at a REAL bridge the harness
+    // booted, and skips the fetch stub below entirely. Every other mode feeds
+    // the picker a hand-written roster through the stub — which is exactly why
+    // a change to what the real engine offers could never fail one of them.
+    const REAL_BRIDGE = params.get('bridge');
+    const BRIDGE = REAL_BRIDGE ?? 'http://127.0.0.1:8899';
     // ── mock author server: only the `record` mode has one ──────────────────
     // ⇧V writes its slide-NN.wav through the server that owns the deck file
     // (PRESENTING), so proving it stopped using the browser's download folder
@@ -162,7 +167,7 @@
     // .bind: an unbound window.fetch called as a bare function throws "Illegal
     // invocation", so every non-bridge request would die in the fallthrough
     const realFetch = window.fetch.bind(window);
-    window.fetch = async (url, opts) => {
+    if (!REAL_BRIDGE) window.fetch = async (url, opts) => {
       const u = String(url);
       // the manifest is a real relative fetch, which file:// would refuse
       if (u.endsWith(MANIFEST_PATH)) {
@@ -329,7 +334,7 @@
     // would otherwise suppress it and the mode would pass by doing nothing
     if (mode === 'hint') localStorage.removeItem('decklight-narr-used:' + location.pathname);
 
-    const cfg = { narration: { liveUrl: 'http://127.0.0.1:8899/tts' } };
+    const cfg = { narration: { liveUrl: `${BRIDGE}/tts` } };
     if (recordedDeck) {
       // slide 2 has NO notes (nothing to say → no file, and that is fine);
       // slide 3 has notes but its file is missing (that IS worth saying)
@@ -1115,6 +1120,49 @@
           return;
         }
 
+        if (mode === 'realsay') {
+          // THE GAP: sayshelves asserts a roster the page wrote itself, so #428
+          // (drop Samantha) and #429 (keep her) both passed it. This mode talks
+          // to a real `decklight tts --engine say` the harness booted, and
+          // asserts what the PRODUCT offers — createEngine → bridge → picker —
+          // on whatever voices this Mac actually has.
+          deck.narration.openPicker('voices');
+          const rowsNow = () => [...document.querySelectorAll('.narr-row')].map((n) => n.textContent);
+          // a real /ping and a real roster take longer than a stub: wait for voices, not a timer
+          // wait for the ROSTER, not for rows: the view has rows before /voices
+          // answers (engine, filter, install), so "≥3 rows" is true at once
+          const rosterIn = () => document.querySelectorAll('.narr-group').length > 0
+            || rowsNow().some((t) => /Samantha|Alex|Daniel|Karen|Moira/.test(t));
+          for (let i = 0; i < 400 && !rosterIn(); i++) await new Promise((ok) => setTimeout(ok, 25));
+          // NAMES, not row text: a row's textContent runs name, locale and the ▶
+          // together ("Samanthaen_US▶"), so a word-boundary match on it can
+          // never hit — and a dedup check against it passes without checking
+          // the label holds the NAME and the locale as adjacent nodes; the name
+          // is the first one, whether it is a bare text node or its own span
+          const rows = [...document.querySelectorAll('.narr-row')].map((n) => {
+            const label = n.querySelector('.narr-row-label');
+            return (label?.childNodes[0]?.textContent ?? n.textContent).trim();
+          });
+          r.sample = rows;
+          const groups = [...document.querySelectorAll('.narr-group')].map((n) => n.textContent);
+          r.rowCount = rows.length;
+          r.groups = groups;
+          r.hasShelf = groups.some((g) => /^(best|good|average)$/.test(g));
+          // Samantha ships with every Mac and #429 exists to keep her offered
+          r.samantha = rows.includes('Samantha');
+          // the fold: a real Mac lists other languages, and they arrive folded
+          r.othersFolded = rows.some((t) => /other languages \(\d+\)/.test(t));
+          // #429's rule, observed through the product: where this Mac has an
+          // Enhanced/Premium build of a voice, the plain twin is not offered
+          const betterOf = rows.map((t) => /^(.+?) \((Enhanced|Premium)\)/.exec(t)?.[1]).filter(Boolean);
+          const plainTwins = betterOf.filter((name) => rows.includes(name));
+          r.betterBuilds = betterOf.length;
+          r.plainTwinsLeft = plainTwins;
+          r.dedup = plainTwins.length === 0;
+          r.PASS = r.hasShelf && r.samantha && r.othersFolded && r.dedup && r.rowCount > 5;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
         if (mode === 'sayshelves') {
           // ~184 rows folded to a handful: quality shelves for the deck's
           // language, one toggle row per long tail, and the missing BEST
