@@ -126,6 +126,37 @@ test('no doc or deck claims a theme count the repo does not have', () => {
   assert.deepEqual(wrong, [], 'a shipped file states a theme/pack count the repo does not have');
 });
 
+test('no shipped file still names a key that was retired', () => {
+  // ⇧V (the synthesized recorder) and ⇧R (the your-voice recorder) stopped
+  // being keys in #421: both live in V's panel as `Record this deck…`. The
+  // keymap test keeps the HELP TABLE honest, but a retired key survives just
+  // as well in a --help string, an error a tool prints, or a comment the next
+  // person reads as fact — thirteen of them did, one of them in the line
+  // `decklight record` prints to every user. A key that no longer exists is a
+  // command that exits 1, spelled differently.
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const shipped = [];
+  for (const dir of ['cli', 'tools', 'src/core']) {
+    for (const f of fs.readdirSync(path.join(root, dir))) {
+      if (/\.(m?js)$/.test(f)) shipped.push(path.join(dir, f));
+    }
+  }
+  shipped.push('README.md', 'SPEC.md', 'site/index.html');
+  for (const f of fs.readdirSync(path.join(root, 'docs'))) if (f.endsWith('.md')) shipped.push(path.join('docs', f));
+  for (const f of fs.readdirSync(path.join(root, 'demo'))) if (f.endsWith('.html')) shipped.push(path.join('demo', f));
+  const hits = [];
+  for (const rel of shipped) {
+    const text = fs.readFileSync(path.join(root, rel), 'utf8');
+    text.split('\n').forEach((line, i) => {
+      // history is allowed to name the old key while saying it is old
+      if (/⇧[VR]|\\u21e7[VR]/.test(line) && !/\bwas\b|used to|retired|removed|renamed|no longer|before #421/.test(line)) {
+        hits.push(`${rel}:${i + 1}`);
+      }
+    });
+  }
+  assert.deepEqual(hits, [], 'a shipped file names ⇧V or ⇧R, keys that were retired in #421');
+});
+
 test('no doc or deck still tells anyone to run a command that was removed', () => {
   // `decklight edit` was folded into `author` (#182). The public site was still
   // demonstrating it in its terminal cast, and docs/architecture.svg still

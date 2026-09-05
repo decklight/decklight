@@ -1240,7 +1240,7 @@ export async function editMain(args, { onListen = null } = {}) {
         console.log(`  ${dir} → ${JSON.stringify(history.counts())}`);
         return json(200, { ok: true, ...history.counts() });
       }
-      // ── ⇧V offline recordings (PRESENTING) ───────────────────────────────
+      // ── the recorder's offline recordings — V → Record this deck… (PRESENTING) ───────────────────────────────
       // The player used to hand every stitched slide to the browser's DOWNLOAD
       // path, which is why a deck's voice arrived as thirty slide-NN.wav in
       // whatever folder the OS calls Downloads — never the deck's, and on
