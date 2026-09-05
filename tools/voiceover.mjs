@@ -51,6 +51,7 @@ import { createEngine } from './tts-engines.mjs';
 import { clipKey, createTtsCache, extFor } from './tts-cache.mjs';
 import { argReader } from './args.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
+import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 const args = process.argv.slice(2);
 
@@ -122,16 +123,16 @@ try {
 // macOS — probing in that order keeps this working off a Mac (as tools/lipsync.mjs
 // already does), and both engines' output goes through here.
 const have = (bin, flags = ['-version']) => {
-  try { execFileSync(bin, flags, { stdio: 'ignore' }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
+  try { run(bin, flags, { stdio: 'ignore', timeout: PROBE_MS }); return true; } catch (e) { return e?.code !== 'ENOENT'; }
 };
 const encoder = have('ffmpeg') ? 'ffmpeg' : have('afconvert') ? 'afconvert' : null;
 if (!encoder) {
   console.error('no AAC encoder — install ffmpeg (apt install ffmpeg / brew install ffmpeg)');
   process.exit(1);
 }
-const toAac = (wav, m4a) => execFileSync(encoder, encoder === 'ffmpeg'
+const toAac = (wav, m4a) => run(encoder, encoder === 'ffmpeg'
   ? ['-y', '-i', wav, '-c:a', 'aac', '-b:a', '128k', m4a]
-  : ['-f', 'm4af', '-d', 'aac', wav, m4a], { stdio: 'ignore' });
+  : ['-f', 'm4af', '-d', 'aac', wav, m4a], { stdio: 'ignore', timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
 
 // ── extract per-slide narration text ─────────────────────────────────────────
 const html = readFileSync(deckPath, 'utf8');
@@ -308,7 +309,7 @@ for (let i = 0; i < slides.length; i++) {
     }
     const list = join(outDir, `slide-${n}.concat`);
     writeFileSync(list, `${parts.map((p) => `file '${p.path.replaceAll("'", "'\\''")}'`).join('\n')}\n`);
-    execFileSync('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', m4a],
+    run('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', m4a],
       { stdio: 'ignore' });
     rmSync(list, { force: true });
     manifest[i].segments = parts.map((p) => ({ file: p.file }));

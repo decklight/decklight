@@ -14,10 +14,10 @@
 // Requires gh (authenticated) on PATH.
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { argReader } from './args.mjs';
+import { run, NETWORK_MS } from './exec.mjs';
 
 const args = process.argv.slice(2);
 const { opt } = argReader(args);
@@ -25,7 +25,7 @@ const REPO = opt('--repo', 'decklight/decklight.github.io');
 const STAGING = 'demo/voiceover-site';
 
 const gh = (argv, input) =>
-  JSON.parse(execFileSync('gh', ['api', ...argv], { encoding: 'utf8', input, maxBuffer: 1 << 28 }));
+  JSON.parse(run('gh', ['api', ...argv], { encoding: 'utf8', input, maxBuffer: 1 << 28, timeout: NETWORK_MS, why: 'gh is waiting on the network or a login — run: gh auth status' }));
 
 // git blob sha1: sha1("blob <len>\0" + content)
 const blobSha = (buf) =>

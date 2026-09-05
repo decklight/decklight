@@ -32,7 +32,7 @@
 // in one extra load, because the grouping is the runtime's and a second counter
 // written here would be a copy that drifts.
 
-import { execFile, execFileSync, spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve, sep } from 'node:path';
@@ -42,6 +42,7 @@ import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader, isMain } from './args.mjs';
 import { injectBeforeBodyEnd, sectionBodies } from './deck-html.mjs';
 import { serveForRender } from '../cli/present.mjs';
+import { run as runBounded, PROBE_MS } from './exec.mjs';
 
 const run = promisify(execFile);
 
@@ -309,7 +310,7 @@ export function resolveNarration(deckPath, narrationDir) {
 }
 
 const have = (bin) => {
-  try { execFileSync(bin, ['-version'], { stdio: 'ignore' }); return true; }
+  try { runBounded(bin, ['-version'], { stdio: 'ignore', timeout: PROBE_MS }); return true; }
   catch (e) { return e?.code !== 'ENOENT'; }
 };
 

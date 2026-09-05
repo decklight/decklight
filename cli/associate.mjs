@@ -32,12 +32,12 @@
  */
 
 import { writeFileSync, mkdirSync, rmSync, existsSync, chmodSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { homedir, platform } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain } from '../tools/args.mjs';
 import { DECK_EXT } from './deckfile.mjs';
+import { run, PROBE_MS } from '../tools/exec.mjs';
 
 export const MIME_TYPE = 'application/vnd.decklight';
 export const UTI = 'io.decklight.deck';
@@ -208,7 +208,7 @@ const windowsUninstall = () => [
 
 /** Refresh a desktop database if the tool is there; never fail over its absence. */
 function refresh(argv) {
-  try { execFileSync(argv[0], argv.slice(1), { stdio: 'ignore' }); return true; }
+  try { run(argv[0], argv.slice(1), { stdio: 'ignore', timeout: PROBE_MS }); return true; }
   catch { return false; }
 }
 

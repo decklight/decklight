@@ -1,9 +1,9 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { delimiter, join } from 'node:path';
+import { run, PROBE_MS } from './exec.mjs';
 
 // What can this machine say out loud, without a credential and without a
 // download?
@@ -340,7 +340,7 @@ export function onPath(bin, env = process.env) {
 
 /** Run a probe and return its stdout; anything at all going wrong is ''. */
 export const probe = (bin, args) => {
-  try { return execFileSync(bin, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+  try { return run(bin, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: PROBE_MS, why: "macOS's speech synthesizer is not answering; restart it: killall speechsynthesisd" }); }
   catch { return ''; }
 };
 

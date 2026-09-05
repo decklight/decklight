@@ -20,10 +20,10 @@
 // repo tool; gcloud already owns those credentials and should keep owning them.
 // Same posture as tools/publish-site-voices.mjs shelling out to `gh`.
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { argReader, isMain } from './args.mjs';
+import { run, NETWORK_MS } from './exec.mjs';
 
 const USAGE = `usage: node tools/publish-voices.mjs <voice-dir> --bucket gs://bucket/prefix [--sign 7d]
   uploads a recorded track's audio to Cloud Storage and writes a manifest of
@@ -177,7 +177,7 @@ export function signedUrlFrom(json) {
   return one?.signed_url ?? one?.signedUrl ?? one?.signed_uri ?? null;
 }
 
-const gcloud = (argv) => execFileSync('gcloud', argv, { encoding: 'utf8', maxBuffer: 1 << 26 });
+const gcloud = (argv) => run('gcloud', argv, { encoding: 'utf8', maxBuffer: 1 << 26, timeout: NETWORK_MS, why: 'gcloud is waiting on a login that expired, or on the network — run: gcloud auth application-default login' });
 
 export async function publishVoicesMain(args = []) {
   if (!args.length || args.includes('--help') || args.includes('-h')) { console.log(USAGE); return args.length ? 0 : 1; }

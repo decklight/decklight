@@ -18,11 +18,11 @@
 // URL reads those back and names them on stderr. A clipped slide in a PDF you
 // have already emailed is a slide nobody can fix.
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
+import { run, CODEC_MS } from '../tools/exec.mjs';
 
 const USAGE = `usage: decklight pdf <deck.html> [-o out.pdf] [--theme <name>] [--wait <ms>]
   renders the deck's ?print view to a PDF — one slide per page, at the deck's
@@ -120,8 +120,8 @@ export async function pdfMain(args = []) {
   // about to hide.
   let html = '';
   try {
-    html = execFileSync(bin, [...shared, '--dump-dom', url],
-      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+    html = run(bin, [...shared, '--dump-dom', url],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
   } catch { /* the print pass below is the one that must succeed */ }
   const slides = slideCount(html);
   console.error(`pdf: rendering ${basename(src)}?print${theme ? ` · theme ${theme}` : ''}`
@@ -129,8 +129,8 @@ export async function pdfMain(args = []) {
 
   rmSync(out, { force: true }); // never leave a stale PDF looking like a fresh one
   try {
-    execFileSync(bin, [...shared, '--no-pdf-header-footer', `--print-to-pdf=${out}`, url],
-      { stdio: ['ignore', 'ignore', 'ignore'] });
+    run(bin, [...shared, '--no-pdf-header-footer', `--print-to-pdf=${out}`, url],
+      { stdio: ['ignore', 'ignore', 'ignore'], timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
   } catch (e) {
     console.error(`decklight pdf: Chrome failed — ${String(e.message ?? e).split('\n')[0]}`);
     return 1;
