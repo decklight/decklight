@@ -63,7 +63,7 @@ test('a subsystem selects its own harness and not the whole suite', () => {
   assert.deepEqual(forPath('src/core/review.js').harnesses, ['review-render']);
   assert.deepEqual(forPath('cli/pdf.mjs').harnesses, ['pdf-render']);
   assert.deepEqual(forPath('src/terminal/player.mjs').harnesses, ['player-render']);
-  assert.ok(forPath('src/core/narration.js').harnesses.includes('narration-render'));
+  assert.ok(forPath('src/core/narration.js').harnesses.includes('narration-render:live'));
   assert.ok(!forPath('src/core/narration.js').harnesses.includes('pdf-render'),
     'narration has no business waiting for the PDF harness');
 });
@@ -76,7 +76,7 @@ test('core and the stylesheet reach every BROWSER harness, but not the theme lin
     const { harnesses } = forPath(p);
     assert.equal(harnesses.length, ALL.length - 2, `${p} should reach every browser harness`);
     assert.ok(!harnesses.includes('contrast'), `${p} must not drag in the theme lint`);
-    assert.ok(harnesses.includes('narration-render') && harnesses.includes('render'));
+    assert.ok(harnesses.includes('narration-render:live') && harnesses.includes('render'));
   }
   // …and a theme is the mirror image: the lints, plus the deck that renders one.
   assert.deepEqual(forPath('themes/dark.css').harnesses.sort(),
@@ -97,5 +97,6 @@ test('a harness fixture selects its own harness', () => {
   // test/review.html and test/review-render.mjs are both about review-render.
   assert.deepEqual(forPath('test/review.html').harnesses, ['review-render']);
   assert.deepEqual(forPath('test/review-render.mjs').harnesses, ['review-render']);
-  assert.deepEqual(forPath('test/narration.html').harnesses, ['narration-render']);
+  // one page, five verify harnesses: the fixture selects all of them
+  assert.deepEqual(forPath('test/narration.html').harnesses, ['narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record']);
 });

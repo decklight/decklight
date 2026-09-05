@@ -17,7 +17,7 @@
  * enough to always be right, and being right is what a test picker is for.
  *
  * The render harnesses are the opposite: serial, minutes long, and each one
- * pinned to a subsystem you can name. `narration-render` alone is 65s — a third
+ * pinned to a subsystem you can name. The five narration groups together are ~100s — a third
  * of the suite — and a change to `cli/pdf.mjs` has no business waiting for it.
  * That is the decision worth automating, so that is the only one made here.
  *
@@ -40,9 +40,14 @@ import { isMain } from './args.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '..');
 
+/** narration-render's five concerns, as verify runs them (see test/verify.mjs). */
+const NARRATION = ['narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record'];
+
 /** Every harness `verify` knows, in its running order. */
 export const ALL = [
-  'render', 'player-render', 'narration-render', 'record-render', 'review-render',
+  'render', 'player-render',
+  'narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record',
+  'record-render', 'review-render',
   'character-render', 'engine-render', 'pin-render', 'overflow-render', 'split-render',
   'strict-render', 'shot-render', 'plugin-render', 'extension-check-render',
   'deckfile-render', 'pdf-render', 'import-render', 'contrast', 'palette-rules',
@@ -76,9 +81,9 @@ const RULES = [
   [/^package\.json$/, ALL, 'scripts, deps and packed files'],
 
   // ── subsystems, each with a harness that is about it ────────────────────
-  [/^src\/core\/narration\.js$/, ['narration-render', 'record-render', 'character-render'],
+  [/^src\/core\/narration\.js$/, [...NARRATION, 'record-render', 'character-render'],
     'narration drives playback, the recorder and the character overlay'],
-  [/^src\/core\/character\.js$/, ['character-render', 'narration-render'], 'the talking head'],
+  [/^src\/core\/character\.js$/, ['character-render', ...NARRATION], 'the talking head'],
   [/^src\/core\/character-art\.js$/, ['character-render'], 'the head it draws'],
   [/^src\/core\/review\.js$/, ['review-render'], 'the review overlay and its anchor resolver'],
   [/^src\/core\/overflow\.js$/, ['overflow-render', 'pin-render'], 'the overflow guardrail and the pinned-title case'],
@@ -107,7 +112,7 @@ const RULES = [
   [/^tools\/(theme-check|color)\.mjs$/, LINT, 'the theme lints'],
   [/^tools\/chrome\.mjs$/, ALL, 'every harness starts a browser through it'],
   [/^tools\/review-anchor\.mjs$/, ['review-render'], 'the anchor resolver both halves share'],
-  [/^tools\/(tts-engines|local-voice|voiceover-server|lipsync)\.mjs$/, ['narration-render', 'record-render'],
+  [/^tools\/(tts-engines|local-voice|voiceover-server|lipsync)\.mjs$/, [...NARRATION, 'record-render'],
     'the voice bridge narration talks to'],
   [/^themes\//, ['render', ...LINT], 'a theme, and the gates that read every theme'],
   [/^demo\//, ['render'], 'the smoke deck itself'],
@@ -128,8 +133,9 @@ export function forPath(p) {
   // A harness fixture is about its own harness; `foo-render.mjs` / `foo.html`.
   const m = /^test\/([a-z-]+?)(?:-render)?\.(?:mjs|html)$/.exec(p);
   if (m) {
-    const hit = ALL.find((h) => h === m[1] || h === `${m[1]}-render`);
-    if (hit) return { harnesses: [hit], why: 'its own harness' };
+    // `narration.html` is the fixture for all five narration groups
+    const hits = ALL.filter((h) => h === m[1] || h === `${m[1]}-render` || h.startsWith(`${m[1]}-render:`));
+    if (hits.length) return { harnesses: hits, why: hits.length > 1 ? 'its own harnesses' : 'its own harness' };
   }
   return { harnesses: ALL, why: 'UNMAPPED — falling back to everything' };
 }
@@ -210,7 +216,8 @@ const selected = ALL.filter((h) => picked.has(h));
 
 // Measured on a laptop; a rough shape so the report can say what it saves.
 const COST = {
-  'narration-render': 65, 'extension-check-render': 23, 'engine-render': 17, render: 20,
+  'narration-render:live': 25, 'narration-render:picker': 12, 'narration-render:recorded': 12,
+  'narration-render:segments': 12, 'narration-render:record': 40, 'extension-check-render': 23, 'engine-render': 17, render: 20,
   'pdf-render': 10, 'split-render': 9, 'review-render': 8, 'pin-render': 7, 'record-render': 7,
   'strict-render': 6, 'overflow-render': 6, 'plugin-render': 6, 'deckfile-render': 4,
   'shot-render': 4, 'player-render': 3, 'character-render': 2, 'import-render': 2,
