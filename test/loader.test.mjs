@@ -19,9 +19,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { rmTemp, tmp, cli } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -37,7 +36,6 @@ const ROOT = path.resolve(here, '..');
 const CLI = path.join(ROOT, 'cli/decklight.mjs');
 const DEMO = path.join(ROOT, 'demo/intro.html');
 
-const tmp = (p) => mkdtempSync(path.join(tmpdir(), `decklight-${p}-`));
 
 /** The pin a code-carrying catalog entry must carry (SPEC UNIT_PINNING). */
 const sha256 = (text) => createHash('sha256').update(text).digest('hex');
@@ -89,17 +87,7 @@ function market(home, { apiVersion = TRANSFORM_API_VERSION, name = 'grammar-chec
   return root;
 }
 
-const run = (args, home, cwd) => {
-  try {
-    return {
-      code: 0,
-      out: execFileSync(process.execPath, [CLI, ...args],
-        { encoding: 'utf8', cwd, env: { ...process.env, DECKLIGHT_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] }),
-    };
-  } catch (e) {
-    return { code: e.status, out: `${e.stdout ?? ''}${e.stderr ?? ''}` };
-  }
-};
+const run = (args, home, cwd) => cli(args, { home, cwd });
 
 // ── decklight transform add/list/remove — the generic install seam ─────────
 

@@ -10,8 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, tmp as scratch } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,7 +54,7 @@ function oldDeck(dir, { themes = 'aurora,graphite' } = {}) {
   return p;
 }
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-upgrade-'));
+const tmp = () => scratch('upgrade');
 
 test('upgrade swaps the unmarked runtime blocks and preserves everything the author wrote', () => {
   const dir = tmp();

@@ -12,9 +12,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { rmTemp } from './helpers.mjs';
+import { writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { rmTemp, tmp as scratch } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,11 +42,7 @@ const SIGNER = {
 
 const stub = (impl) => ({ sign: async () => BUNDLE(), verify: async () => SIGNER, ...impl });
 
-const tmp = () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-sign-'));
-  process.on('exit', () => rmTemp(dir));
-  return dir;
-};
+const tmp = () => scratch('sign');
 
 // ── signing ────────────────────────────────────────────────────────────────
 

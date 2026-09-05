@@ -10,10 +10,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer as createTcpServer } from 'node:net';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, tmp as scratch } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
 import { isPortOpen, identifyEditServer, nextFreePort, planPortConflict, resolvePortConflict, canBind } from '../cli/port-conflict.mjs';
@@ -27,11 +26,7 @@ const DECK = `<!doctype html>
 <html><body><div class="decklight"><section><h2>One</h2></section></div></body></html>
 `;
 
-const tmp = (t) => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-portconflict-'));
-  t.after(() => rmTemp(dir));
-  return dir;
-};
+const tmp = (t) => scratch('portconflict', t);
 
 function waitFor(getText, pattern, timeoutMs = 10000) {
   return new Promise((resolveWait, rejectWait) => {

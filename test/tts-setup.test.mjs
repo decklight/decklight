@@ -11,7 +11,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,13 +19,13 @@ import {
   suggestEngine, runSetupWizard,
 } from '../tools/tts-setup.mjs';
 import { piperDownloadCmd, piperDownloadLine } from '../tools/tts-engines.mjs';
-import { writeFakePiper } from './helpers.mjs';
+import { writeFakePiper, tmp as scratch } from './helpers.mjs';
 import { DECK_URL_RE } from '../cli/banner.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-tts-setup-'));
+const tmp = () => scratch('tts-setup');
 
 // scripted answers: the wizard asking more questions than the script has is a
 // failure, not a hang
