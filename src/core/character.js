@@ -27,6 +27,7 @@
 // Audio playback NEVER waits on lip-sync.
 
 import { DEFAULT_CHARACTER_SVG, VISEMES } from './character-art.js';
+import { readJson, writeJson } from './prefs.js';
 
 // ── pure core (unit-tested; no DOM) ─────────────────────────────────────────
 
@@ -78,11 +79,11 @@ export function createCharacter({ root, config, debugLog, toast }) {
   let engine = cfg.engine ?? 'wav2lip';   // video-mode synth engine
   let portrait = cfg.portrait ?? 'default';
   let solo = cfg.solo ?? false;           // narrator centre stage, slides hidden
-  try {
-    const s = JSON.parse(localStorage.getItem(storeKey));
+  {
+    const s = readJson(storeKey);
     if (s?.mode) { mode = s.mode; engine = s.engine ?? engine; portrait = s.portrait ?? portrait; }
     if (typeof s?.solo === 'boolean') solo = s.solo;
-  } catch { /* ignore */ }
+  }
 
   let el = null, videoEl = null, artMode = null;
   let audioEl = null;
@@ -98,7 +99,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
   const videoKey = (key) => `${key}|${engine}|${portrait}`;
 
   function persist() {
-    try { localStorage.setItem(storeKey, JSON.stringify({ mode, engine, portrait, solo })); } catch { /* ignore */ }
+    writeJson(storeKey, { mode, engine, portrait, solo });
   }
   // Solo lives on the ROOT, not the overlay: the character is a sibling of
   // .decklight-stage, so hiding the stage is what clears the slide away. The

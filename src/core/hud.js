@@ -13,6 +13,7 @@
 
 import { closeOnBackdrop } from './overlay.js';
 import { createAnnotator } from './annotate.js';
+import { readPref, writePref } from './prefs.js';
 
 /**
  * Wire the presenter overlays to a deck.
@@ -32,7 +33,7 @@ export function createHud({
   // Off by default; persists per deck. Never rendered in ?print.
   const clockKey = 'decklight-clock:' + location.pathname;
   let clockOn = false;
-  try { clockOn = localStorage.getItem(clockKey) === '1'; } catch { /* ignore */ }
+  clockOn = readPref(clockKey) === '1';
   let clockEl = null, clockTimer = null, talkStart = null, clockArmed = false;
   const pad2 = (n) => String(n).padStart(2, '0');
   function fmtElapsed(ms) {
@@ -57,7 +58,7 @@ export function createHud({
   }
   function toggleClock() {
     clockOn = !clockOn;
-    try { localStorage.setItem(clockKey, clockOn ? '1' : '0'); } catch { /* ignore */ }
+    writePref(clockKey, clockOn ? '1' : '0');
     if (clockOn) showClock();
     else { clearInterval(clockTimer); clockTimer = null; clockEl?.remove(); clockEl = null; }
     toast(`clock ${clockOn ? 'on' : 'off'}`);
@@ -84,7 +85,7 @@ export function createHud({
   // Off by default; persists per deck. Never rendered in ?print.
   const progressKey = 'decklight-progress:' + location.pathname;
   let progressOn = false;
-  try { progressOn = localStorage.getItem(progressKey) === '1'; } catch { /* ignore */ }
+  progressOn = readPref(progressKey) === '1';
   let progressEl = null;
   function showProgress() {
     progressEl = document.createElement('div');
@@ -96,7 +97,7 @@ export function createHud({
   }
   function toggleProgress() {
     progressOn = !progressOn;
-    try { localStorage.setItem(progressKey, progressOn ? '1' : '0'); } catch { /* ignore */ }
+    writePref(progressKey, progressOn ? '1' : '0');
     if (progressOn) showProgress();
     else { progressEl?.remove(); progressEl = null; setProgressBar(null); }
     toast(`progress bar ${progressOn ? 'on' : 'off'}`);

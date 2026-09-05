@@ -17,6 +17,7 @@
 import { createCharacter, concatTimelines } from './character.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { readPref, readJson, writePref, writeJson } from './prefs.js';
 import {
   manifestSegmentUrl, manifestSlideUrl, expiryState, timeLeft, stampOf, resignCommand, trackKey,
 } from './voicetrack.js';
@@ -493,7 +494,7 @@ export function createNarration({
    */
   let narrSet = null;
   try {
-    const saved = JSON.parse(localStorage.getItem(narrKey));
+    const saved = readJson(narrKey);
     if (saved?.live?.voice) { liveCfg = saved.live; narrSet = LIVE_TRACK; }
     else if (!saved?.off) {
       // `track` is the key a manifest track can also be named by; `dir` is what
@@ -509,12 +510,12 @@ export function createNarration({
   const narrRateKey = 'decklight-narr-rate:' + location.pathname;
   let narrRate = 1;
   try {
-    const v = parseFloat(localStorage.getItem(narrRateKey) ?? '');
+    const v = parseFloat(readPref(narrRateKey) ?? '');
     if (v >= 0.25 && v <= 2) narrRate = v;
   } catch { /* ignore */ }
   function changeNarrRate(delta) {
     narrRate = Math.round(Math.min(2, Math.max(0.25, narrRate + delta)) * 100) / 100;
-    try { localStorage.setItem(narrRateKey, String(narrRate)); } catch { /* ignore */ }
+    writePref(narrRateKey, String(narrRate));
     if (narrAudio) narrAudio.playbackRate = narrRate;
     toast(`voice speed ${narrRate}×`);
     debugLog('narr', `rate ${narrRate}×`);
@@ -1406,7 +1407,7 @@ export function createNarration({
   // with narration on or off — it's the deck's transcript. Persists per deck.
   const captionsKey = 'decklight-captions:' + location.pathname;
   let captionsOn = false;
-  try { captionsOn = localStorage.getItem(captionsKey) === '1'; } catch { /* ignore */ }
+  captionsOn = readPref(captionsKey) === '1';
   let captionEl = null;
   function setCaption(text) {
     if (!captionEl) return;
@@ -1432,7 +1433,7 @@ export function createNarration({
   }
   function toggleCaptions() {
     captionsOn = !captionsOn;
-    try { localStorage.setItem(captionsKey, captionsOn ? '1' : '0'); } catch { /* ignore */ }
+    writePref(captionsKey, captionsOn ? '1' : '0');
     if (captionsOn) { showCaptions(); dismissHint(); }  // same corner — one of them goes
     else { captionEl?.remove(); captionEl = null; }
     toast(`captions ${captionsOn ? 'on' : 'off'}`);
@@ -1456,7 +1457,7 @@ export function createNarration({
   const HINT_FOR = 12000;    // read it twice over, then it leaves
   const narrUsedKey = 'decklight-narr-used:' + location.pathname;
   let narrUsed = false;
-  try { narrUsed = localStorage.getItem(narrUsedKey) === '1'; } catch { /* ignore */ }
+  narrUsed = readPref(narrUsedKey) === '1';
   let hintEl = null;
   function dismissHint() {
     if (!hintEl) return;
@@ -1470,7 +1471,7 @@ export function createNarration({
     dismissHint();
     if (narrUsed) return;
     narrUsed = true;
-    try { localStorage.setItem(narrUsedKey, '1'); } catch { /* ignore */ }
+    writePref(narrUsedKey, '1');
   }
   function showHint() {
     const el = document.createElement('button');
@@ -1515,7 +1516,7 @@ export function createNarration({
   let narrEl = null, narrSel = 0, narrView = 'tracks', narrRows = [], liveDraft = null;
   function persistNarr() {
     try {
-      localStorage.setItem(narrKey, JSON.stringify(narrSet?.live
+      writeJson(narrKey, narrSet?.live
         ? { live: liveCfg }
         // `off` is written rather than left implied. An empty payload already
         // reads back as off today, but only by accident of nothing matching;
@@ -1525,7 +1526,7 @@ export function createNarration({
           // dir stays in the payload so a deck rolled back to an older runtime
           // still finds its track; `track` is the one that also names a manifest
           ? { track: trackKey(narrSet), dir: narrSet.dir }
-          : { off: true }));
+          : { off: true });
     } catch { /* ignore */ }
   }
   function applyLive(toneLabel, styleText) {
