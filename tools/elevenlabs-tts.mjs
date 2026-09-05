@@ -65,7 +65,7 @@ export function styleTag(style, maxLen = MAX_TAG_LEN) {
   return cue ? `[${cue}]` : '';
 }
 
-// PCM is what the rest of decklight is built on: ⇧V stitches per-slide WAVs
+// PCM is what the rest of decklight is built on: the deck's recorder stitches per-slide WAVs
 // out of the sentence cache, and rhubarb reads WAV to find visemes. mp3 plays
 // perfectly well in the deck but does neither, so it is opt-in rather than a
 // silent downgrade. PCM output needs a paid ElevenLabs tier; see synthError.
@@ -130,7 +130,7 @@ export function synthError(status, body, { format = 'pcm' } = {}) {
   }
   if (format === 'pcm' && /output_format|pcm|tier|subscription/i.test(text)) {
     return 'ElevenLabs will not serve pcm_24000 on this plan (PCM output is a paid tier). '
-      + 'Pass --tts-format mp3 to use mp3 instead — the deck plays it fine, but ⇧V offline '
+      + 'Pass --tts-format mp3 to use mp3 instead — the deck plays it fine, but the panel\'s Record this deck… offline '
       + 'recording and the lip-sync bridge both need WAV and will not work with it.';
   }
   if (status === 429) return 'ElevenLabs rate limit (429) — the lookahead buffer is bursty; try a smaller deck or wait';

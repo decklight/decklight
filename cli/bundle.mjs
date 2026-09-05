@@ -433,7 +433,7 @@ html = html.replace(
 // ---------------------------------------------- narration lip-sync sidecars
 
 // slide-NN.visemes.json next to a narration track (tools/lipsync.mjs, or the
-// ⇧V export) inlines as a data-decklight-visemes block — fetch() is blocked
+// the recorder's export) inlines as a data-decklight-visemes block — fetch() is blocked
 // on file:// and a bundle should not depend on a sidecar folder. Per-slide
 // MP4s stay external: video cannot inline sanely (a deck's worth is
 // 50–150 MB), same posture as playlist links.

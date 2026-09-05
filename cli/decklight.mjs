@@ -113,7 +113,7 @@ Commands:
            (this records YOU — decklight cast records a terminal)
            EXAMPLE: decklight record talk.html   (serves it: a microphone needs 127.0.0.1)
   voiceover batch-synthesize the deck's narration into a folder with a live engine
-           (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's ⇧V
+           (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's V → Record this deck…
            EXAMPLE: decklight voiceover talk.html -o voices/chirp --engine chirp --voice Achernar
   review   leave comments on somebody's deck, anchored to slides and carried by git
            (writes <deck>.review.jsonl beside it; never touches the deck itself)

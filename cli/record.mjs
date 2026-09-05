@@ -7,7 +7,7 @@
 //   decklight record <deck.html> [--port 8788] [--dir voiceover] [--no-open]
 //
 // WHY THIS IS A COMMAND AND NOT JUST A KEY. The recorder itself lives in the
-// deck (⇧R): it has to, because the notes, the builds and the microphone are
+// deck (V → Record this deck… → With your voice…): it has to, because the notes, the builds and the microphone are
 // all in the browser. But a browser will not open a microphone for a page it
 // loaded from `file://` — getUserMedia needs a secure context, and a local file
 // is not one, no matter how many times you click Allow. `http://127.0.0.1` IS
@@ -50,7 +50,7 @@ const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceove
       narration: { files: '<dir>', ext: 'wav', segments: true }
 
   a microphone needs a secure context, which is why this serves the deck rather
-  than opening the file — and why ⇧R on a file:// deck says so instead of failing
+  than opening the file — and why the recorder on a file:// deck says so instead of failing
 `;
 
 /**
@@ -141,7 +141,7 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
 
   const url = recordUrl(started.port, started.deckUrl, dir, slides);
   out.write(`decklight record on ${url}\n`);
-  out.write('  ⇧R opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
+  out.write('  V → Record this deck… → With your voice… opens the recorder · → ends a beat and reveals the next build · Esc stops\n');
   out.write(`  files land in ${dir ?? "the deck's narration folder"}, next to the deck.`
     + `${slides ? ` Only slide${/-/.test(slides) ? 's' : ''} ${slides}.` : ''} Ctrl-C when you are done.\n`);
   if (!args.includes('--no-open')) await open(url, { out, what: url });

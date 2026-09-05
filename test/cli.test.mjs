@@ -1725,11 +1725,11 @@ test('record serves the deck and prints the URL the browser is sent to', async (
   child.stderr.on('data', (c) => { out += c; });
   const url = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
-      // BOTH lines, not just the first: the URL and the ⇧R hint are separate
+      // BOTH lines, not just the first: the URL and the recorder hint are separate
       // writes, and resolving on the URL alone then asserting the hint is a
       // race the test loses on a slow runner — Windows CI lost it for real.
       const m = out.match(/decklight record on (\S+)/);
-      if (m && /⇧R opens the recorder/.test(out)) { clearInterval(scan); resolve(m[1]); }
+      if (m && /With your voice… opens the recorder/.test(out)) { clearInterval(scan); resolve(m[1]); }
     }, 25);
     child.on('exit', () => { clearInterval(scan); reject(new Error('record exited early:\n' + out)); });
     setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 15000);
@@ -1737,7 +1737,7 @@ test('record serves the deck and prints the URL the browser is sent to', async (
   assert.match(url, /^http:\/\/127\.0\.0\.1:\d+\/talk\.html\?record&dir=takes$/);
   // ?record is what arms the recorder, and --dir rides along so the files land
   // where the command was told to put them rather than where the deck guesses
-  assert.match(out, /⇧R opens the recorder/);
+  assert.match(out, /With your voice… opens the recorder/);
   // …and the server really is serving that deck
   const res = await fetch(url.replace(/\?.*/, ''));
   assert.equal(res.status, 200);

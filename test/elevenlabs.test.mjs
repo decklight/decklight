@@ -95,7 +95,7 @@ test('a rejected key names the environment variable to fix', () => {
 test('PCM refused by the plan is translated — nobody would guess what it means', () => {
   const msg = synthError(422, '{"detail":"output_format pcm_24000 requires a paid subscription"}');
   assert.match(msg, /--tts-format mp3/);
-  assert.match(msg, /⇧V offline recording and the lip-sync bridge/, 'and what mp3 costs you');
+  assert.match(msg, /Record this deck… offline recording and the lip-sync bridge/, 'and what mp3 costs you');
   // the same body under mp3 is not that error, so it must not claim to be
   assert.doesNotMatch(synthError(422, 'output_format bad', { format: 'mp3' }), /--tts-format mp3/);
 });
@@ -117,7 +117,7 @@ test('an unknown format is refused up front, not at the first sentence', () => {
   assert.deepEqual(FORMATS, ['pcm', 'mp3']);
 });
 
-test('pcm comes back as a real WAV — a header the ⇧V stitcher can read', async () => {
+test('pcm comes back as a real WAV — a header the recorder can read', async () => {
   const fetchImpl = fakeFetch({ audio: Buffer.alloc(100, 7) });
   const { synth } = createSynth({ key: 'k', fetchImpl });
   const { wav, usage } = await synth('hello', { voice: 'Gilles' });

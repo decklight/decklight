@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Lip-sync generator for RECORDED narration: sidecar files for every
 // slide-NN audio clip in a voiceover directory (tools/voiceover.mjs or a
-// ⇧V-recorded set), so a deck plays back with an animated character and no
+// deck-recorded set — V → Record this deck…), so a deck plays back with an animated character and no
 // bridge running. Fully offline, like everything else here.
 //
 //   node tools/lipsync.mjs <voiceover-dir> [--visemes] [--video]
@@ -15,7 +15,7 @@
 //   --video             — slide-NN.mp4           (muted talking head)
 //
 // Rhubarb wants WAV: slide-NN.wav is used when present (voiceover.mjs
-// --keep-wav, or a ⇧V set); otherwise the .m4a is decoded on the fly with
+// --keep-wav, or a set the deck recorded); otherwise the .m4a is decoded on the fly with
 // ffmpeg (afconvert fallback on macOS). The transcript slide-NN.txt, when
 // present, markedly improves cue accuracy. For batch video SadTalker is the
 // default engine — per-slide clips are long enough that its natural head

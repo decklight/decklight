@@ -355,7 +355,7 @@ export function detectLocalVoice({
       engine: null,
       why: 'Android has a system voice, but only as an in-app Java API — there is no '
         + 'command line behind it, so nothing here can drive it',
-      suggest: 'record the narration on a desktop (decklight tts, then ⇧V) and ship the '
+      suggest: 'record the narration on a desktop (decklight tts, then V → Record this deck…) and ship the '
         + 'audio with the deck — a recorded track needs no bridge at all',
     };
   }
