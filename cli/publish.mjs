@@ -7,7 +7,8 @@
  *
  *   decklight publish <deck.html> [--branch gh-pages] [--remote origin]
  *                                 [--no-bundle] [--no-sign] [--path <subdir>]
- *                                 [--target gh-pages|netlify|vercel]
+ *                                 [--target gh-pages|netlify|vercel|folder]
+                                [--out <dir> [--url <public-url>]]
  *
  * Bundles the deck (via `decklight bundle`) to index.html + .nojekyll and
  * pushes them to a gh-pages branch on the remote, then prints the GitHub
@@ -87,9 +88,12 @@ Options:
                     is the file a visitor downloads and forwards
   --path <subdir>   publish under a subdirectory of the site (other content
                     on the branch is preserved)
-  --target <name>   gh-pages (default, no credential) | netlify | vercel
+  --target <name>   gh-pages (default, no credential) | netlify | vercel | folder
                     netlify needs NETLIFY_AUTH_TOKEN + NETLIFY_SITE_ID
                     vercel needs VERCEL_TOKEN + VERCEL_PROJECT (+ VERCEL_TEAM_ID)
+                    folder writes the site into --out <dir> (or DECKLIGHT_PUBLISH_DIR)
+                    for ANY static host — rsync it, S3-sync it, drop it on a share;
+                    --url <base> (or DECKLIGHT_PUBLISH_URL) is printed as the link
 
 Publishing SIGNS by default: Sigstore keyless mints a short-lived certificate
 against an OIDC identity — the ambient token in CI (GitHub Actions
@@ -117,6 +121,10 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--deck') deckFile = true;
   else if (a === '--path') subdir = argv[++i];
   else if (a === '--target') target = argv[++i];
+  // the folder target's two answers, as flags — a directory is not a secret,
+  // and typing it beats exporting an environment variable for a one-off
+  else if (a === '--out') process.env.DECKLIGHT_PUBLISH_DIR = argv[++i];
+  else if (a === '--url') process.env.DECKLIGHT_PUBLISH_URL = argv[++i];
   else if (!a.startsWith('-') && !deck) deck = a;
   else fail(`unknown argument: ${a}`);
 }
