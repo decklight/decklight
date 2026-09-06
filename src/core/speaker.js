@@ -8,6 +8,34 @@
 
 const CLICK_MARK = /⟨CLICK⟩|&lt;CLICK&gt;|<click(?:\s[^>]*)?>(?:<\/click>)?/gi;
 
+import { readJson, writeJson } from './prefs.js';
+
+/** Where a deck's rehearsal lives when no author server can write it into the file. */
+// `location` exists in the deck; the unit tests build speakerState without one
+const timingsKey = () => 'decklight-timings:' + (typeof location !== 'undefined' ? location.pathname : '');
+
+/**
+ * Planned seconds per slide: the deck's own data-timing, else the timings a
+ * rehearsal left in this browser, else null. Index 0 is slide 1.
+ */
+export function plannedTimings(sections, stored = null) {
+  const own = sections.map((s) => { const n = Number(s?.dataset?.timing); return Number.isFinite(n) && n > 0 ? n : null; });
+  if (own.some((n) => n != null) || !stored) return own;
+  return sections.map((_, i) => { const n = Number(stored[i]); return Number.isFinite(n) && n > 0 ? n : null; });
+}
+
+/** `mm:ss` — the presenter's clock, never a decimal. */
+export const fmtClock = (secs) => `${String(Math.floor(secs / 60)).padStart(2, '0')}:${String(Math.floor(secs % 60)).padStart(2, '0')}`;
+
+/** The pace line: how this slide is going against its plan, and the whole talk so far. */
+export function paceLine({ slide, spent, planned, total, plannedTotal }) {
+  const here = `slide ${slide} · ${fmtClock(spent)}${planned ? ` / ${fmtClock(planned)}` : ''}`;
+  const delta = planned ? spent - planned : 0;
+  const verdict = !planned ? '' : delta > 5 ? ` · ${fmtClock(delta)} over` : delta < -5 && spent > 0 ? '' : '';
+  const sum = `total ${fmtClock(total)}${plannedTotal ? ` / ${fmtClock(plannedTotal)}` : ''}`;
+  return { text: `${here}${verdict} · ${sum}`, over: !!planned && delta > 5 };
+}
+
 export function notesSegments(notesHtml) {
   return (notesHtml || '').split(CLICK_MARK);
 }
@@ -46,6 +74,17 @@ export function openSpeakerView(instance) {
   // win on file://). The popup also polls as a second line of defense.
   window.__decklightBridge = {
     subscribe(cb) { instance.__speakerCb = cb; },
+    /**
+     * The rehearsal's result, onto the deck: into the file through the author
+     * server when one owns it, else into this browser — and the speaker view
+     * is told which, because "saved" means two different things.
+     */
+    async saveTimings(seconds) {
+      const timings = seconds.map((s, i) => ({ slide: i + 1, seconds: Math.round(s || 0) })).filter((t) => t.seconds > 0);
+      if (instance.__saveTimings) { await instance.__saveTimings(timings); return 'deck'; }
+      writeJson(timingsKey(), seconds.map((s) => Math.round(s || 0)));
+      return 'browser';
+    },
     getState: () => speakerState(instance, deckUrl()),
     next: () => instance.next(),
     prev: () => instance.prev(),
@@ -71,6 +110,9 @@ export function openSpeakerView(instance) {
             width:min(70vw,70vh); height:min(70vw,70vh); z-index:10; cursor:zoom-out;
             box-shadow:0 0 0 100vmax rgba(0,0,0,.8); }
   #timer { font-size:22px; font-variant-numeric:tabular-nums; }
+  .pace { font-variant-numeric:tabular-nums; opacity:.8; }
+  .pace.over { color:#e5484d; opacity:1; }
+  #rec.on { background:#e5484d; color:#fff; }
   #pos { color:#999; }
   button { background:#333; color:#eee; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; }
   #mode { margin-left:auto; text-transform:uppercase; font-size:11px; letter-spacing:.09em; }
@@ -99,6 +141,8 @@ export function openSpeakerView(instance) {
   <button id="prev">◀ prev</button>
   <button id="next">next ▶</button>
   <button id="mode" title="S toggles rehearse mode (cue cards instead of prose)">speak</button>
+  <button id="rec" title="record how long each slide takes, then save the timings onto the deck">⏱ rehearse timings</button>
+  <span id="pace" class="pace"></span>
   <img id="qr" alt="scan to use your phone as a remote" title="scan to use your phone as a remote — click to enlarge" hidden>
 </header>
 <div class="thumbs">
@@ -120,6 +164,42 @@ export function openSpeakerView(instance) {
     $('#timer').textContent = String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0');
   }, 500);
   $('#resetTimer').onclick = () => { t0 = Date.now(); };
+  // ── rehearsal timings: seconds per slide while recording, saved on stop ──
+  const rec = { on: false, since: 0, cur: null, spent: [] };
+  const fmt = (s) => String(Math.floor(s/60)).padStart(2,'0') + ':' + String(Math.floor(s%60)).padStart(2,'0');
+  let plan = [];
+  const tick = () => {
+    if (!rec.on || rec.cur == null) return;
+    const live = rec.spent.slice(); live[rec.cur - 1] = (live[rec.cur - 1] || 0) + (Date.now() - rec.since) / 1000;
+    const planned = plan[rec.cur - 1] || 0;
+    const total = live.reduce((a, b) => a + (b || 0), 0);
+    const plannedTotal = plan.reduce((a, b) => a + (b || 0), 0);
+    const spent = live[rec.cur - 1] || 0;
+    const over = planned && spent - planned > 5;
+    $('#pace').textContent = 'slide ' + rec.cur + ' · ' + fmt(spent) + (planned ? ' / ' + fmt(planned) : '')
+      + (over ? ' · ' + fmt(spent - planned) + ' over' : '') + ' · total ' + fmt(total) + (plannedTotal ? ' / ' + fmt(plannedTotal) : '');
+    $('#pace').classList.toggle('over', !!over);
+  };
+  setInterval(tick, 500);
+  const arrive = (slide) => {
+    if (!rec.on) return;
+    if (rec.cur != null) rec.spent[rec.cur - 1] = (rec.spent[rec.cur - 1] || 0) + (Date.now() - rec.since) / 1000;
+    rec.cur = slide; rec.since = Date.now();
+  };
+  $('#rec').onclick = async () => {
+    if (!rec.on) {
+      rec.on = true; rec.spent = []; rec.cur = null; if (lastSt) arrive(lastSt.slide);
+      $('#rec').classList.add('on'); $('#rec').textContent = '⏹ stop & save timings';
+      return;
+    }
+    arrive(null); rec.on = false;
+    $('#rec').classList.remove('on'); $('#rec').textContent = '⏱ rehearse timings';
+    try {
+      const where = api ? await api.saveTimings(rec.spent) : 'nowhere';
+      $('#pace').textContent = where === 'deck' ? 'timings saved onto the deck' : where === 'browser' ? 'timings kept in this browser (no author server to write the deck)' : 'timings not saved';
+      $('#pace').classList.remove('over');
+    } catch (e) { $('#pace').textContent = 'could not save timings: ' + String(e.message || e); }
+  };
   $('#prev').onclick = () => api && api.prev();
   $('#next').onclick = () => api && api.next();
   // speak = full prose notes; rehearse = the deck's aside.rehearse cue cards
@@ -142,6 +222,8 @@ export function openSpeakerView(instance) {
   });
   let last = { slide: -1, nextHash: '' };
   function render(st) {
+    plan = st.timings || [];
+    if (st.slide !== last.slide) arrive(st.slide);
     lastSt = st;
     $('#pos').textContent = 'slide ' + st.slide + ' / ' + st.totalSlides + ' · step ' + st.step + ' / ' + st.totalSteps;
     if (st.slide !== last.slide) $('#cur').src = st.url + '#/' + st.slide + '/999';
@@ -205,6 +287,8 @@ export function speakerState(instance, url) {
     notesSegments: notesSegments(notesEl ? notesEl.innerHTML : ''),
     rehearseSegments: rehearseEl ? notesSegments(rehearseEl.innerHTML) : null,
     labels: instance._stepLabels(slide - 1),
+    // planned seconds per slide (REHEARSAL_TIMINGS): the deck's, else this browser's
+    timings: plannedTimings(instance._sections, readJson(timingsKey())),
     // The phone-remote QR, or null when the remote is off (#39) — editmode's
     // present wiring sets it from /present/ping (PRESENT#REMOTE); the author
     // server serves no /remote/* at all, so an authored deck never offers one.

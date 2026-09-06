@@ -20,6 +20,7 @@
 //   GET  /edit/ping            → { ok, deck, undo, redo, git, agents, agentBusy, wizards }
 //   GET  /edit/events          → SSE; `reload` on deck change, `agent` job status
 //   POST /edit/notes           → { slide, text }           rewrite that slide's notes
+//   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
 //   POST /edit/layout          → { slide, layout }         write data-layout to the file
 //   GET  /edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
 //   POST /edit/element/remove  → { slide, index }          delete that element
@@ -139,6 +140,24 @@ export function setSlideLayout(html, slide, name) {
   if (gt < 0) throw new Error(`slide ${slide}: malformed <section> tag`);
   let head = seg.slice(0, gt).replace(/\s+data-layout=("[^"]*"|'[^']*')/, '');
   if (name !== 'auto') head += ` data-layout="${name}"`;
+  parts[idx] = head + seg.slice(gt);
+  return parts.join('');
+}
+
+/**
+ * Write a rehearsed time onto a slide: `data-timing="42"` (seconds, whole).
+ * `null` or 0 removes it. The attribute is the deck's memory of a rehearsal
+ * (PRESENTING REHEARSAL_TIMINGS) and travels with the file, so the next
+ * speaker view can show planned against actual.
+ */
+export function setSlideTiming(html, slide, seconds) {
+  const { parts, idx } = locateSlide(html, slide);
+  const seg = parts[idx];
+  const gt = seg.indexOf('>');
+  if (gt < 0) throw new Error(`slide ${slide}: malformed <section> tag`);
+  let head = seg.slice(0, gt).replace(/\s+data-timing=("[^"]*"|'[^']*')/, '');
+  const n = Math.round(Number(seconds));
+  if (Number.isFinite(n) && n > 0) head += ` data-timing="${n}"`;
   parts[idx] = head + seg.slice(gt);
   return parts.join('');
 }
@@ -1732,6 +1751,16 @@ export async function editMain(args, { onListen = null } = {}) {
         applyEdit(setSlideNotes(readDeck(), slide, notesTextToAside(text)));
         console.log(`  notes saved: slide ${slide} (${text.length} chars)`);
         return json(200, { ok: true, ...history.counts() });
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/timings') {
+        // every slide's rehearsed time in ONE edit — one undo entry, one commit
+        const { timings } = JSON.parse(body);
+        if (!Array.isArray(timings) || !timings.every((t) => Number.isInteger(t?.slide) && t.slide >= 1 && Number.isFinite(t?.seconds))) throw new Error('bad payload');
+        let next = readDeck();
+        for (const t of timings) next = setSlideTiming(next, t.slide, t.seconds);
+        const changed = applyEdit(next);
+        if (changed) console.log(`  rehearsal timings saved: ${timings.length} slides`);
+        return json(200, { ok: true, changed, ...history.counts() });
       }
       if (req.method === 'POST' && url.pathname === '/edit/layout') {
         const { slide, layout } = JSON.parse(body);
