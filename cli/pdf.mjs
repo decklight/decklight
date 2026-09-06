@@ -24,12 +24,18 @@ import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { run, CODEC_MS } from '../tools/exec.mjs';
 import { sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
+import { HANDOUT_PER_PAGE } from '../src/core/print.js';
 
 const USAGE = `usage: decklight pdf <deck.html> [-o out.pdf] [--theme <name>] [--wait <ms>]
+                    [--notes | --handout]
   renders the deck's ?print view to a PDF — one slide per page, at the deck's
   own 1280×720, in its theme, with every build complete
 
   -o <file>      output path                    [the deck's, with .pdf]
+  --notes        one slide per page with its speaker notes underneath —
+                 the presenter's copy               [out: <deck>.notes.pdf]
+  --handout      three slides a page, portrait, ruled lines beside each for
+                 the audience to write on           [out: <deck>.handout.pdf]
   --theme <name> export in another theme (rides ?theme=)
   --wait <ms>    render budget for heavy decks  [8000]
 
@@ -37,18 +43,30 @@ const USAGE = `usage: decklight pdf <deck.html> [-o out.pdf] [--theme <name>] [-
   is still written (a clipped slide is worth knowing about, not worth refusing)`;
 
 /** The deck's path with .pdf in place of .html — or whatever -o said. */
-export function pdfOut(deckPath, oFlag) {
+export function pdfOut(deckPath, oFlag, variant = '') {
   if (oFlag) return resolve(oFlag);
-  return resolve(deckPath.replace(/\.html?$/i, '') + '.pdf');
+  // a variant gets its own name, so the handout never overwrites the slides
+  return resolve(deckPath.replace(/\.html?$/i, '') + (variant ? `.${variant}` : '') + '.pdf');
 }
 
 /**
  * The URL to print. `?print` is the whole rendering contract; `?theme=` is the
  * existing startup override, so exporting in another theme costs nothing here.
  */
-export function printUrl(absDeckPath, { theme } = {}) {
-  const q = theme ? `?print&theme=${encodeURIComponent(theme)}` : '?print';
+export function printUrl(absDeckPath, { theme, variant = '' } = {}) {
+  // `?print=notes` / `?print=handout` are the runtime's own variants (src/core/print.js)
+  const print = variant ? `?print=${variant}` : '?print';
+  const q = theme ? `${print}&theme=${encodeURIComponent(theme)}` : print;
   return `file://${absDeckPath}${q}`;
+}
+
+/**
+ * How many pages the PDF should have: one per slide, except the handout,
+ * which groups HANDOUT_PER_PAGE to a page — the same constant print.js
+ * paginates with, imported rather than restated.
+ */
+export function expectedPages(slides, variant = '') {
+  return variant === 'handout' ? Math.ceil(slides / HANDOUT_PER_PAGE) : slides;
 }
 
 /**
@@ -108,10 +126,15 @@ export async function pdfMain(args = []) {
   const src = resolve(deck);
   if (!existsSync(src)) { console.error(`decklight pdf: no such deck: ${deck}`); return 1; }
 
-  const out = pdfOut(src, opt('-o'));
+  const variant = args.includes('--notes') ? 'notes' : args.includes('--handout') ? 'handout' : '';
+  if (args.includes('--notes') && args.includes('--handout')) {
+    console.error('decklight pdf: --notes and --handout are two different PDFs — run it twice');
+    return 1;
+  }
+  const out = pdfOut(src, opt('-o'), variant);
   const theme = opt('--theme');
   const wait = Number(opt('--wait', 8000));
-  const url = printUrl(src, { theme });
+  const url = printUrl(src, { theme, variant });
   const bin = chromeBin('pdf');
   // file:// decks load their runtime, themes and casts as siblings
   const shared = chromeArgs('--allow-file-access-from-files', `--virtual-time-budget=${wait}`);
@@ -125,7 +148,7 @@ export async function pdfMain(args = []) {
       { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
   } catch { /* the print pass below is the one that must succeed */ }
   const slides = slideCount(html);
-  console.error(`pdf: rendering ${basename(src)}?print${theme ? ` · theme ${theme}` : ''}`
+  console.error(`pdf: rendering ${basename(src)}?print${variant ? `=${variant}` : ''}${theme ? ` · theme ${theme}` : ''}`
     + `${slides ? ` — ${slides} slides, builds complete, casts expanded` : ''}`);
 
   rmSync(out, { force: true }); // never leave a stale PDF looking like a fresh one
@@ -150,7 +173,12 @@ export async function pdfMain(args = []) {
   }
   const buf = readFileSync(out);
   const pages = pdfPageCount(buf);
-  console.log(`${out} · ${pages || '?'} pages · 1280×720 (16:9) · ${KB(buf.length)}`);
+  const want = slides ? expectedPages(slides, variant) : 0;
+  const geometry = variant === 'handout' ? 'portrait, 3 slides a page' : variant === 'notes' ? 'slide + notes per page' : '1280×720 (16:9)';
+  console.log(`${out} · ${pages || '?'} pages · ${geometry} · ${KB(buf.length)}`);
+  if (want && pages && pages !== want) {
+    console.error(`pdf: ⚠ expected ${want} pages for ${slides} slides${variant ? ` (${variant})` : ''}, got ${pages}`);
+  }
   return 0;
 }
 
