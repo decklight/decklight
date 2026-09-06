@@ -19,7 +19,9 @@ import { fileURLToPath } from 'node:url';
 
 import { unzip, zipEntries } from '../tools/zip.mjs';
 import { parseXml, find, findAll, children, textOf, decodeEntities } from '../tools/ooxml.mjs';
-import { listHtml, resolvePart, slideOrder, parseSlide, notesText, mimeOf, paragraphHtml } from '../tools/pptx.mjs';
+import {
+  listHtml, resolvePart, slideOrder, parseSlide, notesText, mimeOf, paragraphHtml, parseChart, chartHtml, slideSection,
+} from '../tools/pptx.mjs';
 import { convert, outPath, slidesId, slidesExportUrl, sourceKind, slug, keynoteScript } from '../cli/import.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -312,4 +314,63 @@ test('import is routed and documented by the dispatcher', () => {
   const own = execFileSync('node', [CLI, 'import', '--help'], { encoding: 'utf8' });
   assert.match(own, /usage: decklight import/);
   assert.match(own, /--build all\|none\|auto/);
+});
+
+
+// ── charts: the values were in the file all along ───────────────────────────
+
+const BAR_CHART = `<c:chartSpace xmlns:c="c" xmlns:a="a"><c:chart>
+  <c:title><c:tx><c:rich><a:p><a:r><a:t>Latency by </a:t></a:r><a:r><a:t>release</a:t></a:r></a:p></c:rich></c:tx></c:title>
+  <c:plotArea><c:barChart><c:barDir val="col"/>
+    <c:ser><c:idx val="0"/><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>p50</c:v></c:pt></c:strCache></c:strRef></c:tx>
+      <c:cat><c:strRef><c:strCache><c:pt idx="0"><c:v>v1</c:v></c:pt><c:pt idx="1"><c:v>v2</c:v></c:pt><c:pt idx="2"><c:v>v3</c:v></c:pt></c:strCache></c:strRef></c:cat>
+      <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>120</c:v></c:pt><c:pt idx="2"><c:v>45</c:v></c:pt><c:pt idx="1"><c:v>80</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>
+    <c:ser><c:idx val="1"/><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>p99</c:v></c:pt></c:strCache></c:strRef></c:tx>
+      <c:val><c:numRef><c:numCache><c:pt idx="0"><c:v>340</c:v></c:pt><c:pt idx="1"><c:v>260</c:v></c:pt><c:pt idx="2"><c:v>190</c:v></c:pt></c:numCache></c:numRef></c:val></c:ser>
+  </c:barChart></c:plotArea></c:chart></c:chartSpace>`;
+
+test('a bar chart becomes data-chart JSON — labels, named series, values in index order', () => {
+  const c = parseChart(BAR_CHART);
+  assert.equal(c.type, 'bar');
+  assert.equal(c.title, 'Latency by release', 'a title split across runs is one title');
+  assert.deepEqual(c.labels, ['v1', 'v2', 'v3']);
+  // p50's points arrive out of order in the cache (idx 0, 2, 1) and are sorted by idx
+  assert.deepEqual(c.series, [{ name: 'p50', data: [120, 80, 45] }, { name: 'p99', data: [340, 260, 190] }]);
+});
+
+test('a pie keeps ONE series — decklight refuses two, PowerPoint draws one anyway', () => {
+  const pie = BAR_CHART.replace(/c:barChart/g, 'c:pieChart');
+  const c = parseChart(pie);
+  assert.equal(c.type, 'pie');
+  assert.equal(c.series.length, 1);
+  assert.equal(parseChart(BAR_CHART.replace(/c:barChart/g, 'c:doughnutChart')).type, 'donut');
+  assert.equal(parseChart(BAR_CHART.replace(/c:barChart/g, 'c:lineChart')).type, 'line');
+});
+
+test('a chart kind with no native answer is null — the caller drops it by name, as before', () => {
+  assert.equal(parseChart(BAR_CHART.replace(/c:barChart/g, 'c:scatterChart')), null);
+  assert.equal(parseChart('<c:chartSpace/>'), null);
+  assert.equal(parseChart(''), null);
+});
+
+test('the slide reaches the chart through its relationship, and renders SPEC CHARTS markup', () => {
+  const slide = '<p:sld><p:cSld><p:spTree><p:graphicFrame><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+    + '<c:chart r:id="rId3"/></a:graphicData></a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>';
+  const rels = new Map([['rId3', { target: '../charts/chart1.xml', type: '…/chart' }]]);
+  const parsed = parseSlide(slide, { rels, chartOf: (target) => (target.endsWith('chart1.xml') ? BAR_CHART : null) });
+  assert.equal(parsed.drops.length, 0, 'a chart that could be read is not a drop');
+  assert.equal(parsed.blocks[0].kind, 'chart');
+  const { html, did } = slideSection(parsed);
+  assert.match(html, /<div class="chart" data-chart="bar" data-title="Latency by release">/);
+  assert.match(html, /<script type="application\/json">\{"labels":\["v1","v2","v3"\],"series":\[\{"name":"p50"/);
+  assert.ok(did.some((d) => /chart \(bar, 2 series × 3\)/.test(d)));
+  // without a reader for the part, it is the old loud drop — never a silent one
+  const noReader = parseSlide(slide, { rels });
+  assert.ok(noReader.drops.some((d) => /chart dropped/.test(d)));
+});
+
+test('chart JSON cannot end the script tag early', () => {
+  const html = chartHtml({ type: 'bar', title: '', labels: ['</script><img src=x onerror=alert(1)>'], series: [{ name: 'a', data: [1] }] });
+  assert.doesNotMatch(html, /<\/script><img/);
+  assert.match(html, /<\\\/script>/);
 });

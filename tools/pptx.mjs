@@ -170,6 +170,67 @@ const GRAPHIC = {
   diagram: 'SmartArt dropped — rebuild as an SVG diagram (SPEC SVG_DIAGRAMS)',
 };
 
+/** OOXML chart element → data-chart type. Anything else is still a drop. */
+const CHART_TYPES = {
+  'c:barChart': 'bar', 'c:bar3DChart': 'bar',
+  'c:lineChart': 'line', 'c:line3DChart': 'line',
+  'c:areaChart': 'area', 'c:area3DChart': 'area',
+  'c:pieChart': 'pie', 'c:pie3DChart': 'pie',
+  'c:doughnutChart': 'donut',
+};
+
+/** The `c:pt` values of a cache, in index order; numbers where they parse. */
+function cachePoints(node, numeric) {
+  const pts = findAll(node, 'c:pt').map((pt) => [Number(pt.attrs.idx ?? 0), textOf(find(pt, 'c:v') ?? pt).trim()]);
+  pts.sort((a, b) => a[0] - b[0]);
+  return pts.map(([, v]) => (numeric ? Number(v) : v));
+}
+
+/**
+ * A PowerPoint chart, as data-chart's JSON.
+ *
+ * The chart part carries the data in caches — `c:numCache` and `c:strCache`
+ * are the values as last calculated, so nothing here needs the workbook the
+ * chart was drawn from. This was the single most common rebuild in a business
+ * deck, and every byte it needed was already in the file.
+ *
+ * Returns null for a chart kind decklight has no native answer for (scatter,
+ * radar, stock…); the caller then drops it by name, as before.
+ */
+export function parseChart(xml) {
+  const doc = parseXml(xml ?? '');
+  const plot = find(doc, 'c:plotArea');
+  if (!plot) return null;
+  // `children(node, name)` filters by ONE name; the plot area's first chart
+  // element is whichever of the known kinds is there, so walk its kids directly
+  const kindNode = (plot.children ?? []).find((n) => CHART_TYPES[n.name]);
+  if (!kindNode) return null;
+  const type = CHART_TYPES[kindNode.name];
+  const series = findAll(kindNode, 'c:ser').map((ser, i) => {
+    const tx = find(ser, 'c:tx');
+    const name = tx ? textOf(tx).trim() : `series ${i + 1}`;
+    const cat = find(ser, 'c:cat');
+    const val = find(ser, 'c:val');
+    return {
+      name: name || `series ${i + 1}`,
+      labels: cat ? cachePoints(cat, false) : [],
+      data: val ? cachePoints(val, true).map((n) => (Number.isFinite(n) ? n : 0)) : [],
+    };
+  }).filter((sr) => sr.data.length);
+  if (!series.length) return null;
+  const labels = series.find((sr) => sr.labels.length)?.labels ?? series[0].data.map((_, i) => String(i + 1));
+  const titleNode = find(doc, 'c:title');
+  const title = titleNode ? findAll(titleNode, 'a:t').map((t) => textOf(t)).join('').trim() : '';
+  return {
+    type,
+    title,
+    labels,
+    // a pie is one series in decklight; PowerPoint allows more but draws one
+    series: (type === 'pie' || type === 'donut' ? series.slice(0, 1) : series)
+      .map(({ name, data }) => ({ name, data })),
+  };
+}
+
 /**
  * One slide, as the pieces a `<section>` needs.
  *
@@ -177,7 +238,7 @@ const GRAPHIC = {
  * order the slide did. Groups are walked into: a shape inside a group is still
  * content, and skipping groups loses whole slides' worth of text.
  */
-export function parseSlide(xml, { rels, mediaOf, slideNo = 0 } = {}) {
+export function parseSlide(xml, { rels, mediaOf, chartOf, slideNo = 0 } = {}) {
   const doc = parseXml(xml);
   const sld = find(doc, 'p:sld');
   const hidden = sld?.attrs.show === '0';
@@ -250,6 +311,15 @@ export function parseSlide(xml, { rels, mediaOf, slideNo = 0 } = {}) {
           if (tbl) blocks.push({ kind: 'table', node: tbl });
           continue;
         }
+        if (kind === 'chart') {
+          // the frame holds only a relationship; the data is in its own part
+          const rid = find(node, 'c:chart')?.attrs['r:id'];
+          const rel = rid && rels?.get(rid);
+          const chart = rel && chartOf ? parseChart(chartOf(rel.target)) : null;
+          if (chart) { blocks.push({ kind: 'chart', ...chart }); continue; }
+          drop(GRAPHIC.chart);
+          continue;
+        }
         drop(GRAPHIC[kind] ?? `an embedded ${kind || 'object'} was dropped`);
         continue;
       }
@@ -280,6 +350,13 @@ export function notesText(xml, { rels } = {}) {
 }
 
 /** A parsed slide as the `<section>` markup, plus what its report line says. */
+/** A chart block as SPEC CHARTS markup — JSON in a script tag, so `</` must not end it early. */
+export function chartHtml({ type, title, labels, series }) {
+  const json = JSON.stringify({ labels, series }).replace(/<\//g, '<\\/');
+  const attrs = [`class="chart"`, `data-chart="${type}"`, title ? `data-title="${escapeHtml(title)}"` : null].filter(Boolean);
+  return `<div ${attrs.join(' ')}>\n        <script type="application/json">${json}</script>\n      </div>`;
+}
+
 export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
   const parts = [];
   const did = [];
@@ -303,6 +380,9 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
       const cols = rows.length ? children(rows[0], 'a:tc').length : 0;
       did.push(`table ${rows.length}×${cols}`);
       parts.push(`      ${tableHtml(b.node)}`);
+    } else if (b.kind === 'chart') {
+      did.push(`chart (${b.type}, ${b.series.length} series × ${b.labels.length})`);
+      parts.push(`      ${chartHtml(b)}`);
     } else if (b.kind === 'image') {
       did.push(`image inlined (${Math.round(b.bytes.length / 1024)} KB)`);
       parts.push(`      <img src="data:${b.mime};base64,${b.bytes.toString('base64')}"`
