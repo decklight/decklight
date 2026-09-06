@@ -33,9 +33,11 @@
  */
 
 import { zipSync } from '../cli/zip.mjs';
+import * as fsSync from 'node:fs';
+import * as pathMod from 'node:path';
 import { validateSchema } from '../cli/wizard.mjs';
 
-export const TARGETS = ['netlify', 'vercel'];
+export const TARGETS = ['netlify', 'vercel', 'folder'];
 
 // Raw schemas, in the ENGINES#WIZARD shape (cli/wizard.mjs FIELD_TYPES) — the same
 // vocabulary a marketplace-declared engine is limited to, so a hand-authored schema
@@ -58,12 +60,26 @@ const RAW_SCHEMAS = {
       { name: 'teamId', label: 'Team ID', type: 'text' },
     ],
   },
+  // The target with no provider: the same files the others upload, written
+  // into a directory, for whatever serves it — an S3 sync, an rsync to a VPS,
+  // a Dropbox folder, a corporate intranet share. "Send me a link" is the
+  // reflex of everyone coming from Google Slides, and a link needs a host
+  // that is not GitHub. No credential, because the folder IS the credential.
+  folder: {
+    engine: 'folder',
+    title: 'A folder — any static host',
+    fields: [
+      { name: 'dir', label: 'Directory to write the site into', type: 'text', required: true },
+      { name: 'url', label: 'Public URL that directory is served at (printed as the deck link)', type: 'text' },
+    ],
+  },
 };
 
 /** Which environment variable answers each field — the provider's OWN CLI names. */
 const ENV_VARS = {
   netlify: { token: 'NETLIFY_AUTH_TOKEN', siteId: 'NETLIFY_SITE_ID' },
   vercel: { token: 'VERCEL_TOKEN', project: 'VERCEL_PROJECT', teamId: 'VERCEL_TEAM_ID' },
+  folder: { dir: 'DECKLIGHT_PUBLISH_DIR', url: 'DECKLIGHT_PUBLISH_URL' },
 };
 
 const known = (target) => {
@@ -134,7 +150,28 @@ export async function deployVercel({ token, project, teamId }, files, { fetchImp
   return { url: j.url ? `https://${j.url}` : null, id: j.id ?? j.uid ?? null };
 }
 
-const DEPLOYERS = { netlify: deployNetlify, vercel: deployVercel };
+/**
+ * Write the site into a directory. Every path a target receives is relative
+ * and already carries `--path`'s subdirectory, so the only thing to refuse is
+ * a path that would climb out of the folder — which none of ours produces,
+ * and which this checks anyway, because the folder may be somebody's home.
+ */
+export async function deployFolder({ dir, url }, files, { fs: fsImpl = null } = {}) {
+  const fs = fsImpl ?? fsSync;
+  const root = pathMod.resolve(dir);
+  for (const { path: rel, data } of files) {
+    const abs = pathMod.resolve(root, rel);
+    if (abs !== root && !abs.startsWith(root + pathMod.sep)) throw new Error(`folder: refusing to write outside ${root}: ${rel}`);
+    fs.mkdirSync(pathMod.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, data);
+  }
+  // the link is the public url plus the subdirectory the files were written under
+  const sub = pathMod.dirname(files[0]?.path ?? 'index.html');
+  const base = url ? url.replace(/\/+$/, '') : null;
+  return { url: base ? `${base}${sub === '.' ? '' : `/${sub}`}/` : null, id: root };
+}
+
+const DEPLOYERS = { netlify: deployNetlify, vercel: deployVercel, folder: deployFolder };
 
 /** `files` is `[{ path, data: Buffer|string }]` — the same set gh-pages commits. */
 export async function deploy(target, answers, files, opts = {}) {

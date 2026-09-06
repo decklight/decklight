@@ -33,7 +33,13 @@ test('the token is a secret field, never text — it must not print back in the 
   for (const target of TARGETS) {
     const schema = schemaFor(target);
     const token = schema.fields.find((f) => f.name === 'token');
-    assert.equal(token?.type, 'secret', `${target}'s token field`);
+    if (!token) {
+      // a target with no token is credential-less BY DESIGN (folder) — and
+      // then nothing on it may be a secret either, or the wizard would ask for one
+      assert.ok(!schema.fields.some((f) => f.type === 'secret'), `${target} asks for a secret it has no token for`);
+      continue;
+    }
+    assert.equal(token.type, 'secret', `${target}'s token field`);
   }
 });
 
