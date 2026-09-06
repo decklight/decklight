@@ -1415,7 +1415,9 @@ decklight/
 
 ## NON_GOALS — Non-goals (v1)
 
-Vertical slide nesting · full terminal emulation (vim/htop) · multiplex/follow-along · **in-deck runtime extensions** · PPTX export · mobile authoring.
+Vertical slide nesting · full terminal emulation (vim/htop) · multiplex/follow-along · **in-deck runtime extensions** · PPTX round-trip · mobile authoring.
+
+**On PPTX.** Export exists (`decklight pptx`, PRESENTING) and is lossy by design: every slide is a picture at its own size with its builds complete, and the speaker notes are real notes. What stays a non-goal is the *round-trip* — a `.pptx` whose text boxes, builds and charts survive as editable objects. A decklight deck is HTML, builds, casts and a live voice, none of which has a PowerPoint shape; the export is for the people around a decklight user who still ask for the file, not for editing it there.
 
 **On that third-from-last one.** "No plugin system" was the v1 non-goal, and 0.3.0 shipped marketplaces — so the line is narrowed rather than deleted, because what it was protecting is still protected. A deck travels, so code inlined into it runs in front of an audience that installed nothing and consented to nothing (MARKETPLACE.md `WHY`). Everything a marketplace distributes therefore runs somewhere else: a build-time transform runs in Node during `bundle` and returns HTML (`EXTENSIONS_TRANSFORMS`), a presenter plugin runs on the presenter's own machine in a sandboxed frame and may not touch slide content (PRESENT#PLUGINS), an engine or import adapter runs at author time, and a theme or template is data. The runtime still has no plugin API, no `<script>` a catalog can put in a deck, and no execution surface for a recipient to be surprised by — providers + events remain the only extension inside the deck.
 
