@@ -13,7 +13,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { pdfOut, printUrl, pdfPageCount, overflowSlides, splitConflictSlides, slideCount } from '../cli/pdf.mjs';
+import { pdfOut, printUrl, pdfPageCount, overflowSlides, splitConflictSlides, slideCount, expectedPages } from '../cli/pdf.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -103,4 +103,30 @@ test('a hidden slide is not a page: slideCount skips data-hidden, and only data-
   const html = '<section><h1>a</h1></section><section data-hidden><h1>b</h1></section>'
     + '<section class="x" data-hidden="" ><h1>c</h1></section><section data-hidden-not><h1>d</h1></section>';
   assert.equal(slideCount(html), 2);
+});
+
+// ── the two print variants the runtime already had, now reachable from the CLI ─
+
+test('--notes and --handout ride the runtime\'s own ?print= variants, theme and all', () => {
+  assert.equal(printUrl('/talks/q3.html', { variant: 'notes' }), 'file:///talks/q3.html?print=notes');
+  assert.equal(printUrl('/talks/q3.html', { variant: 'handout', theme: 'graphite' }),
+    'file:///talks/q3.html?print=handout&theme=graphite');
+  assert.equal(printUrl('/talks/q3.html', { variant: '' }), 'file:///talks/q3.html?print', 'no variant is plain print');
+});
+
+test('a variant gets its own file name, so the handout never overwrites the slides', () => {
+  // resolve() on both sides: on Windows the answer is D:\talks\q3.pdf, and
+  // the point is the NAME, not the separator
+  assert.equal(pdfOut('/talks/q3.html'), resolve('/talks/q3.pdf'));
+  assert.equal(pdfOut('/talks/q3.html', null, 'notes'), resolve('/talks/q3.notes.pdf'));
+  assert.equal(pdfOut('/talks/q3.html', null, 'handout'), resolve('/talks/q3.handout.pdf'));
+  assert.equal(pdfOut('/talks/q3.html', '/tmp/x.pdf', 'handout'), resolve('/tmp/x.pdf'), '-o always wins');
+});
+
+test('expected pages: one per slide, except the handout, which packs three — print.js\'s own constant', () => {
+  assert.equal(expectedPages(7), 7);
+  assert.equal(expectedPages(7, 'notes'), 7);
+  assert.equal(expectedPages(7, 'handout'), 3);
+  assert.equal(expectedPages(6, 'handout'), 2);
+  assert.equal(expectedPages(1, 'handout'), 1);
 });
