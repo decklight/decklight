@@ -29,6 +29,7 @@ import { THEMES_DIR, themeCss as shippedThemeCss, runtimeCss, runtimeJs } from '
 import { unzip } from '../tools/zip.mjs';
 import { decodeEntities } from '../tools/ooxml.mjs';
 import { parseRels, resolvePart, slideOrder, parseSlide, notesText, slideSection, mimeOf } from '../tools/pptx.mjs';
+import { parseTemplateTheme, themeFromTemplate } from '../tools/template-theme.mjs';
 
 
 const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url> [options]
@@ -36,6 +37,8 @@ const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url
 
   -o <file>        output path                     [the source's, with .html]
   --theme <name>   theme to open in                [midnight]
+                   'template' derives one from the file's own palette and
+                   fonts (its ppt/theme part), gated like any shipped theme
   --build all|none|auto
                    which lists step in                            [auto]
                    auto follows PowerPoint's own per-paragraph build list
@@ -200,9 +203,11 @@ export function convert(zip, { build = 'auto' } = {}) {
 }
 
 /** The self-contained deck, runtime and theme inlined — the `init` output shape. */
-export function deckHtml(sections, { title, theme }) {
+export function deckHtml(sections, { title, theme, themeCss = null }) {
   const css = runtimeCss();
-  const theme_ = shippedThemeCss(theme);
+  // `themeCss` is a theme that is not shipped — the one derived from the
+  // template's own palette and fonts (tools/template-theme.mjs)
+  const theme_ = themeCss ?? shippedThemeCss(theme);
   // runtimeJs() applies the SAME transform init/upgrade/bundle use and audit
   // recomputes. This used to be a local escape that missed `<!--`, which made
   // every imported deck audit as "runtime DIFFERS from this install's build".
@@ -270,7 +275,10 @@ export async function importMain(args = []) {
   const source = args.find((a, i) => !a.startsWith('-') && !VALUE.has(args[i - 1]));
   if (!source) { console.error(`decklight import: needs a file or a Google Slides URL\n\n${USAGE}`); return 1; }
 
-  const theme = opt('--theme', 'midnight');
+  const themeFlag = opt('--theme', 'midnight');
+  const wantTemplate = themeFlag === 'template';
+  let theme = wantTemplate ? 'midnight' : themeFlag;
+  let themeCss = null;
   if (!existsSync(join(THEMES_DIR, `${theme}.css`))) {
     const all = readdirSync(THEMES_DIR).filter((f) => f.endsWith('.css')).map((f) => f.replace(/\.css$/, ''));
     console.error(`decklight import: no theme "${theme}"`);
@@ -359,7 +367,26 @@ export async function importMain(args = []) {
   // ---- convert ----------------------------------------------------------
   let result;
   try {
-    result = convert(unzip(bytes), { build });
+    const zip = unzip(bytes);
+    result = convert(zip, { build });
+    // The template's palette and fonts — most of what "our template" means —
+    // are in ppt/theme/theme1.xml. Derived only when asked, because the
+    // default (a shipped theme) is what every existing import produced.
+    const themePart = [...zip.keys()].find((k) => /^ppt\/theme\/theme\d*\.xml$/.test(k));
+    if (wantTemplate) {
+      const parsed = themePart ? parseTemplateTheme(zip.get(themePart).toString()) : null;
+      const derived = parsed ? themeFromTemplate(parsed) : null;
+      if (derived?.ok) {
+        theme = derived.name; themeCss = derived.css;
+        console.error(`  theme: ${derived.name} — derived from the template's palette and fonts`
+          + `${parsed.fonts.heading || parsed.fonts.body ? ` (${[parsed.fonts.heading, parsed.fonts.body].filter(Boolean).join(' / ')})` : ''}`);
+      } else {
+        console.error(`  theme: ${!themePart ? 'this file carries no theme part' : !parsed ? 'the theme part has no colour scheme' : `the derived theme failed its contrast gates: ${derived.errors[0]}`}`
+          + ' — opening in midnight instead');
+      }
+    } else if (themePart) {
+      console.error('  this file carries a theme — `--theme template` imports its palette and fonts');
+    }
   } catch (e) {
     console.error(`decklight import: ${e.message}`);
     return 1;
@@ -387,7 +414,7 @@ export async function importMain(args = []) {
   }
 
   const title = basename(out).replace(/\.html$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
-  writeFileSync(out, deckHtml(result.sections, { title, theme }));
+  writeFileSync(out, deckHtml(result.sections, { title, theme, themeCss }));
   const kb = Math.round(readFileSync(out).length / 1024);
   console.error(`${out} · ${result.sections.length} slides · theme ${theme} · ${kb} KB`
     + (dropped ? ` · ${dropped} thing(s) dropped — see ⚠ above` : ''));
