@@ -272,6 +272,16 @@ export function createEditMode({
           }
           editBase = base;
           editAvailable = true;
+          // The speaker view saves rehearsal timings through this (PRESENTING
+          // REHEARSAL_TIMINGS); with no author server it is undefined and the
+          // timings stay in the browser instead.
+          instance.__saveTimings = async (timings) => {
+            const res = await fetch(editBase + '/edit/timings', {
+              method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ timings }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            debugLog('edit', `rehearsal timings saved — ${timings.length} slides`);
+          };
           editAgents = Array.isArray(j.agents) ? j.agents : [];
           preferredAgent = typeof j.preferredAgent === 'string' ? j.preferredAgent : null;
           editWizards = Array.isArray(j.wizards) ? j.wizards : [];

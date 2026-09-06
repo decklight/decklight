@@ -19,7 +19,7 @@ import http from 'node:http';
 
 import {
   upsertNarrationTrack, narrationLiteral, initArgument,
-  setSlideLayout, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
+  setSlideLayout, setSlideTiming, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
 } from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
@@ -1101,4 +1101,36 @@ test('an agent commit contains the agent\'s work only, not what you left uncommi
   assert.doesNotMatch(agentDiff, /MY OWN EDIT/, 'the hand edit is not attributed to the agent');
   // …and the player's own commit is where it actually went
   assert.match(git(['show', '--format=', 'HEAD~1'], dir), /MY OWN EDIT/);
+});
+
+
+// ── setSlideTiming: a rehearsal, written onto the section ─────────────────
+
+test('setSlideTiming writes whole seconds, replaces, and removes for null or zero', () => {
+  const set = setSlideTiming(DECK, 1, 42.4);
+  assert.match(set, /<section data-timing="42">\s*<h2>Alpha<\/h2>/);
+  const replaced = setSlideTiming(set, 1, 90);
+  assert.match(replaced, /<section data-timing="90">/);
+  assert.doesNotMatch(replaced, /data-timing="42"/);
+  // the other slides are untouched — an attribute on slide 2 is not disturbed
+  assert.match(setSlideTiming(DECK, 1, 10), /<section data-layout="centered">\s*<h2>Beta<\/h2>/);
+  const removed = setSlideTiming(replaced, 1, 0);
+  assert.match(removed, /<section>\s*<h2>Alpha<\/h2>/);
+  assert.match(setSlideTiming(replaced, 1, null), /<section>\s*<h2>Alpha<\/h2>/);
+  assert.throws(() => setSlideTiming(DECK, 99, 5), /no such slide|slide 99/i);
+});
+
+
+test('/edit/timings writes every slide\'s rehearsed time in ONE edit, and refuses a bad payload', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const r = await (await post(base, '/edit/timings', { timings: [{ slide: 1, seconds: 42.6 }, { slide: 2, seconds: 90 }] })).json();
+  assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 }, 'two slides, one history entry');
+  const html = readFileSync(deck, 'utf8');
+  assert.match(html, /<section data-timing="43">\s*<h2>Alpha<\/h2>/);
+  assert.match(html, /<section data-layout="centered" data-timing="90">\s*<h2>Beta<\/h2>/, 'beside the layout it already had');
+  assert.equal((await post(base, '/edit/timings', { timings: [{ slide: 'one', seconds: 5 }] })).status, 400);
+  assert.equal((await post(base, '/edit/timings', { timings: 'nope' })).status, 400);
 });
