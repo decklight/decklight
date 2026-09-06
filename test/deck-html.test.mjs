@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
+import { locateSlide, sectionChildRanges, isHiddenSection, sectionBodies } from '../tools/deck-html.mjs';
 
 // sectionChildRanges takes `parts[idx]` exactly as locateSlide hands it back —
 // this helper is what every real caller (cli/edit.mjs) does first.
@@ -114,4 +114,10 @@ test('the Node and runtime escapes are the same function, spelled twice', async 
   // and the contract itself: safe in text and in a double-quoted attribute
   assert.equal(node('<a href="x">&'), '&lt;a href=&quot;x&quot;&gt;&amp;');
   assert.equal(node('&lt;'), '&amp;lt;', 'ampersand first, or escapes double-escape');
+});
+
+
+test('isHiddenSection reads the open tag and nothing else', () => {
+  const bodies = sectionBodies('<section data-hidden><p>data-hidden</p></section><section><p data-hidden>x</p></section><section data-hidden="true"></section>');
+  assert.deepEqual(bodies.map(isHiddenSection), [true, false, true], 'the attribute counts on the section, not on a child');
 });

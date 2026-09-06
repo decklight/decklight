@@ -189,7 +189,6 @@ export function convert(zip, { build = 'auto' } = {}) {
       chartOf: (target) => zip.get(resolvePart(slidePath, target))?.toString() ?? null,
     });
     n += 1;
-    if (slide.hidden) { report.push({ n, hidden: true, title: slide.title }); continue; }
 
     const notesRel = [...rels.values()].find((r) => r.type.endsWith('/notesSlide'));
     const notes = notesRel
@@ -197,7 +196,9 @@ export function convert(zip, { build = 'auto' } = {}) {
       : [];
     const { html, did } = slideSection(slide, notes, { build });
     sections.push(html);
-    report.push({ n, title: slide.title, did, drops: slide.drops });
+    // PowerPoint's hidden slide is decklight's (HIDDEN_SLIDES): kept, numbered,
+    // marked — never thrown away on the way in. One report row either way.
+    report.push({ n, title: slide.title, did, drops: slide.drops, ...(slide.hidden ? { hidden: true } : {}) });
   }
   if (!sections.length) throw new Error('every slide in this file is hidden — nothing to import');
   return { sections, report };
@@ -400,7 +401,7 @@ export async function importMain(args = []) {
   for (const row of result.report) {
     if (row.hidden) {
       const t = decodeEntities((row.title ?? '').replace(/<[^>]+>/g, ''));
-      console.error(`  ${String(row.n).padStart(3)}  ⊘ hidden slide skipped${t ? ` — ${t}` : ''}`);
+      console.error(`  ${String(row.n).padStart(3)}  ⊘ hidden — kept as data-hidden${t ? ` — ${t}` : ''}`);
       continue;
     }
     // the title is HTML by now; the terminal wants the words back
@@ -417,7 +418,8 @@ export async function importMain(args = []) {
   const title = basename(out).replace(/\.html$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
   writeFileSync(out, deckHtml(result.sections, { title, theme, themeCss }));
   const kb = Math.round(readFileSync(out).length / 1024);
-  console.error(`${out} · ${result.sections.length} slides · theme ${theme} · ${kb} KB`
+  const hiddenCount = result.report.filter((r) => r.hidden).length;
+  console.error(`${out} · ${result.sections.length} slides${hiddenCount ? ` (${hiddenCount} hidden)` : ''} · theme ${theme} · ${kb} KB`
     + (dropped ? ` · ${dropped} thing(s) dropped — see ⚠ above` : ''));
   if (!verbose && !dropped) console.error('  everything converted; -v lists each slide');
   return 0;

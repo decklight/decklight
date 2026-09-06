@@ -320,6 +320,10 @@ export function init(userConfig = {}) {
   const config = { ...DEFAULTS, ...userConfig };
   if (params.has('embedded')) config.controls = false;
   const printMode = params.has('print');
+  // `?all` presents the hidden slides too — the author checking one, or a
+  // reviewer who needs to see everything. Never the default: a hidden slide is
+  // hidden from the AUDIENCE, and the default is the audience (DECK_ANATOMY).
+  const showHidden = params.has('all');
   const printVariant = params.get('print') || ''; // '' (plain) | 'handout' | 'notes'
 
   // ----- debug log (D) -------------------------------------------------------
@@ -957,29 +961,50 @@ export function init(userConfig = {}) {
       return rec ? stepLabels(rec) : [];
     },
 
+    /**
+     * Is slide `n` hidden from this showing? `data-hidden` (DECK_ANATOMY), and
+     * `?all` overrides. A hidden slide KEEPS ITS NUMBER — as it does in
+     * PowerPoint — so everything that numbers slides file-side (comments,
+     * review anchors, history) stays in step; it is simply stepped over.
+     */
+    _hidden(n) {
+      return !showHidden && !!this._sections[n - 1]?.hasAttribute('data-hidden');
+    },
+    /** The nearest slide that is not hidden, walking from `n` in `dir` (±1); null past the end. */
+    _visibleFrom(n, dir) {
+      for (let i = n; i >= 1 && i <= this.state.totalSlides; i += dir) if (!this._hidden(i)) return i;
+      return null;
+    },
     next() {
       const rec = this._records[this.state.slide - 1];
       if (rec && this.state.step < rec.groups.length) {
         this.goto(this.state.slide, this.state.step + 1, { direction: 'fwd' });
-      } else if (this.state.slide < this.state.totalSlides) {
-        this.goto(this.state.slide + 1, 0, { direction: 'fwd' });
-      } else {
-        gotoModule(1); // playlist chaining; no-op on the last module
+        return;
       }
+      const to = this._visibleFrom(this.state.slide + 1, +1);
+      if (to) this.goto(to, 0, { direction: 'fwd' });
+      else gotoModule(1); // playlist chaining; no-op on the last module
     },
     prev() {
       if (this.state.step > 0) {
         this.goto(this.state.slide, this.state.step - 1, { direction: 'back' });
-      } else if (this.state.slide > 1) {
-        const prevRec = this._records[this.state.slide - 2];
-        this.goto(this.state.slide - 1, prevRec.groups.length, { direction: 'back' });
-      } else {
-        gotoModule(-1); // playlist chaining; no-op on the first module
+        return;
       }
+      const to = this._visibleFrom(this.state.slide - 1, -1);
+      if (to) this.goto(to, this._records[to - 1].groups.length, { direction: 'back' });
+      else gotoModule(-1); // playlist chaining; no-op on the first module
     },
 
     goto(slide, step = 0, opts = {}) {
       slide = Math.max(1, Math.min(slide, this.state.totalSlides));
+      // a deep link or a jump onto a hidden slide lands on its nearest shown
+      // neighbour in the direction of travel — never on the hidden one
+      if (this._hidden(slide)) {
+        const dir = opts.direction === 'back' ? -1 : +1;
+        const near = this._visibleFrom(slide, dir) ?? this._visibleFrom(slide, -dir);
+        if (near == null) return;
+        slide = near; step = dir < 0 ? (this._records[slide - 1]?.groups.length ?? 0) : 0;
+      }
       const rec = this._records[slide - 1];
       // Remember the PRE-clamp request: build providers (terminal casts)
       // register asynchronously after init, and a deep-linked step on their
@@ -1275,7 +1300,8 @@ export function init(userConfig = {}) {
     overviewEl.className = 'decklight-overview-grid';
     instance._sections.forEach((s, i) => {
       const cell = document.createElement('div');
-      cell.className = 'ov-cell' + (i === instance.state.slide - 1 ? ' ov-current' : '');
+      cell.className = 'ov-cell' + (i === instance.state.slide - 1 ? ' ov-current' : '')
+        + (s.hasAttribute('data-hidden') ? ' ov-hidden' : '');   // dimmed and badged, still there to unhide
       const frame = document.createElement('div');
       frame.className = 'ov-frame';
       frame.style.width = config.width + 'px';
@@ -1928,9 +1954,10 @@ export function init(userConfig = {}) {
     // .print-page slots — strictly AFTER sync() and applyBuildState above:
     // sync() selects `:scope > section` and must never run again once the
     // sections are wrapped. Print is static, so it never does.
+    if (showHidden) root.classList.add('decklight-show-hidden');
     if (printVariant === 'handout' || printVariant === 'notes') {
       root.classList.add('decklight-print-' + printVariant);
-      buildPrintPages(stage, instance._sections, printVariant);
+      buildPrintPages(stage, instance._sections.filter((s) => showHidden || !s.hasAttribute('data-hidden')), printVariant);
     }
     // All slides are visible in print — audit the whole deck for clipping.
     // (`decklight pdf` reads these attributes back out of this very render, so

@@ -40,7 +40,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader, isMain } from './args.mjs';
-import { injectBeforeBodyEnd, sectionBodies } from './deck-html.mjs';
+import { injectBeforeBodyEnd, sectionBodies, isHiddenSection } from './deck-html.mjs';
 import { serveForRender } from '../cli/present.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
 
@@ -423,7 +423,9 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
 
     // real durations, not the manifest's word count: ffprobe each audio file
     const durations = {};
+    const hidden = sectionBodies(html).map(isHiddenSection);
     for (let n = range.from; n <= range.to; n++) {
+      if (hidden[n - 1]) continue;   // a hidden slide keeps its number and gets no frame
       const entry = narration?.slides?.[n - 1];
       // The slide's own audio AND its ⟨CLICK⟩ segments. Measured here rather
       // than trusted from the manifest, for the reason the per-slide durations

@@ -396,5 +396,5 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
     for (const line of notes) parts.push(`        <p>${line}</p>`);
     parts.push('      </aside>');
   }
-  return { html: `    <section>\n${parts.join('\n')}\n    </section>`, did };
+  return { html: `    <section${slide.hidden ? ' data-hidden' : ''}>\n${parts.join('\n')}\n    </section>`, did };
 }

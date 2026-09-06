@@ -160,11 +160,13 @@ test('image mime types come from the file name', () => {
 
 // ── the whole conversion ──────────────────────────────────────────────────
 
-test('the fixture converts to three visible slides and one skipped', () => {
+test('the fixture converts to four slides — three shown, the hidden one KEPT and marked', () => {
   const { sections, report } = convert(zip());
-  assert.equal(sections.length, 3);
+  assert.equal(sections.length, 4, 'a hidden slide is kept, not dropped (HIDDEN_SLIDES)');
   assert.equal(report.length, 4);
   assert.equal(report[3].hidden, true);
+  assert.match(sections[3], /^\s*<section data-hidden>/);
+  assert.doesNotMatch(sections[0] + sections[1] + sections[2], /data-hidden/);
 
   assert.match(sections[0], /<h1>Q3 &amp; Beyond<\/h1>/);
   assert.match(sections[0], /<p>What shipped, what did not<\/p>/, 'the subtitle feeds the DECK_ANATOMY subtitle rule');
@@ -247,8 +249,8 @@ test('import writes a self-contained deck that needs no sibling files', () => {
     // the report names the drops with their slide numbers
     assert.match(r.stderr, /3 {2}⚠/);
     assert.match(r.stderr, /chart dropped/);
-    assert.match(r.stderr, /⊘ hidden slide skipped/);
-    assert.match(r.stderr, /3 slides · theme midnight/);
+    assert.match(r.stderr, /⊘ hidden — kept as data-hidden/);
+    assert.match(r.stderr, /4 slides \(1 hidden\) · theme midnight/);
   } finally { rmTemp(dir); }
 });
 
@@ -373,4 +375,12 @@ test('chart JSON cannot end the script tag early', () => {
   const html = chartHtml({ type: 'bar', title: '', labels: ['</script><img src=x onerror=alert(1)>'], series: [{ name: 'a', data: [1] }] });
   assert.doesNotMatch(html, /<\/script><img/);
   assert.match(html, /<\\\/script>/);
+});
+
+test('a PowerPoint hidden slide is kept as a hidden decklight slide, not dropped', () => {
+  const hidden = parseSlide('<p:sld show="0"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Later</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>');
+  assert.equal(hidden.hidden, true);
+  assert.match(slideSection(hidden).html, /^\s*<section data-hidden>/);
+  const shown = parseSlide('<p:sld><p:cSld><p:spTree/></p:cSld></p:sld>');
+  assert.match(slideSection(shown).html, /^\s*<section>/);
 });

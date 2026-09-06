@@ -50,7 +50,7 @@ import { homedir } from 'node:os';
 import { createEngine } from './tts-engines.mjs';
 import { clipKey, createTtsCache, extFor } from './tts-cache.mjs';
 import { argReader } from './args.mjs';
-import { sectionBodies, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
+import { sectionBodies, NOTES_ASIDE, cleanNotes, notesSegments, isHiddenSection } from './deck-html.mjs';
 import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 const args = process.argv.slice(2);
@@ -138,6 +138,7 @@ const toAac = (wav, m4a) => run(encoder, encoder === 'ffmpeg'
 const html = readFileSync(deckPath, 'utf8');
 const sections = sectionBodies(html);
 const raw = sections.map((sec) => {
+  if (isHiddenSection(sec)) return '';   // no file for a hidden slide; the numbering stays
   const aside = sec.match(NOTES_ASIDE);
   if (aside) return aside[1];
   const md = sec.match(/^Note:\s*$([\s\S]*?)(?=^Rehearse:\s*$|<\/script>)/m);

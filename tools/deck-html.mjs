@@ -22,6 +22,15 @@ export const NOTES_ASIDE = /<aside class="notes">([\s\S]*?)<\/aside>/;
 export const sectionBodies = (html) => html.split(/<section\b/).slice(1);
 
 /**
+ * Is a `sectionBodies` entry a hidden slide? `data-hidden` on the open tag
+ * (DECK_ANATOMY). File-side tools that produce one THING per slide — a video
+ * frame, a voiceover file, a PDF page — skip it; tools that NUMBER slides —
+ * comments, review anchors, history — do not, because a hidden slide keeps
+ * its number exactly as it does in PowerPoint.
+ */
+export const isHiddenSection = (body) => /^[^>]*\sdata-hidden(?=[\s=>\/])/.test(body);
+
+/**
  * A section body from `sectionBodies`, reduced to what is actually inside the
  * section.
  *
