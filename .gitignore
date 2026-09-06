@@ -1,4 +1,9 @@
-node_modules/
+# No trailing slash. `node_modules/` matched a DIRECTORY only, so a symlink
+# named node_modules — a worktree's link to the main checkout — was not
+# ignored, and `git add -A` committed it (#435). Checking that link out later
+# replaced the real node_modules with a link to itself. It left the tree again
+# by accident (#439); this is what stops it coming back.
+node_modules
 .DS_Store
 *.log
 bundles/
