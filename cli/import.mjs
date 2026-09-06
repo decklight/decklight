@@ -42,8 +42,8 @@ const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url
   --force          overwrite an existing output file
   -v, --verbose    print every slide's line, not just the ones with drops
 
-  content crosses over — titles, bullets (nested), paragraphs, tables, images
-  and speaker notes. The template's LOOK does not: the result is themed by
+  content crosses over — titles, bullets (nested), paragraphs, tables, images,
+  charts (as data-chart, from the values the file carries) and speaker notes. The template's LOOK does not: the result is themed by
   decklight. Anything that cannot cross is named on stderr with its slide
   number, so you know what to rebuild by hand.
 
@@ -183,6 +183,7 @@ export function convert(zip, { build = 'auto' } = {}) {
         const bytes = zip.get(p);
         return bytes ? { bytes, mime: mimeOf(p) } : null;
       },
+      chartOf: (target) => zip.get(resolvePart(slidePath, target))?.toString() ?? null,
     });
     n += 1;
     if (slide.hidden) { report.push({ n, hidden: true, title: slide.title }); continue; }
