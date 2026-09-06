@@ -65,6 +65,7 @@ Commands:
   upgrade  bring a self-contained deck's inlined runtime + themes up to the installed version, in place
            EXAMPLE: decklight upgrade deck.html --dry-run   (see what would change; drop the flag to apply)
   pdf      render the deck to a PDF — one slide per page, at its own size, in its theme
+  pptx     write a PowerPoint file — every slide as a picture, its notes as notes (lossy on purpose)
            EXAMPLE: decklight pdf deck.html   (writes deck.pdf; --theme exports in another)
   import   convert an existing PowerPoint, Keynote or Google Slides deck into a decklight deck
            EXAMPLE: decklight import "Q3 Review.pptx"   (also .key on macOS, or a Slides URL)
@@ -258,6 +259,11 @@ switch (cmd) {
   case 'pdf': {
     const { pdfMain } = await import('./pdf.mjs');
     process.exitCode = await pdfMain(rest);
+    break;
+  }
+  case 'pptx': {
+    const { pptxMain } = await import('./pptx-export.mjs');
+    process.exitCode = await pptxMain(rest);
     break;
   }
   case 'import': {

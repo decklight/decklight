@@ -1,0 +1,107 @@
+// Copyright 2026 Gilles Philippart
+// SPDX-License-Identifier: Apache-2.0
+
+// decklight pptx — a deck as a PowerPoint file, lossy on purpose.
+//
+// Each slide is rendered by a one-shot headless Chrome at its own 1280×720
+// with every build complete (the mechanism tools/video.mjs and tools/shot.mjs
+// use), and becomes one picture filling one 16:9 page; the speaker notes ride
+// along as real notes. Nothing round-trips — see tools/pptx-write.mjs for why
+// that is the design and not a gap.
+
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join, relative, resolve, sep } from 'node:path';
+import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
+import { argReader } from '../tools/args.mjs';
+import { run, CODEC_MS } from '../tools/exec.mjs';
+import { NOTES_ASIDE, cleanNotes, sectionBodies } from '../tools/deck-html.mjs';
+import { buildPptx } from '../tools/pptx-write.mjs';
+import { serveForRender } from './present.mjs';
+
+const USAGE = `usage: decklight pptx <deck.html> [-o out.pptx] [--theme <name>] [--wait <ms>]
+  writes a PowerPoint file: every slide as a picture, rendered at 1280×720 with
+  its builds complete, and its speaker notes as real notes
+
+  -o <file>      output path                    [the deck's, with .pptx]
+  --theme <name> export in another theme (rides ?theme=)
+  --wait <ms>    render budget per slide        [1500]
+
+  Lossy by design: the file OPENS in PowerPoint, Keynote and Slides, and the
+  notes are text there — but the slides are pictures. Import it back and you
+  get pictures. Decklight is for people who never liked PowerPoint; this is
+  for the people around them who still ask for the file.`;
+
+/** The deck's path with .pptx in place of .html — or whatever -o said. */
+export const pptxOut = (deckPath, oFlag) => (oFlag ? resolve(oFlag) : resolve(deckPath.replace(/\.html?$/i, '') + '.pptx'));
+
+/**
+ * Speaker notes per slide, as lines. Paragraphs and line breaks become lines,
+ * tags fall away, entities come back — the same reading the voiceover and
+ * the speaker view give the aside, so what PowerPoint shows is what the
+ * presenter saw.
+ */
+export function notesLines(html) {
+  return sectionBodies(html).map((sec) => {
+    const m = sec.match(NOTES_ASIDE);
+    if (!m) return [];
+    return m[1].split(/<\/p>|<br\s*\/?>|\n{2,}/i).map((part) => cleanNotes(part)).filter(Boolean);
+  });
+}
+
+/** The deck's <title>, else its file name. */
+const titleOf = (html, file) => cleanNotes(/<title>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '') || basename(file).replace(/\.html?$/i, '');
+
+async function chromeShot(bin, argv) {
+  run(bin, argv, { maxBuffer: 32 * 1024 * 1024, timeout: CODEC_MS, why: 'Chrome did not finish rendering a slide — it is probably waiting on a resource it cannot reach' });
+}
+
+export async function pptxMain(args = [], { render = chromeShot, log = console.error } = {}) {
+  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return 0; }
+  const { opt } = argReader(args);
+  const deck = args.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
+  if (!deck) { log(`decklight pptx: needs a deck\n\n${USAGE}`); return 1; }
+  const src = resolve(deck);
+  if (!existsSync(src)) { log(`decklight pptx: no such deck: ${deck}`); return 1; }
+  const root = process.cwd();
+  if (src !== root && !src.startsWith(root + sep)) {
+    log(`decklight pptx: the deck must live under the current directory (${root}) — cd there first`);
+    return 1;
+  }
+  const out = pptxOut(src, opt('-o'));
+  const wait = Number(opt('--wait', 1500));
+  const theme = opt('--theme');
+  const html = readFileSync(src, 'utf8');
+  const notes = notesLines(html);
+  const count = notes.length;
+  if (!count) { log('decklight pptx: the deck has no <section> slides'); return 1; }
+
+  // served, not file://, so every relative asset the deck names still resolves
+  const inject = (text, file) => (file === src && theme ? text.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`) : text);
+  const server = await serveForRender(root, { html: inject });
+  const scratch = mkdtempSync(join(tmpdir(), 'decklight-pptx-'));
+  const slides = [];
+  try {
+    const deckPath = '/' + relative(root, src).split(sep).join('/');
+    const bin = chromeBin('pptx');
+    log(`pptx: rendering ${basename(src)} — ${count} slides at 1280×720, builds complete`);
+    for (let n = 1; n <= count; n++) {
+      const png = join(scratch, `slide-${n}.png`);
+      // /999 lands on the last build step, whatever the slide has
+      await render(bin, chromeArgs(
+        '--hide-scrollbars', '--window-size=1280,720', `--virtual-time-budget=${wait}`,
+        `--screenshot=${png}`, `${server.origin}${deckPath}#/${n}/999`,
+      ), { n, png });
+      if (!existsSync(png) || statSync(png).size === 0) { log(`decklight pptx: slide ${n} did not render — try a longer --wait`); return 1; }
+      slides.push({ png: readFileSync(png), notes: notes[n - 1] });
+    }
+  } finally {
+    await server.close();
+    rmSync(scratch, { recursive: true, force: true });
+  }
+  const bytes = buildPptx(slides, { title: titleOf(html, src) });
+  writeFileSync(out, bytes);
+  const withNotes = notes.filter((l) => l.length).length;
+  console.log(`${out} · ${count} slides as pictures · ${withNotes} with notes · ${Math.round(bytes.length / 1024)} KB`);
+  return 0;
+}
