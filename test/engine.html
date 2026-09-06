@@ -167,6 +167,8 @@
     const sink = document.getElementById('test-sink');
     const params = new URLSearchParams(location.search);
     const mode = params.get('mode') ?? 'themepicker';
+    // `hidden`: slide 2 is hidden BEFORE init, the way an author would mark it
+    if (mode === 'hidden') document.querySelectorAll('.decklight > section')[1].setAttribute('data-hidden', '');
 
     // This harness drives overlays and keys, not onboarding: mark the welcome
     // seen so the card never intercepts the first keystroke below (SPEC
@@ -443,6 +445,37 @@
 
         r.PASS = r.pickerUp && r.paletteUp && r.pickerGone && r.finderUp && r.finderGone;
       }
+      if (mode === 'hidden') {
+        // DECK_ANATOMY HIDDEN_SLIDES: slide 2 keeps its number and is stepped
+        // over; a deep link onto it lands beside it; the overview still shows
+        // it, dimmed; `?all` (the &all variant of this mode) presents it.
+        const all = params.has('all');
+        await settle();
+        const at = () => deck.state.slide;
+        r.total = deck.state.totalSlides;                       // 4, hidden or not
+        deck.goto(1, 0); await settle();
+        press('ArrowRight'); await settle();
+        r.nextSkips = at() === (all ? 2 : 3);
+        press('ArrowLeft'); await settle();
+        r.prevSkips = at() === 1;
+        deck.goto(2, 0); await settle();
+        r.jumpLandsAfter = at() === (all ? 2 : 3);
+        deck.goto(4, 0); await settle();
+        deck.goto(2, 0, { direction: 'back' }); await settle();
+        r.jumpBackLandsBefore = at() === (all ? 2 : 1);
+        // the overview keeps the hidden slide, marked
+        deck.goto(1, 0); await settle();
+        press('o'); await settle();
+        const cells = [...document.querySelectorAll('.decklight-overview-grid .ov-cell')];
+        r.overviewCells = cells.length;
+        r.overviewMarks = cells.filter((c) => c.classList.contains('ov-hidden')).length;
+        press('Escape'); await settle();
+        r.PASS = r.total === 4 && r.nextSkips && r.prevSkips && r.jumpLandsAfter && r.jumpBackLandsBefore
+          && r.overviewCells === 4 && r.overviewMarks === 1;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'narration' || mode === 'nonarration') {
         // ⎵ takes the key only WHILE THE VOICE IS IN PLAY. `narration` runs on a
         // deck that carries a track — and asserts that ⎵ still ADVANCES until

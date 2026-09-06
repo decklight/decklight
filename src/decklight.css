@@ -1167,6 +1167,14 @@
 /* 16:9 cells: the row height is set explicitly by layoutOverview() from the
    resolved column width — intrinsic tricks (aspect-ratio, %-padding spacers)
    contribute nothing to auto row sizing here and the rows collapse. */
+/* A hidden slide (data-hidden, DECK_ANATOMY) is dimmed in the overview and
+   badged, never removed: the overview is where an author finds it to unhide. */
+.decklight-overview-grid .ov-cell.ov-hidden { opacity: 0.38; }
+.decklight-overview-grid .ov-cell.ov-hidden::after {
+  content: 'hidden'; position: absolute; top: 6px; left: 8px; z-index: 2;
+  font: 600 11px/1 system-ui, sans-serif; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 3px 6px; border-radius: 4px; background: var(--fg); color: var(--bg);
+}
 .decklight-overview-grid .ov-cell {
   position: relative;
   cursor: pointer;
@@ -1866,6 +1874,8 @@
   width: auto !important;
   height: auto !important;
 }
+/* hidden slides get no page unless ?all asked for them */
+.decklight.decklight-print:not(.decklight-show-hidden) > .decklight-stage > section[data-hidden] { display: none; }
 .decklight.decklight-print > .decklight-stage > section {
   display: flex;
   position: relative;

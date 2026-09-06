@@ -23,6 +23,7 @@ import { basename, resolve } from 'node:path';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { run, CODEC_MS } from '../tools/exec.mjs';
+import { sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
 
 const USAGE = `usage: decklight pdf <deck.html> [-o out.pdf] [--theme <name>] [--wait <ms>]
   renders the deck's ?print view to a PDF — one slide per page, at the deck's
@@ -95,7 +96,7 @@ export const overflowSlides = (html) => flaggedSlides(html, 'data-overflow');
 export const splitConflictSlides = (html) => flaggedSlides(html, 'data-split-conflict');
 
 /** Slides in the printed deck — the number the page count should equal. */
-export const slideCount = (html) => (html.match(/<section\b/g) ?? []).length;
+export const slideCount = (html) => sectionBodies(html).filter((b) => !isHiddenSection(b)).length;
 
 const KB = (n) => (n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`);
 

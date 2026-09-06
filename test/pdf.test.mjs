@@ -97,3 +97,10 @@ test('pdf without a deck, or with a missing one, fails with usage — not a stac
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /no such deck/);
 });
+
+
+test('a hidden slide is not a page: slideCount skips data-hidden, and only data-hidden', () => {
+  const html = '<section><h1>a</h1></section><section data-hidden><h1>b</h1></section>'
+    + '<section class="x" data-hidden="" ><h1>c</h1></section><section data-hidden-not><h1>d</h1></section>';
+  assert.equal(slideCount(html), 2);
+});

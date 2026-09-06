@@ -57,6 +57,9 @@ setTimeout(() => {
   setTimeout(() => {
     document.getElementById('test-sink').textContent = 'DECKLIGHT-IMPORT-RESULTS ' + JSON.stringify({
       slides: sections.length,
+      // HIDDEN_SLIDES: the fixture's hidden slide is KEPT, marked, and never landed on
+      hidden: sections.filter((s) => s.hasAttribute('data-hidden')).length,
+      landedOnHidden: (() => { deckApi.goto(sections.length, 0); return sections[deckApi.state.slide - 1].hasAttribute('data-hidden'); })(),
       titleIsH1: !!sections[0].querySelector('h1'),
       notes: sections.filter((s) => s.querySelector('aside.notes')).length,
       buildList: !!document.querySelector('ul[data-build]'),
@@ -85,7 +88,9 @@ const check = (label, got, want) => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label.padEnd(38)} ${got}${ok ? '' : ` (expected ${want})`}`);
 };
 
-check('visible slides (the hidden one is out)', r.slides, 3);
+check('slides, the hidden one kept (HIDDEN_SLIDES)', r.slides, 4);
+check('exactly one carries data-hidden', r.hidden, 1);
+check('a jump onto the hidden one lands beside it', r.landedOnHidden, false);
 check('the title slide is an h1', r.titleIsH1, true);
 check('speaker notes came across', r.notes, 1);
 check('the build list steps', r.buildList, true);
