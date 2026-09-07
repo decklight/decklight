@@ -121,7 +121,13 @@ test('no doc or deck claims a theme count the repo does not have', () => {
       // a quiz's WRONG answers are deliberately wrong numbers — skip the rows
       // that are not the marked one (they carry value="n" with n != answer)
       if (/<label><input type="radio"/.test(line) && !/value="2"/.test(line)) return;
-      for (const m of line.matchAll(/(\d+)\s+(?:built-in\s+|shipped\s+)?themes\b/g)) {
+      // Any adjectives between the number and the noun, not just the two that
+      // were there when this was written: the site's <meta description> said
+      // "61 WCAG-gated themes" for two releases — the count from before the
+      // homage packs left — and this test read straight past it, because the
+      // list was `built-in|shipped`. A phrasing nobody anticipated is exactly
+      // the phrasing rot hides in.
+      for (const m of line.matchAll(/(\d+)\s+(?:[A-Za-z][\w-]*\s+){0,2}themes\b/g)) {
         if (Number(m[1]) !== themes) wrong.push(`${rel}:${i + 1} says ${m[1]} themes (${themes})`);
       }
       for (const m of line.matchAll(/(\d+)\s+packs\b/g)) {
