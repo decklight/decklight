@@ -5,6 +5,50 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.8.1
+
+Two commits since 0.8.0. A patch release for one command that did not work.
+
+### `decklight pptx` runs (SPEC `PRESENTING`)
+
+0.8.0's PowerPoint export had never worked — not on a large deck, on **any**
+deck, including the two-slide one `init` scaffolds. Every invocation stalled
+for the full five-minute budget and then blamed the browser:
+
+    decklight pptx: Google Chrome hung for 300s and was killed — Chrome did not
+    finish rendering a slide — it is probably waiting on a resource it cannot reach
+
+Chrome was fine. The export serves the deck from its own process, so that a
+relative asset still resolves and the deck runs under `present`'s CSP, and then
+launched Chrome with the **synchronous** exec: that holds the event loop for the
+whole render, so the server never answers the browser it just started. Chrome
+waited for a first byte that could not arrive until Chrome exited.
+`runAsync` joins `tools/exec.mjs` — same timeout, same SIGKILL, the same error
+naming the binary and why — and the export uses it. A two-slide deck exports in
+about five seconds.
+
+The reason a shipped command could be this broken with both suites green:
+`pptx`'s unit tests pass a **stubbed** renderer, which is the right way to test
+pagination, notes and refusals and leaves the real path uncovered; `verify` had
+no pptx harness; and `soak` does not reach the command. **`pptx-render`** now
+runs the real CLI on a real deck and asserts a picture per slide, each PNG with
+actual pixels and different from its neighbours — a deck that never boots
+writes the same blank frame N times and otherwise looks like a success — the
+notes carried as notes, and every part readable by decklight's own OOXML
+reader. `verify` is 24 harnesses.
+
+### The site says what ships
+
+decklight.io had drifted past three sentences a visitor would act on: the keys
+under the live deck still named `N`, retired in 0.7.0; the footer said MIT
+rather than Apache-2.0; and the description claimed 61 themes, the count from
+before the homage packs left in 0.3.0 — which `test/doc-rot.test.mjs` exists to
+catch and read straight past, because it allowed only "built-in" or "shipped"
+between the number and the noun. It now allows any adjectives. The page also
+gained 0.8.0's half of the story: importing the deck you already have, handing
+a file back, hidden slides and rehearsal timings, and publishing anywhere —
+with a terminal cast that is real `import` and `pptx` output, drops included.
+
 ## 0.8.0
 
 24 commits since 0.7.0. The release for the deck you already have. 0.6.0 made a
