@@ -1383,13 +1383,16 @@ decklight/
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
-  cli/           decklight.mjs (dispatcher: init/skills/rec/refresh/export/bundle/restore/history/upgrade/pdf/import/theme/
-                 publish/marketplace/plugin/template/importer/transform/engine/extension/voice/agent/tts/lipsync/
-                 video/author/present/associate/report-bug; `dev` is a hidden alias for `author`, `edit` refuses out
-                 loud) + pkg.mjs (the package root and the one runtime-inlining transform) and util.mjs (CommandError
-                 + runMain: every command fails one way), init.mjs, cast.mjs, bundle.mjs, upgrade.mjs, restore.mjs,
+  cli/           decklight.mjs (dispatcher: init/skills/cast/refresh/export/bundle/restore/history/upgrade/pdf/pptx/
+                 import/theme/publish/marketplace/plugin/template/importer/transform/engine/extension/voice/agent/
+                 tts/lipsync/video/author/record/voiceover/review/comments/present/associate/report-bug; `dev` is a
+                 hidden alias for `author`; `edit` (folded into `author`) and `rec` (renamed `cast`) are gone —
+                 an unknown command, printing the roster) + pkg.mjs (the package root and the one
+                 runtime-inlining transform) and util.mjs (CommandError + runMain: every command fails
+                 one way), init.mjs, cast.mjs, bundle.mjs, upgrade.mjs, restore.mjs,
                  theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides →
-                 deck, JS_API), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), units.mjs
+                 deck, JS_API), pdf.mjs (the print variants, PRESENTING) + pptx-export.mjs (deck → PowerPoint,
+                 NON_GOALS), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), units.mjs
                  (templates/skills/importers/voices/engines/agents), plugin.mjs (presenter chrome, PRESENT#PLUGINS),
                  loader.mjs + extension.mjs (build-time transforms and their admission gate), wizard.mjs (the
                  credential wizard, ENGINES#WIZARD), sign.mjs + deckfile.mjs + associate.mjs (signing, the
@@ -1397,23 +1400,23 @@ decklight/
                  core), present.mjs, edit.mjs, dev.mjs, remote.mjs, agents.mjs (AI-agent roster), git.mjs (the
                  autocommit decision table), update-check.mjs (the "a newer decklight exists" notice), qr.mjs,
                  port-conflict.mjs, supervise.mjs, skill-content.mjs (the agent skill's shipped text)
-  tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
+  tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the
                  marketplace, THEME_DISTRIBUTION) + packs.json + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
   demo/          smoke.html (the render harnesses' deck — every feature, including deliberate regression
                  fixtures) + intro.html, features.html, pitch.html, showcase.html + assets/
   test/          node:test units (ansi, builds, math, cast format, the CLI, the marketplace, the pieces lifted out
-                 of engine.js), found by run.mjs rather than a shell glob + 15 headless-Chrome harnesses (render,
-                 player, narration, character, engine, pin, overflow, split, strict, shot, plugin, extension-check,
-                 deckfile, pdf, import) + contrast.mjs and palette-rules.mjs (every shipped theme through
-                 tools/theme-check.mjs, and the house palette bar) + the two manual end-to-end scripts neither
+                 of engine.js), found by run.mjs rather than a shell glob + 21 headless-Chrome harnesses (render,
+                 player, narration × 5 — live/picker/recorded/segments/record, record, review, character, engine,
+                 pin, overflow, split, strict, shot, plugin, extension-check, deckfile, pdf, import) +
+                 contrast.mjs and palette-rules.mjs (every shipped theme through tools/theme-check.mjs, and the house palette bar) + the two manual end-to-end scripts neither
                  blessed suite runs: soak.mjs (pack, install, walk the journey — the release gate) with its
                  soak-platform.mjs, and video-e2e.mjs (a real ffmpeg render)
 ```
 
 - Build: `npm run build` = esbuild bundle (`src/index.js` → `dist/decklight.js`, minified + sourcemap) + CSS copy. Node ≥ 20. Runtime has **zero** runtime dependencies (highlight.js + temml are bundled at build time; Temml's stylesheet is appended to `decklight.css` with its optional woff2 `@font-face` stripped); `node-pty`, `js-yaml` are CLI-only deps.
-- Verification culture: `npm test` runs the units; `npm run verify` builds and then runs **all 17 harnesses** — the 15 headless-Chrome ones against `demo/smoke.html` and the decks each covers, plus the two theme graders — reporting every harness rather than stopping at the first failure. A feature is verified against a real render, not only unit-tested.
+- Verification culture: `npm test` runs the units; `npm run verify` builds and then runs **all 23 harnesses** — the 21 headless-Chrome ones against `demo/smoke.html` and the decks each covers, plus the two theme graders — reporting every harness rather than stopping at the first failure. A feature is verified against a real render, not only unit-tested.
 - Release gate: **`npm run soak`** packs this repo, installs the tarball into an empty project whose path contains a space, and drives the INSTALLED `decklight` through one user journey — create, import, marketplace, author, present, bundle, transform, pdf, publish, validate, open, record, film — plus a cross-version `upgrade` of a deck scaffolded by a decklight that actually shipped. Manual, in neither blessed suite (it runs a real `npm install`, and skipping inside them would let "green" mean "not actually run"); anything it cannot do here — no Chrome, no network, no ffmpeg, no toolchain — skips **by name**, so a green run with skips is never mistaken for a complete one.
 
 ## NON_GOALS — Non-goals (v1)
