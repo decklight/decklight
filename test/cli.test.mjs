@@ -216,6 +216,36 @@ test('the runtime version and the package version are the same number', () => {
     'set src/index.js\'s exported version to package.json\'s — a release bumps both');
 });
 
+test('nothing under cli/ or tools/ imports from src/ — the package does not ship it', () => {
+  // The one import that did shipped a `decklight pdf` that could not run.
+  // cli/pdf.mjs imported HANDOUT_PER_PAGE from src/core/print.js, which
+  // resolves in a clone and never in an install: package.json's `files` are
+  // cli/, tools/, dist/, themes/, docs/ and SPEC.md, and src/'s only shipped
+  // form is the bundle inside dist/. Both blessed suites drive the CLI out of
+  // the working tree, so both stayed green while every installed copy answered
+  // `decklight pdf` with `Cannot find module …/src/core/print.js`. Only
+  // `npm run soak`, which installs the tarball, could see it.
+  //
+  // So the boundary is asserted here rather than remembered: a number the two
+  // sides share is restated on the shipped side and pinned by a test (the
+  // handout constant, test/pdf.test.mjs), never imported across.
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(here, '../package.json'), 'utf8'));
+  assert.ok(!pkg.files.some((f) => /^src\b/.test(f)),
+    'src/ now ships — if that is deliberate, this test is the thing to update');
+  const offenders = [];
+  for (const dir of ['cli', 'tools']) {
+    for (const name of fs.readdirSync(path.resolve(here, '..', dir))) {
+      if (!/\.m?js$/.test(name)) continue;
+      const text = fs.readFileSync(path.resolve(here, '..', dir, name), 'utf8');
+      for (const m of text.matchAll(/^\s*(?:import|export)[^\n]*?from\s+'\.\.\/src\/[^']*'/gm)) {
+        offenders.push(`${dir}/${name}: ${m[0].trim()}`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [],
+    'a shipped CLI file imports from src/, which is not in the package — restate the value instead');
+});
+
 test('init refusal on a decklight deck leads with upgrade, names both versions', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
   execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });

@@ -24,7 +24,23 @@ import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { run, CODEC_MS } from '../tools/exec.mjs';
 import { sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
-import { HANDOUT_PER_PAGE } from '../src/core/print.js';
+
+/**
+ * How many slides the handout puts on a page — the runtime's own number,
+ * RESTATED rather than imported.
+ *
+ * `src/core/print.js` exports it and this file used to import it, which works
+ * in a clone and cannot work in an install: the package ships `cli/`, `tools/`,
+ * `dist/`, `themes/` and `docs/` — never `src/`, whose only shipped form is the
+ * bundle. `npm test` and `npm run verify` both drive the CLI out of the working
+ * tree, so both were green while `decklight pdf` was a `Cannot find module` for
+ * everyone who had installed it. `npm run soak` caught it at step 40.
+ *
+ * The pair is kept honest by test/pdf.test.mjs, which reads the number out of
+ * both sources and fails when they drift — the same shape as the harness list
+ * that verify.mjs spells out for tools/test-impact.mjs.
+ */
+export const HANDOUT_PER_PAGE = 3;
 
 const USAGE = `usage: decklight pdf <deck.html> [-o out.pdf] [--theme <name>] [--wait <ms>]
                     [--notes | --handout]
@@ -62,8 +78,8 @@ export function printUrl(absDeckPath, { theme, variant = '' } = {}) {
 
 /**
  * How many pages the PDF should have: one per slide, except the handout,
- * which groups HANDOUT_PER_PAGE to a page — the same constant print.js
- * paginates with, imported rather than restated.
+ * which groups HANDOUT_PER_PAGE to a page — the same number print.js
+ * paginates with, held to it by a test rather than by an import.
  */
 export function expectedPages(slides, variant = '') {
   return variant === 'handout' ? Math.ceil(slides / HANDOUT_PER_PAGE) : slides;
