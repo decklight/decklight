@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve, sep } from 'node:path';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader } from '../tools/args.mjs';
-import { run, CODEC_MS } from '../tools/exec.mjs';
+import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import { NOTES_ASIDE, cleanNotes, sectionBodies } from '../tools/deck-html.mjs';
 import { buildPptx } from '../tools/pptx-write.mjs';
 import { serveForRender } from './present.mjs';
@@ -52,8 +52,20 @@ export function notesLines(html) {
 /** The deck's <title>, else its file name. */
 const titleOf = (html, file) => cleanNotes(/<title>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '') || basename(file).replace(/\.html?$/i, '');
 
-async function chromeShot(bin, argv) {
-  run(bin, argv, { maxBuffer: 32 * 1024 * 1024, timeout: CODEC_MS, why: 'Chrome did not finish rendering a slide — it is probably waiting on a resource it cannot reach' });
+/**
+ * Chrome, ASYNC — `runAsync`, never `run`.
+ *
+ * The deck is served from THIS process (serveForRender, PRESENTING) so that a
+ * relative asset still resolves and the CSP is the one `present` applies. A
+ * synchronous child blocks the event loop, so the server never answers the
+ * browser it just launched: Chrome waits for a first byte that cannot arrive
+ * until Chrome exits. 0.8.0 shipped exactly that — every `decklight pptx`
+ * stalled for the full five-minute budget and then reported a hang whose real
+ * cause was one import. tools/shot.mjs carries the same warning above the same
+ * call; test/pptx-render.mjs is what now notices.
+ */
+export async function chromeShot(bin, argv, _ctx, { timeout = CODEC_MS } = {}) {
+  await runAsync(bin, argv, { maxBuffer: 32 * 1024 * 1024, timeout, why: 'Chrome did not finish rendering a slide — it is probably waiting on a resource it cannot reach' });
 }
 
 export async function pptxMain(args = [], { render = chromeShot, log = console.error } = {}) {

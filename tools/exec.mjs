@@ -28,9 +28,17 @@
  *
  * Budgets, named for what they are rather than how long: a probe answers in
  * milliseconds, the network in seconds, a codec in as long as the audio is.
+ *
+ * `runAsync` is the same contract without blocking the event loop, and it
+ * exists because one caller must not: a command that renders through
+ * `serveForRender` (PRESENTING) launches Chrome and then has to ANSWER it from
+ * this same process. `run` there is a deadlock — the browser waits for a
+ * server that cannot run until the browser exits — and it looks exactly like a
+ * hang, right down to this module's own timeout message. `decklight pptx`
+ * shipped that way in 0.8.0.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 
 /** `--version` and its kin. Anything slower than this is not answering. */
 export const PROBE_MS = 15_000;
@@ -51,4 +59,29 @@ export function run(bin, args, { timeout = NETWORK_MS, why = '', ...opts } = {})
     }
     throw e;
   }
+}
+
+/**
+ * `run`, awaited rather than blocking. Same timeout, same SIGKILL, same
+ * ETIMEDOUT error naming the binary and WHY; every other failure rejects with
+ * the untouched child_process error, so callers keep reading `.status`,
+ * `.stderr` and `.code === 'ENOENT'`.
+ *
+ * Use this — never `run` — whenever the process that spawns the child is also
+ * serving it (tools/shot.mjs, tools/video.mjs, cli/pptx-export.mjs).
+ */
+export function runAsync(bin, args, { timeout = NETWORK_MS, why = '', ...opts } = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, { ...opts, timeout, killSignal: 'SIGKILL' }, (e, stdout, stderr) => {
+      if (!e) return resolve(stdout);
+      if (e.killed || e.code === 'ETIMEDOUT' || (e.signal === 'SIGKILL' && e.status == null)) {
+        const err = new Error(`${bin} hung for ${Math.round(timeout / 1000)}s and was killed`
+          + (why ? ` — ${why}` : ''));
+        err.code = 'ETIMEDOUT'; err.bin = bin; err.cause = e;
+        return reject(err);
+      }
+      e.stdout = stdout; e.stderr = stderr;
+      reject(e);
+    });
+  });
 }

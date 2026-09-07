@@ -50,7 +50,7 @@ export const ALL = [
   'record-render', 'review-render',
   'character-render', 'engine-render', 'pin-render', 'overflow-render', 'split-render',
   'strict-render', 'shot-render', 'plugin-render', 'extension-check-render',
-  'deckfile-render', 'pdf-render', 'import-render', 'contrast', 'palette-rules',
+  'deckfile-render', 'pdf-render', 'pptx-render', 'import-render', 'contrast', 'palette-rules',
 ];
 
 /**
@@ -103,6 +103,8 @@ const RULES = [
   [/^cli\/import\.mjs$/, ['import-render'], 'deck import'],
   [/^cli\/deckfile\.mjs$/, ['deckfile-render'], 'the .decklight container'],
   [/^cli\/pdf\.mjs$/, ['pdf-render'], 'PDF export'],
+  [/^cli\/pptx-export\.mjs$/, ['pptx-render'], 'PowerPoint export'],
+  [/^tools\/pptx-write\.mjs$/, ['pptx-render'], 'the file the PowerPoint export writes'],
   [/^cli\/(present|shot)\.mjs$/, ['shot-render'], 'present, and the screenshot containment it asserts'],
   [/^cli\/(comments|review-anchor|review-store|review-remote|review-submit)\.mjs$/, ['review-render'],
     'the CLI half of review — the harness cross-checks the browser against it'],
@@ -220,7 +222,7 @@ const COST = {
   'narration-render:segments': 12, 'narration-render:record': 40, 'extension-check-render': 23, 'engine-render': 17, render: 20,
   'pdf-render': 10, 'split-render': 9, 'review-render': 8, 'pin-render': 7, 'record-render': 7,
   'strict-render': 6, 'overflow-render': 6, 'plugin-render': 6, 'deckfile-render': 4,
-  'shot-render': 4, 'player-render': 3, 'character-render': 2, 'import-render': 2,
+  'shot-render': 4, 'pptx-render': 6, 'player-render': 3, 'character-render': 2, 'import-render': 2,
   contrast: 1, 'palette-rules': 1,
 };
 const cost = (list) => list.reduce((n, h) => n + (COST[h] ?? 10), 0);

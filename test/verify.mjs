@@ -84,6 +84,7 @@ const HARNESSES = [
   'extension-check-render',
   'deckfile-render',
   'pdf-render',
+  'pptx-render',
   'import-render',
   'contrast',
   'palette-rules',
