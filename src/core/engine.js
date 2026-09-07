@@ -542,6 +542,45 @@ export function init(userConfig = {}) {
   // (theme, font, narration, module, slide finder). Text that matches no
   // command falls back to a "search slides for …" row.
   let palEl = null, palSel = 0, palQuery = '', palRows = [];
+  // ── HIDDEN_SLIDES from the palette ──────────────────────────────────────
+  const hasHiddenSlides = () => (instance._sections ?? []).some((s) => s.hasAttribute('data-hidden'));
+  const currentHidden = () => !!instance._sections?.[instance.state.slide - 1]?.hasAttribute('data-hidden');
+  // `?all` is a URL mode, not a runtime switch (the print filter and the
+  // navigation predicate both read it at load), so showing hidden slides is a
+  // reload with the flag flipped — same slide, same step.
+  function toggleShowHidden() {
+    const u = new URL(location.href);
+    if (showHidden) u.searchParams.delete('all'); else u.searchParams.set('all', '');
+    location.href = u.href;
+  }
+  // Hide (or unhide) a slide in the FILE — the same door as layout picks:
+  // one POST, one undo entry — and mirror it in the DOM at once so the
+  // author sees the change before the reload, stepping off the slide that
+  // just disappeared from the talk.
+  async function setHidden(slide, hidden) {
+    const sec = instance._sections?.[slide - 1];
+    if (!sec) return;
+    try {
+      const r = await fetch(editmode.base() + '/edit/hidden', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slide, hidden }),
+      });
+      if (!r.ok) throw new Error(String(r.status));
+    } catch (e) { toast(`could not ${hidden ? 'hide' : 'unhide'} slide ${slide} — ${e.message}`); return; }
+    sec.toggleAttribute('data-hidden', hidden);
+    toast(hidden ? `slide ${slide} hidden — the audience will not see it (?all shows it)` : `slide ${slide} shown again`);
+    if (hidden && !showHidden && instance.state.slide === slide) {
+      const to = instance._visibleFrom(slide + 1, +1) ?? instance._visibleFrom(slide - 1, -1);
+      if (to != null) instance.goto(to, 0);
+    }
+  }
+  // The speaker popup, opened if it is not already — for the palette rows
+  // that drive something inside it.
+  function speakerWindow() {
+    const w = instance.__speakerWin;
+    if (w && !w.closed) return w;
+    return (instance.__speakerWin = openSpeakerView(instance));
+  }
+
   function paletteCommands() {
     const has = (fn) => typeof fn === 'function';
     const all = [
@@ -611,6 +650,21 @@ export function init(userConfig = {}) {
       { label: `Element edit mode ${editmode.elementEditOn() ? 'off' : 'on'} (dev)`, hint: 'E', alias: 'right-click remove delete html content build animation entrance effect context menu', run: toggleElementEdit },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
+      // The two print variants the runtime already had (PRINTING) — reachable
+      // from here, not only from `decklight pdf --notes/--handout`.
+      { label: 'Print with notes (one slide per page, new tab)', alias: 'pdf print speaker notes script handout pages', run: () => window.open(location.pathname + '?print=notes') },
+      { label: 'Print handout (three per page, new tab)', alias: 'pdf print handout thumbnails audience note-taking lines', run: () => window.open(location.pathname + '?print=handout') },
+      // HIDDEN_SLIDES — contextual: a deck with nothing hidden has nothing to
+      // show, and a row that reloads the deck for no visible change reads as
+      // broken. Author mode adds the verb that makes a slide hidden at all.
+      (showHidden || hasHiddenSlides()) && { label: `Hidden slides ${showHidden ? 'skip' : 'show'}`,
+        alias: 'all cut backup skipped unhide reveal present hidden ⊘', run: toggleShowHidden },
+      editmode.available() && { label: `${currentHidden() ? 'Unhide' : 'Hide'} this slide (dev)`,
+        alias: 'hidden hide skip cut backup keep out of the talk unhide show', run: () => setHidden(instance.state.slide, !currentHidden()) },
+      // REHEARSAL_TIMINGS — the recorder lives in the speaker view; this opens
+      // it (if it is not already) and starts the clock in one step.
+      { label: 'Rehearse timings… (speaker view)', alias: 'rehearsal timing time each slide record pace plan stopwatch',
+        run: () => { const w = speakerWindow(); w?.__decklightSpeakerRec?.(true); } },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
       { label: 'Last slide', hint: 'End', run: () => instance.goto(instance.state.totalSlides, 0) },
       { label: 'Keyboard help', hint: '?', run: toggleHelp },

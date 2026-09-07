@@ -416,6 +416,17 @@
           return out;
         };
         r.paletteReopensWelcome = labels('welcome').some((t) => /Welcome to Decklight/.test(t));
+        // PRINTING's two variants and REHEARSAL_TIMINGS are palette rows, not
+        // only CLI flags / a button in a popup; a deck with nothing hidden has
+        // no "Hidden slides" row (contextual — the hidden mode checks the
+        // other half), and without an author server no "Hide this slide".
+        const printRows = labels('print');
+        r.palettePrintsNotes = printRows.some((t) => /Print with notes/.test(t));
+        r.palettePrintsHandout = printRows.some((t) => /Print handout/.test(t));
+        r.paletteRehearses = labels('rehearse').some((t) => /Rehearse timings/.test(t));
+        const hiddenRows = labels('hidden');
+        r.paletteNoHiddenRowWhenNoneHidden = !hiddenRows.some((t) => /Hidden slides/.test(t));
+        r.paletteNoHideRowWithoutServer = !hiddenRows.some((t) => /Hide this slide/.test(t));
         const tipRows = labels('tips');
         r.paletteTogglesTips = tipRows.some((t) => /Tips on/.test(t));
         r.paletteHidesEmptyReset = !tipRows.some((t) => /Reset tips/.test(t));
@@ -423,7 +434,9 @@
 
         r.PASS = r.opens && r.hasRows && r.hasSelection && r.downMoves
           && r.typingFilters && r.escapeCloses
-          && r.paletteReopensWelcome && r.paletteTogglesTips && r.paletteHidesEmptyReset;
+          && r.paletteReopensWelcome && r.paletteTogglesTips && r.paletteHidesEmptyReset
+          && r.palettePrintsNotes && r.palettePrintsHandout && r.paletteRehearses
+          && r.paletteNoHiddenRowWhenNoneHidden && r.paletteNoHideRowWithoutServer;
       }
 
       if (mode === 'exclusive') {
@@ -470,8 +483,14 @@
         r.overviewCells = cells.length;
         r.overviewMarks = cells.filter((c) => c.classList.contains('ov-hidden')).length;
         press('Escape'); await settle();
+        // the palette offers the other view of the deck: show them when they
+        // are skipped, skip them when `?all` shows them
+        press('/'); for (const ch of 'hidden') press(ch);
+        const rows = [...document.querySelectorAll('.decklight-palette .pal-row')].map((n) => n.textContent);
+        r.paletteRow = rows.some((t) => (all ? /Hidden slides skip/ : /Hidden slides show/).test(t));
+        escapeUntilClosed('.decklight-palette');
         r.PASS = r.total === 4 && r.nextSkips && r.prevSkips && r.jumpLandsAfter && r.jumpBackLandsBefore
-          && r.overviewCells === 4 && r.overviewMarks === 1;
+          && r.overviewCells === 4 && r.overviewMarks === 1 && r.paletteRow;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
