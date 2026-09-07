@@ -65,8 +65,10 @@ Commands:
   upgrade  bring a self-contained deck's inlined runtime + themes up to the installed version, in place
            EXAMPLE: decklight upgrade deck.html --dry-run   (see what would change; drop the flag to apply)
   pdf      render the deck to a PDF — one slide per page, at its own size, in its theme
-  pptx     write a PowerPoint file — every slide as a picture, its notes as notes (lossy on purpose)
            EXAMPLE: decklight pdf deck.html   (writes deck.pdf; --theme exports in another)
+           EXAMPLE: decklight pdf deck.html --handout   (three a page, ruled; --notes is your copy)
+  pptx     write a PowerPoint file — every slide as a picture, its notes as notes (lossy on purpose)
+           EXAMPLE: decklight pptx deck.html   (for the people around you who still ask for the file)
   import   convert an existing PowerPoint, Keynote or Google Slides deck into a decklight deck
            EXAMPLE: decklight import "Q3 Review.pptx"   (also .key on macOS, or a Slides URL)
   theme    validate a theme file against the token contract, or install one into a deck

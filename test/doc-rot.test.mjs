@@ -105,8 +105,14 @@ test('no doc or deck claims a theme count the repo does not have', () => {
 
   // CHANGELOG.md is exempt: its older entries describe what WAS true at 0.2.0,
   // which is the one place a superseded number is the correct one.
+  // docs/architecture.svg joined the list for 0.8.0: it had been labelling the
+  // theme box "61 shipped" since before the homage packs moved out, and said
+  // it in a phrasing no check could see — so the label now names what it
+  // counts ("46 shipped themes") and is checked like every other statement of
+  // this fact.
   const files = ['README.md', 'SPEC.md', 'site/index.html', 'cli/skill-content.mjs',
-    'demo/intro.html', 'demo/showcase.html', 'demo/features.html', 'demo/pitch.html'];
+    'demo/intro.html', 'demo/showcase.html', 'demo/features.html', 'demo/pitch.html',
+    'docs/architecture.svg'];
 
   const wrong = [];
   for (const rel of files) {

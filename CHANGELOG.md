@@ -5,6 +5,114 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.8.0
+
+24 commits since 0.7.0. The release for the deck you already have. 0.6.0 made a
+deck's history readable and 0.7.0 added the other person; 0.8.0 answers the
+question that came back every time somebody was asked what still keeps them in
+PowerPoint, Keynote or Google Slides — six answers, and none of them is "write
+it again".
+
+### The deck comes across with its data (SPEC `DECK_IMPORT`)
+
+A chart in a `.pptx` was arriving as a flat picture, and the values were in the
+file the whole time: PowerPoint stores the numbers beside the rendering.
+`decklight import` now reads them and writes a **`data-chart`** — the deck's own
+chart element, themed, animated and editable as text — rather than a screenshot
+of one. Categories, series and the chart's own title cross over; a type
+decklight has no shape for is named on stderr with its slide number, like every
+other drop.
+
+**`--theme template`** derives the deck's theme from the file's own theme part
+(`ppt/theme`): its palette, its heading and body fonts, gated through the same
+contrast checks every shipped theme passes. The result is a deck that still
+looks like the company's deck without carrying one byte of the company's
+template. Without the flag `import` themes with `midnight`, exactly as before.
+
+### And a file goes back out (SPEC `PRESENTING`)
+
+**`decklight pptx deck.html`** writes a PowerPoint file: every slide a picture,
+rendered at its own size with its builds complete, and every speaker note a real
+note. It is **lossy on purpose** and `NON_GOALS` says so — the round-trip is not
+coming — because the audience for this command is the people *around* a
+decklight user, the ones who ask for "the file" and open it in whatever they
+have.
+
+`decklight pdf` grew the two variants the runtime could already render but the
+CLI could not reach: **`--notes`**, one slide a page with its notes underneath,
+which is the presenter's copy, and **`--handout`**, three a page in portrait
+with ruled lines beside each for the audience to write on.
+
+### Hidden slides (SPEC `DECK_ANATOMY` → `HIDDEN_SLIDES`)
+
+`<section data-hidden>` is a slide that stays in the file and out of the talk —
+the backup slide, the number you only pull out if someone asks. It **keeps its
+number**, as in PowerPoint, so comments, review anchors and history stay in
+step; presenting steps over it, a deep link onto it lands on the nearest shown
+neighbour in the direction you were travelling, `pdf`, `video` and `voiceover`
+produce nothing for it, and the overview shows it dimmed and badged so its
+author can still find it. **`?all`** presents them too — never the default,
+because hidden is hidden from the audience and the default is the audience. A
+hidden slide in an imported `.pptx` arrives hidden rather than dropped.
+
+### Rehearsal timings (SPEC `PRESENTING` → `REHEARSAL_TIMINGS`)
+
+The speaker view now records how long each slide actually takes and writes the
+result onto the sections as `data-timing`, through the author server, as one
+undo entry. From then on it shows a pace line: this slide against its planned
+time, the talk against its plan. With no author server the timing stays in that
+browser, and the deck's own `data-timing` always outranks a browser's memory —
+the file is the source of truth.
+
+### A URL without a GitHub account (SPEC `PRESENTING`)
+
+`decklight publish --target folder` writes everything `publish` would have
+pushed — the bundled deck and every file beside it — into a directory instead,
+and prints `--url` as the link. It is for any host that serves files: rsync it
+to a box, sync it to S3, drop it on a company share. `gh-pages` is still the
+default and still needs no credential; this is the target for the people who
+cannot use it.
+
+### Every one of them is a row in the palette
+
+A feature reachable only from a query string or a CLI flag is a feature most
+presenters never meet. `/` now carries the print variants, **Hidden slides
+show / skip** (listed only when the deck has something hidden), **Hide / Unhide
+this slide** in author mode — a real edit through `POST /edit/hidden`, one undo
+entry — and **Rehearse timings…**, which opens the speaker view if it is closed
+and starts the clock in one step.
+
+### The voice stops paying twice (SPEC `PRESENTING`)
+
+A sentence is now synthesized **once**: a disk cache under
+`~/.cache/decklight/tts`, keyed by engine, voice and text, shared by the live
+bridge and by `voiceover`, so re-presenting a deck or re-rendering a video costs
+nothing and works offline for everything already heard.
+
+The `say` roster stopped being a wall. A locale's plain voice steps aside when
+that locale has a better build — but only for a **same-named** one, so Samantha
+survives — and the picker opens with a **🔇 Off** row, because narration that
+starts itself is narration nobody asked for. A wedged `say` is killed after 60 s
+and named, instead of hanging the run forever.
+
+### Elsewhere
+
+`decklight pdf` was a `Cannot find module` in every INSTALLED copy — #444 had
+it importing a constant from `src/`, which the package does not ship, and both
+blessed suites drive the CLI out of the working tree and so could not see it.
+`npm run soak`, the gate that installs the tarball, found it during this
+release's own prep; a test now asserts the boundary rather than the instance.
+
+`readBody` grows an opt-in cap and the phone remote uses it. Sixteen places that
+could hang on a subprocess now go through one bounded `exec` that says what is
+stuck. `localStorage` throws in exactly one place, with one test. Seven pure
+functions leave narration's closure and become unit-testable, and the servers'
+SIGTERM path, `stop()` and `npm run coverage` are real. `narration-render` is
+five harnesses instead of one, and one of them talks to a real `say` bridge, so
+the roster the product offers is asserted rather than assumed. Thirteen shipped
+strings that still named the keys 0.7.0 retired are gone, with a test that keeps
+them gone.
+
 ## 0.7.0
 
 59 commits since 0.6.0. The release where a deck stops being something you write

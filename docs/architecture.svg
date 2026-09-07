@@ -18,7 +18,7 @@
   <text x="155" y="136" text-anchor="middle" font-size="10.5" fill="#aeb4c6">one file, written by humans &amp; agents</text>
 
   <rect x="40" y="186" width="230" height="72" rx="10" fill="#23444d" stroke="#3f6a76" stroke-width="1.5"/>
-  <text x="155" y="212" text-anchor="middle" font-size="13" font-weight="700" fill="#e8eaf2">theme.css — 61 shipped</text>
+  <text x="155" y="212" text-anchor="middle" font-size="13" font-weight="700" fill="#e8eaf2">theme.css — 46 shipped themes</text>
   <text x="155" y="232" text-anchor="middle" font-size="10.5" fill="#aeb4c6">one token contract (~50 vars)</text>
   <text x="155" y="246" text-anchor="middle" font-size="10.5" fill="#aeb4c6">+ runtime generator (⌃T)</text>
 
@@ -31,7 +31,7 @@
     <rect x="348" y="126" width="140" height="30" rx="6" fill="#252a3a"/><text x="418" y="145" text-anchor="middle">engine · builds · nav</text>
     <rect x="500" y="126" width="142" height="30" rx="6" fill="#252a3a"/><text x="571" y="145" text-anchor="middle">themes · generator</text>
     <rect x="348" y="164" width="140" height="30" rx="6" fill="#252a3a"/><text x="418" y="183" text-anchor="middle">terminal player</text>
-    <rect x="500" y="164" width="142" height="30" rx="6" fill="#252a3a"/><text x="571" y="183" text-anchor="middle">markdown · svg · code</text>
+    <rect x="500" y="164" width="142" height="30" rx="6" fill="#252a3a"/><text x="571" y="183" text-anchor="middle">svg · code · math</text>
     <rect x="348" y="202" width="140" height="30" rx="6" fill="#252a3a"/><text x="418" y="221" text-anchor="middle">narration · captions</text>
     <rect x="500" y="202" width="142" height="30" rx="6" fill="#252a3a"/><text x="571" y="221" text-anchor="middle">speaker · overlays</text>
     <rect x="348" y="240" width="294" height="30" rx="6" fill="#252a3a"/><text x="495" y="259" text-anchor="middle">quiz slides · transcript · debug log · edit mode</text>
@@ -57,7 +57,7 @@
   <rect x="40" y="356" width="620" height="86" rx="10" fill="#52402a" stroke="#7d6544" stroke-width="1.5"/>
   <text x="350" y="382" text-anchor="middle" font-size="13" font-weight="700" fill="#e8eaf2">CLI — node, the only place with native deps</text>
   <g font-size="10.5" fill="#efe9dd">
-    <rect x="58" y="396" width="130" height="30" rx="6" fill="#453722"/><text x="123" y="415" text-anchor="middle">rec — real PTY casts</text>
+    <rect x="58" y="396" width="130" height="30" rx="6" fill="#453722"/><text x="123" y="415" text-anchor="middle">cast — real PTY casts</text>
     <rect x="200" y="396" width="130" height="30" rx="6" fill="#453722"/><text x="265" y="415" text-anchor="middle">refresh — drift check</text>
     <rect x="342" y="396" width="140" height="30" rx="6" fill="#453722"/><text x="412" y="415" text-anchor="middle">export — asciicast v2</text>
     <rect x="494" y="396" width="148" height="30" rx="6" fill="#453722"/><text x="568" y="415" text-anchor="middle">bundle — one-file deck</text>

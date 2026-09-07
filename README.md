@@ -25,6 +25,7 @@ But the real reason this project exists is the second half: I wanted a codebase 
 - **46 built-in themes** — every one passes WCAG contrast gates and codified palette rules; generate your own with a keystroke.
 - **Truthful terminals** — real PTY recordings replayed truthfully, never a video.
 - **Live narration** — text-to-speech presents the deck by itself, in sync, captions included.
+- **Coming from PowerPoint** — `import` brings the deck across (charts as data, hidden slides still hidden, the template's own palette as a theme), and `pdf` / `pptx` hand a file back to whoever still asks for one.
 - **Everything is text** — no binary formats, so decks diff cleanly in git and agents can read, review, and edit every byte.
 - **Safe to receive** — `decklight present` plays a deck you did not author read-only under a CSP, prints what the file will execute, and strips what it cannot account for. `publish` signs; a `.decklight` container is verified before it renders.
 - **Extensible without shipping code to the audience** — themes, templates, engines, importers and presenter chrome install from git-repo marketplaces anyone can host; build-time transforms run on your machine during `bundle`, so nothing executable travels with the deck.
@@ -97,6 +98,8 @@ The whole loop is agent-friendly and stays in one file end to end:
 | **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
 | **Terminals** | `decklight cast` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
+| **Hidden slides** | `data-hidden` keeps a slide in the file and out of the talk — it keeps its number, `?all` presents it anyway | [SPEC DECK_ANATOMY](SPEC.md#deck_anatomy--deck-anatomy) |
+| **Rehearsal timings** | the speaker view records how long each slide actually took and writes it onto the deck; the next run paces against it | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Narration** | TTS reads your notes in sync with builds — or **your own voice**, recorded beat by beat and pacing them the same way; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Review** | reviewers comment on slides and submit the review as a branch; git carries it, a comment finds its slide again after the deck moves, and the author is told a review is waiting | [SPEC REVIEW](SPEC.md#review--reviewer-comments) |
 | **Integrity** | read-only `present` under a real CSP header, an ingredients label of what a deck executes, Sigstore signing, the `.decklight` container | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
@@ -111,7 +114,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project; `--pack` zips it for upload) |
 | `decklight author deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
 | `decklight present deck.html` | **play a deck you did not author** — read-only over localhost under a CSP header, with an ingredients label and `--strict`; a deck in a clone can see its upstream and (with `--upstream-pull`) offer to fast-forward |
-| `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across (`.key` needs macOS; a Slides URL must be link-shared) |
+| `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across — bullets, tables, images, **charts as data** and notes; `--theme template` derives the deck's theme from the file's own palette and fonts (`.key` needs macOS; a Slides URL must be link-shared) |
 | `decklight cast script.term.yaml` | record a **terminal** cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
 | `decklight record deck.html` | record the narration in **your own voice** — the deck reads you its notes one ⟨CLICK⟩ at a time, and `→` ends a beat *and* reveals the next build, so your voice paces the deck (`cast` records a terminal, `record` records you) |
 | `decklight review deck.html` | **leave comments on somebody's deck**, anchored to slides — a comment survives the slide moving, and says so when its slide changed or is gone |
@@ -121,8 +124,9 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight restore deck.html` | list the commits that touched a deck, and put it back to any of them |
 | `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML (`--sign` attests it, `--deck` wraps it as `.decklight`) |
-| `decklight publish deck.html` | bundle and push to GitHub Pages — signed by default; Netlify and Vercel install as targets |
-| `decklight pdf deck.html` | one slide per page, at its own size, in its theme — no print dialog |
+| `decklight publish deck.html` | bundle and push to GitHub Pages — signed by default; Netlify and Vercel install as targets, and `--target folder` writes the site into a directory for any host that serves files |
+| `decklight pdf deck.html` | one slide per page, at its own size, in its theme — no print dialog (`--notes` is the presenter's copy, `--handout` three a page with ruled lines) |
+| `decklight pptx deck.html` | a PowerPoint file for whoever still asks for one — every slide a picture, the notes real notes; lossy on purpose |
 | `decklight voiceover deck.html` | batch-synthesize the narration into a folder with a live engine (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's `V → Record this deck…` |
 | `decklight video deck.html` | render to one narrated mp4 — ⟨CLICK⟩ segments narrate the builds (`--voiceover` synthesizes the narration first) |
 | `decklight theme check\|add` | validate a theme against the token contract, or install one into a deck |
