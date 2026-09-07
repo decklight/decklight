@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Decklight: the presentation library that presents itself</title>
-  <meta name="description" content="Single-file decks, Keynote-grade motion, 61 WCAG-gated themes, truthful terminal recordings, narration in a synthesized voice or your own, and review comments carried by git. Authored by humans and AI agents alike.">
+  <meta name="description" content="Single-file decks, Keynote-grade motion, 46 themes through WCAG contrast gates, truthful terminal recordings, narration in a synthesized voice or your own, review comments carried by git — and your old PowerPoint, imported with its charts as data. Authored by humans and AI agents alike.">
   <link rel="stylesheet" href="dist/decklight.css">
   <style>
     :root {
@@ -184,6 +184,22 @@
         <p>Reviewers comment on slides and git carries it back — no accounts, no service. A comment remembers which slide it was on, so it still finds it after you insert three above. Submitting pushes the review as a branch of its own &mdash; one file, never the reviewer&rsquo;s commits &mdash; and the author is told a review is waiting.</p>
       </div>
       <div class="trait">
+        <h3>Bring your old deck</h3>
+        <p><code>decklight import talk.pptx</code> brings a PowerPoint, Keynote or Google Slides deck across &mdash; bullets, tables, images, speaker notes, and <strong>charts as data</strong>, because the numbers were in the file all along. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts.</p>
+      </div>
+      <div class="trait">
+        <h3>&hellip; and hand a file back</h3>
+        <p>For the people around you who still ask for &ldquo;the file&rdquo;: <code>decklight pptx</code> writes a PowerPoint &mdash; every slide a picture, the notes real notes &mdash; and <code>decklight pdf</code> prints the presenter&rsquo;s copy (<code>--notes</code>) or a three-a-page handout with ruled lines (<code>--handout</code>).</p>
+      </div>
+      <div class="trait">
+        <h3>Backup slides, and a stopwatch</h3>
+        <p><code>data-hidden</code> keeps a slide in the file and out of the talk &mdash; it keeps its number, and <code>?all</code> presents it anyway. The speaker view records how long each slide actually took and writes it back onto the deck, so the next run has a pace to hold.</p>
+      </div>
+      <div class="trait">
+        <h3>Publish anywhere</h3>
+        <p>GitHub Pages in one command, signed by default; Netlify and Vercel install as targets. Or <code>--target folder</code>, which writes the whole site into a directory for any host that serves files &mdash; a share, a bucket, a box you rsync to.</p>
+      </div>
+      <div class="trait">
         <h3>Everything is text</h3>
         <p>No binary formats anywhere, so decks diff cleanly in git and agents can read, review, and edit every byte.</p>
       </div>
@@ -217,6 +233,14 @@
       </div>
     </section>
 
+    <section class="start after-deck" aria-label="Bring an existing deck across">
+      <h2>Or bring the deck you already have</h2>
+      <p><code>import</code> reads a PowerPoint, Keynote or Google Slides file and writes a decklight deck: bullets, tables, images, speaker notes, and <strong>charts as data</strong> &mdash; the numbers were in the file all along, so a chart arrives as an editable, theme-aware element rather than a picture of one. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts, a hidden slide stays hidden, and anything that cannot cross is named with its slide number. Going the other way, <code>pptx</code> hands a file back to whoever still asks for one.</p>
+      <div class="term-wrap">
+        <div class="terminal" data-cast-inline="#cast-import" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="11" data-title="from powerpoint, and back"></div>
+      </div>
+    </section>
+
     <section class="start after-deck" aria-label="Describe the rest to your agent">
       <h2>Describe the rest to your agent</h2>
       <p><code>init</code> dropped the authoring contract next to the deck, so any agent that can edit a file can author slides — builds, SVG diagrams, animation and all. Here, Claude Code gets one prompt and edits the same HTML file:</p>
@@ -226,7 +250,7 @@
     </section>
 
     <div class="deck-caption after-deck">
-      <span>The pitch <em>is</em> the product. This is the showcase deck, live, and it narrates itself: click it and it starts speaking. <strong>→</strong> advances, <strong>V</strong> toggles the voice, <strong>N</strong> changes it, <strong>?</strong> shows all keys.</span>
+      <span>The pitch <em>is</em> the product. This is the showcase deck, live, and it narrates itself: click it and it starts speaking. <strong>→</strong> advances, <strong>⎵</strong> plays and pauses the voice, <strong>V</strong> opens everything about it, <strong>?</strong> shows all keys.</span>
       <a href="showcase.html?voiceover">Open full screen ↗</a>
     </div>
     <div class="deckbox">
@@ -242,7 +266,7 @@
     </section>
 
     <footer>
-      <a href="https://github.com/decklight/decklight">GitHub</a> · MIT ·
+      <a href="https://github.com/decklight/decklight">GitHub</a> · Apache-2.0 ·
       this page and the deck ship from one <code>decklight bundle</code> command
     </footer>
   </div>
@@ -285,6 +309,64 @@
    ],
    "exit": 0,
    "duration": 0.7
+  }
+ ]
+}</script>
+
+  <script type="application/json" id="cast-import">{
+ "decklightCast": 1,
+ "meta": {
+  "shell": "zsh",
+  "cols": 100,
+  "rows": 16,
+  "prompt": "$ "
+ },
+ "steps": [
+  {
+   "cmd": "npx decklight import \"Q3 Review.pptx\" --theme template",
+   "output": [
+    [
+     0.6,
+     "  theme: template-contoso \u2014 derived from the template's palette and fonts (Georgia / Verdana)\r\n"
+    ],
+    [
+     1.0,
+     "    3  \u26a0 The numbers \u2014 table 2\u00d72 \u00b7 image inlined (94 KB) \u00b7 chart (bar, 2 series \u00d7 3)\r\n"
+    ],
+    [
+     1.2,
+     "       SmartArt dropped \u2014 rebuild as an SVG diagram (SPEC SVG_DIAGRAMS)\r\n"
+    ],
+    [
+     1.4,
+     "    4  \u2298 hidden \u2014 kept as data-hidden \u2014 Backup detail\r\n"
+    ],
+    [
+     1.7,
+     "q3-review.html \u00b7 4 slides (1 hidden) \u00b7 theme template-contoso \u00b7 700 KB \u00b7 1 thing(s) dropped \u2014 see \u26a0 above\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 1.9
+  },
+  {
+   "cmd": "npx decklight pptx q3-review.html",
+   "output": [
+    [
+     0.6,
+     "pptx: rendering q3-review.html \u2014 4 slides at 1280\u00d7720, builds complete\r\n"
+    ],
+    [
+     1.6,
+     "q3-review.pptx \u00b7 4 slides as pictures \u00b7 1 with notes \u00b7 84 KB\r\n"
+    ],
+    [
+     2.0,
+     "\r\n\u001b[90m# the deck is yours now \u2014 one HTML file, in git. The .pptx is for everyone else.\u001b[m\r\n"
+    ]
+   ],
+   "exit": 0,
+   "duration": 2.2
   }
  ]
 }</script>
