@@ -186,12 +186,18 @@ export function openSpeakerView(instance) {
     if (rec.cur != null) rec.spent[rec.cur - 1] = (rec.spent[rec.cur - 1] || 0) + (Date.now() - rec.since) / 1000;
     rec.cur = slide; rec.since = Date.now();
   };
-  $('#rec').onclick = async () => {
+  // Start/stop from the button, or from the deck's palette via
+  // window.__decklightSpeakerRec (like __decklightSpeakerToggle for S).
+  // start === true only ever starts: a palette row that opened this window
+  // to begin a rehearsal must not stop one already running.
+  const toggleRec = async (start) => {
     if (!rec.on) {
       rec.on = true; rec.spent = []; rec.cur = null; if (lastSt) arrive(lastSt.slide);
       $('#rec').classList.add('on'); $('#rec').textContent = '⏹ stop & save timings';
+      $('#pace').textContent = 'recording — ⏹ stop & save when the run is over';
       return;
     }
+    if (start === true) return;
     arrive(null); rec.on = false;
     $('#rec').classList.remove('on'); $('#rec').textContent = '⏱ rehearse timings';
     try {
@@ -200,6 +206,8 @@ export function openSpeakerView(instance) {
       $('#pace').classList.remove('over');
     } catch (e) { $('#pace').textContent = 'could not save timings: ' + String(e.message || e); }
   };
+  $('#rec').onclick = () => toggleRec();
+  window.__decklightSpeakerRec = toggleRec;
   $('#prev').onclick = () => api && api.prev();
   $('#next').onclick = () => api && api.next();
   // speak = full prose notes; rehearse = the deck's aside.rehearse cue cards

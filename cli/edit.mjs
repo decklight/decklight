@@ -22,6 +22,7 @@
 //   POST /edit/notes           → { slide, text }           rewrite that slide's notes
 //   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
 //   POST /edit/layout          → { slide, layout }         write data-layout to the file
+//   POST /edit/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
 //   GET  /edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
 //   POST /edit/element/remove  → { slide, index }          delete that element
 //   POST /edit/element/content → { slide, index, html }    replace its outerHTML
@@ -158,6 +159,22 @@ export function setSlideTiming(html, slide, seconds) {
   let head = seg.slice(0, gt).replace(/\s+data-timing=("[^"]*"|'[^']*')/, '');
   const n = Math.round(Number(seconds));
   if (Number.isFinite(n) && n > 0) head += ` data-timing="${n}"`;
+  parts[idx] = head + seg.slice(gt);
+  return parts.join('');
+}
+
+/**
+ * Hide a slide from the talk, or show it again: `data-hidden` on the section
+ * (DECK_ANATOMY HIDDEN_SLIDES). The slide keeps its number and its place in
+ * the file — only the audience loses it. Same door as layout and timings.
+ */
+export function setSlideHidden(html, slide, hidden) {
+  const { parts, idx } = locateSlide(html, slide);
+  const seg = parts[idx];
+  const gt = seg.indexOf('>');
+  if (gt < 0) throw new Error(`slide ${slide}: malformed <section> tag`);
+  let head = seg.slice(0, gt).replace(/\s+data-hidden(?:=("[^"]*"|'[^']*'))?(?=[\s>\/]|$)/, '');
+  if (hidden) head += ' data-hidden';
   parts[idx] = head + seg.slice(gt);
   return parts.join('');
 }
@@ -1767,6 +1784,13 @@ export async function editMain(args, { onListen = null } = {}) {
         if (!Number.isInteger(slide) || slide < 1 || typeof layout !== 'string') throw new Error('bad payload');
         const changed = applyEdit(setSlideLayout(readDeck(), slide, layout));
         if (changed) console.log(`  layout saved: slide ${slide} → ${layout}`);
+        return json(200, { ok: true, changed, ...history.counts() });
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/hidden') {
+        const { slide, hidden } = JSON.parse(body);
+        if (!Number.isInteger(slide) || slide < 1 || typeof hidden !== 'boolean') throw new Error('bad payload');
+        const changed = applyEdit(setSlideHidden(readDeck(), slide, hidden));
+        if (changed) console.log(`  slide ${slide} ${hidden ? 'hidden' : 'shown again'}`);
         return json(200, { ok: true, changed, ...history.counts() });
       }
       // ── element edit mode (E, right-click a slide element) — #112 ─────

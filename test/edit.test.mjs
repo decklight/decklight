@@ -19,7 +19,7 @@ import http from 'node:http';
 
 import {
   upsertNarrationTrack, narrationLiteral, initArgument,
-  setSlideLayout, setSlideTiming, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
+  setSlideLayout, setSlideTiming, setSlideHidden, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
 } from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
@@ -1120,6 +1120,41 @@ test('setSlideTiming writes whole seconds, replaces, and removes for null or zer
   assert.throws(() => setSlideTiming(DECK, 99, 5), /no such slide|slide 99/i);
 });
 
+
+// ── setSlideHidden: a slide kept in the file, taken out of the talk ───────
+
+test('setSlideHidden adds data-hidden once, beside what the section already carries, and removes it cleanly', () => {
+  const hidden = setSlideHidden(DECK, 2, true);
+  assert.match(hidden, /<section data-layout="centered" data-hidden>\s*<h2>Beta<\/h2>/);
+  assert.equal(setSlideHidden(hidden, 2, true), hidden, 'hiding a hidden slide is a no-op, not a second attribute');
+  const shown = setSlideHidden(hidden, 2, false);
+  assert.equal(shown, DECK, 'unhiding restores the tag byte for byte');
+  assert.equal(setSlideHidden(DECK, 1, false), DECK, 'unhiding a shown slide changes nothing');
+  // the valued form PowerPoint import never writes, but a hand still might
+  const valued = setSlideHidden(DECK.replace('<section data-layout="centered">', '<section data-hidden="" data-layout="centered">'), 2, false);
+  assert.equal(valued, DECK);
+  // data-hidden-not is not data-hidden
+  const lookalike = DECK.replace('<section data-layout="centered">', '<section data-hidden-not data-layout="centered">');
+  assert.match(setSlideHidden(lookalike, 2, true), /<section data-hidden-not data-layout="centered" data-hidden>/);
+  assert.throws(() => setSlideHidden(DECK, 3, true), /no slide 3 \(deck has 2\)/);
+});
+
+test('/edit/hidden hides and unhides one slide through the same undo stack, and refuses a bad payload', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  let r = await (await post(base, '/edit/hidden', { slide: 2, hidden: true })).json();
+  assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
+  assert.match(readFileSync(deck, 'utf8'), /<section data-layout="centered" data-hidden>/);
+  r = await (await post(base, '/edit/hidden', { slide: 2, hidden: true })).json();
+  assert.equal(r.changed, false, 'already hidden — nothing written, nothing to undo');
+  r = await (await post(base, '/edit/hidden', { slide: 2, hidden: false })).json();
+  assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 2 });
+  assert.equal(readFileSync(deck, 'utf8'), DECK);
+  assert.equal((await post(base, '/edit/hidden', { slide: 2, hidden: 'yes' })).status, 400);
+  assert.equal((await post(base, '/edit/hidden', { slide: 0, hidden: true })).status, 400);
+});
 
 test('/edit/timings writes every slide\'s rehearsed time in ONE edit, and refuses a bad payload', async (t) => {
   const dir = tmp(t);
