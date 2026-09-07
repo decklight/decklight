@@ -10,10 +10,11 @@ import { test } from 'node:test';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { pdfOut, printUrl, pdfPageCount, overflowSlides, splitConflictSlides, slideCount, expectedPages } from '../cli/pdf.mjs';
+import { pdfOut, printUrl, pdfPageCount, overflowSlides, splitConflictSlides, slideCount, expectedPages, HANDOUT_PER_PAGE } from '../cli/pdf.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -123,10 +124,28 @@ test('a variant gets its own file name, so the handout never overwrites the slid
   assert.equal(pdfOut('/talks/q3.html', '/tmp/x.pdf', 'handout'), resolve('/tmp/x.pdf'), '-o always wins');
 });
 
-test('expected pages: one per slide, except the handout, which packs three — print.js\'s own constant', () => {
+test('expected pages: one per slide, except the handout, which packs three — print.js\'s own number', () => {
   assert.equal(expectedPages(7), 7);
   assert.equal(expectedPages(7, 'notes'), 7);
   assert.equal(expectedPages(7, 'handout'), 3);
   assert.equal(expectedPages(6, 'handout'), 2);
   assert.equal(expectedPages(1, 'handout'), 1);
+});
+
+test('the CLI\'s handout constant is the runtime\'s, held by this test rather than an import', () => {
+  // cli/pdf.mjs used to `import { HANDOUT_PER_PAGE } from '../src/core/print.js'`,
+  // which resolves in a clone and never in an install — src/ is not in the
+  // package (test/cli.test.mjs asserts that boundary). So the number is
+  // restated on the shipped side, and the two are read out of their sources
+  // and compared here: paginating the PDF differently from the page the
+  // runtime lays out puts blank pages, or missing slides, in a handout.
+  const read = (rel) => {
+    const m = /export const HANDOUT_PER_PAGE = (\d+);/.exec(
+      fs.readFileSync(path.resolve(here, '..', rel), 'utf8'));
+    assert.ok(m, `${rel} no longer exports HANDOUT_PER_PAGE`);
+    return Number(m[1]);
+  };
+  assert.equal(read('cli/pdf.mjs'), read('src/core/print.js'),
+    'cli/pdf.mjs and src/core/print.js disagree about how many slides a handout page holds');
+  assert.equal(HANDOUT_PER_PAGE, read('src/core/print.js'));
 });
