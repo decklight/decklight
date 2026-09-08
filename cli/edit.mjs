@@ -23,6 +23,7 @@
 //   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
 //   POST /edit/layout          → { slide, layout }         write data-layout to the file
 //   POST /edit/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
+//   POST /edit/pptx            → render the deck to <deck>.pptx (the palette's export row)
 //   GET  /edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
 //   POST /edit/element/remove  → { slide, index }          delete that element
 //   POST /edit/element/content → { slide, index, html }    replace its outerHTML
@@ -644,6 +645,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // Declared before the git block below, which reads it to hold the cadence
   // back while a job is in flight.
   let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
+  let exporting = false; // a pptx export in flight — one browser, one output path
 
   // ── git autocommit — the durable record, independent of undo/redo ──────
   const noGit = args.includes('--no-git');
@@ -1792,6 +1794,56 @@ export async function editMain(args, { onListen = null } = {}) {
         const changed = applyEdit(setSlideHidden(readDeck(), slide, hidden));
         if (changed) console.log(`  slide ${slide} ${hidden ? 'hidden' : 'shown again'}`);
         return json(200, { ok: true, changed, ...history.counts() });
+      }
+      /**
+       * Export the deck to PowerPoint, for the palette's row (PRESENTING).
+       *
+       * `decklight pptx` needs Node and a headless Chrome, so the deck cannot
+       * do this itself — the same reason `A` asks the server to run an agent.
+       * The work is `pptxMain`'s, unchanged, so what the row writes is exactly
+       * what the command line writes.
+       *
+       * Three things this route owes the session it is running inside:
+       *
+       * - it must not TAKE THE SERVER DOWN. `chromeBin` exits the process when
+       *   there is no browser — correct for a one-shot command, fatal here, so
+       *   Chrome is resolved with the non-fatal `findChrome` first and a machine
+       *   without one gets a sentence instead of a dead author server.
+       * - it must not run twice at once. Two exports write the same path
+       *   through two browsers; the second caller is told to wait.
+       * - it must not block. `pptxMain` is async all the way down (it serves
+       *   the deck from THIS process while Chrome fetches it), so live reload,
+       *   the SSE stream and every other route keep answering while a slide
+       *   renders. That is also why the row can say "rendering…" and mean it.
+       */
+      if (req.method === 'POST' && url.pathname === '/edit/pptx') {
+        if (exporting) return json(409, { ok: false, error: 'an export is already running' });
+        const { findChrome } = await import('../tools/chrome.mjs');
+        if (!findChrome()) {
+          return json(503, { ok: false, error: 'no Chrome found — install one, or point $CHROME at it' });
+        }
+        const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
+        const out = pptxOut(deckPath);
+        exporting = true;
+        const started = Date.now();
+        console.log(`  pptx: exporting ${basename(deckPath)} …`);
+        try {
+          const code = await pptxMain([deckPath], { log: (line) => console.log(`  ${line}`) });
+          if (code !== 0) return json(500, { ok: false, error: 'the export refused — see the author server\'s output' });
+          return json(200, {
+            ok: true,
+            file: relative(process.cwd(), out) || basename(out),
+            seconds: Math.round((Date.now() - started) / 100) / 10,
+          });
+        } catch (e) {
+          // A render that hangs or a Chrome that dies is the export's problem,
+          // never the session's: the message goes back to the palette and the
+          // server carries on serving the deck.
+          console.log(`  pptx: export failed — ${oneline(e)}`);
+          return json(500, { ok: false, error: oneline(e) });
+        } finally {
+          exporting = false;
+        }
       }
       // ── element edit mode (E, right-click a slide element) — #112 ─────
       // Same door as layout/notes: a pure (html, slide, index, …) → html

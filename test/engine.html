@@ -113,6 +113,19 @@
             undo: 0, redo: 0, dirty: false, lines: 0, sinceMs: 0, nag: false, canWrite: true });
         }
       }
+      // The PowerPoint export row (PRESENTING) is author-mode only, so this
+      // mode stands up the two routes it uses: a ping so editAvailable is
+      // true, and the export itself. `exportfail` is the same deck with a
+      // server that refuses, which is the branch that must not leave the row
+      // looking like it silently did nothing.
+      if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/pptx')) {
+          return HARNESS_MODE === 'exportfail'
+            ? json({ ok: false, error: 'no Chrome found — install one, or point $CHROME at it' }, 503)
+            : json({ ok: true, file: 'deck.pptx', seconds: 6.2 });
+        }
+      }
       if (HARNESS_MODE === 'browse') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/theme/browse')) return json(FAKE_BROWSE);
@@ -427,6 +440,10 @@
         const hiddenRows = labels('hidden');
         r.paletteNoHiddenRowWhenNoneHidden = !hiddenRows.some((t) => /Hidden slides/.test(t));
         r.paletteNoHideRowWithoutServer = !hiddenRows.some((t) => /Hide this slide/.test(t));
+        // …and no PowerPoint export either: it is the author server that runs
+        // `decklight pptx`, so on a deck opened from a file there is nothing
+        // behind the row.
+        r.paletteNoExportRowWithoutServer = !labels('powerpoint').some((t) => /Export to PowerPoint/.test(t));
         const tipRows = labels('tips');
         r.paletteTogglesTips = tipRows.some((t) => /Tips on/.test(t));
         r.paletteHidesEmptyReset = !tipRows.some((t) => /Reset tips/.test(t));
@@ -436,7 +453,36 @@
           && r.typingFilters && r.escapeCloses
           && r.paletteReopensWelcome && r.paletteTogglesTips && r.paletteHidesEmptyReset
           && r.palettePrintsNotes && r.palettePrintsHandout && r.paletteRehearses
-          && r.paletteNoHiddenRowWhenNoneHidden && r.paletteNoHideRowWithoutServer;
+          && r.paletteNoHiddenRowWhenNoneHidden && r.paletteNoHideRowWithoutServer
+          && r.paletteNoExportRowWithoutServer;
+      }
+
+      // PRESENTING: exporting to PowerPoint from inside the deck. The deck
+      // cannot run Chrome, so the row asks the author server — what this
+      // asserts is the round trip: the row exists when a server does, it POSTs
+      // to /edit/pptx, and the ANSWER reaches the presenter as a message
+      // naming the file (or saying why not). A row that fires and reports
+      // nothing is indistinguishable from a broken one, which is the whole
+      // reason the toast is part of the contract.
+      if (mode === 'exportpptx' || mode === 'exportfail') {
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        await settle();                       // let /edit/ping settle: editAvailable
+        press('/');
+        for (const ch of 'powerpoint') press(ch);
+        const rows = [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+        r.rowIsThere = rows.some((t) => /Export to PowerPoint/.test(t));
+        press('Enter');
+        r.closesOnRun = !document.querySelector(Q);
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        r.saysItStarted = said().some((t) => /rendering every slide/.test(t));
+        await settle();
+        await settle();
+        r.posted = CALLS.post.some((c) => c.u.includes('/edit/pptx'));
+        r.answered = mode === 'exportfail'
+          ? said().some((t) => /could not export to PowerPoint — no Chrome found/.test(t))
+          : said().some((t) => /wrote deck\.pptx/.test(t) && /6\.2s/.test(t));
+
+        r.PASS = r.rowIsThere && r.closesOnRun && r.saysItStarted && r.posted && r.answered;
       }
 
       if (mode === 'exclusive') {

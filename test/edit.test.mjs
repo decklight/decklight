@@ -24,6 +24,7 @@ import {
 } from '../cli/edit.mjs';
 import { allowEditRequest, isLoopbackOrigin } from '../cli/serve.mjs';
 import { AGENTS, detectAgents, agentCommand } from '../cli/agents.mjs';
+import { zipEntries } from '../tools/zip.mjs';
 import { resolveGitMode, shouldCommit, commitSubject } from '../cli/git.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1168,4 +1169,86 @@ test('/edit/timings writes every slide\'s rehearsed time in ONE edit, and refuse
   assert.match(html, /<section data-layout="centered" data-timing="90">\s*<h2>Beta<\/h2>/, 'beside the layout it already had');
   assert.equal((await post(base, '/edit/timings', { timings: [{ slide: 'one', seconds: 5 }] })).status, 400);
   assert.equal((await post(base, '/edit/timings', { timings: 'nope' })).status, 400);
+});
+
+// ── /edit/pptx — the palette's export row (PRESENTING) ─────────────────────
+//
+// The export itself is `decklight pptx`, tested in test/pptx-export.test.mjs
+// and run for real in test/pptx-render.mjs. What is under test HERE is the
+// three promises the route makes to the session it runs inside: it hands back
+// the file it wrote, it refuses a second export rather than pointing two
+// browsers at one path, and a failure is a sentence — not a dead author
+// server. So Chrome is a stand-in that writes a PNG and exits, which keeps
+// these fast and makes them run on a machine with no browser at all.
+const FAKE_CHROME = `
+import { writeFileSync } from 'node:fs';
+// a 1×1 PNG — pptx only asks that the file exist and have bytes
+const PIXEL = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64');
+const shot = process.argv.find((a) => a.startsWith('--screenshot='));
+if (process.env.FAKE_CHROME_SLOW) await new Promise((r) => setTimeout(r, Number(process.env.FAKE_CHROME_SLOW)));
+if (process.env.FAKE_CHROME_BLANK) process.exit(0);        // renders nothing, exits clean
+if (shot) writeFileSync(shot.slice('--screenshot='.length), PIXEL);
+`;
+
+test('/edit/pptx exports the deck and names the file it wrote', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  const { base, log } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
+
+  const r = await (await post(base, '/edit/pptx')).json();
+  assert.equal(r.ok, true, `export refused: ${r.error}`);
+  assert.equal(r.file, 'deck.pptx', 'the path is relative to where author is running');
+  assert.equal(typeof r.seconds, 'number');
+  const out = path.join(dir, 'deck.pptx');
+  assert.ok(existsSync(out), 'the file landed beside the deck');
+
+  // decklight's own reader, so this asserts a file `decklight import` could
+  // open rather than "some bytes were written"
+  const buf = readFileSync(out);
+  const names = zipEntries(buf).map((e) => e.name);
+  assert.equal(names.filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).length, 2, 'a slide part per slide');
+  assert.equal(names.filter((n) => /^ppt\/media\/slide\d+\.png$/.test(n)).length, 2, 'a picture per slide');
+  assert.match(log(), /pptx: exporting deck\.html/, 'the terminal says what the palette asked for');
+
+  // the deck FILE is untouched: an export is not an edit, so it takes no
+  // history entry and undo has nothing to take back
+  assert.equal(readFileSync(deck, 'utf8'), DECK);
+  assert.equal((await (await fetch(base + '/edit/ping')).json()).undo, 0);
+});
+
+test('/edit/pptx runs one export at a time, and the deck is told which', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  // slow enough that the second POST lands while the first still holds Chrome
+  const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_SLOW: '400' } });
+
+  const [first, second] = await Promise.all([post(base, '/edit/pptx'), post(base, '/edit/pptx')]);
+  const codes = [first.status, second.status].sort();
+  assert.deepEqual(codes, [200, 409], 'one export ran, the other was refused');
+  const refused = first.status === 409 ? first : second;
+  assert.match((await refused.json()).error, /already running/);
+
+  // and once it is done, the row works again
+  assert.equal((await post(base, '/edit/pptx')).status, 200);
+});
+
+test('an export that fails says so and leaves the author server serving', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_BLANK: '1' } });
+
+  const res = await post(base, '/edit/pptx');
+  assert.equal(res.status, 500);
+  assert.match((await res.json()).error, /export refused/);
+  assert.ok(!existsSync(path.join(dir, 'deck.pptx')), 'nothing half-written was left behind');
+
+  // the point of the whole route: the session survives its own failure
+  assert.equal((await (await fetch(base + '/edit/ping')).json()).ok, true);
 });
