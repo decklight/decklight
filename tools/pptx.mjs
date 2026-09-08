@@ -179,7 +179,15 @@ const CHART_TYPES = {
   'c:areaChart': 'area', 'c:area3DChart': 'area',
   'c:pieChart': 'pie', 'c:pie3DChart': 'pie',
   'c:doughnutChart': 'donut',
+  // x/y pairs rather than a value per category — read from c:xVal/c:yVal below
+  'c:scatterChart': 'scatter',
 };
+
+/** A chart part's own title, as plain text — '' when it has none. */
+function titleOfChart(doc) {
+  const node = find(doc, 'c:title');
+  return node ? findAll(node, 'a:t').map((t) => textOf(t)).join('').trim() : '';
+}
 
 /** The `c:pt` values of a cache, in index order; numbers where they parse. */
 function cachePoints(node, numeric) {
@@ -211,6 +219,18 @@ export function parseChart(xml) {
   const series = findAll(kindNode, 'c:ser').map((ser, i) => {
     const tx = find(ser, 'c:tx');
     const name = tx ? textOf(tx).trim() : `series ${i + 1}`;
+    if (type === 'scatter') {
+      // A scatter's x is a MEASUREMENT, in its own cache, so the pairing is
+      // by index: the k-th x goes with the k-th y, and a series missing
+      // either of them has no points rather than points at zero.
+      const xs = find(ser, 'c:xVal');
+      const ys = find(ser, 'c:yVal');
+      const xv = xs ? cachePoints(xs, true) : [];
+      const yv = ys ? cachePoints(ys, true) : [];
+      const points = xv.map((x, k) => [x, yv[k]])
+        .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+      return { name: name || `series ${i + 1}`, labels: [], data: [], points };
+    }
     const cat = find(ser, 'c:cat');
     const val = find(ser, 'c:val');
     return {
@@ -218,11 +238,26 @@ export function parseChart(xml) {
       labels: cat ? cachePoints(cat, false) : [],
       data: val ? cachePoints(val, true).map((n) => (Number.isFinite(n) ? n : 0)) : [],
     };
-  }).filter((sr) => sr.data.length);
+  }).filter((sr) => (type === 'scatter' ? sr.points.length : sr.data.length));
   if (!series.length) return null;
+  if (type === 'scatter') {
+    // The axis titles are the chart's own, where it has them: a scatter with
+    // two unnamed numeric axes is a picture of nothing in particular.
+    const axisTitle = (i) => {
+      const ax = findAll(doc, 'c:valAx')[i];
+      const t = ax && find(ax, 'c:title');
+      return t ? findAll(t, 'a:t').map((n) => textOf(n)).join('').trim() || null : null;
+    };
+    return {
+      type,
+      title: titleOfChart(doc),
+      x: axisTitle(0),
+      y: axisTitle(1),
+      series: series.map(({ name, points }) => ({ name, points })),
+    };
+  }
   const labels = series.find((sr) => sr.labels.length)?.labels ?? series[0].data.map((_, i) => String(i + 1));
-  const titleNode = find(doc, 'c:title');
-  const title = titleNode ? findAll(titleNode, 'a:t').map((t) => textOf(t)).join('').trim() : '';
+  const title = titleOfChart(doc);
   return {
     type,
     title,
@@ -698,8 +733,13 @@ export function notesText(xml, { rels } = {}) {
 
 /** A parsed slide as the `<section>` markup, plus what its report line says. */
 /** A chart block as SPEC CHARTS markup — JSON in a script tag, so `</` must not end it early. */
-export function chartHtml({ type, title, labels, series }) {
-  const json = JSON.stringify({ labels, series }).replace(/<\//g, '<\\/');
+export function chartHtml({ type, title, labels, series, x, y }) {
+  // A scatter carries pairs and two axis names; everything else carries
+  // categories. Same wrapper, different payload — CHARTS reads both.
+  const body = type === 'scatter'
+    ? { ...(x ? { x } : {}), ...(y ? { y } : {}), series }
+    : { labels, series };
+  const json = JSON.stringify(body).replace(/<\//g, '<\\/');
   const attrs = [`class="chart"`, `data-chart="${type}"`, title ? `data-title="${escapeHtml(title)}"` : null].filter(Boolean);
   return `<div ${attrs.join(' ')}>\n        <script type="application/json">${json}</script>\n      </div>`;
 }
@@ -728,7 +768,10 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
       did.push(`table ${rows.length}×${cols}`);
       parts.push(`      ${tableHtml(b.node)}`);
     } else if (b.kind === 'chart') {
-      did.push(`chart (${b.type}, ${b.series.length} series × ${b.labels.length})`);
+      const size = b.type === 'scatter'
+        ? `${b.series.reduce((n, sr) => n + sr.points.length, 0)} points`
+        : `${b.labels.length}`;
+      did.push(`chart (${b.type}, ${b.series.length} series × ${size})`);
       parts.push(`      ${chartHtml(b)}`);
     } else if (b.kind === 'diagram') {
       const { html, as } = diagramBlockHtml(b);

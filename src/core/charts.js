@@ -27,7 +27,9 @@ import { escapeHtml as esc } from './escape.js';
 
 const VB_W = 640;
 const VB_H = 360;
-const TYPES = ['bar', 'line', 'area', 'pie', 'donut'];
+const TYPES = ['bar', 'line', 'area', 'pie', 'donut', 'scatter'];
+/** The one type whose data is x/y pairs rather than a value per category. */
+const isXY = (type) => type === 'scatter';
 
 // coordinate formatting: 2 decimals, no FP noise, no "-0"
 const f = (n) => {
@@ -61,14 +63,31 @@ export function parseChart(source, attrs = {}) {
     throw new Error(`unknown type "${type}" — use ${TYPES.join(' | ')}`);
   }
 
-  if (!Array.isArray(json.labels) || json.labels.length === 0) {
+  // A scatter has no categories: its x is a number, not a label, which is the
+  // whole difference between "sales by region" and "latency against load".
+  if (!isXY(type) && (!Array.isArray(json.labels) || json.labels.length === 0)) {
     throw new Error('"labels" must be a non-empty array');
   }
   if (!Array.isArray(json.series) || json.series.length === 0) {
     throw new Error('"series" must be a non-empty array');
   }
-  const labels = json.labels.map(String);
+  const labels = isXY(type) ? [] : json.labels.map(String);
   const series = json.series.map((s, i) => {
+    if (isXY(type)) {
+      if (!s || !Array.isArray(s.points)) {
+        throw new Error(`series ${i + 1}: "points" must be an array of [x, y] pairs`);
+      }
+      const points = s.points
+        .map((pt) => (Array.isArray(pt) ? [Number(pt[0]), Number(pt[1])] : [NaN, NaN]))
+        .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
+      if (!points.length) throw new Error(`series ${i + 1}: no usable [x, y] pairs`);
+      return {
+        name: s.name != null ? String(s.name) : `series ${i + 1}`,
+        concept: s.concept != null ? String(s.concept) : null,
+        points,
+        data: points.map(([, y]) => y),   // so anything reading `data` still can
+      };
+    }
     if (!s || !Array.isArray(s.data)) {
       throw new Error(`series ${i + 1}: "data" must be an array of numbers`);
     }
@@ -103,6 +122,10 @@ export function parseChart(source, attrs = {}) {
     type: isPie ? 'pie' : type,
     donut: type === 'donut' || json.donut === true,
     title: attrs.title ?? (json.title != null ? String(json.title) : null),
+    // What the two axes MEAN. Only a scatter asks for them: a category chart's
+    // x axis is already labelled, one value at a time.
+    xTitle: json.x != null ? String(json.x) : null,
+    yTitle: json.y != null ? String(json.y) : null,
     labels,
     series,
     legend: json.legend, // true forces, false suppresses, undefined = auto
@@ -327,6 +350,61 @@ function axisChart(spec, chrome, out) {
   }
 }
 
+/**
+ * A scatter: two numeric axes, a dot per pair.
+ *
+ * It shares the grid, the ticks and the ink of `axisChart` but not its
+ * geometry — there is no band, because there are no categories: x is a
+ * measurement, and the whole point of the chart is where a dot lands between
+ * two of them.
+ */
+function scatterChart(spec, chrome, out) {
+  const xs = spec.series.flatMap((sr) => sr.points.map(([x]) => x));
+  const ys = spec.series.flatMap((sr) => sr.points.map(([, y]) => y));
+  const x = niceTicks(Math.min(...xs), Math.max(...xs) === Math.min(...xs) ? Math.min(...xs) + 1 : Math.max(...xs), 5);
+  const y = niceTicks(Math.min(0, ...ys), Math.max(...ys) === Math.min(0, ...ys) ? Math.max(...ys) + 1 : Math.max(...ys), 5);
+  const yStrs = y.ticks.map((t) => tickLabel(t, y.step));
+  const xStrs = x.ticks.map((t) => tickLabel(t, x.step));
+
+  const left = 14 + Math.max(...yStrs.map((t) => t.length)) * 6.6 + 8 + (spec.yTitle ? 16 : 0);
+  const bottom = 34 + (spec.xTitle ? 18 : 0);
+  const plot = { x: left, y: spec.title || legendOn(spec) ? 40 : 18, w: spec.width - left - 18, h: 0 };
+  plot.h = spec.height - plot.y - bottom;
+  const xSpan = x.max - x.min || 1;
+  const ySpan = y.max - y.min || 1;
+  const xFor = (v) => plot.x + plot.w * ((v - x.min) / xSpan);
+  const yFor = (v) => plot.y + plot.h * (1 - (v - y.min) / ySpan);
+
+  y.ticks.forEach((t, i) => {
+    const ty = yFor(t);
+    chrome.push(`<line class="chart-grid" x1="${f(plot.x)}" y1="${f(ty)}" x2="${f(plot.x + plot.w)}" y2="${f(ty)}" stroke="var(--d-muted)" stroke-opacity="0.35" stroke-width="1"/>`);
+    chrome.push(`<text class="chart-tick" x="${f(plot.x - 8)}" y="${f(ty + 4)}" text-anchor="end" font-size="11" ${TEXT}>${esc(yStrs[i])}</text>`);
+  });
+  x.ticks.forEach((t, i) => {
+    const tx = xFor(t);
+    chrome.push(`<line class="chart-grid" x1="${f(tx)}" y1="${f(plot.y)}" x2="${f(tx)}" y2="${f(plot.y + plot.h)}" stroke="var(--d-muted)" stroke-opacity="0.35" stroke-width="1"/>`);
+    chrome.push(`<text class="chart-cat" x="${f(tx)}" y="${f(plot.y + plot.h + 20)}" text-anchor="middle" font-size="12" ${TEXT}>${esc(xStrs[i])}</text>`);
+  });
+  chrome.push(`<line class="chart-axis" x1="${f(plot.x)}" y1="${f(plot.y)}" x2="${f(plot.x)}" y2="${f(plot.y + plot.h)}" stroke="var(--d-stroke)" stroke-width="1.5"/>`);
+  chrome.push(`<line class="chart-axis" x1="${f(plot.x)}" y1="${f(plot.y + plot.h)}" x2="${f(plot.x + plot.w)}" y2="${f(plot.y + plot.h)}" stroke="var(--d-stroke)" stroke-width="1.5"/>`);
+  if (spec.xTitle) {
+    chrome.push(`<text class="chart-axis-title" x="${f(plot.x + plot.w / 2)}" y="${f(spec.height - 8)}" text-anchor="middle" font-size="12" ${TEXT}>${esc(spec.xTitle)}</text>`);
+  }
+  if (spec.yTitle) {
+    // rotated about its own middle, so the label reads bottom-to-top beside the axis
+    const cx = 16, cy = plot.y + plot.h / 2;
+    chrome.push(`<text class="chart-axis-title" x="${f(cx)}" y="${f(cy)}" text-anchor="middle" font-size="12" ${TEXT} transform="rotate(-90 ${f(cx)} ${f(cy)})">${esc(spec.yTitle)}</text>`);
+  }
+
+  spec.series.forEach((sr, si) => {
+    out.push(seriesOpen(sr, si));
+    for (const [px, py] of sr.points) {
+      out.push(`<circle class="chart-dot draw-fade" cx="${f(xFor(px))}" cy="${f(yFor(py))}" r="5" fill="${fillVar(si)}" stroke="var(--d-stroke)" stroke-width="1.5"/>`);
+    }
+    out.push('</g>');
+  });
+}
+
 function pieChart(spec, out) {
   const top = spec.title ? 40 : 16;
   const cx = spec.width / 2;
@@ -372,6 +450,7 @@ export function chartSvg(spec) {
   }
 
   if (spec.type === 'pie') pieChart(spec, out);
+  else if (spec.type === 'scatter') scatterChart(spec, chrome, out);
   else axisChart(spec, chrome, out);
 
   const label = spec.title ? `${spec.title} — ${spec.type} chart` : `${spec.type} chart`;
