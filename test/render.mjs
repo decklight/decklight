@@ -43,7 +43,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   const html = dump(deckUrl);
   const s = sink(html);
   check('no runtime errors', s.errors, 'none');
-  check('slide count', s.slides, '20');
+  check('slide count', s.slides, '21');
   check('slide 1 build steps (3 li + 1 leaf)', s.slide1steps, '4');
   check('slide 2 svg steps (3 g, caption stays)', s.svgsteps, '3');
   check('a data-markdown slide is flagged, not parsed', s.mdremoved, 'true');
@@ -106,6 +106,8 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('chart: data-build moved onto the svg — 2 series steps', s.chartsteps, '2');
   check('chart: line strokes prepared for draw', s.chartdraw, '2');
   check('chart: the markdown ```chart fence form is gone', s.chartnomdfence, 'true');
+  check('chart: scatter draws a dot per pair', s.chartscatterdots, '8');
+  check('chart: …and names both of its axes', s.chartscatteraxes, '2');
   check('ink: no canvas until a tool is asked for', s.inkdefault, 'true');
   check('ink: W mounts the pen overlay, capturing', s.inkpen, 'true');
   check('ink: an API stroke paints the canvas', s.inkdrawn, 'true');
@@ -178,9 +180,9 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('handout: ceil(20/3) = 7 pages',
     (html.match(/class="print-page print-handout"/g) || []).length, 7);
   check('handout: every slide gets a slot',
-    (html.match(/class="print-slot"/g) || []).length, 20);
+    (html.match(/class="print-slot"/g) || []).length, 21);
   check('handout: note lines beside every slide',
-    (html.match(/class="print-notelines"/g) || []).length, 20);
+    (html.match(/class="print-notelines"/g) || []).length, 21);
   check('handout: everything built',
     (html.match(/data-build-state="pending"/g) || []).length, 0);
 }
@@ -189,14 +191,14 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
 {
   const html = dump(deckUrl + '?print=notes');
   check('notes: one page per slide',
-    (html.match(/class="print-page print-notes-page"/g) || []).length, 20);
+    (html.match(/class="print-page print-notes-page"/g) || []).length, 21);
   check('notes: a notes block on every page',
-    (html.match(/class="print-notes"/g) || []).length, 20);
+    (html.match(/class="print-notes"/g) || []).length, 21);
   // 5 slides carry notes; the other 15 keep their page with an empty block.
   // (Slide 5's Note: is inside its unparsed template, so it is NOT one of them
   // — the count moved from 14 to 15 when markdown slides stopped contributing.)
   check('notes: slides without notes get an empty block',
-    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 15);
+    (html.match(/<div class="print-notes"><\/div>/g) || []).length, 16);
   // ONE occurrence, not zero and not the old two: the words survive as the raw
   // template text they always were, and are never lifted into a notes block or
   // its copy. The empty-block count above is what proves slide 5 contributes none.

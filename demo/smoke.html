@@ -262,6 +262,18 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
     <ul><li>content centers below the pinned title</li></ul>
   </section>
 
+  <!-- 21: scatter — the one chart whose x is a measurement, not a category -->
+  <section>
+    <h2>Charts: scatter</h2>
+    <div class="chart" data-chart="scatter" data-title="Latency against load" style="max-width:60%">
+      <script type="application/json">
+      { "x": "Load (requests/s)", "y": "p99 (ms)",
+        "series": [ { "name": "v1", "points": [[10, 120], [50, 180], [90, 340], [130, 520]] },
+                    { "name": "v2", "points": [[10, 90], [50, 110], [90, 160], [130, 210]], "concept": "agent" } ] }
+      </script>
+    </div>
+  </section>
+
 </div>
 
 <script>
@@ -331,6 +343,10 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
       rec('ring1', deck.layoutRing(1).join(' ')),   // auto-pinned slide: 'pinned' skipped
       rec('ring11', deck.layoutRing(11).join(' ')), // lone-list slide: 'split-flip' skipped too
       rec('chartsvg', !!document.querySelector('section[data-slide-index="12"] .chart > svg.chart-svg')),
+      // a scatter is dots on two numeric axes, and its axis titles are the
+      // only text in a chart that is rotated
+      rec('chartscatterdots', document.querySelectorAll('section[data-slide-index="21"] circle.chart-dot').length),
+      rec('chartscatteraxes', document.querySelectorAll('section[data-slide-index="21"] .chart-axis-title').length),
       rec('chartseries', document.querySelectorAll('section[data-slide-index="12"] .chart svg .chart-series').length),
       rec('chartfill', document.querySelector('section[data-slide-index="12"] .chart svg').innerHTML.includes('var(--d-fill-1)')),
       rec('chartconcept', (() => {

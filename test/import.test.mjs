@@ -538,9 +538,44 @@ test('a pie keeps ONE series — decklight refuses two, PowerPoint draws one any
 });
 
 test('a chart kind with no native answer is null — the caller drops it by name, as before', () => {
-  assert.equal(parseChart(BAR_CHART.replace(/c:barChart/g, 'c:scatterChart')), null);
+  // radar, stock, surface, bubble: no data-chart draws them, so they drop
+  assert.equal(parseChart(BAR_CHART.replace(/c:barChart/g, 'c:radarChart')), null);
   assert.equal(parseChart('<c:chartSpace/>'), null);
   assert.equal(parseChart(''), null);
+});
+
+const SCATTER_CHART = `<c:chartSpace xmlns:c="c" xmlns:a="a">
+ <c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Latency against load</a:t></a:r></a:p></c:rich></c:tx></c:title>
+  <c:plotArea><c:scatterChart>
+   <c:ser><c:tx><c:strRef><c:strCache><c:pt idx="0"><c:v>v1</c:v></c:pt></c:strCache></c:strRef></c:tx>
+    <c:xVal><c:numRef><c:numCache><c:pt idx="1"><c:v>50</c:v></c:pt><c:pt idx="0"><c:v>10</c:v></c:pt><c:pt idx="2"><c:v>90</c:v></c:pt></c:numCache></c:numRef></c:xVal>
+    <c:yVal><c:numRef><c:numCache><c:pt idx="0"><c:v>120</c:v></c:pt><c:pt idx="1"><c:v>180</c:v></c:pt><c:pt idx="2"><c:v>340</c:v></c:pt></c:numCache></c:numRef></c:yVal>
+   </c:ser>
+  </c:scatterChart>
+  <c:valAx><c:title><c:tx><c:rich><a:p><a:r><a:t>Load (rps)</a:t></a:r></a:p></c:rich></c:tx></c:valAx>
+  <c:valAx><c:title><c:tx><c:rich><a:p><a:r><a:t>p99 (ms)</a:t></a:r></a:p></c:rich></c:tx></c:valAx>
+  </c:plotArea></c:chart></c:chartSpace>`;
+
+test('a scatter crosses as pairs, in index order, with the axes it was drawn against', () => {
+  const chart = parseChart(SCATTER_CHART);
+  assert.equal(chart.type, 'scatter');
+  assert.equal(chart.title, 'Latency against load');
+  // the cache lists idx 1 before idx 0; the pairing is by index, not by file order
+  assert.deepEqual(chart.series, [{ name: 'v1', points: [[10, 120], [50, 180], [90, 340]] }]);
+  assert.equal(chart.x, 'Load (rps)');
+  assert.equal(chart.y, 'p99 (ms)');
+
+  // and it renders as CHARTS markup the runtime accepts
+  const html = chartHtml(chart);
+  assert.match(html, /data-chart="scatter"/);
+  assert.match(html, /\{"x":"Load \(rps\)","y":"p99 \(ms\)","series":\[\{"name":"v1","points":\[\[10,120\]/);
+  assert.doesNotMatch(html, /"labels"/, 'a scatter has no categories to carry');
+  const { did } = slideSection({ blocks: [{ kind: 'chart', ...chart }], drops: [] });
+  assert.ok(did.some((d) => /^chart \(scatter, 1 series × 3 points\)$/.test(d)), did.join(' · '));
+});
+
+test('a series with no usable pairs is not a chart at all', () => {
+  assert.equal(parseChart(SCATTER_CHART.replace(/<c:yVal>[\s\S]*?<\/c:yVal>/, '')), null);
 });
 
 test('the slide reaches the chart through its relationship, and renders SPEC CHARTS markup', () => {

@@ -57,7 +57,8 @@ test('parseChart: every rejection names the problem', () => {
   const cases = [
     [() => parseChart('{ nope }', { type: 'bar' }), /invalid JSON/],
     [() => parseChart(null, { type: 'bar' }), /no data/],
-    [() => parseChart('{"labels":["a"],"series":[{"data":[1]}]}', { type: 'scatter' }), /unknown type "scatter"/],
+    // "scatter" was the example here until the runtime learned to draw one
+    [() => parseChart('{"labels":["a"],"series":[{"data":[1]}]}', { type: 'radar' }), /unknown type "radar"/],
     [() => parseChart('{"series":[{"data":[1]}]}', { type: 'bar' }), /"labels"/],
     [() => parseChart('{"labels":["a"],"series":[]}', { type: 'bar' }), /"series"/],
     [() => parseChart('{"labels":["a"],"series":[{"data":5}]}', { type: 'bar' }), /series 1/],
@@ -204,6 +205,46 @@ test('chartSvg: pie — slices cycle the fill slots, value labels on slices', ()
   assert.ok(svg.includes('>50%<'), 'value labels are percentages');
   assert.ok(svg.includes('>alpha<'), 'name labels outside the slices');
   assert.ok(!svg.includes('chart-legend'), 'pie labels itself — no legend');
+});
+
+test('parseChart: a scatter takes [x, y] pairs, and says so when it does not', () => {
+  const spec = parseChart(JSON.stringify({
+    type: 'scatter', x: 'Load (rps)', y: 'p99 (ms)',
+    series: [{ name: 'v1', points: [[10, 120], [50, 180], ['x', 3], [90, 340]] }],
+  }));
+  assert.equal(spec.type, 'scatter');
+  assert.deepEqual(spec.labels, [], 'a scatter has no categories — x is a measurement');
+  assert.deepEqual(spec.series[0].points, [[10, 120], [50, 180], [90, 340]], 'an unusable pair is dropped, not drawn at 0');
+  assert.deepEqual(spec.series[0].data, [120, 180, 340], 'the y values stay readable as `data`');
+  assert.equal(spec.xTitle, 'Load (rps)');
+  assert.equal(spec.yTitle, 'p99 (ms)');
+
+  // and the refusals name the problem, like every other one
+  assert.throws(() => parseChart(JSON.stringify({ type: 'scatter', series: [{ data: [1, 2] }] })),
+    /"points" must be an array of \[x, y\] pairs/);
+  assert.throws(() => parseChart(JSON.stringify({ type: 'scatter', series: [{ points: [['a', 'b']] }] })),
+    /no usable \[x, y\] pairs/);
+  // labels are required for everything else, and pointless here
+  assert.throws(() => parseChart(JSON.stringify({ type: 'bar', series: [{ data: [1] }] })), /"labels" must be/);
+});
+
+test('chartSvg: scatter — a dot per pair, on two numeric axes', () => {
+  const svg = chartSvg(parseChart(JSON.stringify({
+    type: 'scatter', title: 'Latency against load', x: 'Load', y: 'ms',
+    series: [
+      { name: 'v1', points: [[10, 120], [90, 340]] },
+      { name: 'v2', points: [[10, 90], [50, 110], [90, 160]] },
+    ],
+  })));
+  assert.equal((svg.match(/<circle/g) || []).length, 5, 'a dot per pair, across both series');
+  assert.equal((svg.match(/class="chart-series"/g) || []).length, 2);
+  // the x axis carries numbers, not category names — two ticks that are not 1, 2, 3…
+  assert.match(svg, /class="chart-cat"[^>]*>0</);
+  assert.match(svg, /class="chart-axis-title"[^>]*>Load</);
+  assert.match(svg, /transform="rotate\(-90 /, 'the y title reads up the axis');
+  // the same palette contract as every other chart: tokens, never literals
+  assert.match(svg, /fill="var\(--d-fill-1\)"/);
+  assert.ok(!/#[0-9a-f]{3,6}/i.test(svg), 'no hardcoded colors');
 });
 
 test('chartSvg: user strings are escaped', () => {
