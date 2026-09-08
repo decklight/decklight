@@ -1349,6 +1349,118 @@ function repoWithRemote(dir, html = ONE_FILE_DECK, { remote = 'git@github.com:ac
   git(['-c', 'user.email=a@b.c', '-c', 'user.name=A', 'commit', '-qm', 'first'], dir);
 }
 
+// ── deck templates, into a deck that already exists (UNITS#REST) ───────────
+
+const TEMPLATE_DECK = `<!doctype html><html><body>
+<div class="decklight">
+  <section>
+    <h1>Startup pitch</h1>
+  </section>
+  <section>
+    <h2>Pricing</h2>
+    <img src="assets/table.png">
+  </section>
+  <section data-hidden>
+    <h2>Backup</h2>
+  </section>
+</div>
+</body></html>`;
+
+/** An author server whose unit library is this test's own temp directory. */
+async function startWithTemplate(t, dir, { install = true } = {}) {
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const home = path.join(dir, 'home');
+  if (install) {
+    mkdirSync(path.join(home, 'templates'), { recursive: true });
+    writeFileSync(path.join(home, 'templates', 'startup-pitch.html'), TEMPLATE_DECK);
+  } else {
+    mkdirSync(home, { recursive: true });
+  }
+  return startEdit(t, dir, { env: { DECKLIGHT_HOME: home } });
+}
+
+test('/edit/template/list says what is installed here, without reaching the network', async (t) => {
+  const dir = tmp(t);
+  const { base } = await startWithTemplate(t, dir);
+  const j = await (await fetch(base + '/edit/template/list')).json();
+  assert.equal(j.ok, true);
+  assert.deepEqual(j.installed, ['startup-pitch']);
+  assert.equal(j.cacheOnly, true, 'listing is a read of the cache, never a fetch');
+  assert.deepEqual(j.offered, [], 'no marketplace registered, so nothing to offer');
+});
+
+test('/edit/template/slides reads the template as a numbered list, and names what a slide needs', async (t) => {
+  const dir = tmp(t);
+  const { base } = await startWithTemplate(t, dir);
+  const j = await (await fetch(base + '/edit/template/slides?name=startup-pitch')).json();
+  assert.equal(j.ok, true);
+  assert.deepEqual(j.slides.map((s) => [s.n, s.title, s.hidden]), [
+    [1, 'Startup pitch', false], [2, 'Pricing', false], [3, 'Backup', true],
+  ]);
+  assert.deepEqual(j.slides[1].needs, ['assets/table.png'],
+    'said before the slide is taken, not discovered afterwards');
+
+  const missing = await fetch(base + '/edit/template/slides?name=nope');
+  assert.equal(missing.status, 404);
+  assert.match((await missing.json()).error, /no template "nope" is installed here/);
+});
+
+test('/edit/template/insert puts the chosen slides after a slide, as ONE undo entry', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const { base } = await startWithTemplate(t, dir);
+  const before = readFileSync(deck, 'utf8');
+
+  const r = await (await post(base, '/edit/template/insert',
+    { name: 'startup-pitch', slides: [2, 1], after: 1 })).json();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.inserted, 2);
+  assert.deepEqual(r.titles, ['Startup pitch', 'Pricing'], 'in the template’s order, not the order asked for');
+  assert.deepEqual(r.needs, ['assets/table.png']);
+
+  const after = readFileSync(deck, 'utf8');
+  const headings = [...after.matchAll(/<h[12][^>]*>([^<]+)<\/h[12]>/g)].map((m) => m[1]);
+  assert.deepEqual(headings.slice(0, 3), ['Alpha', 'Startup pitch', 'Pricing'],
+    'after slide 1, in template order');
+
+  // ONE entry: an insert is an ordinary edit, so Z takes the whole thing back
+  assert.equal(r.undo, 1);
+  assert.equal((await post(base, '/edit/undo')).status, 200);
+  assert.equal(readFileSync(deck, 'utf8'), before, 'undo took back all of it');
+});
+
+test('/edit/template/insert refuses a slide the template has not, and a position the deck has not', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const { base } = await startWithTemplate(t, dir);
+  const before = readFileSync(deck, 'utf8');
+
+  const noSlide = await post(base, '/edit/template/insert', { name: 'startup-pitch', slides: [9], after: 1 });
+  assert.equal(noSlide.status, 400);
+  assert.match((await noSlide.json()).error, /has no slide 9 \(it has 3\)/);
+
+  const noSpot = await post(base, '/edit/template/insert', { name: 'startup-pitch', slides: [1], after: 99 });
+  assert.equal(noSpot.status, 400);
+  assert.match((await noSpot.json()).error, /cannot insert after slide 99/);
+
+  const noTemplate = await post(base, '/edit/template/insert', { name: 'ghost', slides: [1], after: 1 });
+  assert.equal(noTemplate.status, 404);
+
+  assert.equal(readFileSync(deck, 'utf8'), before, 'a refused insert wrote nothing');
+});
+
+test('/edit/template/insert takes the whole template when no slides are named', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const { base } = await startWithTemplate(t, dir);
+
+  const r = await (await post(base, '/edit/template/insert', { name: 'startup-pitch', after: 0 })).json();
+  assert.equal(r.inserted, 3, 'all of them, hidden slide included — it is still a slide');
+  const headings = [...readFileSync(deck, 'utf8').matchAll(/<h[12][^>]*>([^<]+)<\/h[12]>/g)].map((m) => m[1]);
+  assert.deepEqual(headings.slice(0, 4), ['Startup pitch', 'Pricing', 'Backup', 'Alpha'],
+    'after 0 is before the first slide');
+});
+
 test('/edit/publish/plan names where the deck would go, without putting it there', async (t) => {
   const dir = tmp(t);
   repoWithRemote(dir);

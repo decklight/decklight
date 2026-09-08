@@ -19,6 +19,7 @@ import { buildPrintPages } from './print.js';
 import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
+import { createTemplates } from './templates.js';
 import { createOnboarding, TIPS } from './onboarding.js';
 import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
@@ -462,6 +463,18 @@ export function init(userConfig = {}) {
   });
   const { applyTheme, currentTheme, cycleTheme, cancelCyclePending, rollTheme, saveGeneratedTheme } = themes;
 
+  // Deck templates, into the deck you already have (UNITS#REST). Author mode
+  // only, and it consults `editmode` the same way the theme picker does — from
+  // an open dialog, never during setup.
+  const templates = createTemplates({
+    root, overlays, toast,
+    // accessors, not values: `instance` and `editmode` are both built below,
+    // and naming either one here reads it before it exists
+    deck: () => instance,
+    editmode: () => editmode,
+    dismissOthers: () => { themes.closePicker(); if (palEl) closePalette(); },
+  });
+
   // ----- slide finder: / opens find-a-slide with live preview ---------------
   // Same panel anatomy and lazy-preview mechanism as the theme picker: the
   // embedded deck boots once, then selections postMessage a goto into it.
@@ -698,6 +711,11 @@ export function init(userConfig = {}) {
       // author server to run the command — hence (dev), and hence contextual:
       // without a server there is nothing to run it, and a row that cannot
       // keep its promise is worse than no row.
+      // Somebody else's slides, into this deck (UNITS#REST). Author mode only:
+      // it writes the deck on disk, and a template comes from a marketplace.
+      editmode.available() && { label: 'Insert from a template… (dev)',
+        alias: 'template marketplace slides insert add reuse boilerplate pitch starter steal borrow',
+        run: () => templates.open() },
       editmode.available() && { label: 'Export to PowerPoint… (dev)',
         alias: 'pptx powerpoint keynote google slides export file office send share hand over',
         run: () => editmode.exportDeck('pptx') },

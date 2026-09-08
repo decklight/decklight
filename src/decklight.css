@@ -1359,6 +1359,20 @@
 }
 
 /* offline recording (V → Record… → synthesized) — shares .decklight-narr's card chrome */
+/* Insert-from-a-template (UNITS#REST): the shared card overlay with a tick
+   column, so a slide list reads as something you are choosing FROM. */
+.decklight-tmpl .narr-card { width: min(560px, 88vw); }
+.decklight-tmpl .tmpl-check { flex: none; opacity: .85; }
+.decklight-tmpl .tmpl-filter { padding-top: 2px; }
+.decklight-tmpl .narr-tag {
+  flex: none;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: .5;
+  font-size: .78em;
+}
 .decklight-record .narr-card { width: min(400px, 82vw); }
 .decklight-record .rec-line { padding: 4px 12px; opacity: .85; }
 .decklight-record .rec-hint { padding: 10px 12px 2px; opacity: .5; font-size: 12px; }

@@ -128,6 +128,89 @@ export function locateSlide(html, n) {
 }
 
 /**
+ * Where a section body's OWN `</section>` starts, or -1.
+ *
+ * `sectionBodies` cuts at the next `<section`, so for every slide but the last
+ * one the closing tag is simply the last thing in the piece. The last slide's
+ * piece carries the whole tail of the document — `</div>`, the inlined runtime,
+ * `</body>` — and a deck that SHOWS markup in a code block carries `</section>`
+ * as text. So neither end is reliable on its own: scan from the front with
+ * script, style and comment bodies blanked out, and take the first real one.
+ *
+ * Blanking preserves offsets (same length, spaces), so the index found in the
+ * blanked copy is the index in the original.
+ */
+export function sectionCloseIndex(body) {
+  const blanked = String(body ?? '').replace(
+    /<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->/gi,
+    (m) => ' '.repeat(m.length),
+  );
+  return blanked.toLowerCase().indexOf('</section>');
+}
+
+/**
+ * One section's markup, re-indented to sit at `indent` in its new deck.
+ *
+ * A slide arrives with the indentation of the file it came from, and a deck is
+ * a text file people read and diff — a block that lands four spaces out of
+ * step is a diff nobody can review. Every line is shifted by the same amount,
+ * so the section's own inner structure is preserved exactly.
+ */
+export function reindentSection(section, indent) {
+  const lines = String(section).replace(/\s+$/, '').split('\n');
+  // The section's own base indentation is NOT the first line's: a section read
+  // out of a deck starts at `<section`, its leading whitespace having been the
+  // previous line's. The closing tag sits at the base, and where there is none
+  // to read, the shallowest line does.
+  const closing = /^([ \t]*)<\/section>/.exec(lines[lines.length - 1])?.[1];
+  const inner = lines.slice(1).filter((l) => l.trim());
+  const own = closing ?? (inner.length
+    ? inner.reduce((m, l) => {
+      const w = /^[ \t]*/.exec(l)[0];
+      return w.length < m.length ? w : m;
+    }, /^[ \t]*/.exec(inner[0])[0])
+    : '');
+  return lines.map((l, i) => {
+    if (i === 0) return indent + l.trimStart();
+    return l.startsWith(own) ? indent + l.slice(own.length) : l;
+  }).join('\n');
+}
+
+/**
+ * A deck with `sections` inserted after slide `n` (0 puts them first).
+ *
+ * The sections are written as they arrive, only re-indented — a slide is
+ * self-contained markup, which is what makes taking one from another deck a
+ * paste rather than a merge.
+ */
+export function insertSectionsAfter(html, n, sections) {
+  const list = sections.filter((x) => String(x ?? '').trim());
+  if (!list.length) return html;
+  const parts = String(html).split(/(<section\b)/);
+  if (parts.length < 3) throw new Error('this deck has no slides to insert beside');
+  // the whitespace the anchor slide's own <section> sits at: the run after the
+  // last newline of whatever precedes that token
+  const before = parts[Math.max(0, 2 * n - 2)];
+  const indent = /\n([ \t]*)$/.exec(before)?.[1] ?? '';
+  const block = list.map((sec) => reindentSection(sec, indent)).join('\n');
+
+  if (n === 0) {
+    // Before the first slide: the deck's preamble ends where slide 1 opens, so
+    // this is the one insertion that never looks for a closing tag.
+    parts[0] = parts[0].replace(/\s*$/, '') + '\n' + block + '\n' + indent;
+    return parts.join('');
+  }
+
+  const { parts: p2, idx } = locateSlide(html, n);
+  const seg = p2[idx];
+  const close = sectionCloseIndex(seg);
+  if (close === -1) throw new Error(`slide ${n}: no </section> to insert after`);
+  const end = close + '</section>'.length;
+  p2[idx] = seg.slice(0, end) + '\n' + block + seg.slice(end);
+  return p2.join('');
+}
+
+/**
  * Insert `fragment` right before the deck's LAST `</body>`. A bundled deck
  * inlines decklight.js, whose speaker-view popup template carries a literal
  * `</body>` that a first-match search would split mid-string, corrupting the
