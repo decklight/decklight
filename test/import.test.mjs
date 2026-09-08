@@ -21,6 +21,7 @@ import { unzip, zipEntries } from '../tools/zip.mjs';
 import { parseXml, find, findAll, children, textOf, decodeEntities } from '../tools/ooxml.mjs';
 import {
   listHtml, resolvePart, slideOrder, parseSlide, notesText, mimeOf, paragraphHtml, parseChart, chartHtml, slideSection,
+  parseDiagram, diagramKind, diagramBlockHtml,
 } from '../tools/pptx.mjs';
 import { convert, outPath, slidesId, slidesExportUrl, sourceKind, slug, keynoteScript } from '../cli/import.mjs';
 
@@ -28,6 +29,18 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 const FIXTURE = path.resolve(here, 'fixtures/sample.pptx');
 const zip = () => unzip(readFileSync(FIXTURE));
+
+// What is IN the fixture, because it is a binary and nothing else says:
+//
+//   slide 1  a title layout — ctrTitle + subTitle
+//   slide 2  a bulleted body with nested levels, on PowerPoint's build list,
+//            and the deck's only speaker notes
+//   slide 3  a 2×2 table, a picture, an EMPTY chart frame (no chart part —
+//            the "a graphic whose data cannot be read drops loudly" case),
+//            and a SmartArt frame with a real data model and layout part:
+//            a four-step Basic Process, plus `pres` points that must not
+//            become words
+//   slide 4  `show="0"` — hidden, and kept (HIDDEN_SLIDES)
 
 // ── the zip reader ────────────────────────────────────────────────────────
 
@@ -147,9 +160,99 @@ test('what cannot cross is named, per slide, with what to rebuild it as', () => 
   const z = zip();
   const third = parseSlide(z.get('ppt/slides/slide3.xml').toString());
   assert.ok(third.drops.some((d) => /chart dropped.*data-chart/.test(d)));
-  assert.ok(third.drops.some((d) => /SmartArt dropped.*SVG diagram/.test(d)));
   assert.equal(parseSlide(z.get('ppt/slides/slide1.xml').toString()).drops.length, 0,
     'a slide that converted cleanly reports nothing');
+});
+
+// ── SmartArt ──────────────────────────────────────────────────────────────
+
+const DGM_DATA = `<dgm:dataModel xmlns:dgm="d" xmlns:a="a"><dgm:ptLst>
+  <dgm:pt modelId="0" type="doc"/>
+  <dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>Discover</a:t></a:r></a:p></dgm:t></dgm:pt>
+  <dgm:pt modelId="2"><dgm:t><a:p><a:r><a:rPr b="1"/><a:t>Build</a:t></a:r></a:p></dgm:t></dgm:pt>
+  <dgm:pt modelId="2a"><dgm:t><a:p><a:r><a:t>with a team</a:t></a:r></a:p></dgm:t></dgm:pt>
+  <dgm:pt modelId="9" type="pres"><dgm:t><a:p><a:r><a:t>SCAFFOLD</a:t></a:r></a:p></dgm:t></dgm:pt>
+ </dgm:ptLst><dgm:cxnLst>
+  <dgm:cxn modelId="c2" srcId="0" destId="2" srcOrd="1" type="parOf"/>
+  <dgm:cxn modelId="c1" srcId="0" destId="1" srcOrd="0" type="parOf"/>
+  <dgm:cxn modelId="c3" srcId="2" destId="2a" srcOrd="0" type="parOf"/>
+  <dgm:cxn modelId="cp" srcId="0" destId="9" srcOrd="2" type="presOf"/>
+ </dgm:cxnLst></dgm:dataModel>`;
+
+test('a SmartArt data model becomes a tree — in ITS order, without the drawing’s scaffolding', () => {
+  const nodes = parseDiagram(DGM_DATA);
+  // srcOrd decides, not document order: the file above lists Build first
+  assert.deepEqual(nodes.map((n) => n.plain), ['Discover', 'Build']);
+  assert.deepEqual(nodes[1].children.map((n) => n.plain), ['with a team']);
+  // a `pres` point is a box the chosen layout needed, not a word anybody wrote
+  assert.ok(!JSON.stringify(nodes).includes('SCAFFOLD'));
+  // run formatting survives into the list form, and the plain text stays plain
+  assert.equal(nodes[1].text, '<strong>Build</strong>');
+  assert.equal(nodes[1].plain, 'Build');
+});
+
+test('a circular connection list ends, rather than recursing until the stack does', () => {
+  const nodes = parseDiagram(`<dgm:dataModel xmlns:dgm="d" xmlns:a="a"><dgm:ptLst>
+    <dgm:pt modelId="0" type="doc"/>
+    <dgm:pt modelId="1"><dgm:t><a:p><a:r><a:t>one</a:t></a:r></a:p></dgm:t></dgm:pt>
+   </dgm:ptLst><dgm:cxnLst>
+    <dgm:cxn srcId="0" destId="1" srcOrd="0" type="parOf"/>
+    <dgm:cxn srcId="1" destId="1" srcOrd="0" type="parOf"/>
+   </dgm:cxnLst></dgm:dataModel>`);
+  assert.deepEqual(nodes.map((n) => n.plain), ['one']);
+  assert.deepEqual(nodes[0].children, []);
+});
+
+test('the layout part says which picture was drawn', () => {
+  const of = (id) => diagramKind(`<dgm:layoutDef uniqueId="urn:microsoft.com/office/officeart/2005/8/layout/${id}"/>`);
+  assert.equal(of('process1'), 'process');
+  assert.equal(of('chevron2'), 'process');
+  assert.equal(of('cycle3'), 'cycle');
+  assert.equal(of('hierarchy1'), 'hierarchy');
+  assert.equal(of('vList2'), 'list');
+  assert.equal(diagramKind(undefined), 'list', 'no layout part is a list, not a crash');
+});
+
+test('a flat process is drawn; anything else keeps its words as a list', () => {
+  const steps = ['a', 'b', 'c'].map((t) => ({ text: t, plain: t, children: [] }));
+  const drawn = diagramBlockHtml({ shape: 'process', nodes: steps });
+  assert.equal(drawn.as, 'an SVG diagram');
+  assert.match(drawn.html, /^<svg viewBox="0 0 960 120"/);
+  assert.equal((drawn.html.match(/<rect/g) || []).length, 3, 'a box per step');
+  assert.equal((drawn.html.match(/marker-end/g) || []).length, 2, 'an arrow between, and none after the last');
+  assert.match(drawn.html, /var\(--d-fill-1\)/, 'themed, so it re-colors like every other diagram');
+
+  // a cycle is the same strip with the way back drawn under it
+  const cycle = diagramBlockHtml({ shape: 'cycle', nodes: steps });
+  assert.match(cycle.html, /<path d="M /, 'the return leg');
+
+  // seven boxes across 960px cannot be read; the words can
+  const many = diagramBlockHtml({ shape: 'process', nodes: Array.from({ length: 7 }, (_, i) => ({ text: `s${i}`, plain: `s${i}`, children: [] })) });
+  assert.equal(many.as, 'a nested list');
+  assert.match(many.html, /^<ol>/, 'a process that has to be a list is still ordered');
+
+  // a hierarchy has a shape decklight will not fake, so it keeps the words
+  const tree = diagramBlockHtml({ shape: 'hierarchy', nodes: [{ text: 'top', plain: 'top', children: [{ text: 'under', plain: 'under', children: [] }] }] });
+  assert.equal(tree.as, 'a nested list');
+  assert.equal(tree.html, '<ul><li>top<ul><li>under</li></ul></li></ul>');
+});
+
+test('SmartArt whose data cannot be read is still a loud drop', () => {
+  const xml = '<p:sld><p:cSld><p:spTree><p:graphicFrame><a:graphic>'
+    + '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/diagram"/>'
+    + '</a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>';
+  const slide = parseSlide(xml, { rels: new Map(), diagramOf: () => null });
+  assert.equal(slide.blocks.length, 0);
+  assert.ok(slide.drops.some((d) => /SmartArt dropped.*could not be read/.test(d)));
+});
+
+test('the fixture’s SmartArt crosses as a drawn process, and says so', () => {
+  const { sections, report } = convert(zip());
+  assert.match(sections[2], /<svg viewBox="0 0 960 120"/);
+  assert.match(sections[2], /General availability/, 'the last step is on the slide');
+  assert.ok(!/PRESENTATION SCAFFOLD/.test(sections[2]), 'the layout’s own boxes are not words');
+  assert.ok(report[2].did.some((d) => /^SmartArt \(process, 4 nodes\) as an SVG diagram$/.test(d)));
+  assert.ok(!report[2].drops.some((d) => /SmartArt/.test(d)));
 });
 
 test('image mime types come from the file name', () => {

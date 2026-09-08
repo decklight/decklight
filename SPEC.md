@@ -733,7 +733,7 @@ binary format, is refused with instructions rather than guessed at.
 
 | PowerPoint | decklight |
 |---|---|
-| slide | `<section>`, in `<p:sldIdLst>` order (not archive order); hidden slides skipped and reported |
+| slide | `<section>`, in `<p:sldIdLst>` order (not archive order); a hidden slide is **kept** as `data-hidden`, numbered and reported (`HIDDEN_SLIDES`) |
 | title placeholder | `<h2>`; `<h1>` when it is the title layout's centred title (`ctrTitle`) |
 | subtitle placeholder | the following `<p>`, which feeds the DECK_ANATOMY subtitle rule |
 | body bullets | `<ul>`/`<ol>`, indent levels as real nesting **inside** the parent `<li>`; bold/italic/links preserved |
@@ -741,7 +741,9 @@ binary format, is refused with instructions rather than guessed at.
 | speaker notes | `<aside class="notes">`, one `<p>` per paragraph |
 | pictures | `<img>` with the bytes inlined as a `data:` URI |
 | tables | `<table>`, first row as `<thead>` |
-| SmartArt, charts, embedded media, transitions | **dropped, and named** with the slide number and what to rebuild them as |
+| charts | `data-chart` JSON built from the chart part's own caches — bar, line, area, pie and doughnut, in the kinds `CHARTS` draws. A kind decklight cannot draw is dropped by name |
+| SmartArt | its **data model**, never its drawing: a flat sequence of at most six steps becomes a themed SVG strip (`SVG_DIAGRAMS`) with an arrow between each and, for a cycle, the way back drawn under it; anything else — a hierarchy, a longer process, a nested one — keeps every word as a nested list, ordered when the shape was a sequence. The layout part decides which of those it is, the connection list rebuilds the nesting (`srcOrd` is the order, not document order), and the layout's own `pres` points are dropped, being boxes rather than words. The report says which happened. Only a graphic whose data model cannot be read at all is dropped |
+| embedded media, transitions, OLE objects | **dropped, and named** with the slide number and what to rebuild them as |
 
 Drops never fail the command — only an unreadable file, a non-presentation, or
 a deck whose every slide is hidden do. A silent drop is the failure that

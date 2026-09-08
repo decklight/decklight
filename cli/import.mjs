@@ -187,6 +187,8 @@ export function convert(zip, { build = 'auto' } = {}) {
         return bytes ? { bytes, mime: mimeOf(p) } : null;
       },
       chartOf: (target) => zip.get(resolvePart(slidePath, target))?.toString() ?? null,
+      // the same seam, for the two parts a SmartArt graphic is made of
+      diagramOf: (target) => zip.get(resolvePart(slidePath, target))?.toString() ?? null,
     });
     n += 1;
 

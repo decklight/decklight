@@ -65,6 +65,19 @@ setTimeout(() => {
       buildList: !!document.querySelector('ul[data-build]'),
       nestedInsideLi: !!document.querySelector('li > ul > li'),
       table: !!document.querySelector('table th'),
+      // SmartArt crossed as a real diagram: drawn, themed, and with its ids
+      // namespaced by the engine — an arrow marker referenced by a raw #id
+      // would be repainted by whichever inline svg defined that id last.
+      diagram: !!document.querySelector('section svg rect'),
+      diagramSteps: document.querySelectorAll('section svg rect').length,
+      diagramThemed: (() => {
+        const r = document.querySelector('section svg rect');
+        return !!r && getComputedStyle(r).fill !== 'none' && !/^(rgb\(0, 0, 0\))?$/.test(getComputedStyle(r).fill);
+      })(),
+      diagramIdsNamespaced: (() => {
+        const m = document.querySelector('section svg marker');
+        return !!m && m.id !== 'dgm-arrow' && m.id.endsWith('dgm-arrow');
+      })(),
       imageInlined: (document.querySelector('img') || {}).src?.startsWith('data:') ?? false,
       overflow: [...document.querySelectorAll('[data-overflow]')].length,
       errors: errors.length ? errors.join(' | ') : 'none',
@@ -96,6 +109,10 @@ check('speaker notes came across', r.notes, 1);
 check('the build list steps', r.buildList, true);
 check('sublists nest inside their <li>', r.nestedInsideLi, true);
 check('the table has a header row', r.table, true);
+check('SmartArt came across as a diagram', r.diagram, true);
+check('one box per step', r.diagramSteps, 4);
+check('the diagram takes the theme', r.diagramThemed, true);
+check('its ids are namespaced by the engine', r.diagramIdsNamespaced, true);
 check('the image is inlined as data:', r.imageInlined, true);
 check('no slide overflows', r.overflow, 0);
 check('the engine never warned about overflow', r.overflowWarns, 0);
