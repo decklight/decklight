@@ -143,6 +143,29 @@
             url: 'https://acme.github.io/talks/' });
         }
       }
+      // Insert-from-a-template (UNITS#REST): three routes, and the second one
+      // is the interesting shape — a template read as a list of slides, each
+      // saying what it points at that THIS deck will not have.
+      if (HARNESS_MODE === 'template') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/template/list')) {
+          return json({ ok: true, cacheOnly: true, stale: [],
+            installed: ['startup-pitch'],
+            offered: [{ name: 'quarterly', qualified: 'quarterly@acme', marketplace: 'acme', description: 'a review deck' }] });
+        }
+        if (u.includes('/edit/template/slides')) {
+          return json({ ok: true, name: 'startup-pitch', slides: [
+            { n: 1, title: 'Startup pitch', hidden: false, needs: [] },
+            { n: 2, title: 'Pricing', hidden: false, needs: ['assets/table.png'] },
+            { n: 3, title: 'Backup', hidden: true, needs: [] },
+          ] });
+        }
+        if (u.includes('/edit/template/insert')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, inserted: body.slides.length, after: body.after, name: 'startup-pitch',
+            titles: ['Pricing'], needs: ['assets/table.png'], undo: 1, redo: 0 });
+        }
+      }
       if (HARNESS_MODE === 'browse') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/theme/browse')) return json(FAKE_BROWSE);
@@ -558,6 +581,57 @@
 
         r.PASS = r.rowIsThere && r.asksFirst && r.askedWithAGet && r.publishedNothingYet
           && r.secondPressPublishes && r.saysTheUrl;
+      }
+
+      // UNITS#REST: taking somebody else's slides. What matters is that the
+      // panel is a CHOICE — the slides are ticked, not swallowed whole — and
+      // that a slide needing a file this deck has not says so BEFORE it lands.
+      if (mode === 'template') {
+        const P = '.decklight-tmpl', ROW = '.narr-row';
+        await settle();                       // /edit/ping: editAvailable
+        press('/');
+        for (const ch of 'template') press(ch);
+        r.rowIsThere = [...document.querySelectorAll('.decklight-palette .pal-row')]
+          .map((n) => n.textContent).some((t) => /Insert from a template/.test(t));
+        press('Enter');
+        await settle();
+        r.opens = !!document.querySelector(P);
+        const rows = () => [...document.querySelectorAll(`${P} ${ROW}`)].map((n) => n.textContent);
+        r.listsInstalled = rows().some((t) => /startup-pitch/.test(t));
+        r.listsOffered = rows().some((t) => /quarterly@acme/.test(t) && /install/.test(t));
+
+        press('Enter');                       // open the installed one
+        await settle();
+        r.listsSlides = rows().some((t) => /Pricing/.test(t));
+        r.saysWhatASlideNeeds = rows().some((t) => /needs assets\/table\.png/.test(t));
+        r.marksHidden = rows().some((t) => /Backup/.test(t) && /hidden/.test(t));
+        r.nothingPickedYet = rows().every((t) => !t.includes('☑'));
+
+        press('ArrowDown');                   // to Pricing
+        press(' ');
+        r.spacePicks = rows().some((t) => /Pricing/.test(t) && t.includes('☑'));
+        press('a');
+        r.aPicksAll = rows().filter((t) => t.includes('☑')).length === 3;
+        press('a');
+        r.aAgainClears = rows().every((t) => !t.includes('☑'));
+
+        press(' ');                           // pick just this one
+        press('Enter');
+        await settle();
+        await settle();
+        const posted = CALLS.post.find((c) => c.u.includes('/edit/template/insert'));
+        r.postsTheChoice = !!posted && posted.body.name === 'startup-pitch'
+          && JSON.stringify(posted.body.slides) === '[2]';
+        r.insertsAfterTheCurrentSlide = !!posted && posted.body.after === deck.state.slide;
+        r.closesOnInsert = !document.querySelector(P);
+        const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        r.saysWhatLanded = said.some((t) => /1 slide from startup-pitch after slide/.test(t) && /Z takes it back/.test(t));
+        r.repeatsTheWarning = said.some((t) => /assets\/table\.png/.test(t));
+
+        r.PASS = r.rowIsThere && r.opens && r.listsInstalled && r.listsOffered && r.listsSlides
+          && r.saysWhatASlideNeeds && r.marksHidden && r.nothingPickedYet && r.spacePicks
+          && r.aPicksAll && r.aAgainClears && r.postsTheChoice && r.insertsAfterTheCurrentSlide
+          && r.closesOnInsert && r.saysWhatLanded && r.repeatsTheWarning;
       }
 
       if (mode === 'exclusive') {

@@ -23,6 +23,10 @@
 //   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
 //   POST /edit/layout          → { slide, layout }         write data-layout to the file
 //   POST /edit/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
+//   GET  /edit/template/list   → deck templates installed here, and what a marketplace offers
+//   GET  /edit/template/slides → ?name=   that template's slides, numbered, with what each needs
+//   POST /edit/template/add    → { ref }  install a template from a marketplace (UNITS#REST)
+//   POST /edit/template/insert → { name, slides, after }  its slides into THIS deck, one undo entry
 //   POST /edit/export          → { kind }   write the deck out as a file (the palette's hand-over rows)
 //   GET  /edit/publish/plan    → where publishing would put this deck, without putting it there
 //   POST /edit/publish         → bundle the deck and push it (the palette's Publish row)
@@ -921,8 +925,16 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     return out;
   };
-  /** Every theme entry a registered marketplace offers, qualified. */
-  const browsableThemes = async () => {
+  /**
+   * Every entry of one TYPE a registered marketplace offers, qualified.
+   *
+   * Written for themes and generalised the day templates needed the same list:
+   * the cache reading, the never-fetched marketplaces and the
+   * cloned-but-missing ones are properties of the registry, not of what is
+   * being listed, so a second copy of them would be a second thing to keep
+   * right.
+   */
+  const browsableUnits = async (type) => {
     const { loadRegistry, loadCatalog, checkoutPath, classifySource, configHome } = await import('./marketplace.mjs');
     const registry = loadRegistry().marketplaces ?? {};
     const themes = [];
@@ -944,7 +956,7 @@ export async function editMain(args, { onListen = null } = {}) {
         continue;
       }
       for (const e of loaded.manifest.entries ?? []) {
-        if (e.type !== 'theme') continue;
+        if (e.type !== type) continue;
         themes.push({
           name: e.name, marketplace: market, qualified: `${e.name}@${market}`,
           description: e.description ?? '', source: e.source,
@@ -953,6 +965,7 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     return { themes, stale };
   };
+  const browsableThemes = () => browsableUnits('theme');
   /**
    * Every entry a registered marketplace declares a wizard for, qualified.
    * Advertised in /edit/ping beside the agents: the palette's Configure rows
@@ -1973,6 +1986,97 @@ export async function editMain(args, { onListen = null } = {}) {
           if (before === undefined) delete process.env.GIT_TERMINAL_PROMPT;
           publishing = false;
         }
+      }
+      /**
+       * Deck templates, into a deck that already exists (`UNITS#REST`).
+       *
+       * A template is one self-contained HTML deck, and until now the only way
+       * to use one was `init --from` — which writes a NEW deck, so a deck you
+       * had already started could not take anything from a template at all.
+       * These four routes are the other half: what is installed, what a
+       * marketplace offers, what is IN a template, and its slides into this
+       * deck.
+       *
+       * Listing is cache-only, exactly like the theme browser: a deck being
+       * authored on a plane lists what has been fetched and names the
+       * marketplaces it could not read. Only `add` touches the network, and it
+       * goes through `template add`'s own installer, so a template refused on
+       * the command line is refused here for the same reason.
+       *
+       * The insert is an ORDINARY EDIT — `applyEdit`, one undo entry — because
+       * that is what it is: somebody else's slides are now your slides, and `Z`
+       * takes them back like any other change.
+       */
+      if (req.method === 'GET' && url.pathname === '/edit/template/list') {
+        const { listUnits } = await import('./units.mjs');
+        const { themes: offered, stale } = await browsableUnits('template');
+        const installed = listUnits('template').map((u) => u.name);
+        return json(200, {
+          ok: true,
+          installed,
+          // what is offered AND not already here — the picker shows installed
+          // templates first, then the ones an install would bring
+          offered: offered.filter((e) => !installed.includes(e.name)),
+          stale,
+          cacheOnly: true,
+        });
+      }
+      if (req.method === 'GET' && url.pathname === '/edit/template/slides') {
+        const name = url.searchParams.get('name') ?? '';
+        const { findUnit } = await import('./units.mjs');
+        const found = findUnit('template', name);
+        if (!found) return json(404, { ok: false, error: `no template "${name}" is installed here` });
+        const { templateSlides } = await import('../tools/template-slides.mjs');
+        const slides = templateSlides(readFileSync(found.path, 'utf8'))
+          .map(({ n, title, hidden, needs }) => ({ n, title, hidden, needs }));
+        if (!slides.length) return json(422, { ok: false, error: `"${name}" has no slides in it` });
+        return json(200, { ok: true, name, slides });
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/template/add') {
+        const { ref } = JSON.parse(body || '{}');
+        if (typeof ref !== 'string' || !ref.trim()) return json(400, { ok: false, error: 'which template?' });
+        const { installUnit, UnitError } = await import('./units.mjs');
+        try {
+          const done = await installUnit('template', ref.trim());
+          console.log(`  template: installed ${done.name} from ${ref.trim()}`);
+          return json(200, { ok: true, name: done.name });
+        } catch (e) {
+          if (e instanceof UnitError) return json(400, { ok: false, error: e.message });
+          return json(502, { ok: false, error: oneline(e) });
+        }
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/template/insert') {
+        const { name, slides: want, after } = JSON.parse(body || '{}');
+        const { findUnit } = await import('./units.mjs');
+        const found = typeof name === 'string' && name ? findUnit('template', name) : null;
+        if (!found) return json(404, { ok: false, error: `no template "${name}" is installed here` });
+
+        const { templateSlides } = await import('../tools/template-slides.mjs');
+        const { sectionBodies, insertSectionsAfter } = await import('../tools/deck-html.mjs');
+        const all = templateSlides(readFileSync(found.path, 'utf8'));
+        const picked = (Array.isArray(want) && want.length ? want : all.map((s) => s.n))
+          .map(Number)
+          .filter((n) => Number.isInteger(n));
+        const missing = picked.filter((n) => !all.some((s) => s.n === n));
+        if (missing.length) {
+          return json(400, { ok: false, error: `"${name}" has no slide ${missing.join(', ')} (it has ${all.length})` });
+        }
+        if (!picked.length) return json(400, { ok: false, error: 'no slides chosen' });
+
+        const deck = readDeck();
+        const total = sectionBodies(deck).length;
+        const at = Number.isInteger(after) ? after : total;
+        if (at < 0 || at > total) return json(400, { ok: false, error: `cannot insert after slide ${after} — this deck has ${total}` });
+
+        const chosen = [...new Set(picked)].sort((a, b) => a - b).map((n) => all.find((s) => s.n === n));
+        const changed = applyEdit(insertSectionsAfter(deck, at, chosen.map((s) => s.html)));
+        const needs = [...new Set(chosen.flatMap((s) => s.needs))];
+        console.log(`  template: ${chosen.length} slide(s) from ${name} after slide ${at}`
+          + (needs.length ? ` — points at ${needs.join(', ')}, which this deck does not have` : ''));
+        return json(200, {
+          ok: true, inserted: chosen.length, after: at, name,
+          titles: chosen.map((s) => s.title), needs, changed, ...history.counts(),
+        });
       }
       // ── element edit mode (E, right-click a slide element) — #112 ─────
       // Same door as layout/notes: a pure (html, slide, index, …) → html

@@ -859,7 +859,26 @@ each is used by the command that needs it. **`decklight init --from <name>` scaf
 an installed template** — replacing only its `<title>` and first `<h1>`, so a
 template is a deck and not a program — and a name that is not installed is met
 with the install command rather than a download: `init` is the first command
-anyone runs, and it does not reach the network. A marketplace skill installs
+anyone runs, and it does not reach the network.
+
+**A deck that already exists takes SLIDES from a template**, which is the other
+half of the same unit and the only way a template is any use once `init` has
+run. In author mode the palette's **Insert from a template…** lists what is
+installed and what a registered marketplace offers (`GET /edit/template/list`,
+cache-only, exactly like the theme browser — installing is the one step that
+touches the network, through `template add`'s own installer). Opening one lists
+its slides by heading (`GET /edit/template/slides`); space picks, `a` picks all,
+and `⏎` inserts the chosen ones **after the slide you are on**
+(`POST /edit/template/insert`) as **one undo entry** — somebody else's slides
+are now your slides, and `Z` takes them back like any other edit. A hidden
+slide is listed as hidden and can still be taken, keeping the attribute.
+Each slide says **what it points at that this deck will not have** —
+`data-cast`, a relative `src`, background media — before it is taken rather
+than after: a `data:` image travels with the markup and `casts/demo.cast` does
+not, and the importer's rule about naming what did not cross applies one step
+earlier here. The insert is a paste, never a merge: the section's markup is
+written as it stands, re-indented to the deck's own level so the diff is
+reviewable, and the deck's themes and `init` config are left alone. A marketplace skill installs
 into the library and therefore sits **alongside** the authoring skill
 `decklight skills` writes into a project, never replacing it. An import adapter
 is **offered at the point of failure** — `decklight import talk.marp` names the
@@ -1375,7 +1394,8 @@ decklight/
   src/core/      engine.js (init, nav, builds, transitions, stage, chrome, input) + the features that own their own
                  state and keyboard: themes.js (switching, packs, generator, picker), narration.js (voice, captions,
                  character, the recorders), editmode.js (live reload, notes editor, element edit mode, agents
-                 and the chip that says one is still working, undo/redo, restore), hud.js (clock, progress, ink, transcript), onboarding.js (the first-open card
+                 and the chip that says one is still working, undo/redo, restore), templates.js (browsing deck
+                 templates and taking slides from one), hud.js (clock, progress, ink, transcript), onboarding.js (the first-open card
                  and tips) + the decidable pieces engine.js's init() no longer holds, each unit-tested without a
                  browser: overflow.js (the guardrail's watch), playlist.js (module navigation), finder.js (the
                  finder's index + ranking), layout.js (the L ring + its write-through), palette.js (what a typed
@@ -1404,7 +1424,7 @@ decklight/
                  core), present.mjs, edit.mjs, dev.mjs, remote.mjs, agents.mjs (AI-agent roster), git.mjs (the
                  autocommit decision table), update-check.mjs (the "a newer decklight exists" notice), qr.mjs,
                  port-conflict.mjs, supervise.mjs, skill-content.mjs (the agent skill's shipped text)
-  tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
+  tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes) + template-slides.mjs (a deck template as a list of slides you can take, UNITS#REST), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the
                  marketplace, THEME_DISTRIBUTION) + packs.json + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
