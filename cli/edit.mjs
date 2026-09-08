@@ -23,7 +23,8 @@
 //   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
 //   POST /edit/layout          → { slide, layout }         write data-layout to the file
 //   POST /edit/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
-//   POST /edit/pptx            → render the deck to <deck>.pptx (the palette's export row)
+//   POST /edit/export          → { kind }   write the deck out as a file (the palette's hand-over rows)
+//   POST /edit/pptx            → 0.8.1's name for the PowerPoint half of it, kept for decks that ask
 //   GET  /edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
 //   POST /edit/element/remove  → { slide, index }          delete that element
 //   POST /edit/element/content → { slide, index, html }    replace its outerHTML
@@ -131,6 +132,19 @@ export function setSlideNotes(html, slide, asideInner) {
 }
 
 // the same ring the player cycles — the file is the source of truth now
+/**
+ * The files the palette's hand-over rows can ask for (PRESENTING). Each is one
+ * of decklight's own commands, named the way the deck names it to the presenter
+ * — `what` IS the wording in the toast, so the row, the terminal line and the
+ * message log all say the same words.
+ */
+export const EXPORT_KINDS = {
+  pptx: { what: 'PowerPoint', variant: null },
+  pdf: { what: 'PDF', variant: '' },
+  'pdf-notes': { what: 'PDF with notes', variant: 'notes' },
+  'pdf-handout': { what: 'PDF handout', variant: 'handout' },
+};
+
 export const LAYOUTS = ['auto', 'centered', 'pinned', 'top', 'split', 'split-flip'];
 
 /** Set (or, for 'auto', remove) slide N's data-layout attribute in the deck html. */
@@ -645,7 +659,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // Declared before the git block below, which reads it to hold the cadence
   // back while a job is in flight.
   let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
-  let exporting = false; // a pptx export in flight — one browser, one output path
+  let exporting = false; // an export in flight — one browser, one output path, any kind
 
   // ── git autocommit — the durable record, independent of undo/redo ──────
   const noGit = args.includes('--no-git');
@@ -1796,50 +1810,80 @@ export async function editMain(args, { onListen = null } = {}) {
         return json(200, { ok: true, changed, ...history.counts() });
       }
       /**
-       * Export the deck to PowerPoint, for the palette's row (PRESENTING).
+       * Write the deck out as a file, for the palette's hand-over rows
+       * (PRESENTING) — `{ kind }`, one of EXPORT_KINDS.
        *
-       * `decklight pptx` needs Node and a headless Chrome, so the deck cannot
-       * do this itself — the same reason `A` asks the server to run an agent.
-       * The work is `pptxMain`'s, unchanged, so what the row writes is exactly
-       * what the command line writes.
+       * `decklight pptx` and `decklight pdf` need Node and a headless Chrome,
+       * so the deck cannot do this itself — the same reason `A` asks the
+       * server to run an agent. The work is the commands' own `main`s,
+       * unchanged, so what a row writes is exactly what the command line
+       * writes.
        *
-       * Three things this route owes the session it is running inside:
+       * Four things this route owes the session it is running inside:
        *
        * - it must not TAKE THE SERVER DOWN. `chromeBin` exits the process when
        *   there is no browser — correct for a one-shot command, fatal here, so
        *   Chrome is resolved with the non-fatal `findChrome` first and a machine
        *   without one gets a sentence instead of a dead author server.
        * - it must not run twice at once. Two exports write the same path
-       *   through two browsers; the second caller is told to wait.
-       * - it must not block. `pptxMain` is async all the way down (it serves
-       *   the deck from THIS process while Chrome fetches it), so live reload,
-       *   the SSE stream and every other route keep answering while a slide
-       *   renders. That is also why the row can say "rendering…" and mean it.
+       *   through two browsers; the second caller is told to wait. ONE flag for
+       *   every kind, deliberately: two different exports at once is still two
+       *   browsers on one machine, and the second would only be slower.
+       * - it must not block. Both `main`s are async all the way down (pptx
+       *   serves the deck from THIS process while Chrome fetches it; pdf is
+       *   async so the session stays answerable while Chrome prints), so live
+       *   reload, the SSE stream and every other route keep answering while a
+       *   slide renders. That is also why a row can say "rendering…" and mean it.
+       * - it must SAY WHERE IT IS. An export is tens of seconds, so each slide
+       *   is announced on the `export` channel of the same SSE stream the agent
+       *   chip rides, and the deck rewrites its one progress row from it.
        */
-      if (req.method === 'POST' && url.pathname === '/edit/pptx') {
+      if (req.method === 'POST' && (url.pathname === '/edit/export' || url.pathname === '/edit/pptx')) {
+        // `/edit/pptx` was 0.8.1's name for the PowerPoint half. A deck carries
+        // its OWN copy of the runtime, so a deck written then and opened under
+        // this server still asks for that path; it costs one `||` to answer.
+        const kind = url.pathname === '/edit/pptx' ? 'pptx' : (JSON.parse(body || '{}').kind ?? 'pptx');
+        const job = EXPORT_KINDS[kind];
+        if (!job) {
+          return json(400, { ok: false, error: `not a file this server writes: ${kind} — try ${Object.keys(EXPORT_KINDS).join(', ')}` });
+        }
         if (exporting) return json(409, { ok: false, error: 'an export is already running' });
         const { findChrome } = await import('../tools/chrome.mjs');
         if (!findChrome()) {
           return json(503, { ok: false, error: 'no Chrome found — install one, or point $CHROME at it' });
         }
-        const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
-        const out = pptxOut(deckPath);
         exporting = true;
         const started = Date.now();
-        console.log(`  pptx: exporting ${basename(deckPath)} …`);
+        console.log(`  export: ${basename(deckPath)} → ${job.what} …`);
+        broadcast('export', { state: 'start', kind, what: job.what });
         try {
-          const code = await pptxMain([deckPath], { log: (line) => console.log(`  ${line}`) });
-          if (code !== 0) return json(500, { ok: false, error: 'the export refused — see the author server\'s output' });
-          return json(200, {
-            ok: true,
-            file: relative(process.cwd(), out) || basename(out),
-            seconds: Math.round((Date.now() - started) / 100) / 10,
-          });
+          let out, code;
+          if (kind === 'pptx') {
+            const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
+            out = pptxOut(deckPath);
+            code = await pptxMain([deckPath], {
+              log: (line) => console.log(`  ${line}`),
+              onSlide: (n, of) => broadcast('export', { state: 'slide', kind, n, of }),
+            });
+          } else {
+            const { pdfMain, pdfOut } = await import('./pdf.mjs');
+            out = pdfOut(deckPath, null, job.variant);
+            code = await pdfMain([deckPath, ...(job.variant ? [`--${job.variant}`] : [])]);
+          }
+          const file = relative(process.cwd(), out) || basename(out);
+          const seconds = Math.round((Date.now() - started) / 100) / 10;
+          if (code !== 0) {
+            broadcast('export', { state: 'done', kind, ok: false });
+            return json(500, { ok: false, error: 'the export refused — see the author server\'s output' });
+          }
+          broadcast('export', { state: 'done', kind, ok: true, file, seconds });
+          return json(200, { ok: true, kind, what: job.what, file, seconds });
         } catch (e) {
           // A render that hangs or a Chrome that dies is the export's problem,
           // never the session's: the message goes back to the palette and the
           // server carries on serving the deck.
-          console.log(`  pptx: export failed — ${oneline(e)}`);
+          console.log(`  export: ${job.what} failed — ${oneline(e)}`);
+          broadcast('export', { state: 'done', kind, ok: false, error: oneline(e) });
           return json(500, { ok: false, error: oneline(e) });
         } finally {
           exporting = false;
