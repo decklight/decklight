@@ -573,6 +573,28 @@ export function init(userConfig = {}) {
       if (to != null) instance.goto(to, 0);
     }
   }
+  // ── PowerPoint, from inside the deck ────────────────────────────────────
+  // `decklight pptx` needs Node and a headless Chrome, so the deck asks the
+  // author server to run it — the same door `A` (ask an agent) uses. It takes
+  // seconds per slide, so the row says what is happening before it starts and
+  // names the file it wrote when it ends; a silent wait reads as a dead row.
+  let exportingPptx = false;
+  async function exportPptx() {
+    if (exportingPptx) { toast('already exporting — one browser at a time'); return; }
+    exportingPptx = true;
+    toast('exporting to PowerPoint — rendering every slide, this takes a moment…');
+    try {
+      const r = await fetch(editmode.base() + '/edit/pptx', { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      toast(`wrote ${j.file} — every slide a picture, the notes as notes${j.seconds ? ` (${j.seconds}s)` : ''}`);
+    } catch (e) {
+      toast(`could not export to PowerPoint — ${e.message}`);
+    } finally {
+      exportingPptx = false;
+    }
+  }
+
   // The speaker popup, opened if it is not already — for the palette rows
   // that drive something inside it.
   function speakerWindow() {
@@ -654,6 +676,9 @@ export function init(userConfig = {}) {
       // from here, not only from `decklight pdf --notes/--handout`.
       { label: 'Print with notes (one slide per page, new tab)', alias: 'pdf print speaker notes script handout pages', run: () => window.open(location.pathname + '?print=notes') },
       { label: 'Print handout (three per page, new tab)', alias: 'pdf print handout thumbnails audience note-taking lines', run: () => window.open(location.pathname + '?print=handout') },
+      editmode.available() && { label: 'Export to PowerPoint… (dev)',
+        alias: 'pptx powerpoint keynote google slides export file office send share hand over',
+        run: exportPptx },
       // HIDDEN_SLIDES — contextual: a deck with nothing hidden has nothing to
       // show, and a row that reloads the deck for no visible change reads as
       // broken. Author mode adds the verb that makes a slide hidden at all.
