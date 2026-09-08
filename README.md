@@ -25,7 +25,7 @@ But the real reason this project exists is the second half: I wanted a codebase 
 - **46 built-in themes** — every one passes WCAG contrast gates and codified palette rules; generate your own with a keystroke.
 - **Truthful terminals** — real PTY recordings replayed truthfully, never a video.
 - **Live narration** — text-to-speech presents the deck by itself, in sync, captions included.
-- **Coming from PowerPoint** — `import` brings the deck across (charts as data, hidden slides still hidden, the template's own palette as a theme), and `pdf` / `pptx` hand a file back to whoever still asks for one.
+- **Coming from PowerPoint** — `import` brings the deck across (charts as data, SmartArt as a themed diagram, hidden slides still hidden, the template's own palette as a theme), and `pdf` / `pptx` hand a file back to whoever still asks for one.
 - **Everything is text** — no binary formats, so decks diff cleanly in git and agents can read, review, and edit every byte.
 - **Safe to receive** — `decklight present` plays a deck you did not author read-only under a CSP, prints what the file will execute, and strips what it cannot account for. `publish` signs; a `.decklight` container is verified before it renders.
 - **Extensible without shipping code to the audience** — themes, templates, engines, importers and presenter chrome install from git-repo marketplaces anyone can host; build-time transforms run on your machine during `bundle`, so nothing executable travels with the deck.
