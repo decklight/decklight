@@ -710,6 +710,11 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Export a PDF handout… (dev)',
         alias: 'pdf handout three per page audience note-taking export file send print',
         run: () => editmode.exportDeck('pdf-handout') },
+      // The last one is a URL rather than a file, so it asks first: one press
+      // shows where it would go, the next one sends it.
+      editmode.available() && { label: 'Publish this deck… (dev)',
+        alias: 'publish share url link web site pages gh-pages github deploy send hand over',
+        run: () => editmode.publishDeck() },
       // HIDDEN_SLIDES — contextual: a deck with nothing hidden has nothing to
       // show, and a row that reloads the deck for no visible change reads as
       // broken. Author mode adds the verb that makes a slide hidden at all.

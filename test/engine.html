@@ -127,6 +127,22 @@
             : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : 'deck.handout.pdf', seconds: 6.2 });
         }
       }
+      // The Publish row (PRESENTING) is the one that reaches off the machine,
+      // so it is two presses: the plan, shown, then the push. Both routes are
+      // stood up here — and the plan is a GET on purpose, which is half of
+      // what the assertions check.
+      if (HARNESS_MODE === 'publish') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        // the longer path first: /edit/publish is a prefix of /edit/publish/plan
+        if (u.includes('/edit/publish/plan')) {
+          return json({ ok: true, remote: 'origin', branch: 'gh-pages', bundled: false,
+            url: 'https://acme.github.io/talks/', signing: true, why: null });
+        }
+        if (u.includes('/edit/publish')) {
+          return json({ ok: true, remote: 'origin', branch: 'gh-pages', commit: 'abc1234',
+            url: 'https://acme.github.io/talks/' });
+        }
+      }
       if (HARNESS_MODE === 'browse') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/theme/browse')) return json(FAKE_BROWSE);
@@ -508,6 +524,40 @@
 
         r.PASS = r.rowIsThere && r.closesOnRun && r.saysItStarted && r.saysWhereItIs
           && r.oneRowNotMany && r.posted && r.answered && r.pdfRowIsThere;
+      }
+
+      // PRESENTING: publishing from inside the deck. Everything else the
+      // palette hands over writes a file beside the deck; this one puts a page
+      // on the internet, and Z does not take that back — so what is asserted
+      // is that the FIRST press only asks, and names the URL a person is about
+      // to send somebody, and that the second one is what publishes.
+      if (mode === 'publish') {
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        await settle();                       // let /edit/ping settle: editAvailable
+        const pick = () => {
+          press('/');
+          for (const ch of 'publish this deck') press(ch);
+          const rows = [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+          press('Enter');
+          return rows;
+        };
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+
+        r.rowIsThere = pick().some((t) => /Publish this deck/.test(t));
+        await settle();
+        await settle();
+        r.asksFirst = said().some((t) => /publish to origin gh-pages → https:\/\/acme\.github\.io\/talks\/\? — pick the row again/.test(t));
+        r.askedWithAGet = CALLS.get.some((u) => u.includes('/edit/publish/plan'));
+        r.publishedNothingYet = !CALLS.post.some((c) => c.u.includes('/edit/publish'));
+
+        pick();
+        await settle();
+        await settle();
+        r.secondPressPublishes = CALLS.post.some((c) => c.u.includes('/edit/publish'));
+        r.saysTheUrl = said().some((t) => /published — https:\/\/acme\.github\.io\/talks\//.test(t));
+
+        r.PASS = r.rowIsThere && r.asksFirst && r.askedWithAGet && r.publishedNothingYet
+          && r.secondPressPublishes && r.saysTheUrl;
       }
 
       if (mode === 'exclusive') {

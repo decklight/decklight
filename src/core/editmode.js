@@ -1519,6 +1519,57 @@ export function createEditMode({
     }
   }
 
+  // ── publishing: the one row that reaches off this machine ────────────────
+  //
+  // Every other hand-over row writes a file next to the deck. This one pushes
+  // a page anybody can read, and `Z` does not take that back — so the row is
+  // two presses. The first asks the server what publishing WOULD do and says
+  // it: the remote, the branch, the URL somebody will be sent. The second,
+  // within the arming window, does it. Doing nothing disarms it, which is the
+  // cheapest possible "no".
+  const PUBLISH_ARM_MS = 20000;
+  let publishArmed = 0;
+  let publishPlan = null;
+  async function publishDeck() {
+    if (publishArmed && Date.now() - publishArmed < PUBLISH_ARM_MS) {
+      publishArmed = 0;
+      // The plan already said whether this deck still needs flattening, so the
+      // line describes what is actually about to happen rather than the longer
+      // of the two things it might be.
+      const run = progress(publishPlan?.bundled
+        ? 'publishing — bundling the deck and pushing it…'
+        : 'publishing — pushing the deck…');
+      try {
+        const r = await fetch(editBase + '/edit/publish', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+        run.done(j.url ? `published — ${j.url}` : `published — pushed to ${j.remote} ${j.branch}`, 9000);
+        debugLog('publish', j.url ?? `${j.remote} ${j.branch}`);
+      } catch (e) {
+        run.done(`could not publish — ${e.message}`, 6000);
+        debugLog('publish', `failed: ${e.message}`);
+      }
+      return;
+    }
+    try {
+      const r = await fetch(editBase + '/edit/publish/plan');
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      // Never arm something that cannot happen: publish signs the deck and
+      // refuses rather than publishing it unsigned, so a machine that cannot
+      // is told now — not after a confirmation the publish was never going to
+      // honour. The sentence is the SERVER's, shown as it arrived: the runtime
+      // is not allowed to know what does the signing (test/sign.test.mjs).
+      if (!j.signing) { toast(`cannot publish — ${j.why}`, 8000); return; }
+      publishArmed = Date.now();
+      publishPlan = j;
+      toast(`publish to ${j.remote} ${j.branch}${j.url ? ` → ${j.url}` : ''}?`
+        + ' — pick the row again to confirm', 8000);
+    } catch (e) {
+      toast(`could not publish — ${e.message}`, 5200);
+    }
+  }
+
   return {
     deckHistory,
     toggleEditor,
@@ -1557,5 +1608,7 @@ export function createEditMode({
     commit: { open: openCommit, close: closeCommit, state: () => commitNow },
     /** The palette's hand-over rows: 'pptx' | 'pdf' | 'pdf-notes' | 'pdf-handout'. */
     exportDeck,
+    /** The Publish row: the first call asks and arms, the second publishes. */
+    publishDeck,
   };
 }
