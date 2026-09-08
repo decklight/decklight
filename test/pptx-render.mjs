@@ -52,21 +52,30 @@ const check = (label, got, want) => {
 // absolute path to dist/ is a 404 there: the deck renders as unstyled HTML,
 // every slide comes out the same blank picture, and the harness passes while
 // proving nothing. (It did, on the first run.)
-const SLIDES = 2;
+// The deck's LAST slide is hidden (HIDDEN_SLIDES), because that is the shape
+// an imported PowerPoint has: the backup detail nobody presents, kept after
+// the talk ends. It must not be in the file handed over — and the way it used
+// to arrive is the reason this is asserted end to end rather than in a unit
+// test: a deep link onto a hidden slide lands on its nearest SHOWN neighbour,
+// so the export wrote the previous slide's picture again, under the hidden
+// slide's notes, and every count still added up.
+const SHOWN = 2;
+const HIDDEN_NOTES = 'Backup detail nobody presents.';
 mkdirSync(path.join(dir, 'dist'), { recursive: true });
 for (const f of ['decklight.js', 'decklight.css']) copyFileSync(path.join(root, 'dist', f), path.join(dir, 'dist', f));
 const deck = path.join(dir, 'deck.html');
+const slide = (n, attr = '', notes = `Spoken words for slide ${n}.`) =>
+  `<section${attr}><h2>Slide ${n}</h2><p>Body of slide ${n}</p><ul data-build><li>first</li><li>second</li></ul>`
+  + `<aside class="notes">${notes}</aside></section>`;
 writeFileSync(deck, `<!doctype html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="dist/decklight.css">
 <body><div class="decklight">${
-  Array.from({ length: SLIDES }, (_, i) =>
-    `<section><h2>Slide ${i + 1}</h2><p>Body of slide ${i + 1}</p><ul data-build><li>first</li><li>second</li></ul>`
-    + `<aside class="notes">Spoken words for slide ${i + 1}.</aside></section>`).join('\n')
+  [slide(1), slide(2), slide(3, ' data-hidden', HIDDEN_NOTES)].join('\n')
 }</div>
 <script src="dist/decklight.js"></script>
 <script>Decklight.init();</script></body></html>`);
 
-console.log(`     rendering ${SLIDES} slide(s) through the real CLI…`);
+console.log(`     rendering ${SHOWN} shown slide(s) (of 3) through the real CLI…`);
 const started = Date.now();
 let ran = true;
 try {
@@ -88,18 +97,23 @@ if (existsSync(out) && ran) {
   console.log(`     wrote deck.pptx in ${elapsed}s`);
   const buf = readFileSync(out);
   const names = zipEntries(buf).map((e) => e.name);
-  check('a slide part per slide', names.filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).length, SLIDES);
-  check('a notes part per slide', names.filter((n) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n)).length, SLIDES);
-  check('a picture per slide', names.filter((n) => /^ppt\/media\/slide\d+\.png$/.test(n)).length, SLIDES);
+  check('a slide part per shown slide', names.filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).length, SHOWN);
+  check('a notes part per shown slide', names.filter((n) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n)).length, SHOWN);
+  check('a picture per shown slide', names.filter((n) => /^ppt\/media\/slide\d+\.png$/.test(n)).length, SHOWN);
+  // Not just absent as a page: absent as WORDS. A hidden slide whose notes
+  // rode along on somebody else's picture is the failure that counted right.
+  check('the hidden slide is nowhere in the file',
+    names.filter((n) => /^ppt\/notesSlides\//.test(n))
+      .some((n) => zipRead(buf, zipEntries(buf).find((e) => e.name === n)).toString('utf8').includes(HIDDEN_NOTES)), false);
 
   // Every slide is its OWN slide: the export drives Chrome to `#/n/999`, and
   // an export that ignored the hash — or a deck that never booted — writes the
   // same picture N times and is otherwise indistinguishable from a good one.
-  const shots = Array.from({ length: SLIDES }, (_, i) =>
+  const shots = Array.from({ length: SHOWN }, (_, i) =>
     createHash('sha1').update(zipRead(buf, zipEntries(buf).find((e) => e.name === `ppt/media/slide${i + 1}.png`))).digest('hex'));
-  check('each slide is its own picture', new Set(shots).size, SLIDES);
+  check('each slide is its own picture', new Set(shots).size, SHOWN);
 
-  for (let n = 1; n <= SLIDES; n++) {
+  for (let n = 1; n <= SHOWN; n++) {
     // A stalled render used to leave a 0-byte file behind; a PNG that is only
     // a header is the same failure with a different size, so the pixels are
     // what this counts.
