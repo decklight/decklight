@@ -24,6 +24,8 @@
 //   POST /edit/layout          → { slide, layout }         write data-layout to the file
 //   POST /edit/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
 //   POST /edit/export          → { kind }   write the deck out as a file (the palette's hand-over rows)
+//   GET  /edit/publish/plan    → where publishing would put this deck, without putting it there
+//   POST /edit/publish         → bundle the deck and push it (the palette's Publish row)
 //   POST /edit/pptx            → 0.8.1's name for the PowerPoint half of it, kept for decks that ask
 //   GET  /edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
 //   POST /edit/element/remove  → { slide, index }          delete that element
@@ -132,6 +134,18 @@ export function setSlideNotes(html, slide, asideInner) {
 }
 
 // the same ring the player cycles — the file is the source of truth now
+/**
+ * Is this deck already one file — nothing left for the bundler to flatten?
+ *
+ * `decklight bundle` asks exactly this and refuses when the answer is yes, so
+ * the publish route asks it FIRST and passes `--no-bundle` rather than handing
+ * a presenter a refusal about a flag. An init-scaffolded deck is this case,
+ * which makes it the common one rather than the corner.
+ */
+export const alreadyOneFile = (html) =>
+  !/<link\b[^>]*rel=["']stylesheet["'][^>]*href=["'][^"']*themes\/[\w-]+\.css["']/i.test(html)
+  && /<style\b[^>]*\bdata-theme\b/i.test(html);
+
 /**
  * The files the palette's hand-over rows can ask for (PRESENTING). Each is one
  * of decklight's own commands, named the way the deck names it to the presenter
@@ -660,6 +674,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // back while a job is in flight.
   let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
   let exporting = false; // an export in flight — one browser, one output path, any kind
+  let publishing = false; // a publish in flight — one push at a time
 
   // ── git autocommit — the durable record, independent of undo/redo ──────
   const noGit = args.includes('--no-git');
@@ -1887,6 +1902,76 @@ export async function editMain(args, { onListen = null } = {}) {
           return json(500, { ok: false, error: oneline(e) });
         } finally {
           exporting = false;
+        }
+      }
+      /**
+       * Publish the deck — and, before that, say where to (PRESENTING).
+       *
+       * The one row in the palette that reaches OFF this machine. Everything
+       * else the deck can ask this server for writes a file beside it; this
+       * pushes a page the world can read, and `Z` does not take that back. So
+       * it is two routes, not one: the deck asks for the PLAN, shows a person
+       * the remote and the URL, and only posts after a second, deliberate
+       * press. The arming lives in the deck, not here — an unarmed POST
+       * publishes, exactly as the command line does, because a confirmation
+       * belongs to the surface that can show somebody what they are agreeing
+       * to.
+       *
+       * `GIT_TERMINAL_PROMPT=0` matters more here than anywhere else: publish
+       * pushes with a synchronous git, so a credential prompt would not be
+       * asking anybody anything — it would hang the author session on a
+       * terminal nobody is looking at.
+       */
+      if (req.method === 'GET' && url.pathname === '/edit/publish/plan') {
+        if (!gitOn) return json(409, { ok: false, error: 'git is off for this session — there is nothing to publish from' });
+        const remote = remoteState(root);
+        if (!remote.url) {
+          return json(409, { ok: false, error: `nowhere to publish to — ${remoteLine(remote) || remote.state}` });
+        }
+        const { pagesUrl } = await import('./publish.mjs');
+        // Whether it COULD sign is part of the plan, not a failure after the
+        // fact: publish signs by default and refuses rather than publishing
+        // unsigned (INTEGRITY), and the deck would otherwise show somebody a
+        // URL, take their confirmation, and only then say it cannot.
+        //
+        // The SENTENCE is built here, not in the deck. The runtime must never
+        // so much as name the signing client (test/sign.test.mjs greps src/
+        // and dist/ for it — the invariant is that the browser never reaches
+        // for it), so the server hands over words the deck only has to show.
+        const { loadClient, INSTALL_HINT } = await import('./sign.mjs');
+        const canSign = Boolean(await loadClient());
+        return json(200, {
+          ok: true, remote: remote.remote, branch: 'gh-pages',
+          url: pagesUrl(remote.url), bundled: !alreadyOneFile(readDeck()),
+          signing: canSign,
+          why: canSign ? null : `publish signs the deck first, and that client is not installed — ${INSTALL_HINT}`,
+        });
+      }
+      if (req.method === 'POST' && url.pathname === '/edit/publish') {
+        if (!gitOn) return json(409, { ok: false, error: 'git is off for this session — there is nothing to publish from' });
+        if (publishing) return json(409, { ok: false, error: 'a publish is already running' });
+        publishing = true;
+        const before = process.env.GIT_TERMINAL_PROMPT;
+        process.env.GIT_TERMINAL_PROMPT = '0';
+        console.log(`  publish: ${basename(deckPath)} → gh-pages …`);
+        try {
+          const { publishMain } = await import('./publish.mjs');
+          // A deck that is already one file has nothing to flatten, and the
+          // bundler rightly refuses it — the same two cases `decklight
+          // publish` has, decided here rather than made the presenter's
+          // problem. Everything else is the command's own default, signature
+          // included.
+          const args = [deckPath, ...(alreadyOneFile(readDeck()) ? ['--no-bundle'] : [])];
+          const r = await publishMain(args);
+          console.log(`  publish: ${r.url ?? `${r.remote} ${r.branch}`}`);
+          return json(200, { ok: true, url: r.url ?? null, branch: r.branch, remote: r.remote, commit: r.commit });
+        } catch (e) {
+          console.log(`  publish: refused — ${oneline(e)}`);
+          return json(500, { ok: false, error: oneline(e) });
+        } finally {
+          process.env.GIT_TERMINAL_PROMPT = before ?? '';
+          if (before === undefined) delete process.env.GIT_TERMINAL_PROMPT;
+          publishing = false;
         }
       }
       // ── element edit mode (E, right-click a slide element) — #112 ─────

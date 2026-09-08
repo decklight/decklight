@@ -1334,6 +1334,75 @@ test('/edit/export refuses a file it does not write, and still answers the old n
   assert.equal(old.file, 'deck.pptx');
 });
 
+// The shape `decklight init` scaffolds: themes already inline, nothing left
+// for the bundler to flatten. It is the common deck to publish, and the one
+// `decklight publish` needs --no-bundle for — which the route works out rather
+// than handing a presenter a refusal about a flag.
+const ONE_FILE_DECK = DECK.replace('<html><body>', '<html><head><style data-theme="ink"></style></head><body>');
+
+/** A repo with a GitHub remote and one commit — what a plan can be made from. */
+function repoWithRemote(dir, html = ONE_FILE_DECK, { remote = 'git@github.com:acme/talks.git' } = {}) {
+  writeFileSync(path.join(dir, 'deck.html'), html);
+  git(['init', '-q', '-b', 'main'], dir);
+  if (remote) git(['remote', 'add', 'origin', remote], dir);
+  git(['add', 'deck.html'], dir);
+  git(['-c', 'user.email=a@b.c', '-c', 'user.name=A', 'commit', '-qm', 'first'], dir);
+}
+
+test('/edit/publish/plan names where the deck would go, without putting it there', async (t) => {
+  const dir = tmp(t);
+  repoWithRemote(dir);
+  const { base } = await startEdit(t, dir);
+
+  const j = await (await fetch(base + '/edit/publish/plan')).json();
+  assert.equal(j.ok, true, j.error);
+  assert.equal(j.remote, 'origin');
+  assert.equal(j.branch, 'gh-pages');
+  // The URL is the point of asking: it is what somebody will be sent, and the
+  // deck shows it BEFORE taking a confirmation.
+  assert.equal(j.url, 'https://acme.github.io/talks/');
+  assert.equal(typeof j.signing, 'boolean');
+  // The words a deck would show come from HERE, because the runtime is not
+  // allowed to name the signing client at all (test/sign.test.mjs).
+  if (!j.signing) assert.match(j.why, /npm install sigstore/);
+  assert.equal(j.bundled, false, 'a deck that is already one file would be bundled again');
+
+  // A plan is a read. Nothing was pushed, nothing was committed, nothing moved.
+  assert.equal(git(['rev-list', '--count', 'HEAD'], dir), '1');
+  assert.equal(git(['branch', '--list', 'gh-pages'], dir), '');
+  assert.equal(git(['status', '--porcelain'], dir), '');
+});
+
+test('/edit/publish/plan refuses when there is nowhere to publish to', async (t) => {
+  const dir = tmp(t);
+  repoWithRemote(dir, ONE_FILE_DECK, { remote: null });
+  const { base } = await startEdit(t, dir);
+
+  const r = await fetch(base + '/edit/publish/plan');
+  assert.equal(r.status, 409);
+  assert.match((await r.json()).error, /nowhere to publish to/);
+});
+
+test('publishing without the client that signs it is a refusal, not an unsigned page', async (t) => {
+  const dir = tmp(t);
+  repoWithRemote(dir);
+  const { base } = await startEdit(t, dir);
+
+  // sigstore is an OPTIONAL dependency and CI installs with --omit=optional,
+  // so this is the shape the suite actually runs in — and the one that must
+  // never end with a page on the internet that nothing vouches for.
+  const { loadClient } = await import('../cli/sign.mjs');
+  if (await loadClient()) return t.skip('sigstore is installed here — the refusal cannot be provoked');
+
+  const plan = await (await fetch(base + '/edit/publish/plan')).json();
+  assert.equal(plan.signing, false, 'the plan claims it could sign');
+
+  const r = await post(base, '/edit/publish');
+  assert.equal(r.status, 500);
+  assert.match((await r.json()).error, /sign/i);
+  assert.equal(git(['branch', '--list', 'gh-pages'], dir), '', 'a branch was written anyway');
+});
+
 test('a long export says where it is, slide by slide, on the event stream', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
