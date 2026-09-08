@@ -21,7 +21,7 @@ import { unzip, zipEntries } from '../tools/zip.mjs';
 import { parseXml, find, findAll, children, textOf, decodeEntities } from '../tools/ooxml.mjs';
 import {
   listHtml, resolvePart, slideOrder, parseSlide, notesText, mimeOf, paragraphHtml, parseChart, chartHtml, slideSection,
-  parseDiagram, diagramKind, diagramBlockHtml,
+  parseDiagram, diagramKind, diagramBlockHtml, shapeBox, asDrawing, drawingSvg,
 } from '../tools/pptx.mjs';
 import { convert, outPath, slidesId, slidesExportUrl, sourceKind, slug, keynoteScript } from '../cli/import.mjs';
 
@@ -40,7 +40,10 @@ const zip = () => unzip(readFileSync(FIXTURE));
 //            and a SmartArt frame with a real data model and layout part:
 //            a four-step Basic Process, plus `pres` points that must not
 //            become words
-//   slide 4  `show="0"` — hidden, and kept (HIDDEN_SLIDES)
+//   slide 4  three boxes and two attached connectors — a diagram somebody
+//            DREW, which is the other way a deck carries one
+//   slide 5  `show="0"` — hidden, and kept (HIDDEN_SLIDES). It stays LAST, so
+//            "a jump to the end never lands on it" still means something
 
 // ── the zip reader ────────────────────────────────────────────────────────
 
@@ -87,7 +90,8 @@ test('slides come out in presentation order, not archive order', () => {
   const z = zip();
   const order = slideOrder(z.get('ppt/presentation.xml').toString(), z.get('ppt/_rels/presentation.xml.rels').toString());
   assert.deepEqual(order, [
-    'ppt/slides/slide1.xml', 'ppt/slides/slide2.xml', 'ppt/slides/slide3.xml', 'ppt/slides/slide4.xml',
+    'ppt/slides/slide1.xml', 'ppt/slides/slide2.xml', 'ppt/slides/slide3.xml',
+    'ppt/slides/slide4.xml', 'ppt/slides/slide5.xml',
   ]);
 });
 
@@ -111,7 +115,7 @@ test('the title layout gives h1; every other slide gives h2', () => {
 
 test('a hidden slide is marked hidden, not silently dropped', () => {
   const z = zip();
-  assert.equal(parseSlide(z.get('ppt/slides/slide4.xml').toString()).hidden, true);
+  assert.equal(parseSlide(z.get('ppt/slides/slide5.xml').toString()).hidden, true);
   assert.equal(parseSlide(z.get('ppt/slides/slide1.xml').toString()).hidden, false);
 });
 
@@ -246,6 +250,87 @@ test('SmartArt whose data cannot be read is still a loud drop', () => {
   assert.ok(slide.drops.some((d) => /SmartArt dropped.*could not be read/.test(d)));
 });
 
+// ── diagrams somebody DREW ─────────────────────────────────────────────────
+
+const M = 9525;   // EMU per pixel
+const shapeXml = (id, x, y, w, h, prst, text) => `<p:sp>
+  <p:nvSpPr><p:cNvPr id="${id}" name="s${id}"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+  <p:spPr><a:xfrm><a:off x="${x * M}" y="${y * M}"/><a:ext cx="${w * M}" cy="${h * M}"/></a:xfrm>
+   <a:prstGeom prst="${prst}"/></p:spPr>
+  <p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp>`;
+const cxnXml = (id, from, to) => `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="c"/>
+  <p:cNvCxnSpPr>${from ? `<a:stCxn id="${from}" idx="3"/>` : ''}${to ? `<a:endCxn id="${to}" idx="1"/>` : ''}</p:cNvCxnSpPr>
+  <p:nvPr/></p:nvCxnSpPr><p:spPr/></p:cxnSp>`;
+const slideXml = (inner) => `<p:sld><p:cSld><p:spTree>${inner}</p:spTree></p:cSld></p:sld>`;
+
+test('a placed shape reports its box in pixels; one the slide never placed reports none', () => {
+  const doc = parseXml(shapeXml(2, 40, 200, 220, 96, 'rect', 'x'));
+  assert.deepEqual(shapeBox(find(doc, 'p:sp')), { x: 40, y: 200, w: 220, h: 96, flipH: false, flipV: false });
+  assert.equal(shapeBox(find(parseXml('<p:sp><p:spPr/></p:sp>'), 'p:sp')), null);
+});
+
+test('boxes with an attached arrow between them are a diagram; two text boxes are not', () => {
+  const box = (id) => ({ id: String(id), box: { x: id * 100, y: 0, w: 80, h: 40 }, prst: 'rect', plain: `b${id}` });
+  assert.ok(asDrawing([box(1), box(2)], [{ from: '1', to: '2' }]), 'two boxes and an attached connector');
+  assert.equal(asDrawing([box(1), box(2)], [{ from: '1', to: null }]), null,
+    'a line that is not attached at both ends is a line, not a diagram');
+  assert.equal(asDrawing([box(1)], [{ from: '1', to: '1' }]), null, 'one shape is never an arrangement');
+  // the box is the union of the shapes, with room to breathe
+  const d = asDrawing([box(1), box(2)], [{ from: '1', to: '2' }]);
+  assert.deepEqual(d.box, { x: 88, y: -12, w: 204, h: 64 });
+});
+
+test('a drawn slide crosses as one diagram — the shapes’ own text goes with it', () => {
+  const slide = parseSlide(slideXml(
+    `<p:sp><p:nvSpPr><p:cNvPr id="1" name="t"/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+      <p:txBody><a:p><a:r><a:t>How an order flows</a:t></a:r></a:p></p:txBody></p:sp>`
+    + shapeXml(2, 60, 230, 220, 96, 'roundRect', 'Client')
+    + shapeXml(3, 420, 230, 220, 96, 'rect', 'Order service')
+    + shapeXml(4, 780, 230, 220, 96, 'ellipse', 'Ledger')
+    + cxnXml(5, 2, 3) + cxnXml(6, 3, 4)), { rels: new Map() });
+
+  assert.equal(slide.title, 'How an order flows', 'the placeholder title is still the title');
+  assert.deepEqual(slide.blocks.map((b) => b.kind), ['drawing'],
+    'the boxes’ words are IN the picture, not beside it as stray bullets');
+  assert.deepEqual(slide.drops, []);
+
+  const svg = drawingSvg(slide.blocks[0].drawing);
+  assert.equal((svg.match(/<rect/g) || []).length, 2, 'rect and roundRect');
+  assert.equal((svg.match(/<ellipse/g) || []).length, 1);
+  assert.equal((svg.match(/<line/g) || []).length, 2, 'an arrow per connector');
+  assert.match(svg, /Order service/);
+  assert.match(svg, /var\(--d-fill-1\)/, 'themed like every other diagram');
+  // the arrows stop at the boxes' EDGES, not their middles: the first box
+  // spans x 12–232 in the diagram's own coordinates, and the line starts there
+  assert.match(svg, /<line x1="232" y1="60" x2="372"/);
+});
+
+test('shapes that do not add up to a diagram keep today’s answer — and now say what was lost', () => {
+  // three boxes, no connector: the words still cross as text, as they always
+  // did, but the slide no longer stays silent about the arrangement
+  const three = parseSlide(slideXml(
+    shapeXml(2, 40, 200, 200, 90, 'rect', 'one') + shapeXml(3, 300, 200, 200, 90, 'rect', 'two')
+    + shapeXml(4, 560, 200, 200, 90, 'rect', 'three')), { rels: new Map() });
+  assert.deepEqual(three.blocks.map((b) => b.kind), ['list', 'list', 'list']);
+  assert.ok(three.drops.some((d) => /3 drawn shapes came across as text/.test(d)));
+  assert.ok(!three.blocks.some((b) => 'placed' in b), 'the bookkeeping does not leak into the deck');
+
+  // two of them, though, is a layout — and warning about every two-column
+  // slide is how a report stops being read
+  const two = parseSlide(slideXml(
+    shapeXml(2, 40, 200, 200, 90, 'rect', 'left') + shapeXml(3, 300, 200, 200, 90, 'rect', 'right')), { rels: new Map() });
+  assert.deepEqual(two.drops, []);
+});
+
+test('the fixture’s drawn slide crosses as a diagram', () => {
+  const { sections, report } = convert(zip());
+  assert.match(sections[3], /<h2>How an order flows<\/h2>/);
+  assert.match(sections[3], /<svg viewBox="0 0 \d+ \d+"/);
+  assert.match(sections[3], /Order service/);
+  assert.ok(!/<ul>/.test(sections[3]), 'the boxes are not also bullets');
+  assert.ok(report[3].did.some((d) => /^3 drawn shapes as an SVG diagram$/.test(d)));
+});
+
 test('the fixture’s SmartArt crosses as a drawn process, and says so', () => {
   const { sections, report } = convert(zip());
   assert.match(sections[2], /<svg viewBox="0 0 960 120"/);
@@ -263,13 +348,13 @@ test('image mime types come from the file name', () => {
 
 // ── the whole conversion ──────────────────────────────────────────────────
 
-test('the fixture converts to four slides — three shown, the hidden one KEPT and marked', () => {
+test('the fixture converts to five slides — four shown, the hidden one KEPT and marked', () => {
   const { sections, report } = convert(zip());
-  assert.equal(sections.length, 4, 'a hidden slide is kept, not dropped (HIDDEN_SLIDES)');
-  assert.equal(report.length, 4);
-  assert.equal(report[3].hidden, true);
-  assert.match(sections[3], /^\s*<section data-hidden>/);
-  assert.doesNotMatch(sections[0] + sections[1] + sections[2], /data-hidden/);
+  assert.equal(sections.length, 5, 'a hidden slide is kept, not dropped (HIDDEN_SLIDES)');
+  assert.equal(report.length, 5);
+  assert.equal(report[4].hidden, true);
+  assert.match(sections[4], /^\s*<section data-hidden>/);
+  assert.doesNotMatch(sections[0] + sections[1] + sections[2] + sections[3], /data-hidden/);
 
   assert.match(sections[0], /<h1>Q3 &amp; Beyond<\/h1>/);
   assert.match(sections[0], /<p>What shipped, what did not<\/p>/, 'the subtitle feeds the DECK_ANATOMY subtitle rule');
@@ -345,7 +430,7 @@ test('import writes a self-contained deck that needs no sibling files', () => {
     assert.match(html, /<style data-decklight-runtime="css">/);
     assert.match(html, /<script data-decklight-runtime="js">/);
     assert.match(html, /<style data-theme="midnight">/);
-    assert.equal((html.match(/<section>/g) || []).length, 3);
+    assert.equal((html.match(/<section>/g) || []).length, 4);
     assert.doesNotMatch(html, /<link rel="stylesheet"/, 'nothing to fetch from disk');
     assert.doesNotMatch(html, /src="ppt\//, 'the image is inlined, not referenced');
 
@@ -353,7 +438,7 @@ test('import writes a self-contained deck that needs no sibling files', () => {
     assert.match(r.stderr, /3 {2}⚠/);
     assert.match(r.stderr, /chart dropped/);
     assert.match(r.stderr, /⊘ hidden — kept as data-hidden/);
-    assert.match(r.stderr, /4 slides \(1 hidden\) · theme midnight/);
+    assert.match(r.stderr, /5 slides \(1 hidden\) · theme midnight/);
   } finally { rmTemp(dir); }
 });
 
@@ -361,7 +446,7 @@ test('a drop is a warning, not a failure — only an unreadable deck fails', () 
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-import-'));
   try {
     const out = path.join(dir, 'd.html');
-    // slide 3 drops a chart and SmartArt, and the command still succeeds
+    // slide 3 drops a chart it cannot draw, and the command still succeeds
     assert.equal(spawnSync('node', [CLI, 'import', FIXTURE, '-o', out], { encoding: 'utf8' }).status, 0);
 
     const junk = path.join(dir, 'junk.pptx');
