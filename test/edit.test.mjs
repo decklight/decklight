@@ -379,6 +379,27 @@ async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
   return { child, base, log: () => out, waitFor };
 }
 
+/**
+ * A POST on a socket of its own.
+ *
+ * `fetch` pools connections per origin, so two requests fired together can
+ * share one socket and run in sequence — which is not what a test about
+ * CONCURRENT requests means, and it failed on CI exactly that way while
+ * passing locally. node:http with `agent: false` opens a new connection every
+ * time, so "at the same time" means it.
+ */
+const rawPost = (base, ep) => new Promise((resolve, reject) => {
+  const u = new URL(base + ep);
+  const req = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method: 'POST', agent: false },
+    (res) => {
+      let body = '';
+      res.on('data', (c) => { body += c; });
+      res.on('end', () => resolve({ status: res.statusCode, body }));
+    });
+  req.on('error', reject);
+  req.end();
+});
+
 const post = (base, ep, body) => fetch(base + ep, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
@@ -1192,7 +1213,15 @@ if (process.env.FAKE_CHROME_BLANK) process.exit(0);        // renders nothing, e
 if (shot) writeFileSync(shot.slice('--screenshot='.length), PIXEL);
 `;
 
+// Windows sits these out: `writeFakeBin` leaves a `.cmd` shim there, and
+// `execFile` (which is how the export runs Chrome, deliberately — #452) refuses
+// to spawn a .cmd without a shell since Node's spawn hardening. A real Chrome
+// is an .exe, so this is the stand-in's limitation and not the route's; the
+// browser half of the row runs on every platform in engine-render.
+const noFakeChrome = process.platform === 'win32';
+
 test('/edit/pptx exports the deck and names the file it wrote', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
@@ -1221,23 +1250,31 @@ test('/edit/pptx exports the deck and names the file it wrote', async (t) => {
 });
 
 test('/edit/pptx runs one export at a time, and the deck is told which', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
-  // slow enough that the second POST lands while the first still holds Chrome
-  const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_SLOW: '400' } });
+  // slow enough that the second request lands while the first still holds Chrome
+  const { base, waitFor } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_SLOW: '1200' } });
 
-  const [first, second] = await Promise.all([post(base, '/edit/pptx'), post(base, '/edit/pptx')]);
-  const codes = [first.status, second.status].sort();
-  assert.deepEqual(codes, [200, 409], 'one export ran, the other was refused');
-  const refused = first.status === 409 ? first : second;
-  assert.match((await refused.json()).error, /already running/);
+  // Not two races fetches: the server ANNOUNCES the export before it starts,
+  // so waiting for that line is a fact rather than a guess about scheduling.
+  // (Two `Promise.all`ed fetches passed here and failed on CI, where they
+  // shared one keep-alive socket and simply ran in sequence.)
+  const first = post(base, '/edit/pptx');
+  await waitFor(/pptx: exporting deck\.html/);
+  // its own socket, for the same reason
+  const second = await rawPost(base, '/edit/pptx');
+  assert.equal(second.status, 409, 'a second export while one is in flight');
+  assert.match(second.body, /already running/);
 
+  assert.equal((await first).status, 200, 'the first one still finishes');
   // and once it is done, the row works again
   assert.equal((await post(base, '/edit/pptx')).status, 200);
 });
 
 test('an export that fails says so and leaves the author server serving', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
