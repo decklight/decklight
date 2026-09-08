@@ -71,6 +71,7 @@ import { findChrome } from '../tools/chrome.mjs';
 import { fingerprint } from '../src/core/review.js';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-html.mjs';
+import { zipEntries, zipRead } from '../tools/zip.mjs';
 import { ffprobeArgs, SLIDE_PAUSE_DEFAULT, TAIL_SECONDS } from '../tools/video.mjs';
 import { DECK_URL_RE } from '../cli/banner.mjs';
 import {
@@ -89,7 +90,7 @@ const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
  * ships, which is the harder half of the upgrade.
  */
 const OLDER_RELEASE = '0.2.0';
-const TOTAL = 52;
+const TOTAL = 55;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -1332,6 +1333,54 @@ try {
     return undefined;
   });
 
+  await step('each print variant gets its own file, at its own length', () => {
+    if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
+    // Two variants shipped in 0.8.0 and nothing here ran them. They share a
+    // command, a renderer and an output name, and the way they fail is by
+    // agreeing: one overwriting the other, or both printing the plain deck.
+    // The same deck the plain PDF step prints — a BUNDLE, not deck.html, for
+    // the reason dumpIsolated explains: a deck.html here would attach to a
+    // developer's stray `decklight author deck.html` on the default port.
+    const notes = dl(['pdf', 'linked bundle.html', '--notes'], { timeout: 180000 });
+    const handout = dl(['pdf', 'linked bundle.html', '--handout'], { timeout: 180000 });
+    const files = ['linked bundle.notes.pdf', 'linked bundle.handout.pdf'].map((f) => {
+      must(existsSync(join(PROJECT, f)), `--${f.split('.')[1]} wrote no ${f} — a variant is overwriting another's name`);
+      const buf = readFileSync(join(PROJECT, f));
+      must(buf.subarray(0, 5).toString() === '%PDF-', `${f} is not a PDF`);
+      return buf;
+    });
+    must(!files[0].equals(files[1]), 'the notes PDF and the handout are the same bytes');
+    must(/slide \+ notes per page/.test(notes.all), `--notes said: ${notes.all}`);
+    must(/3 slides a page/.test(handout.all), `--handout said: ${handout.all}`);
+    // Three slides: one page each with notes, all three on one handout page.
+    const pages = (r) => Number(/· (\d+) pages ·/.exec(r.all)?.[1] ?? 0);
+    must(pages(notes) > pages(handout),
+      `the handout (${pages(handout)}p) is not shorter than the notes pdf (${pages(notes)}p)`);
+    return undefined;
+  });
+
+  await step('the imported deck goes back out as a PowerPoint', () => {
+    if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
+    // 0.8.0 shipped `pptx` hanging for five minutes on every deck, and 0.8.1
+    // fixed it, with neither release able to see the difference: this leg did
+    // not exist. It runs the command the way somebody hands over a file — on
+    // the deck that came FROM PowerPoint, out to a name with a space in it.
+    const r = dl(['pptx', 'q3-review.html', '-o', 'handover out.pptx'], { timeout: 180000 });
+    const buf = readFileSync(join(PROJECT, 'handover out.pptx'));
+    const names = zipEntries(buf).map((e) => e.name);
+    const slides = names.filter((f) => /^ppt\/slides\/slide\d+\.xml$/.test(f)).length;
+    const shown = sectionBodies(readFileSync(join(PROJECT, 'q3-review.html'), 'utf8'))
+      .filter((b) => !/^[^>]*\sdata-hidden(?=[\s=>/])/.test(b)).length;
+    // HIDDEN_SLIDES: the file you hand over is the talk, not the archive — and
+    // the import kept the fixture's hidden slide hidden, so there is one here.
+    must(slides === shown, `${slides} slides exported for ${shown} shown ones`);
+    must(/hidden, skipped/.test(r.all), `the export did not say what it left out: ${r.all}`);
+    must(names.filter((f) => /^ppt\/media\/slide\d+\.png$/.test(f)).length === slides, 'a slide came out without its picture');
+    const png = zipRead(buf, zipEntries(buf).find((e) => /^ppt\/media\/slide1\.png$/.test(e.name)));
+    must(png.length > 5000 && png[0] === 0x89, `slide 1 is not a real picture (${png.length} B)`);
+    return undefined;
+  });
+
   await step('publish pushes a site without touching the tree', () => {
     // A bare repo IS a git remote, so the whole plumbing — hash-object, mktree,
     // commit-tree, push — runs with no network and no GitHub. What is asserted
@@ -1357,6 +1406,27 @@ try {
     must(git(['rev-parse', '--abbrev-ref', 'HEAD']).trim() === branchBefore, 'publish moved the checked-out branch');
     must(git(['rev-parse', 'HEAD']).trim() === headBefore, 'publish committed on the current branch');
     must(git(['status', '--porcelain']) === statusBefore, 'publish touched the working tree or the index');
+  });
+
+  await step('publish drops a site into a folder, for a host that is not GitHub', () => {
+    // The one target with no credential and no network (MARKETPLACE.md
+    // ENGINES), so it is the one the soak can run end to end — and the answer
+    // to "send me a link" for everybody whose host is an rsync or a share.
+    const site = join(SPACE, 'site out');
+    // --no-bundle and --no-sign for the same reasons the gh-pages step passes
+    // them: this deck is init-scaffolded, so it is already self-contained and
+    // the bundler rightly refuses it, and signing wants a sigstore client the
+    // soak's empty project has no business installing.
+    const r = dl(['publish', 'deck.html', '--target', 'folder', '--no-bundle', '--no-sign',
+      '--out', site, '--url', 'https://example.test/talks/']);
+    must(existsSync(join(site, 'index.html')), `nothing landed in ${site} — publish said: ${r.all}`);
+    must(/https:\/\/example\.test\/talks\//.test(r.all), `the folder target did not print the link: ${r.all}`);
+    const page = readFileSync(join(site, 'index.html'), 'utf8');
+    must(/Decklight\.init/.test(page) && !/<script src=/.test(page), 'the folder got something other than the deck');
+    // --branch and --remote name git, and a folder is not git: refused rather
+    // than quietly ignored, which is the promise that keeps a flag honest.
+    const wrong = dl(['publish', 'deck.html', '--target', 'folder', '--no-bundle', '--no-sign', '--out', site, '--branch', 'x'], { allowFail: true });
+    must(wrong.code !== 0, 'a gh-pages flag was accepted against the folder target');
   });
 
   await step('a reviewer comments, and the comment survives the deck moving', async () => {
