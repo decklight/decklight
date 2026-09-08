@@ -712,7 +712,11 @@ try {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
     const dom = dumpIsolated(join(PROJECT, 'q3-review.html'),
       { budget: 8000, quietStderr: true, who: 'soak', timeout: 60000 });
-    mounted(dom, 3);
+    // five slides, one hidden — the fixture's SmartArt and its drawn boxes
+    // both come across as inline SVG, which is markup the runtime has to mount
+    // as readily as a bullet list
+    mounted(dom, 4);
+    must(/<svg/.test(dom), 'the imported diagrams are not in the rendered deck');
     return undefined;
   });
 

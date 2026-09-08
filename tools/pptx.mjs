@@ -392,6 +392,122 @@ export function diagramBlockHtml({ shape, nodes }) {
   return { html: diagramList(nodes, sequence), as: 'a nested list' };
 }
 
+// ── drawn diagrams ──────────────────────────────────────────────────────────
+//
+// The other way a PowerPoint deck carries a diagram: no SmartArt, no picture,
+// just boxes and arrows somebody dragged onto the slide. There is no marker
+// saying "this is a diagram" — it is shapes with positions, and connectors
+// that name the shapes they join.
+//
+// Before this, every one of those slides came across as a pile of paragraphs
+// in document order, with the arrows gone and nothing said about it: the
+// silent partial loss this importer's own preamble says is the failure that
+// matters. Now the arrangement crosses, or — when the evidence is not strong
+// enough to be sure it IS an arrangement — the report at least says what was
+// flattened.
+
+/** A drawing unit: 914400 EMU to the inch, 96 of those to the CSS pixel. */
+const EMU_PX = 9525;
+
+/** `a:xfrm` as pixels, or null for a shape the slide never placed. */
+export function shapeBox(node) {
+  const xfrm = find(find(node, 'p:spPr') ?? node, 'a:xfrm');
+  const off = xfrm && find(xfrm, 'a:off');
+  const ext = xfrm && find(xfrm, 'a:ext');
+  if (!off || !ext) return null;
+  const n = (v) => Number(v ?? NaN) / EMU_PX;
+  const box = { x: n(off.attrs.x), y: n(off.attrs.y), w: n(ext.attrs.cx), h: n(ext.attrs.cy),
+    flipH: xfrm.attrs.flipH === '1', flipV: xfrm.attrs.flipV === '1' };
+  return Object.values(box).slice(0, 4).every(Number.isFinite) ? box : null;
+}
+
+/** The preset shape name, e.g. `roundRect` — absent for a shape with custom geometry. */
+const presetOf = (node) => find(node, 'a:prstGeom')?.attrs.prst ?? '';
+
+const ROUND = /roundRect|round1Rect|round2SameRect|round2DiagRect|snip/;
+const OVAL = /ellipse|circle|oval|flowChartConnector|flowChartTerminator/;
+const DIAMOND = /diamond|flowChartDecision/;
+const TRIANGLE = /triangle/;
+
+/**
+ * The shapes and connectors of a slide, as one drawing — or null when what is
+ * there is not evidence enough that it IS one.
+ *
+ * The test is deliberately strict, because the cost of a false positive is a
+ * perfectly ordinary slide turned into a strange picture. A connector that
+ * NAMES the shapes at both of its ends (`a:stCxn` / `a:endCxn`) is the strong
+ * signal: PowerPoint writes those when somebody attaches an arrow to a box,
+ * which is drawing a diagram and not laying out a caption. Two shapes and one
+ * attached connector is the floor.
+ */
+export function asDrawing(shapes, links) {
+  const joined = links.filter((l) => l.from != null && l.to != null);
+  if (shapes.length < 2 || !joined.length) return null;
+  const pad = 12;
+  const xs = shapes.map((s) => s.box);
+  const minX = Math.min(...xs.map((b) => b.x)) - pad;
+  const minY = Math.min(...xs.map((b) => b.y)) - pad;
+  const maxX = Math.max(...xs.map((b) => b.x + b.w)) + pad;
+  const maxY = Math.max(...xs.map((b) => b.y + b.h)) + pad;
+  return { shapes, links, box: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
+}
+
+/** Where a line from `b` towards `to` leaves b's box — its edge, not its middle. */
+function edgePoint(b, to) {
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  const dx = to.x - cx, dy = to.y - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  // the smaller scale is the edge the ray crosses first
+  const sx = dx ? b.w / 2 / Math.abs(dx) : Infinity;
+  const sy = dy ? b.h / 2 / Math.abs(dy) : Infinity;
+  const t = Math.min(sx, sy);
+  return { x: cx + dx * t, y: cy + dy * t };
+}
+
+/** A drawing as a themed SVG, in the coordinates the slide used. */
+export function drawingSvg({ shapes, links, box }) {
+  const at = (b) => ({ x: b.x - box.x, y: b.y - box.y, w: b.w, h: b.h });
+  const byId = new Map(shapes.map((s) => [s.id, s]));
+  const arrow = `<defs><marker id="dwg-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">`
+    + `<polygon points="0 0, 8 3, 0 6" style="fill: var(--d-stroke)"/></marker></defs>`;
+
+  const lines = links.map((l) => {
+    const a = byId.get(l.from), b = byId.get(l.to);
+    if (!a || !b) return '';
+    const ca = { x: a.box.x + a.box.w / 2, y: a.box.y + a.box.h / 2 };
+    const cb = { x: b.box.x + b.box.w / 2, y: b.box.y + b.box.h / 2 };
+    const p1 = edgePoint(a.box, cb), p2 = edgePoint(b.box, ca);
+    return `<line x1="${Math.round(p1.x - box.x)}" y1="${Math.round(p1.y - box.y)}"`
+      + ` x2="${Math.round(p2.x - box.x)}" y2="${Math.round(p2.y - box.y)}"`
+      + ` stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#dwg-arrow)"/>`;
+  }).join('');
+
+  const boxes = shapes.map((s, i) => {
+    const r = at(s.box);
+    const [x, y, w, h] = [r.x, r.y, r.w, r.h].map(Math.round);
+    const fill = `var(--d-fill-${(i % 6) + 1})`;
+    const stroke = ` style="fill: ${fill}; stroke: var(--d-stroke)" stroke-width="2"`;
+    let shape;
+    if (OVAL.test(s.prst)) shape = `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}"${stroke}/>`;
+    else if (DIAMOND.test(s.prst)) shape = `<polygon points="${x + w / 2},${y} ${x + w},${y + h / 2} ${x + w / 2},${y + h} ${x},${y + h / 2}"${stroke}/>`;
+    else if (TRIANGLE.test(s.prst)) shape = `<polygon points="${x + w / 2},${y} ${x + w},${y + h} ${x},${y + h}"${stroke}/>`;
+    else shape = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${ROUND.test(s.prst) ? 10 : 3}"${stroke}/>`;
+    const lines_ = wrapLines(s.plain, Math.max(6, Math.floor(w / 8.4))).slice(0, 4);
+    const first = y + h / 2 - ((lines_.length - 1) * 18) / 2 + 5;
+    const text = lines_.length
+      ? `<text text-anchor="middle" font-size="14" font-weight="600"`
+        + ` style="font-family: var(--font-body); fill: var(--d-text)">`
+        + lines_.map((t, k) => `<tspan x="${Math.round(x + w / 2)}" y="${Math.round(first + k * 18)}">${escapeHtml(t)}</tspan>`).join('')
+        + `</text>`
+      : '';
+    return `<g>${shape}${text}</g>`;
+  }).join('');
+
+  const label = shapes.map((s) => s.plain).filter(Boolean).join(', ');
+  return `<svg viewBox="0 0 ${Math.round(box.w)} ${Math.round(box.h)}" width="${Math.round(Math.min(box.w, 960))}"`
+    + ` role="img" aria-label="${escapeHtml(label || 'diagram')}">${arrow}${lines}${boxes}</svg>`;
+}
+
 /**
  * One slide, as the pieces a `<section>` needs.
  *
@@ -416,10 +532,23 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
   let titleIsH1 = false;
   let subtitle = null;
   const blocks = [];
+  const drawn = [];   // placed, non-placeholder shapes — a diagram, maybe
+  const links = [];   // connectors, and which shapes they join
 
   const walk = (tree) => {
     for (const node of tree.children ?? []) {
       if (node.name === 'p:grpSp') { walk(node); continue; }
+
+      // A connector NAMES the shapes it joins; that is what makes a set of
+      // boxes a diagram rather than a layout (asDrawing).
+      if (node.name === 'p:cxnSp') {
+        const cxn = find(node, 'p:cNvCxnSpPr');
+        links.push({
+          from: cxn && find(cxn, 'a:stCxn')?.attrs.id,
+          to: cxn && find(cxn, 'a:endCxn')?.attrs.id,
+        });
+        continue;
+      }
 
       if (node.name === 'p:sp') {
         if (find(node, 'a:videoFile') || find(node, 'a:audioFile')) {
@@ -429,6 +558,24 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
         const ph = find(node, 'p:ph');
         const type = ph?.attrs.type ?? '';
         const txBody = find(node, 'p:txBody');
+        // A shape the slide PLACED, which is not one of the layout's
+        // placeholders, may be part of a drawing. It is only kept as one if
+        // the connectors bear that out (below); otherwise its text is read
+        // exactly as it always was, and a shape with no text is skipped.
+        let placed = false;
+        if (!ph) {
+          const box = shapeBox(node);
+          if (box) {
+            placed = true;
+            drawn.push({
+              id: find(node, 'p:cNvPr')?.attrs.id,
+              box,
+              prst: presetOf(node),
+              plain: txBody ? textOf(txBody).replace(/\s+/g, ' ').trim() : '',
+              at: blocks.length,
+            });
+          }
+        }
         if (!txBody) continue;
         const text = textOf(txBody).trim();
 
@@ -445,7 +592,10 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
         const id = find(node, 'p:cNvPr')?.attrs.id;
         const wantsBuild = id && builds.has(id);
         for (const b of bodyBlocks(txBody, { rels })) {
-          blocks.push(wantsBuild && b.kind === 'list' ? { ...b, build: true } : b);
+          const block = wantsBuild && b.kind === 'list' ? { ...b, build: true } : b;
+          // `placed` is how the drawing swap finds these again exactly, rather
+          // than by comparing their contents — two boxes can say the same word.
+          blocks.push(placed ? { ...block, placed } : block);
         }
         continue;
       }
@@ -507,6 +657,28 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
   const tree = find(sld, 'p:spTree');
   if (tree) walk(tree);
 
+  // The drawing decision is made once the whole slide has been seen: a
+  // connector can be written after the shapes it joins, and one shape is never
+  // a diagram. When it holds, the shapes' own text blocks give way to the
+  // picture that has them in it; when it does not, nothing changes except that
+  // the slide now SAYS its arrangement did not survive.
+  const drawing = asDrawing(drawn, links);
+  if (drawing) {
+    const at = blocks.findIndex((b) => b.placed);
+    const kept = blocks.filter((b) => !b.placed);
+    kept.splice(at < 0 ? kept.length : Math.min(at, kept.length), 0, { kind: 'drawing', drawing });
+    blocks.length = 0;
+    blocks.push(...kept);
+  } else {
+    for (const b of blocks) delete b.placed;
+    // Said only when the slide LOOKED like a drawing — three placed shapes, or
+    // two with a line between them. Two text boxes side by side is a layout,
+    // and warning about every one of those is how a report stops being read.
+    if (drawn.length >= 3 || (drawn.length >= 2 && links.length)) {
+      drop(`${drawn.length} drawn shapes came across as text — their arrangement did not (SPEC SVG_DIAGRAMS)`);
+    }
+  }
+
   return { slideNo, hidden, title, titleIsH1, subtitle, blocks, drops };
 }
 
@@ -563,6 +735,10 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
       const count = (function count(list) { return list.reduce((n, x) => n + 1 + count(x.children), 0); })(b.nodes);
       did.push(`SmartArt (${b.shape}, ${count} node${count === 1 ? '' : 's'}) as ${as}`);
       parts.push(`      ${html}`);
+    } else if (b.kind === 'drawing') {
+      const n = b.drawing.shapes.length;
+      did.push(`${n} drawn shapes as an SVG diagram`);
+      parts.push(`      ${drawingSvg(b.drawing)}`);
     } else if (b.kind === 'image') {
       did.push(`image inlined (${Math.round(b.bytes.length / 1024)} KB)`);
       parts.push(`      <img src="data:${b.mime};base64,${b.bytes.toString('base64')}"`

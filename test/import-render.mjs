@@ -69,7 +69,11 @@ setTimeout(() => {
       // namespaced by the engine — an arrow marker referenced by a raw #id
       // would be repainted by whichever inline svg defined that id last.
       diagram: !!document.querySelector('section svg rect'),
-      diagramSteps: document.querySelectorAll('section svg rect').length,
+      diagramSteps: sections[2].querySelectorAll('svg rect').length,
+      // the OTHER kind: boxes and arrows somebody drew, on their own slide
+      drawn: sections[3].querySelectorAll('svg rect, svg ellipse').length,
+      drawnArrows: sections[3].querySelectorAll('svg line').length,
+      drawnNoStrayBullets: !sections[3].querySelector('ul, ol'),
       diagramThemed: (() => {
         const r = document.querySelector('section svg rect');
         return !!r && getComputedStyle(r).fill !== 'none' && !/^(rgb\(0, 0, 0\))?$/.test(getComputedStyle(r).fill);
@@ -101,7 +105,7 @@ const check = (label, got, want) => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label.padEnd(38)} ${got}${ok ? '' : ` (expected ${want})`}`);
 };
 
-check('slides, the hidden one kept (HIDDEN_SLIDES)', r.slides, 4);
+check('slides, the hidden one kept (HIDDEN_SLIDES)', r.slides, 5);
 check('exactly one carries data-hidden', r.hidden, 1);
 check('a jump onto the hidden one lands beside it', r.landedOnHidden, false);
 check('the title slide is an h1', r.titleIsH1, true);
@@ -111,6 +115,9 @@ check('sublists nest inside their <li>', r.nestedInsideLi, true);
 check('the table has a header row', r.table, true);
 check('SmartArt came across as a diagram', r.diagram, true);
 check('one box per step', r.diagramSteps, 4);
+check('a drawn diagram keeps its shapes', r.drawn, 3);
+check('…and the arrows between them', r.drawnArrows, 2);
+check('…with the words in the boxes, not beside them', r.drawnNoStrayBullets, true);
 check('the diagram takes the theme', r.diagramThemed, true);
 check('its ids are namespaced by the engine', r.diagramIdsNamespaced, true);
 check('the image is inlined as data:', r.imageInlined, true);
