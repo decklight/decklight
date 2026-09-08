@@ -62,6 +62,35 @@ test('what a slide points at that another deck will not have is named — and on
   assert.deepEqual(externalRefs('<section><img src="data:image/png;base64,A"><a href="#next">x</a></section>'), []);
 });
 
+test('a slide TEACHING markup is not flagged for the markup it teaches', () => {
+  // Found by running this against the first real template: a slide whose code
+  // sample shows a deck's <link> tags was reported as needing two files it
+  // merely talks about. Only the angle brackets of a sample are escaped, so
+  // `href="…"` sits there as literal text for any attribute scan to find.
+  const teaching = `<section>
+    <h2>A deck is one HTML file</h2>
+    <pre data-lines="1-4"><code class="language-html">&lt;head&gt;
+  &lt;link rel="stylesheet" href="decklight/dist/decklight.css"&gt;
+  &lt;img src="assets/logo.png"&gt;
+&lt;/head&gt;</code></pre>
+  </section>`;
+  assert.deepEqual(externalRefs(teaching), [], 'a sample is text, not a reference');
+
+  // …and the open tag still counts, because that is where a real one lives
+  assert.deepEqual(
+    externalRefs('<section><pre class="terminal" data-cast="casts/demo.cast">x</pre></section>'),
+    ['casts/demo.cast'],
+  );
+  // a script's contents are machinery, and a chart's JSON is not markup
+  assert.deepEqual(
+    externalRefs('<section><script type="application/json">{"labels":["<img src=\'a.png\'>"]}<\/script></section>'),
+    [],
+  );
+  // the thing itself, outside any sample, is still named
+  assert.deepEqual(externalRefs('<section><img src="assets/x.png"><pre><code>nothing</code></pre></section>'),
+    ['assets/x.png']);
+});
+
 test('a slide spec names slides, and refuses one the template does not have', () => {
   assert.deepEqual(parseSlideSpec('2,5-7', 8), [2, 5, 6, 7]);
   assert.deepEqual(parseSlideSpec('3,1,3', 3), [1, 3], 'sorted, and each slide once');

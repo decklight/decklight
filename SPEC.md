@@ -876,7 +876,11 @@ Each slide says **what it points at that this deck will not have** —
 `data-cast`, a relative `src`, background media — before it is taken rather
 than after: a `data:` image travels with the markup and `casts/demo.cast` does
 not, and the importer's rule about naming what did not cross applies one step
-earlier here. The insert is a paste, never a merge: the section's markup is
+earlier here. A slide **teaching** markup is not flagged for the markup it
+teaches: the bodies of `pre`, `code`, `script` and `style` are not scanned,
+since only a sample's angle brackets are escaped and its `href="…"` is literal
+text — while their OPEN TAGS are, because `<pre data-cast="…">` is a real
+terminal. The insert is a paste, never a merge: the section's markup is
 written as it stands, re-indented to the deck's own level so the diff is
 reviewable, and the deck's themes and `init` config are left alone. A marketplace skill installs
 into the library and therefore sits **alongside** the authoring skill

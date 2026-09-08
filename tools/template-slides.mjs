@@ -24,6 +24,26 @@ import { sectionBodies, sectionInner, slideHeading, isHiddenSection } from './de
 const travels = (url) => /^(data:|https?:|#|mailto:)/i.test(url.trim());
 
 /**
+ * A section with the BODIES of `pre`, `code`, `script` and `style` blanked —
+ * their open tags kept, because those carry real attributes.
+ *
+ * A slide teaching HTML shows markup as text, and only its angle brackets are
+ * escaped: `&lt;link rel="stylesheet" href="theme.css"&gt;` carries a literal
+ * `href="…"` that any attribute scan will find. The first template this
+ * shipped against had exactly that slide, and it was reported as needing two
+ * files it merely talks about. A slide ABOUT markup must not be flagged for
+ * the markup it is teaching — a warning nobody can act on is how a report
+ * stops being read.
+ *
+ * The open tag survives the blanking on purpose: `<pre data-cast="x.cast">` is
+ * a terminal, and that reference is real.
+ */
+const scannable = (html) => String(html).replace(
+  /(<(pre|code|script|style)\b[^>]*>)([\s\S]*?)(<\/\2\s*>)/gi,
+  (m, open, tag, body, close) => open + ' '.repeat(body.length) + close,
+);
+
+/**
  * What a section points at that its new deck will not have.
  *
  * Deliberately only the attributes that name a FILE decklight itself resolves
@@ -33,7 +53,7 @@ const travels = (url) => /^(data:|https?:|#|mailto:)/i.test(url.trim());
 export function externalRefs(sectionHtml) {
   const out = [];
   const attrs = /\b(data-cast|src|href|data-background-image|data-background-video|data-background-poster)\s*=\s*("([^"]*)"|'([^']*)')/gi;
-  for (const m of sectionHtml.matchAll(attrs)) {
+  for (const m of scannable(sectionHtml).matchAll(attrs)) {
     const url = m[3] ?? m[4] ?? '';
     if (!url || travels(url)) continue;
     if (!out.includes(url)) out.push(url);
