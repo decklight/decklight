@@ -126,7 +126,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML (`--sign` attests it, `--deck` wraps it as `.decklight`) |
 | `decklight publish deck.html` | bundle and push to GitHub Pages — signed by default; Netlify and Vercel install as targets, and `--target folder` writes the site into a directory for any host that serves files |
 | `decklight pdf deck.html` | one slide per page, at its own size, in its theme — no print dialog (`--notes` is the presenter's copy, `--handout` three a page with ruled lines) |
-| `decklight pptx deck.html` | a PowerPoint file for whoever still asks for one — every slide a picture, the notes real notes; lossy on purpose |
+| `decklight pptx deck.html` | a PowerPoint file for whoever still asks for one — every slide a picture, the notes real notes, hidden slides not in it; lossy on purpose |
 | `decklight voiceover deck.html` | batch-synthesize the narration into a folder with a live engine (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's `V → Record this deck…` |
 | `decklight video deck.html` | render to one narrated mp4 — ⟨CLICK⟩ segments narrate the builds (`--voiceover` synthesizes the narration first) |
 | `decklight theme check\|add` | validate a theme against the token contract, or install one into a deck |

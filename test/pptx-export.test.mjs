@@ -63,6 +63,57 @@ test('a deck becomes a PowerPoint file our importer opens — a picture per slid
   assert.match(zip.get('docProps/core.xml').toString(), /<dc:title>Q3 &amp; beyond<\/dc:title>/);
 });
 
+test('a hidden slide is not in the file you hand over — and does not duplicate its neighbour', async (t) => {
+  // The bug this pins: a deep link onto a hidden slide lands on the nearest
+  // SHOWN one (the engine's goto), so the export used to write slide 1's
+  // picture twice — the second copy carrying the hidden slide's notes.
+  const dir = mkdtempSync(join(tmpdir(), 'decklight-pptx-cli-'));
+  writeFileSync(join(dir, 'talk.html'), DECK.replace('<section><h1>Two</h1>', '<section data-hidden><h1>Two</h1>'));
+  const cwd = process.cwd(); process.chdir(dir);
+  t.after(() => { process.chdir(cwd); rmSync(dir, { recursive: true, force: true }); });
+  const asked = [];
+  const render = async (bin, argv, { n, png }) => { asked.push(n); writeFileSync(png, PNG); };
+  const logs = [];
+  assert.equal(await pptxMain(['talk.html'], { render, log: (l) => logs.push(l) }), 0, logs.join('\n'));
+  assert.deepEqual(asked, [1, 3], 'the hidden slide was rendered');
+  assert.ok(logs.some((l) => /1 hidden, skipped/.test(l)), logs.join('\n'));
+  const zip = unzip(readFileSync(join(dir, 'talk.pptx')));
+  const order = slideOrder(zip.get('ppt/presentation.xml').toString(), zip.get('ppt/_rels/presentation.xml.rels').toString());
+  assert.equal(order.length, 2, 'the hidden slide still took a page');
+  // Slide 2 of the FILE is slide 3 of the deck, notes and all — the numbering
+  // closes up on export, exactly as it does in the pdf.
+  const rels = parseRels(zip.get('ppt/slides/_rels/slide2.xml.rels').toString());
+  const notes = notesText(zip.get(resolvePart('ppt/slides/slide2.xml', [...rels.values()].find((r) => r.type.endsWith('/notesSlide')).target)).toString()).filter(Boolean).map(decodeEntities);
+  assert.deepEqual(notes, ['Line one', 'Line two']);
+});
+
+test('a deck with nothing left to show is a refusal, not an empty file', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'decklight-pptx-cli-'));
+  writeFileSync(join(dir, 'talk.html'), DECK.replace(/<section>/g, '<section data-hidden>'));
+  const cwd = process.cwd(); process.chdir(dir);
+  t.after(() => { process.chdir(cwd); rmSync(dir, { recursive: true, force: true }); });
+  const logs = [];
+  assert.equal(await pptxMain(['talk.html'], { render: async () => {}, log: (l) => logs.push(l) }), 1);
+  assert.match(logs.at(-1), /every slide in this deck is hidden/);
+  assert.equal(existsSync(join(dir, 'talk.pptx')), false);
+});
+
+test('a deck outside the current directory is served from its own, not refused', async (t) => {
+  // 0.8.x told you to cd there first. The deck is served rather than opened as
+  // a file, and a server has one root: a deck under the cwd keeps the cwd (so
+  // a deck in a subdirectory still reaches the project's dist/), and a deck
+  // anywhere else gets its own directory, where its assets are.
+  const dir = mkdtempSync(join(tmpdir(), 'decklight-pptx-away-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  writeFileSync(join(dir, 'talk.html'), DECK);
+  const urls = [];
+  const render = async (bin, argv, { png }) => { urls.push(argv.find((a) => a.startsWith('http'))); writeFileSync(png, PNG); };
+  const logs = [];
+  assert.equal(await pptxMain([join(dir, 'talk.html')], { render, log: (l) => logs.push(l) }), 0, logs.join('\n'));
+  assert.match(urls[0], /\/talk\.html#\/1\/999$/, 'the deck was not served from its own directory');
+  assert.ok(existsSync(join(dir, 'talk.pptx')));
+});
+
 test('a slide Chrome did not render stops the export by number, rather than shipping a blank page', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'decklight-pptx-cli-'));
   writeFileSync(join(dir, 'talk.html'), DECK);

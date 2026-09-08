@@ -11,11 +11,11 @@
 
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader } from '../tools/args.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
-import { NOTES_ASIDE, cleanNotes, sectionBodies } from '../tools/deck-html.mjs';
+import { NOTES_ASIDE, cleanNotes, sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
 import { buildPptx } from '../tools/pptx-write.mjs';
 import { serveForRender } from './present.mjs';
 
@@ -26,6 +26,9 @@ const USAGE = `usage: decklight pptx <deck.html> [-o out.pptx] [--theme <name>] 
   -o <file>      output path                    [the deck's, with .pptx]
   --theme <name> export in another theme (rides ?theme=)
   --wait <ms>    render budget per slide        [1500]
+
+  Hidden slides (data-hidden) are not in the file, exactly as they are not in
+  the pdf, the video or the voiceover — the file is the talk, not the archive.
 
   Lossy by design: the file OPENS in PowerPoint, Keynote and Slides, and the
   notes are text there — but the slides are pictures. Import it back and you
@@ -75,18 +78,28 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
   if (!deck) { log(`decklight pptx: needs a deck\n\n${USAGE}`); return 1; }
   const src = resolve(deck);
   if (!existsSync(src)) { log(`decklight pptx: no such deck: ${deck}`); return 1; }
-  const root = process.cwd();
-  if (src !== root && !src.startsWith(root + sep)) {
-    log(`decklight pptx: the deck must live under the current directory (${root}) — cd there first`);
-    return 1;
-  }
+  // The deck is SERVED (see chromeShot), and a server has one root. A deck
+  // under the current directory keeps it as the root, which is what lets a
+  // deck in a subdirectory reach the dist/ and themes/ at the top of its
+  // project. A deck anywhere else is served from its OWN directory rather
+  // than refused: `decklight pptx ~/talks/q3.html` is a reasonable thing to
+  // type from anywhere, and a deck's assets are its siblings.
+  const root = src.startsWith(process.cwd() + sep) ? process.cwd() : dirname(src);
   const out = pptxOut(src, opt('-o'));
   const wait = Number(opt('--wait', 1500));
   const theme = opt('--theme');
   const html = readFileSync(src, 'utf8');
   const notes = notesLines(html);
-  const count = notes.length;
-  if (!count) { log('decklight pptx: the deck has no <section> slides'); return 1; }
+  // HIDDEN_SLIDES — the file you hand over holds what the audience saw, the
+  // same rule `pdf`, `video` and `voiceover` already keep. Not merely a
+  // preference: a deep link onto a hidden slide lands on its nearest SHOWN
+  // neighbour (the engine's `goto`), so exporting one wrote that neighbour's
+  // picture a second time, carrying the hidden slide's notes.
+  const shown = sectionBodies(html).map((b, i) => (isHiddenSection(b) ? 0 : i + 1)).filter(Boolean);
+  const total = notes.length;
+  const count = shown.length;
+  if (!total) { log('decklight pptx: the deck has no <section> slides'); return 1; }
+  if (!count) { log('decklight pptx: every slide in this deck is hidden — there is nothing to hand over'); return 1; }
 
   // served, not file://, so every relative asset the deck names still resolves
   const inject = (text, file) => (file === src && theme ? text.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`) : text);
@@ -96,8 +109,9 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
   try {
     const deckPath = '/' + relative(root, src).split(sep).join('/');
     const bin = chromeBin('pptx');
-    log(`pptx: rendering ${basename(src)} — ${count} slides at 1280×720, builds complete`);
-    for (let n = 1; n <= count; n++) {
+    log(`pptx: rendering ${basename(src)} — ${count} slides at 1280×720, builds complete`
+      + (total > count ? ` · ${total - count} hidden, skipped` : ''));
+    for (const n of shown) {
       const png = join(scratch, `slide-${n}.png`);
       // /999 lands on the last build step, whatever the slide has
       await render(bin, chromeArgs(
@@ -113,7 +127,8 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
   }
   const bytes = buildPptx(slides, { title: titleOf(html, src) });
   writeFileSync(out, bytes);
-  const withNotes = notes.filter((l) => l.length).length;
-  console.log(`${out} · ${count} slides as pictures · ${withNotes} with notes · ${Math.round(bytes.length / 1024)} KB`);
+  const withNotes = shown.filter((n) => notes[n - 1].length).length;
+  console.log(`${out} · ${count} slides as pictures${total > count ? ` (${total - count} hidden, skipped)` : ''}`
+    + ` · ${withNotes} with notes · ${Math.round(bytes.length / 1024)} KB`);
   return 0;
 }
