@@ -96,9 +96,11 @@ The whole loop is agent-friendly and stays in one file end to end:
 | **Theming** | 46 themes in 2 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC THEMING](SPEC.md#theming--the-token-contract) |
 | **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
 | **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
+| **Charts** | `data-chart` + a small block of JSON → a theme-aware SVG on the slide: bar, line, area, pie, donut, scatter. No library, no screenshot of a spreadsheet | [SPEC CHARTS](SPEC.md#charts--charts-data-chart) |
 | **Terminals** | `decklight cast` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
 | **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Hidden slides** | `data-hidden` keeps a slide in the file and out of the talk — it keeps its number, `?all` presents it anyway | [SPEC DECK_ANATOMY](SPEC.md#deck_anatomy--deck-anatomy) |
+| **Hand-over** | every file the deck can produce, from the palette in author mode: PowerPoint, the three PDFs, and publish — which asks where it would go before it goes | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Rehearsal timings** | the speaker view records how long each slide actually took and writes it onto the deck; the next run paces against it | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Narration** | TTS reads your notes in sync with builds — or **your own voice**, recorded beat by beat and pacing them the same way; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
 | **Review** | reviewers comment on slides and submit the review as a branch; git carries it, a comment finds its slide again after the deck moves, and the author is told a review is waiting | [SPEC REVIEW](SPEC.md#review--reviewer-comments) |
@@ -114,7 +116,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project; `--pack` zips it for upload) |
 | `decklight author deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
 | `decklight present deck.html` | **play a deck you did not author** — read-only over localhost under a CSP header, with an ingredients label and `--strict`; a deck in a clone can see its upstream and (with `--upstream-pull`) offer to fast-forward |
-| `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across — bullets, tables, images, **charts as data** and notes; `--theme template` derives the deck's theme from the file's own palette and fonts (`.key` needs macOS; a Slides URL must be link-shared) |
+| `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across — bullets, tables, images, notes, **charts as data**, and **diagrams as diagrams**: SmartArt and hand-drawn boxes-and-arrows both become themed SVG. `--theme template` derives the deck's theme from the file's own palette and fonts (`.key` needs macOS; a Slides URL must be link-shared) |
 | `decklight cast script.term.yaml` | record a **terminal** cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
 | `decklight record deck.html` | record the narration in **your own voice** — the deck reads you its notes one ⟨CLICK⟩ at a time, and `→` ends a beat *and* reveals the next build, so your voice paces the deck (`cast` records a terminal, `record` records you) |
 | `decklight review deck.html` | **leave comments on somebody's deck**, anchored to slides — a comment survives the slide moving, and says so when its slide changed or is gone |
@@ -152,7 +154,7 @@ The whole loop is agent-friendly and stays in one file end to end:
 | `V` | everything about the voice: tracks · live voice · character · record this deck · captions · speed |
 | `M` | review comments, grouped by who said them — `⏎` jumps to the slide, `R` marks one done · `⇧M` writes one |
 | `H` | the deck's history — every version previewed live, `⏎` restores one |
-| `/` | command palette · `G` find a slide |
+| `/` | command palette — including, in author mode, every export and publish · `G` find a slide |
 | `?` | help overlay — every key |
 
 ## Install on another machine
