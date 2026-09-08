@@ -71,7 +71,7 @@ export async function chromeShot(bin, argv, _ctx, { timeout = CODEC_MS } = {}) {
   await runAsync(bin, argv, { maxBuffer: 32 * 1024 * 1024, timeout, why: 'Chrome did not finish rendering a slide — it is probably waiting on a resource it cannot reach' });
 }
 
-export async function pptxMain(args = [], { render = chromeShot, log = console.error } = {}) {
+export async function pptxMain(args = [], { render = chromeShot, log = console.error, onSlide = null } = {}) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return 0; }
   const { opt } = argReader(args);
   const deck = args.find((a) => !a.startsWith('-') && /\.html?$/i.test(a));
@@ -111,7 +111,11 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
     const bin = chromeBin('pptx');
     log(`pptx: rendering ${basename(src)} — ${count} slides at 1280×720, builds complete`
       + (total > count ? ` · ${total - count} hidden, skipped` : ''));
-    for (const n of shown) {
+    for (const [i, n] of shown.entries()) {
+      // Position in the FILE being written, not in the deck — a caller showing
+      // "slide 3 of 5" means the third of five pictures, and a hidden slide in
+      // between would make the deck's own numbering count past the end.
+      onSlide?.(i + 1, count);
       const png = join(scratch, `slide-${n}.png`);
       // /999 lands on the last build step, whatever the slide has
       await render(bin, chromeArgs(

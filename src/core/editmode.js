@@ -29,7 +29,7 @@ import { hljs } from '../code/code.js';
  * palette, and the engine owns two of those three.
  */
 export function createEditMode({
-  root, config, params, printMode, toast, debugLog, overlays, instance,
+  root, config, params, printMode, toast, progress, debugLog, overlays, instance,
   notesSegs, dismissOthers,
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
@@ -337,6 +337,17 @@ export function createEditMode({
                   debugLog('agent', d.recordingWarning);
                 }
               }
+            } catch { /* malformed event */ }
+          });
+          // Progress for a long export — the row that started it is still on
+          // screen, so this rewrites that row rather than adding one per slide.
+          es.addEventListener('export', (ev) => {
+            try {
+              const d = JSON.parse(ev.data);
+              if (d.state === 'slide' && exportRun) {
+                exportRun.run.update(`exporting to ${exportRun.what} — slide ${d.n} of ${d.of}…`);
+              }
+              debugLog('export', `${d.kind} ${d.state}${d.n ? ` ${d.n}/${d.of}` : ''}`);
             } catch { /* malformed event */ }
           });
           debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`
@@ -1465,6 +1476,49 @@ export function createEditMode({
     keydown: (e) => e.key === 'Escape' && (closeWizard(), true),
   });
 
+  // ── the hand-over exports (PRESENTING) ───────────────────────────────────
+  //
+  // `decklight pptx` and `decklight pdf` need Node and a headless Chrome, so
+  // the deck cannot write these files itself — it asks the author server to
+  // run the command, the same door `A` uses for an agent, and what a row
+  // writes is exactly what the command line writes.
+  //
+  // They take seconds per slide, so the row narrates: it says what it is doing
+  // before anything happens, keeps saying it as the server reports each slide
+  // over the SSE channel the agent chip already rides, and names the file at
+  // the end. A silent wait reads as a dead row — which is why the progress
+  // toast is one row rewritten rather than a toast per slide.
+  const EXPORTS = {
+    pptx: 'PowerPoint',
+    pdf: 'PDF',
+    'pdf-notes': 'PDF with notes',
+    'pdf-handout': 'PDF handout',
+  };
+  let exportRun = null;
+  async function exportDeck(kind) {
+    const what = EXPORTS[kind];
+    if (!what) return;
+    // The server refuses a second export too (one browser, one output path);
+    // this is the same answer without the round trip.
+    if (exportRun) { toast('already exporting — one at a time'); return; }
+    const run = progress(`exporting to ${what} — this takes a moment…`);
+    exportRun = { run, what };
+    try {
+      const r = await fetch(editBase + '/edit/export', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}`);
+      debugLog('export', `${kind} → ${j.file}`);
+    } catch (e) {
+      run.done(`could not export to ${what} — ${e.message}`, 5200);
+      debugLog('export', `${kind} failed: ${e.message}`);
+    } finally {
+      exportRun = null;
+    }
+  }
+
   return {
     deckHistory,
     toggleEditor,
@@ -1501,5 +1555,7 @@ export function createEditMode({
     base: () => editBase,
     /** K: the commit window — what changed, what to call it, one button. */
     commit: { open: openCommit, close: closeCommit, state: () => commitNow },
+    /** The palette's hand-over rows: 'pptx' | 'pdf' | 'pdf-notes' | 'pdf-handout'. */
+    exportDeck,
   };
 }

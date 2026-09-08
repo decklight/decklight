@@ -388,16 +388,17 @@ async function startEdit(t, dir, { extraArgs = [], env = {} } = {}) {
  * passing locally. node:http with `agent: false` opens a new connection every
  * time, so "at the same time" means it.
  */
-const rawPost = (base, ep) => new Promise((resolve, reject) => {
+const rawPost = (base, ep, body) => new Promise((resolve, reject) => {
   const u = new URL(base + ep);
-  const req = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method: 'POST', agent: false },
+  const req = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method: 'POST', agent: false,
+    headers: body === undefined ? {} : { 'content-type': 'application/json' } },
     (res) => {
       let body = '';
       res.on('data', (c) => { body += c; });
       res.on('end', () => resolve({ status: res.statusCode, body }));
     });
   req.on('error', reject);
-  req.end();
+  req.end(body === undefined ? undefined : JSON.stringify(body));
 });
 
 const post = (base, ep, body) => fetch(base + ep, {
@@ -1208,9 +1209,16 @@ const PIXEL = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64');
 const shot = process.argv.find((a) => a.startsWith('--screenshot='));
+const printed = process.argv.find((a) => a.startsWith('--print-to-pdf='));
 if (process.env.FAKE_CHROME_SLOW) await new Promise((r) => setTimeout(r, Number(process.env.FAKE_CHROME_SLOW)));
 if (process.env.FAKE_CHROME_BLANK) process.exit(0);        // renders nothing, exits clean
 if (shot) writeFileSync(shot.slice('--screenshot='.length), PIXEL);
+// Enough of a PDF for the pdf command to accept: it checks the file exists
+// and has bytes, and reads a page count out of it if it can. The \\n are
+// doubled because this whole script is a template literal — a single one is a
+// real newline inside a single-quoted string, which is a syntax error in the
+// file that gets written, thirteen lines from where you are reading.
+if (printed) writeFileSync(printed.slice('--print-to-pdf='.length), '%PDF-1.4\\n/Count 2\\n%%EOF\\n');
 `;
 
 // Windows sits these out: `writeFakeBin` leaves a `.cmd` shim there, and
@@ -1220,7 +1228,7 @@ if (shot) writeFileSync(shot.slice('--screenshot='.length), PIXEL);
 // browser half of the row runs on every platform in engine-render.
 const noFakeChrome = process.platform === 'win32';
 
-test('/edit/pptx exports the deck and names the file it wrote', async (t) => {
+test('/edit/export writes the PowerPoint and names the file it wrote', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
@@ -1228,7 +1236,7 @@ test('/edit/pptx exports the deck and names the file it wrote', async (t) => {
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
   const { base, log } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
 
-  const r = await (await post(base, '/edit/pptx')).json();
+  const r = await (await post(base, '/edit/export', { kind: 'pptx' })).json();
   assert.equal(r.ok, true, `export refused: ${r.error}`);
   assert.equal(r.file, 'deck.pptx', 'the path is relative to where author is running');
   assert.equal(typeof r.seconds, 'number');
@@ -1241,7 +1249,7 @@ test('/edit/pptx exports the deck and names the file it wrote', async (t) => {
   const names = zipEntries(buf).map((e) => e.name);
   assert.equal(names.filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).length, 2, 'a slide part per slide');
   assert.equal(names.filter((n) => /^ppt\/media\/slide\d+\.png$/.test(n)).length, 2, 'a picture per slide');
-  assert.match(log(), /pptx: exporting deck\.html/, 'the terminal says what the palette asked for');
+  assert.match(log(), /export: deck\.html → PowerPoint/, 'the terminal says what the palette asked for');
 
   // the deck FILE is untouched: an export is not an edit, so it takes no
   // history entry and undo has nothing to take back
@@ -1249,7 +1257,7 @@ test('/edit/pptx exports the deck and names the file it wrote', async (t) => {
   assert.equal((await (await fetch(base + '/edit/ping')).json()).undo, 0);
 });
 
-test('/edit/pptx runs one export at a time, and the deck is told which', async (t) => {
+test('/edit/export runs one export at a time, and the deck is told which', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
@@ -1261,16 +1269,17 @@ test('/edit/pptx runs one export at a time, and the deck is told which', async (
   // so waiting for that line is a fact rather than a guess about scheduling.
   // (Two `Promise.all`ed fetches passed here and failed on CI, where they
   // shared one keep-alive socket and simply ran in sequence.)
-  const first = post(base, '/edit/pptx');
-  await waitFor(/pptx: exporting deck\.html/);
-  // its own socket, for the same reason
-  const second = await rawPost(base, '/edit/pptx');
+  const first = post(base, '/edit/export', { kind: 'pptx' });
+  await waitFor(/export: deck\.html → PowerPoint/);
+  // its own socket, for the same reason — and a DIFFERENT kind, because the
+  // lock is one browser on one machine, not one output path
+  const second = await rawPost(base, '/edit/export', { kind: 'pdf' });
   assert.equal(second.status, 409, 'a second export while one is in flight');
   assert.match(second.body, /already running/);
 
   assert.equal((await first).status, 200, 'the first one still finishes');
   // and once it is done, the row works again
-  assert.equal((await post(base, '/edit/pptx')).status, 200);
+  assert.equal((await post(base, '/edit/export', { kind: 'pptx' })).status, 200);
 });
 
 test('an export that fails says so and leaves the author server serving', async (t) => {
@@ -1281,11 +1290,80 @@ test('an export that fails says so and leaves the author server serving', async 
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
   const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_BLANK: '1' } });
 
-  const res = await post(base, '/edit/pptx');
+  const res = await post(base, '/edit/export', { kind: 'pptx' });
   assert.equal(res.status, 500);
   assert.match((await res.json()).error, /export refused/);
   assert.ok(!existsSync(path.join(dir, 'deck.pptx')), 'nothing half-written was left behind');
 
   // the point of the whole route: the session survives its own failure
   assert.equal((await (await fetch(base + '/edit/ping')).json()).ok, true);
+});
+
+test('/edit/export writes each of the PDFs `decklight pdf` writes, under its own name', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
+
+  // The variant names are `pdfOut`'s, not this route's — a handout that landed
+  // on deck.pdf would quietly replace the slides somebody exported first.
+  for (const [kind, file] of [['pdf', 'deck.pdf'], ['pdf-notes', 'deck.notes.pdf'], ['pdf-handout', 'deck.handout.pdf']]) {
+    const r = await (await post(base, '/edit/export', { kind })).json();
+    assert.equal(r.ok, true, `${kind} refused: ${r.error}`);
+    assert.equal(r.file, file);
+    assert.ok(existsSync(path.join(dir, file)), `${kind} wrote no ${file}`);
+  }
+});
+
+test('/edit/export refuses a file it does not write, and still answers the old name', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
+
+  const bad = await post(base, '/edit/export', { kind: 'keynote' });
+  assert.equal(bad.status, 400);
+  assert.match((await bad.json()).error, /not a file this server writes: keynote/);
+
+  // A deck carries its OWN copy of the runtime, so one written by 0.8.1 and
+  // opened under this server still posts the name that release used.
+  const old = await (await post(base, '/edit/pptx')).json();
+  assert.equal(old.ok, true, `the 0.8.1 path stopped working: ${old.error}`);
+  assert.equal(old.file, 'deck.pptx');
+});
+
+test('a long export says where it is, slide by slide, on the event stream', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);          // two slides
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
+
+  // The deck's own channel, read the way the deck reads it. Without this the
+  // progress row can only say "this takes a moment" and then sit there.
+  const events = [];
+  const res = await fetch(base + '/edit/events');
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  (async () => {
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read().catch(() => ({ done: true }));
+      if (done) return;
+      buf += dec.decode(value, { stream: true });
+      for (const m of buf.matchAll(/event: export\ndata: (.*)\n/g)) events.push(JSON.parse(m[1]));
+      buf = buf.slice(buf.lastIndexOf('\n\n') + 1);
+    }
+  })();
+  t.after(() => reader.cancel().catch(() => { /* already closed */ }));
+
+  assert.equal((await post(base, '/edit/export', { kind: 'pptx' })).status, 200);
+  const stop = Date.now() + 4000;
+  while (!events.some((e) => e.state === 'done') && Date.now() < stop) await new Promise((ok) => setTimeout(ok, 25));
+
+  assert.deepEqual(events.map((e) => e.state), ['start', 'slide', 'slide', 'done'], JSON.stringify(events));
+  assert.deepEqual(events.filter((e) => e.state === 'slide').map((e) => [e.n, e.of]), [[1, 2], [2, 2]]);
+  assert.equal(events.at(-1).file, 'deck.pptx');
 });

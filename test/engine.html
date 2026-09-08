@@ -113,17 +113,18 @@
             undo: 0, redo: 0, dirty: false, lines: 0, sinceMs: 0, nag: false, canWrite: true });
         }
       }
-      // The PowerPoint export row (PRESENTING) is author-mode only, so this
-      // mode stands up the two routes it uses: a ping so editAvailable is
-      // true, and the export itself. `exportfail` is the same deck with a
-      // server that refuses, which is the branch that must not leave the row
-      // looking like it silently did nothing.
+      // The hand-over rows (PRESENTING) are author-mode only, so this mode
+      // stands up the two routes they use: a ping so editAvailable is true,
+      // and the export itself. `exportfail` is the same deck with a server
+      // that refuses, which is the branch that must not leave the row looking
+      // like it silently did nothing.
       if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/pptx')) {
+        if (u.includes('/edit/export')) {
+          const kind = JSON.parse(init?.body ?? '{}').kind;
           return HARNESS_MODE === 'exportfail'
             ? json({ ok: false, error: 'no Chrome found — install one, or point $CHROME at it' }, 503)
-            : json({ ok: true, file: 'deck.pptx', seconds: 6.2 });
+            : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : 'deck.handout.pdf', seconds: 6.2 });
         }
       }
       if (HARNESS_MODE === 'browse') {
@@ -170,9 +171,16 @@
       }
       return new Response('', { status: 404 });
     };
-    // the deck opens an EventSource once the ping succeeds; there is no server
-    // behind it here, and a pending connection would hold the virtual clock
-    window.EventSource = class { constructor() { this.readyState = 0; } addEventListener() {} close() {} };
+    // The deck opens an EventSource once the ping succeeds; there is no server
+    // behind it here, and a pending connection would hold the virtual clock.
+    // It REMEMBERS its listeners so a mode can push an event through it — the
+    // export progress the server narrates arrives this way and nowhere else.
+    window.EventSource = class {
+      constructor() { this.readyState = 0; this._l = {}; window.__es = this; }
+      addEventListener(type, fn) { (this._l[type] ??= []).push(fn); }
+      emit(type, data) { for (const fn of this._l[type] ?? []) fn({ data: JSON.stringify(data) }); }
+      close() {}
+    };
   </script>
 
   <script src="../dist/decklight.js"></script>
@@ -440,10 +448,10 @@
         const hiddenRows = labels('hidden');
         r.paletteNoHiddenRowWhenNoneHidden = !hiddenRows.some((t) => /Hidden slides/.test(t));
         r.paletteNoHideRowWithoutServer = !hiddenRows.some((t) => /Hide this slide/.test(t));
-        // …and no PowerPoint export either: it is the author server that runs
-        // `decklight pptx`, so on a deck opened from a file there is nothing
-        // behind the row.
-        r.paletteNoExportRowWithoutServer = !labels('powerpoint').some((t) => /Export to PowerPoint/.test(t));
+        // …and none of the hand-over rows either: it is the author server that
+        // runs `decklight pptx` and `decklight pdf`, so on a deck opened from a
+        // file there is nothing behind any of them.
+        r.paletteNoExportRowWithoutServer = !labels('export').some((t) => /Export (to|a) (PowerPoint|PDF)/.test(t));
         const tipRows = labels('tips');
         r.paletteTogglesTips = tipRows.some((t) => /Tips on/.test(t));
         r.paletteHidesEmptyReset = !tipRows.some((t) => /Reset tips/.test(t));
@@ -474,15 +482,32 @@
         press('Enter');
         r.closesOnRun = !document.querySelector(Q);
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
-        r.saysItStarted = said().some((t) => /rendering every slide/.test(t));
+        r.saysItStarted = said().some((t) => /exporting to PowerPoint/.test(t));
+        // The server narrates each slide on the SSE channel. The row already
+        // on screen is REWRITTEN from it — one row that keeps telling the
+        // truth, not one toast per slide burying everything else.
+        const before = said().length;
+        window.__es.emit('export', { state: 'slide', kind: 'pptx', n: 3, of: 5 });
+        r.saysWhereItIs = said().some((t) => /slide 3 of 5/.test(t));
+        r.oneRowNotMany = said().length === before;
         await settle();
         await settle();
-        r.posted = CALLS.post.some((c) => c.u.includes('/edit/pptx'));
+        r.posted = CALLS.post.some((c) => c.u.includes('/edit/export'));
         r.answered = mode === 'exportfail'
           ? said().some((t) => /could not export to PowerPoint — no Chrome found/.test(t))
           : said().some((t) => /wrote deck\.pptx/.test(t) && /6\.2s/.test(t));
 
-        r.PASS = r.rowIsThere && r.closesOnRun && r.saysItStarted && r.posted && r.answered;
+        // The PDFs are rows too — the same door, a different file. Searched by
+        // a word that is in the alias and not in the label, which is the half
+        // of a row a reader never sees and nothing else checks.
+        press('/');
+        for (const ch of 'handout') press(ch);
+        r.pdfRowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent)
+          .some((t) => /Export a PDF handout/.test(t));
+        press('Escape');
+
+        r.PASS = r.rowIsThere && r.closesOnRun && r.saysItStarted && r.saysWhereItIs
+          && r.oneRowNotMany && r.posted && r.answered && r.pdfRowIsThere;
       }
 
       if (mode === 'exclusive') {

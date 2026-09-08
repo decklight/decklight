@@ -22,7 +22,7 @@ import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
-import { run, CODEC_MS } from '../tools/exec.mjs';
+import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import { sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
 
 /**
@@ -155,13 +155,19 @@ export async function pdfMain(args = []) {
   // file:// decks load their runtime, themes and casts as siblings
   const shared = chromeArgs('--allow-file-access-from-files', `--virtual-time-budget=${wait}`);
 
+  // Chrome is AWAITED, never `run`. Not for the deadlock reason pptx has (this
+  // command opens the deck as a file, and serves nothing) but because the
+  // author server runs `pdfMain` in its own process for the palette's Export
+  // rows: a synchronous child would freeze live reload, the SSE stream and the
+  // page itself for the ten seconds Chrome takes to print.
+  //
   // Pass one: the DOM, for the slide count and the overflow audit. Cheap — the
   // same URL, the same budget, and it is the only way to know what the PDF is
   // about to hide.
   let html = '';
   try {
-    html = run(bin, [...shared, '--dump-dom', url],
-      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
+    html = await runAsync(bin, [...shared, '--dump-dom', url],
+      { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
   } catch { /* the print pass below is the one that must succeed */ }
   const slides = slideCount(html);
   console.error(`pdf: rendering ${basename(src)}?print${variant ? `=${variant}` : ''}${theme ? ` · theme ${theme}` : ''}`
@@ -169,8 +175,8 @@ export async function pdfMain(args = []) {
 
   rmSync(out, { force: true }); // never leave a stale PDF looking like a fresh one
   try {
-    run(bin, [...shared, '--no-pdf-header-footer', `--print-to-pdf=${out}`, url],
-      { stdio: ['ignore', 'ignore', 'ignore'], timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
+    await runAsync(bin, [...shared, '--no-pdf-header-footer', `--print-to-pdf=${out}`, url],
+      { maxBuffer: 32 * 1024 * 1024, timeout: CODEC_MS, why: 'Chrome did not finish rendering — a slide is probably waiting on a resource it cannot reach' });
   } catch (e) {
     console.error(`decklight pdf: Chrome failed — ${String(e.message ?? e).split('\n')[0]}`);
     return 1;

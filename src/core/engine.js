@@ -399,6 +399,44 @@ export function init(userConfig = {}) {
     setTimeout(drop, ms);
   }
 
+  /**
+   * A toast that STAYS, and rewrites itself — `{ update, done }`.
+   *
+   * For work long enough that a fixed sentence stops being true halfway
+   * through: an export rendering slide 7 of 12. One row, rewritten in place,
+   * because a toast per slide would push everything else off the screen and
+   * leave twelve near-identical lines in the message log, of which only the
+   * first and the last are worth remembering — so those two are the only ones
+   * logged.
+   */
+  function progressToast(msg) {
+    logOnly(msg);
+    if (printMode) return { update() {}, done() {} };
+    if (!msgEl) {
+      msgEl = document.createElement('div');
+      msgEl.className = 'decklight-messages';
+      root.appendChild(msgEl);
+    }
+    const row = document.createElement('div');
+    row.className = 'decklight-toast';
+    row.textContent = msg;
+    msgEl.appendChild(row);
+    requestAnimationFrame(() => row.classList.add('show'));
+    while (msgEl.children.length > MSG_STACK) msgEl.firstChild.remove();
+    let over = false;
+    return {
+      update(text) { if (!over) row.textContent = text; },
+      done(text, ms = 3600) {
+        over = true;
+        if (text) { row.textContent = text; logOnly(text); }
+        setTimeout(() => {
+          row.classList.remove('show');
+          setTimeout(() => row.remove(), 260); // after the fade
+        }, ms);
+      },
+    };
+  }
+
   // ----- onboarding (onboarding.js) -----------------------------------------
   // The first-run welcome card and the tip rotation that follows it. Built
   // before every other overlay so the welcome is first in the registry —
@@ -573,28 +611,6 @@ export function init(userConfig = {}) {
       if (to != null) instance.goto(to, 0);
     }
   }
-  // ── PowerPoint, from inside the deck ────────────────────────────────────
-  // `decklight pptx` needs Node and a headless Chrome, so the deck asks the
-  // author server to run it — the same door `A` (ask an agent) uses. It takes
-  // seconds per slide, so the row says what is happening before it starts and
-  // names the file it wrote when it ends; a silent wait reads as a dead row.
-  let exportingPptx = false;
-  async function exportPptx() {
-    if (exportingPptx) { toast('already exporting — one browser at a time'); return; }
-    exportingPptx = true;
-    toast('exporting to PowerPoint — rendering every slide, this takes a moment…');
-    try {
-      const r = await fetch(editmode.base() + '/edit/pptx', { method: 'POST' });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
-      toast(`wrote ${j.file} — every slide a picture, the notes as notes${j.seconds ? ` (${j.seconds}s)` : ''}`);
-    } catch (e) {
-      toast(`could not export to PowerPoint — ${e.message}`);
-    } finally {
-      exportingPptx = false;
-    }
-  }
-
   // The speaker popup, opened if it is not already — for the palette rows
   // that drive something inside it.
   function speakerWindow() {
@@ -676,9 +692,24 @@ export function init(userConfig = {}) {
       // from here, not only from `decklight pdf --notes/--handout`.
       { label: 'Print with notes (one slide per page, new tab)', alias: 'pdf print speaker notes script handout pages', run: () => window.open(location.pathname + '?print=notes') },
       { label: 'Print handout (three per page, new tab)', alias: 'pdf print handout thumbnails audience note-taking lines', run: () => window.open(location.pathname + '?print=handout') },
+      // ── the hand-over rows (PRESENTING) ─────────────────────────────
+      // The print rows above open a print VIEW in a tab: the same pages, and
+      // not a file anybody can be sent. These write the file, by asking the
+      // author server to run the command — hence (dev), and hence contextual:
+      // without a server there is nothing to run it, and a row that cannot
+      // keep its promise is worse than no row.
       editmode.available() && { label: 'Export to PowerPoint… (dev)',
         alias: 'pptx powerpoint keynote google slides export file office send share hand over',
-        run: exportPptx },
+        run: () => editmode.exportDeck('pptx') },
+      editmode.available() && { label: 'Export to PDF… (dev)',
+        alias: 'pdf export file save send share hand over slides acrobat',
+        run: () => editmode.exportDeck('pdf') },
+      editmode.available() && { label: 'Export a PDF with notes… (dev)',
+        alias: 'pdf notes script speaker one slide per page export file send rehearse',
+        run: () => editmode.exportDeck('pdf-notes') },
+      editmode.available() && { label: 'Export a PDF handout… (dev)',
+        alias: 'pdf handout three per page audience note-taking export file send print',
+        run: () => editmode.exportDeck('pdf-handout') },
       // HIDDEN_SLIDES — contextual: a deck with nothing hidden has nothing to
       // show, and a row that reloads the deck for no visible change reads as
       // broken. Author mode adds the verb that makes a slide hidden at all.
@@ -1958,7 +1989,7 @@ export function init(userConfig = {}) {
   // the deck. Built here, last, because it wants the instance and narration's
   // notes segmentation; it registers its own three overlays.
   const editmode = createEditMode({
-    root, config, params, printMode, toast, debugLog, overlays, instance,
+    root, config, params, printMode, toast, progress: progressToast, debugLog, overlays, instance,
     notesSegs,
     // the R dialog shares the stage with these three; the engine owns two
     dismissOthers: () => {
