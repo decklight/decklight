@@ -191,7 +191,8 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     });
 
     if (view === 'slides' && list.length) {
-      foot.textContent = `${chosen.size || 'none'} picked · a picks all · esc goes back`;
+      foot.textContent = `${chosen.size || 'none'} picked · a picks all`
+        + ` · l gives slide ${at} this one's look · esc goes back`;
     }
     selectInList([...listEl.querySelectorAll('.narr-row')], sel, 'narr-sel');
     syncPreview();
@@ -382,6 +383,39 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     }
   }
 
+  /**
+   * Give the slide you are ON the look of the slide you are LOOKING AT — its
+   * layout, its backdrop, its classes — and keep every word of your own.
+   *
+   * The other verb in this view. `⏎` takes somebody's slide; this takes only
+   * the shape of it, which is the more common thing to want from a template
+   * once a deck already has its content.
+   */
+  async function applyLook(slide) {
+    if (busy) return;
+    busy = true;
+    const to = deck().state.slide;
+    try {
+      const r = await fetch(base() + '/edit/template/apply', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: opened.name, slide: slide.n, to }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
+      close();
+      const named = Object.keys(j.applied ?? {});
+      const st = j.styles ?? {};
+      toast(`slide ${j.to} now looks like ${j.name} slide ${j.from} — Z takes it back`
+        + (named.length ? `. It took ${named.join(', ')}` : '. That slide has no look of its own, so yours was cleared')
+        + (st.carried?.length ? `, with ${st.carried.join(', ')}` : '')
+        + (st.clashed?.length ? `. ${st.clashed.join(', ')} already means something else here, so it kept this deck's rules` : ''), 6000);
+    } catch (e) {
+      toast(`could not apply — ${e.message}`);
+    } finally {
+      busy = false;
+    }
+  }
+
   /** Enter: open a template, install an offered one, or insert the picked slides. */
   function commit() {
     const list = rows();
@@ -411,6 +445,11 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       if (e.key === 'a' || e.key === 'A') {
         chosen = chosen.size === list.length ? new Set() : new Set(list.map((r) => r.slide.n));
         render();
+        return true;
+      }
+      if (e.key === 'l' || e.key === 'L') {
+        const row = list[sel];
+        if (row) applyLook(row.slide);
         return true;
       }
       if (e.key === 'Enter') { commit(); return true; }

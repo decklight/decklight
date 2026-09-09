@@ -146,7 +146,7 @@
       // Insert-from-a-template (UNITS#REST): three routes, and the second one
       // is the interesting shape — a template read as a list of slides, each
       // saying what it points at that THIS deck will not have.
-      if (HARNESS_MODE === 'template') {
+      if (HARNESS_MODE.startsWith('template')) {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/template/list')) {
           return json({ ok: true, cacheOnly: true, stale: [],
@@ -159,6 +159,12 @@
             { n: 2, title: 'Pricing', hidden: false, needs: ['assets/table.png'], clashes: [] },
             { n: 3, title: 'Backup', hidden: true, needs: [], clashes: ['.breaks'] },
           ] });
+        }
+        if (u.includes('/edit/template/apply')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, to: b.to, from: b.slide, name: 'startup-pitch', fromTitle: 'Pricing',
+            applied: { 'data-layout': 'split', class: 'tinted' }, replaced: { 'data-layout': 'centered' },
+            undo: 1, redo: 0, styles: { carried: ['.tinted'], clashed: [], dangling: [] } });
         }
         if (u.includes('/edit/template/insert')) {
           const body = JSON.parse(init?.body ?? '{}');
@@ -674,6 +680,40 @@
           && r.noPreviewForAnOfferedOne && r.previewFollowsTheCursor
           && r.captionSpellsOutWhatItNeeds && r.warnsAboutAClash && r.saysWhatStyleCameToo
           && r.saysWhatKeptItsOwnRules && r.namesAPropertyThatStayedBehind;
+      }
+
+      // The other verb in the slides view: keep your words, take their shape.
+      if (mode === 'templatelook') {
+        const P = '.decklight-tmpl';
+        await settle();
+        press('/');
+        for (const ch of 'template') press(ch);
+        press('Enter');
+        await settle();
+        press('Enter');                       // into startup-pitch
+        await settle();
+        const rows = () => [...document.querySelectorAll(`${P} .narr-row`)].map((n) => n.textContent);
+        r.opened = rows().some((t) => /Pricing/.test(t));
+        r.footOffersIt = /l gives slide \d+ this one's look/.test(
+          document.querySelector(`${P} .tmpl-foot`)?.textContent ?? '');
+
+        press('ArrowDown');                   // onto Pricing
+        press('l');
+        await settle();
+        await settle();
+        const posted = CALLS.post.find((c) => c.u.includes('/edit/template/apply'));
+        r.postsTheLook = !!posted && posted.body.name === 'startup-pitch' && posted.body.slide === 2;
+        r.appliesToTheSlideYouAreOn = !!posted && posted.body.to === deck.state.slide;
+        r.tookNothingElse = !CALLS.post.some((c) => c.u.includes('/edit/template/insert'));
+        r.closesAfter = !document.querySelector(P);
+        const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        r.saysWhatItDid = said.some((t) => /now looks like startup-pitch slide 2/.test(t) && /Z takes it back/.test(t));
+        r.namesWhatItTook = said.some((t) => /data-layout, class/.test(t));
+        r.saysTheStyleCameToo = said.some((t) => /with \.tinted/.test(t));
+
+        r.PASS = r.opened && r.footOffersIt && r.postsTheLook && r.appliesToTheSlideYouAreOn
+          && r.tookNothingElse && r.closesAfter && r.saysWhatItDid && r.namesWhatItTook
+          && r.saysTheStyleCameToo;
       }
 
       if (mode === 'exclusive') {

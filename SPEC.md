@@ -916,6 +916,20 @@ restyle slides the author never touched. A custom property the rule reads that
 was declared outside it, on the template's `:root`, does not travel and is
 named. And the whole of it is one undo entry: the section and the rules that
 shape it are one edit.
+**A slide you already wrote can wear a template slide's LOOK instead of being
+replaced by it.** `l` in the slides view applies the slide under the cursor to
+the slide you are on (`POST /edit/template/apply`): your words are not touched,
+and the section's opening tag is rewritten from an allowlist — `class`,
+`data-layout`, `data-transition`, `data-logo`, `data-pin` and any
+`data-background-*`. An allowlist, not an exclusion list: copying every `data-`
+attribute across would carry `data-hidden` (a fact about the other deck's
+structure), `data-id` (identity) and `data-build` (a behaviour that only makes
+sense against the content it reveals). The allowlisted attributes are replaced
+**wholesale**, so applying a look that names no `data-layout` also takes yours
+off — a slide left wearing half of each looks like neither. What was taken off
+comes back in `replaced` and is said in the toast, and the rules the new
+classes need are carried exactly as an insert carries them.
+
 The insert is otherwise a paste, never a merge: the section's markup is
 written as it stands, re-indented to the deck's own level so the diff is
 reviewable, and the deck's themes and `init` config are left alone. A marketplace skill installs
