@@ -867,10 +867,17 @@ run. In author mode the palette's **Insert from a template…** lists what is
 installed and what a registered marketplace offers (`GET /edit/template/list`,
 cache-only, exactly like the theme browser — installing is the one step that
 touches the network, through `template add`'s own installer). Opening one lists
-its slides by heading (`GET /edit/template/slides`); space picks, `a` picks all,
-and `⏎` inserts the chosen ones **after the slide you are on**
-(`POST /edit/template/insert`) as **one undo entry** — somebody else's slides
-are now your slides, and `Z` takes them back like any other edit. A hidden
+its slides by heading (`GET /edit/template/slides`). **The row under the cursor
+is the selection** — nothing is ticked first — and there are two verbs for it:
+`i` (or `⏎`) inserts that slide **after the slide you are on**
+(`POST /edit/template/insert`) as **one undo entry** — somebody else's slide is
+now your slide, and `Z` takes it back like any other edit — and `l` is the other
+one, below. Both name the slide they act on in the panel's footer, because
+neither acts on the highlighted row alone: one lands a slide beside yours, the
+other changes yours, and a key whose target is offscreen has to say what it is.
+The route still takes a list, so a caller may insert several at once; the panel
+asks for one at a time, because a selection you have to build before either verb
+will fire is a mode, and this view has two verbs to keep straight already. A hidden
 slide is listed as hidden and can still be taken, keeping the attribute.
 **The row under the cursor is rendered beside the list** — the picker's own
 anatomy, the one the theme picker, the slide finder and the history pane
@@ -918,7 +925,8 @@ named. And the whole of it is one undo entry: the section and the rules that
 shape it are one edit.
 **A slide you already wrote can wear a template slide's LOOK instead of being
 replaced by it.** `l` in the slides view applies the slide under the cursor to
-the slide you are on (`POST /edit/template/apply`): your words are not touched,
+the slide you are on (`POST /edit/template/apply`) — the same row `i` would have
+inserted, spent differently: your words are not touched,
 and the section's opening tag is rewritten from an allowlist — `class`,
 `data-layout`, `data-transition`, `data-logo`, `data-pin` and any
 `data-background-*`. An allowlist, not an exclusion list: copying every `data-`

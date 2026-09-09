@@ -619,6 +619,9 @@
         // because it is not on this machine and looking would mean fetching.
         const frame = () => document.querySelector(`${P} .tp-preview iframe`);
         const caption = () => document.querySelector(`${P} .tp-caption`).textContent;
+        // the footer is a legend now: one row per key, so read it as rows
+        const legend = () => [...document.querySelectorAll(`${P} .tmpl-key`)]
+          .map((n) => `${n.querySelector('kbd')?.textContent}:${n.textContent}`);
         r.hasAPreview = !!frame();
         r.previewsTheInstalledOne = await until(() => /template\/at\?name=startup-pitch/.test(frame().src))
           && /#\/1\/0$/.test(frame().src);
@@ -638,7 +641,10 @@
         // a class this deck already means something else by: the template's
         // rule for it is refused, and that is said before the slide is taken
         r.warnsAboutAClash = rows().some((t) => /Backup/.test(t) && /\.breaks is this deck's/.test(t));
-        r.nothingPickedYet = rows().every((t) => !t.includes('☑'));
+        // no tick column: the row under the cursor IS the selection
+        r.noTicks = rows().every((t) => !t.includes('☑') && !t.includes('☐'));
+        r.footNamesBothVerbs = legend().some((t) => /^i:.*insert it after slide \d+/.test(t))
+          && legend().some((t) => /^l:.*give slide \d+ its look/.test(t));
 
         press('ArrowDown');                   // to Pricing
         // the same document, a different slide: moved by postMessage, so the
@@ -648,20 +654,14 @@
         // the row can only show `⚠ needs assets/tab…`; the caption is where the
         // path is actually readable, for the one row under the cursor
         r.captionSpellsOutWhatItNeeds = /needs assets\/table\.png, which this deck does not have/.test(caption());
-        press(' ');
-        r.spacePicks = rows().some((t) => /Pricing/.test(t) && t.includes('☑'));
-        press('a');
-        r.aPicksAll = rows().filter((t) => t.includes('☑')).length === 3;
-        press('a');
-        r.aAgainClears = rows().every((t) => !t.includes('☑'));
 
-        press(' ');                           // pick just this one
-        press('Enter');
+        press('i');                           // insert the row under the cursor
         await settle();
         await settle();
         const posted = CALLS.post.find((c) => c.u.includes('/edit/template/insert'));
-        r.postsTheChoice = !!posted && posted.body.name === 'startup-pitch'
+        r.iInsertsTheCursorRow = !!posted && posted.body.name === 'startup-pitch'
           && JSON.stringify(posted.body.slides) === '[2]';
+        r.postsTheChoice = r.iInsertsTheCursorRow;
         r.insertsAfterTheCurrentSlide = !!posted && posted.body.after === deck.state.slide;
         r.closesOnInsert = !document.querySelector(P);
         const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
@@ -673,8 +673,8 @@
         r.namesAPropertyThatStayedBehind = said.some((t) => /--card-bg.*did not travel/.test(t));
 
         r.PASS = r.rowIsThere && r.opens && r.listsInstalled && r.listsOffered && r.listsSlides
-          && r.saysWhatASlideNeeds && r.marksHidden && r.nothingPickedYet && r.spacePicks
-          && r.aPicksAll && r.aAgainClears && r.postsTheChoice && r.insertsAfterTheCurrentSlide
+          && r.saysWhatASlideNeeds && r.marksHidden && r.noTicks && r.footNamesBothVerbs
+          && r.iInsertsTheCursorRow && r.postsTheChoice && r.insertsAfterTheCurrentSlide
           && r.closesOnInsert && r.saysWhatLanded && r.repeatsTheWarning
           && r.hasAPreview && r.previewsTheInstalledOne && r.captionNamesIt
           && r.noPreviewForAnOfferedOne && r.previewFollowsTheCursor
@@ -694,8 +694,9 @@
         await settle();
         const rows = () => [...document.querySelectorAll(`${P} .narr-row`)].map((n) => n.textContent);
         r.opened = rows().some((t) => /Pricing/.test(t));
-        r.footOffersIt = /l gives slide \d+ this one's look/.test(
-          document.querySelector(`${P} .tmpl-foot`)?.textContent ?? '');
+        r.footOffersIt = [...document.querySelectorAll(`${P} .tmpl-key`)]
+          .some((n) => n.querySelector('kbd')?.textContent === 'l'
+            && /give slide \d+ its look/.test(n.textContent));
 
         press('ArrowDown');                   // onto Pricing
         press('l');
