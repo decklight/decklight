@@ -21,10 +21,23 @@ import * as terminal from 'virtual:terminal';
 export const version = '0.8.1';
 export { registerBuildProvider };
 
+/**
+ * The terminal subsystem's entry point, or null when there is not one.
+ *
+ * The contract above is a NAMED export, and both things `virtual:terminal` can
+ * resolve to honour it: player.mjs exports `registerTerminals` as a function,
+ * and the stub the build substitutes when src/terminal/ is absent exports it as
+ * `null`. Neither has a default export — so a `|| terminal.default?.…` fallback,
+ * which used to be here twice, could never have produced a function. esbuild
+ * said so on every build: "Import 'default' will always be undefined".
+ */
+const terminalRegistrar = () =>
+  (typeof terminal.registerTerminals === 'function' ? terminal.registerTerminals : null);
+
 export function init(config = {}) {
   const instance = engineInit(config);
-  const register = terminal.registerTerminals || terminal.default?.registerTerminals;
-  if (typeof register === 'function') {
+  const register = terminalRegistrar();
+  if (register) {
     Promise.resolve(register({ registerBuildProvider }, document))
       .catch((err) => console.error('Decklight: terminal subsystem failed to initialize', err));
   }
@@ -34,8 +47,8 @@ export function init(config = {}) {
 /** Docs-page use (SPEC TERMINAL_PLAYER): activate .terminal elements WITHOUT a deck —
  *  play mode is fully interactive standalone; step mode renders complete. */
 export function initTerminals(root = document) {
-  const register = terminal.registerTerminals || terminal.default?.registerTerminals;
-  return typeof register === 'function'
+  const register = terminalRegistrar();
+  return register
     ? Promise.resolve(register({ registerBuildProvider }, root))
     : Promise.resolve();
 }

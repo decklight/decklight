@@ -96,7 +96,12 @@ const virtualTerminal = {
   },
 };
 
-await build({
+// A warning is a build failure here. The one that prompted this rule —
+// "Import 'default' will always be undefined", esbuild pointing straight at a
+// fallback in src/index.js that could never fire — printed on every build for
+// as long as it existed and was read by nobody, because a build that says
+// something and then succeeds anyway has said nothing.
+const result = await build({
   entryPoints: [resolve(here, 'src/index.js')],
   bundle: true,
   minify: true,
@@ -112,6 +117,11 @@ await build({
   },
   logLevel: 'info',
 });
+if (result.warnings.length) {
+  console.error(`\nbuild: ${result.warnings.length} warning(s) above — esbuild found something real, or the`
+    + ' rule needs an exception it does not have yet. Either way this is not a green build.');
+  process.exit(1);
+}
 
 // dist CSS = core structure + the terminal player's stylesheet (chrome,
 // ANSI-16 classes, screen sizing) — the player is bundled into decklight.js,
