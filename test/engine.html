@@ -619,9 +619,11 @@
         // because it is not on this machine and looking would mean fetching.
         const frame = () => document.querySelector(`${P} .tp-preview iframe`);
         const caption = () => document.querySelector(`${P} .tp-caption`).textContent;
-        // the footer is a legend now: one row per key, so read it as rows
+        // the footer is a legend: one row per key, and the row for the mode
+        // you are in carries .tmpl-on
         const legend = () => [...document.querySelectorAll(`${P} .tmpl-key`)]
-          .map((n) => `${n.querySelector('kbd')?.textContent}:${n.textContent}`);
+          .map((n) => `${n.querySelector('kbd')?.textContent}:${n.textContent}`
+            + (n.classList.contains('tmpl-on') ? ':ON' : ''));
         r.hasAPreview = !!frame();
         r.previewsTheInstalledOne = await until(() => /template\/at\?name=startup-pitch/.test(frame().src))
           && /#\/1\/0$/.test(frame().src);
@@ -643,8 +645,13 @@
         r.warnsAboutAClash = rows().some((t) => /Backup/.test(t) && /\.breaks is this deck's/.test(t));
         // no tick column: the row under the cursor IS the selection
         r.noTicks = rows().every((t) => !t.includes('☑') && !t.includes('☐'));
-        r.footNamesBothVerbs = legend().some((t) => /^i:.*insert it after slide \d+/.test(t))
-          && legend().some((t) => /^l:.*give slide \d+ its look/.test(t));
+        r.legendOffersBothModes = legend().some((t) => /^i:.*insert a slide/.test(t))
+          && legend().some((t) => /^l:.*apply a look/.test(t));
+        r.insertIsTheDefaultMode = legend().some((t) => /^i:.*:ON$/.test(t))
+          && !legend().some((t) => /^l:.*:ON$/.test(t));
+        // a mode means ⏎ does two things, so ⏎ has to say which one it is
+        // about to do, and to which slide
+        r.enterSaysWhatItWillDo = legend().some((t) => /^⏎:.*insert it after slide \d+/.test(t));
 
         press('ArrowDown');                   // to Pricing
         // the same document, a different slide: moved by postMessage, so the
@@ -655,13 +662,13 @@
         // path is actually readable, for the one row under the cursor
         r.captionSpellsOutWhatItNeeds = /needs assets\/table\.png, which this deck does not have/.test(caption());
 
-        press('i');                           // insert the row under the cursor
+        press('Enter');                       // insert, because insert is the mode
         await settle();
         await settle();
         const posted = CALLS.post.find((c) => c.u.includes('/edit/template/insert'));
-        r.iInsertsTheCursorRow = !!posted && posted.body.name === 'startup-pitch'
+        r.enterInsertsTheCursorRow = !!posted && posted.body.name === 'startup-pitch'
           && JSON.stringify(posted.body.slides) === '[2]';
-        r.postsTheChoice = r.iInsertsTheCursorRow;
+        r.postsTheChoice = r.enterInsertsTheCursorRow;
         r.insertsAfterTheCurrentSlide = !!posted && posted.body.after === deck.state.slide;
         r.closesOnInsert = !document.querySelector(P);
         const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
@@ -673,8 +680,9 @@
         r.namesAPropertyThatStayedBehind = said.some((t) => /--card-bg.*did not travel/.test(t));
 
         r.PASS = r.rowIsThere && r.opens && r.listsInstalled && r.listsOffered && r.listsSlides
-          && r.saysWhatASlideNeeds && r.marksHidden && r.noTicks && r.footNamesBothVerbs
-          && r.iInsertsTheCursorRow && r.postsTheChoice && r.insertsAfterTheCurrentSlide
+          && r.saysWhatASlideNeeds && r.marksHidden && r.noTicks && r.legendOffersBothModes
+          && r.insertIsTheDefaultMode && r.enterSaysWhatItWillDo
+          && r.enterInsertsTheCursorRow && r.postsTheChoice && r.insertsAfterTheCurrentSlide
           && r.closesOnInsert && r.saysWhatLanded && r.repeatsTheWarning
           && r.hasAPreview && r.previewsTheInstalledOne && r.captionNamesIt
           && r.noPreviewForAnOfferedOne && r.previewFollowsTheCursor
@@ -694,12 +702,28 @@
         await settle();
         const rows = () => [...document.querySelectorAll(`${P} .narr-row`)].map((n) => n.textContent);
         r.opened = rows().some((t) => /Pricing/.test(t));
-        r.footOffersIt = [...document.querySelectorAll(`${P} .tmpl-key`)]
-          .some((n) => n.querySelector('kbd')?.textContent === 'l'
-            && /give slide \d+ its look/.test(n.textContent));
+        const legend = () => [...document.querySelectorAll(`${P} .tmpl-key`)]
+          .map((n) => `${n.querySelector('kbd')?.textContent}:${n.textContent}`
+            + (n.classList.contains('tmpl-on') ? ':ON' : ''));
+        r.footOffersIt = legend().some((t) => /^l:.*apply a look/.test(t));
 
         press('ArrowDown');                   // onto Pricing
-        press('l');
+        press('l');                           // a MODE, not the act
+        await settle();
+        r.lMarksTheMode = legend().some((t) => /^l:.*:ON$/.test(t))
+          && !legend().some((t) => /^i:.*:ON$/.test(t));
+        r.enterNowSaysApply = legend().some((t) => /^⏎:.*apply it to slide \d+/.test(t));
+        r.lAloneChangedNothing = !CALLS.post.some((c) => c.u.includes('/edit/template/apply'));
+
+        // the preview stops showing THEIR slide and starts showing YOURS
+        // wearing their look — a different document, so a reload
+        const frame = () => document.querySelector(`${P} .tp-preview iframe`);
+        r.previewShowsTheOutcome = await until(() =>
+          /\/edit\/template\/preview\?name=startup-pitch&slide=2&to=\d+/.test(frame().src));
+        r.captionSaysWhoseSlide = /slide \d+ of yours, wearing slide 2's look/.test(
+          document.querySelector(`${P} .tp-caption`).textContent);
+
+        press('Enter');                       // now it applies
         await settle();
         await settle();
         const posted = CALLS.post.find((c) => c.u.includes('/edit/template/apply'));
@@ -712,7 +736,9 @@
         r.namesWhatItTook = said.some((t) => /data-layout, class/.test(t));
         r.saysTheStyleCameToo = said.some((t) => /with \.tinted/.test(t));
 
-        r.PASS = r.opened && r.footOffersIt && r.postsTheLook && r.appliesToTheSlideYouAreOn
+        r.PASS = r.opened && r.footOffersIt && r.lMarksTheMode && r.enterNowSaysApply
+          && r.lAloneChangedNothing && r.previewShowsTheOutcome && r.captionSaysWhoseSlide
+          && r.postsTheLook && r.appliesToTheSlideYouAreOn
           && r.tookNothingElse && r.closesAfter && r.saysWhatItDid && r.namesWhatItTook
           && r.saysTheStyleCameToo;
       }

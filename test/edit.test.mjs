@@ -1581,6 +1581,38 @@ test('/edit/template/apply gives a slide you wrote the look of one you did not',
   assert.doesNotMatch(back, /data-from-template/);
 });
 
+test('/edit/template/preview renders what apply WOULD do, and writes nothing', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const { base } = await startWithTemplate(t, dir);
+  writeFileSync(path.join(dir, 'home', 'templates', 'looks.html'),
+    '<!doctype html><html><head><style>.tinted { background: #123 }</style></head><body>'
+    + '<div class="decklight">'
+    + '<section data-layout="split" class="tinted"><h2>Theirs</h2></section>'
+    + '</div></body></html>');
+  const before = readFileSync(deck, 'utf8');
+
+  const r = await fetch(base + '/edit/template/preview?name=looks&slide=1&to=2&embedded');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/html/);
+  const html = await r.text();
+  assert.match(html, /<base href="\/">/);
+  assert.match(html, /<section data-layout="split" class="tinted">/, 'slide 2 wearing their look');
+  assert.match(html, /<h2>Beta<\/h2>/, 'and still carrying its own words — this is YOUR slide');
+  assert.doesNotMatch(html, /Theirs/, 'their slide is not in it');
+  assert.match(html, /\.tinted \{ background: #123 \}/, 'with the rules the look needs');
+
+  assert.equal(readFileSync(deck, 'utf8'), before,
+    'a cursor moving through a list must never touch the file');
+  const ping = await (await fetch(base + '/edit/ping')).json();
+  assert.equal(ping.undo, 0, 'and never make an undo entry');
+
+  const nope = await fetch(base + '/edit/template/preview?name=looks&slide=9&to=2');
+  assert.equal(nope.status, 404);
+  const noTarget = await fetch(base + '/edit/template/preview?name=looks&slide=1&to=99');
+  assert.equal(noTarget.status, 404);
+});
+
 test('/edit/template/apply refuses a slide neither deck has', async (t) => {
   const dir = tmp(t);
   const { base } = await startWithTemplate(t, dir);
