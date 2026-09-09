@@ -2032,6 +2032,30 @@ export async function editMain(args, { onListen = null } = {}) {
         if (!slides.length) return json(422, { ok: false, error: `"${name}" has no slides in it` });
         return json(200, { ok: true, name, slides });
       }
+      // The template itself, served so an iframe can RENDER it — the picker
+      // previews the slide under the cursor, and a list of titles is not a
+      // preview. Same shape as `/edit/at`: a whole deck, `?embedded` so its own
+      // chrome stays off, `withBaseHref` because this is served from a path two
+      // deep and every relative reference in it would otherwise resolve there.
+      //
+      // `standalone` supplies the runtime and theme a template LINKS but does
+      // not carry — installed in `~/.decklight/templates/`, `../dist/…` points
+      // at nothing, and this server has no runtime of its own to serve instead.
+      // What stays missing is exactly what `/edit/template/slides` reports as
+      // `needs`: a cast, a relative image. Those 404 in the preview, which is
+      // the warning drawn rather than written.
+      if (req.method === 'GET' && url.pathname === '/edit/template/at') {
+        const name = url.searchParams.get('name') ?? '';
+        const { findUnit } = await import('./units.mjs');
+        const found = findUnit('template', name);
+        if (!found) {
+          res.writeHead(404, { ...CORS, 'content-type': 'text/plain; charset=utf-8' });
+          return res.end(`no template "${name}" is installed here`);
+        }
+        const { standalone } = await import('../tools/template-slides.mjs');
+        res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
+        return res.end(withBaseHref(standalone(readFileSync(found.path, 'utf8'))));
+      }
       if (req.method === 'POST' && url.pathname === '/edit/template/add') {
         const { ref } = JSON.parse(body || '{}');
         if (typeof ref !== 'string' || !ref.trim()) return json(400, { ok: false, error: 'which template?' });

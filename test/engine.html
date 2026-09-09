@@ -266,6 +266,13 @@
     // history fetch), so the whole body runs async and writes the sink at the
     // end. The synchronous modes are unaffected by being awaited.
     const settle = () => new Promise((res) => setTimeout(res, 50));
+    // The template picker debounces its preview so a held-down arrow does not
+    // boot a deck per row. Waiting a fixed span for it is a race the CI
+    // machine wins sooner or later — wait for the CONDITION, with a cap.
+    const until = async (ok, tries = 40) => {
+      for (let i = 0; i < tries && !ok(); i++) await settle();
+      return ok();
+    };
 
     const r = {};
     // A screenshot driver (shots/*.mjs, via tools/shot.mjs --drive) wants the
@@ -600,6 +607,22 @@
         r.listsInstalled = rows().some((t) => /startup-pitch/.test(t));
         r.listsOffered = rows().some((t) => /quarterly@acme/.test(t) && /install/.test(t));
 
+        // The preview pane: the row under the cursor, rendered. An installed
+        // template shows its first slide; an offered one shows nothing,
+        // because it is not on this machine and looking would mean fetching.
+        const frame = () => document.querySelector(`${P} .tp-preview iframe`);
+        const caption = () => document.querySelector(`${P} .tp-caption`).textContent;
+        r.hasAPreview = !!frame();
+        r.previewsTheInstalledOne = await until(() => /template\/at\?name=startup-pitch/.test(frame().src))
+          && /#\/1\/0$/.test(frame().src);
+        r.captionNamesIt = /startup-pitch/.test(caption());
+        // the caption and the hiding are synchronous with the row moving; only
+        // the document swap behind them is deferred
+        press('ArrowDown');                   // onto the offered row
+        r.noPreviewForAnOfferedOne = frame().hidden
+          && /not installed here yet/.test(caption());
+        press('ArrowUp');
+
         press('Enter');                       // open the installed one
         await settle();
         r.listsSlides = rows().some((t) => /Pricing/.test(t));
@@ -608,6 +631,13 @@
         r.nothingPickedYet = rows().every((t) => !t.includes('☑'));
 
         press('ArrowDown');                   // to Pricing
+        // the same document, a different slide: moved by postMessage, so the
+        // iframe is NOT reloaded and its src still names the slide it booted on
+        r.previewFollowsTheCursor = /slide 2 — Pricing/.test(caption())
+          && /template\/at\?name=startup-pitch/.test(frame().src);
+        // the row can only show `⚠ needs assets/tab…`; the caption is where the
+        // path is actually readable, for the one row under the cursor
+        r.captionSpellsOutWhatItNeeds = /needs assets\/table\.png, which this deck does not have/.test(caption());
         press(' ');
         r.spacePicks = rows().some((t) => /Pricing/.test(t) && t.includes('☑'));
         press('a');
@@ -631,7 +661,10 @@
         r.PASS = r.rowIsThere && r.opens && r.listsInstalled && r.listsOffered && r.listsSlides
           && r.saysWhatASlideNeeds && r.marksHidden && r.nothingPickedYet && r.spacePicks
           && r.aPicksAll && r.aAgainClears && r.postsTheChoice && r.insertsAfterTheCurrentSlide
-          && r.closesOnInsert && r.saysWhatLanded && r.repeatsTheWarning;
+          && r.closesOnInsert && r.saysWhatLanded && r.repeatsTheWarning
+          && r.hasAPreview && r.previewsTheInstalledOne && r.captionNamesIt
+          && r.noPreviewForAnOfferedOne && r.previewFollowsTheCursor
+          && r.captionSpellsOutWhatItNeeds;
       }
 
       if (mode === 'exclusive') {

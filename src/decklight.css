@@ -1359,11 +1359,30 @@
 }
 
 /* offline recording (V → Record… → synthesized) — shares .decklight-narr's card chrome */
-/* Insert-from-a-template (UNITS#REST): the shared card overlay with a tick
-   column, so a slide list reads as something you are choosing FROM. */
-.decklight-tmpl .narr-card { width: min(560px, 88vw); }
+/* Insert-from-a-template (UNITS#REST): the picker's two panes — the list you
+   choose in, and the slide under the cursor rendered beside it — carrying the
+   narration card's ROWS, because a template row has a tick column and warning
+   tags that `.tp-row` does not draw. The element wears both class names, so
+   both sets of rules apply to the parts each one owns. */
+/* Wider than the picker's own, and a wider rail: a theme is one word and a
+   slide's title is a sentence. */
+.decklight-tmpl .tp-panel { width: min(960px, 90vw); }
+.decklight-tmpl .tp-side { flex: 0 0 330px; }
 .decklight-tmpl .tmpl-check { flex: none; opacity: .85; }
-.decklight-tmpl .tmpl-filter { padding-top: 2px; }
+/* A template's name and a slide's title are somebody else's words; the theme
+   picker capitalizes its rows because a theme name is a label, and these
+   are not. (After the capitalize rules above, so this wins.)
+   It WRAPS, unlike the history pane's: what a slide needs is a list of file
+   names, the row can only show the first few characters of it, and a path
+   truncated to `casts/demo.c…` is not something anybody can act on. */
+.decklight-tmpl .tp-caption { text-transform: none; }
+/* Shaped like the thing it shows, and centred in the leftover height, for the
+   reason the history pane spells out: `flex: 1` letterboxes a 16/9 slide into
+   a portrait sliver, and a pane pinned to the top of a taller box reads as a
+   rendering accident. */
+.decklight-tmpl .tp-preview { justify-content: center; }
+.decklight-tmpl .tp-preview iframe { flex: 0 0 auto; aspect-ratio: 16 / 9; height: auto; }
+.decklight-tmpl .tmpl-foot { flex: none; padding: 6px 12px 0; opacity: .5; font-size: 12px; }
 .decklight-tmpl .narr-tag {
   flex: none;
   max-width: 46%;
