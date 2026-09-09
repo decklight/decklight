@@ -20,9 +20,26 @@
  * multi-select — a template's value is usually three of its slides, not all
  * eight — and it says what each slide points at that this deck will not have,
  * before you take it rather than after.
+ *
+ * Both views are half a panel. The other half is the slide under the cursor,
+ * RENDERED, in the picker's own anatomy (`.tp-panel`: a list, a preview, a
+ * caption) — the same one the theme picker, the slide finder and the history
+ * pane use. A template is a deck somebody designed, and its titles are the
+ * least of what you are choosing between; a list of them asks you to pick a
+ * slide by name and find out what it looks like afterwards, which is the shape
+ * of mistake this panel exists to prevent everywhere else.
  */
 
 import { closeOnBackdrop, selectInList, typeaheadKeydown } from './overlay.js';
+
+/**
+ * How long the cursor rests on a row before its preview is fetched.
+ *
+ * Held down, ↓ walks a list faster than a deck can boot in an iframe, and every
+ * row on the way is a document load nobody asked to see. The theme picker
+ * debounces its preview for the same reason.
+ */
+const PREVIEW_SETTLE_MS = 120;
 
 export function createTemplates({ root, overlays, editmode, deck, toast, dismissOthers }) {
   const base = () => editmode().base();
@@ -33,19 +50,34 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
   let sel = 0;
   let filter = '';
   let listing = null;         // { installed, offered, stale } | { error } | null while loading
-  let opened = null;          // { name, slides: [{n,title,hidden,needs}] } | { error }
+  let opened = null;          // { name, slides } | { name, error } | { name, loading }
   let chosen = new Set();     // slide numbers ticked in the slides view
   let busy = false;
+
+  // ----- the preview pane ----------------------------------------------------
+  // One iframe, reloaded when the DOCUMENT changes and postMessaged when only
+  // the slide does — `finderPreviewSwap`'s mechanism exactly, because the
+  // finder has the same two cases (a slide of this deck, or another file).
+  let frameReady = false;
+  let framePending = null;
+  let previewTimer = 0;
+  // name → { slides } | { error }. Filled by whichever of the two asks first:
+  // browsing the list previews a template, which needs its slide list, so by
+  // the time ⏎ opens it the slides view usually has nothing left to wait for.
+  const slideCache = new Map();
 
   const isOpen = () => !!el;
 
   function close() {
+    clearTimeout(previewTimer);
     el?.remove();
     el = null;
     view = 'list';
     sel = 0;
     filter = '';
     chosen = new Set();
+    frameReady = false;
+    framePending = null;
   }
 
   /** The rows the current view offers, as data — render() turns them into DOM. */
@@ -64,52 +96,61 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
   function render() {
     if (!el) {
       el = document.createElement('div');
-      el.className = 'decklight-narr decklight-tmpl';
-      el.innerHTML = '<div class="narr-card"></div>';
+      // The picker's anatomy with the narration card's ROWS: a template row has
+      // a tick column and warning tags, which `.narr-row` already draws and
+      // nothing in `.tp-row` does.
+      el.className = 'decklight-narr decklight-theme-picker decklight-tmpl';
+      el.innerHTML =
+        '<div class="tp-panel">'
+        + '<div class="tp-side">'
+        + '<div class="tp-filter"></div>'
+        + '<div class="tp-list" role="listbox" aria-label="Deck templates"></div>'
+        + '<div class="tmpl-foot"></div></div>'
+        + '<div class="tp-preview"><iframe title="Template preview" hidden></iframe>'
+        + '<div class="tp-caption"></div></div>'
+        + '</div>';
       root.appendChild(el);
       closeOnBackdrop(el, close);
     }
-    const card = el.querySelector('.narr-card');
-    card.textContent = '';
-
-    const head = document.createElement('div');
-    head.className = 'narr-head';
     const at = deck().state.slide;
-    head.textContent = view === 'slides'
-      ? `${opened.name} — space picks, ⏎ inserts after slide ${at}`
-      : 'insert from a template';
-    card.append(head);
+    el.querySelector('.tp-filter').textContent = view === 'slides'
+      ? `${opened.name} — space picks · ⏎ inserts after slide ${at}`
+      : filter ? `filter: ${filter}` : 'insert from a template — type to filter · ⏎ opens';
 
-    const list = rows();
-    if (view === 'list') {
-      const f = document.createElement('div');
-      f.className = 'narr-head tmpl-filter';
-      f.textContent = filter ? `filter: ${filter}` : 'type to filter · ⏎ opens · esc closes';
-      card.append(f);
-    }
+    const listEl = el.querySelector('.tp-list');
+    listEl.textContent = '';
+    const foot = el.querySelector('.tmpl-foot');
+    foot.textContent = '';
+
+    const say = (text) => {
+      const row = document.createElement('div');
+      row.className = 'narr-row narr-blocked';
+      row.textContent = text;
+      listEl.append(row);
+    };
 
     if (listing?.error || opened?.error) {
-      const err = document.createElement('div');
-      err.className = 'narr-row narr-blocked';
-      err.textContent = listing?.error ?? opened?.error;
-      card.append(err);
+      say(listing?.error ?? opened?.error);
+      syncPreview();
       return;
     }
     if (!listing && view === 'list') {
-      const wait = document.createElement('div');
-      wait.className = 'narr-row narr-blocked';
-      wait.textContent = 'reading what is installed…';
-      card.append(wait);
+      say('reading what is installed…');
+      syncPreview();
       return;
     }
+    if (opened?.loading && view === 'slides') {
+      say(`reading ${opened.name}…`);
+      syncPreview();
+      return;
+    }
+
+    const list = rows();
     if (!list.length) {
-      const none = document.createElement('div');
-      none.className = 'narr-row narr-blocked';
-      none.textContent = view === 'slides'
+      say(view === 'slides'
         ? 'this template has no slides'
         : 'no deck template installed, and no registered marketplace offers one'
-          + ' — decklight marketplace add <owner/repo>';
-      card.append(none);
+          + ' — decklight marketplace add <owner/repo>');
     }
 
     sel = Math.max(0, Math.min(sel, list.length - 1));
@@ -133,6 +174,8 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       } else if (r.kind === 'installed') {
         label.textContent = r.name;
         row.append(label);
+        const known = slideCache.get(r.name)?.slides?.length;
+        if (known) row.append(tag(`${known} slides`));
       } else {
         label.textContent = r.entry.qualified;
         row.append(label);
@@ -140,20 +183,114 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
         if (r.entry.description) row.append(tag(r.entry.description));
       }
       row.addEventListener('click', () => { sel = i; commit(); });
-      card.append(row);
+      row.addEventListener('mouseenter', () => { if (sel !== i) { sel = i; render(); } });
+      listEl.append(row);
     });
 
     if (view === 'slides' && list.length) {
-      const foot = document.createElement('div');
-      foot.className = 'narr-head';
       foot.textContent = `${chosen.size || 'none'} picked · a picks all · esc goes back`;
-      card.append(foot);
     }
-    const el2 = [...card.querySelectorAll('.narr-row')];
-    selectInList(el2, sel, 'narr-sel');
+    selectInList([...listEl.querySelectorAll('.narr-row')], sel, 'narr-sel');
+    syncPreview();
   }
 
   const tag = (text) => Object.assign(document.createElement('span'), { className: 'narr-tag', textContent: text });
+
+  // ----- preview -------------------------------------------------------------
+
+  /**
+   * What the row under the cursor should show, and what to say under it.
+   *
+   * An OFFERED row has no `name`: the template is not on this machine, and
+   * previewing it would mean fetching it. Registering a marketplace is not
+   * fetching from one (`UNITS`), and the theme picker draws exactly this line
+   * for exactly this reason — a marketplace row keeps whatever the pane was
+   * showing rather than reaching out to fill it.
+   */
+  function previewTarget() {
+    const row = rows()[sel];
+    if (!row) return null;
+    if (row.kind === 'slide') {
+      const { slide } = row;
+      return {
+        name: opened.name,
+        slide: slide.n,
+        // The row carries `⚠ needs` as a mark you can scan a list for; it is
+        // the caption that has the room to say WHICH files, and the row under
+        // the cursor is the only one anybody needs that from.
+        caption: `slide ${slide.n} — ${slide.title}`
+          + (slide.hidden ? ' · hidden in its own deck' : '')
+          + (slide.needs.length ? ` · ⚠ needs ${slide.needs.join(', ')}, which this deck does not have` : ''),
+      };
+    }
+    if (row.kind === 'installed') {
+      const n = slideCache.get(row.name)?.slides?.length;
+      return { name: row.name, slide: 1, caption: n ? `${row.name} · ${n} slides` : row.name };
+    }
+    return {
+      caption: `${row.entry.qualified} — not installed here yet · ⏎ installs it, then you can look inside`,
+    };
+  }
+
+  function syncPreview() {
+    if (!el) return;
+    const target = previewTarget();
+    const frame = el.querySelector('iframe');
+    el.querySelector('.tp-caption').textContent = target?.caption ?? '';
+    clearTimeout(previewTimer);
+    if (!target?.name) { frame.hidden = true; return; }
+    const { name, slide } = target;
+    previewTimer = setTimeout(() => {
+      previewSwap(name, slide);
+      // the count that finishes the caption comes from the read the slides view
+      // needs anyway, so browsing the list is what warms it
+      if (!slideCache.has(name)) slidesOf(name).then(() => { if (el) render(); });
+    }, PREVIEW_SETTLE_MS);
+  }
+
+  function previewSwap(name, slide) {
+    const frame = el?.querySelector('iframe');
+    if (!frame) return;
+    frame.hidden = false;
+    // `embedded`: the previewed template is a whole deck, and without it the
+    // preview would draw its own progress bar, its own toasts and its own
+    // onboarding over the top of somebody else's slide.
+    const doc = `${base()}/edit/template/at?name=${encodeURIComponent(name)}&embedded`;
+    if (frame.dataset.doc !== doc) {
+      frame.dataset.doc = doc;
+      frameReady = false;
+      framePending = null;
+      frame.addEventListener('load', () => {
+        frameReady = true;
+        if (framePending && el) {
+          const p = framePending;
+          framePending = null;
+          previewSwap(p.name, p.slide);
+        }
+      }, { once: true });
+      frame.src = `${doc}#/${slide}/0`;
+      return;
+    }
+    if (!frameReady) { framePending = { name, slide }; return; }
+    frame.contentWindow?.postMessage({ __decklightPreview: { goto: [slide, 0] } }, '*');
+  }
+
+  // ----- reading -------------------------------------------------------------
+
+  /** A template's slides, read once and remembered for as long as the panel is open. */
+  async function slidesOf(name) {
+    if (slideCache.has(name)) return slideCache.get(name);
+    let got;
+    try {
+      const r = await fetch(`${base()}/edit/template/slides?name=${encodeURIComponent(name)}`);
+      const j = await r.json().catch(() => ({}));
+      got = r.ok && j.ok ? { slides: j.slides ?? [] } : { error: j.error || `the author server said ${r.status}` };
+    } catch {
+      got = { error: 'the author server did not answer' };
+    }
+    slideCache.set(name, got);
+    return got;
+  }
 
   async function open() {
     if (!available()) { toast('templates install through the author server — decklight author'); return; }
@@ -175,14 +312,15 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
   }
 
   async function openTemplate(name) {
-    opened = null;
-    try {
-      const r = await fetch(`${base()}/edit/template/slides?name=${encodeURIComponent(name)}`);
-      const j = await r.json().catch(() => ({}));
-      opened = r.ok && j.ok ? { name, slides: j.slides ?? [] } : { name, error: j.error || `the author server said ${r.status}` };
-    } catch {
-      opened = { name, error: 'the author server did not answer' };
+    if (!slideCache.has(name) && el) {
+      opened = { name, loading: true };
+      view = 'slides';
+      sel = 0;
+      chosen = new Set();
+      render();
     }
+    const got = await slidesOf(name);
+    opened = got.error ? { name, error: got.error } : { name, slides: got.slides };
     if (!el) return;
     view = 'slides';
     sel = 0;
@@ -201,6 +339,7 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
       toast(`installed ${j.name}`);
+      slideCache.delete(j.name);
       await open();
       await openTemplate(j.name);
     } catch (e) {

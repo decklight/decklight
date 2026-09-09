@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { templateSlides, parseSlideSpec, externalRefs } from '../tools/template-slides.mjs';
+import { templateSlides, parseSlideSpec, externalRefs, standalone } from '../tools/template-slides.mjs';
 import { insertSectionsAfter, reindentSection, sectionCloseIndex } from '../tools/deck-html.mjs';
 
 const TEMPLATE = `<!doctype html><html><body>
@@ -156,4 +156,48 @@ test('re-indenting shifts every line by the same amount, and leaves the shape', 
   const sec = '      <section>\n        <h2>Deep</h2>\n          <p>deeper</p>\n      </section>';
   assert.equal(reindentSection(sec, '  '),
     '  <section>\n    <h2>Deep</h2>\n      <p>deeper</p>\n  </section>');
+});
+
+// ── the preview's half: a template that renders on its own ─────────────────
+// Nothing enforces that a template is self-contained, and one written the
+// ordinary way links a runtime that is not beside it once installed.
+
+const LINKED = `<!doctype html><html><head>
+  <link rel="stylesheet" href="../dist/decklight.css">
+  <link rel="stylesheet" href="../themes/aurora.css">
+  <style>.breaks { color: red; }</style>
+</head><body>
+<div class="decklight"><section><h1>Linked</h1></section></div>
+<script src="../dist/decklight.js"><\/script>
+</body></html>`;
+
+test('standalone supplies the runtime and theme a template links but does not carry', () => {
+  const out = standalone(LINKED);
+  assert.match(out, /<style data-decklight-runtime="css">/);
+  assert.match(out, /<script data-decklight-runtime="js">/);
+  assert.match(out, /<style data-theme="aurora">/);
+  assert.doesNotMatch(out, /\.\.\/dist\/decklight\.(css|js)/, 'nothing left pointing outside the file');
+  assert.doesNotMatch(out, /\.\.\/themes\/aurora\.css/);
+  assert.match(out, /\.breaks \{ color: red; \}/,
+    "the template's own CSS is its design, and the preview would be a lie without it");
+});
+
+test('standalone leaves a self-contained template exactly as it is', () => {
+  const already = `<!doctype html><html><head>
+  <style data-decklight-runtime="css">/* r */</style>
+  <style data-theme="midnight">/* t */</style>
+</head><body><div class="decklight"><section><h1>Whole</h1></section></div>
+<script data-decklight-runtime="js">/* j */<\/script></body></html>`;
+  assert.equal(standalone(already), already);
+});
+
+test('standalone leaves a theme this package does not have as the dangling link it is', () => {
+  const out = standalone('<link rel="stylesheet" href="../themes/nord-deep.css">');
+  assert.match(out, /themes\/nord-deep\.css/, 'the deck still boots, unthemed — nearer the truth than pretending');
+});
+
+test('standalone does not rewrite a slide that is TEACHING the markup', () => {
+  // the same trap `scannable` exists for: only the angle brackets are escaped
+  const teaching = '<section><pre><code>&lt;link rel="stylesheet" href="decklight/dist/decklight.css"&gt;</code></pre></section>';
+  assert.equal(standalone(teaching), teaching);
 });

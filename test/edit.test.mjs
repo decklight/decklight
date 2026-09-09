@@ -1405,6 +1405,35 @@ test('/edit/template/slides reads the template as a numbered list, and names wha
   assert.match((await missing.json()).error, /no template "nope" is installed here/);
 });
 
+test('/edit/template/at serves the template itself, so the picker can render it', async (t) => {
+  const dir = tmp(t);
+  const { base } = await startWithTemplate(t, dir);
+  const r = await fetch(base + '/edit/template/at?name=startup-pitch&embedded');
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/html/);
+  const html = await r.text();
+  assert.match(html, /<base href="\/">/, 'served two paths deep — without it every relative ref resolves there');
+  assert.match(html, /Startup pitch/);
+  assert.match(html, /Backup/, 'the whole template, hidden slides and all — this is a preview, not an export');
+
+  // A template written the ordinary way links a runtime that is not beside it
+  // once installed, and this server serves none of its own to point at.
+  writeFileSync(path.join(dir, 'home', 'templates', 'linked.html'),
+    '<!doctype html><html><head><link rel="stylesheet" href="../dist/decklight.css">'
+    + '<link rel="stylesheet" href="../themes/aurora.css"></head><body>'
+    + '<div class="decklight"><section><h1>Linked</h1></section></div>'
+    + '<script src="../dist/decklight.js"></script></body></html>');
+  const linked = await (await fetch(base + '/edit/template/at?name=linked&embedded')).text();
+  assert.match(linked, /<style data-decklight-runtime="css">/, 'the preview boots, or it is not a preview');
+  assert.match(linked, /<script data-decklight-runtime="js">/);
+  assert.match(linked, /<style data-theme="aurora">/);
+  assert.doesNotMatch(linked, /\.\.\/dist\/decklight\.js/);
+
+  const missing = await fetch(base + '/edit/template/at?name=nope');
+  assert.equal(missing.status, 404);
+  assert.match(await missing.text(), /no template "nope" is installed here/);
+});
+
 test('/edit/template/insert puts the chosen slides after a slide, as ONE undo entry', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

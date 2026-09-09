@@ -872,6 +872,23 @@ and `⏎` inserts the chosen ones **after the slide you are on**
 (`POST /edit/template/insert`) as **one undo entry** — somebody else's slides
 are now your slides, and `Z` takes them back like any other edit. A hidden
 slide is listed as hidden and can still be taken, keeping the attribute.
+**The row under the cursor is rendered beside the list** — the picker's own
+anatomy, the one the theme picker, the slide finder and the history pane
+share — because a template is a deck somebody designed and its headings are
+the least of what is being chosen between. The template is served whole for
+this (`GET /edit/template/at?name=`, `?embedded`, `<base href="/">` as
+`/edit/at` does) and previewed as the file is — its own theme, its own
+`<style>` blocks — while the slides take this deck's theme when they land, as
+any pasted markup does. A template is *supposed* to be self-contained and
+nothing enforces it, so one that **links** a runtime or a theme it does not
+carry is served the installed copy of each, inlined as `init` inlines them:
+installed under `~/.decklight/templates/` a relative `../dist/decklight.js`
+points at nothing, and the author server has no runtime of its own to serve
+instead. A theme this package does not have stays the dangling link it is.
+Moving between slides of one template is a `goto` postMessage, not a reload. An
+**offered** template is not previewed: it is not on this machine, and looking
+inside it would mean fetching it — registering a marketplace is not fetching
+from one, and the theme picker draws this line in the same place.
 Each slide says **what it points at that this deck will not have** —
 `data-cast`, a relative `src`, background media — before it is taken rather
 than after: a `data:` image travels with the markup and `casts/demo.cast` does
