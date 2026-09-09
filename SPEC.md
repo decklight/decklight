@@ -1162,8 +1162,17 @@ Needs a real browser to run the last phase — the same Chrome dependency
 `npm run verify`'s render harnesses already carry — and answers the same way
 they already do when Chrome is absent: a named refusal, never a silent pass.
 
-**Both executions carry a hard wall-clock kill (15s each), and the headless
-load's is separate from `--virtual-time-budget`.** That flag bounds Chrome's
+**Both executions carry a hard wall-clock kill — 15s for the transform's own
+run, and a separate one for the headless load, which defaults to the same and
+is raised by `DECKLIGHT_CHECK_LOAD_MS` on a slow machine.** They are separate
+numbers because they measure different things: the transform's clock has only
+the submission on it, while the headless load's also pays for starting a
+browser, which the submission had no part in. A shared CI runner slow enough to
+make a cold Chrome start eat the budget will otherwise refuse a clean
+submission for "blocking the page" — an admission gate accusing honest work of
+hanging is a worse failure than taking a minute to reject hostile work. The
+headless kill stays load-bearing either way, and is separate from
+`--virtual-time-budget`. That flag bounds Chrome's
 own clock, not the real one: a synchronous `alert()`/`confirm()`/`prompt()`
 in the OUTPUT opens a native dialog that blocks the render loop outside
 virtual time entirely, and an infinite loop blocks it the same way —
