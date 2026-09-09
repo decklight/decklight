@@ -51,7 +51,6 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
   let filter = '';
   let listing = null;         // { installed, offered, stale } | { error } | null while loading
   let opened = null;          // { name, slides } | { name, error } | { name, loading }
-  let chosen = new Set();     // slide numbers ticked in the slides view
   let busy = false;
 
   // ----- the preview pane ----------------------------------------------------
@@ -75,7 +74,6 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     view = 'list';
     sel = 0;
     filter = '';
-    chosen = new Set();
     frameReady = false;
     framePending = null;
   }
@@ -114,7 +112,7 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     }
     const at = deck().state.slide;
     el.querySelector('.tp-filter').textContent = view === 'slides'
-      ? `${opened.name} — space picks · ⏎ inserts after slide ${at}`
+      ? `${opened.name} — one slide, two things you can do with it`
       : filter ? `filter: ${filter}` : 'insert from a template — type to filter · ⏎ opens';
 
     const listEl = el.querySelector('.tp-list');
@@ -162,9 +160,6 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
 
       if (r.kind === 'slide') {
         const { slide } = r;
-        row.append(Object.assign(document.createElement('span'), {
-          className: 'tmpl-check', textContent: chosen.has(slide.n) ? '☑' : '☐',
-        }));
         label.textContent = `${slide.n}  ${slide.title}`;
         row.append(label);
         if (slide.hidden) row.append(tag('⊘ hidden'));
@@ -191,8 +186,24 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     });
 
     if (view === 'slides' && list.length) {
-      foot.textContent = `${chosen.size || 'none'} picked · a picks all`
-        + ` · l gives slide ${at} this one's look · esc goes back`;
+      // A legend, one key per line, rather than a run of keys separated by
+      // dots: this view's whole content is now two verbs, and the run-on
+      // wrapped mid-phrase in a 330px rail — "esc goes / back".
+      //
+      // Both verbs name the slide they act ON, because neither acts on the
+      // highlighted row alone: one lands a slide next to yours, the other
+      // changes yours. A key whose target is offscreen has to say what it is.
+      for (const [key, what] of [
+        ['i', `insert it after slide ${at}`],
+        ['l', `give slide ${at} its look`],
+        ['esc', 'back to the templates'],
+      ]) {
+        const line = document.createElement('div');
+        line.className = 'tmpl-key';
+        line.append(Object.assign(document.createElement('kbd'), { textContent: key }));
+        line.append(document.createTextNode(what));
+        foot.append(line);
+      }
     }
     selectInList([...listEl.querySelectorAll('.narr-row')], sel, 'narr-sel');
     syncPreview();
@@ -323,7 +334,6 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       opened = { name, loading: true };
       view = 'slides';
       sel = 0;
-      chosen = new Set();
       render();
     }
     const got = await slidesOf(name);
@@ -331,7 +341,6 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     if (!el) return;
     view = 'slides';
     sel = 0;
-    chosen = new Set();
     render();
   }
 
@@ -356,9 +365,8 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     }
   }
 
-  async function insert() {
-    const slides = [...chosen].sort((a, b) => a - b);
-    if (!slides.length) return;
+  async function insert(slide) {
+    const slides = [slide.n];
     if (busy) return;
     busy = true;
     const after = deck().state.slide;
@@ -423,10 +431,7 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     if (!row) return;
     if (row.kind === 'installed') { openTemplate(row.name); return; }
     if (row.kind === 'offered') { install(row.entry.qualified); return; }
-    // a slide row: Enter with nothing ticked takes the one under the cursor,
-    // which is what a single-slide trip through this panel looks like
-    if (!chosen.size) chosen.add(row.slide.n);
-    insert();
+    insert(row.slide);   // ⏎ is `i`: the obvious thing to do with a slide
   }
 
   function keydown(e) {
@@ -434,17 +439,16 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     const move = (d) => { sel = (sel + d + list.length) % Math.max(1, list.length); render(); };
 
     if (view === 'slides') {
-      // Not a typeahead: space is the verb here, and a filter would take it.
+      // Not a typeahead: the letters here are verbs, and a filter would take
+      // them. Two of them, on the row under the cursor — `i` brings the slide
+      // in beside yours, `l` leaves your slide where it is and changes how it
+      // looks. Nothing is ticked first, so what a key acts on is always the
+      // one row that is highlighted.
       if (e.key === 'ArrowDown') { move(1); return true; }
       if (e.key === 'ArrowUp') { move(-1); return true; }
-      if (e.key === ' ') {
+      if (e.key === 'i' || e.key === 'I' || e.key === 'Enter') {
         const row = list[sel];
-        if (row) { chosen.has(row.slide.n) ? chosen.delete(row.slide.n) : chosen.add(row.slide.n); render(); }
-        return true;
-      }
-      if (e.key === 'a' || e.key === 'A') {
-        chosen = chosen.size === list.length ? new Set() : new Set(list.map((r) => r.slide.n));
-        render();
+        if (row) insert(row.slide);
         return true;
       }
       if (e.key === 'l' || e.key === 'L') {
@@ -452,7 +456,6 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
         if (row) applyLook(row.slide);
         return true;
       }
-      if (e.key === 'Enter') { commit(); return true; }
       if (e.key === 'Escape' || e.key === 'ArrowLeft') { view = 'list'; sel = 0; render(); return true; }
       return true;
     }
