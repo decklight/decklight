@@ -868,16 +868,28 @@ installed and what a registered marketplace offers (`GET /edit/template/list`,
 cache-only, exactly like the theme browser — installing is the one step that
 touches the network, through `template add`'s own installer). Opening one lists
 its slides by heading (`GET /edit/template/slides`). **The row under the cursor
-is the selection** — nothing is ticked first — and there are two verbs for it:
-`i` (or `⏎`) inserts that slide **after the slide you are on**
+is the selection** — nothing is ticked first — and the view has **two modes**,
+`i` for inserting a slide and `l` for applying a look, with `⏎` doing whichever
+is chosen. `Tab` toggles. The keys choose rather than act: a mode means one key
+does two things, so the footer marks the mode that is on and spells out what
+`⏎` will do and **to which slide**, since neither mode acts on the highlighted
+row alone — one lands a slide beside yours, the other changes yours.
+
+Inserting puts that slide **after the slide you are on**
 (`POST /edit/template/insert`) as **one undo entry** — somebody else's slide is
-now your slide, and `Z` takes it back like any other edit — and `l` is the other
-one, below. Both name the slide they act on in the panel's footer, because
-neither acts on the highlighted row alone: one lands a slide beside yours, the
-other changes yours, and a key whose target is offscreen has to say what it is.
-The route still takes a list, so a caller may insert several at once; the panel
-asks for one at a time, because a selection you have to build before either verb
-will fire is a mode, and this view has two verbs to keep straight already. A hidden
+now your slide, and `Z` takes it back like any other edit. The route still takes
+a list, so a caller may insert several at once; the panel asks for one at a time.
+
+**The preview is of the mode, not of the template.** Insert mode shows their
+slide, which is what you would be getting. Apply mode shows **yours wearing
+their look** — `GET /edit/template/preview?name=&slide=&to=`, which runs exactly
+what `apply` would run and returns the result instead of writing it: no file
+touched, no undo entry, because a cursor moving through a list must never edit
+the deck. The two questions are different by every word on the slide, so a
+preview that answered only the first would be answering the wrong one in half
+the view. The cost is that a cursor move in apply mode changes the DOCUMENT
+rather than the slide within it, so the frame reloads instead of being
+postMessaged. A hidden
 slide is listed as hidden and can still be taken, keeping the attribute.
 **The row under the cursor is rendered beside the list** — the picker's own
 anatomy, the one the theme picker, the slide finder and the history pane
@@ -924,9 +936,9 @@ was declared outside it, on the template's `:root`, does not travel and is
 named. And the whole of it is one undo entry: the section and the rules that
 shape it are one edit.
 **A slide you already wrote can wear a template slide's LOOK instead of being
-replaced by it.** `l` in the slides view applies the slide under the cursor to
-the slide you are on (`POST /edit/template/apply`) — the same row `i` would have
-inserted, spent differently: your words are not touched,
+replaced by it.** Apply mode (`l`, then `⏎`) applies the slide under the cursor
+to the slide you are on (`POST /edit/template/apply`) — the same row insert mode
+would have brought in, spent differently: your words are not touched,
 and the section's opening tag is rewritten from an allowlist — `class`,
 `data-layout`, `data-transition`, `data-logo`, `data-pin` and any
 `data-background-*`. An allowlist, not an exclusion list: copying every `data-`

@@ -47,6 +47,11 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
 
   let el = null;
   let view = 'list';          // 'list' | 'slides'
+  // What ⏎ does with the row under the cursor, and therefore what the preview
+  // is showing. Two questions, and only one of them is about the template:
+  // `insert` asks "what does their slide look like", `apply` asks "what would
+  // MINE look like wearing it" — and those differ by every word on the slide.
+  let mode = 'insert';        // 'insert' | 'apply'
   let sel = 0;
   let filter = '';
   let listing = null;         // { installed, offered, stale } | { error } | null while loading
@@ -72,6 +77,7 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     el?.remove();
     el = null;
     view = 'list';
+    mode = 'insert';
     sel = 0;
     filter = '';
     frameReady = false;
@@ -112,7 +118,7 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     }
     const at = deck().state.slide;
     el.querySelector('.tp-filter').textContent = view === 'slides'
-      ? `${opened.name} — one slide, two things you can do with it`
+      ? `${opened.name} — ${(opened.slides ?? []).length} slides`
       : filter ? `filter: ${filter}` : 'insert from a template — type to filter · ⏎ opens';
 
     const listEl = el.querySelector('.tp-list');
@@ -193,13 +199,20 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       // Both verbs name the slide they act ON, because neither acts on the
       // highlighted row alone: one lands a slide next to yours, the other
       // changes yours. A key whose target is offscreen has to say what it is.
-      for (const [key, what] of [
-        ['i', `insert it after slide ${at}`],
-        ['l', `give slide ${at} its look`],
-        ['esc', 'back to the templates'],
+      // The mode rows read as a pair of choices with one of them taken, and ⏎
+      // spells out what it will do RIGHT NOW — the whole point of a mode is
+      // that the same key does two things, so the key has to say which.
+      for (const [key, what, on] of [
+        // the two mode rows name the MODE; ⏎ names what that mode will do, to
+        // which slide. Saying "apply a look" three times over would fill the
+        // rail without answering the only question a mode raises.
+        ['i', 'insert a slide', mode === 'insert'],
+        ['l', 'apply a look', mode === 'apply'],
+        ['⏎', mode === 'apply' ? `apply it to slide ${at}` : `insert it after slide ${at}`, null],
+        ['esc', 'back to the templates', null],
       ]) {
         const line = document.createElement('div');
-        line.className = 'tmpl-key';
+        line.className = 'tmpl-key' + (on === true ? ' tmpl-on' : '');
         line.append(Object.assign(document.createElement('kbd'), { textContent: key }));
         line.append(document.createTextNode(what));
         foot.append(line);
@@ -227,23 +240,41 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     if (!row) return null;
     if (row.kind === 'slide') {
       const { slide } = row;
+      const at = deck().state.slide;
+      const warn = (slide.needs.length ? ` · ⚠ needs ${slide.needs.join(', ')}, which this deck does not have` : '')
+        + (slide.clashes?.length
+          ? ` · ⚠ ${slide.clashes.join(', ')} already means something else here, so it keeps this deck's rules`
+          : '');
+      // Apply mode previews YOUR slide wearing their look, which is a different
+      // document — the deck, retagged in memory — so the iframe reloads on
+      // every cursor move here rather than being postMessaged to a new slide.
+      // That is the cost of previewing an outcome instead of a source.
+      if (mode === 'apply') {
+        return {
+          doc: `${base()}/edit/template/preview?name=${encodeURIComponent(opened.name)}`
+            + `&slide=${slide.n}&to=${at}&embedded`,
+          slide: at,
+          caption: `slide ${at} of yours, wearing slide ${slide.n}'s look${warn}`,
+        };
+      }
       return {
-        name: opened.name,
+        doc: `${base()}/edit/template/at?name=${encodeURIComponent(opened.name)}&embedded`,
         slide: slide.n,
         // The row carries `⚠ needs` as a mark you can scan a list for; it is
         // the caption that has the room to say WHICH files, and the row under
         // the cursor is the only one anybody needs that from.
         caption: `slide ${slide.n} — ${slide.title}`
-          + (slide.hidden ? ' · hidden in its own deck' : '')
-          + (slide.needs.length ? ` · ⚠ needs ${slide.needs.join(', ')}, which this deck does not have` : '')
-          + (slide.clashes?.length
-            ? ` · ⚠ ${slide.clashes.join(', ')} already means something else here, so it keeps this deck's rules`
-            : ''),
+          + (slide.hidden ? ' · hidden in its own deck' : '') + warn,
       };
     }
     if (row.kind === 'installed') {
       const n = slideCache.get(row.name)?.slides?.length;
-      return { name: row.name, slide: 1, caption: n ? `${row.name} · ${n} slides` : row.name };
+      return {
+        doc: `${base()}/edit/template/at?name=${encodeURIComponent(row.name)}&embedded`,
+        slide: 1,
+        name: row.name,
+        caption: n ? `${row.name} · ${n} slides` : row.name,
+      };
     }
     return {
       caption: `${row.entry.qualified} — not installed here yet · ⏎ installs it, then you can look inside`,
@@ -256,24 +287,28 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     const frame = el.querySelector('iframe');
     el.querySelector('.tp-caption').textContent = target?.caption ?? '';
     clearTimeout(previewTimer);
-    if (!target?.name) { frame.hidden = true; return; }
-    const { name, slide } = target;
+    if (!target?.doc) { frame.hidden = true; return; }
+    const { doc, slide, name } = target;
     previewTimer = setTimeout(() => {
-      previewSwap(name, slide);
+      previewSwap(doc, slide);
       // the count that finishes the caption comes from the read the slides view
       // needs anyway, so browsing the list is what warms it
-      if (!slideCache.has(name)) slidesOf(name).then(() => { if (el) render(); });
+      if (name && !slideCache.has(name)) slidesOf(name).then(() => { if (el) render(); });
     }, PREVIEW_SETTLE_MS);
   }
 
-  function previewSwap(name, slide) {
+  /**
+   * Show `slide` of `doc`, reloading only when the DOCUMENT changes.
+   *
+   * The caller decides what the document is: the template itself in insert
+   * mode, this deck retagged in memory in apply mode. Both are whole decks
+   * carrying `embedded`, without which the preview would draw its own progress
+   * bar, its own toasts and its own onboarding over the top of the slide.
+   */
+  function previewSwap(doc, slide) {
     const frame = el?.querySelector('iframe');
     if (!frame) return;
     frame.hidden = false;
-    // `embedded`: the previewed template is a whole deck, and without it the
-    // preview would draw its own progress bar, its own toasts and its own
-    // onboarding over the top of somebody else's slide.
-    const doc = `${base()}/edit/template/at?name=${encodeURIComponent(name)}&embedded`;
     if (frame.dataset.doc !== doc) {
       frame.dataset.doc = doc;
       frameReady = false;
@@ -283,13 +318,13 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
         if (framePending && el) {
           const p = framePending;
           framePending = null;
-          previewSwap(p.name, p.slide);
+          previewSwap(p.doc, p.slide);
         }
       }, { once: true });
       frame.src = `${doc}#/${slide}/0`;
       return;
     }
-    if (!frameReady) { framePending = { name, slide }; return; }
+    if (!frameReady) { framePending = { doc, slide }; return; }
     frame.contentWindow?.postMessage({ __decklightPreview: { goto: [slide, 0] } }, '*');
   }
 
@@ -431,7 +466,8 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     if (!row) return;
     if (row.kind === 'installed') { openTemplate(row.name); return; }
     if (row.kind === 'offered') { install(row.entry.qualified); return; }
-    insert(row.slide);   // ⏎ is `i`: the obvious thing to do with a slide
+    if (mode === 'apply') applyLook(row.slide);
+    else insert(row.slide);
   }
 
   function keydown(e) {
@@ -446,16 +482,15 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       // one row that is highlighted.
       if (e.key === 'ArrowDown') { move(1); return true; }
       if (e.key === 'ArrowUp') { move(-1); return true; }
-      if (e.key === 'i' || e.key === 'I' || e.key === 'Enter') {
-        const row = list[sel];
-        if (row) insert(row.slide);
-        return true;
-      }
-      if (e.key === 'l' || e.key === 'L') {
-        const row = list[sel];
-        if (row) applyLook(row.slide);
-        return true;
-      }
+      // `i` and `l` no longer DO the thing — they choose which thing ⏎ does,
+      // and the preview follows, so the answer to "what will this give me" is
+      // on screen before anything is written. Pressing the mode you are
+      // already in is not a second way to commit: a key that sometimes only
+      // highlights a row and sometimes edits the deck is worse than either.
+      if (e.key === 'i' || e.key === 'I') { mode = 'insert'; render(); return true; }
+      if (e.key === 'l' || e.key === 'L') { mode = 'apply'; render(); return true; }
+      if (e.key === 'Tab') { mode = mode === 'apply' ? 'insert' : 'apply'; render(); return true; }
+      if (e.key === 'Enter') { commit(); return true; }
       if (e.key === 'Escape' || e.key === 'ArrowLeft') { view = 'list'; sel = 0; render(); return true; }
       return true;
     }

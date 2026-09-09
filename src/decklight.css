@@ -1382,7 +1382,15 @@
 .decklight-tmpl .tp-preview { justify-content: center; }
 .decklight-tmpl .tp-preview iframe { flex: 0 0 auto; aspect-ratio: 16 / 9; height: auto; }
 .decklight-tmpl .tmpl-foot { flex: none; padding: 8px 12px 0; opacity: .55; font-size: 12px; }
-.decklight-tmpl .tmpl-key { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; }
+.decklight-tmpl .tmpl-key { display: flex; align-items: baseline; gap: 8px; padding: 2px 0; opacity: .75; }
+/* The mode you are in. The pair reads as a choice with one of them taken —
+   brightened rather than boxed, so the row that is ON does not look like a
+   different KIND of row from the one that is off. */
+.decklight-tmpl .tmpl-key.tmpl-on { opacity: 1; }
+.decklight-tmpl .tmpl-key.tmpl-on kbd {
+  border-color: var(--accent, #7ee787);
+  color: var(--accent, #7ee787);
+}
 /* Subtler than .decklight-narr-hint's accent-filled key: that one is a call to
    action on top of a slide, this is a legend the eye passes over. */
 .decklight-tmpl .tmpl-key kbd {

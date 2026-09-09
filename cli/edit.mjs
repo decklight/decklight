@@ -2065,6 +2065,40 @@ export async function editMain(args, { onListen = null } = {}) {
         res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
         return res.end(withBaseHref(standalone(readFileSync(found.path, 'utf8'))));
       }
+      // What `apply` WOULD do, rendered and thrown away. The picker's apply
+      // mode previews the outcome rather than the source: the question there is
+      // not "what does their slide look like" but "what would MINE look like",
+      // and those differ by every word on the slide.
+      //
+      // The same three steps `apply` takes, minus `applyEdit` — nothing is
+      // written, no undo entry is made, and a cursor moving through a list
+      // must never touch the file.
+      if (req.method === 'GET' && url.pathname === '/edit/template/preview') {
+        const name = url.searchParams.get('name') ?? '';
+        const { findUnit } = await import('./units.mjs');
+        const found = findUnit('template', name);
+        if (!found) {
+          res.writeHead(404, { ...CORS, 'content-type': 'text/plain; charset=utf-8' });
+          return res.end(`no template "${name}" is installed here`);
+        }
+        const { templateSlides, lookOf, isLookAttr, styleForSlides } = await import('../tools/template-slides.mjs');
+        const { sectionBodies, setSectionAttrs, mergeHeadStyle, writeAttrs } = await import('../tools/deck-html.mjs');
+        const raw = readFileSync(found.path, 'utf8');
+        const src = templateSlides(raw).find((x) => x.n === Number(url.searchParams.get('slide')));
+        const deck = readDeck();
+        const total = sectionBodies(deck).length;
+        const to = Number(url.searchParams.get('to'));
+        if (!src || !Number.isInteger(to) || to < 1 || to > total) {
+          res.writeHead(404, { ...CORS, 'content-type': 'text/plain; charset=utf-8' });
+          return res.end('no such slide, here or there');
+        }
+        const look = lookOf(src.html);
+        const { html: retagged } = setSectionAttrs(deck, to, { clearIf: isLookAttr, set: look });
+        const style = styleForSlides(raw, [`<section${writeAttrs(look)}></section>`], retagged);
+        const out = style.css ? mergeHeadStyle(retagged, name, style.css) : retagged;
+        res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
+        return res.end(withBaseHref(out));
+      }
       // Not a new slide: a slide you already wrote, wearing a template slide's
       // LOOK. The words are yours and stay untouched; the opening tag is
       // replaced wholesale from an allowlist, so applying a look that has no
