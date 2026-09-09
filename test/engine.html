@@ -155,15 +155,16 @@
         }
         if (u.includes('/edit/template/slides')) {
           return json({ ok: true, name: 'startup-pitch', slides: [
-            { n: 1, title: 'Startup pitch', hidden: false, needs: [] },
-            { n: 2, title: 'Pricing', hidden: false, needs: ['assets/table.png'] },
-            { n: 3, title: 'Backup', hidden: true, needs: [] },
+            { n: 1, title: 'Startup pitch', hidden: false, needs: [], clashes: [] },
+            { n: 2, title: 'Pricing', hidden: false, needs: ['assets/table.png'], clashes: [] },
+            { n: 3, title: 'Backup', hidden: true, needs: [], clashes: ['.breaks'] },
           ] });
         }
         if (u.includes('/edit/template/insert')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, inserted: body.slides.length, after: body.after, name: 'startup-pitch',
-            titles: ['Pricing'], needs: ['assets/table.png'], undo: 1, redo: 0 });
+            titles: ['Pricing'], needs: ['assets/table.png'], undo: 1, redo: 0,
+            styles: { carried: ['.pricing'], clashed: ['.breaks'], dangling: ['--card-bg'] } });
         }
       }
       if (HARNESS_MODE === 'browse') {
@@ -628,6 +629,9 @@
         r.listsSlides = rows().some((t) => /Pricing/.test(t));
         r.saysWhatASlideNeeds = rows().some((t) => /needs assets\/table\.png/.test(t));
         r.marksHidden = rows().some((t) => /Backup/.test(t) && /hidden/.test(t));
+        // a class this deck already means something else by: the template's
+        // rule for it is refused, and that is said before the slide is taken
+        r.warnsAboutAClash = rows().some((t) => /Backup/.test(t) && /\.breaks is this deck's/.test(t));
         r.nothingPickedYet = rows().every((t) => !t.includes('☑'));
 
         press('ArrowDown');                   // to Pricing
@@ -657,6 +661,10 @@
         const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
         r.saysWhatLanded = said.some((t) => /1 slide from startup-pitch after slide/.test(t) && /Z takes it back/.test(t));
         r.repeatsTheWarning = said.some((t) => /assets\/table\.png/.test(t));
+        // the design travelled with the markup, and what could not is named
+        r.saysWhatStyleCameToo = said.some((t) => /with \.pricing/.test(t));
+        r.saysWhatKeptItsOwnRules = said.some((t) => /\.breaks already means something else here/.test(t));
+        r.namesAPropertyThatStayedBehind = said.some((t) => /--card-bg.*did not travel/.test(t));
 
         r.PASS = r.rowIsThere && r.opens && r.listsInstalled && r.listsOffered && r.listsSlides
           && r.saysWhatASlideNeeds && r.marksHidden && r.nothingPickedYet && r.spacePicks
@@ -664,7 +672,8 @@
           && r.closesOnInsert && r.saysWhatLanded && r.repeatsTheWarning
           && r.hasAPreview && r.previewsTheInstalledOne && r.captionNamesIt
           && r.noPreviewForAnOfferedOne && r.previewFollowsTheCursor
-          && r.captionSpellsOutWhatItNeeds;
+          && r.captionSpellsOutWhatItNeeds && r.warnsAboutAClash && r.saysWhatStyleCameToo
+          && r.saysWhatKeptItsOwnRules && r.namesAPropertyThatStayedBehind;
       }
 
       if (mode === 'exclusive') {

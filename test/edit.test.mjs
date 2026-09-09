@@ -1478,6 +1478,79 @@ test('/edit/template/insert refuses a slide the template has not, and a position
   assert.equal(readFileSync(deck, 'utf8'), before, 'a refused insert wrote nothing');
 });
 
+// A template's design is half markup and half stylesheet. Taking only the
+// markup lands a slide that is structurally right and looks like nothing.
+const STYLED_TEMPLATE = `<!doctype html><html><head>
+<style>
+  .breaks { gap: 12px }
+  .breaks li { padding: 1px }
+  .promises { display: flex }
+  p { margin: 0 }
+</style>
+</head><body>
+<div class="decklight">
+  <section>
+    <h2>Failures</h2>
+    <ul class="breaks"><li>one</li></ul>
+  </section>
+  <section>
+    <h2>Promises</h2>
+    <div class="promises"></div>
+  </section>
+</div>
+</body></html>`;
+
+test('/edit/template/insert brings the rules the taken slide is shaped by', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const { base } = await startWithTemplate(t, dir);
+  writeFileSync(path.join(dir, 'home', 'templates', 'styled.html'), STYLED_TEMPLATE);
+
+  const r = await (await post(base, '/edit/template/insert', { name: 'styled', slides: [1], after: 1 })).json();
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.styles.carried, ['.breaks']);
+  assert.deepEqual(r.styles.clashed, []);
+
+  const after = readFileSync(deck, 'utf8');
+  assert.match(after, /<style data-from-template="styled">/);
+  assert.match(after, /\.breaks \{ gap: 12px \}/);
+  assert.match(after, /\.breaks li \{ padding: 1px \}/);
+  assert.doesNotMatch(after, /\.promises/, 'the rule for a slide nobody took stayed behind');
+  assert.doesNotMatch(after, /^\s*p \{ margin: 0 \}/m,
+    "somebody else's bare `p` rule would restyle every paragraph in this deck");
+
+  // one undo entry: the section and the rules that shape it are one edit
+  await post(base, '/edit/undo', {});
+  const back = readFileSync(deck, 'utf8');
+  assert.doesNotMatch(back, /data-from-template/);
+  assert.doesNotMatch(back, /Failures/);
+});
+
+test('a class the deck already means something else by keeps the deck’s rules, and is said before it lands', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  // this deck has its OWN .breaks — carrying the template's would restyle a
+  // slide the author never touched
+  writeFileSync(deck, DECK.replace('<html><body>',
+    '<html><head><style>.breaks { gap: 99px }</style></head><body>'));
+  const home = path.join(dir, 'home');
+  mkdirSync(path.join(home, 'templates'), { recursive: true });
+  writeFileSync(path.join(home, 'templates', 'styled.html'), STYLED_TEMPLATE);
+  const { base } = await startEdit(t, dir, { env: { DECKLIGHT_HOME: home } });
+
+  // said in the picker, beside `needs`, rather than in the toast afterwards
+  const listed = await (await fetch(base + '/edit/template/slides?name=styled')).json();
+  assert.deepEqual(listed.slides[0].clashes, ['.breaks']);
+  assert.deepEqual(listed.slides[1].clashes, [], 'a slide that does not use the name is not warned about it');
+
+  const r = await (await post(base, '/edit/template/insert', { name: 'styled', slides: [1], after: 1 })).json();
+  assert.deepEqual(r.styles.clashed, ['.breaks']);
+  assert.deepEqual(r.styles.carried, []);
+  const after = readFileSync(deck, 'utf8');
+  assert.match(after, /\.breaks \{ gap: 99px \}/, "the deck's own rule is untouched");
+  assert.doesNotMatch(after, /gap: 12px/, 'and the template’s was refused, not merged');
+});
+
 test('/edit/template/insert takes the whole template when no slides are named', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

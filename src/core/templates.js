@@ -171,6 +171,9 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
         // What it points at that this deck does not have. Said HERE, before the
         // slide is taken — the importer's rule, one step earlier.
         if (slide.needs.length) row.append(tag(`⚠ needs ${slide.needs.join(', ')}`));
+        // The template's rules for this slide come with it, except the names
+        // this deck already means something else by — those stay yours.
+        if (slide.clashes?.length) row.append(tag(`⚠ ${slide.clashes.join(', ')} is this deck's`));
       } else if (r.kind === 'installed') {
         label.textContent = r.name;
         row.append(label);
@@ -220,7 +223,10 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
         // the cursor is the only one anybody needs that from.
         caption: `slide ${slide.n} — ${slide.title}`
           + (slide.hidden ? ' · hidden in its own deck' : '')
-          + (slide.needs.length ? ` · ⚠ needs ${slide.needs.join(', ')}, which this deck does not have` : ''),
+          + (slide.needs.length ? ` · ⚠ needs ${slide.needs.join(', ')}, which this deck does not have` : '')
+          + (slide.clashes?.length
+            ? ` · ⚠ ${slide.clashes.join(', ')} already means something else here, so it keeps this deck's rules`
+            : ''),
       };
     }
     if (row.kind === 'installed') {
@@ -363,8 +369,12 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
       close();
+      const st = j.styles ?? {};
       toast(`${j.inserted} slide${j.inserted === 1 ? '' : 's'} from ${j.name} after slide ${after} — Z takes it back`
-        + (j.needs?.length ? `. They point at ${j.needs.join(', ')}, which this deck does not have` : ''), 6000);
+        + (st.carried?.length ? `, with ${st.carried.join(', ')}` : '')
+        + (j.needs?.length ? `. They point at ${j.needs.join(', ')}, which this deck does not have` : '')
+        + (st.clashed?.length ? `. ${st.clashed.join(', ')} already means something else here, so it kept this deck's rules` : '')
+        + (st.dangling?.length ? `. ${st.dangling.join(', ')} was defined outside the slide and did not travel` : ''), 6000);
     } catch (e) {
       toast(`could not insert — ${e.message}`);
     } finally {
