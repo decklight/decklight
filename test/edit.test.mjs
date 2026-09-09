@@ -1551,6 +1551,48 @@ test('a class the deck already means something else by keeps the deck’s rules,
   assert.doesNotMatch(after, /gap: 12px/, 'and the template’s was refused, not merged');
 });
 
+test('/edit/template/apply gives a slide you wrote the look of one you did not', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const { base } = await startWithTemplate(t, dir);
+  writeFileSync(path.join(dir, 'home', 'templates', 'looks.html'),
+    '<!doctype html><html><head><style>.tinted { background: #123 }</style></head><body>'
+    + '<div class="decklight">'
+    + '<section data-layout="split" class="tinted" data-background-image="a.png" data-hidden><h2>Theirs</h2></section>'
+    + '</div></body></html>');
+
+  const r = await (await post(base, '/edit/template/apply', { name: 'looks', slide: 1, to: 2 })).json();
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.applied, { 'data-layout': 'split', class: 'tinted', 'data-background-image': 'a.png' });
+  assert.deepEqual(r.replaced, { 'data-layout': 'centered' }, 'and says what it took off');
+  assert.deepEqual(r.styles.carried, ['.tinted'], 'a class the look brings is a class the deck now needs rules for');
+
+  const after = readFileSync(deck, 'utf8');
+  assert.match(after, /<section data-layout="split" class="tinted" data-background-image="a.png">/);
+  assert.match(after, /<h2>Beta<\/h2>/, 'the words are the deck’s own');
+  assert.doesNotMatch(after, /Theirs/, 'no slide was added');
+  assert.doesNotMatch(after, /data-hidden/, 'their deck’s structure is not part of the look');
+  assert.match(after, /<style data-from-template="looks">[\s\S]*\.tinted/);
+
+  // one undo entry: the tag and the rules it now needs are one edit
+  await post(base, '/edit/undo', {});
+  const back = readFileSync(deck, 'utf8');
+  assert.match(back, /<section data-layout="centered">/);
+  assert.doesNotMatch(back, /data-from-template/);
+});
+
+test('/edit/template/apply refuses a slide neither deck has', async (t) => {
+  const dir = tmp(t);
+  const { base } = await startWithTemplate(t, dir);
+  const noSlide = await post(base, '/edit/template/apply', { name: 'startup-pitch', slide: 9, to: 1 });
+  assert.equal(noSlide.status, 400);
+  assert.match((await noSlide.json()).error, /has no slide 9/);
+
+  const noTarget = await post(base, '/edit/template/apply', { name: 'startup-pitch', slide: 1, to: 99 });
+  assert.equal(noTarget.status, 400);
+  assert.match((await noTarget.json()).error, /cannot apply to slide 99 — this deck has 2/);
+});
+
 test('/edit/template/insert takes the whole template when no slides are named', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

@@ -346,3 +346,55 @@ export function mergeHeadStyle(html, marker, css) {
   const firstSection = src.search(/<section\b/i);
   return firstSection === -1 ? src + block : src.slice(0, firstSection) + block + src.slice(firstSection);
 }
+
+/** A section body split into its open tag's attributes and everything after. */
+export function splitOpenTag(body) {
+  const src = String(body ?? '');
+  let quote = '';
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quote) { if (c === quote) quote = ''; continue; }
+    if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '>') {
+      const attrs = src.slice(0, i).replace(/\/$/, '');
+      return { attrs, close: src.slice(i - (src[i - 1] === '/' ? 1 : 0), i + 1), rest: src.slice(i + 1) };
+    }
+  }
+  return { attrs: '', close: '>', rest: src };
+}
+
+/** `class="a" data-layout="split"` → `{ class: 'a', 'data-layout': 'split' }`. */
+export function readAttrs(text) {
+  const out = {};
+  const re = /([:@\w-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+  for (const m of String(text ?? '').matchAll(re)) {
+    out[m[1].toLowerCase()] = m[2] ?? m[3] ?? m[4] ?? '';
+  }
+  return out;
+}
+
+export const writeAttrs = (attrs) => Object.entries(attrs)
+  .map(([k, v]) => (v === '' ? ` ${k}` : ` ${k}="${String(v).replace(/"/g, '&quot;')}"`))
+  .join('');
+
+/**
+ * Rewrite slide `n`'s opening tag: every name in `clear` dropped, then `set`
+ * written on. The slide's CONTENT is not touched — this is the tag only.
+ *
+ * Returns `{ html, replaced }`, where `replaced` is what the cleared names held
+ * before, so the caller can say what it took away rather than only what it put.
+ */
+export function setSectionAttrs(html, n, { clear = [], clearIf = null, set = {} } = {}) {
+  const { parts, idx } = locateSlide(String(html ?? ''), n);
+  const { attrs, rest } = splitOpenTag(parts[idx]);
+  const had = readAttrs(attrs);
+  const replaced = {};
+  for (const k of Object.keys(had)) {
+    if (!clear.includes(k) && !clearIf?.(k)) continue;
+    replaced[k] = had[k];
+    delete had[k];
+  }
+  for (const [k, v] of Object.entries(set)) had[k] = v;
+  parts[idx] = `${writeAttrs(had)}>${rest}`;
+  return { html: parts.join(''), replaced };
+}

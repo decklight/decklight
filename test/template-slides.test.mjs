@@ -8,8 +8,8 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { templateSlides, parseSlideSpec, externalRefs, standalone } from '../tools/template-slides.mjs';
-import { insertSectionsAfter, reindentSection, sectionCloseIndex } from '../tools/deck-html.mjs';
+import { templateSlides, parseSlideSpec, externalRefs, standalone, lookOf, isLookAttr } from '../tools/template-slides.mjs';
+import { insertSectionsAfter, reindentSection, sectionCloseIndex, setSectionAttrs } from '../tools/deck-html.mjs';
 
 const TEMPLATE = `<!doctype html><html><body>
 <div class="decklight">
@@ -200,4 +200,45 @@ test('standalone does not rewrite a slide that is TEACHING the markup', () => {
   // the same trap `scannable` exists for: only the angle brackets are escaped
   const teaching = '<section><pre><code>&lt;link rel="stylesheet" href="decklight/dist/decklight.css"&gt;</code></pre></section>';
   assert.equal(standalone(teaching), teaching);
+});
+
+// ── a slide you already wrote, wearing a template slide's look ─────────────
+// The other verb: `⏎` takes somebody's slide, `l` takes only the shape of it.
+
+test('a look is the allowlisted attributes, never the structure or the content', () => {
+  const look = lookOf('<section data-layout="split" data-hidden data-id="q3"'
+    + ' data-background-image="a.png" data-build="list" class="tinted"><h2>t</h2></section>');
+  assert.deepEqual(look, { 'data-layout': 'split', 'data-background-image': 'a.png', class: 'tinted' });
+  assert.equal('data-hidden' in look, false, "hidden is a fact about THEIR deck's structure");
+  assert.equal('data-id' in look, false, 'identity is not a look');
+  assert.equal('data-build' in look, false, 'a build only makes sense against the content it reveals');
+});
+
+test('applying a look rewrites the tag and nothing else', () => {
+  const deck = '<div class="decklight">\n'
+    + '  <section data-layout="split" id="keep" data-hidden>\n    <h2>Mine</h2>\n  </section>\n'
+    + '  <section><h2>Two</h2></section>\n</div>';
+  const { html, replaced } = setSectionAttrs(deck, 1, {
+    clearIf: isLookAttr,
+    set: { 'data-layout': 'centered', class: 'tinted' },
+  });
+  assert.match(html, /<section id="keep" data-hidden data-layout="centered" class="tinted">/);
+  assert.deepEqual(replaced, { 'data-layout': 'split' }, 'says what it took away, not only what it put');
+  assert.match(html, /<h2>Mine<\/h2>/, 'the words are yours');
+  assert.match(html, /<section><h2>Two<\/h2><\/section>/, 'and no other slide moved');
+});
+
+test('a look with no layout clears the one you had', () => {
+  // otherwise the slide ends up looking like neither of them
+  const deck = '<div class="decklight"><section data-layout="split" class="mine"><h2>x</h2></section></div>';
+  const { html } = setSectionAttrs(deck, 1, { clearIf: isLookAttr, set: {} });
+  assert.match(html, /<section><h2>x<\/h2><\/section>/);
+});
+
+test('an attribute value containing > does not end the tag early', () => {
+  const deck = '<div class="decklight"><section data-title="a > b" class="x"><h2>y</h2></section></div>';
+  const { html } = setSectionAttrs(deck, 1, { clearIf: isLookAttr, set: { class: 'z' } });
+  assert.match(html, /data-title="a > b"/);
+  assert.match(html, /class="z"/);
+  assert.match(html, /<h2>y<\/h2>/);
 });

@@ -18,7 +18,7 @@
  * discover it on stage.
  */
 
-import { sectionBodies, sectionInner, slideHeading, isHiddenSection } from './deck-html.mjs';
+import { sectionBodies, sectionInner, slideHeading, isHiddenSection, splitOpenTag, readAttrs } from './deck-html.mjs';
 import { runtimeCss, runtimeJs, themeCss } from '../cli/pkg.mjs';
 import { sliceFor, styleTargets, danglingVars } from './css-slice.mjs';
 
@@ -192,4 +192,25 @@ export function styleForSlides(templateHtml, sections, deckHtml) {
   for (const m of String(deckHtml ?? '').matchAll(/(--[\w-]+)\s*:/g)) known.add(m[1]);
   const { css, carried, clashed } = sliceFor(source, markup, { defined: styleTargets(deckStyles(deckHtml)) });
   return { css, carried, clashed, dangling: danglingVars(css, source, known) };
+}
+
+/**
+ * The attributes that decide how a slide LOOKS, as opposed to what it says.
+ *
+ * An allowlist, not an exclusion list. Copying every `data-` attribute from
+ * somebody else's section would carry `data-hidden` (a fact about their deck's
+ * structure), `data-id` (identity) and `data-build` (a behaviour that only
+ * makes sense against their content) along with the layout. What is here is
+ * what the runtime reads to place, dress and animate the slide itself.
+ */
+export const isLookAttr = (name) => /^data-background-/.test(name)
+  || ['class', 'data-layout', 'data-transition', 'data-logo', 'data-pin'].includes(name);
+
+/** A template slide's look: its own allowlisted attributes, and nothing else. */
+export function lookOf(sectionHtml) {
+  const body = String(sectionHtml ?? '').replace(/^\s*<section\b/i, '');
+  const attrs = readAttrs(splitOpenTag(body).attrs);
+  const out = {};
+  for (const [k, v] of Object.entries(attrs)) if (isLookAttr(k)) out[k] = v;
+  return out;
 }

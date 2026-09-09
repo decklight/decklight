@@ -2065,6 +2065,45 @@ export async function editMain(args, { onListen = null } = {}) {
         res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
         return res.end(withBaseHref(standalone(readFileSync(found.path, 'utf8'))));
       }
+      // Not a new slide: a slide you already wrote, wearing a template slide's
+      // LOOK. The words are yours and stay untouched; the opening tag is
+      // replaced wholesale from an allowlist, so applying a look that has no
+      // `data-layout` also takes yours off — otherwise the slide would end up
+      // looking like neither of them.
+      if (req.method === 'POST' && url.pathname === '/edit/template/apply') {
+        const { name, slide, to } = JSON.parse(body || '{}');
+        const { findUnit } = await import('./units.mjs');
+        const found = typeof name === 'string' && name ? findUnit('template', name) : null;
+        if (!found) return json(404, { ok: false, error: `no template "${name}" is installed here` });
+
+        const { templateSlides, lookOf, isLookAttr, styleForSlides } = await import('../tools/template-slides.mjs');
+        const { sectionBodies, setSectionAttrs, mergeHeadStyle, writeAttrs } = await import('../tools/deck-html.mjs');
+        const raw = readFileSync(found.path, 'utf8');
+        const src = templateSlides(raw).find((x) => x.n === Number(slide));
+        if (!src) return json(400, { ok: false, error: `"${name}" has no slide ${slide}` });
+
+        const deck = readDeck();
+        const total = sectionBodies(deck).length;
+        const target = Number(to);
+        if (!Number.isInteger(target) || target < 1 || target > total) {
+          return json(400, { ok: false, error: `cannot apply to slide ${to} — this deck has ${total}` });
+        }
+
+        const look = lookOf(src.html);
+        const { html: retagged, replaced } = setSectionAttrs(deck, target, { clearIf: isLookAttr, set: look });
+        // The look may name a class the template styles. Slice against the tag
+        // alone: the slide's own content did not change, so nothing else can
+        // have started needing a rule it did not need a moment ago.
+        const style = styleForSlides(raw, [`<section${writeAttrs(look)}></section>`], retagged);
+        const changed = applyEdit(style.css ? mergeHeadStyle(retagged, name, style.css) : retagged);
+        console.log(`  template: slide ${target} now wears ${name} slide ${src.n}'s look`
+          + (Object.keys(look).length ? ` (${Object.keys(look).join(', ')})` : ' (which is the plain one)'));
+        return json(200, {
+          ok: true, to: target, name, from: src.n, fromTitle: src.title,
+          applied: look, replaced, changed, ...history.counts(),
+          styles: { carried: style.carried, clashed: style.clashed, dangling: style.dangling },
+        });
+      }
       if (req.method === 'POST' && url.pathname === '/edit/template/add') {
         const { ref } = JSON.parse(body || '{}');
         if (typeof ref !== 'string' || !ref.trim()) return json(400, { ok: false, error: 'which template?' });
