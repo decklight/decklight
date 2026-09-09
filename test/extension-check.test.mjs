@@ -289,3 +289,42 @@ test('decklight extension: an unknown subcommand is refused, not swallowed', () 
   assert.equal(code, 1);
   assert.match(out, /unknown subcommand "bogus"/);
 });
+
+// ── the two safety kills are two numbers, not one ──────────────────────────
+// They measure different things: the transform's clock has only the submission
+// on it; the headless load's also pays for starting a browser. A shared CI
+// runner slow enough to make a cold Chrome start eat the budget refused this
+// project's own baseline transform for "blocking the page" — an admission gate
+// accusing honest work of hanging.
+
+test('the headless load has its own budget, raisable where a cold browser start would eat it', async () => {
+  const mod = '../tools/extension-check.mjs';
+  const fresh = async (env) => {
+    const had = { ...process.env };
+    Object.assign(process.env, env);
+    try {
+      // a fresh module instance, so the constants are read under this env
+      return await import(`${mod}?${Math.random()}`);
+    } finally {
+      for (const k of Object.keys(env)) delete process.env[k];
+      Object.assign(process.env, had);
+    }
+  };
+
+  const plain = await fresh({});
+  assert.equal(plain.CHECK_TIMEOUT_MS, 15_000, 'the documented default, unchanged');
+  assert.equal(plain.LOAD_TIMEOUT_MS, 15_000, 'and the load defaults to the same');
+
+  const slow = await fresh({ DECKLIGHT_CHECK_LOAD_MS: '60000' });
+  assert.equal(slow.LOAD_TIMEOUT_MS, 60_000);
+  assert.equal(slow.CHECK_TIMEOUT_MS, 15_000,
+    'raising the load budget must not loosen the submission’s own run');
+
+  const both = await fresh({ DECKLIGHT_CHECK_TIMEOUT_MS: '30000' });
+  assert.equal(both.CHECK_TIMEOUT_MS, 30_000);
+  assert.equal(both.LOAD_TIMEOUT_MS, 30_000, 'the load follows the run when only the run is set');
+
+  const junk = await fresh({ DECKLIGHT_CHECK_LOAD_MS: 'soon' });
+  assert.equal(junk.LOAD_TIMEOUT_MS, 15_000, 'unparseable falls back rather than becoming NaN — a NaN'
+    + ' timeout is no timeout at all, which would silently remove the kill');
+});

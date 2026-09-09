@@ -25,7 +25,7 @@
  *   blocking   — a transform whose OUTPUT calls alert() synchronously used to
  *                hang the check forever: --virtual-time-budget bounds
  *                Chrome's own clock, not a native dialog blocking the render
- *                loop outside it. Proves the 15s wall-clock kill actually
+ *                loop outside it. Proves the headless wall-clock kill actually
  *                fires, and that the whole check still returns in bounded
  *                real time rather than hanging whatever runs it.
  */
@@ -33,7 +33,7 @@
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { checkExtension } from '../tools/extension-check.mjs';
+import { checkExtension, CHECK_TIMEOUT_MS, LOAD_TIMEOUT_MS } from '../tools/extension-check.mjs';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'decklight-extension-check-render-'));
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
@@ -85,8 +85,12 @@ const checks = [
     results.recognizer.ok === false && results.recognizer.phase === 'output'],
   ['a transform whose OUTPUT blocks the page (alert()) is refused rather than hanging the check',
     results.blocking.ok === false && results.blocking.phase === 'output'],
+  // Derived, not a magic number: one of these checks exists to HIT the headless
+  // kill, so the floor of this bound is that budget — and when a slow machine
+  // raises it, the bound has to follow or this assertion starts failing for the
+  // very reason the budget was raised.
   ['all five checks together finished well within the per-execution safety kills',
-    elapsedMs < 90_000],
+    elapsedMs < LOAD_TIMEOUT_MS + CHECK_TIMEOUT_MS * 5],
 ];
 
 console.log('extension-check-render results:', JSON.stringify({ ...results, elapsedMs }, null, 2));

@@ -247,6 +247,7 @@ jobs:
           # A hung harness names itself in three minutes rather than ten, so a
           # browser that stops working costs one round and not seventeen.
           VERIFY_TIMEOUT_MS: 180000
+          DECKLIGHT_CHECK_LOAD_MS: 60000
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -358,6 +359,7 @@ jobs:
           npm run verify 2>&1 | tee "verify-macos.log"
         env:
           VERIFY_TIMEOUT_MS: 180000
+          DECKLIGHT_CHECK_LOAD_MS: 60000
 
       - uses: actions/upload-artifact@v7
         if: always()
@@ -439,6 +441,7 @@ jobs:
           CHROME: ${{ steps.shell.outputs.path }}
           VERIFY_SKIP: player-render,shot-render
           VERIFY_TIMEOUT_MS: 180000
+          DECKLIGHT_CHECK_LOAD_MS: 60000
 
       - uses: actions/upload-artifact@v7
         if: always()

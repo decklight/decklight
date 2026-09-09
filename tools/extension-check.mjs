@@ -77,9 +77,29 @@ export const TYPES = ['transform'];
 export const artifactSha256 = (file) =>
   createHash('sha256').update(readFileSync(file)).digest('hex');
 
-/** How long the submission gets, in each of its two executions (the transform
- *  run and the headless load of its output), before a hard kill. */
-export const CHECK_TIMEOUT_MS = 15_000;
+/** How long the submission's OWN RUN gets before a hard kill. Pure Node, and
+ *  the submission is the only thing on this clock: a transform that has not
+ *  returned in fifteen seconds is not coming back. */
+export const CHECK_TIMEOUT_MS = Number(process.env.DECKLIGHT_CHECK_TIMEOUT_MS) || 15_000;
+
+/**
+ * The headless load's kill — separate, and raisable, because this clock pays
+ * for something the submission did not do: LAUNCHING A BROWSER.
+ *
+ * It is still load-bearing. `--virtual-time-budget` bounds Chrome's own clock,
+ * not the real one, so a synchronous `alert()` in the output blocks the render
+ * loop outside virtual time entirely and only a wall clock catches it. But the
+ * same wall clock also has to cover a cold Chrome start, and that varies by
+ * machine in a way the submission has no part in: a shared Windows CI runner
+ * doing a full `verify` in 564s against 224s on a laptop refused this project's
+ * OWN baseline transform — the one that exists to pass — for "blocking the
+ * page". An admission gate that accuses a clean submission of hanging, because
+ * the checking machine was busy, is worse than one that takes a minute to
+ * reject a hostile one. So slow machines raise it (`DECKLIGHT_CHECK_LOAD_MS`),
+ * exactly as they already raise `VERIFY_TIMEOUT_MS`, and the default is
+ * unchanged for anyone running `decklight extension check` by hand.
+ */
+export const LOAD_TIMEOUT_MS = Number(process.env.DECKLIGHT_CHECK_LOAD_MS) || CHECK_TIMEOUT_MS;
 
 /** What the runner's verdict on stdout follows — AFTER whatever the transform
  *  itself printed, so the parent reads past the LAST occurrence and a forged
@@ -215,7 +235,7 @@ function headlessLoad(html) {
       '--virtual-time-budget=2000', '--dump-dom', `file://${file}`,
     ), {
       encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
-      timeout: CHECK_TIMEOUT_MS, killSignal: 'SIGKILL',
+      timeout: LOAD_TIMEOUT_MS, killSignal: 'SIGKILL',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
   } finally {
@@ -248,7 +268,11 @@ export async function checkExtension(file, { type = 'transform' } = {}) {
     dumped = headlessLoad(run.html);
   } catch (e) {
     if (e.signal || e.code === 'ETIMEDOUT') {
-      return { ok: false, phase: 'output', error: 'the headless load did not finish within 15s and was killed —'
+      // the budget, not a literal: this message used to say "15s" while the
+      // number beside it was a constant, so raising one would have made the
+      // refusal lie about why it fired
+      return { ok: false, phase: 'output', error: 'the headless load did not finish within'
+        + ` ${Math.round(LOAD_TIMEOUT_MS / 1000)}s and was killed —`
         + ' the output must never block the page (a synchronous alert()/confirm()/prompt(), or an infinite loop)' };
     }
     throw e;

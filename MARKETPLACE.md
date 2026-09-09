@@ -271,9 +271,11 @@ lint, fixture run, headless dump, `decklight extension` command — is
 comparable in size to `theme add`/`check` landing together (#206). It needs
 Chrome the same way `npm run verify`'s render harnesses do, and answers the
 same way they already do when Chrome is absent: a named refusal, never a
-silent pass. Both executions carry a hard 15s wall-clock kill — the
-transform's own run in its child process, and the headless load, whose kill
-is separate from `--virtual-time-budget`: that flag bounds Chrome's own
+silent pass. Both executions carry a hard wall-clock kill — 15s for the
+transform's own run in its child process, and a separate one for the headless
+load, which defaults to the same and is raised by `DECKLIGHT_CHECK_LOAD_MS`
+where a cold browser start would otherwise eat it (a shared CI runner). That
+kill is separate from `--virtual-time-budget`: that flag bounds Chrome's own
 clock, not the real one, and a synchronous `alert()`/`confirm()`/`prompt()`
 or an infinite loop in the OUTPUT blocks the render loop outside it entirely
 (measured, not theoretical) — this command's whole premise is running code
