@@ -241,6 +241,13 @@
       </div>
     </section>
 
+    <section class="start after-deck" aria-label="Borrow from a deck template">
+      <h2>Or borrow from a deck somebody already made</h2>
+      <p>A <strong>deck template</strong> is somebody&rsquo;s whole talk, installed from a marketplace. <code>init --from</code> starts a new deck from one &mdash; but the more common case is a deck that already exists and wants three slides out of it. In author mode, <code>/</code> &rarr; <strong>Insert from a template&hellip;</strong> lists what you have installed and what a registered catalog offers, and <strong>renders the slide beside the list</strong>, because a template is a deck somebody designed and its headings are the least of what you are choosing between.</p>
+      <p>Two modes decide what <kbd>Enter</kbd> does with the slide under the cursor. <strong>Insert</strong> takes it, landing after the slide you are on as one undo entry. <strong>Apply</strong> keeps every word of yours and takes only the <em>shape</em> &mdash; layout, backdrop, classes &mdash; and previews <em>your</em> slide wearing it before anything is written.</p>
+      <p>A slide is markup <em>and</em> the rules that shape it, so the CSS a borrowed slide depends on comes with it: <code>.breaks</code> is a stack of bordered cards in the deck it came from, not a bare list in yours. What cannot follow is said before you take it, not after &mdash; a cast or an image the slide points at and your deck has not, and a class your deck already means something else by, which keeps <em>your</em> rules rather than quietly restyling slides you never touched.</p>
+    </section>
+
     <section class="start after-deck" aria-label="Describe the rest to your agent">
       <h2>Describe the rest to your agent</h2>
       <p><code>init</code> dropped the authoring contract next to the deck, so any agent that can edit a file can author slides — builds, SVG diagrams, animation and all. Here, Claude Code gets one prompt and edits the same HTML file:</p>
