@@ -20,6 +20,7 @@
 
 import { sectionBodies, sectionInner, slideHeading, isHiddenSection } from './deck-html.mjs';
 import { runtimeCss, runtimeJs, themeCss } from '../cli/pkg.mjs';
+import { sliceFor, styleTargets, danglingVars } from './css-slice.mjs';
 
 /** A URL that travels with the markup: inline data, or somewhere on the web. */
 const travels = (url) => /^(data:|https?:|#|mailto:)/i.test(url.trim());
@@ -156,4 +157,39 @@ export function standalone(html) {
         }
       },
     );
+}
+
+/**
+ * A deck's OWN `<style>` blocks — not its theme, not its runtime.
+ *
+ * The three kinds are told apart by the markers the tools that write them
+ * leave: `data-theme` for a theme (`init`, `bundle`, `theme add`) and
+ * `data-decklight-runtime` for the runtime. What is left is what the author
+ * typed, which for a template is the half of its design that is not markup.
+ */
+export function deckStyles(html) {
+  const out = [];
+  for (const m of String(html ?? '').matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style\s*>/gi)) {
+    if (/\bdata-(theme|decklight-runtime)\b/i.test(m[1])) continue;
+    out.push(m[2]);
+  }
+  return out.join('\n');
+}
+
+/**
+ * The design a set of taken sections needs out of the template, and what will
+ * not survive the trip (`UNITS#REST`).
+ *
+ * `deck` is where they are going: its own styles decide what CLASHES, and its
+ * whole text decides which custom properties are already defined — a theme
+ * token like `--block-bg` is not missing, it is simply the receiving deck's.
+ */
+export function styleForSlides(templateHtml, sections, deckHtml) {
+  const source = deckStyles(templateHtml);
+  if (!source.trim()) return { css: '', carried: [], clashed: [], dangling: [] };
+  const markup = [].concat(sections).join('\n');
+  const known = new Set();
+  for (const m of String(deckHtml ?? '').matchAll(/(--[\w-]+)\s*:/g)) known.add(m[1]);
+  const { css, carried, clashed } = sliceFor(source, markup, { defined: styleTargets(deckStyles(deckHtml)) });
+  return { css, carried, clashed, dangling: danglingVars(css, source, known) };
 }

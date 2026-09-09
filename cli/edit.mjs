@@ -2026,9 +2026,18 @@ export async function editMain(args, { onListen = null } = {}) {
         const { findUnit } = await import('./units.mjs');
         const found = findUnit('template', name);
         if (!found) return json(404, { ok: false, error: `no template "${name}" is installed here` });
-        const { templateSlides } = await import('../tools/template-slides.mjs');
-        const slides = templateSlides(readFileSync(found.path, 'utf8'))
-          .map(({ n, title, hidden, needs }) => ({ n, title, hidden, needs }));
+        const { templateSlides, styleForSlides } = await import('../tools/template-slides.mjs');
+        const raw = readFileSync(found.path, 'utf8');
+        const here = readDeck();
+        const slides = templateSlides(raw).map(({ n, title, hidden, needs, html }) => ({
+          n, title, hidden, needs,
+          // A class this deck already styles ITS OWN way is the one thing the
+          // insert cannot fix for you: carrying the template's rule would
+          // restyle slides you were not looking at, so it is refused, and the
+          // slide lands with this deck's meaning of the name. Said here, with
+          // `needs`, rather than in the toast afterwards.
+          clashes: styleForSlides(raw, [html], here).clashed,
+        }));
         if (!slides.length) return json(422, { ok: false, error: `"${name}" has no slides in it` });
         return json(200, { ok: true, name, slides });
       }
@@ -2075,9 +2084,10 @@ export async function editMain(args, { onListen = null } = {}) {
         const found = typeof name === 'string' && name ? findUnit('template', name) : null;
         if (!found) return json(404, { ok: false, error: `no template "${name}" is installed here` });
 
-        const { templateSlides } = await import('../tools/template-slides.mjs');
-        const { sectionBodies, insertSectionsAfter } = await import('../tools/deck-html.mjs');
-        const all = templateSlides(readFileSync(found.path, 'utf8'));
+        const { templateSlides, styleForSlides } = await import('../tools/template-slides.mjs');
+        const { sectionBodies, insertSectionsAfter, mergeHeadStyle } = await import('../tools/deck-html.mjs');
+        const raw = readFileSync(found.path, 'utf8');
+        const all = templateSlides(raw);
         const picked = (Array.isArray(want) && want.length ? want : all.map((s) => s.n))
           .map(Number)
           .filter((n) => Number.isInteger(n));
@@ -2093,13 +2103,23 @@ export async function editMain(args, { onListen = null } = {}) {
         if (at < 0 || at > total) return json(400, { ok: false, error: `cannot insert after slide ${after} — this deck has ${total}` });
 
         const chosen = [...new Set(picked)].sort((a, b) => a - b).map((n) => all.find((s) => s.n === n));
-        const changed = applyEdit(insertSectionsAfter(deck, at, chosen.map((s) => s.html)));
+        // A slide is markup AND the rules that shape it. `.breaks` is a stack
+        // of cards in the deck it came from and a bare list in yours, so the
+        // design travels with the section — into one marked block, so `Z`
+        // takes the whole thing back and a reader can see whose rules these are.
+        const style = styleForSlides(raw, chosen.map((s) => s.html), deck);
+        const spliced = insertSectionsAfter(deck, at, chosen.map((s) => s.html));
+        const changed = applyEdit(style.css ? mergeHeadStyle(spliced, name, style.css) : spliced);
         const needs = [...new Set(chosen.flatMap((s) => s.needs))];
         console.log(`  template: ${chosen.length} slide(s) from ${name} after slide ${at}`
-          + (needs.length ? ` — points at ${needs.join(', ')}, which this deck does not have` : ''));
+          + (style.carried.length ? ` — with ${style.carried.join(', ')}` : '')
+          + (style.clashed.length ? `; ${style.clashed.join(', ')} left to this deck's own rules` : '')
+          + (needs.length ? `; points at ${needs.join(', ')}, which this deck does not have` : ''));
         return json(200, {
           ok: true, inserted: chosen.length, after: at, name,
           titles: chosen.map((s) => s.title), needs, changed, ...history.counts(),
+          // the summary, not the stylesheet: the rules are in the file now
+          styles: { carried: style.carried, clashed: style.clashed, dangling: style.dangling },
         });
       }
       // ── element edit mode (E, right-click a slide element) — #112 ─────

@@ -312,3 +312,37 @@ export function sectionChildRanges(seg) {
   }
   return ranges;
 }
+
+/**
+ * Put CSS into a deck's `<head>` under a marker, merging with what that marker
+ * already holds rather than stacking a second block beside it.
+ *
+ * The marker is the point: slides taken from `demo-pitch` put their design in
+ * `<style data-from-template="demo-pitch">`, so a second insert from the same
+ * template adds to that block, `Z` takes the whole edit back, and a human
+ * reading the file can see which rules are somebody else's and where they came
+ * from. Rules already present are not repeated — taking two slides that share
+ * a class must not write it twice.
+ */
+export function mergeHeadStyle(html, marker, css) {
+  const src = String(html ?? '');
+  const add = String(css ?? '').trim();
+  if (!add) return src;
+  const attr = `data-from-template="${marker}"`;
+  const open = new RegExp(`<style\\b[^>]*${attr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^>]*>([\\s\\S]*?)<\\/style\\s*>`, 'i');
+  const found = open.exec(src);
+  if (found) {
+    const had = found[1];
+    const fresh = add.split(/\n(?=\S)/).filter((rule) => !had.includes(rule.trim())).join('\n');
+    if (!fresh.trim()) return src;
+    const merged = `${had.replace(/\s+$/, '')}\n${fresh}\n`;
+    return src.slice(0, found.index) + found[0].replace(had, merged) + src.slice(found.index + found[0].length);
+  }
+  const block = `  <style ${attr}>\n${add}\n  </style>\n`;
+  const headClose = /<\/head\s*>/i.exec(src);
+  if (headClose) return src.slice(0, headClose.index) + block + src.slice(headClose.index);
+  // no <head> to speak of: before the first section is the next best place a
+  // stylesheet can sit and still apply to it
+  const firstSection = src.search(/<section\b/i);
+  return firstSection === -1 ? src + block : src.slice(0, firstSection) + block + src.slice(firstSection);
+}

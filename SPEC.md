@@ -897,7 +897,26 @@ earlier here. A slide **teaching** markup is not flagged for the markup it
 teaches: the bodies of `pre`, `code`, `script` and `style` are not scanned,
 since only a sample's angle brackets are escaped and its `href="…"` is literal
 text — while their OPEN TAGS are, because `<pre data-cast="…">` is a real
-terminal. The insert is a paste, never a merge: the section's markup is
+terminal. **The rules that shape a taken slide come with it.** A template's design is
+half markup and half stylesheet — `.breaks` is a stack of cards in the deck it
+came from and a bare list in yours — so the insert carries the rules from the
+template's own `<style>` blocks (never its theme, never its runtime) whose
+selectors name a class or id the taken sections contain, into ONE
+`<style data-from-template="<name>">` block in the receiving deck's head. A
+second insert from the same template merges into that block rather than
+stacking beside it, and a rule already there is not written twice. `@media`
+and friends are carried with their condition intact, and the `@keyframes` a
+carried rule animates come with it. A rule whose selector names **no** class or
+id of its own is never carried: somebody else's `p { margin: 0 }` would restyle
+every paragraph in the receiving deck.
+Three things are **reported rather than resolved**, in the picker beside
+`needs` and again in the toast. A class the receiving deck **already styles**
+keeps that deck's rules and the template's are refused — carrying them would
+restyle slides the author never touched. A custom property the rule reads that
+was declared outside it, on the template's `:root`, does not travel and is
+named. And the whole of it is one undo entry: the section and the rules that
+shape it are one edit.
+The insert is otherwise a paste, never a merge: the section's markup is
 written as it stands, re-indented to the deck's own level so the diff is
 reviewable, and the deck's themes and `init` config are left alone. A marketplace skill installs
 into the library and therefore sits **alongside** the authoring skill
@@ -1445,7 +1464,7 @@ decklight/
                  core), present.mjs, edit.mjs, dev.mjs, remote.mjs, agents.mjs (AI-agent roster), git.mjs (the
                  autocommit decision table), update-check.mjs (the "a newer decklight exists" notice), qr.mjs,
                  port-conflict.mjs, supervise.mjs, skill-content.mjs (the agent skill's shipped text)
-  tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes) + template-slides.mjs (a deck template as a list of slides you can take, UNITS#REST), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
+  tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes) + template-slides.mjs (a deck template as a list of slides you can take, UNITS#REST) + css-slice.mjs (the rules a taken slide is shaped by, cut out of the stylesheet it came from), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the
                  marketplace, THEME_DISTRIBUTION) + packs.json + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
