@@ -605,8 +605,11 @@
         await settle();                       // /edit/ping: editAvailable
         press('/');
         for (const ch of 'template') press(ch);
-        r.rowIsThere = [...document.querySelectorAll('.decklight-palette .pal-row')]
-          .map((n) => n.textContent).some((t) => /Insert from a template/.test(t));
+        // two rows now, one per verb — the mode is chosen by name, not by a key
+        const palRows = [...document.querySelectorAll('.decklight-palette .pal-row')]
+          .map((n) => n.textContent);
+        r.rowIsThere = palRows.some((t) => /Insert template slide/.test(t));
+        r.applyRowIsThere = palRows.some((t) => /Apply template to current slide/.test(t));
         press('Enter');
         await settle();
         r.opens = !!document.querySelector(P);
@@ -628,7 +631,14 @@
         // even here, before a template is opened, the preview is THIS deck with
         // that template's first slide in it — never the template in its own theme
         r.previewsTheInstalledOne = await until(() =>
-          /template\/preview\?name=startup-pitch&slide=1&to=\d+&mode=insert/.test(frame().src));
+          /template\/preview\?.*name=startup-pitch&slide=1&to=\d+&mode=insert/.test(frame().src));
+        // Built from themes.previewQuery(), which is what carries the LIVE
+        // theme — a deck being shown in one theme used to preview its templates
+        // in whatever the file defaults to. This fixture has no theme applied,
+        // so the query is the bare `?embedded` that helper returns then; the
+        // theme/gen forms it returns otherwise are the picker's and finder's
+        // own, already covered by their modes.
+        r.carriesTheDeckTheme = /template\/preview\?embedded(&|$)/.test(frame().src);
         r.captionNamesIt = /startup-pitch/.test(caption());
         // the caption and the hiding are synchronous with the row moving; only
         // the document swap behind them is deferred
@@ -647,19 +657,15 @@
         r.warnsAboutAClash = rows().some((t) => /Backup/.test(t) && /\.breaks is this deck's/.test(t));
         // no tick column: the row under the cursor IS the selection
         r.noTicks = rows().every((t) => !t.includes('☑') && !t.includes('☐'));
-        r.legendOffersBothModes = legend().some((t) => /^i:.*insert a slide/.test(t))
-          && legend().some((t) => /^l:.*apply a look/.test(t));
-        r.insertIsTheDefaultMode = legend().some((t) => /^i:.*:ON$/.test(t))
-          && !legend().some((t) => /^l:.*:ON$/.test(t));
-        // a mode means ⏎ does two things, so ⏎ has to say which one it is
-        // about to do, and to which slide
+        // one verb: no mode rows to switch between, and ⏎ names its target
         r.enterSaysWhatItWillDo = legend().some((t) => /^⏎:.*insert it after slide \d+/.test(t));
+        r.noModeKeysLeft = !legend().some((t) => /^(i|l):/.test(t));
 
         press('ArrowDown');                   // to Pricing
         // the same document, a different slide: moved by postMessage, so the
         // iframe is NOT reloaded and its src still names the slide it booted on
         r.previewFollowsTheCursor = await until(() =>
-          /template\/preview\?name=startup-pitch&slide=2&to=\d+&mode=insert/.test(frame().src))
+          /template\/preview\?.*name=startup-pitch&slide=2&to=\d+&mode=insert/.test(frame().src))
           && /slide 2 — Pricing, in this deck/.test(caption());
         // the row can only show `⚠ needs assets/tab…`; the caption is where the
         // path is actually readable, for the one row under the cursor
@@ -683,8 +689,8 @@
         r.namesAPropertyThatStayedBehind = said.some((t) => /--card-bg.*did not travel/.test(t));
 
         r.PASS = r.rowIsThere && r.opens && r.listsInstalled && r.listsOffered && r.listsSlides
-          && r.saysWhatASlideNeeds && r.marksHidden && r.noTicks && r.legendOffersBothModes
-          && r.insertIsTheDefaultMode && r.enterSaysWhatItWillDo
+          && r.saysWhatASlideNeeds && r.marksHidden && r.noTicks && r.applyRowIsThere
+          && r.noModeKeysLeft && r.enterSaysWhatItWillDo && r.carriesTheDeckTheme
           && r.enterInsertsTheCursorRow && r.postsTheChoice && r.insertsAfterTheCurrentSlide
           && r.closesOnInsert && r.saysWhatLanded && r.repeatsTheWarning
           && r.hasAPreview && r.previewsTheInstalledOne && r.captionNamesIt
@@ -698,8 +704,8 @@
         const P = '.decklight-tmpl';
         await settle();
         press('/');
-        for (const ch of 'template') press(ch);
-        press('Enter');
+        for (const ch of 'apply template') press(ch);
+        press('Enter');                       // the APPLY row, by name
         await settle();
         press('Enter');                       // into startup-pitch
         await settle();
@@ -708,21 +714,21 @@
         const legend = () => [...document.querySelectorAll(`${P} .tmpl-key`)]
           .map((n) => `${n.querySelector('kbd')?.textContent}:${n.textContent}`
             + (n.classList.contains('tmpl-on') ? ':ON' : ''));
-        r.footOffersIt = legend().some((t) => /^l:.*apply a look/.test(t));
+        // opened straight into apply: no key was pressed to get here
+        r.footOffersIt = legend().some((t) => /^⏎:.*apply it to slide \d+/.test(t));
+        r.enterNowSaysApply = r.footOffersIt;
+        r.noModeKeys = !legend().some((t) => /^(i|l):/.test(t));
 
         press('ArrowDown');                   // onto Pricing
-        press('l');                           // a MODE, not the act
         await settle();
-        r.lMarksTheMode = legend().some((t) => /^l:.*:ON$/.test(t))
-          && !legend().some((t) => /^i:.*:ON$/.test(t));
-        r.enterNowSaysApply = legend().some((t) => /^⏎:.*apply it to slide \d+/.test(t));
+        r.lMarksTheMode = r.noModeKeys;
         r.lAloneChangedNothing = !CALLS.post.some((c) => c.u.includes('/edit/template/apply'));
 
         // the preview stops showing THEIR slide and starts showing YOURS
         // wearing their look — a different document, so a reload
         const frame = () => document.querySelector(`${P} .tp-preview iframe`);
         r.previewShowsTheOutcome = await until(() =>
-          /\/edit\/template\/preview\?name=startup-pitch&slide=2&to=\d+/.test(frame().src));
+          /\/edit\/template\/preview\?.*name=startup-pitch&slide=2&to=\d+&mode=apply/.test(frame().src));
         r.captionSaysWhoseSlide = /slide \d+ of yours, wearing slide 2's look/.test(
           document.querySelector(`${P} .tp-caption`).textContent);
 

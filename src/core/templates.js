@@ -41,7 +41,7 @@ import { closeOnBackdrop, selectInList, typeaheadKeydown } from './overlay.js';
  */
 const PREVIEW_SETTLE_MS = 120;
 
-export function createTemplates({ root, overlays, editmode, deck, toast, dismissOthers }) {
+export function createTemplates({ root, overlays, editmode, deck, themes, toast, dismissOthers }) {
   const base = () => editmode().base();
   const available = () => editmode().available() === true;
 
@@ -119,6 +119,7 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     const at = deck().state.slide;
     el.querySelector('.tp-filter').textContent = view === 'slides'
       ? `${opened.name} — ${(opened.slides ?? []).length} slides`
+        + (mode === 'apply' ? ' · pick a look' : '')
       : filter ? `filter: ${filter}` : 'insert from a template — type to filter · ⏎ opens';
 
     const listEl = el.querySelector('.tp-list');
@@ -199,20 +200,12 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       // Both verbs name the slide they act ON, because neither acts on the
       // highlighted row alone: one lands a slide next to yours, the other
       // changes yours. A key whose target is offscreen has to say what it is.
-      // The mode rows read as a pair of choices with one of them taken, and ⏎
-      // spells out what it will do RIGHT NOW — the whole point of a mode is
-      // that the same key does two things, so the key has to say which.
-      for (const [key, what, on] of [
-        // the two mode rows name the MODE; ⏎ names what that mode will do, to
-        // which slide. Saying "apply a look" three times over would fill the
-        // rail without answering the only question a mode raises.
-        ['i', 'insert a slide', mode === 'insert'],
-        ['l', 'apply a look', mode === 'apply'],
-        ['⏎', mode === 'apply' ? `apply it to slide ${at}` : `insert it after slide ${at}`, null],
-        ['esc', 'back to the templates', null],
+      for (const [key, what] of [
+        ['⏎', mode === 'apply' ? `apply it to slide ${at}` : `insert it after slide ${at}`],
+        ['esc', 'back to the templates'],
       ]) {
         const line = document.createElement('div');
-        line.className = 'tmpl-key' + (on === true ? ' tmpl-on' : '');
+        line.className = 'tmpl-key';
         line.append(Object.assign(document.createElement('kbd'), { textContent: key }));
         line.append(document.createTextNode(what));
         foot.append(line);
@@ -286,10 +279,21 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     };
   }
 
-  /** The deck as this row would leave it: one route, one shape, both modes. */
+  /**
+   * The deck as this row would leave it: one route, one shape, both modes.
+   *
+   * `themes.previewQuery()` is what makes it the deck you are LOOKING at rather
+   * than the deck on disk. The served copy carries all of this deck's theme
+   * blocks, but which one applies is a runtime choice — picked with `T`, rolled
+   * with `⌃T`, saved as a custom — and a document loaded fresh in an iframe
+   * knows nothing about it, so it came up in whatever the file defaults to.
+   * A deck being presented in a dark gold theme previewed its templates in
+   * aurora. The theme picker and the slide finder carry the live theme this
+   * same way, generated and custom ones travelling as tokens.
+   */
   const previewDoc = (name, slide, to, how) =>
-    `${base()}/edit/template/preview?name=${encodeURIComponent(name)}`
-    + `&slide=${slide}&to=${to}&mode=${how}&embedded`;
+    `${base()}/edit/template/preview${themes().previewQuery()}`
+    + `&name=${encodeURIComponent(name)}&slide=${slide}&to=${to}&mode=${how}`;
 
   function syncPreview() {
     if (!el) return;
@@ -355,9 +359,10 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
     return got;
   }
 
-  async function open() {
+  async function open(how = 'insert') {
     if (!available()) { toast('templates install through the author server — decklight author'); return; }
     dismissOthers?.();
+    mode = how === 'apply' ? 'apply' : 'insert';
     listing = null;
     view = 'list';
     sel = 0;
@@ -401,7 +406,7 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
       toast(`installed ${j.name}`);
       slideCache.delete(j.name);
-      await open();
+      await open(mode);
       await openTemplate(j.name);
     } catch (e) {
       toast(`could not install ${qualified} — ${e.message}`);
@@ -492,14 +497,10 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       // one row that is highlighted.
       if (e.key === 'ArrowDown') { move(1); return true; }
       if (e.key === 'ArrowUp') { move(-1); return true; }
-      // `i` and `l` no longer DO the thing — they choose which thing ⏎ does,
-      // and the preview follows, so the answer to "what will this give me" is
-      // on screen before anything is written. Pressing the mode you are
-      // already in is not a second way to commit: a key that sometimes only
-      // highlights a row and sometimes edits the deck is worse than either.
-      if (e.key === 'i' || e.key === 'I') { mode = 'insert'; render(); return true; }
-      if (e.key === 'l' || e.key === 'L') { mode = 'apply'; render(); return true; }
-      if (e.key === 'Tab') { mode = mode === 'apply' ? 'insert' : 'apply'; render(); return true; }
+      // One verb. Which one was decided in the palette — "Insert template
+      // slide…" or "Apply template to current slide…" — so this view has no
+      // mode to switch and no letter that means something different depending
+      // on what you pressed before it.
       if (e.key === 'Enter') { commit(); return true; }
       if (e.key === 'Escape' || e.key === 'ArrowLeft') { view = 'list'; sel = 0; render(); return true; }
       return true;

@@ -1420,13 +1420,51 @@ test('/edit/template/insert puts the chosen slides after a slide, as ONE undo en
 
   const after = readFileSync(deck, 'utf8');
   const headings = [...after.matchAll(/<h[12][^>]*>([^<]+)<\/h[12]>/g)].map((m) => m[1]);
-  assert.deepEqual(headings.slice(0, 3), ['Alpha', 'Startup pitch', 'Pricing'],
-    'after slide 1, in template order');
+  // the WORDS are placeholders (the slide is taken for its shape), so what is
+  // asserted here is the ORDER and the count: yours, then theirs, in template order
+  assert.equal(headings.length >= 3, true);
+  assert.equal(headings[0], 'Alpha', 'your slide 1 is untouched');
+  assert.match(headings[1], /^\w/, 'then the two taken slides, in template order');
+  assert.match(headings[2], /^\w/);
+  assert.deepEqual(r.titles, ['Startup pitch', 'Pricing'],
+    'and the response still names the slides you asked for, by their real titles');
 
   // ONE entry: an insert is an ordinary edit, so Z takes the whole thing back
   assert.equal(r.undo, 1);
   assert.equal((await post(base, '/edit/undo')).status, 200);
   assert.equal(readFileSync(deck, 'utf8'), before, 'undo took back all of it');
+});
+
+test('/edit/template/insert takes the shape and leaves the words behind', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const { base } = await startWithTemplate(t, dir);
+
+  const r = await (await post(base, '/edit/template/insert',
+    { name: 'startup-pitch', slides: [2], after: 1 })).json();
+  assert.equal(r.ok, true);
+  const after = readFileSync(deck, 'utf8');
+  assert.doesNotMatch(after, /<h2>Pricing<\/h2>/,
+    "a slide that looks finished while saying nothing you mean is how somebody else's pricing ends up on a screen behind you");
+  assert.match(after, /<h2>\w+<\/h2>/, 'but the heading is still a heading, with a word in it');
+  assert.match(after, /<img src="assets\/table\.png">/, 'markup and attributes are untouched');
+  assert.match(after, /<h2>Alpha<\/h2>/, 'and your own slides are not loremised');
+});
+
+test('/edit/template/preview shows the very words the insert will write', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const { base } = await startWithTemplate(t, dir);
+
+  const shown = await (await fetch(
+    base + '/edit/template/preview?embedded&name=startup-pitch&slide=2&to=1&mode=insert')).text();
+  const heading = /<h2>(\w+)<\/h2>/.exec(shown.slice(shown.indexOf('Alpha')));
+  await post(base, '/edit/template/insert', { name: 'startup-pitch', slides: [2], after: 1 });
+  const landed = readFileSync(deck, 'utf8');
+  assert.ok(heading, 'the preview has a loremised heading');
+  assert.match(landed, new RegExp(`<h2>${heading[1]}</h2>`),
+    'and it is the same one, because both are seeded from the slide — a preview '
+    + 'right about the layout and wrong about the text is not a preview');
 });
 
 test('/edit/template/insert refuses a slide the template has not, and a position the deck has not', async (t) => {
@@ -1602,8 +1640,8 @@ test('/edit/template/preview shows a taken slide in THIS deck, never in the temp
   assert.match(html, /<style data-theme="mine">/, 'this deck’s theme dresses the slide');
   assert.doesNotMatch(html, /data-theme="theirs"/,
     'a slide taken out of a template does not bring the template’s theme, so neither may the preview');
-  assert.match(html, /<h2>Failures<\/h2>/, 'their slide is spliced in');
-  assert.match(html, /<h2>Alpha<\/h2>/, 'beside yours');
+  assert.match(html, /<ul class="breaks">/, 'their slide is spliced in — by its shape, not its words');
+  assert.match(html, /<h2>Alpha<\/h2>/, 'beside yours, which keeps its own');
   assert.match(html, /\.breaks \{ gap: 12px \}/, 'with the rules it is shaped by');
   assert.equal(readFileSync(deck, 'utf8'), before, 'and nothing written');
 
@@ -1635,8 +1673,8 @@ test('/edit/template/insert takes the whole template when no slides are named', 
   const r = await (await post(base, '/edit/template/insert', { name: 'startup-pitch', after: 0 })).json();
   assert.equal(r.inserted, 3, 'all of them, hidden slide included — it is still a slide');
   const headings = [...readFileSync(deck, 'utf8').matchAll(/<h[12][^>]*>([^<]+)<\/h[12]>/g)].map((m) => m[1]);
-  assert.deepEqual(headings.slice(0, 4), ['Startup pitch', 'Pricing', 'Backup', 'Alpha'],
-    'after 0 is before the first slide');
+  assert.equal(headings.length, 5, 'all three of theirs, then both of yours');
+  assert.deepEqual(headings.slice(3), ['Alpha', 'Beta'], 'after 0 is before the first slide');
 });
 
 test('/edit/publish/plan names where the deck would go, without putting it there', async (t) => {

@@ -1367,7 +1367,13 @@
 /* Wider than the picker's own, and a wider rail: a theme is one word and a
    slide's title is a sentence. */
 .decklight-tmpl .tp-panel { width: min(960px, 90vw); }
-.decklight-tmpl .tp-side { flex: 0 0 330px; }
+/* `min-width: 0` is load-bearing, not tidying. A flex item defaults to
+   `min-width: auto`, which is its MIN-CONTENT width, and that beats the basis:
+   one `⚠ .cf-eyebrow, .cf-sep, .cf-pill, …` tag is `white-space: nowrap`, so a
+   deck that clashes on several classes pushed this rail past 700px and left the
+   preview a sliver. Reported as "the preview doesn't work" — it was rendering
+   the whole time, just squeezed to nothing. */
+.decklight-tmpl .tp-side { flex: 0 0 330px; min-width: 0; }
 /* A template's name and a slide's title are somebody else's words; the theme
    picker capitalizes its rows because a theme name is a label, and these
    are not. (After the capitalize rules above, so this wins.)

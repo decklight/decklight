@@ -472,6 +472,9 @@ export function init(userConfig = {}) {
     // and naming either one here reads it before it exists
     deck: () => instance,
     editmode: () => editmode,
+    // the LIVE theme, so a preview is dressed like the deck you are looking at
+    // and not like the file on disk
+    themes: () => themes,
     dismissOthers: () => { themes.closePicker(); if (palEl) closePalette(); },
   });
 
@@ -713,9 +716,17 @@ export function init(userConfig = {}) {
       // keep its promise is worse than no row.
       // Somebody else's slides, into this deck (UNITS#REST). Author mode only:
       // it writes the deck on disk, and a template comes from a marketplace.
-      editmode.available() && { label: 'Insert from a template… (dev)',
+      // Two rows, not one row with a mode in it. The panel used to open in
+      // "insert" and let `i`/`l` switch — which meant the answer to "what will
+      // ⏎ do" lived in a keystroke you may not have pressed. The two things are
+      // different enough to be asked for by name: one adds a slide, the other
+      // rewrites one you wrote.
+      editmode.available() && { label: 'Insert template slide… (dev)',
         alias: 'template marketplace slides insert add reuse boilerplate pitch starter steal borrow',
-        run: () => templates.open() },
+        run: () => templates.open('insert') },
+      editmode.available() && { label: 'Apply template to current slide… (dev)',
+        alias: 'template look layout style restyle apply reskin borrow shape backdrop',
+        run: () => templates.open('apply') },
       editmode.available() && { label: 'Export to PowerPoint… (dev)',
         alias: 'pptx powerpoint keynote google slides export file office send share hand over',
         run: () => editmode.exportDeck('pptx') },
