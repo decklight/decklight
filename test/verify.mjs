@@ -61,6 +61,33 @@ const NARRATION_GROUPS = {
 };
 const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-render:${g}`);
 
+/**
+ * engine-render went the same way, for the same reason and by the same route.
+ *
+ * It drives one page through every overlay the engine owns, and the page keeps
+ * gaining them: 22 modes, each a cold headless Chrome. On the Windows runner
+ * that is ~2.5× the wall clock it costs here, and the harness reached its 180s
+ * budget — a cap it had already brushed once. Widening it again would only move
+ * the date; the modes fall into concerns that share nothing, so they run as
+ * concerns.
+ *
+ * The payoff is the failure line: `engine-render:sources FAILED` names what
+ * broke, where `engine-render FAILED` named a file.
+ */
+const ENGINE_GROUPS = {
+  themes: ['themepicker', 'added', 'browse', 'nobrowse', 'wizard'],
+  palette: ['palette', 'exclusive', 'contextmenu', 'commit'],
+  narration: ['narration', 'nonarration', 'panel'],
+  navigation: ['restore', 'hidden', 'hidden&all'],
+  handover: ['exportpptx', 'exportfail', 'publish'],
+  templates: ['template', 'templatelook'],
+  sources: ['sources', 'sourcesedit'],
+};
+const ENGINE_HARNESSES = Object.keys(ENGINE_GROUPS).map((g) => `engine-render:${g}`);
+
+/** Which script owns which groups — what `name.split(':')` below looks up. */
+const GROUPS = { 'narration-render': NARRATION_GROUPS, 'engine-render': ENGINE_GROUPS };
+
 const HARNESSES = [
   'render',
   'player-render',
@@ -74,7 +101,13 @@ const HARNESSES = [
   'record-render',
   'review-render',
   'character-render',
-  'engine-render',
+  'engine-render:themes',
+  'engine-render:palette',
+  'engine-render:narration',
+  'engine-render:navigation',
+  'engine-render:handover',
+  'engine-render:templates',
+  'engine-render:sources',
   'pin-render',
   'overflow-render',
   'split-render',
@@ -161,7 +194,8 @@ const budgetFor = (name) => HARNESS_TIMEOUT_MS * (BUDGET[name] ?? 1);
  * passed: a run that quietly dropped a harness would make "all 17 passed" a
  * sentence about the list rather than about the code.
  */
-const expandAlias = (names) => names.flatMap((n) => (n === 'narration-render' ? NARRATION_HARNESSES : [n]));
+const ALIASES = { 'narration-render': NARRATION_HARNESSES, 'engine-render': ENGINE_HARNESSES };
+const expandAlias = (names) => names.flatMap((n) => ALIASES[n] ?? [n]);
 const SKIP = new Set(expandAlias((process.env.VERIFY_SKIP ?? '').split(',').map((s) => s.trim()).filter(Boolean)));
 for (const name of SKIP) {
   if (!HARNESSES.includes(name)) {
@@ -193,6 +227,9 @@ for (const name of ONLY) {
 const SELECTED = ONLY.length ? HARNESSES.filter((h) => ONLY.includes(h)) : HARNESSES;
 
 const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
+// wide enough for the longest harness name, so the timings stay a column —
+// they are the report on machines nobody can attach to
+const NAME_W = Math.max(...HARNESSES.map((h) => h.length)) + 1;
 const results = [];
 for (const name of SELECTED) {
   if (SKIP.has(name)) {
@@ -204,7 +241,7 @@ for (const name of SELECTED) {
   const at = Date.now();
   // `narration-render:picker` is narration-render.mjs handed that group's modes
   const [script, group] = name.split(':');
-  const modes = group ? NARRATION_GROUPS[group] : [];
+  const modes = group ? GROUPS[script][group] : [];
   const res = spawnSync(process.execPath, [path.join(here, `${script}.mjs`), ...modes],
     { stdio: 'inherit', timeout: budgetFor(name), env });
   const ms = Date.now() - at;
@@ -225,10 +262,10 @@ process.stdout.write(`\n─── verify${ONLY.length ? ' (SELECTION — not the
 // nobody can attach to, and "which harness costs the time" is otherwise a
 // question only a cancelled log could have answered.
 for (const { name, ok, ms, timedOut, skipped } of results) {
-  process.stdout.write(`${skipped ? 'SKIP' : ok ? 'ok  ' : 'FAIL'} ${name.padEnd(22)} `
+  process.stdout.write(`${skipped ? 'SKIP' : ok ? 'ok  ' : 'FAIL'} ${name.padEnd(NAME_W)} `
     + `${skipped ? '      —' : secs(ms).padStart(7)}${timedOut ? '  (timed out)' : ''}\n`);
 }
-process.stdout.write(`     ${'total'.padEnd(22)} ${secs(results.reduce((a, r) => a + r.ms, 0)).padStart(7)}\n`);
+process.stdout.write(`     ${'total'.padEnd(NAME_W)} ${secs(results.reduce((a, r) => a + r.ms, 0)).padStart(7)}\n`);
 
 if (failed.length) {
   process.stdout.write(`\nverify: ${failed.length} of ${results.length} harnesses FAILED — ${failed.map((f) => f.name).join(', ')}\n`);
