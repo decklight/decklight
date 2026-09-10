@@ -2077,14 +2077,18 @@ export async function editMain(args, { onListen = null } = {}) {
           res.writeHead(404, { ...CORS, 'content-type': 'text/plain; charset=utf-8' });
           return res.end('no such slide, here or there');
         }
+        const { loremize, seeded } = await import('../tools/lorem.mjs');
+        // the same seed the insert will use, so the preview is not merely the
+        // right SHAPE with different words in it
+        const taken = insert ? loremize(src.html, seeded(`${name}:${src.n}`)) : null;
         const base = insert
-          ? insertSectionsAfter(deck, to, [src.html])
+          ? insertSectionsAfter(deck, to, [taken])
           : setSectionAttrs(deck, to, { clearIf: isLookAttr, set: lookOf(src.html) }).html;
         // insert brings the whole section, so the rules it needs are the whole
         // section's; apply brings only the tag, so they are the tag's
         const style = styleForSlides(
           raw,
-          insert ? [src.html] : [`<section${writeAttrs(lookOf(src.html))}></section>`],
+          insert ? [taken] : [`<section${writeAttrs(lookOf(src.html))}></section>`],
           base,
         );
         const out = style.css ? mergeHeadStyle(base, name, style.css) : base;
@@ -2172,8 +2176,14 @@ export async function editMain(args, { onListen = null } = {}) {
         // of cards in the deck it came from and a bare list in yours, so the
         // design travels with the section — into one marked block, so `Z`
         // takes the whole thing back and a reader can see whose rules these are.
-        const style = styleForSlides(raw, chosen.map((s) => s.html), deck);
-        const spliced = insertSectionsAfter(deck, at, chosen.map((s) => s.html));
+        // A template slide is worth taking for its shape; its words are the
+        // words of the talk it was written for, and a slide that looks
+        // finished while saying nothing you mean is how somebody else's
+        // pricing ends up on a screen behind you (`UNITS#REST`).
+        const { loremize, seeded } = await import('../tools/lorem.mjs');
+        const taken = chosen.map((s) => loremize(s.html, seeded(`${name}:${s.n}`)));
+        const style = styleForSlides(raw, taken, deck);
+        const spliced = insertSectionsAfter(deck, at, taken);
         const changed = applyEdit(style.css ? mergeHeadStyle(spliced, name, style.css) : spliced);
         const needs = [...new Set(chosen.flatMap((s) => s.needs))];
         console.log(`  template: ${chosen.length} slide(s) from ${name} after slide ${at}`

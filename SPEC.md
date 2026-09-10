@@ -868,17 +868,32 @@ installed and what a registered marketplace offers (`GET /edit/template/list`,
 cache-only, exactly like the theme browser — installing is the one step that
 touches the network, through `template add`'s own installer). Opening one lists
 its slides by heading (`GET /edit/template/slides`). **The row under the cursor
-is the selection** — nothing is ticked first — and the view has **two modes**,
-`i` for inserting a slide and `l` for applying a look, with `⏎` doing whichever
-is chosen. `Tab` toggles. The keys choose rather than act: a mode means one key
-does two things, so the footer marks the mode that is on and spells out what
-`⏎` will do and **to which slide**, since neither mode acts on the highlighted
-row alone — one lands a slide beside yours, the other changes yours.
+is the selection** — nothing is ticked first — and there is one verb, `⏎`.
+**Which verb is chosen in the palette, not in the panel**: *Insert template
+slide…* and *Apply template to current slide…* are two commands, because the two
+things are different enough to be asked for by name and because the answer to
+"what will `⏎` do" should not live in a keystroke you may not have pressed. The
+footer spells out what `⏎` will do and **to which slide**, since neither verb
+acts on the highlighted row alone — one lands a slide beside yours, the other
+changes yours.
 
 Inserting puts that slide **after the slide you are on**
 (`POST /edit/template/insert`) as **one undo entry** — somebody else's slide is
 now your slide, and `Z` takes it back like any other edit. The route still takes
 a list, so a caller may insert several at once; the panel asks for one at a time.
+
+**The shape lands and the words do not.** A template slide is worth taking for
+its layout, and its prose is the prose of the talk it was written for; a slide
+that looks finished while saying nothing you mean is how somebody else's pricing
+ends up on a screen behind you. So visible text is replaced with placeholder
+text of the **same word count**, because a layout is only honest at roughly the
+length it was drawn for. `pre`, `code`, `script` and `style` are untouched — a
+code sample is structure, not prose — as are `⟨CLICK⟩` beats in the notes (the
+build's clock, `NARRATION`), entities, and anything with no letters in it. The
+placeholder run is **seeded from the template and slide**, so the preview shows
+the very words the insert will write: a preview right about the layout and wrong
+about the text is not a preview. Applying a look never touches words at all —
+it rewrites one opening tag.
 
 **Every preview is THIS DECK as it would be, never the template as it is**
 (`GET /edit/template/preview?name=&slide=&to=&mode=insert|apply`, which runs
@@ -1505,7 +1520,7 @@ decklight/
                  core), present.mjs, edit.mjs, dev.mjs, remote.mjs, agents.mjs (AI-agent roster), git.mjs (the
                  autocommit decision table), update-check.mjs (the "a newer decklight exists" notice), qr.mjs,
                  port-conflict.mjs, supervise.mjs, skill-content.mjs (the agent skill's shipped text)
-  tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes) + template-slides.mjs (a deck template as a list of slides you can take, UNITS#REST) + css-slice.mjs (the rules a taken slide is shaped by, cut out of the stylesheet it came from), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
+  tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes) + template-slides.mjs (a deck template as a list of slides you can take, UNITS#REST) + lorem.mjs (a taken slide's prose replaced, its markup and its code left alone) + css-slice.mjs (the rules a taken slide is shaped by, cut out of the stylesheet it came from), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the
                  marketplace, THEME_DISTRIBUTION) + packs.json + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
