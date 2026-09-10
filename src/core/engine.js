@@ -20,6 +20,7 @@ import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
 import { createTemplates } from './templates.js';
+import { createSources } from './sources.js';
 import { createOnboarding, TIPS } from './onboarding.js';
 import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
@@ -463,6 +464,19 @@ export function init(userConfig = {}) {
   });
   const { applyTheme, currentTheme, cycleTheme, cancelCyclePending, rollTheme, saveGeneratedTheme } = themes;
 
+  // Where a slide got what it says (SLIDE_SOURCES). Not author-only and not
+  // presenter-only: notes are for the person talking, and where to read more is
+  // for the person listening — so this ships in the deck a reader is handed.
+  const sources = createSources({
+    root, overlays, toast,
+    // the same two accessors the layout cycler takes, for the same reason:
+    // this is built before `instance` exists and only ever reads it from a
+    // keystroke
+    slideOf: () => instance.state.slide,
+    sectionAt: (idx) => instance._sections[idx - 1],
+    dismissOthers: () => { themes.closePicker(); if (palEl) closePalette(); },
+  });
+
   // Deck templates, into the deck you already have (UNITS#REST). Author mode
   // only, and it consults `editmode` the same way the theme picker does — from
   // an open dialog, never during setup.
@@ -714,6 +728,11 @@ export function init(userConfig = {}) {
       // author server to run the command — hence (dev), and hence contextual:
       // without a server there is nothing to run it, and a row that cannot
       // keep its promise is worse than no row.
+      // Only when this slide has any — a row that opens an empty panel is a
+      // row that taught you nothing, and the key still says so if you press it.
+      sources.has() && { label: 'Sources for this slide… (I)',
+        alias: 'sources references links reading provenance where citation info information',
+        run: () => sources.open() },
       // Somebody else's slides, into this deck (UNITS#REST). Author mode only:
       // it writes the deck on disk, and a template comes from a marketplace.
       // Two rows, not one row with a mode in it. The panel used to open in
@@ -1591,6 +1610,7 @@ export function init(userConfig = {}) {
       <tr><td>O</td><td>overview</td></tr>
       <tr><td>S</td><td>speaker view (again: rehearse mode)</td></tr>
       <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
+      <tr><td>I</td><td>information — where this slide got what it says: named facts, and links to read</td></tr>
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
       <tr><td>B</td><td>blackout</td></tr>
       <tr><td>D</td><td>debug log</td></tr>
@@ -1795,6 +1815,7 @@ export function init(userConfig = {}) {
       case 'e': case 'E': toggleElementEdit(); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
+      case 'i': case 'I': sources.open(); break;           // (I)nformation: where this slide got that
       case 's': case 'S': {
         // first S opens the speaker view; S again toggles speak ⇄ rehearse
         const w = instance.__speakerWin;

@@ -20,7 +20,15 @@
   -->
   <div class="decklight">
     <section><h1>One</h1></section>
-    <section><h2>Two</h2></section>
+    <section><h2>Two</h2>
+      <aside class="sources">
+        <dl><dt>owner</dt><dd>platform-team</dd><dt>reviewed</dt><dd>2026-08-14</dd></dl>
+        <ul>
+          <li><a href="https://example.invalid/kip-98">KIP-98</a> — the original proposal</li>
+          <li><a href="https://example.invalid/txn">Transactions guide</a></li>
+        </ul>
+      </aside>
+    </section>
     <section><h2>Three</h2></section>
     <section><h2>Four</h2></section>
   </div>
@@ -750,6 +758,62 @@
           && r.postsTheLook && r.appliesToTheSlideYouAreOn
           && r.tookNothingElse && r.closesAfter && r.saysWhatItDid && r.namesWhatItTook
           && r.saysTheStyleCameToo;
+      }
+
+      // Where a slide got what it says (SLIDE_SOURCES). Not the notes (what you
+      // SAY) and not a comment (what somebody thinks for now).
+      if (mode === 'sources') {
+        const P = '.decklight-sources';
+        r.hiddenOnTheSlide = getComputedStyle(
+          document.querySelector('aside.sources')).display === 'none';
+
+        deck.goto(1, 0);
+        await settle();
+        press('i');
+        await settle();
+        r.quietWhenThereIsNone = !document.querySelector(P)
+          && [...document.querySelectorAll('.decklight-toast')]
+            .some((n) => /slide 1 does not say where it got that/.test(n.textContent));
+
+        deck.goto(2, 0);
+        await settle();
+        press('i');
+        await settle();
+        r.opens = !!document.querySelector(P);
+        const facts = [...document.querySelectorAll(`${P} .src-facts dt`)].map((n) => n.textContent);
+        r.showsNamedFacts = facts.join(',') === 'owner,reviewed';
+        const rows = [...document.querySelectorAll(`${P} .narr-row`)];
+        r.showsLinks = rows.length === 2
+          && /KIP-98/.test(rows[0].textContent)
+          && /the original proposal/.test(rows[0].textContent);
+        // real links, so they can be opened in a new tab, copied, middle-clicked
+        r.rowsAreLinks = rows.every((n) => n.tagName === 'A' && n.target === '_blank'
+          && /noopener/.test(n.rel));
+        r.hrefKept = rows[0].getAttribute('href') === 'https://example.invalid/kip-98';
+        r.firstIsSelected = rows[0].classList.contains('narr-sel');
+        press('ArrowDown');
+        r.downMoves = [...document.querySelectorAll(`${P} .narr-row`)][1]
+          .classList.contains('narr-sel');
+        press('Escape');
+        r.escapeCloses = !document.querySelector(P);
+
+        // the palette offers it only where there is something to offer
+        press('/');
+        for (const ch of 'sources') press(ch);
+        r.paletteRowOnASlideWithSources = [...document.querySelectorAll('.decklight-palette .pal-row')]
+          .some((n) => /Sources for this slide/.test(n.textContent));
+        press('Escape');
+        deck.goto(1, 0);
+        await settle();
+        press('/');
+        for (const ch of 'sources') press(ch);
+        r.noPaletteRowWithout = ![...document.querySelectorAll('.decklight-palette .pal-row')]
+          .some((n) => /Sources for this slide/.test(n.textContent));
+        press('Escape');
+
+        r.PASS = r.hiddenOnTheSlide && r.quietWhenThereIsNone && r.opens && r.showsNamedFacts
+          && r.showsLinks && r.rowsAreLinks && r.hrefKept && r.firstIsSelected && r.downMoves
+          && r.escapeCloses && r.paletteRowOnASlideWithSources && r.noPaletteRowWithout;
       }
 
       if (mode === 'exclusive') {

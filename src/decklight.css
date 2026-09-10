@@ -83,7 +83,9 @@
 .decklight-stage > section.leaving { z-index: 1; }
 .decklight-stage > section.active { z-index: 2; }
 
-.decklight aside.notes, .decklight aside.rehearse { display: none; }
+/* `sources` joins the list deliberately: this rule names the asides that are
+   NOT the slide, so a new kind renders on the slide until it is added here. */
+.decklight aside.notes, .decklight aside.rehearse, .decklight aside.sources { display: none; }
 
 /* ---------- pinned titles (SPEC PRESENTING) ---------------------------------------
    The engine marks pinnable sections with data-pinned + inline --pin-y /
@@ -2039,3 +2041,30 @@
     transition: none !important;
   }
 }
+
+/* Where this slide got what it says (SLIDE_SOURCES) — the narration card's
+   chrome, with rows that are real links. */
+.decklight-sources .narr-card { width: min(520px, 88vw); }
+.decklight-sources .narr-row { text-decoration: none; color: inherit; }
+.decklight-sources .src-go { flex: none; opacity: .45; font-size: .85em; }
+.decklight-sources .narr-row .narr-tag {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: .5;
+  font-size: .78em;
+}
+/* Named facts read as a table, not as prose: the term is the label and the
+   value is the answer, and lining them up is what makes a list of them
+   scannable at a glance. */
+.decklight-sources .src-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 4px 12px 8px;
+  font-size: .9em;
+}
+.decklight-sources .src-facts dt { opacity: .5; }
+.decklight-sources .src-facts dd { margin: 0; }

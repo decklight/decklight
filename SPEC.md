@@ -57,6 +57,26 @@ being moved, and it says what it points at.
 - Slides are `<section>` children of `.decklight`. Flat list (no vertical nesting in v1).
 - **Markdown slides were removed in 0.3.0.** `data-markdown` + a `<script type="text/template">` body was a second authoring surface for the same DOM, and it earned its bundle: `marked`, a `::: build` directive, a parallel notes syntax, a `` ```chart `` fence that existed only because a nested `</script>` cannot live in a template, and a math path that had to extract every span *before* the parse so TeX underscores would not become emphasis. HTML is the one surface now. A deck still carrying `data-markdown` sections would render them EMPTY — the template is a `<script>` no browser paints — so the engine recognises the attribute for exactly long enough to refuse out loud: it marks the section `data-markdown-removed` (assertable headlessly) and warns per slide, naming the slide number. It parses nothing.
 - Speaker notes: `<aside class="notes">`.
+- **Sources** (`SLIDE_SOURCES`, optional): `<aside class="sources">`, a sibling
+  of the notes aside, holding what the slide is standing on — a `<dl>` of named
+  facts (owner, last reviewed, the document a claim came from) and a `<ul>` of
+  links, each optionally followed by a few words about it. Ordinary `<dl>` and
+  `<ul>`, because both already mean exactly this in HTML: nothing here invents a
+  syntax to learn or a parser to go wrong, and an agent can write it.
+  **Hidden on the slide and opened with `I`** (Information) or the palette's
+  *Sources for this slide…*, which appears only when the slide has any. That
+  key is the whole difference from the other two asides: **notes are for the
+  person talking, and where to read more is for the person listening**, so this
+  ships in the deck a reader is handed rather than being stripped from it. The
+  links are real `<a target="_blank" rel="noopener">` rows, so they can be
+  opened in a new tab, copied or middle-clicked like any link.
+  It is not a comment (`REVIEW`): a comment is what somebody thinks for now and
+  is answered and resolved, while a source is true until the source changes —
+  so it lives in the section and travels with it through `bundle`, `publish`,
+  and being taken into another deck by a template insert.
+  `aside.sources` is named in the same `display: none` rule as the other two,
+  which is the list of asides that are NOT the slide; a new kind renders on the
+  slide until it is added there.
 - **Rehearse notes** (optional, build-time authored): a condensed cue-card variant of the notes for the speaker view's rehearse mode (PRESENTING) — a few words per segment instead of full prose, with **exactly the same ⟨CLICK⟩ segmentation** as the notes so build-step highlighting aligns. `<aside class="rehearse">` as a sibling of the notes aside. Slides without a rehearse aside fall back to the full notes in rehearse mode.
 - **Subtitle**: the `<p>` immediately following a slide's leading `h1`/`h2` is auto-marked `.subtitle` and gets one canonical look (muted, 0.72em). Opt out per slide with `data-subtitle="none"` on the section; an author-placed `class="subtitle"` is respected as-is. Don't bake subtitle text into diagram SVGs — author it as this `<p>` so it themes and scales with the deck.
 - **Background media**: `data-background-image="hero.jpg"` on a section renders the image full-bleed behind the slide's content — `data-background-size="cover|contain"` (default cover), `data-background-position` (default center). `data-background-dim="0.5"` lays a canvas-colored (`--bg`) overlay between the media and the content so text stays readable over arbitrary photos. `data-background-video="clip.mp4"` plays a muted looping `playsinline` clip while the slide is active — play/pause is driven from the engine's slide event, so a deactivated slide's video is *paused*, not merely hidden; `data-background-poster="poster.jpg"` is its stand-in still (required for print, PRESENTING). The engine injects the layer as an idempotent `.slide-bg` first child on `sync()` — absolutely positioned below the content, so backgrounds never count against the overflow guardrail (PRESENTING) and transitions/auto-animate carry them for free. `class="full-bleed"` on an `<img>` gives a *content* image the same cover-the-slide treatment (absolute inset-0, object-fit cover, under the in-flow text); images inside split layouts (PRESENTING) are capped (object-fit contain, max-height) so a tall photo can't blow the slide. `decklight bundle` inlines `data-background-image`/`data-background-poster` as data: URIs like `<img src>`; background videos stay external with a CLI notice (PRESENTING).
@@ -1488,7 +1508,8 @@ no-plugin-system line (NON_GOALS) stands.
 decklight/
   SPEC.md  README.md  package.json
   src/core/      engine.js (init, nav, builds, transitions, stage, chrome, input) + the features that own their own
-                 state and keyboard: themes.js (switching, packs, generator, picker), narration.js (voice, captions,
+                 state and keyboard: themes.js (switching, packs, generator, picker), sources.js (SLIDE_SOURCES: what a
+                 slide is standing on, and the I key), narration.js (voice, captions,
                  character, the recorders), editmode.js (live reload, notes editor, element edit mode, agents
                  and the chip that says one is still working, undo/redo, restore), templates.js (browsing deck
                  templates and taking slides from one), hud.js (clock, progress, ink, transcript), onboarding.js (the first-open card
