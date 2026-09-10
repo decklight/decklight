@@ -880,34 +880,32 @@ Inserting puts that slide **after the slide you are on**
 now your slide, and `Z` takes it back like any other edit. The route still takes
 a list, so a caller may insert several at once; the panel asks for one at a time.
 
-**The preview is of the mode, not of the template.** Insert mode shows their
-slide, which is what you would be getting. Apply mode shows **yours wearing
-their look** — `GET /edit/template/preview?name=&slide=&to=`, which runs exactly
-what `apply` would run and returns the result instead of writing it: no file
-touched, no undo entry, because a cursor moving through a list must never edit
-the deck. The two questions are different by every word on the slide, so a
-preview that answered only the first would be answering the wrong one in half
-the view. The cost is that a cursor move in apply mode changes the DOCUMENT
-rather than the slide within it, so the frame reloads instead of being
-postMessaged. A hidden
+**Every preview is THIS DECK as it would be, never the template as it is**
+(`GET /edit/template/preview?name=&slide=&to=&mode=insert|apply`, which runs
+exactly what the matching POST would run and returns the result instead of
+writing it: no file touched, no undo entry, because a cursor moving through a
+list must never edit the deck). Insert mode splices their section in and lands
+on it; apply mode retags the slide you are on. Both are dressed by **your**
+runtime, **your** 46 theme blocks and **your** own `<style>`, because they *are*
+your deck — and that is the point: a template carries its own theme and a slide
+taken out of one does not, so a preview in the template's theme is a picture of
+something you are not going to get. A template's design that lives in its head
+stylesheet still shows, because the rules a taken slide is shaped by are carried
+into the preview exactly as they are carried into the deck.
+
+The cost is that the cursor changes the DOCUMENT rather than the slide within
+it, so the frame reloads instead of being postMessaged. The debounce that keeps
+a held-down arrow from booting a deck per row is what makes that affordable. A hidden
 slide is listed as hidden and can still be taken, keeping the attribute.
 **The row under the cursor is rendered beside the list** — the picker's own
 anatomy, the one the theme picker, the slide finder and the history pane
 share — because a template is a deck somebody designed and its headings are
-the least of what is being chosen between. The template is served whole for
-this (`GET /edit/template/at?name=`, `?embedded`, `<base href="/">` as
-`/edit/at` does) and previewed as the file is — its own theme, its own
-`<style>` blocks — while the slides take this deck's theme when they land, as
-any pasted markup does. A template is *supposed* to be self-contained and
-nothing enforces it, so one that **links** a runtime or a theme it does not
-carry is served the installed copy of each, inlined as `init` inlines them:
-installed under `~/.decklight/templates/` a relative `../dist/decklight.js`
-points at nothing, and the author server has no runtime of its own to serve
-instead. A theme this package does not have stays the dangling link it is.
-Moving between slides of one template is a `goto` postMessage, not a reload. An
-**offered** template is not previewed: it is not on this machine, and looking
-inside it would mean fetching it — registering a marketplace is not fetching
-from one, and the theme picker draws this line in the same place.
+the least of what is being chosen between. Whether a template is self-contained never comes up: nothing
+serves the template file, so a template that links a runtime it does not carry
+previews as well as one that inlines it. An **offered** template is not
+previewed at all: it is not on this machine, and looking inside it would mean
+fetching it — registering a marketplace is not fetching from one, and the theme
+picker draws this line in the same place.
 Each slide says **what it points at that this deck will not have** —
 `data-cast`, a relative `src`, background media — before it is taken rather
 than after: a `data:` image travels with the markup and `casts/demo.cast` does

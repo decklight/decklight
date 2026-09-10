@@ -245,33 +245,38 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
         + (slide.clashes?.length
           ? ` · ⚠ ${slide.clashes.join(', ')} already means something else here, so it keeps this deck's rules`
           : '');
-      // Apply mode previews YOUR slide wearing their look, which is a different
-      // document — the deck, retagged in memory — so the iframe reloads on
-      // every cursor move here rather than being postMessaged to a new slide.
-      // That is the cost of previewing an outcome instead of a source.
+      // Both modes preview THIS DECK as it would be — never the template as it
+      // is. A template carries its own theme and a slide taken out of it does
+      // not: it lands in your deck and is dressed by your tokens. So the
+      // preview is always the deck, and the document changes with the cursor
+      // (a reload) rather than the slide within it (a postMessage). That is
+      // the cost of previewing an outcome instead of a source.
       if (mode === 'apply') {
         return {
-          doc: `${base()}/edit/template/preview?name=${encodeURIComponent(opened.name)}`
-            + `&slide=${slide.n}&to=${at}&embedded`,
+          doc: previewDoc(opened.name, slide.n, at, 'apply'),
           slide: at,
           caption: `slide ${at} of yours, wearing slide ${slide.n}'s look${warn}`,
         };
       }
       return {
-        doc: `${base()}/edit/template/at?name=${encodeURIComponent(opened.name)}&embedded`,
-        slide: slide.n,
+        doc: previewDoc(opened.name, slide.n, at, 'insert'),
+        slide: at + 1,   // where it would land
         // The row carries `⚠ needs` as a mark you can scan a list for; it is
         // the caption that has the room to say WHICH files, and the row under
         // the cursor is the only one anybody needs that from.
-        caption: `slide ${slide.n} — ${slide.title}`
+        caption: `slide ${slide.n} — ${slide.title}, in this deck`
           + (slide.hidden ? ' · hidden in its own deck' : '') + warn,
       };
     }
     if (row.kind === 'installed') {
       const n = slideCache.get(row.name)?.slides?.length;
+      const at = deck().state.slide;
       return {
-        doc: `${base()}/edit/template/at?name=${encodeURIComponent(row.name)}&embedded`,
-        slide: 1,
+        // its first slide, as it would land here — the same rule as the slides
+        // view, so nothing in this panel is ever shown in a theme you will not
+        // get
+        doc: previewDoc(row.name, 1, at, 'insert'),
+        slide: at + 1,
         name: row.name,
         caption: n ? `${row.name} · ${n} slides` : row.name,
       };
@@ -280,6 +285,11 @@ export function createTemplates({ root, overlays, editmode, deck, toast, dismiss
       caption: `${row.entry.qualified} — not installed here yet · ⏎ installs it, then you can look inside`,
     };
   }
+
+  /** The deck as this row would leave it: one route, one shape, both modes. */
+  const previewDoc = (name, slide, to, how) =>
+    `${base()}/edit/template/preview?name=${encodeURIComponent(name)}`
+    + `&slide=${slide}&to=${to}&mode=${how}&embedded`;
 
   function syncPreview() {
     if (!el) return;

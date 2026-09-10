@@ -1405,35 +1405,6 @@ test('/edit/template/slides reads the template as a numbered list, and names wha
   assert.match((await missing.json()).error, /no template "nope" is installed here/);
 });
 
-test('/edit/template/at serves the template itself, so the picker can render it', async (t) => {
-  const dir = tmp(t);
-  const { base } = await startWithTemplate(t, dir);
-  const r = await fetch(base + '/edit/template/at?name=startup-pitch&embedded');
-  assert.equal(r.status, 200);
-  assert.match(r.headers.get('content-type'), /text\/html/);
-  const html = await r.text();
-  assert.match(html, /<base href="\/">/, 'served two paths deep — without it every relative ref resolves there');
-  assert.match(html, /Startup pitch/);
-  assert.match(html, /Backup/, 'the whole template, hidden slides and all — this is a preview, not an export');
-
-  // A template written the ordinary way links a runtime that is not beside it
-  // once installed, and this server serves none of its own to point at.
-  writeFileSync(path.join(dir, 'home', 'templates', 'linked.html'),
-    '<!doctype html><html><head><link rel="stylesheet" href="../dist/decklight.css">'
-    + '<link rel="stylesheet" href="../themes/aurora.css"></head><body>'
-    + '<div class="decklight"><section><h1>Linked</h1></section></div>'
-    + '<script src="../dist/decklight.js"></script></body></html>');
-  const linked = await (await fetch(base + '/edit/template/at?name=linked&embedded')).text();
-  assert.match(linked, /<style data-decklight-runtime="css">/, 'the preview boots, or it is not a preview');
-  assert.match(linked, /<script data-decklight-runtime="js">/);
-  assert.match(linked, /<style data-theme="aurora">/);
-  assert.doesNotMatch(linked, /\.\.\/dist\/decklight\.js/);
-
-  const missing = await fetch(base + '/edit/template/at?name=nope');
-  assert.equal(missing.status, 404);
-  assert.match(await missing.text(), /no template "nope" is installed here/);
-});
-
 test('/edit/template/insert puts the chosen slides after a slide, as ONE undo entry', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
@@ -1611,6 +1582,37 @@ test('/edit/template/preview renders what apply WOULD do, and writes nothing', a
   assert.equal(nope.status, 404);
   const noTarget = await fetch(base + '/edit/template/preview?name=looks&slide=1&to=99');
   assert.equal(noTarget.status, 404);
+});
+
+test('/edit/template/preview shows a taken slide in THIS deck, never in the template’s theme', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  // a deck with a theme of its own, and a template with a different one
+  writeFileSync(deck, DECK.replace('<html><body>',
+    '<html><head><style data-theme="mine">:root { --fg: #123 }</style></head><body>'));
+  const home = path.join(dir, 'home');
+  mkdirSync(path.join(home, 'templates'), { recursive: true });
+  writeFileSync(path.join(home, 'templates', 'styled.html'), STYLED_TEMPLATE
+    .replace('<style>', '<style data-theme="theirs">:root { --fg: #999 }</style><style>'));
+  const { base } = await startEdit(t, dir, { env: { DECKLIGHT_HOME: home } });
+  const before = readFileSync(deck, 'utf8');
+
+  const html = await (await fetch(
+    base + '/edit/template/preview?name=styled&slide=1&to=1&mode=insert&embedded')).text();
+  assert.match(html, /<style data-theme="mine">/, 'this deck’s theme dresses the slide');
+  assert.doesNotMatch(html, /data-theme="theirs"/,
+    'a slide taken out of a template does not bring the template’s theme, so neither may the preview');
+  assert.match(html, /<h2>Failures<\/h2>/, 'their slide is spliced in');
+  assert.match(html, /<h2>Alpha<\/h2>/, 'beside yours');
+  assert.match(html, /\.breaks \{ gap: 12px \}/, 'with the rules it is shaped by');
+  assert.equal(readFileSync(deck, 'utf8'), before, 'and nothing written');
+
+  // 0 is a legal insert position: before slide 1
+  const first = await fetch(base + '/edit/template/preview?name=styled&slide=1&to=0&mode=insert');
+  assert.equal(first.status, 200);
+  // but not for apply — there is no slide 0 to retag
+  const noZero = await fetch(base + '/edit/template/preview?name=styled&slide=1&to=0');
+  assert.equal(noZero.status, 404);
 });
 
 test('/edit/template/apply refuses a slide neither deck has', async (t) => {

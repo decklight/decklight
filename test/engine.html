@@ -625,8 +625,10 @@
           .map((n) => `${n.querySelector('kbd')?.textContent}:${n.textContent}`
             + (n.classList.contains('tmpl-on') ? ':ON' : ''));
         r.hasAPreview = !!frame();
-        r.previewsTheInstalledOne = await until(() => /template\/at\?name=startup-pitch/.test(frame().src))
-          && /#\/1\/0$/.test(frame().src);
+        // even here, before a template is opened, the preview is THIS deck with
+        // that template's first slide in it — never the template in its own theme
+        r.previewsTheInstalledOne = await until(() =>
+          /template\/preview\?name=startup-pitch&slide=1&to=\d+&mode=insert/.test(frame().src));
         r.captionNamesIt = /startup-pitch/.test(caption());
         // the caption and the hiding are synchronous with the row moving; only
         // the document swap behind them is deferred
@@ -656,8 +658,9 @@
         press('ArrowDown');                   // to Pricing
         // the same document, a different slide: moved by postMessage, so the
         // iframe is NOT reloaded and its src still names the slide it booted on
-        r.previewFollowsTheCursor = /slide 2 — Pricing/.test(caption())
-          && /template\/at\?name=startup-pitch/.test(frame().src);
+        r.previewFollowsTheCursor = await until(() =>
+          /template\/preview\?name=startup-pitch&slide=2&to=\d+&mode=insert/.test(frame().src))
+          && /slide 2 — Pricing, in this deck/.test(caption());
         // the row can only show `⚠ needs assets/tab…`; the caption is where the
         // path is actually readable, for the one row under the cursor
         r.captionSpellsOutWhatItNeeds = /needs assets\/table\.png, which this deck does not have/.test(caption());
