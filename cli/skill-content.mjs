@@ -53,7 +53,8 @@ the runtime is one JS file + one CSS file + one theme CSS file.
 **Full authoring contract**: read [${referenceHref}](${referenceHref}) in this same
 skill directory before authoring or editing a slide — SLIDE_DENSITY is how much goes on
 one, COMPARISON_SLIDES is the worked comparison (pros/cons) slide, and past those it covers builds,
-speaker notes segmentation (⟨CLICK⟩), SVG diagrams, theming, motion, code
+speaker notes segmentation (⟨CLICK⟩), SLIDE_SOURCES (where a slide got what it says),
+SVG diagrams, theming, motion, code
 blocks, LaTeX math, terminal recordings, narration, and the public JS API. It's sliced
 straight from Decklight's SPEC.md (v${PKG.version}), so it won't drift from
 the installed runtime's actual behavior — trust it over prior training.
@@ -68,6 +69,18 @@ with a build and notes already wired):
     <aside class="notes"><p>What you'd say on this slide.</p></aside>
   </section>
 </div>
+\`\`\`
+
+Two asides, and they are not the same thing. \`notes\` is what the speaker SAYS.
+\`sources\` is where the slide got what it says — named facts and links a reader
+can follow, hidden on the slide and opened with **I**. Add it when a slide makes
+a claim worth attributing; leave it off when it does not:
+
+\`\`\`html
+<aside class="sources">
+  <dl><dt>owner</dt><dd>platform-team</dd><dt>reviewed</dt><dd>2026-08-14</dd></dl>
+  <ul><li><a href="https://…/KIP-98">KIP-98</a> — the original proposal</li></ul>
+</aside>
 \`\`\`
 
 **CLI** (\`npx decklight@latest <command>\`, no install needed):
@@ -156,7 +169,7 @@ export function agentsSection(referenceHref = '.claude/skills/decklight/referenc
 
 This project contains a Decklight presentation (a single-file HTML deck —
 see \`${referenceHref}\` for the full authoring
-contract: builds, notes, SVG diagrams, themes, terminals, narration).
+contract: builds, notes, sources, SVG diagrams, themes, terminals, narration).
 Read that file before adding or editing slides.
 
 After editing slides, render the deck and check nothing is clipped:
