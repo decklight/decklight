@@ -14,8 +14,11 @@
 // ONE QUESTION, ONE ANSWER. The index carries the deck's own slides AND the
 // other modules of a playlist, because "go somewhere" should not be two
 // different searches depending on whether the destination happens to live in
-// this file. In-file `data-module` chapters need nothing special: they are
-// ordinary slides and are already indexed as such.
+// this file. In-file `data-module` chapters get rows of their own too, built by
+// the ENGINE (which holds the marker list) and prepended ahead of what this
+// file returns. This comment used to say they needed nothing special, being
+// ordinary slides already indexed as such — true of FINDING a chapter you can
+// name, false of seeing that the deck has chapters at all (#479).
 
 /**
  * A slide's title: its first heading, else its opening words, else its number.
