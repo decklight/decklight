@@ -42,13 +42,15 @@ const repo = path.resolve(here, '..');
 
 /** narration-render's five concerns, as verify runs them (see test/verify.mjs). */
 const NARRATION = ['narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record'];
+/** engine-render's concerns, likewise (see test/verify.mjs). */
+const ENGINE = ['engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources'];
 
 /** Every harness `verify` knows, in its running order. */
 export const ALL = [
   'render', 'player-render',
   'narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record',
   'record-render', 'review-render',
-  'character-render', 'engine-render', 'pin-render', 'overflow-render', 'split-render',
+  'character-render', 'engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources', 'pin-render', 'overflow-render', 'split-render',
   'strict-render', 'shot-render', 'plugin-render', 'extension-check-render',
   'deckfile-render', 'pdf-render', 'pptx-render', 'import-render', 'contrast', 'palette-rules',
 ];
@@ -87,12 +89,12 @@ const RULES = [
   [/^src\/core\/character-art\.js$/, ['character-render'], 'the head it draws'],
   [/^src\/core\/review\.js$/, ['review-render'], 'the review overlay and its anchor resolver'],
   [/^src\/core\/overflow\.js$/, ['overflow-render', 'pin-render'], 'the overflow guardrail and the pinned-title case'],
-  [/^src\/core\/annotate\.js$/, ['engine-render', 'render'], 'ink rides the engine scale'],
+  [/^src\/core\/annotate\.js$/, [...ENGINE, 'render'], 'ink rides the engine scale'],
   [/^src\/core\/themes\.js$/, ['render', 'contrast'], 'theme picking, and the contrast gate behind it'],
-  [/^src\/core\/(editmode|history|templates)\.js$/, ['engine-render'], 'the author surfaces the engine harness drives'],
-  [/^tools\/template-slides\.mjs$/, ['engine-render'], 'what the template picker lists and inserts'],
-  [/^src\/core\/hud\.js$/, ['engine-render'], 'clock and progress live on the engine'],
-  [/^src\/core\/finder\.js$/, ['engine-render', 'review-render'], 'slide titles: the finder names them, review anchors by them'],
+  [/^src\/core\/(editmode|history|templates)\.js$/, ENGINE, 'the author surfaces the engine harness drives'],
+  [/^tools\/template-slides\.mjs$/, ENGINE, 'what the template picker lists and inserts'],
+  [/^src\/core\/hud\.js$/, ENGINE, 'clock and progress live on the engine'],
+  [/^src\/core\/finder\.js$/, [...ENGINE, 'review-render'], 'slide titles: the finder names them, review anchors by them'],
   [/^src\/terminal\//, ['player-render'], 'the cast player'],
   [/^src\/code\//, ['render'], 'code blocks render in the smoke deck'],
   [/^src\/core\//, BROWSER, 'an unmapped core module — assume every harness'],
@@ -220,7 +222,11 @@ const selected = ALL.filter((h) => picked.has(h));
 // Measured on a laptop; a rough shape so the report can say what it saves.
 const COST = {
   'narration-render:live': 25, 'narration-render:picker': 12, 'narration-render:recorded': 12,
-  'narration-render:segments': 12, 'narration-render:record': 40, 'extension-check-render': 23, 'engine-render': 17, render: 20,
+  'narration-render:segments': 12, 'narration-render:record': 40, 'extension-check-render': 23, render: 20,
+  // engine-render's seven, roughly a second a mode plus a browser start
+  'engine-render:themes': 6, 'engine-render:palette': 5, 'engine-render:narration': 4,
+  'engine-render:navigation': 4, 'engine-render:handover': 4, 'engine-render:templates': 3,
+  'engine-render:sources': 3,
   'pdf-render': 10, 'split-render': 9, 'review-render': 8, 'pin-render': 7, 'record-render': 7,
   'strict-render': 6, 'overflow-render': 6, 'plugin-render': 6, 'deckfile-render': 4,
   'shot-render': 4, 'pptx-render': 6, 'player-render': 3, 'character-render': 2, 'import-render': 2,
