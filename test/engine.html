@@ -805,6 +805,32 @@
         press('Escape');
         r.escapeCloses = !document.querySelector(P);
 
+        // docked, it is a reference open beside the talk (dock.js, as M docks)
+        press('i');
+        await settle();
+        document.querySelector(`${P} .dk-btn[data-mode="right"]`).click();
+        await settle();
+        r.docksRight = document.querySelector(P).dataset.dock === 'right';
+        r.reservesAGutter = parseFloat(getComputedStyle(document.querySelector('.decklight'))
+          .getPropertyValue('--dock-right')) > 0;
+        // and the deck stays navigable, the panel following the slide rather
+        // than showing the one you left
+        press('ArrowRight');
+        await settle();
+        r.deckStillNavigable = deck.state.slide === 3;
+        r.panelSurvivedTheJump = !!document.querySelector(P);
+        r.followsTheSlide = /sources — slide 3/.test(
+          document.querySelector(`${P} .src-heading`).textContent);
+        r.saysWhenThereIsNothing = /does not say where it got that|nothing here yet/
+          .test(document.querySelector(`${P} .narr-blocked`)?.textContent ?? '');
+        deck.goto(2, 0);
+        await settle();
+        r.backOnTwoItReads = !!document.querySelector(`${P} .narr-row[href]`);
+        document.querySelector(`${P} .dk-btn[data-mode="float"]`).click();
+        press('Escape');
+        r.gutterReleased = parseFloat(getComputedStyle(document.querySelector('.decklight'))
+          .getPropertyValue('--dock-right')) === 0;
+
         // the palette offers it only where there is something to offer
         press('/');
         for (const ch of 'sources') press(ch);
@@ -821,7 +847,10 @@
 
         r.PASS = r.hiddenOnTheSlide && r.quietWhenThereIsNone && r.opens && r.showsNamedFacts
           && r.showsLinks && r.rowsAreLinks && r.hrefKept && r.firstIsSelected && r.downMoves
-          && r.escapeCloses && r.paletteRowOnASlideWithSources && r.noPaletteRowWithout;
+          && r.escapeCloses && r.paletteRowOnASlideWithSources && r.noPaletteRowWithout
+          && r.docksRight && r.reservesAGutter && r.deckStillNavigable && r.panelSurvivedTheJump
+          && r.followsTheSlide && r.saysWhenThereIsNothing && r.backOnTwoItReads
+          && r.gutterReleased;
       }
 
       // Writing sources back (SLIDE_SOURCES). The editor is a DRAFT: nothing

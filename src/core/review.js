@@ -22,6 +22,7 @@
 // click meant for the deck — but a card you are typing into is a dialog, and
 // clicking away from one closes it everywhere else in this codebase.
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { createDock } from './dock.js';
 import { readJson, writeJson } from './prefs.js';
 // The anchor lives in tools/ because the CLI needs it too and src/ is not in
 // the published package. Re-exported here so a browser-side caller has one
@@ -84,98 +85,17 @@ export function createReview({
   let onResize = null;     // the viewport listener that re-sizes the gutter
   let onSurface = null;    // pointerdown/focusin router for `engaged`
 
-  // Where the panel sits. A movable float (default) or docked to an edge so the
-  // slide you are commenting on stays in view and navigable. Remembered per deck,
-  // exactly like the clock and the character (hud.js / character.js).
-  const dockKey = 'decklight-review-dock:' + location.pathname;
-  const dock = { mode: 'float', x: null, y: null };
-  {
-    // first run, or storage denied — either way the default float is fine
-    const s = readJson(dockKey);
-    if (s?.mode) { dock.mode = s.mode; dock.x = s.x ?? null; dock.y = s.y ?? null; }
-  }
-  const persistDock = () => {
-    writeJson(dockKey, dock);
-  };
-  const DOCK_GLYPH = { float: '❏', left: '◧', right: '◨', bottom: '⬓' };
-
-  // The gutter a docked panel reserves, in px — the same figure drives the
-  // panel's own width/height (CSS var) and the stage's inset (root var), so the
-  // slide reflows into exactly what is left. Viewport-relative, re-read on resize.
-  const gutter = () => ({
-    w: Math.min(360, Math.round(root.clientWidth * 0.32)),
-    h: Math.min(320, Math.round(root.clientHeight * 0.40)),
+  // Where the panel sits — float, or docked to an edge so the slide you are
+  // commenting on stays in view and navigable. The mechanism is shared with the
+  // sources panel (dock.js); the key names this deck AND this panel, so docking
+  // one does not move the other.
+  const dock = createDock({
+    root,
+    reflow: () => instance._reflow?.(),
+    key: 'decklight-review-dock:' + location.pathname,
+    getEl: () => el,
+    closeLabel: 'close (M)',
   });
-
-  /** Reserve the stage gutter for the current mode (or clear it for float). */
-  function reserveGutter() {
-    if (!el) return;
-    el.dataset.dock = dock.mode;
-    const g = gutter();
-    root.style.setProperty('--dock-left', dock.mode === 'left' ? g.w + 'px' : '0px');
-    root.style.setProperty('--dock-right', dock.mode === 'right' ? g.w + 'px' : '0px');
-    root.style.setProperty('--dock-bottom', dock.mode === 'bottom' ? g.h + 'px' : '0px');
-    el.style.setProperty('--dock-size',
-      dock.mode === 'bottom' ? g.h + 'px' : g.w + 'px');
-    // Float positions the card with INLINE left/top, and an inline style beats
-    // the stylesheet: leaving them set pinned a docked panel to wherever it last
-    // floated while the stage dutifully reflowed away from an empty gutter.
-    // Docking hands the placement back to the CSS.
-    const card = el.querySelector('.narr-card');
-    if (card && dock.mode !== 'float') { card.style.left = ''; card.style.top = ''; }
-    instance._reflow?.();
-    if (dock.mode === 'float') placeCard();
-  }
-
-  /** Float only: clamp the card to the viewport at its remembered position. */
-  function placeCard() {
-    const card = el?.querySelector('.narr-card');
-    if (!card || dock.mode !== 'float') return;
-    const w = card.offsetWidth || 460, h = card.offsetHeight || 400;
-    let x = dock.x, y = dock.y;
-    if (x == null || y == null) { x = root.clientWidth - w - 24; y = 24; }
-    x = Math.max(8, Math.min(x, root.clientWidth - w - 8));
-    y = Math.max(8, Math.min(y, root.clientHeight - h - 8));
-    dock.x = x; dock.y = y;
-    card.style.left = x + 'px';
-    card.style.top = y + 'px';
-  }
-
-  /** Switch placement from a header button — persist, reflow, no full re-render. */
-  function setDock(mode) {
-    dock.mode = mode;
-    persistDock();
-    reserveGutter();
-    el?.querySelectorAll('.rv-dock-btn').forEach(
-      (b) => b.classList.toggle('rv-dock-on', b.dataset.mode === mode));
-    const head = el?.querySelector('.narr-head');
-    if (head) head.style.cursor = mode === 'float' ? 'move' : '';
-  }
-
-  /** Drag the float card by its header. Docked modes ignore it. */
-  function startDrag(e, head) {
-    if (dock.mode !== 'float' || e.button != null && e.button !== 0) return;
-    if (e.target.closest('.rv-dock-ctl')) return;   // the buttons, not a drag
-    const card = el.querySelector('.narr-card');
-    if (!card) return;
-    e.preventDefault();
-    const sx = e.clientX, sy = e.clientY;
-    const ox = parseFloat(card.style.left) || 0, oy = parseFloat(card.style.top) || 0;
-    const move = (ev) => {
-      const w = card.offsetWidth, h = card.offsetHeight;
-      dock.x = Math.max(8, Math.min(ox + ev.clientX - sx, root.clientWidth - w - 8));
-      dock.y = Math.max(8, Math.min(oy + ev.clientY - sy, root.clientHeight - h - 8));
-      card.style.left = dock.x + 'px';
-      card.style.top = dock.y + 'px';
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      persistDock();
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  }
 
   const slidesNow = () => indexSlides(sections(), { titleOf, bodyOf });
 
@@ -301,23 +221,8 @@ export function createReview({
 
     const head = el_('div', 'narr-head');
     head.append(el_('span', 'rv-heading', 'comments'));
-    const ctl = el_('div', 'rv-dock-ctl');
-    for (const m of ['float', 'left', 'right', 'bottom']) {
-      const b = el_('button', 'rv-dock-btn' + (dock.mode === m ? ' rv-dock-on' : ''), DOCK_GLYPH[m]);
-      b.dataset.mode = m;
-      b.title = m === 'float' ? 'float (movable)' : `dock ${m}`;
-      b.setAttribute('aria-label', m === 'float' ? 'float' : `dock ${m}`);
-      b.addEventListener('click', () => setDock(m));
-      ctl.append(b);
-    }
-    const x = el_('button', 'rv-dock-btn rv-close', '×');
-    x.title = 'close (M)';
-    x.setAttribute('aria-label', 'close');
-    x.addEventListener('click', close);
-    ctl.append(x);
-    head.append(ctl);
-    head.style.cursor = dock.mode === 'float' ? 'move' : '';
-    head.addEventListener('pointerdown', (e) => startDrag(e, head));
+    head.append(dock.controls(close));
+    dock.wireHeader(head);
     card.append(head);
 
     // What reviewers have SENT — above your own, because it is the thing you do
@@ -420,7 +325,7 @@ export function createReview({
     const back = wasOn === null ? -1 : rows.findIndex((r) => r.id === wasOn);
     select(back >= 0 ? back : Math.min(sel, Math.max(0, rows.length - 1)));
     // The card's height just changed; a floating one re-clamps into view.
-    placeCard();
+    dock.placeCard();
   }
 
   function select(i) {
@@ -679,7 +584,7 @@ export function createReview({
     context = null;
     sel = 0;
     el = document.createElement('div');
-    el.className = 'decklight-narr decklight-review';
+    el.className = 'decklight-narr decklight-dockable decklight-review';
     el.dataset.dock = dock.mode;
     el.innerHTML = '<div class="narr-card" role="dialog" aria-label="Review comments"></div>';
     root.appendChild(el);
@@ -687,13 +592,13 @@ export function createReview({
     // a click (or focus) inside the panel makes its list keys live; one on the
     // deck hands the arrows back to the slides. Float opens focused, so start
     // engaged there; a docked panel opens with the deck still in charge.
-    engaged = dock.mode === 'float';
+    engaged = dock.isFloat();
     onSurface = (e2) => { engaged = !!el && el.contains(e2.target); };
     document.addEventListener('pointerdown', onSurface, true);
     document.addEventListener('focusin', onSurface, true);
-    onResize = () => reserveGutter();
+    onResize = () => dock.reserveGutter();
     window.addEventListener('resize', onResize);
-    reserveGutter();
+    dock.reserveGutter();
     render({ records: [], skipped: 0, can: 'none' });
     await authorReady();
     if (el) render(await load());
