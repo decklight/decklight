@@ -2041,38 +2041,19 @@ export async function editMain(args, { onListen = null } = {}) {
         if (!slides.length) return json(422, { ok: false, error: `"${name}" has no slides in it` });
         return json(200, { ok: true, name, slides });
       }
-      // The template itself, served so an iframe can RENDER it — the picker
-      // previews the slide under the cursor, and a list of titles is not a
-      // preview. Same shape as `/edit/at`: a whole deck, `?embedded` so its own
-      // chrome stays off, `withBaseHref` because this is served from a path two
-      // deep and every relative reference in it would otherwise resolve there.
+      // What the panel WOULD do, rendered and thrown away.
       //
-      // `standalone` supplies the runtime and theme a template LINKS but does
-      // not carry — installed in `~/.decklight/templates/`, `../dist/…` points
-      // at nothing, and this server has no runtime of its own to serve instead.
-      // What stays missing is exactly what `/edit/template/slides` reports as
-      // `needs`: a cast, a relative image. Those 404 in the preview, which is
-      // the warning drawn rather than written.
-      if (req.method === 'GET' && url.pathname === '/edit/template/at') {
-        const name = url.searchParams.get('name') ?? '';
-        const { findUnit } = await import('./units.mjs');
-        const found = findUnit('template', name);
-        if (!found) {
-          res.writeHead(404, { ...CORS, 'content-type': 'text/plain; charset=utf-8' });
-          return res.end(`no template "${name}" is installed here`);
-        }
-        const { standalone } = await import('../tools/template-slides.mjs');
-        res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
-        return res.end(withBaseHref(standalone(readFileSync(found.path, 'utf8'))));
-      }
-      // What `apply` WOULD do, rendered and thrown away. The picker's apply
-      // mode previews the outcome rather than the source: the question there is
-      // not "what does their slide look like" but "what would MINE look like",
-      // and those differ by every word on the slide.
+      // Both modes preview THIS DECK as it would be, never the template as it
+      // is. A template carries its own theme, and a slide taken out of it does
+      // not: the section lands in your deck and is dressed by your tokens, so a
+      // preview in the template's theme is a picture of something you are not
+      // going to get. Insert splices the section in; apply retags the slide you
+      // are on. Everything else — the runtime, the 46 theme blocks, your own
+      // <style> — is the deck's, because it IS the deck.
       //
-      // The same three steps `apply` takes, minus `applyEdit` — nothing is
-      // written, no undo entry is made, and a cursor moving through a list
-      // must never touch the file.
+      // The same steps the two POSTs take, minus `applyEdit`: nothing written,
+      // no undo entry, because a cursor moving through a list must never touch
+      // the file.
       if (req.method === 'GET' && url.pathname === '/edit/template/preview') {
         const name = url.searchParams.get('name') ?? '';
         const { findUnit } = await import('./units.mjs');
@@ -2082,20 +2063,31 @@ export async function editMain(args, { onListen = null } = {}) {
           return res.end(`no template "${name}" is installed here`);
         }
         const { templateSlides, lookOf, isLookAttr, styleForSlides } = await import('../tools/template-slides.mjs');
-        const { sectionBodies, setSectionAttrs, mergeHeadStyle, writeAttrs } = await import('../tools/deck-html.mjs');
+        const { sectionBodies, setSectionAttrs, insertSectionsAfter, mergeHeadStyle, writeAttrs } =
+          await import('../tools/deck-html.mjs');
         const raw = readFileSync(found.path, 'utf8');
         const src = templateSlides(raw).find((x) => x.n === Number(url.searchParams.get('slide')));
         const deck = readDeck();
         const total = sectionBodies(deck).length;
         const to = Number(url.searchParams.get('to'));
-        if (!src || !Number.isInteger(to) || to < 1 || to > total) {
+        const insert = url.searchParams.get('mode') === 'insert';
+        // insert lands AFTER a slide, so 0 is a legal position (before slide 1)
+        const lo = insert ? 0 : 1;
+        if (!src || !Number.isInteger(to) || to < lo || to > total) {
           res.writeHead(404, { ...CORS, 'content-type': 'text/plain; charset=utf-8' });
           return res.end('no such slide, here or there');
         }
-        const look = lookOf(src.html);
-        const { html: retagged } = setSectionAttrs(deck, to, { clearIf: isLookAttr, set: look });
-        const style = styleForSlides(raw, [`<section${writeAttrs(look)}></section>`], retagged);
-        const out = style.css ? mergeHeadStyle(retagged, name, style.css) : retagged;
+        const base = insert
+          ? insertSectionsAfter(deck, to, [src.html])
+          : setSectionAttrs(deck, to, { clearIf: isLookAttr, set: lookOf(src.html) }).html;
+        // insert brings the whole section, so the rules it needs are the whole
+        // section's; apply brings only the tag, so they are the tag's
+        const style = styleForSlides(
+          raw,
+          insert ? [src.html] : [`<section${writeAttrs(lookOf(src.html))}></section>`],
+          base,
+        );
+        const out = style.css ? mergeHeadStyle(base, name, style.css) : base;
         res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
         return res.end(withBaseHref(out));
       }

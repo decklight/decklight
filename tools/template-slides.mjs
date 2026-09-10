@@ -19,7 +19,6 @@
  */
 
 import { sectionBodies, sectionInner, slideHeading, isHiddenSection, splitOpenTag, readAttrs } from './deck-html.mjs';
-import { runtimeCss, runtimeJs, themeCss } from '../cli/pkg.mjs';
 import { sliceFor, styleTargets, danglingVars } from './css-slice.mjs';
 
 /** A URL that travels with the markup: inline data, or somewhere on the web. */
@@ -113,51 +112,6 @@ export function parseSlideSpec(spec, total) {
   return [...picked].sort((a, b) => a - b);
 }
 
-/**
- * A template made to render ON ITS OWN, for the picker's preview pane.
- *
- * A template is *supposed* to be a self-contained deck, and one that is passes
- * through here untouched. But nothing enforces it — `template add` fetches an
- * `.html` and asks no questions — and a template written the ordinary way, as
- * a deck sitting next to a checkout, links its runtime and its theme by
- * relative path: `../dist/decklight.js`, `../themes/aurora.css`. Installed
- * into `~/.decklight/templates/` those point at nothing, and the author server
- * serves no runtime of its own to point them at instead, because every deck it
- * serves carries one.
- *
- * So the preview supplies what the file links and does not carry: the INSTALLED
- * runtime and the installed copy of the theme it names, inlined exactly as
- * `init` inlines them into a starter deck. The template's own `<style>` blocks
- * are left alone — a template's per-deck CSS is part of its design, and the
- * preview would be a lie without it.
- *
- * A theme this package does not have is left as the dangling link it is: the
- * deck still boots, unthemed, which is nearer the truth than pretending.
- */
-export function standalone(html) {
-  return String(html ?? '')
-    .replace(
-      /[ \t]*<link\b[^>]*\bhref=["'][^"']*\bdist\/decklight\.css["'][^>]*>/gi,
-      () => `<style data-decklight-runtime="css">\n${runtimeCss()}\n</style>`,
-    )
-    .replace(
-      /[ \t]*<script\b[^>]*\bsrc=["'][^"']*\bdist\/decklight\.js["'][^>]*>\s*<\/script>/gi,
-      (m) => {
-        const js = runtimeJs();
-        return js ? `<script data-decklight-runtime="js">\n${js}\n</script>` : m;
-      },
-    )
-    .replace(
-      /[ \t]*<link\b[^>]*\bhref=["'][^"']*\bthemes\/([\w-]+)\.css["'][^>]*>/gi,
-      (m, name) => {
-        try {
-          return `<style data-theme="${name}">\n${themeCss(name)}\n</style>`;
-        } catch {
-          return m;
-        }
-      },
-    );
-}
 
 /**
  * A deck's OWN `<style>` blocks — not its theme, not its runtime.
