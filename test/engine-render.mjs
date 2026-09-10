@@ -28,7 +28,7 @@ export const MODES = [
   'themepicker', 'added', 'browse', 'nobrowse', 'wizard',
   'palette', 'exclusive', 'contextmenu', 'commit',
   'narration', 'nonarration', 'panel',
-  'restore', 'hidden', 'hidden&all',
+  'restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'publish',
   'template', 'templatelook', 'sources', 'sourcesedit',
 ];

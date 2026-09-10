@@ -265,9 +265,20 @@
     // condition ⎵ branches on. A files track is enough and needs no bridge; the
     // clips themselves never load here, because what is under test is which key
     // does what, not whether audio decodes.
+    // in-file chapters (#479): the markers must be on the sections BEFORE init,
+    // because createPlaylist reads them once at setup
+    if (HARNESS_MODE.startsWith('chapters')) {
+      const secs = document.querySelectorAll('.decklight > section');
+      secs[1].setAttribute('data-module', 'Foundations');
+      secs[3].setAttribute('data-module', 'Operations');
+    }
     const deck = Decklight.init(HARNESS_MODE === 'narration'
       ? { narration: { files: [{ label: 'Test voice', dir: 'voices/t', ext: 'wav' }] } }
-      : {});
+      // a cross-file playlist AND markers: the playlist wins, and the finder
+      // must not grow a second set of rows for the same idea
+      : HARNESS_MODE === 'chaptersplaylist'
+        ? { playlist: { modules: [{ title: 'Part one', href: 'a.html' }, { title: 'Part two', href: 'b.html' }], index: 0 } }
+        : {});
 
     const press = (k, opts = {}) => document.body.dispatchEvent(
       new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
@@ -906,6 +917,64 @@
         r.PASS = r.opensEmptyForAuthoring && r.startsWithOneLinkRow && r.escapeWroteNothing
           && r.readsFirst && r.editSeedsFromTheSlide && r.typingDoesNotReachTheDeck
           && r.enterSaves && r.sentTheEditedFact && r.closesOnSave && r.saysItSaved;
+      }
+
+      // G surfaces a merged deck's chapters as rows of their own (#479).
+      if (mode === 'chapters') {
+        press('g');
+        await settle();
+        const rows = () => [...document.querySelectorAll('.decklight-finder .tp-row')];
+        const texts = () => rows().map((n) => n.textContent);
+        r.opens = !!document.querySelector('.decklight-finder');
+        // chapters FIRST, then the slide list
+        r.chaptersLeadTheList = texts()[0] === '▸ Foundations — module'
+          && texts()[1] === '▸ Operations — module'
+          && texts()[2] === '1 · One';
+        r.chapterRowsAreStyledAsModules = rows().slice(0, 2)
+          .every((n) => n.classList.contains('tp-module'))
+          && !rows()[2].classList.contains('tp-module');
+        r.slideListStillWhole = texts().filter((t) => /^\d+ · /.test(t)).length === 4;
+        r.placeholderSaysModule = /type to find a slide or module…/.test(
+          document.querySelector('.decklight-finder .tp-filter').textContent);
+        r.captionSaysWhereItGoes = (() => {
+          document.querySelectorAll('.decklight-finder .tp-row')[0]
+            .dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+          return /module — Foundations \(slide 2 of this deck\)/.test(
+            document.querySelector('.decklight-finder .tp-caption').textContent);
+        })();
+
+        // typing finds a chapter by name, and it still ranks as a title hit
+        for (const ch of 'operations') press(ch);
+        await settle();
+        r.typingFindsChapters = texts()[0] === '▸ Operations — module';
+        for (let i = 0; i < 'operations'.length; i++) press('Backspace');
+        await settle();
+
+        // ⏎ on a chapter is a goto in this file, not a page load
+        const before = location.href;
+        rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await settle();
+        r.jumpsToTheChapter = deck.state.slide === 2;
+        r.noPageLoad = location.href === before;
+        r.closesOnJump = !document.querySelector('.decklight-finder');
+
+        r.PASS = r.opens && r.chaptersLeadTheList && r.chapterRowsAreStyledAsModules
+          && r.slideListStillWhole && r.placeholderSaysModule && r.captionSaysWhereItGoes
+          && r.typingFindsChapters && r.jumpsToTheChapter && r.noPageLoad && r.closesOnJump;
+      }
+
+      // …and a cross-file playlist is left exactly as it was.
+      if (mode === 'chaptersplaylist') {
+        press('g');
+        await settle();
+        const texts = [...document.querySelectorAll('.decklight-finder .tp-row')]
+          .map((n) => n.textContent);
+        r.listsTheOtherFile = texts.some((t) => /▸ Part two — module/.test(t));
+        r.doesNotListItself = !texts.some((t) => /Part one/.test(t));
+        // the markers are there, but the playlist owns module navigation
+        r.noChapterRows = !texts.some((t) => /Foundations|Operations/.test(t) && /module/.test(t));
+        r.slideListIntact = texts.filter((t) => /^\d+ · /.test(t)).length === 4;
+        r.PASS = r.listsTheOtherFile && r.doesNotListItself && r.noChapterRows && r.slideListIntact;
       }
 
       if (mode === 'exclusive') {

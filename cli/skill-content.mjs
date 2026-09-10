@@ -71,6 +71,16 @@ with a build and notes already wired):
 </div>
 \`\`\`
 
+A long deck can be split into chapters with \`data-module\` on the section that
+starts one — every slide after it belongs to that chapter until the next marker.
+The deck shows the current chapter in its chrome and lists the chapters first in
+the slide finder (**G**). Use it for a course or a merged multi-part deck; a
+fifteen-slide talk does not need chapters:
+
+\`\`\`html
+<section data-module="Foundations"><h2>Foundations</h2></section>
+\`\`\`
+
 Two asides, and they are not the same thing. \`notes\` is what the speaker SAYS.
 \`sources\` is where the slide got what it says — named facts and links a reader
 can follow, hidden on the slide and opened with **I**. Add it when a slide makes

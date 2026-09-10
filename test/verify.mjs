@@ -78,7 +78,7 @@ const ENGINE_GROUPS = {
   themes: ['themepicker', 'added', 'browse', 'nobrowse', 'wizard'],
   palette: ['palette', 'exclusive', 'contextmenu', 'commit'],
   narration: ['narration', 'nonarration', 'panel'],
-  navigation: ['restore', 'hidden', 'hidden&all'],
+  navigation: ['restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
   handover: ['exportpptx', 'exportfail', 'publish'],
   templates: ['template', 'templatelook'],
   sources: ['sources', 'sourcesedit'],

@@ -502,11 +502,28 @@ export function init(userConfig = {}) {
   let finderEl = null, finderSel = 0, finderQuery = '', finderMatches = [], finderDebounce;
   let finderFrameReady = false, finderPending = null;
   function finderIndex() {
-    return buildIndex({
+    const rows = buildIndex({
       sections: instance._sections,
       modules: playlist?.modules ?? [],
       skipModule: playlistIndex,
     });
+    // A merged deck's chapters get rows of their own, ahead of the slide list.
+    // `buildIndex` used to hold that in-file chapters "need nothing special —
+    // they are already indexed as ordinary slides", which is true of FINDING
+    // one and false of seeing that the deck has any: in a 100-slide merge the
+    // chapter headings are five rows scattered through ninety-five others,
+    // indistinguishable unless you already know their titles (#479).
+    //
+    // Only for the in-file shape. The two never coexist — `playlist.js` gives
+    // markers precedence — so this is an `else`, not a second list.
+    if (!hasMarkersDOM || playlist) return rows;
+    const chapters = moduleNav.markers().map((m) => ({
+      slide: m.slide,
+      title: m.title,
+      chapter: true,
+      haystack: (m.title || '').toLowerCase(),
+    }));
+    return [...chapters, ...rows];
   }
   function renderFinderList() {
     const listBox = finderEl.querySelector('.tp-list');
@@ -515,9 +532,12 @@ export function init(userConfig = {}) {
     finderMatches.forEach((m, i) => {
       const row = document.createElement('div');
       row.className = 'tp-row' + (m.slide === instance.state.slide ? ' tp-current' : '')
-        + (m.href ? ' tp-module' : '');
-      // a module leaves this file, so it says so — it is not slide N of here
-      row.textContent = m.href ? `▸ ${m.title} — module` : `${m.slide} · ${m.title}`;
+        + (m.href || m.chapter ? ' tp-module' : '');
+      // Both shapes read the same, because they mean the same thing to the
+      // person looking for one (`playlist.js`: two shapes, one vocabulary).
+      // What differs is what happens on ⏎ — a page load or a goto — and the
+      // caption is where that is said.
+      row.textContent = m.href || m.chapter ? `▸ ${m.title} — module` : `${m.slide} · ${m.title}`;
       row.addEventListener('mouseenter', () => selectFinderRow(i, false));
       row.addEventListener('click', () => { selectFinderRow(i, true); commitFinder(); });
       listBox.appendChild(row);
@@ -529,7 +549,8 @@ export function init(userConfig = {}) {
       listBox.appendChild(none);
     }
     const bar = finderEl.querySelector('.tp-filter');
-    bar.textContent = finderQuery || (playlist ? 'type to find a slide or module…' : 'type to find a slide…');
+    bar.textContent = finderQuery
+      || (playlist || hasMarkersDOM ? 'type to find a slide or module…' : 'type to find a slide…');
     bar.classList.toggle('tp-active', !!finderQuery);
   }
   // `entry` is a finder row: a slide of THIS deck, or a module — another file,
@@ -561,7 +582,8 @@ export function init(userConfig = {}) {
     const m = finderMatches[finderSel];
     finderEl.querySelector('.tp-caption').textContent = m.href
       ? `module — ${m.title} (${m.href})`
-      : `slide ${m.slide} — ${m.title}`;
+      : m.chapter ? `module — ${m.title} (slide ${m.slide} of this deck)`
+        : `slide ${m.slide} — ${m.title}`;
     clearTimeout(finderDebounce);
     const frame = finderEl.querySelector('iframe');
     if (immediate) finderPreviewSwap(frame, m);
