@@ -1179,6 +1179,64 @@ test('/edit/hidden hides and unhides one slide through the same undo stack, and 
   assert.equal((await post(base, '/edit/hidden', { slide: 0, hidden: true })).status, 400);
 });
 
+test('/edit/sources writes a slide\u2019s sources, replaces them, and clears them', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base } = await startEdit(t, dir);
+  const before = readFileSync(deck, 'utf8');
+
+  const r = await (await post(base, '/edit/sources', {
+    slide: 2,
+    facts: [['owner', 'platform-team'], ['', 'dropped: no name']],
+    links: [{ title: 'KIP-98', href: 'https://example.invalid/kip', note: 'the original' }],
+  })).json();
+  assert.equal(r.ok, true);
+  const after = readFileSync(deck, 'utf8');
+  assert.match(after, /<aside class="sources">/);
+  assert.match(after, /<dt>owner<\/dt><dd>platform-team<\/dd>/);
+  assert.doesNotMatch(after, /dropped: no name/, 'a half-filled row is not a fact');
+  assert.match(after, /<a href="https:\/\/example\.invalid\/kip">KIP-98<\/a> \u2014 the original/);
+
+  // editing again replaces the aside rather than stacking a second one
+  await post(base, '/edit/sources', { slide: 2, facts: [['owner', 'docs-team']], links: [] });
+  const again = readFileSync(deck, 'utf8');
+  assert.equal((again.match(/<aside class="sources">/g) ?? []).length, 1);
+  assert.match(again, /<dd>docs-team<\/dd>/);
+
+  // and emptying it takes the aside away rather than leaving an empty one
+  await post(base, '/edit/sources', { slide: 2, facts: [], links: [] });
+  assert.doesNotMatch(readFileSync(deck, 'utf8'), /aside class="sources"/);
+
+  // three edits, three undo entries
+  for (let i = 0; i < 3; i++) await post(base, '/edit/undo', {});
+  assert.equal(readFileSync(deck, 'utf8'), before, 'Z walks all the way back');
+});
+
+test('/edit/sources refuses a link that would RUN, and says which', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base } = await startEdit(t, dir);
+
+  const r = await (await post(base, '/edit/sources', {
+    slide: 1,
+    facts: [],
+    links: [
+      { title: 'fine', href: 'https://example.invalid/ok' },
+      { title: 'nope', href: 'javascript:alert(1)' },
+      { title: 'also nope', href: 'data:text/html,<script>x</script>' },
+    ],
+  })).json();
+  // this aside travels: a slide taken from a marketplace template carries its
+  // sources into your deck, so the editor must never write an executable link
+  assert.deepEqual(r.dropped, ['javascript:alert(1)', 'data:text/html,<script>x</script>']);
+  const after = readFileSync(deck, 'utf8');
+  assert.doesNotMatch(after, /javascript:/);
+  assert.doesNotMatch(after, /data:text\/html/);
+  assert.match(after, /example\.invalid\/ok/, 'the honest one is still written');
+});
+
 test('/edit/timings writes every slide\'s rehearsed time in ONE edit, and refuses a bad payload', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

@@ -70,6 +70,16 @@ being moved, and it says what it points at.
   ships in the deck a reader is handed rather than being stripped from it. The
   links are real `<a target="_blank" rel="noopener">` rows, so they can be
   opened in a new tab, copied or middle-clicked like any link.
+  **In author mode it is also where they are written**: `e` in the card (or `I`
+  on a slide that has none) opens a draft — rows of named facts and rows of
+  link/title/note — and `⏎` saves it through `POST /edit/sources` as **one undo
+  entry**, `esc` leaving the deck exactly as it was. A link is written only if
+  its scheme is one a reference can honestly be (`http`, `https`, `mailto`, or
+  a path): `javascript:` and `data:` are executable, this aside TRAVELS, and an
+  editor that will write an executable link is one that will eventually write
+  somebody else's. A refused link is **named in the toast** rather than
+  disappearing. Clearing every row removes the aside instead of leaving an
+  empty one.
   It is not a comment (`REVIEW`): a comment is what somebody thinks for now and
   is answered and resolved, while a source is true until the source changes —
   so it lives in the section and travels with it through `bundle`, `publish`,
