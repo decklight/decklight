@@ -137,6 +137,54 @@ export function setSlideNotes(html, slide, asideInner) {
   return parts.join('');
 }
 
+/**
+ * A slide's sources as the aside's inner HTML (`SLIDE_SOURCES`), or `null`
+ * when there is nothing left to write.
+ *
+ * Link hrefs are restricted to the schemes a reference can honestly be:
+ * `javascript:` and `data:` are executable, and this aside travels — a slide
+ * taken from a marketplace template carries its sources into your deck, so an
+ * editor that will write an executable link is an editor that will eventually
+ * write somebody else's.
+ */
+export function sourcesToAside({ facts = [], links = [] } = {}, dropped = []) {
+  const clean = (u) => (/^(https?:|mailto:|#|\/|\.{0,2}\/)/i.test(String(u).trim()) ? String(u).trim() : null);
+  const pairs = facts.filter(([k, v]) => String(k).trim() && String(v).trim());
+  const refs = links.filter((l) => {
+    if (!String(l?.title ?? '').trim()) return false;
+    if (clean(l?.href)) return true;
+    // a link that will not be written is a link the author has to hear about:
+    // an empty row is just an empty row, a rejected scheme is a decision
+    if (String(l?.href ?? '').trim()) dropped.push(String(l.href).trim());
+    return false;
+  });
+  if (!pairs.length && !refs.length) return null;
+  const dl = pairs.length
+    ? `<dl>${pairs.map(([k, v]) => `<dt>${escapeHtml(k.trim())}</dt><dd>${escapeHtml(v.trim())}</dd>`).join('')}</dl>`
+    : '';
+  const ul = refs.length
+    ? ['<ul>', ...refs.map((l) => `          <li><a href="${escapeHtml(clean(l.href))}">${escapeHtml(String(l.title).trim())}</a>`
+      + `${String(l.note ?? '').trim() ? ` — ${escapeHtml(String(l.note).trim())}` : ''}</li>`), '        </ul>'].join('\n')
+    : '';
+  return [dl, ul].filter(Boolean).join('\n        ');
+}
+
+/** Replace, insert, or remove slide N's `<aside class="sources">`. */
+export function setSlideSources(html, slide, asideInner) {
+  const { parts, idx } = locateSlide(html, slide);
+  const seg = parts[idx];
+  const existing = /\n?\s*<aside class="sources">[\s\S]*?<\/aside>/;
+  if (!asideInner) {
+    parts[idx] = seg.replace(existing, '');
+    return parts.join('');
+  }
+  const aside = `<aside class="sources">\n        ${asideInner}\n      </aside>`;
+  parts[idx] = existing.test(seg)
+    ? seg.replace(existing, `\n      ${aside}`)
+    : seg.replace(/<\/section>/, `  ${aside}\n    </section>`);
+  return parts.join('');
+}
+
 // the same ring the player cycles — the file is the source of truth now
 /**
  * Is this deck already one file — nothing left for the bundler to flatten?
@@ -1812,6 +1860,24 @@ export async function editMain(args, { onListen = null } = {}) {
         applyEdit(setSlideNotes(readDeck(), slide, notesTextToAside(text)));
         console.log(`  notes saved: slide ${slide} (${text.length} chars)`);
         return json(200, { ok: true, ...history.counts() });
+      }
+      // Where a slide got what it says, written back (SLIDE_SOURCES). One
+      // applyEdit, so `Z` takes the whole card back the way it takes a note.
+      if (req.method === 'POST' && url.pathname === '/edit/sources') {
+        const { slide, facts, links } = JSON.parse(body);
+        if (!Number.isInteger(slide) || slide < 1) throw new Error('bad payload');
+        const dropped = [];
+        const inner = sourcesToAside({
+          facts: Array.isArray(facts) ? facts : [],
+          links: Array.isArray(links) ? links : [],
+        }, dropped);
+        const changed = applyEdit(setSlideSources(readDeck(), slide, inner));
+        if (changed) {
+          console.log(`  sources saved: slide ${slide}`
+            + (inner ? ` (${(facts ?? []).length} fact(s), ${(links ?? []).length} link(s))` : ' — cleared')
+            + (dropped.length ? ` — refused ${dropped.join(', ')}` : ''));
+        }
+        return json(200, { ok: true, changed, dropped, ...history.counts() });
       }
       if (req.method === 'POST' && url.pathname === '/edit/timings') {
         // every slide's rehearsed time in ONE edit — one undo entry, one commit

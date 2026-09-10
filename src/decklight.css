@@ -2068,3 +2068,44 @@
 }
 .decklight-sources .src-facts dt { opacity: .5; }
 .decklight-sources .src-facts dd { margin: 0; }
+
+/* The sources editor. A draft, so it looks like a form and not like the card
+   it was reading a moment ago. */
+.decklight-sources .src-edit-row { display: flex; align-items: center; gap: 6px; padding: 3px 12px; }
+.decklight-sources .src-field {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .05);
+  color: inherit;
+  font: inherit;
+  font-size: .9em;
+}
+.decklight-sources .src-wide { flex: 2.2 1 0; }
+.decklight-sources .src-field:focus { outline: none; border-color: var(--accent, #7ee787); }
+.decklight-sources .src-drop {
+  flex: none;
+  width: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  opacity: .4;
+  cursor: pointer;
+  font: inherit;
+}
+.decklight-sources .src-drop:hover { opacity: 1; background: rgba(255, 255, 255, .1); }
+.decklight-sources .src-add {
+  width: calc(100% - 24px);
+  margin: 2px 12px 6px;
+  border: 1px dashed rgba(255, 255, 255, .18);
+  background: transparent;
+  color: inherit;
+  opacity: .6;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.decklight-sources .src-add:hover { opacity: 1; }

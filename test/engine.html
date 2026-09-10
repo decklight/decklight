@@ -154,6 +154,14 @@
       // Insert-from-a-template (UNITS#REST): three routes, and the second one
       // is the interesting shape — a template read as a list of slides, each
       // saying what it points at that THIS deck will not have.
+      if (HARNESS_MODE === 'sourcesedit') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/sources')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, changed: true, undo: 1, redo: 0,
+            dropped: b.links.filter((l) => /^javascript:/i.test(l.href ?? '')).map((l) => l.href) });
+        }
+      }
       if (HARNESS_MODE.startsWith('template')) {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/template/list')) {
@@ -814,6 +822,61 @@
         r.PASS = r.hiddenOnTheSlide && r.quietWhenThereIsNone && r.opens && r.showsNamedFacts
           && r.showsLinks && r.rowsAreLinks && r.hrefKept && r.firstIsSelected && r.downMoves
           && r.escapeCloses && r.paletteRowOnASlideWithSources && r.noPaletteRowWithout;
+      }
+
+      // Writing sources back (SLIDE_SOURCES). The editor is a DRAFT: nothing
+      // reaches the deck until ⏎.
+      if (mode === 'sourcesedit') {
+        const P = '.decklight-sources';
+        await settle();                       // /edit/ping: editAvailable
+
+        // a slide with none: I opens the editor rather than saying no, because
+        // "this slide has no sources" helps nobody who could add some
+        deck.goto(1, 0);
+        await settle();
+        press('i');
+        await settle();
+        r.opensEmptyForAuthoring = !!document.querySelector(`${P} .src-edit-row`);
+        r.startsWithOneLinkRow = document.querySelectorAll(`${P} .src-edit-row`).length === 1;
+        press('Escape');
+        r.escapeWroteNothing = !CALLS.post.some((c) => c.u.includes('/edit/sources'));
+
+        // a slide with some: I reads, e edits, and the draft is seeded from it
+        deck.goto(2, 0);
+        await settle();
+        press('i');
+        await settle();
+        r.readsFirst = !!document.querySelector(`${P} .narr-row[href]`);
+        press('e');
+        await settle();
+        const fields = () => [...document.querySelectorAll(`${P} .src-field`)].map((n) => n.value);
+        r.editSeedsFromTheSlide = fields().includes('platform-team')
+          && fields().includes('https://example.invalid/kip-98');
+
+        // typing a letter must not reach the deck behind the card
+        const before = deck.state.slide;
+        // [0] is the fact's NAME, [1] its value — edit the value
+        const input = [...document.querySelectorAll(`${P} .src-field`)][1];
+        input.focus();
+        input.value = 'docs-team';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        press('s');                           // would open the speaker view
+        r.typingDoesNotReachTheDeck = deck.state.slide === before && !!document.querySelector(P);
+
+        press('Enter');
+        await settle();
+        await settle();
+        const posted = CALLS.post.find((c) => c.u.includes('/edit/sources'));
+        r.enterSaves = !!posted && posted.body.slide === 2;
+        r.sentTheEditedFact = !!posted
+          && posted.body.facts.some(([k, v]) => k === 'owner' && v === 'docs-team');
+        r.closesOnSave = !document.querySelector(P);
+        const said = [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        r.saysItSaved = said.some((t) => /sources saved on slide 2/.test(t) && /Z takes it back/.test(t));
+
+        r.PASS = r.opensEmptyForAuthoring && r.startsWithOneLinkRow && r.escapeWroteNothing
+          && r.readsFirst && r.editSeedsFromTheSlide && r.typingDoesNotReachTheDeck
+          && r.enterSaves && r.sentTheEditedFact && r.closesOnSave && r.saysItSaved;
       }
 
       if (mode === 'exclusive') {

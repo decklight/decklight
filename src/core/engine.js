@@ -474,6 +474,7 @@ export function init(userConfig = {}) {
     // keystroke
     slideOf: () => instance.state.slide,
     sectionAt: (idx) => instance._sections[idx - 1],
+    editmode: () => editmode,
     dismissOthers: () => { themes.closePicker(); if (palEl) closePalette(); },
   });
 
@@ -730,8 +731,12 @@ export function init(userConfig = {}) {
       // keep its promise is worse than no row.
       // Only when this slide has any — a row that opens an empty panel is a
       // row that taught you nothing, and the key still says so if you press it.
-      sources.has() && { label: 'Sources for this slide… (I)',
-        alias: 'sources references links reading provenance where citation info information',
+      // In author mode the row is always there, because opening it on a slide
+      // with none is how you ADD them; a reader only sees it where there is
+      // something to read.
+      (sources.has() || sources.canEdit()) && {
+        label: sources.has() ? 'Sources for this slide… (I)' : 'Add sources to this slide… (I)',
+        alias: 'sources references links reading provenance where citation info information cite',
         run: () => sources.open() },
       // Somebody else's slides, into this deck (UNITS#REST). Author mode only:
       // it writes the deck on disk, and a template comes from a marketplace.
