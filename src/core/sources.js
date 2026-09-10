@@ -24,7 +24,8 @@
  * bundling, publishing, and being taken into somebody else's deck.
  */
 
-import { closeOnBackdrop, selectInList } from './overlay.js';
+import { selectInList } from './overlay.js';
+import { createDock } from './dock.js';
 
 /** The facts and links a section carries, or null when it carries none. */
 export function sourcesOf(section) {
@@ -46,28 +47,60 @@ export function sourcesOf(section) {
   return facts.length || links.length ? { facts, links } : null;
 }
 
-export function createSources({ root, overlays, sectionAt, slideOf, editmode, toast, dismissOthers }) {
+export function createSources({ root, overlays, reflow, sectionAt, slideOf, editmode, toast, dismissOthers }) {
+  // Beside the slide, not over it — the review panel's placement, shared
+  // (dock.js). Docked, this is a reference open next to the talk: you keep
+  // navigating and it follows the slide.
+  const dock = createDock({
+    root,
+    reflow: () => reflow?.(),
+    key: 'decklight-sources-dock:' + location.pathname,
+    getEl: () => el,
+    closeLabel: 'close (I)',
+  });
   let el = null;
   let sel = 0;
   // The editor is a DRAFT, not the slide: nothing is written until ⏎, so
   // wandering into it and pressing esc leaves the deck exactly as it was.
   let draft = null;
   let busy = false;
+  let onResize = null;
   const editing = () => !!draft;
   const canEdit = () => editmode?.()?.available() === true;
 
   const isOpen = () => !!el;
-  const close = () => { el?.remove(); el = null; sel = 0; draft = null; };
+  const close = () => {
+    el?.remove();
+    el = null;
+    sel = 0;
+    draft = null;
+    if (onResize) { window.removeEventListener('resize', onResize); onResize = null; }
+    dock.release();   // or the stage keeps reflowing around a gutter nothing sits in
+  };
 
   const read = () => sourcesOf(sectionAt(slideOf()));
 
   function renderShell() {
     if (el) return;
     el = document.createElement('div');
-    el.className = 'decklight-narr decklight-sources';
+    el.className = 'decklight-narr decklight-dockable decklight-sources';
     el.innerHTML = '<div class="narr-card"></div>';
     root.appendChild(el);
-    closeOnBackdrop(el, close);
+    dock.reserveGutter();
+    onResize = () => dock.reserveGutter();
+    window.addEventListener('resize', onResize);
+  }
+
+  /** The card's header: a title, the placement buttons, and a drag handle. */
+  function header(text) {
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    head.append(Object.assign(document.createElement('span'), {
+      className: 'src-heading', textContent: text,
+    }));
+    head.append(dock.controls(close));
+    dock.wireHeader(head);
+    return head;
   }
 
   /** Whichever view is current — the editor while there is a draft. */
@@ -75,16 +108,26 @@ export function createSources({ root, overlays, sectionAt, slideOf, editmode, to
 
   function renderRead() {
     const data = read();
-    if (!data) return;
     const at = slideOf();
     renderShell();
     const card = el.querySelector('.narr-card');
+    if (!data) {
+      // A docked panel stays open across a jump, so a slide with nothing to
+      // show is a thing to SAY. Closing instead would make the panel flicker
+      // in and out as you walked the deck.
+      card.textContent = '';
+      card.append(header(`sources — slide ${at}`));
+      const none = document.createElement('div');
+      none.className = 'narr-row narr-blocked';
+      none.textContent = canEdit()
+        ? 'nothing here yet — e adds some'
+        : 'this slide does not say where it got that';
+      card.append(none);
+      return;
+    }
     card.textContent = '';
 
-    const head = document.createElement('div');
-    head.className = 'narr-head';
-    head.textContent = `sources — slide ${at}`;
-    card.append(head);
+    card.append(header(`sources — slide ${at}`));
 
     if (data.facts.length) {
       const dl = document.createElement('dl');
@@ -147,10 +190,7 @@ export function createSources({ root, overlays, sectionAt, slideOf, editmode, to
   function renderEdit() {
     const card = el.querySelector('.narr-card');
     card.textContent = '';
-    const head = document.createElement('div');
-    head.className = 'narr-head';
-    head.textContent = `sources — slide ${slideOf()}`;
-    card.append(head);
+    card.append(header(`sources — slide ${slideOf()}`));
 
     const group = (text) => {
       const g = document.createElement('div');
@@ -275,15 +315,27 @@ export function createSources({ root, overlays, sectionAt, slideOf, editmode, to
         return true;
       }
     }
-    // every other key closes rather than falling through to the deck: an
-    // overlay that swallows → while a talk is running is worse than one that
-    // gets out of the way
-    close();
+    // Everything else falls through UNHANDLED, and the panel stays. It used to
+    // close on any stray key, which was right while it was a modal card over
+    // the slide; docked it is a reference open beside the talk, and `→` should
+    // advance the deck with the panel still there, following along.
     return false;
+  }
+
+  /**
+   * The slide moved under an open panel.
+   *
+   * Called from the engine's per-navigation chrome update. Only while READING:
+   * a draft belongs to the slide it was started on, and re-rendering the editor
+   * mid-edit would throw away what had been typed.
+   */
+  function onSlide() {
+    if (!el || editing()) return;
+    renderRead();
   }
 
   // Modal only while editing: a reader may arrow through slides with the card
   // up, but a letter typed into a field must not also reach the deck.
   overlays.register({ isOpen, close, keydown, modal: () => editing() });
-  return { open, close, isOpen, has: () => !!read(), canEdit };
+  return { open, close, isOpen, onSlide, has: () => !!read(), canEdit };
 }

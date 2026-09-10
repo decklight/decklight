@@ -469,6 +469,7 @@ export function init(userConfig = {}) {
   // for the person listening — so this ships in the deck a reader is handed.
   const sources = createSources({
     root, overlays, toast,
+    reflow: () => instance._reflow?.(),
     // the same two accessors the layout cycler takes, for the same reason:
     // this is built before `instance` exists and only ever reads it from a
     // keystroke
@@ -1258,6 +1259,9 @@ export function init(userConfig = {}) {
     },
 
     _updateChrome() {
+      // a docked sources panel is a reference open beside the talk, so it
+      // follows the slide rather than showing the one you left (SLIDE_SOURCES)
+      sources.onSlide?.();
       if (progressBar) {
         const rec = this._records[this.state.slide - 1];
         const stepsTotal = rec ? rec.groups.length : 0;

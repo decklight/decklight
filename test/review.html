@@ -254,7 +254,7 @@
 
           // dock right → the stage reserves a gutter and shifts to fit beside it
           const floatRect = card.getBoundingClientRect();
-          card.querySelector('.rv-dock-btn[data-mode="right"]').click();
+          card.querySelector('.dk-btn[data-mode="right"]').click();
           await wait(50);
           r.dockedRight = frame.dataset.dock === 'right';
           r.reservedGutter = parseFloat(getComputedStyle(rootEl).getPropertyValue('--dock-right')) > 0;

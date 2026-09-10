@@ -70,6 +70,13 @@ being moved, and it says what it points at.
   ships in the deck a reader is handed rather than being stripped from it. The
   links are real `<a target="_blank" rel="noopener">` rows, so they can be
   opened in a new tab, copied or middle-clicked like any link.
+  The card **docks** — float, left, right or bottom — by the same mechanism the
+  review panel uses (`src/core/dock.js`, shared when the second panel wanted
+  it), remembered per deck and per panel so placing one does not move the other.
+  Docked it is a reference open beside the talk rather than a card over it: the
+  stage reflows away from the gutter, the deck stays navigable, and the panel
+  **follows the slide** — including onto slides with nothing to show, which say
+  so rather than making the panel flicker in and out as you walk the deck.
   **In author mode it is also where they are written**: `e` in the card (or `I`
   on a slide that has none) opens a draft — rows of named facts and rows of
   link/title/note — and `⏎` saves it through `POST /edit/sources` as **one undo
