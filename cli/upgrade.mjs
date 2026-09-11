@@ -22,8 +22,9 @@
  *
  * In place, with <deck>.html.bak written first; --dry-run prints what would
  * change and touches nothing; a second run reports "already current". A file
- * with no Decklight.init call, and a merged multi-module bundle
- * (bundle --all), are refused.
+ * with no Decklight.init call is refused. A merged multi-module bundle
+ * (bundle --all) is upgraded like any other deck, with a note that a later
+ * re-merge would overwrite it (#483).
  */
 
 import fs from 'node:fs';
@@ -106,7 +107,7 @@ Options:
   let file = null, dryRun = false;
   for (const a of argv) {
     if (a === '--dry-run') dryRun = true;
-    else if (a === '--all') fail('--all is bundle\'s merge flag — upgrade works on single decks; upgrade the source modules, then re-merge');
+    else if (a === '--all') fail('--all is bundle\'s merge flag, not an upgrade flag — upgrade takes one deck');
     else if (!a.startsWith('-')) file = file ?? a;
     else fail(`unknown argument: ${a}`);
   }
@@ -119,11 +120,21 @@ Options:
   if (!/Decklight\.init\s*\(/.test(html)) {
     fail(`${rel} is not a Decklight deck (no Decklight.init call found) — nothing to upgrade`);
   }
+  // A merged bundle upgrades like any other deck (#483).
+  //
+  // It used to be refused, and the reasoning was sound as far as it went: the
+  // per-module sources are the real deck, so upgrade those and re-merge, or a
+  // later `bundle --all` overwrites whatever was done here. What the refusal
+  // assumed is that those files still exist. A merged deck that has been
+  // hand-edited ever since, with the sources long gone, IS the source of
+  // truth — and there the refusal protected a workflow nobody had, leaving
+  // commenting out this block as the only way through.
+  //
+  // So it is a note, not a wall. Said once, below, with the other warnings.
+  //
   // "data-module" alone also appears inside the runtime js; requiring the
   // literal "<section" prefix (absent from the runtime) keeps this precise.
-  if (/<section\b[^>]*\bdata-module\s*=/i.test(html)) {
-    fail(`${rel} is a merged multi-module bundle (bundle --all) — upgrade works on single decks; upgrade the source modules, then re-merge`);
-  }
+  const merged = /<section\b[^>]*\bdata-module\s*=/i.test(html);
 
   // ------------------------------------------------------ runtime js block
 
@@ -166,6 +177,11 @@ Options:
   const edits = [];   // { start, end, text }
   const changed = [];
   const warnings = [];
+  if (merged) {
+    warnings.push('this is a merged multi-module bundle (bundle --all). If the per-module'
+      + ' sources still exist, upgrading those and re-merging keeps the merge reproducible —'
+      + ' a later `bundle --all` overwrites this file');
+  }
 
   edits.push({ start: jsBlock.start, end: jsBlock.end,
     text: `<script data-decklight-runtime="js">${distJs}</script>` });
