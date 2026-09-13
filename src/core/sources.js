@@ -28,7 +28,7 @@ import { selectInList } from './overlay.js';
 import { createDock } from './dock.js';
 
 /** The facts and links a section carries, or null when it carries none. */
-export function sourcesOf(section) {
+function sourcesOf(section) {
   const aside = section?.querySelector?.(':scope > aside.sources');
   if (!aside) return null;
   const facts = [];

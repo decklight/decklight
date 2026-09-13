@@ -108,7 +108,12 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
   const slides = [];
   try {
     const deckPath = '/' + relative(root, src).split(sep).join('/');
-    const bin = chromeBin('pptx');
+    // Resolved only when Chrome is what will render. `chromeBin` exits the
+    // process when it finds none, so resolving it unconditionally made every
+    // caller that injected its own renderer — the unit test, first of all —
+    // die on a machine with no browser, for a browser it was never going to
+    // start.
+    const bin = render === chromeShot ? chromeBin('pptx') : null;
     log(`pptx: rendering ${basename(src)} — ${count} slides at 1280×720, builds complete`
       + (total > count ? ` · ${total - count} hidden, skipped` : ''));
     for (const [i, n] of shown.entries()) {

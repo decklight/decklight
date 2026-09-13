@@ -9,13 +9,18 @@ welcome — bug reports, themes, docs, and code.
 Decklight is plain JavaScript (ESM) with no runtime dependencies.
 
 - Node.js >= 20
-- `npm install` — dev dependencies (esbuild, highlight.js, marked, temml), and
+- `npm install` — dev dependencies (esbuild, highlight.js, temml), and
   it builds `dist/` for you via the `prepare` script
 - `npm test` — run the test suite (`node --test`)
 - `npm run build` — bundle `src/index.js` → `dist/decklight.js`
 - `npm run verify` — build, then the render/lint harnesses (needs Chrome)
 - `npm run soak` — one end-to-end pass as a *user*, before a release (below)
 - `npm run test:impact` — which tests **this** change needs (below)
+
+A new CLI command is one row in `cli/commands.mjs` (which module, which
+exported main) plus its paragraph in the help text in the same file;
+`test/commands.test.mjs` fails when the two disagree, or when a row names a
+module or an export that does not exist.
 
 ### `npm run test:impact` — the edit-run loop
 
@@ -95,7 +100,7 @@ there, since restoring writes a new commit rather than rewriting. And the
 **agent skill** installed into the project has its front matter checked against
 the installed package — its theme count has gone stale twice.
 
-It also covers the two capabilities that need more than Node: **`rec`** records a
+It also covers the two capabilities that need more than Node: **`cast`** records a
 cast in a real PTY (after asserting that, without the optional deps, the refusal
 names the package *and* the command that installs it), and **`video`** renders a
 deck to an mp4 that `ffprobe` — not decklight — vouches for, **twice**: once

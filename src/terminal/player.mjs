@@ -129,7 +129,7 @@ const trackKeyNode = (node) => {
  *  Stopping the SOURCE is what does it — the gain envelopes hang off the
  *  source, so killing it kills the tail; a source whose start() is still in
  *  the future never sounds at all. */
-export function stopKeySounds() {
+function stopKeySounds() {
   if (!keyCtx) return;
   const now = keyCtx.currentTime;
   for (const node of liveKeyNodes) {

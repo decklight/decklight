@@ -1570,7 +1570,8 @@ decklight/
                  import/theme/publish/marketplace/plugin/template/importer/transform/engine/extension/voice/agent/
                  tts/lipsync/video/author/record/voiceover/review/comments/present/associate/report-bug; `dev` is a
                  hidden alias for `author`; `edit` (folded into `author`) and `rec` (renamed `cast`) are gone —
-                 an unknown command, printing the roster) + pkg.mjs (the package root and the one
+                 an unknown command, printing the roster) + commands.mjs (the roster itself: one row per command naming its
+                 module and main, plus the help text — test/commands.test.mjs holds the two in step) + pkg.mjs (the package root and the one
                  runtime-inlining transform) and util.mjs (CommandError + runMain: every command fails
                  one way), init.mjs, cast.mjs, bundle.mjs, upgrade.mjs, restore.mjs,
                  theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides →

@@ -31,7 +31,10 @@
 export function slideTitle(section, i, body) {
   const heading = section.querySelector('h1, h2, h3');
   const fromHeading = (heading?.textContent || '').replace(/\s+/g, ' ').trim();
-  return fromHeading || body.slice(0, 60) || `slide ${i + 1}`;
+  // 60 UTF-16 units, minus a high surrogate the cut may have left dangling:
+  // half an emoji is not a character, and the finder row showed it as U+FFFD
+  const opening = body.slice(0, 60).replace(/[\uD800-\uDBFF]$/, '');
+  return fromHeading || opening || `slide ${i + 1}`;
 }
 
 /**
@@ -58,10 +61,11 @@ export function slideBody(section) {
 export function buildIndex({ sections, modules = [], skipModule = -1 }) {
   const slides = sections.map((section, i) => {
     const body = slideBody(section);
-    return { slide: i + 1, title: slideTitle(section, i, body), haystack: body.toLowerCase() };
+    const title = slideTitle(section, i, body);
+    return { slide: i + 1, title, titleLc: title.toLowerCase(), haystack: body.toLowerCase() };
   });
   const others = modules
-    .map((m, i) => ({ module: i, title: m.title, href: m.href, haystack: (m.title || '').toLowerCase() }))
+    .map((m, i) => ({ module: i, title: m.title, href: m.href, titleLc: (m.title || '').toLowerCase(), haystack: (m.title || '').toLowerCase() }))
     .filter((m) => m.module !== skipModule);
   return [...slides, ...others];
 }
@@ -82,7 +86,8 @@ export function rankMatches(index, query) {
   const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
   const titleHits = [], bodyHits = [];
   for (const entry of index) {
-    const title = entry.title.toLowerCase();
+    // lowercased once by buildIndex, not once per keystroke per slide
+    const title = entry.titleLc ?? String(entry.title ?? '').toLowerCase();
     if (words.every((w) => title.includes(w))) titleHits.push(entry);
     else if (words.every((w) => entry.haystack.includes(w))) bodyHits.push(entry);
   }

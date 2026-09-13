@@ -40,7 +40,7 @@ import { join, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
-import { argReader, isMain } from './args.mjs';
+import { argReader, isMain, parsePort, badPort } from './args.mjs';
 import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 import { readyLine } from '../cli/banner.mjs';
@@ -119,7 +119,8 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     return;
   }
   const { opt, opts } = argReader(args);
-  const port = Number(opt('--port', 8789));
+  const port = parsePort(opt('--port', 8789));
+  if (port === null) { console.error(`decklight lipsync: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
   const rhubarb = opt('--rhubarb', 'rhubarb');
   const python = opt('--python', 'python3');
   const wav2lipDir = opt('--wav2lip-dir');
@@ -355,4 +356,6 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   return server;
 }
 
-if (isMain(import.meta.url)) lipsyncMain(process.argv.slice(2));
+if (isMain(import.meta.url)) {
+  lipsyncMain(process.argv.slice(2)).catch((e) => { console.error(`decklight lipsync: ${e.message}`); process.exitCode = 1; });
+}

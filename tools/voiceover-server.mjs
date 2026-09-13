@@ -65,7 +65,7 @@ export function openVoiceSettings(exec = execFile, platform = process.platform) 
 }
 import { resolveEngine, engineBlocker, engineMenu, engineStatus, ENGINES } from './tts-engines.mjs';
 import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
-import { argReader, isMain } from './args.mjs';
+import { argReader, isMain, parsePort, badPort } from './args.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 import { installedVoices } from '../cli/units.mjs';
 import { readyLine } from '../cli/banner.mjs';
@@ -142,7 +142,8 @@ export async function ttsMain(args) {
     return;
   }
   const { opt } = argReader(args);
-  const port = Number(opt('--port', 8787));
+  const port = parsePort(opt('--port', 8787));
+  if (port === null) { console.error(`decklight tts: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
   const saved = loadTtsConfig();
   const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const engineName = opt('--engine') ?? saved?.engine ?? 'gemini';
@@ -507,4 +508,6 @@ export async function ttsMain(args) {
   });
 }
 
-if (isMain(import.meta.url)) ttsMain(process.argv.slice(2));
+if (isMain(import.meta.url)) {
+  ttsMain(process.argv.slice(2)).catch((e) => { console.error(`decklight tts: ${e.message}`); process.exitCode = 1; });
+}

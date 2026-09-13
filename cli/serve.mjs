@@ -290,7 +290,13 @@ export async function listenTakingOverIfNeeded(server, port, host = '127.0.0.1')
       try {
         return await new Promise((res, rej) => {
           const onError = (e) => { server.off('listening', onListening); rej(e); };
-          const onListening = () => { server.off('error', onError); res(server.address().port); };
+          const onListening = () => {
+            server.off('error', onError);
+            // the bind race is over, but a server with no 'error' listener
+            // turns the next one into an uncaught exception
+            server.on('error', (e) => console.error(`server error: ${e.message}`));
+            res(server.address().port);
+          };
           server.once('error', onError);
           server.once('listening', onListening);
           server.listen(port, host);

@@ -121,6 +121,9 @@ export function createSynth({ project, ttsModel, location } = {}) {
     const res = await fetch(url, {
       method: 'POST',
       headers: authHeaders(token, project),
+      // bounded like every other call the bridge makes: a request Vertex never
+      // answers used to leave the player's /speak pending for good
+      signal: AbortSignal.timeout(NETWORK_MS),
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text }] }],
         generationConfig: {

@@ -27,3 +27,13 @@ dist/
 # test/soak.mjs and read by the pre-release hook. Evidence about one machine's
 # run, not a fact about the repo — so it is per-clone and never committed.
 .soak-pass.json
+
+# `npm pack` output. test/soak.mjs packs into a temp dir, but a stray manual
+# pack at the root was committed once (0.6.0, ~1 MB of tarball in every clone).
+*.tgz
+
+# test/video-e2e.mjs writes its fixture deck under the repo root — it has to,
+# the deck is served from there — and removes it on the way out. A crashed run
+# leaves one behind; this keeps it out of `git add -A`.
+video-e2e-*/
+.video-e2e-probe-*/

@@ -47,7 +47,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
-import { run, PROBE_MS } from './exec.mjs';
+import { run, PROBE_MS, NETWORK_MS } from './exec.mjs';
 import {
   createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
@@ -131,6 +131,7 @@ function createChirp({ project, lang = 'en-US' }) {
     const res = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
       method: 'POST',
       headers: authHeaders(token, project),
+      signal: AbortSignal.timeout(NETWORK_MS),
       body: JSON.stringify({
         input: { text },
         voice: { languageCode: lang, name: chirpVoice(voice, lang) },

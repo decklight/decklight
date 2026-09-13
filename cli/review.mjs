@@ -39,10 +39,11 @@
 
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, appendFileSync } from 'node:fs';
-import { basename, dirname, resolve, relative } from 'node:path';
+import { basename, dirname, resolve, relative, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
-import { argReader, firstPositional, isMain } from '../tools/args.mjs';
+import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
+import { runMain } from './util.mjs';
 import { staticFiles, allowEditRequest, listenTakingOverIfNeeded } from './serve.mjs';
 import { inGitRepo, gitAutocommit, gitAvailable, commitSubject, oneline } from './git.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
@@ -189,7 +190,7 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
   const root = process.cwd();
   const deckPath = resolve(root, deckArg);
   if (!existsSync(deckPath)) { process.stderr.write(`decklight review: no such deck: ${deckArg}\n`); return 1; }
-  if (!deckPath.startsWith(root + '/') && dirname(deckPath) !== root) {
+  if (!deckPath.startsWith(root + sep) && dirname(deckPath) !== root) {
     process.stderr.write('decklight review: the deck must live under the current directory\n');
     return 1;
   }
@@ -308,7 +309,9 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
     res.end();
   });
 
-  const actual = await listenTakingOverIfNeeded(server, Number(opt('--port', 8790)), '127.0.0.1');
+  const port = parsePort(opt('--port', 8790));
+  if (port === null) { process.stderr.write(`decklight review: ${badPort('--port', opt('--port'))}\n`); return 1; }
+  const actual = await listenTakingOverIfNeeded(server, port, '127.0.0.1');
   const deckUrl = `/${relative(deckDir, deckPath)}`;
   const url = `http://127.0.0.1:${actual}${deckUrl}?review`;
   if (onListen) onListen({ port: actual, deckUrl, server });
@@ -357,5 +360,5 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
 
 if (isMain(import.meta.url)) {
   exitWhenOrphaned();
-  reviewMain(process.argv.slice(2)).then((code) => { if (code) process.exitCode = code; });
+  process.exitCode = await runMain('review', () => reviewMain(process.argv.slice(2)));
 }

@@ -36,7 +36,8 @@ import {
 import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
 import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
 import { detectLocalVoice, OLLAMA_NOTE } from '../tools/local-voice.mjs';
-import { argReader, isMain } from '../tools/args.mjs';
+import { argReader, firstPositional, isMain } from '../tools/args.mjs';
+import { runMain } from './util.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
 import { nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
@@ -118,15 +119,9 @@ export function planServices({
   const has = (flag) => args.includes(flag);
   const pass = (flag) => (opt(flag) !== undefined ? [flag, opt(flag)] : []);
 
-  // first bare token is the deck — step over flags that consume a value, so
+  // first bare token is the deck — past the flags that consume a value, so
   // `author --port 8788 deck.html` doesn't mistake "8788" for the deck
-  let deck;
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i];
-    if (a.startsWith('-')) { if (VALUE_FLAGS.has(a)) i++; continue; }
-    deck = a;
-    break;
-  }
+  const deck = firstPositional(args, VALUE_FLAGS);
 
   const run = [];
   const skip = [];
@@ -620,4 +615,7 @@ export async function devMain(args) {
   process.on('SIGTERM', () => shutdown(0));
 }
 
-if (isMain(import.meta.url)) devMain(process.argv.slice(2));
+if (isMain(import.meta.url)) {
+  // devMain sets process.exitCode itself; only a throw runMain caught lands here
+  if (await runMain('author', () => devMain(process.argv.slice(2))) === 1) process.exitCode = 1;
+}
