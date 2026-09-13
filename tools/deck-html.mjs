@@ -44,9 +44,30 @@ export const sectionInner = (body) => {
   const s = String(body ?? '');
   const open = s.indexOf('>');
   const inner = open === -1 ? s : s.slice(open + 1);
-  const close = inner.toLowerCase().lastIndexOf('</section>');
+  const close = lastIndexOfCI(inner, '</section>');
   return close === -1 ? inner : inner.slice(0, close);
 };
+
+/**
+ * `indexOf` / `lastIndexOf`, case-insensitively, WITHOUT lower-casing the
+ * haystack first. `s.toLowerCase().indexOf(x)` looks equivalent and is not:
+ * lower-casing can change a string's length (U+0130 İ becomes two code units),
+ * after which every index it returns is off by one per such character, and a
+ * slice of the original at that index lands inside the tag it was aiming at.
+ * The needles here are ASCII tag names, so a case-insensitive regex is exact.
+ */
+const literal = (needle) => new RegExp(needle.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&'), 'gi');
+export function indexOfCI(s, needle, from = 0) {
+  const re = literal(needle);
+  re.lastIndex = from;
+  const m = re.exec(s);
+  return m ? m.index : -1;
+}
+export function lastIndexOfCI(s, needle) {
+  let at = -1;
+  for (const m of s.matchAll(literal(needle))) at = m.index;
+  return at;
+}
 
 /**
  * A slide's own text, as the fingerprint that anchors review comments sees it
@@ -145,7 +166,7 @@ export function sectionCloseIndex(body) {
     /<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>|<!--[\s\S]*?-->/gi,
     (m) => ' '.repeat(m.length),
   );
-  return blanked.toLowerCase().indexOf('</section>');
+  return indexOfCI(blanked, '</section>');
 }
 
 /**
@@ -218,7 +239,7 @@ export function insertSectionsAfter(html, n, sections) {
  * own fallback (bundle fails; shot appends).
  */
 export function injectBeforeBodyEnd(html, fragment) {
-  const at = html.toLowerCase().lastIndexOf('</body>');
+  const at = lastIndexOfCI(html, '</body>');
   return at === -1 ? null : html.slice(0, at) + fragment + html.slice(at);
 }
 
@@ -273,7 +294,7 @@ function consumeElement(html, start) {
   }
   if (OPAQUE_ELEMENTS.has(name)) {
     const marker = `</${name}`;
-    const at = html.toLowerCase().indexOf(marker, tagEnd + 1);
+    const at = indexOfCI(html, marker, tagEnd + 1);
     const end = at === -1 ? html.length : findTagEnd(html, at) + 1;
     return { tag: name, start, end };
   }

@@ -27,7 +27,7 @@
 import { editMain } from './edit.mjs';
 import { openUrl } from './init.mjs';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
-import { wrongRecorder } from './util.mjs';
+import { runMain, wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
 const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceover] [--slides a-b] [--no-open]
@@ -150,5 +150,5 @@ export async function recordMain(args, { open = openUrl, out = process.stdout, o
 
 if (isMain(import.meta.url)) {
   exitWhenOrphaned();
-  recordMain(process.argv.slice(2)).then((code) => { if (code) process.exitCode = code; });
+  process.exitCode = await runMain('record', () => recordMain(process.argv.slice(2)));
 }

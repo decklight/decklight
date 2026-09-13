@@ -31,7 +31,7 @@ import { createServer } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep, basename, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { argReader, isMain } from '../tools/args.mjs';
+import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
 import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded, withHeaders, isOwnOrigin } from './serve.mjs';
 import { createRemoteRelay } from './remote.mjs';
 import { corsHeaders, readBody } from '../tools/bridge.mjs';
@@ -126,80 +126,6 @@ export const CSP = [
  */
 export async function serveForRender(root, { html = null } = {}) {
   const files = staticFiles(root, { html });
-
-  /**
-   * Fast-forward, then re-read, re-audit and RE-PRINT.
-   *
-   * SPEC's condition on live reload under `present` is exactly this: never new
-   * bytes under the old verdict. So the label the presenter can see always
-   * describes the bytes being served, and the two move together.
-   */
-  async function doPull() {
-    // Re-checked against a FRESH fetch rather than trusted from the cached
-    // status: what was true ten minutes ago is not a licence to check out now.
-    const fresh = await refreshUpstream();
-    const allowed = canPull(fresh, { offered: pullArmed });
-    if (!allowed.ok) return { ok: false, ...allowed, http: allowed.state === 'dirty' ? 409 : 409 };
-
-    const from = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: upstream.repoRoot })).stdout;
-    console.log(`  upstream: PULL requested by the deck — fast-forward only, onto ${upstream.upstream}`);
-    const merged = await runGit([...SAFE_CONFIG, '-c', `core.hooksPath=${upstream.repoRoot}/.git/decklight-no-hooks`,
-      'merge', '--ff-only', '--no-verify', '@{upstream}'], { cwd: upstream.repoRoot, timeoutMs: 20000 });
-    if (!merged.ok) {
-      const why = oneline(merged.stderr || merged.err);
-      console.log(`  upstream: the fast-forward was refused — ${why}`);
-      return { ok: false, state: 'not-fast-forward', message: why };
-    }
-    const to = (await runGit(['rev-parse', '--short', 'HEAD'], { cwd: upstream.repoRoot })).stdout;
-
-    // An upstream commit must never blank somebody's talk.
-    if (!existsSync(deckPath)) {
-      console.log(`  upstream: fast-forwarded ${from} → ${to}, but the deck is gone from that commit`);
-      console.log('  still serving the bytes the label above describes');
-      return { ok: false, state: 'deck-gone', to, message: 'the deck is not in that commit — still serving the old bytes' };
-    }
-
-    const before = deck.payload;
-    const next = readAndAudit();
-    if (next.payload.equals(before)) {
-      console.log(`  upstream: fast-forwarded ${from} → ${to} — the deck itself is unchanged`);
-      await refreshUpstream();
-      return { ok: true, state: 'pulled', from, to, deck: 'unchanged', reload: false, message: `fast-forwarded to ${to} — the deck is unchanged` };
-    }
-
-    // STRICT RATCHETS: a pull may turn it on and can never turn it off. A deck
-    // that could clear its own strict flag by pulling could disarm the one
-    // mitigation present applies without being asked.
-    const wasStrict = deck.strict;
-    deck = { ...next, strict: next.strict || wasStrict };
-    const degraded = (next.report.counts.unaccounted > 0 || next.report.counts.handlers > 0)
-      && !(report.counts.unaccounted > 0 || report.counts.handlers > 0);
-
-    console.log(`  upstream: fast-forwarded ${from} → ${to}`);
-    console.log('  the deck file changed — re-read and re-audited; the label below replaces the one above');
-    for (const line of formatLabel(deck.report)) console.log(line);
-    console.log(formatSignature(deck.signature));
-    if (deck.strict) {
-      console.log(wasStrict && !next.strict
-        ? '  still serving strict — a pull cannot turn it off'
-        : '  serving strict — what could not be accounted for is stripped');
-    }
-    console.log('  the label above describes what the audience gets when the deck is reloaded');
-    await refreshUpstream();
-    return {
-      ok: true, state: 'pulled', from, to, deck: 'changed',
-      strict: deck.strict, degraded,
-      findings: { unaccounted: deck.report.counts.unaccounted, handlers: deck.report.counts.handlers },
-      // A degraded deck does NOT reload itself: the swap executes nothing (the
-      // browser is still showing the old DOM), so the reload can wait for a
-      // second confirmation that names what was found.
-      reload: !degraded,
-      message: degraded
-        ? `the updated deck runs ${deck.report.counts.unaccounted} unaccounted script block(s) and `
-          + `${deck.report.counts.handlers} inline handler(s) — they are stripped. Reload to show it`
-        : `fast-forwarded to ${to}`,
-    };
-  }
 
   const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
     let url;
@@ -338,14 +264,20 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
  */
 const fail = (msg) => { console.error(`decklight present: ${msg}`); return 1; };
 
+// The flags that take a value, so the deck can be found past them:
+// `present --port 8790 talk.html` used to read "8790" as the deck and refuse a
+// file nobody named (the case tools/args.mjs firstPositional exists for).
+const VALUE_FLAGS = ['--port', '--host', '--root'];
+
 export async function presentMain(args, { client } = {}) {
-  const positional = args.filter((a) => !a.startsWith('-'));
-  if (args.includes('--help') || args.includes('-h') || !positional.length) {
+  const deckArg = firstPositional(args, VALUE_FLAGS);
+  if (args.includes('--help') || args.includes('-h') || deckArg === undefined) {
     console.log(USAGE);
     return 0;
   }
   const { opt } = argReader(args);
-  const port = Number(opt('--port', 8790));
+  const port = parsePort(opt('--port', 8790));
+  if (port === null) return fail(badPort('--port', opt('--port')));
 
   // --remote widens the LISTENER and nothing else (PRESENT#REMOTE). The point
   // of moving the phone remote here is that getting a clicker should not mean
@@ -358,7 +290,7 @@ export async function presentMain(args, { client } = {}) {
   const host = remote ? opt('--host', '0.0.0.0') : '127.0.0.1';
   const token = remote ? randomBytes(16).toString('base64url') : null;
 
-  const deckPath = resolve(process.cwd(), positional[0]);
+  const deckPath = resolve(process.cwd(), deckArg);
   if (!existsSync(deckPath)) return fail(`deck not found: ${deckPath}`);
   // A .decklight is the same deck with its signature and manifest stapled on
   // (DECK_FILE), so it is unwrapped here and everything below treats it exactly

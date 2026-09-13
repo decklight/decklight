@@ -30,7 +30,7 @@ test('a slide is titled by its heading, and searched by its body', () => {
   const idx = buildIndex({
     sections: [section({ heading: 'Charts', paras: ['bar line area'] })],
   });
-  assert.deepEqual(idx, [{ slide: 1, title: 'Charts', haystack: 'charts bar line area' }]);
+  assert.deepEqual(idx, [{ slide: 1, title: 'Charts', titleLc: 'charts', haystack: 'charts bar line area' }]);
 });
 
 test('a slide with no heading is titled by its opening words, then by its number', () => {

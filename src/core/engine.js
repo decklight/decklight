@@ -561,7 +561,12 @@ export function init(userConfig = {}) {
     if (frame.dataset.doc !== doc) {
       frame.dataset.doc = doc;
       finderFrameReady = false;
+      // A goto queued while the PREVIOUS document was loading is about that
+      // document. Left in place, it fired when this one loaded and swapped the
+      // frame straight back to the module the cursor had already left.
+      finderPending = null;
       frame.addEventListener('load', () => {
+        if (frame.dataset.doc !== doc) return; // superseded before it loaded
         finderFrameReady = true;
         if (finderPending && finderEl) {
           const p = finderPending;
@@ -1274,7 +1279,12 @@ export function init(userConfig = {}) {
       // instead of clearing at 410ms, and the deck spent a talk believing it
       // was mid-move (SPEC MOTION).
       const ms = cssDurationMs(getComputedStyle(to).getPropertyValue('--transition-duration'), 350);
-      setTimeout(() => {
+      // One timer, for the pair on stage now. A second navigation inside the
+      // window used to leave the first timer live, and it fired against
+      // sections that had since become the NEW pair — stripping the shared
+      // `tr-*` class off a slide mid-transition on a fast arrow run.
+      clearTimeout(this._transitionTimer);
+      this._transitionTimer = setTimeout(() => {
         from.classList.remove(...cls.leaving);
         to.classList.remove(...cls.entering);
       }, ms + 60);

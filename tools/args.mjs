@@ -50,3 +50,23 @@ export function firstPositional(argv, valueFlags = []) {
  */
 export const isMain = (metaUrl) =>
   !!process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(metaUrl);
+
+/**
+ * A `--port` value as a number, or null when it is not one.
+ *
+ * Five servers read their port with `Number(opt('--port', dflt))` and handed
+ * the result straight to `server.listen`, so a typo'd flag reached the user as
+ * `RangeError [ERR_SOCKET_BAD_PORT] … Received type number (NaN)` and a Node
+ * stack — the shape of failure cli/util.mjs exists to prevent. 0 is a port:
+ * the OS picks one, which is how the tests bind without racing each other.
+ */
+export function parsePort(raw) {
+  // Number('') and Number(null) are both 0, which would make `--port` with
+  // nothing after it a request for an OS-assigned port instead of a mistake.
+  if (raw == null || String(raw).trim() === '') return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n <= 65535 ? n : null;
+}
+
+/** The refusal for a port that did not parse, spelled the same way everywhere. */
+export const badPort = (flag, raw) => `${flag} wants a port number (0-65535), got ${JSON.stringify(String(raw))}`;

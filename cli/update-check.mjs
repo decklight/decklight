@@ -25,7 +25,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configHome } from './marketplace.mjs';
@@ -150,7 +150,3 @@ if (isMain(import.meta.url)) {
   await refreshMain();
   process.exit(0);
 }
-
-// `existsSync` is imported for the cache-dir check callers may want; keep the
-// surface honest if it stops being used.
-export const cacheExists = (home = configHome()) => existsSync(cachePath(home));

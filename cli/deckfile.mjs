@@ -62,7 +62,7 @@
  * `formatManifest`.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
@@ -229,5 +229,3 @@ export function runtimeVersionOf(html) {
   return /\/\*!\s*Decklight v(\d+\.\d+\.\d+[^\s*]*)/.exec(html)?.[1] ?? null;
 }
 
-/** Does a path exist and look like a container? (For the CLI's error paths.) */
-export const containerExists = (file) => isContainer(file) && existsSync(file);

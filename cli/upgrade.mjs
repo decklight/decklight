@@ -60,10 +60,14 @@ const maskComments = (html) => html.replace(/<!--[\s\S]*?-->/g, (m) => m.replace
 // that drift apart would mean upgrade rewriting a block the audit calls
 // unaccounted, or the reverse — so there is one of each.
 export function headStyles(html) {
-  const headEnd = html.search(/<\/head>/i);
+  const masked = maskComments(html);
+  // The boundary comes from the MASKED copy too: read from the raw html, a
+  // `</head>` mentioned in a comment ended the head early and dropped every
+  // real style below it — upgrade then warned "no runtime <style> block" and
+  // left the css at the old version while reporting the js upgraded.
+  const headEnd = masked.search(/<\/head>/i);
   const out = [];
   const re = /<style\b([^>]*)>([\s\S]*?)<\/style>/gi;
-  const masked = maskComments(html);
   let m;
   while ((m = re.exec(masked))) {
     if (headEnd !== -1 && m.index >= headEnd) break;

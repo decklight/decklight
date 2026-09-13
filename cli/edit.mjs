@@ -76,7 +76,13 @@ const startup = (key, text, human) => {
   if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key, text }));
   else console.log(human);
 };
-import { argReader, firstPositional, isMain } from '../tools/args.mjs';
+import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
+import { runMain } from './util.mjs';
+
+// The flags that take a value, so the deck can be found past them. `--git-mode`
+// was missing, so `edit.mjs --git-mode agent deck.html` refused a deck called
+// "agent". (`decklight author` builds this argv itself and was never affected.)
+const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
 // the boot-call locator audit and upgrade share — three commands, one answer
 // about which <script> is the init call
@@ -448,11 +454,6 @@ export function narrationLiteral(cfg) {
  * guessing which `cfg` is meant, in which scope, is how an editor corrupts a
  * file. That deck keeps the printed line and is told why.
  */
-/** `{ label: 'Rachel · ElevenLabs', dir: 'voices/rachel', ext: 'wav' }` */
-export function trackLiteral(track) {
-  return narrationLiteral(track);
-}
-
 /**
  * Add a recorded track to the deck's `narration.files`, or update it in place.
  *
@@ -689,7 +690,8 @@ export async function editMain(args, { onListen = null } = {}) {
   // know, and commit-messages on (only that path reads `agentPref`), which is
   // why adding a SECOND deck to a repo was the way to find it.
   let agentPref = opt('--agent') ?? preferredAgent();
-  const port = Number(opt('--port', 8788));
+  const port = parsePort(opt('--port', 8788));
+  if (port === null) { console.error(`decklight author: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
   // Refused out loud, not ignored (PRESENT#REMOTE). Someone typing --remote
   // wants a clicker; silently binding loopback would leave them holding a phone
   // that never connects and no idea why. `present` is where the remote went,
@@ -700,13 +702,13 @@ export async function editMain(args, { onListen = null } = {}) {
     console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
     console.error('  /edit/agent were reachable from the same run you were not watching. present has no edit');
     console.error('  surface to widen, so that is where it lives.');
-    console.error(`\n  decklight present ${firstPositional(args, ['--port', '--commit-every', '--agent']) ?? '<deck.html>'} --remote`);
+    console.error(`\n  decklight present ${firstPositional(args, VALUE_FLAGS) ?? '<deck.html>'} --remote`);
     process.exitCode = 2;
     return;
   }
   const host = '127.0.0.1';
   const root = process.cwd();
-  const deckPath = resolve(root, firstPositional(args, ['--port', '--commit-every', '--agent']));
+  const deckPath = resolve(root, firstPositional(args, VALUE_FLAGS));
   if (!existsSync(deckPath)) { console.error(`deck not found: ${deckPath}`); process.exitCode = 1; return; }
   if (!deckPath.startsWith(root + sep)) { console.error('deck must live under the current directory'); process.exitCode = 1; return; }
   const deckUrl = '/' + deckPath.slice(root.length + 1).split(sep).join('/');
@@ -1715,17 +1717,6 @@ export async function editMain(args, { onListen = null } = {}) {
         console.log(`  restored ${basename(deckPath)} to ${result.short}`);
         return json(200, { ok: true, ...result, ...history.counts() });
       }
-      // An intermediate commit point: a multi-step agent calls this when IT
-      // decides one logical change is finished, so the boundaries follow the
-      // work instead of a clock. The message is the agent's, and untrusted.
-      if (req.method === 'POST' && url.pathname === '/edit/commit') {
-        if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
-        const { message } = JSON.parse(body || '{}');
-        const subject = commitSubject(message, `decklight: autosave ${basename(deckPath)}`);
-        const committed = gitAutocommit(deckPath, root, subject);
-        if (committed) console.log(`  git: committed "${subject}"`);
-        return json(200, { ok: true, committed, subject });
-      }
       // ── theme Browse (THEME_BROWSE#UI) ─────────────────────────────────
       // What the picker's Browse entry lists. Cache-only by construction: this
       // reads the catalogs `marketplace update` already fetched and never
@@ -2368,5 +2359,10 @@ if (isMain(import.meta.url)) {
   // author spawns this module directly, so the leash the dispatcher used to
   // arm is armed here — a no-op unless a supervising parent set it up.
   exitWhenOrphaned();
-  editMain(process.argv.slice(2));
+  // Through the one error boundary: a throw used to surface as an unhandled
+  // rejection with a raw stack, in a child whose parent's banner had scrolled by.
+  const code = await runMain('author', () => editMain(process.argv.slice(2)));
+  // editMain sets process.exitCode itself on a refusal and resolves to the
+  // server otherwise, so only a failure runMain reported is written here
+  if (code === 1) process.exitCode = 1;
 }

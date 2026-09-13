@@ -1,52 +1,47 @@
 # Decklight
 
-**The presentation library that presents itself.**
+A presentation library for people who would rather write their slides than
+fight them. A deck is one HTML file. The runtime is one JS file, one CSS file
+and a theme, with no dependencies and no build step. It opens straight from
+`file://`, it diffs cleanly in git, and an AI agent can read, write and verify
+every byte of it.
 
-A deck is a single HTML file — no build, no server, no framework. You describe a slide in plain English, your AI agent writes it, and because agents can't squint at a screen, every feature is **verifiable by a headless render**: clipped content flags itself, every theme passes machine-checked contrast gates, and terminal demos are recorded truth rather than screenshots.
+It is live at [decklight.io](https://decklight.io). The two-minute version is
+`demo/intro.html`, the exhaustive one is `demo/showcase.html`, and the contract
+everything is built against is [`SPEC.md`](SPEC.md).
 
-## Why I built this
+## Why
 
-I have lost more hours than I'd like to admit fighting my slides instead of writing them.
+I got tired of decks being binary blobs. You can't grep a Keynote file, you
+can't code-review a PowerPoint, and when slide 12 has a contrast problem at
+11pm, you're the one clicking around. I wanted a deck that is plain text end to
+end, and a codebase where an agent can do most of the work because it can check
+its own results: clipped content flags itself, every theme passes a
+machine-checked contrast gate, and a headless render is the test.
 
-Keynote pins me to one laptop and a proprietary file I can't diff. PowerPoint turns a two-line edit into a fifteen-minute wrestle with alignment guides. Google Slides makes me watch a spinner to move a box three pixels. And all three share the same original sin: the deck is a **binary blob**. You can't grep it, you can't code-review it, you can't hand it to a program and say "fix the contrast on slide 12." When something's wrong, *you* are the one clicking around at 11pm.
-
-I wanted the opposite of that. A deck that is **plain text** end to end — one HTML file you can read, diff, and email — with a runtime that has **zero dependencies** and runs straight off `file://`. Everything is text, so decks live happily in git, and anything that can read text can read your slides.
-
-But the real reason this project exists is the second half: I wanted a codebase where **bugs and features ship at the speed of light**, because the AI agents do the heavy lifting. Open an issue in the morning, and by lunch an agent has reproduced it, another has drafted a spec with real rendered mockups, and — once I give the nod — a third has implemented it, proven it with a screenshot, and merged it green. That's not a someday aspiration; it's [how this repo runs today](#how-decklight-itself-ships-at-agent-speed). Decklight is built the way it's meant to be used: humans decide *what*, agents handle *how*, and a wall of automated verification keeps everyone honest.
-
-> `SPEC.md` is the full contract and `demo/showcase.html` is the exhaustive self-demo. **This README is the quick tour.** For the two-minute version, open **`demo/intro.html`** — a short deck that explains what Decklight is, each slide live-demoing the feature it describes. See it all live at **[decklight.io](https://decklight.io)**.
-
-## What you get
-
-- **Agent-native** — describe a slide to your favorite agent; `init` hands it a skill with the real contract, and overflow flags + contrast gates + headless-render assertions let it check its own work without eyes.
-- **One file, zero build** — author a single HTML file, double-click it, present. No toolchain, no server, no framework.
-- **Diagrams & graphics** — native, theme-aware inline SVG, not just bullet lists.
-- **Animation** — progressive builds, Magic Move between slides, and diagrams that draw themselves in.
-- **46 built-in themes** — every one passes WCAG contrast gates and codified palette rules; generate your own with a keystroke.
-- **Truthful terminals** — real PTY recordings replayed truthfully, never a video.
-- **Live narration** — text-to-speech presents the deck by itself, in sync, captions included.
-- **Coming from PowerPoint** — `import` brings the deck across (charts as data, SmartArt and drawn boxes-and-arrows as themed diagrams, hidden slides still hidden, the template's own palette as a theme), and `pdf` / `pptx` hand a file back to whoever still asks for one.
-- **Everything is text** — no binary formats, so decks diff cleanly in git and agents can read, review, and edit every byte.
-- **Safe to receive** — `decklight present` plays a deck you did not author read-only under a CSP, prints what the file will execute, and strips what it cannot account for. `publish` signs; a `.decklight` container is verified before it renders.
-- **Extensible without shipping code to the audience** — themes, templates, engines, importers and presenter chrome install from git-repo marketplaces anyone can host; build-time transforms run on your machine during `bundle`, so nothing executable travels with the deck.
+That second half is also how this repo runs. Issues are triaged, reproduced,
+specified and implemented by agents, and a human approves what ships.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) explains the loop if you're curious.
 
 ## Quick start
 
-```
+```sh
 npx decklight@latest init "My Deck"
 ```
 
-The `@latest` is load-bearing: `npx decklight` with no version reuses whatever
-`npx` already unpacked into `~/.npm/_npx/`, so the first version you run is the
-one you keep. If you have been running a bare `npx decklight` and it prints an
-old number, clear that cache with `npx clear-npx-cache` (or `rm -rf ~/.npm/_npx`)
-— or install it properly with `npm i -g decklight`.
+That writes a self-contained `deck.html` you can double-click, plus a
+`.claude/skills/decklight/` skill and an `AGENTS.md`, so Claude Code (or any
+agent that reads `AGENTS.md`) has the real authoring contract on hand instead of
+guessing from Reveal.js memory. The `@latest` matters: a bare `npx decklight`
+keeps reusing whatever version npx unpacked the first time.
 
-This scaffolds a self-contained `deck.html` (double-click it — no server) **and** a `.claude/skills/decklight/` skill + `AGENTS.md`, so Claude Code (or anything that reads `AGENTS.md`) has the full authoring contract on hand instead of guessing from Reveal.js memory. The skill is sliced straight from `SPEC.md`, so it never drifts from the runtime you actually installed.
+To work on it with live reload, browser-side editing and auto-commits:
 
-**Claude Code on the web** reaches the skill two ways. A committed `.claude/skills/decklight/` loads with the clone, so cloud sessions on that repo have it already — that is the per-project route and it needs nothing but a `git commit`. For every project at once, `decklight skills claude --pack` writes `decklight-skill.zip` to upload in your claude.ai skill settings. (`--global` installs into `~/.claude/skills/`, which local sessions read but cloud machines never see.)
+```sh
+npx decklight author deck.html
+```
 
-Prefer to write the HTML yourself? Here's the whole anatomy:
+Or skip the scaffold and write the HTML yourself. This is the whole anatomy:
 
 ```html
 <!doctype html>
@@ -63,9 +58,9 @@ Prefer to write the HTML yourself? Here's the whole anatomy:
       <p>With an auto-detected subtitle</p>
       <ul data-build>
         <li>First point</li>
-        <li>Second point — steps in on the next advance</li>
+        <li>Second point, revealed on the next advance</li>
       </ul>
-      <aside class="notes">Speaker notes. ⟨CLICK⟩ markers align with builds.</aside>
+      <aside class="notes">Speaker notes. ⟨CLICK⟩ markers line up with builds.</aside>
     </section>
   </div>
   <script src="decklight/dist/decklight.js"></script>
@@ -74,130 +69,123 @@ Prefer to write the HTML yourself? Here's the whole anatomy:
 </html>
 ```
 
-Open it in a browser — `file://` works for everything, no server needed.
+## What's in the box
 
-## How authoring works
+- **Builds.** `data-build` on a container makes each child a step. The layout
+  never jumps.
+- **Diagrams.** Inline SVG written with `var(--d-*)` tokens recolours with every
+  theme and can draw itself in.
+- **Motion.** Slide transitions, Magic Move between slides, looping element
+  effects. All of it respects reduced-motion.
+- **Themes.** 46 themes in 2 packs, every one behind WCAG contrast gates. `T`
+  picks one, `⌃T` generates a new one that passes the same gates.
+- **Code and math.** highlight.js styled through theme tokens, LaTeX rendered
+  to MathML with bundled Temml. No webfonts, no build step.
+- **Charts.** `data-chart` plus a small JSON block gives you a theme-aware SVG
+  chart: bar, line, area, pie, donut, scatter.
+- **Terminals.** `decklight cast` records a real PTY session and the deck
+  replays it, typing and streaming. Never a video.
+- **Narration.** Text-to-speech reads your notes in sync with the builds, or you
+  record your own voice one beat at a time. Captions and auto-advance come with
+  it.
+- **Review.** Reviewers comment on slides, the review travels as a git branch,
+  and a comment finds its slide again after the deck has moved.
+- **In and out.** PowerPoint, Keynote and Google Slides come in, with charts as
+  data and SmartArt as diagrams. PDF and PowerPoint go out for whoever still
+  asks.
+- **Safe to receive.** `decklight present` plays a deck you didn't write
+  read-only under a CSP and prints what the file will execute. `publish` signs
+  what it ships.
+- **Extensible without shipping code to the audience.** Themes, templates,
+  speech engines and presenter plugins install from any git repo. Nothing
+  executable travels inside a deck.
 
-The whole loop is agent-friendly and stays in one file end to end:
+Every item above has a SPEC section behind it. The index at the top of
+`SPEC.md` maps the names to the sections.
 
-1. **`decklight init`** — scaffold a starter deck plus the agent skill above.
-2. **Author** one HTML file: `<section>` slides, `data-build` reveals, inline SVG with theme tokens, `<aside class="notes">` split on `⟨CLICK⟩` (notes drive builds, captions, transcript **and** narration all at once).
-3. **`decklight author deck.html`** — the whole live loop under one Ctrl-C: live-reload editing (from your editor or the browser), plus any narration/lip-sync bridges this machine can run (missing prerequisites are skipped with the fix printed, never a hard failure). In the browser: **`E`** edits notes back into the file, **`L`** cycles layouts, **`Z`/`⇧Z`** undo/redo, and **`A`** asks an installed coding agent — Claude Code, Codex, Gemini, Copilot, Aider and more, auto-detected from `$PATH` — to edit the deck headlessly; the page reloads when it saves. Edits auto-commit as you go.
-4. **`decklight cast script.term.yaml`** — record a truthful terminal cast in a real PTY.
-5. **`decklight bundle deck.html --themes all`** — flatten runtime, themes, casts and narration into one offline HTML file to hand off.
+## The CLI
 
-## Features at a glance
+`decklight help <command>` prints the flags for any of these.
 
-| Feature | In one line | More |
-|---|---|---|
-| **Builds** | `data-build` on a container — each child is a step; the layout never jumps | [SPEC BUILDS](SPEC.md#builds--builds-keynote-style-reveal-calls-these-fragments) |
-| **SVG diagrams** | inline SVG authored with `var(--d-*)` tokens; recolors with every theme, strokes draw in | [SPEC SVG_DIAGRAMS](SPEC.md#svg_diagrams--svg-diagrams-first-class) |
-| **Motion** | slide transitions, Magic Move auto-animate, looping element effects — all respect reduced-motion | [SPEC MOTION](SPEC.md#motion--motion) |
-| **Theming** | 46 themes in 2 packs on one token contract; `T` picker, `⌃T` generates a contract-complete theme | [SPEC THEMING](SPEC.md#theming--the-token-contract) |
-| **Code** | highlight.js themed through `--hl-*` tokens; `data-lines` steps highlight ranges as builds | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
-| **Math** | `data-math` renders `$$…$$` / `\(…\)` LaTeX to native MathML via bundled Temml — no webfonts, no build step | [SPEC CODE_AND_MATH](SPEC.md#code_and_math--code--math) |
-| **Charts** | `data-chart` + a small block of JSON → a theme-aware SVG on the slide: bar, line, area, pie, donut, scatter. No library, no screenshot of a spreadsheet | [SPEC CHARTS](SPEC.md#charts--charts-data-chart) |
-| **Terminals** | `decklight cast` captures real PTY output; replayed by typing then streaming, never a video | [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings) |
-| **Presenting** | speaker view, rehearse cue cards, overview, command palette, slide finder — all on `file://` | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
-| **Hidden slides** | `data-hidden` keeps a slide in the file and out of the talk — it keeps its number, `?all` presents it anyway | [SPEC DECK_ANATOMY](SPEC.md#deck_anatomy--deck-anatomy) |
-| **Deck templates** | install one from a marketplace, then **borrow from it into the deck you already have** — `Insert from a template…` renders the slide beside the list, and two modes decide what `⏎` does: take the slide, or give one of yours **its look**. Apply mode previews *your* slide wearing it before anything is written; the CSS a borrowed slide is shaped by comes with it | [SPEC MARKETPLACE_REGISTRY](SPEC.md#marketplace_registry--marketplaces-registered-not-fetched) |
-| **Hand-over** | every file the deck can produce, from the palette in author mode: PowerPoint, the three PDFs, and publish — which asks where it would go before it goes | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
-| **Rehearsal timings** | the speaker view records how long each slide actually took and writes it onto the deck; the next run paces against it | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
-| **Narration** | TTS reads your notes in sync with builds — or **your own voice**, recorded beat by beat and pacing them the same way; the voice is the clock, captions + auto-advance | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
-| **Review** | reviewers comment on slides and submit the review as a branch; git carries it, a comment finds its slide again after the deck moves, and the author is told a review is waiting | [SPEC REVIEW](SPEC.md#review--reviewer-comments) |
-| **Integrity** | read-only `present` under a real CSP header, an ingredients label of what a deck executes, Sigstore signing, the `.decklight` container | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
-| **The durable record** | decklight commits as you write; `H` reads it back — every version previewed live, what each changed, one keystroke to restore | [SPEC PRESENTING](SPEC.md#presenting--presenting--output) |
-| **Marketplaces** | git-repo catalogs, registered not fetched; themes, templates, skills, voices, engines, importers, transforms and presenter plugins | [SPEC MARKETPLACE_REGISTRY](SPEC.md#marketplace_registry--marketplaces-registered-not-fetched) |
-
-## CLI
-
-| Command | Purpose |
+| Writing | |
 |---|---|
-| `decklight init ["Title"]` | scaffold a self-contained starter deck + an agent skill (run bare in a terminal, it asks for the title and offers a git repo; `--open` launches the deck, `--from <template>` starts from a marketplace template) |
-| `decklight skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob (detected, named, or `--all`; `--global` for every project; `--pack` zips it for upload) |
-| `decklight author deck.html` | **the whole authoring loop in one command** — live reload + every bridge this machine can run |
-| `decklight present deck.html` | **play a deck you did not author** — read-only over localhost under a CSP header, with an ingredients label and `--strict`; a deck in a clone can see its upstream and (with `--upstream-pull`) offer to fast-forward |
-| `decklight import talk.pptx` | bring a PowerPoint, Keynote or Google Slides deck across — bullets, tables, images, notes, **charts as data**, and **diagrams as diagrams**: SmartArt and hand-drawn boxes-and-arrows both become themed SVG. `--theme template` derives the deck's theme from the file's own palette and fonts (`.key` needs macOS; a Slides URL must be link-shared) |
-| `decklight cast script.term.yaml` | record a **terminal** cast in a real PTY (`refresh` re-runs them, `export` flattens to asciicast v2) |
-| `decklight record deck.html` | record the narration in **your own voice** — the deck reads you its notes one ⟨CLICK⟩ at a time, and `→` ends a beat *and* reveals the next build, so your voice paces the deck (`cast` records a terminal, `record` records you) |
-| `decklight review deck.html` | **leave comments on somebody's deck**, anchored to slides — a comment survives the slide moving, and says so when its slide changed or is gone |
-| `decklight review submit deck.html` | **send the review back** — pushes the comments (one file, never your own commits) to a `review/<you>-<date>` branch; `--pr` opens the pull request |
-| `decklight comments deck.html` | read what reviewers said, resolved against the deck as it is now (`--import` takes in a file from a reviewer with no clone; `--incoming` lists the reviews waiting on the remote — `M` in the deck reads and takes them in) |
-| `decklight history deck.html` | what decklight committed, which commits exist only on this machine, and how to push them |
-| `decklight restore deck.html` | list the commits that touched a deck, and put it back to any of them |
-| `decklight upgrade deck.html` | bring a self-contained deck's inlined runtime + themes up to the installed version |
-| `decklight bundle deck.html [--all]` | flatten to a self-contained single-file HTML (`--sign` attests it, `--deck` wraps it as `.decklight`) |
-| `decklight publish deck.html` | bundle and push to GitHub Pages — signed by default; Netlify and Vercel install as targets, and `--target folder` writes the site into a directory for any host that serves files |
-| `decklight pdf deck.html` | one slide per page, at its own size, in its theme — no print dialog (`--notes` is the presenter's copy, `--handout` three a page with ruled lines) |
-| `decklight pptx deck.html` | a PowerPoint file for whoever still asks for one — every slide a picture, the notes real notes, hidden slides not in it; lossy on purpose |
-| `decklight voiceover deck.html` | batch-synthesize the narration into a folder with a live engine (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's `V → Record this deck…` |
-| `decklight video deck.html` | render to one narrated mp4 — ⟨CLICK⟩ segments narrate the builds (`--voiceover` synthesizes the narration first) |
-| `decklight theme check\|add` | validate a theme against the token contract, or install one into a deck |
-| `decklight marketplace add owner/repo` | register a catalog — cloned once with **your** git credentials (so a private one works), then read from disk |
-| `decklight plugin add timer` | presenter chrome into **your** library: `present` loads it, `bundle` never does |
-| `decklight template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library — deck templates, import adapters, build-time transforms, speech engines, voices, agent descriptors |
-| `decklight extension check t.mjs` | the marketplace admission gate for a transform: lint, then a headless load of its output |
-| `decklight associate` | wire double-clicking a `.decklight` file to `decklight present` (per-user, no admin rights) |
-| `decklight tts` | live voice bridge — the player synthesizes narration through it |
-| `decklight lipsync` | lip-sync bridge — visemes (rhubarb) + a talking head (your GPU); `--veo` animates the portrait |
-| `decklight report-bug` | gather the version + environment facts a bug report needs, and print the issue URL |
+| `init ["Title"]` | scaffold a deck and the agent skill (`--open`, `--from <template>`) |
+| `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob |
+| `author deck.html` | live reload plus every bridge this machine can run, under one Ctrl-C |
+| `record deck.html` | record the narration in your own voice, one ⟨CLICK⟩ beat at a time |
+| `cast script.term.yaml` | record a terminal session in a real PTY (`refresh` re-runs, `export` writes asciicast) |
 
-`decklight help` lists every command and flag — `refresh` and `export` are in [SPEC TERMINAL_RECORDINGS](SPEC.md#terminal_recordings--terminal-recordings), `present` and `lipsync` in [SPEC PRESENTING](SPEC.md#presenting--presenting--output). Drive a deck programmatically with the [JS API](SPEC.md#js_api--public-js-api). The runtime has **zero dependencies** (highlight.js and temml are bundled at build time); `node-pty` and `js-yaml` are CLI-only.
+| Sharing | |
+|---|---|
+| `present deck.html` | play a deck you didn't write: read-only, under a CSP, with an ingredients label |
+| `bundle deck.html` | one self-contained HTML file (`--all` merges a playlist, `--sign`, `--deck`) |
+| `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
+| `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
+| `pptx deck.html` | a PowerPoint file, every slide a picture, notes as notes |
+| `video deck.html` | a narrated mp4 (`--voiceover` synthesizes first) |
+| `voiceover deck.html` | batch-synthesize the narration into a folder |
+
+| Keeping track | |
+|---|---|
+| `review deck.html` | comment on somebody's deck; `review submit` sends it back as a branch |
+| `comments deck.html` | what reviewers said, resolved against the deck as it is now |
+| `history deck.html` | what decklight committed and what is only on this machine |
+| `restore deck.html` | put the deck back to any commit that touched it |
+| `upgrade deck.html` | bring a bundled deck's inlined runtime up to this version |
+
+| Bringing things in | |
+|---|---|
+| `import talk.pptx` | convert PowerPoint, Keynote or Google Slides (`--theme template` keeps its palette) |
+| `theme check\|add` | validate a theme against the token contract, or install one |
+| `marketplace add owner/repo` | register a catalog; it is cloned with your git credentials, then read from disk |
+| `plugin add <name>` | presenter chrome for your machine only. `present` loads it, `bundle` never does |
+| `template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
+| `extension check t.mjs` | the marketplace admission gate for a transform |
+
+| Odds and ends | |
+|---|---|
+| `tts` / `lipsync` | the live voice bridge and the lip-sync bridge the player talks to |
+| `associate` | make double-clicking a `.decklight` file open `present` |
+| `report-bug` | print the version and environment facts a bug report needs |
+
+The runtime has zero dependencies. highlight.js and Temml are bundled at build
+time; `node-pty`, `js-yaml`, `sigstore` and Playwright are optional and used by
+the CLI only.
 
 ## Keys
 
 | Key | Action |
 |---|---|
 | `→` `←` `Space` | next / previous build or slide |
-| `S` | speaker view (again: rehearse cue cards) |
-| `T` | theme picker (type to filter) · `⌃T` generate a theme |
-| `⎵` | plays / pauses / resumes the voice once one is chosen — otherwise it advances, as always |
-| `V` | everything about the voice: tracks · live voice · character · record this deck · captions · speed |
-| `M` | review comments, grouped by who said them — `⏎` jumps to the slide, `R` marks one done · `⇧M` writes one |
-| `H` | the deck's history — every version previewed live, `⏎` restores one |
-| `/` | command palette — including, in author mode, every export and publish · `G` find a slide |
-| `?` | help overlay — every key |
+| `S` | speaker view (press again for rehearse cue cards) |
+| `T` | theme picker, `⌃T` generate a theme |
+| `⎵` | play / pause the voice once one is chosen; otherwise it advances |
+| `V` | everything about the voice: tracks, live voice, character, record, captions, speed |
+| `M` | review comments (`⏎` jumps to the slide, `R` marks one done), `⇧M` writes one |
+| `H` | the deck's history, every version previewed live, `⏎` restores one |
+| `I` | the sources behind this slide |
+| `/` | command palette, `G` find a slide |
+| `?` | every key |
 
-## Install on another machine
+## Working from a checkout
 
 ```sh
 git clone https://github.com/decklight/decklight && cd decklight
-npm install        # dev deps for building/recording; decks only need dist/ + themes/
-npm run build
+npm install          # also builds dist/
+npm test             # unit tests
+npm run verify       # build + headless render assertions, needs Chrome
 ```
 
-A deck references `dist/decklight.{js,css}` and one theme file — copy those three files (or a single `bundle`) and nothing else.
-
-## How Decklight itself ships at agent-speed
-
-The whole point was a project where fixes and features land fast because agents do the work and automated verification keeps it safe. So the repo runs itself as a pipeline of small, single-purpose GitHub Actions — each one a Claude agent with exactly the powers it needs and no more:
-
-- **You open an issue.** An agent reads it *and the code it blames*, then either asks the missing questions or routes it — a bug goes to a reproduction agent (which actually builds `main` and tries it, posting screenshots of what it saw), a feature goes to a spec agent (which drafts acceptance criteria and renders real UI mockups for review).
-- **You approve.** Applying `ready-to-dev` is the one human gate. An implementation agent writes the code on a branch, proves it with `npm run verify` and a screenshot of the feature actually working, and opens a PR with that picture inline. You review the *screenshots*, not the merge button — the PR merges itself once CI is green.
-- **The loop keeps itself unstuck.** If CI goes red, a fix agent reads the failing logs and repairs the branch (capped, so it never argues with a red build forever). If `main` moves and a branch goes stale, a rebase agent replays it cleanly. A grooming pass reads the backlog daily and closes what the code already fixed — citing the exact `file:line` as proof.
-
-Every one of those agents runs under the same rule: on a public repo, an automated trigger never hands a push token to an agent reading text a stranger can write. The agents that need a shell run credential-less; the tokens live only in plain shell steps; a verification band — WCAG contrast gates, palette rules, headless-render assertions, property tests — holds all of it to `SPEC.md`. The `.github/workflows/` files each open with a header explaining *why* they're shaped the way they are; they're worth a read if you like this sort of thing.
-
-## Architecture
+A deck references `dist/decklight.js`, `dist/decklight.css` and one theme file.
+Copy those three (or a single `bundle`) and nothing else.
 
 <p align="center">
-  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: a single deck.html and a theme.css feed a zero-dependency browser runtime (engine, terminal player, svg/code/math, narration, overlays); three localhost servers sit beside it — decklight author for live-reload note editing, decklight tts bridging to Vertex AI Gemini TTS, and decklight review, which writes reviewer comments to a deck.review.jsonl sidecar carried by git and registers no editing routes at all; a node CLI records, refreshes, exports and bundles; and a verification band (WCAG gates, palette rules, headless render assertions, property tests) gates everything against SPEC.md.">
+  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: one deck.html and a theme.css feed a zero-dependency browser runtime; the CLI, the author server, the tts bridge and the review server run beside it on localhost; a verification band of contrast gates, palette rules and headless render assertions holds everything to SPEC.md.">
 </p>
 
-One HTML file and one theme stylesheet feed a **zero-dependency browser runtime**; everything with native dependencies or credentials lives in **localhost tools** (the CLI, the `author` live-reload server, the `tts` bridge, and `review`, which can write one sidecar file and nothing else); and a **verification band** — contrast gates, palette rules, headless render assertions, property tests — holds all of it to the `SPEC.md` contract.
-
-## Development
-
-`npm test` (unit + property tests) · `node test/render.mjs` (headless-Chrome render assertions) · `node test/contrast.mjs` (WCAG theme gates) · `npm run verify` for the lot. The house rule: every feature is verified end-to-end against a real render, not just unit-tested — see SPEC REPO_LAYOUT, and `CONTRIBUTING.md` for the DCO sign-off every commit needs.
-
-## Links
-
-- **[decklight.io](https://decklight.io)** — the showcase deck, live and narrating itself
-- **`demo/intro.html`** — the short "what is Decklight" tour
-- **`demo/showcase.html`** — the full self-demo, every feature on its own slide
-- **[`SPEC.md`](SPEC.md)** — the authoring contract
-- **[`CONTRIBUTING.md`](CONTRIBUTING.md)** — how to contribute (DCO sign-off required)
+Every commit needs a DCO sign-off (`git commit -s`). The rest of the process,
+including how the agent loops work, is in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
-Decklight is free and open source, released under the [Apache License 2.0](LICENSE). Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+[Apache 2.0](LICENSE).

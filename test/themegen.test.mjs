@@ -9,7 +9,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { generateTheme, tokensToCss } from '../src/core/themegen.js';
+import { generateTheme, tokensToCss, safeTokens } from '../src/core/themegen.js';
 
 // ── independent WCAG math (ported from test/contrast.mjs) ───────────────────
 function parseColor(str) {
@@ -228,4 +228,30 @@ test('tokensToCss round-trips through the validator parser and still passes', ()
     const errs = gateErrors(parsed);
     assert.deepEqual(errs, [], `seed ${seed}: round-tripped CSS failed gates`);
   }
+});
+
+// ── the payload a ?gen= link carries ────────────────────────────────────────
+
+test('a token whose value could close the declaration is dropped, not written', () => {
+  // `?gen=` is a SHAREABLE link whose tokens land in a <style> verbatim
+  // (SPEC THEMING): a value carrying `}` or `;` would write any rule it liked
+  // into the deck of whoever opened it. A generated theme never contains one.
+  const kept = safeTokens({
+    '--bg': '#000',
+    '--fg': 'red } .decklight section { background: url(x) } x {',
+    '--muted': 'a; b',
+    '--accent': 'linear-gradient(135deg, #a1b2c3 0%, rgba(0, 0, 0, .5) 100%)',
+    'not-a-token': '#fff',
+    '--ok-custom': 'ok',
+  });
+  assert.deepEqual(Object.keys(kept), ['--bg', '--accent', '--ok-custom'],
+    'a brace or semicolon in a value, or a key that is not a custom property, is refused');
+});
+
+test('the theme name cannot close the comment it is written into', () => {
+  const css = tokensToCss('x*/ .decklight{color:red} /*', { '--bg': '#000' });
+  const header = css.slice(0, css.indexOf('*/'));
+  assert.match(header, /x\* \/ \.decklight/, 'the closer inside the name is broken apart');
+  assert.match(header, /token contract: SPEC\.md THEMING/, 'the first closer is the header\u2019s own, not the name\u2019s');
+  assert.doesNotMatch(css.slice(css.indexOf('*/')), /color:red/, 'nothing from the name reaches the rules');
 });
