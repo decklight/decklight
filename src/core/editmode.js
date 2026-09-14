@@ -271,7 +271,7 @@ export function createEditMode({
           // REHEARSAL_TIMINGS); with no author server it is undefined and the
           // timings stay in the browser instead.
           instance.__saveTimings = async (timings) => {
-            const res = await fetch(editBase + '/edit/timings', {
+            const res = await writeFetch(editBase + '/edit/timings', {
               method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ timings }),
             });
             if (!res.ok) throw new Error(await res.text());
@@ -512,6 +512,22 @@ export function createEditMode({
     } catch { /* not served by present either */ }
   }
 
+  // ── edits in flight ──────────────────────────────────────────────────────
+  // Undo queues behind a write that has not landed yet. Every gesture that edits
+  // the deck answers asynchronously — a double-click save fetches the element's
+  // source before it posts, a slide op waits on the server — and a Z pressed in
+  // that window reached the server FIRST: "nothing to undo", and then the edit
+  // landed anyway, un-undoable from where the author stood. Agent runs are not
+  // tracked: they can take minutes, and Z must not wait on one.
+  const inflight = new Set();
+  function trackWrite(p) {
+    inflight.add(p);
+    const done = () => inflight.delete(p);
+    p.then(done, done);
+    return p;
+  }
+  const writeFetch = (url, init) => trackWrite(fetch(url, init));
+
   // undo/redo (Z / ⇧Z) — the dev server's edit history: layout picks, notes
   // saves, and agent runs all snapshot into ONE stack, wholly independent of
   // the git autocommits. The server writes the restored file; its watcher
@@ -521,6 +537,7 @@ export function createEditMode({
       toast(needsDevMode(dir, location), 3200);
       return;
     }
+    if (inflight.size) await Promise.allSettled([...inflight]);
     try {
       const res = await fetch(editBase + '/edit/' + dir, { method: 'POST' });
       const j = await res.json().catch(() => ({}));
@@ -650,7 +667,7 @@ export function createEditMode({
     ta.spellcheck = false;
     const save = async () => {
       try {
-        const res = await fetch(editBase + '/edit/notes', {
+        const res = await writeFetch(editBase + '/edit/notes', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ slide: sl, text: ta.value }),
@@ -828,7 +845,7 @@ export function createEditMode({
     if (!editAvailable) { toast(needsDevMode('editing slides', location), 3200); return; }
     const slide = instance.state.slide;
     try {
-      const res = await fetch(editBase + '/edit/slide', {
+      const res = await writeFetch(editBase + '/edit/slide', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ op, slide }),
       });
@@ -852,7 +869,7 @@ export function createEditMode({
     const { slide, index } = menuTarget;
     closeElementMenu();
     try {
-      const res = await fetch(editBase + '/edit/element/remove', {
+      const res = await writeFetch(editBase + '/edit/element/remove', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ slide, index }),
       });
@@ -868,7 +885,7 @@ export function createEditMode({
     const { slide, index } = menuTarget;
     closeElementMenu();
     try {
-      const res = await fetch(editBase + '/edit/element/effect', {
+      const res = await writeFetch(editBase + '/edit/element/effect', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ slide, index, effect }),
       });
@@ -928,7 +945,7 @@ export function createEditMode({
     });
     const save = async () => {
       try {
-        const res = await fetch(editBase + '/edit/element/content', {
+        const res = await writeFetch(editBase + '/edit/element/content', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ slide, index, html: ta.value }),
         });
@@ -1310,7 +1327,7 @@ export function createEditMode({
     if (!entry || !restoreArmed) return;
     closeRestore();
     try {
-      const r = await fetch(editBase + '/edit/restore', {
+      const r = await writeFetch(editBase + '/edit/restore', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ref: entry.hash }),
       });
@@ -1612,6 +1629,8 @@ export function createEditMode({
 
   return {
     deckHistory,
+    /** Hold undo/redo until this write lands — the gestures in authoring.js post outside this module. */
+    trackWrite,
     toggleEditor,
     toggleAgentAsk,
     /** E — arm/disarm the right-click element menu (#112). Refuses outside author mode. */

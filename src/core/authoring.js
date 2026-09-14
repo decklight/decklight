@@ -101,7 +101,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   // ── double-click to edit text ─────────────────────────────────────────────
   let editing = null; // { el, original, slide, index, path }
 
-  async function saveInline() {
+  async function saveInlineNow() {
     const cur = editing;
     if (!cur) return;
     editing = null;
@@ -127,6 +127,15 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       cur.el.innerHTML = cur.original;
       toast(`could not save the text: ${String(e.message || e).slice(0, 80)}`, 3000);
     }
+  }
+
+  // Tracked from its FIRST await, not just the POST: the save reads the element's
+  // source before it writes, and a Z pressed during that read is exactly the one
+  // that used to find "nothing to undo" while the edit landed behind it.
+  function saveInline() {
+    const p = saveInlineNow();
+    editmode.trackWrite?.(p);
+    return p;
   }
 
   function cancelInline() {
@@ -203,7 +212,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!where) return;
     const under = topLevelChild(where.sec, document.elementFromPoint(e.clientX, e.clientY));
     let index = under && !under.matches('aside') ? Array.prototype.indexOf.call(where.sec.children, under) : null;
-    for (const file of files) {
+    const job = (async () => { for (const file of files) {
       try {
         const up = await fetch(base() + '/edit/asset', {
           method: 'POST', headers: { 'content-type': file.type, 'x-decklight-name': file.name }, body: file,
@@ -217,7 +226,10 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       } catch (err) {
         toast(`could not add ${file.name}: ${String(err.message || err).slice(0, 80)}`, 3200);
       }
-    }
+    } })();
+    // the whole drop — upload, then place — is one write as far as Z is concerned
+    editmode.trackWrite?.(job);
+    await job;
   });
 
   return {

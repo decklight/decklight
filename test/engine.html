@@ -211,11 +211,21 @@
       if (HARNESS_MODE === 'authoring') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
-        if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        // Slow on purpose: a real save reads the source, then writes. Undo must
+        // queue behind a write still in flight, and these markers say when each
+        // one actually landed.
+        if (u.includes('/edit/element/content')) {
+          await new Promise((ok) => setTimeout(ok, 250));
+          CALLS.post.push({ u: 'LANDED element content', body: {} });
+          return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        }
         if (u.includes('/edit/slide')) {
           const b = JSON.parse(init?.body ?? '{}');
+          await new Promise((ok) => setTimeout(ok, 250));
+          CALLS.post.push({ u: 'LANDED slide op', body: {} });
           return json({ ok: true, slide: b.op === 'delete' ? b.slide : b.slide + 1, total: 5, undo: 1, redo: 0 });
         }
+        if (u.includes('/edit/undo')) return json({ ok: true, undo: 0, redo: 1 });
       }
       if (HARNESS_MODE === 'contextmenu') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -969,8 +979,7 @@
         press('/');
         for (const ch of 'duplicate') press(ch);
         press('Enter');
-        await settle();
-        await settle();
+        await new Promise((ok) => setTimeout(ok, 400));   // the fake op answers in 250ms
         const op = CALLS.post.find((c) => c.u.includes('/edit/slide'));
         r.paletteRunsASlideOp = !!op && op.body.op === 'duplicate' && op.body.slide === 1;
         r.landsOnTheNewSlide = location.hash === '#/2/0';
@@ -989,7 +998,34 @@
           && rows().includes('Move slide up');
         press('Escape');
 
-        r.PASS = r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
+        // Z the instant an edit is sent must undo THAT edit — not reach the server
+        // first, find nothing, and let the edit land behind it (reported as "after
+        // double-clicking, I cannot undo").
+        const posts = () => CALLS.post.map((c) => c.u);
+        const undos = () => posts().filter((u) => u.includes('/edit/undo')).length;
+        deck.goto(1, 0);
+        await settle();
+        const h1b = document.querySelector('.decklight-stage > section.active h1');
+        dbl(h1b);
+        h1b.textContent = 'One, again';
+        h1b.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        const undosBeforeText = undos();
+        press('z');
+        await new Promise((ok) => setTimeout(ok, 700));
+        r.undoWaitsForTheTextSave = undos() === undosBeforeText + 1
+          && posts().findLastIndex((u) => u.includes('/edit/undo')) > posts().lastIndexOf('LANDED element content');
+        const undosBeforeOp = undos();
+        press('/');
+        for (const ch of 'duplicate') press(ch);
+        press('Enter');
+        await settle();
+        press('z');
+        await new Promise((ok) => setTimeout(ok, 700));
+        r.undoWaitsForTheSlideOp = undos() === undosBeforeOp + 1
+          && posts().findLastIndex((u) => u.includes('/edit/undo')) > posts().lastIndexOf('LANDED slide op');
+
+        r.PASS = r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
+          && r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
           && r.editableReleased && r.escapeReverts && r.escapeWroteNothing && r.unchangedWritesNothing
           && r.paletteRunsASlideOp && r.landsOnTheNewSlide && r.saysWhatItDid
           && r.menuOffersTheSlide && r.slideSubmenu;
