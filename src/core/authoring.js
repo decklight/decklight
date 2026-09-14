@@ -23,6 +23,12 @@
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
 /** Where a double-click must NOT edit: generated or structured content the source does not spell out. */
 export const NOT_EDITABLE = 'pre, code, svg, .terminal, [data-chart], [data-math], aside, table[data-chart]';
+/**
+ * A code block: edited as its SOURCE text, never its rendered DOM. code.js
+ * highlights a block into spans and wraps every line, so writing that DOM back
+ * would put the spans in the deck. Terminals and asides are left alone.
+ */
+export const CODE_EDITABLE = 'pre > code';
 
 /**
  * The element-child path from `top` down to `node`: `[2, 0]` is the first
@@ -104,6 +110,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   async function saveInlineNow() {
     const cur = editing;
     if (!cur) return;
+    if (cur.code) return saveCode(cur);
     editing = null;
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
@@ -142,9 +149,95 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const cur = editing;
     if (!cur) return;
     editing = null;
+    if (cur.code) {
+      cur.el.removeAttribute('contenteditable');
+      cur.el.classList.remove('dl-editing');
+      putBack(cur);
+      return;
+    }
     cur.el.innerHTML = cur.original;
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
+  }
+
+  // ── double-click a code block ─────────────────────────────────────────────
+  /** The source text of the `<code>` at `path` inside a top-level element, straight from the file. */
+  async function codeSource(slide, index, path) {
+    const src = await fetch(`${base()}/edit/element/source?slide=${slide}&index=${index}`);
+    const j = await src.json().catch(() => ({}));
+    if (!src.ok || typeof j.html !== 'string') throw new Error(j.error || 'no source for this code block');
+    const tpl = document.createElement('template');
+    tpl.innerHTML = j.html;
+    const top = tpl.content.firstElementChild;
+    const node = nodeAtPath(top, path);
+    if (!node) throw new Error('the source has no code block where the click landed');
+    return { top, node };
+  }
+
+  // The rendered lines are MOVED aside, not copied as HTML: the data-lines build
+  // provider holds references to these very `.code-line` nodes, and an Escape
+  // that re-parsed them would leave its steps pointing at nodes no longer shown.
+  function putBack(cur) {
+    cur.el.textContent = '';
+    cur.el.appendChild(cur.kept);
+  }
+
+  async function beginCode(codeEl, { sec, slide }) {
+    if (editing) await saveInline();
+    const top = topLevelChild(sec, codeEl);
+    if (!top) return;
+    const index = Array.prototype.indexOf.call(sec.children, top);
+    const path = childPath(top, codeEl);
+    if (path === null) return;
+    let text;
+    try {
+      const { node } = await codeSource(slide, index, path);
+      // exactly what code.js renders from: one leading newline and the trailing
+      // whitespace before `</code>` are layout of the file, not code
+      text = node.textContent.replace(/^\n/, '').replace(/\s+$/, '');
+    } catch (err) {
+      toast(`could not edit the code: ${String(err.message || err).slice(0, 80)}`, 3000);
+      return;
+    }
+    const kept = document.createDocumentFragment();
+    while (codeEl.firstChild) kept.appendChild(codeEl.firstChild);
+    codeEl.textContent = text;
+    editing = { el: codeEl, code: true, kept, text, slide, index, path };
+    // plaintext-only: typing and pasting stay text, Enter is a real newline
+    codeEl.setAttribute('contenteditable', 'plaintext-only');
+    if (codeEl.contentEditable !== 'plaintext-only') codeEl.setAttribute('contenteditable', 'true');
+    codeEl.spellcheck = false;
+    codeEl.classList.add('dl-editing');
+    codeEl.focus();
+    const range = document.createRange();
+    range.selectNodeContents(codeEl);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    debugLog('info', `editing slide ${slide} element #${index}'s code`);
+  }
+
+  async function saveCode(cur) {
+    editing = null;
+    const el = cur.el;
+    const plain = el.getAttribute('contenteditable') === 'plaintext-only';
+    el.removeAttribute('contenteditable');
+    el.classList.remove('dl-editing');
+    const text = (plain ? el.textContent : el.innerText).replace(/\n$/, '');
+    if (text === cur.text) { putBack(cur); return; }   // nothing changed: nothing written
+    try {
+      const { top, node } = await codeSource(cur.slide, cur.index, cur.path);
+      // keep the file's own layout around the code, and let textContent escape
+      // `<`, `>` and `&` on the way out — the attributes are never touched
+      const raw = node.textContent;
+      node.textContent = (raw.startsWith('\n') ? '\n' : '') + text + raw.match(/\s*$/)[0];
+      await post('/edit/element/content', { slide: cur.slide, index: cur.index, html: top.outerHTML });
+      toast('saved — reloading', 1400);
+    } catch (e) {
+      putBack(cur);
+      toast(`could not save the code: ${String(e.message || e).slice(0, 80)}`, 3000);
+    }
   }
 
   function beginInline(el, { sec, slide }) {
@@ -172,6 +265,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (!available()) return;
     const where = sectionOf(e.target);
     if (!where || where.sec.hasAttribute('data-markdown-removed')) return;
+    const code = e.target?.closest?.(CODE_EDITABLE);
+    if (code && where.sec.contains(code) && !code.closest('.terminal, aside, [data-chart]')) {
+      e.preventDefault();
+      beginCode(code, where);
+      return;
+    }
     const el = editableTarget(e.target, where.sec);
     if (!el) return;
     e.preventDefault();
@@ -182,6 +281,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   root.addEventListener('keydown', (e) => {
     if (!editing || e.target !== editing.el) return;
     e.stopPropagation();
+    if (editing.code) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); saveInline(); }
+      else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
+      else if (e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); }
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveInline(); }
     else if (e.key === 'Escape') { e.preventDefault(); cancelInline(); }
   }, true);
