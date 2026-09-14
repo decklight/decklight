@@ -2268,21 +2268,25 @@ export async function editMain(args, { onListen = null } = {}) {
     'POST /edit/agent/prefer': agentPreferRoute,
   }));
 
-  // The slide mutations are a file of their own (cli/edit-slides.mjs): ten
+  // The slide mutations are a file of their own (cli/edit-slides.mjs): thirteen
   // routes of one shape — read the deck, run a pure transform over it, put the
-  // result through applyEdit — that between them want three of editMain's
-  // bindings and none of the rest. Handed those three explicitly, they can be
-  // called from a test with a temp deck and no socket at all.
-  registerSlideRoutes(routes, { readDeck, applyEdit, history });
+  // result through applyEdit — that between them want four of editMain's
+  // bindings and none of the rest. Handed those four explicitly, they can be
+  // called from a test with a temp deck and no socket at all. `deckPath` is the
+  // odd one: /edit/asset saves a dropped image beside the deck, so it needs to
+  // know where the deck is and not only what it says.
+  registerSlideRoutes(routes, { readDeck, applyEdit, history, deckPath });
 
   // The routes that run BEFORE the shared body read, and the only reason the
   // dispatcher below has a sequence at all. `/edit/record`'s body is BINARY and
   // megabytes of it — a slide of speech is ~48 kB a second — so the string
   // concat and its 1 MB ceiling would both be wrong, and it reads the stream
-  // itself under its own 64 MB limit. The other three carry no body, and never
-  // had one read for them.
+  // itself under its own 64 MB limit. `/edit/asset` is the same case with a
+  // different payload — an image dropped on the stage, read under its own
+  // 25 MB limit. The other three carry no body, and never had one read for them.
   const BEFORE_BODY = new Set([
-    'POST /edit/record', 'POST /edit/shutdown', 'POST /edit/undo', 'POST /edit/redo',
+    'POST /edit/record', 'POST /edit/asset',
+    'POST /edit/shutdown', 'POST /edit/undo', 'POST /edit/redo',
   ]);
 
   // Prefix routes, tried IN ORDER once the exact table has missed and before
