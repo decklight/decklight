@@ -426,39 +426,3 @@ export function detectLocalVoice({
     suggest: PIPER_SUGGEST,
   };
 }
-
-/**
- * Ollama, which is not a speech engine and is the single most common thing a
- * local-AI user expects to be one.
- *
- * It is probed only so the answer can be honest. Serving LLMs is not serving
- * speech: there is no audio endpoint, and the models people name in this
- * context (Kokoro, Orpheus) either are not Ollama models or need a separate
- * audio decoder Ollama does not run.
- */
-export const OLLAMA_URL = 'http://127.0.0.1:11434/api/tags';
-
-export async function ollamaRunning({ fetchImpl = fetch, timeoutMs = 300 } = {}) {
-  // A machine without Ollama must not pay for the question. The signal alone is
-  // not enough: it only helps if the implementation honors it, and a socket
-  // that hangs before the abort lands would stall dev's startup — which is the
-  // one thing this budget exists to prevent. So the timeout is RACED, and the
-  // abort is the courtesy that lets the request stop early.
-  const ac = new AbortController();
-  let timer;
-  const expired = new Promise((done) => {
-    timer = setTimeout(() => { ac.abort(); done(null); }, timeoutMs);
-  });
-  try {
-    const answered = Promise.resolve()
-      .then(() => fetchImpl(OLLAMA_URL, { signal: ac.signal }))
-      .catch(() => null);
-    const r = await Promise.race([answered, expired]);
-    return !!r?.ok;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export const OLLAMA_NOTE = 'Ollama is running, but it serves LLMs and cannot speak — '
-  + 'it has no speech endpoint';

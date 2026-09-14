@@ -35,7 +35,7 @@ import {
 } from '../tools/tts-engines.mjs';
 import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
 import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
-import { detectLocalVoice, OLLAMA_NOTE } from '../tools/local-voice.mjs';
+import { detectLocalVoice } from '../tools/local-voice.mjs';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain } from './util.mjs';
 import { openUrl } from './open-browser.mjs';
@@ -115,7 +115,7 @@ const VALUE_FLAGS = new Set([
  */
 export function planServices({
   args = [], env = process.env, hasBin = onPath, saved = null,
-  detect = detectLocalVoice, ollama = false, exists = existsSync,
+  detect = detectLocalVoice, exists = existsSync,
 } = {}) {
   const { opt, opts } = argReader(args);
   const has = (flag) => args.includes(flag);
@@ -217,10 +217,7 @@ export function planServices({
       name: 'voice',
       why: `${ttsEngine} needs a GCP project — pass --project <id> or set GOOGLE_CLOUD_PROJECT`
         + (native?.why ? `\n    this machine has no system voice either: ${native.why}` : '')
-        + (native?.suggest ? `\n    ${native.suggest}` : ' — or use --tts-engine piper')
-        // Ollama is the thing a local-AI user assumes covers this. It does not,
-        // and being told why beats concluding decklight ignores their stack.
-        + (ollama ? `\n    ${OLLAMA_NOTE}` : ''),
+        + (native?.suggest ? `\n    ${native.suggest}` : ' — or use --tts-engine piper'),
     });
   } else if (status.reason === 'bad-project') {
     // caught here rather than at the first narration: the bridge would start,
