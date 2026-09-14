@@ -76,14 +76,25 @@ export function typeaheadKeydown(e, { query = '', onMove, onCommit, onType, onBa
  * Register in PRIORITY ORDER: when overlays somehow overlap, the one
  * registered first is the one the keyboard belongs to.
  *
- * An overlay is `{ isOpen(), close(), keydown(e), modal? }`. `keydown` returns
- * whether it consumed the key — true means the deck calls preventDefault, false
- * means the key is dropped. By default an overlay that is up owns the keyboard
- * whether or not it wanted this particular key, which is what stops `o` from
- * opening the overview behind an open dialog. An overlay that sets
- * `modal: false` instead lets the keys it did not consume fall through to the
- * deck's own shortcuts — for a panel meant to sit BESIDE the slide (the docked
- * review) rather than over it, so navigation still works while it is open.
+ * An overlay is `{ isOpen(), close(), keydown(e), modal?, transient? }`.
+ * `keydown` returns whether it consumed the key — true means the deck calls
+ * preventDefault, false means the key is dropped. By default an overlay that is
+ * up owns the keyboard whether or not it wanted this particular key, which is
+ * what stops `o` from opening the overview behind an open dialog. An overlay
+ * that sets `modal: false` instead lets the keys it did not consume fall
+ * through to the deck's own shortcuts — for a panel meant to sit BESIDE the
+ * slide (the docked review) rather than over it, so navigation still works
+ * while it is open.
+ *
+ * `transient: true` marks a PICKER — the palette, the finder, the theme and
+ * template pickers, the history list, a context menu: a list you choose from
+ * and that has no business sitting under whatever opens next. `opening()` is
+ * what a dialog calls as it opens, and it clears exactly those. It never
+ * touches a typing surface (the notes editor, a compose card, the commit
+ * window), because ⌘K reaches the commit window from inside the editor, and
+ * the sentence in the editor has to still be there when the commit is done.
+ * Four modules used to be handed their own `dismissOthers` closure by the
+ * engine, each naming a different subset of the pickers by hand.
  */
 export function createOverlays() {
   const entries = [];
@@ -91,9 +102,9 @@ export function createOverlays() {
     register(entry) { entries.push(entry); return entry; },
     /** The overlay that currently owns the keyboard, if any. */
     active: () => entries.find((o) => o.isOpen()),
-    /** Close every open overlay but `keep` — what opening a new one does. */
-    closeOthers(keep) {
-      for (const o of entries) if (o !== keep && o.isOpen()) o.close();
+    /** An overlay is opening: take every open picker (but `keep`) off the stage. */
+    opening(keep = null) {
+      for (const o of entries) if (o !== keep && o.transient && o.isOpen()) o.close();
     },
   };
 }

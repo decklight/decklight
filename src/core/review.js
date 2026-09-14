@@ -69,7 +69,7 @@ import {
 // subjects, and here the text has travelled further.
 
 export function createReview({
-  root, params, overlays, instance, toast, debugLog, dismissOthers = () => {},
+  root, params, overlays, instance, toast, debugLog,
   sections = () => [], titleOf, bodyOf, authorBase = () => null, authorReady = () => Promise.resolve(),
 }) {
   let el = null;
@@ -523,7 +523,7 @@ export function createReview({
       toast('nothing here can take a comment — decklight author, or decklight review');
       return;
     }
-    dismissOthers();
+    overlays.opening();
     close();                       // one review surface at a time
     const here = instance.state.slide;
     composeEl = document.createElement('div');
@@ -577,7 +577,7 @@ export function createReview({
 
   async function open() {
     if (el) return close();
-    dismissOthers();
+    overlays.opening();
     armed = null;
     armedSubmit = false;
     armedAnchor = null;

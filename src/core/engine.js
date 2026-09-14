@@ -30,6 +30,7 @@ import { createReview } from './review.js';
 import { createDebugLog } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
+import { createPreview } from './preview.js';
 import { readPref, writePref } from './prefs.js';
 
 const DEFAULTS = {
@@ -151,19 +152,30 @@ function autoPinY(sec, config) {
   return hasContent ? deckY : null;
 }
 
+/** The pin Y a section resolves to under its data-layout, or null for none. */
+function pinYFor(sec, config) {
+  const layout = sec.getAttribute('data-layout');
+  if (layout === 'pinned') {
+    const n = parseFloat(sec.getAttribute('data-pin'));
+    return isFinite(n) ? n : (deckPinY(config) ?? PIN_DEFAULT_Y);
+  }
+  if (layout === 'centered' || layout === 'top') return null;
+  return autoPinY(sec, config); // auto and the split layouts keep the deck's pin
+}
+
 function setupPinnedTitles(sections, config) {
-  sections.forEach((sec) => {
+  // Three passes, not one loop. Measuring forces layout, and a read that
+  // follows a write on ANOTHER section flushes style for the whole page — so
+  // one loop that wrote, read, wrote, read cost up to two synchronous reflows
+  // per slide, on every sync(), every font change and every L press. Writes
+  // first, then every read, then the writes that depend on them: the browser
+  // lays out once. Sections are absolutely positioned over the stage, so
+  // measuring them all at once under .pin-measure changes nothing about any
+  // one of them.
+  const toMeasure = [];
+  for (const sec of sections) {
     const heading = leadingHeading(sec);
-    const layout = sec.getAttribute('data-layout');
-    let y;
-    if (layout === 'pinned') {
-      const n = parseFloat(sec.getAttribute('data-pin'));
-      y = isFinite(n) ? n : (deckPinY(config) ?? PIN_DEFAULT_Y);
-    } else if (layout === 'centered' || layout === 'top') {
-      y = null;
-    } else {
-      y = autoPinY(sec, config); // auto and the split layouts keep the deck's pin
-    }
+    const y = pinYFor(sec, config);
     const subtitle = detectSubtitle(sec, heading);
     sec.querySelector(':scope > .pin-title')?.classList.remove('pin-title');
     sec.querySelector(':scope > .pin-subtitle')?.classList.remove('pin-subtitle');
@@ -172,25 +184,31 @@ function setupPinnedTitles(sections, config) {
       sec.style.removeProperty('--pin-y');
       sec.style.removeProperty('--pin-sub-y');
       sec.style.removeProperty('--pin-space');
-      return;
+      continue;
     }
     heading.classList.add('pin-title');
+    // The subtitle joins the pinned header block, directly under the title.
+    subtitle?.classList.add('pin-subtitle');
     sec.setAttribute('data-pinned', '');
     sec.style.setProperty('--pin-y', y + 'px');
     // Inactive sections are display:none — measure under a momentary
     // display:flex + visibility:hidden (no paint happens within this task).
     sec.classList.add('pin-measure');
-    const h = heading.offsetHeight || 0;
-    let headerBottom = y + h;
+    toMeasure.push({ sec, heading, subtitle, y });
+  }
+  for (const m of toMeasure) {
+    m.titleH = m.heading.offsetHeight || 0;
+    m.subH = m.subtitle ? (m.subtitle.offsetHeight || 0) : 0;
+  }
+  for (const { sec, subtitle, y, titleH, subH } of toMeasure) {
+    let headerBottom = y + titleH;
     if (subtitle) {
-      // The subtitle joins the pinned header block, directly under the title.
-      subtitle.classList.add('pin-subtitle');
       sec.style.setProperty('--pin-sub-y', Math.round(headerBottom + PIN_SUB_GAP) + 'px');
-      headerBottom += PIN_SUB_GAP + (subtitle.offsetHeight || 0);
+      headerBottom += PIN_SUB_GAP + subH;
     }
     sec.classList.remove('pin-measure');
     sec.style.setProperty('--pin-space', Math.round(headerBottom + PIN_GAP) + 'px');
-  });
+  }
 }
 
 /**
@@ -215,7 +233,7 @@ function splitContent(sec) {
     !el.matches('h1, h2, .subtitle, aside, script, style, .decklight-hero-logo, .slide-bg'));
 }
 
-function setupSplit(sections) {
+function setupSplit(sections, slideNumber = (i) => i + 1) {
   sections.forEach((sec, i) => {
     sec.querySelectorAll(':scope > .split-columns, :scope > .split-footer')
       .forEach((el) => el.classList.remove('split-columns', 'split-footer'));
@@ -224,7 +242,7 @@ function setupSplit(sections) {
       return;
     }
     const content = splitContent(sec);
-    checkSplitConflict(sec, content, i + 1);
+    checkSplitConflict(sec, content, slideNumber(i));
     if (content.length === 1 && content[0].matches('ul, ol')) {
       content[0].classList.add('split-columns');
       return;
@@ -340,6 +358,14 @@ export function init(userConfig = {}) {
 
   const root = document.querySelector('.decklight');
   if (!root) throw new Error('Decklight: no .decklight element found');
+  // A second init() on a running deck used to build a second engine over the
+  // first: two keydown handlers, two hashchange listeners, two ResizeObservers
+  // — one arrow press advanced two decks. Nothing here has a teardown, so the
+  // honest answer is the instance that already exists.
+  if (root.__decklight) {
+    console.warn('Decklight: init() called again on a running deck — returning the existing instance');
+    return root.__decklight;
+  }
 
   // Which dialog owns the keyboard right now. Filled in below the features, in
   // priority order; consulted by onKey before the deck's own shortcuts.
@@ -476,7 +502,6 @@ export function init(userConfig = {}) {
     slideOf: () => instance.state.slide,
     sectionAt: (idx) => instance._sections[idx - 1],
     editmode: () => editmode,
-    dismissOthers: () => { themes.closePicker(); if (palEl) closePalette(); },
   });
 
   // Deck templates, into the deck you already have (UNITS#REST). Author mode
@@ -491,7 +516,6 @@ export function init(userConfig = {}) {
     // the LIVE theme, so a preview is dressed like the deck you are looking at
     // and not like the file on disk
     themes: () => themes,
-    dismissOthers: () => { themes.closePicker(); if (palEl) closePalette(); },
   });
 
   // ----- slide finder: / opens find-a-slide with live preview ---------------
@@ -500,7 +524,15 @@ export function init(userConfig = {}) {
   // Matching is word-AND over the slide's text; title hits rank above
   // body-only hits, and each match is listed by its title.
   let finderEl = null, finderSel = 0, finderQuery = '', finderMatches = [], finderDebounce;
-  let finderFrameReady = false, finderPending = null;
+  // `entry` is a finder row: a slide of THIS deck, or a module — another file,
+  // which the iframe has to actually load rather than postMessage a goto into.
+  // Faithful preview: the src carries the active theme (generated/custom
+  // travel as tokens).
+  const finderPreview = createPreview({
+    docOf: (entry) => entry.href ?? location.pathname,
+    srcFor: (entry) => (entry.href ?? location.pathname) + themes.previewQuery() + '#/' + (entry.slide ?? 1) + '/0',
+    messageFor: (entry) => ({ __decklightPreview: { goto: [entry.slide ?? 1, 0] } }),
+  });
   function finderIndex() {
     const rows = buildIndex({
       sections: instance._sections,
@@ -553,34 +585,7 @@ export function init(userConfig = {}) {
       || (playlist || hasMarkersDOM ? 'type to find a slide or module…' : 'type to find a slide…');
     bar.classList.toggle('tp-active', !!finderQuery);
   }
-  // `entry` is a finder row: a slide of THIS deck, or a module — another file,
-  // which the iframe has to actually load rather than postMessage a goto into
-  function finderPreviewSwap(frame, entry) {
-    const doc = entry.href ?? location.pathname;
-    const slide = entry.slide ?? 1;
-    if (frame.dataset.doc !== doc) {
-      frame.dataset.doc = doc;
-      finderFrameReady = false;
-      // A goto queued while the PREVIOUS document was loading is about that
-      // document. Left in place, it fired when this one loaded and swapped the
-      // frame straight back to the module the cursor had already left.
-      finderPending = null;
-      frame.addEventListener('load', () => {
-        if (frame.dataset.doc !== doc) return; // superseded before it loaded
-        finderFrameReady = true;
-        if (finderPending && finderEl) {
-          const p = finderPending;
-          finderPending = null;
-          finderPreviewSwap(frame, p);
-        }
-      }, { once: true });
-      // faithful preview: carry the active theme (generated/custom travel as tokens)
-      frame.src = doc + themes.previewQuery() + '#/' + slide + '/0';
-      return;
-    }
-    if (!finderFrameReady) { finderPending = entry; return; }
-    frame.contentWindow?.postMessage({ __decklightPreview: { goto: [slide, 0] } }, '*');
-  }
+  const finderPreviewSwap = (frame, entry) => finderPreview.show(frame, entry);
   function selectFinderRow(i, immediate) {
     if (!finderMatches.length) return;
     finderSel = selectInList(finderEl.querySelectorAll('.tp-row'), i, 'tp-selected');
@@ -609,8 +614,7 @@ export function init(userConfig = {}) {
   }
   function openSlideFinder() {
     if (finderEl) return closeSlideFinder();
-    themes.closePicker();
-    editmode.restore.close();
+    overlays.opening();
     finderQuery = '';
     finderEl = document.createElement('div');
     finderEl.className = 'decklight-theme-picker decklight-finder';
@@ -638,7 +642,7 @@ export function init(userConfig = {}) {
   // filters, Enter runs. Commands with arguments drill into their own pickers
   // (theme, font, narration, module, slide finder). Text that matches no
   // command falls back to a "search slides for …" row.
-  let palEl = null, palSel = 0, palQuery = '', palRows = [];
+  let palEl = null, palSel = 0, palQuery = '', palRows = [], palCommands = [];
   // ── HIDDEN_SLIDES from the palette ──────────────────────────────────────
   const hasHiddenSlides = () => (instance._sections ?? []).some((s) => s.hasAttribute('data-hidden'));
   const currentHidden = () => !!instance._sections?.[instance.state.slide - 1]?.hasAttribute('data-hidden');
@@ -826,7 +830,7 @@ export function init(userConfig = {}) {
     // search fallback all live in palette.js; the commands themselves stay
     // here, where each one closes over what it runs.
     palRows = paletteRows({
-      commands: paletteCommands(),
+      commands: palCommands,
       query: palQuery,
       totalSlides: instance.state.totalSlides,
       makeGotoRow: (n, total) => ({
@@ -877,9 +881,12 @@ export function init(userConfig = {}) {
   }
   function openPalette() {
     if (palEl) return closePalette();
-    if (finderEl) closeSlideFinder();
-    editmode.restore.close();
+    overlays.opening();
     palQuery = '';
+    // built once per open, not once per keystroke: the list consults a dozen
+    // modules for their state and scans the deck for hidden slides, and none
+    // of that changes while the palette is up
+    palCommands = paletteCommands();
     palEl = document.createElement('div');
     palEl.className = 'decklight-narr decklight-palette';
     palEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Commands"></div>';
@@ -896,6 +903,7 @@ export function init(userConfig = {}) {
   let fontPickEl = null, fontPickSel = 0;
   function openFontPicker() {
     if (fontPickEl) return closeFontPicker();
+    overlays.opening();
     fontPickEl = document.createElement('div');
     fontPickEl.className = 'decklight-narr decklight-font-picker';
     fontPickEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Fonts"></div>';
@@ -1077,8 +1085,10 @@ export function init(userConfig = {}) {
       else sec.setAttribute('data-layout', name);
     },
     relayout: (sec, idx) => {
-      setupPinnedTitles(instance._sections, config);
-      setupSplit(instance._sections);
+      // the one slide that changed, not the whole deck: pinning measures, and
+      // measuring every slide for an L press on one was most of its cost
+      setupPinnedTitles([sec], config);
+      setupSplit([sec], () => idx);
       checkOverflow(sec, idx);
       return sec.hasAttribute('data-split-conflict');
     },
@@ -1690,13 +1700,15 @@ export function init(userConfig = {}) {
   // is up owns the keyboard.
   //
   // Registration order is priority, and it decides a tie that should not
-  // happen: opening an overlay dismisses whatever else is up, so at most one
+  // happen: a dialog calls overlays.opening() as it opens, which takes every
+  // picker off the stage (overlay.js says which ones count), so at most one
   // answers isOpen(). A feature that has moved to its own module registers
   // there instead — the theme picker (createThemes, so first) and the two
   // narration dialogs (createNarration, so after this list) have.
   overlays.register({
     isOpen: () => !!palEl,
     close: closePalette,
+    transient: true,
     keydown: (e) => typeaheadKeydown(e, {
       query: palQuery,
       onMove: (d) => selectPalRow(palSel + d),
@@ -1710,6 +1722,7 @@ export function init(userConfig = {}) {
   overlays.register({
     isOpen: () => !!fontPickEl,
     close: closeFontPicker,
+    transient: true,
     keydown: (e) => typeaheadKeydown(e, {
       onMove: (d) => selectFontRow(fontPickSel + d),
       onCommit: () => { applyFont(fontPickSel); closeFontPicker(); },
@@ -1719,6 +1732,7 @@ export function init(userConfig = {}) {
   overlays.register({
     isOpen: () => !!finderEl,
     close: closeSlideFinder,
+    transient: true,
     keydown: (e) => typeaheadKeydown(e, {
       query: finderQuery,
       onMove: (d) => selectFinderRow(finderSel + d, false),
@@ -2050,12 +2064,6 @@ export function init(userConfig = {}) {
     instance,
     toast,
     debugLog,
-    dismissOthers: () => {
-      themes.closePicker();
-      if (finderEl) closeSlideFinder();
-      if (palEl) closePalette();
-      editmode.restore.close();
-    },
     sections: () => instance._sections ?? [],
     // the finder's own helpers, so a comment remembers a slide by the name the
     // finder would give it and the two can never disagree
@@ -2087,12 +2095,6 @@ export function init(userConfig = {}) {
   const editmode = createEditMode({
     root, config, params, printMode, toast, progress: progressToast, debugLog, overlays, instance,
     notesSegs,
-    // the R dialog shares the stage with these three; the engine owns two
-    dismissOthers: () => {
-      themes.closePicker();
-      if (finderEl) closeSlideFinder();
-      if (palEl) closePalette();
-    },
   });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
   // R programmatically — and what the headless overlay harness drives, since

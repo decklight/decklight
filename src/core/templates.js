@@ -31,6 +31,7 @@
  */
 
 import { closeOnBackdrop, selectInList, typeaheadKeydown } from './overlay.js';
+import { createPreview } from './preview.js';
 
 /**
  * How long the cursor rests on a row before its preview is fetched.
@@ -41,7 +42,7 @@ import { closeOnBackdrop, selectInList, typeaheadKeydown } from './overlay.js';
  */
 const PREVIEW_SETTLE_MS = 120;
 
-export function createTemplates({ root, overlays, editmode, deck, themes, toast, dismissOthers }) {
+export function createTemplates({ root, overlays, editmode, deck, themes, toast }) {
   const base = () => editmode().base();
   const available = () => editmode().available() === true;
 
@@ -62,8 +63,6 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast,
   // One iframe, reloaded when the DOCUMENT changes and postMessaged when only
   // the slide does — `finderPreviewSwap`'s mechanism exactly, because the
   // finder has the same two cases (a slide of this deck, or another file).
-  let frameReady = false;
-  let framePending = null;
   let previewTimer = 0;
   // name → { slides } | { error }. Filled by whichever of the two asks first:
   // browsing the list previews a template, which needs its slide list, so by
@@ -80,8 +79,6 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast,
     mode = 'insert';
     sel = 0;
     filter = '';
-    frameReady = false;
-    framePending = null;
   }
 
   /** The rows the current view offers, as data — render() turns them into DOM. */
@@ -319,27 +316,16 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast,
    * carrying `embedded`, without which the preview would draw its own progress
    * bar, its own toasts and its own onboarding over the top of the slide.
    */
+  const preview = createPreview({
+    docOf: (t) => t.doc,
+    srcFor: (t) => `${t.doc}#/${t.slide}/0`,
+    messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, 0] } }),
+  });
   function previewSwap(doc, slide) {
     const frame = el?.querySelector('iframe');
     if (!frame) return;
     frame.hidden = false;
-    if (frame.dataset.doc !== doc) {
-      frame.dataset.doc = doc;
-      frameReady = false;
-      framePending = null;
-      frame.addEventListener('load', () => {
-        frameReady = true;
-        if (framePending && el) {
-          const p = framePending;
-          framePending = null;
-          previewSwap(p.doc, p.slide);
-        }
-      }, { once: true });
-      frame.src = `${doc}#/${slide}/0`;
-      return;
-    }
-    if (!frameReady) { framePending = { doc, slide }; return; }
-    frame.contentWindow?.postMessage({ __decklightPreview: { goto: [slide, 0] } }, '*');
+    preview.show(frame, { doc, slide });
   }
 
   // ----- reading -------------------------------------------------------------
@@ -361,7 +347,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast,
 
   async function open(how = 'insert') {
     if (!available()) { toast('templates install through the author server — decklight author'); return; }
-    dismissOthers?.();
+    overlays.opening();
     mode = how === 'apply' ? 'apply' : 'insert';
     listing = null;
     view = 'list';
@@ -517,6 +503,6 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast,
     }) || true;
   }
 
-  overlays.register({ isOpen, close, keydown });
+  overlays.register({ isOpen, close, keydown, transient: true });
   return { open, close, isOpen, available };
 }

@@ -12,6 +12,7 @@
 
 import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { createPreview } from './preview.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
 
 /**
@@ -607,7 +608,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   }
   function openThemePicker() {
     if (pickerEl) return closeThemePicker();
-    overlays.closeOthers(overlay);
+    overlays.opening(overlay);
     const list = themeList();
     if (!hasThemes && !list.length) return;
     pickerFilter = '';
@@ -672,7 +673,6 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // the embedded instance) instead of swapping src — instant, and no ~600 KB
   // re-parse per candidate inside bundles. Generated/custom rows travel as
   // tokens; stock rows as names.
-  let pickerFrameReady = false, pickerPendingName = null;
   function previewMessage(name) {
     if (name === GEN_ROW || customThemes[name] || (genTheme && name === genTheme.name)) {
       const cand = name === GEN_ROW ? pickerCandidate
@@ -681,24 +681,14 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     }
     return { theme: name };
   }
-  function previewSwap(frame, name) {
-    if (!frame.dataset.booted) {
-      frame.dataset.booted = '1';
-      pickerFrameReady = false;
-      frame.addEventListener('load', () => {
-        pickerFrameReady = true;
-        if (pickerPendingName !== null && pickerEl) {
-          const pending = pickerPendingName;
-          pickerPendingName = null;
-          previewSwap(frame, pending);
-        }
-      }, { once: true });
-      frame.src = previewSrc(name);
-      return;
-    }
-    if (!pickerFrameReady) { pickerPendingName = name; return; }
-    frame.contentWindow?.postMessage({ __decklightPreview: previewMessage(name) }, '*');
-  }
+  // one document per picker session: the first row loads it, every row after
+  // that is a message into it
+  const preview = createPreview({
+    docOf: () => 'picker',
+    srcFor: previewSrc,
+    messageFor: (name) => ({ __decklightPreview: previewMessage(name) }),
+  });
+  const previewSwap = (frame, name) => preview.show(frame, name);
   function commitPicker() {
     const name = pickerEntries[pickerSel];
     if (name === undefined) return;
@@ -724,6 +714,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   const overlay = overlays.register({
     isOpen: () => !!pickerEl,
     close: closeThemePicker,
+    transient: true,
     keydown(e) {
       switch (e.key) {
         case 'ArrowDown': selectPickerRow(pickerSel + 1, false); break;
