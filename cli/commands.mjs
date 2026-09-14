@@ -71,6 +71,7 @@ export const COMMANDS = {
   associate: { module: './associate.mjs', main: 'associateMain' },
   'report-bug': { module: './report-bug.mjs', main: 'reportBugMain' },
   doctor: { module: './doctor.mjs', main: 'doctorMain' },
+  check: { module: './check.mjs', main: 'checkMain' },
 };
 
 /** `refresh` and `export` are castMain subcommands; `--help` must still reach it bare. */
@@ -101,12 +102,13 @@ export function commandSummary(name) {
  * newcomer who typed the wrong thing does not need the other thirty commands
  * on screen to find the right one — they need these six and a way to the rest.
  */
-export const START_COMMANDS = ['init', 'author', 'present', 'import', 'bundle', 'publish', 'doctor'];
+export const START_COMMANDS = ['init', 'author', 'check', 'present', 'import', 'bundle', 'publish', 'doctor'];
 
 /** One line each, written to fit a terminal — GLOBAL_HELP's paragraphs wrap. */
 const SHORT = {
   init: 'start a deck here, plus the skill that teaches an AI agent to write it',
   author: 'work on a deck: live reload, edits from the browser, an AI agent on A',
+  check: 'lint one deck headlessly: what is clipped, missing or out of step, one exit code',
   present: 'play a deck you did not write: read-only, under a CSP, what runs is listed',
   import: 'bring a PowerPoint, Keynote or Google Slides deck across',
   bundle: 'one self-contained HTML file to hand over',
@@ -168,7 +170,7 @@ export const SYNONYMS = {
   build: 'bundle', pack: 'bundle', flatten: 'bundle',
   deploy: 'publish', ship: 'publish', pages: 'publish',
   convert: 'import', pptx2html: 'import',
-  check: 'doctor', env: 'doctor', diagnose: 'doctor',
+  env: 'doctor', diagnose: 'doctor', lint: 'check', verify: 'check', validate: 'check',
   update: 'upgrade', undo: 'restore', log: 'history',
   themes: 'theme', plugins: 'plugin', templates: 'template', voices: 'voice', engines: 'engine',
 };
@@ -317,6 +319,10 @@ Commands:
   doctor   what this machine can do — Chrome, ffmpeg, git, the optional deps, the agents on PATH —
            and, for each thing missing, which commands it unlocks and the line that installs it
            EXAMPLE: decklight doctor
+  check    lint ONE deck headlessly and say, per slide, what you would otherwise only find by
+           looking — clipped content, an asset that is not on disk, ⟨CLICK⟩ beats that do not
+           line up with the builds; exit 1 on an error (an agent after every edit, you before a talk)
+           EXAMPLE: decklight check deck.html   (--json for an agent, --no-render without Chrome)
   help     show this help, or a command's help: decklight help bundle
   version  print the installed version (also --version / -v)
 `;
