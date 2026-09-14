@@ -25,7 +25,7 @@
 // no bridge is started, nothing is spent. You are reading your own notes aloud.
 
 import { editMain } from './edit.mjs';
-import { openUrl } from './init.mjs';
+import { openUrl } from './open-browser.mjs';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';

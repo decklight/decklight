@@ -88,6 +88,40 @@ test('unknown subcommand exits 1 with the global help', () => {
   assert.match(r.stdout, /Commands:/);
 });
 
+test('an unknown command that has a name says which one, with the rest of the line kept', () => {
+  const r = spawnSync('node', [CLI, 'edit', 'talk.html', '--port', '9000'], { encoding: 'utf8' });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /unknown command "edit"/);
+  assert.match(r.stderr, /did you mean: {2}decklight author talk\.html --port 9000/,
+    'the corrected line can be copied, not reconstructed');
+  const typo = spawnSync('node', [CLI, 'pubish'], { encoding: 'utf8' });
+  assert.match(typo.stderr, /did you mean: {2}decklight publish/);
+  const nothing = spawnSync('node', [CLI, 'frobnicate'], { encoding: 'utf8' });
+  assert.doesNotMatch(nothing.stderr, /did you mean/, 'no guess when nothing is close');
+});
+
+test('a file as the first argument runs the command it implies', () => {
+  // the deck does not exist, so each command refuses — but by the FILE's name,
+  // from the right command, which is the whole point
+  const html = spawnSync('node', [CLI, 'no-such-deck.html'], { encoding: 'utf8' });
+  assert.equal(html.status, 1);
+  assert.match(html.stderr, /decklight author: no such deck: no-such-deck\.html/);
+  assert.doesNotMatch(html.stderr, /unknown command/);
+  const pptx = spawnSync('node', [CLI, 'no-such.pptx'], { encoding: 'utf8' });
+  assert.equal(pptx.status, 1);
+  assert.match(pptx.stderr, /decklight import/);
+  assert.doesNotMatch(pptx.stderr, /unknown command/);
+});
+
+test('bare decklight off a terminal prints the short help and exits 0', () => {
+  const r = spawnSync('node', [CLI], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /^decklight — /);
+  assert.match(r.stdout, /^ {2}author /m);
+  assert.match(r.stdout, /decklight help/, 'and says where the rest is');
+  assert.doesNotMatch(r.stdout, /^ {2}lipsync /m, 'the long list stays behind decklight help');
+});
+
 test('a tiny cast runs through the dispatcher end-to-end', { skip: recSkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-cli-'));
   const yamlPath = path.join(dir, 'tiny.term.yaml');

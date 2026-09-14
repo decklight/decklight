@@ -14,7 +14,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { versionLine, parseDescribe } from './util.mjs';
-import { GLOBAL_HELP, resolveCommand } from './commands.mjs';
+import { GLOBAL_HELP, resolveCommand, routeForPath, shortHelp, suggestCommand } from './commands.mjs';
 
 
 function globalHelp(exitCode = 0) {
@@ -50,7 +50,19 @@ if (existsSync(new URL('../.git', import.meta.url))) {
 }
 const banner = versionLine(version, buildInfo);
 
-if (!cmd || cmd === '--help' || cmd === '-h') globalHelp();
+if (cmd === '--help' || cmd === '-h') globalHelp();
+// Bare `decklight`, on a terminal, reads the room: no deck here offers to
+// start one, one deck offers to open it, several offer a choice (cli/start.mjs).
+// Off a terminal — a script, a pipe, a test — it prints the short help and
+// exits 0, the way `git` does.
+if (!cmd) {
+  if (process.stdin.isTTY && process.stdout.isTTY) {
+    cmd = 'start';
+  } else {
+    process.stdout.write(shortHelp());
+    process.exit(0);
+  }
+}
 // A newer decklight than the one npx pinned (#314). Read from a cache the last
 // run left behind — never a fetch on this path — and written to stderr like the
 // banner below, for the same reason: piped output stays clean.
@@ -101,10 +113,24 @@ try {
 // with the stack behind DECKLIGHT_DEBUG — never as the raw Node stack a user
 // used to get (`decklight import` did exactly that on any install path with a
 // space in it, #275).
-const command = resolveCommand(cmd);
+// The file is the command: `decklight talk.html` opens it in author mode,
+// `decklight talk.pptx` imports it, `decklight talk.decklight` presents it.
+let command = resolveCommand(cmd);
 if (!command) {
-  process.stderr.write(`decklight: unknown command "${cmd}"\n\n`);
-  globalHelp(1);
+  const verb = cmd === 'start' ? 'start' : routeForPath(cmd);
+  if (verb) {
+    if (cmd !== 'start') rest = [cmd, ...rest];
+    cmd = verb;
+    command = cmd === 'start' ? { module: './start.mjs', main: 'startMain' } : resolveCommand(cmd);
+  }
+}
+if (!command) {
+  const meant = suggestCommand(cmd);
+  process.stderr.write(`decklight: unknown command "${cmd}"\n`);
+  if (meant) process.stderr.write(`  did you mean:  decklight ${[meant, ...rest].join(' ')}\n`);
+  process.stderr.write('\n');
+  process.stdout.write(shortHelp());
+  process.exit(1);
 }
 try {
   if (command.spawn) {

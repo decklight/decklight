@@ -26,22 +26,29 @@ specified and implemented by agents, and a human approves what ships.
 ## Quick start
 
 ```sh
-npx decklight@latest init "My Deck"
+npm create decklight my-talk
 ```
 
-That writes a self-contained `deck.html` you can double-click, plus a
+That writes a self-contained `deck.html` in `my-talk/`, plus a
 `.claude/skills/decklight/` skill and an `AGENTS.md`, so Claude Code (or any
 agent that reads `AGENTS.md`) has the real authoring contract on hand instead of
-guessing from Reveal.js memory. The `@latest` matters: a bare `npx decklight`
-keeps reusing whatever version npx unpacked the first time.
+guessing from Reveal.js memory. Then it asks whether to open the deck in author
+mode: live reload, edits from the browser, an AI agent on `A`, and every edit
+auto-committed. Say yes. (`npx decklight@latest init "My Talk"` does the same
+in the current directory.)
 
-To work on it with live reload, browser-side editing and auto-commits:
+After that you rarely need a command name:
 
 ```sh
-npx decklight author deck.html
+decklight                 # in a folder: start a deck, or pick one to open
+decklight talk.html       # open a deck in author mode
+decklight talk.pptx       # bring a PowerPoint, Keynote or Slides deck across
+decklight talk.decklight  # play somebody else's deck, read-only
+decklight doctor          # what this machine can do, and how to get the rest
 ```
 
-Or skip the scaffold and write the HTML yourself. This is the whole anatomy:
+Type a command wrong and it tells you which one you meant. Or skip the scaffold
+and write the HTML yourself. This is the whole anatomy:
 
 ```html
 <!doctype html>
@@ -109,9 +116,9 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Writing | |
 |---|---|
-| `init ["Title"]` | scaffold a deck and the agent skill (`--open`, `--from <template>`) |
+| `init ["Title"]` | scaffold a deck and the agent skill, then offer author mode (`--author`, `--from <template>`) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob |
-| `author deck.html` | live reload plus every bridge this machine can run, under one Ctrl-C |
+| `author deck.html` | live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser) |
 | `record deck.html` | record the narration in your own voice, one ⟨CLICK⟩ beat at a time |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`refresh` re-runs, `export` writes asciicast) |
 
@@ -147,6 +154,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `tts` / `lipsync` | the live voice bridge and the lip-sync bridge the player talks to |
 | `associate` | make double-clicking a `.decklight` file open `present` |
 | `report-bug` | print the version and environment facts a bug report needs |
+| `doctor` | what this machine can do (Chrome, ffmpeg, git, agents…) and the install line for what it can't |
 
 The runtime has zero dependencies. highlight.js and Temml are bundled at build
 time; `node-pty`, `js-yaml`, `sigstore` and Playwright are optional and used by

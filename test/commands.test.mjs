@@ -11,7 +11,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { COMMANDS, GLOBAL_HELP, listedCommands, resolveCommand } from '../cli/commands.mjs';
+import {
+  COMMANDS, GLOBAL_HELP, START_COMMANDS, listedCommands, resolveCommand, routeForPath, shortHelp, suggestCommand,
+} from '../cli/commands.mjs';
 
 const visible = Object.entries(COMMANDS).filter(([, row]) => !row.alias).map(([name]) => name);
 
@@ -60,4 +62,43 @@ test('the six unit commands share one main and pass their own name', () => {
     assert.equal(COMMANDS[kind].module, './units.mjs');
     assert.deepEqual(COMMANDS[kind].args(['list'], kind), [kind, ['list']]);
   }
+});
+
+// ── the newcomer's surface: the short help, the file as the command, did-you-mean ──
+
+test('the short help names the journey, every row a real command with a summary, and points at the rest', () => {
+  const text = shortHelp();
+  for (const c of START_COMMANDS) {
+    assert.ok(COMMANDS[c], `${c} is in the roster`);
+    assert.match(text, new RegExp(`^  ${c} +\\S`, 'm'), `${c} has a line`);
+  }
+  assert.match(text, /^Commands:$/m, 'the unknown-command test reads this header');
+  assert.match(text, /decklight help +every command \(\d+ more\)/, 'the way to the other thirty');
+  assert.match(text, /decklight <deck\.html>/, 'and the shape a newcomer will actually type');
+});
+
+test('a file as the first argument implies its verb', () => {
+  assert.equal(routeForPath('talk.html'), 'author');
+  assert.equal(routeForPath('slides/Talk.HTM'), 'author');
+  assert.equal(routeForPath('talk.decklight'), 'present', 'a container is somebody else\u2019s deck: read-only');
+  assert.equal(routeForPath('Q3 Review.pptx'), 'import');
+  assert.equal(routeForPath('talk.key'), 'import');
+  assert.equal(routeForPath('https://docs.google.com/presentation/d/abc/edit'), 'import');
+  assert.equal(routeForPath('demo.term.yaml'), 'cast');
+  assert.equal(routeForPath('notes.txt'), null, 'an unknown kind stays an unknown command');
+  assert.equal(routeForPath('--help'), null);
+  assert.equal(routeForPath(''), null);
+});
+
+test('did-you-mean: the word for the command first, then a unique prefix, then a slipped finger', () => {
+  assert.equal(suggestCommand('edit'), 'author', 'edit is not a typo of author, it is the word people use for it');
+  assert.equal(suggestCommand('new'), 'init');
+  assert.equal(suggestCommand('preview'), 'present');
+  assert.equal(suggestCommand('build'), 'bundle');
+  assert.equal(suggestCommand('pub'), 'publish', 'a prefix that names one command');
+  assert.equal(suggestCommand('pubish'), 'publish', 'one edit away');
+  assert.equal(suggestCommand('bundel'), 'bundle', 'a transposition is two edits');
+  assert.equal(suggestCommand('frobnicate'), null, 'nothing close: no guess is better than a wrong one');
+  assert.equal(suggestCommand('author'), null, 'a real command needs no suggestion');
+  assert.equal(suggestCommand('p'), null, 'one letter matches too many to guess from');
 });

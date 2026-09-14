@@ -1,0 +1,47 @@
+# Publishes `create-decklight` — the one-line shim behind `npm create decklight`
+# (create-decklight/README.md says why it exists). Dispatched by hand, never on
+# a tag: it changes rarely, and it is a SEPARATE npm package with its own
+# Trusted Publisher registration, so a release of decklight itself must not
+# depend on it.
+#
+# The one-time setup, before the first run: publish 0.1.0 by hand from a
+# machine that is logged in (`cd create-decklight && npm publish`), then on
+# npmjs.com: package → Settings → Trusted Publisher → decklight/decklight,
+# workflow file publish-create-decklight.yml. After that, bump the version in
+# create-decklight/package.json and run this workflow.
+name: publish create-decklight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write   # npm Trusted Publishing (OIDC) — same arrangement as release.yml
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: create-decklight
+    steps:
+      - uses: actions/checkout@v4
+
+      # no registry-url, for the reason release.yml spells out: a configured
+      # token pre-empts the OIDC exchange
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install -g npm@11
+
+      - run: node --check bin.mjs && node --check lib.mjs
+
+      # a version already on the registry is not an error worth a red run
+      - name: publish, unless this version is already out
+        run: |
+          v="$(node -p "require('./package.json').version")"
+          if npm view "create-decklight@$v" version >/dev/null 2>&1; then
+            echo "create-decklight@$v is already published — bump the version to publish again"
+          else
+            npm publish
+          fi
