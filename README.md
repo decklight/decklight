@@ -78,6 +78,12 @@ and write the HTML yourself. This is the whole anatomy:
 
 ## What's in the box
 
+- **Editing in the browser.** In author mode, double-click any text to change
+  it, drop a picture onto a slide to add it, and add, duplicate, move or delete
+  slides from the palette or the right-click menu. Every edit lands in the file
+  and `Z` takes it back. `decklight check` reports what an author or an agent
+  would otherwise only see by looking: clipped slides, missing images, notes
+  whose ⟨CLICK⟩ count disagrees with the builds.
 - **Builds.** `data-build` on a container makes each child a step. The layout
   never jumps.
 - **Diagrams.** Inline SVG written with `var(--d-*)` tokens recolours with every
@@ -118,7 +124,8 @@ Every item above has a SPEC section behind it. The index at the top of
 |---|---|
 | `init ["Title"]` | scaffold a deck and the agent skill, then offer author mode (`--author`, `--from <template>`) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob |
-| `author deck.html` | live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser) |
+| `author deck.html` | live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser). In the browser: double-click text to edit it, drop a picture onto a slide, right-click for the slide menu |
+| `check deck.html` | lint it headlessly: clipped slides, missing assets, ⟨CLICK⟩ beats out of step with the builds (`--json`) |
 | `record deck.html` | record the narration in your own voice, one ⟨CLICK⟩ beat at a time |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`refresh` re-runs, `export` writes asciicast) |
 

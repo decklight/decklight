@@ -17,6 +17,8 @@ import assert from 'node:assert/strict';
 
 import {
   readAttrs, writeAttrs, splitOpenTag, injectBeforeBodyEnd, cleanNotes, NOTES_ASIDE,
+  sectionBodies, slideHeading, slideRange,
+  insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage,
 } from '../tools/deck-html.mjs';
 
 // ── splitOpenTag ───────────────────────────────────────────────────────────
@@ -216,4 +218,232 @@ test('only the canonical spelling counts as a notes aside', () => {
     'an aside is a layout element too; notes are the ones the deck writer marked');
   assert.equal(NOTES_ASIDE.exec('<aside class="notes fragment">x</aside>'), null,
     'pinned as it behaves: the pattern is the exact tag decklight itself writes');
+});
+
+// ── whole-slide operations: new · duplicate · delete · reorder ─────────────
+// The slide bar's verbs, as string surgery on the deck FILE. The assertion
+// that matters in all of them is the same one: everything that was not the
+// slide being moved comes out byte for byte — the head, the runtime script
+// tags, the closing `</html>`, and the sections either side. A deck is a text
+// file people diff, and an op that reflowed the document would make every
+// reorder a review nobody can read.
+
+const DECK = [
+  '<!doctype html>',
+  '<html lang="en">',
+  '<head>',
+  '  <meta charset="utf-8">',
+  '  <link rel="stylesheet" href="decklight/dist/decklight.css">',
+  '</head>',
+  '<body>',
+  '  <div class="decklight">',
+  '    <section>',
+  '      <h2>Alpha</h2>',
+  '      <aside class="notes">one</aside>',
+  '    </section>',
+  '    <section data-layout="centered">',
+  '      <h2>Beta</h2>',
+  '    </section>',
+  '    <section>',
+  '      <h2>Gamma</h2>',
+  '    </section>',
+  '  </div>',
+  '  <script src="decklight/dist/decklight.js"></script>',
+  '  <script>Decklight.init();</script>',
+  '</body>',
+  '</html>',
+  '',
+].join('\n');
+
+/** Slide `n`'s source exactly as it sits in `html`. */
+const source = (html, n) => {
+  const { start, end } = slideRange(html, n);
+  return html.slice(start, end);
+};
+/** Every slide's title, in source order — the deck's running order. */
+const running = (html) => sectionBodies(html).map((b, i) => slideHeading(b, i));
+/** Everything before the first slide, and everything after the last one. */
+const head = (html) => html.slice(0, html.indexOf('<section'));
+const tail = (html) => html.slice(html.lastIndexOf('</section>') + '</section>'.length);
+
+test('every slide op leaves the head, the runtime scripts and the closing tag exactly where they were', () => {
+  for (const [what, out] of [
+    ['new', insertBlankSlide(DECK, 2)],
+    ['duplicate', duplicateSlide(DECK, 2)],
+    ['delete', deleteSlide(DECK, 2)],
+    ['up', swapSlides(DECK, 1, 2)],
+    ['down', swapSlides(DECK, 2, 3)],
+  ]) {
+    assert.equal(head(out), head(DECK), `${what} rewrote the deck's head`);
+    assert.equal(tail(out), tail(DECK), `${what} moved the runtime script or the closing </html>`);
+  }
+});
+
+test('a new slide arrives blank and indented level with its neighbours', () => {
+  const out = insertBlankSlide(DECK, 1);
+  assert.deepEqual(running(out), ['Alpha', 'New slide', 'Beta', 'Gamma'],
+    'the blank slide goes in AFTER the one it was asked for, not before it');
+  assert.equal(source(out, 2), [
+    '<section>',
+    '      <h2>New slide</h2>',
+    '      <p>Say something here.</p>',
+    '      <aside class="notes"></aside>',
+    '    </section>',
+  ].join('\n'), 'a block four spaces out of step is a diff nobody can review');
+  assert.ok(out.includes('\n    <section>\n      <h2>New slide</h2>'),
+    'the opening tag sits on its own line at the sections\' own indentation');
+  assert.equal(source(out, 1), source(DECK, 1), 'the slide it was inserted after must not be touched');
+  assert.equal(source(out, 4), source(DECK, 3), 'nor the ones after it');
+});
+
+test('a deck whose sections sit at the left margin gets its blank slide there too', () => {
+  // The indentation is READ, never assumed: an init-scaffolded deck nests its
+  // sections inside <div class="decklight">, a hand-written one need not.
+  const flat = '<body>\n<section>\n<h2>One</h2>\n</section>\n</body>\n';
+  const out = insertBlankSlide(flat, 1);
+  assert.ok(out.includes('\n<section>\n  <h2>New slide</h2>\n  <p>Say something here.</p>'),
+    'the section keeps its own inner shape and only its base indentation moves');
+  assert.equal(head(out), head(flat));
+  assert.equal(tail(out), tail(flat));
+});
+
+test('a duplicate is byte-identical to the slide it came from', () => {
+  const out = duplicateSlide(DECK, 2);
+  assert.deepEqual(running(out), ['Alpha', 'Beta', 'Beta', 'Gamma']);
+  assert.equal(source(out, 2), source(DECK, 2), 'the original must come through untouched');
+  assert.equal(source(out, 3), source(DECK, 2),
+    'a copy that differs from its original by a space is a diff claiming something happened');
+  assert.equal(source(out, 3), '<section data-layout="centered">\n      <h2>Beta</h2>\n    </section>',
+    'the open tag and its attributes are copied too — a duplicate keeps the slide\'s layout');
+});
+
+test('deleting a slide takes the line it sat on with it, leaving no blank gap', () => {
+  const out = deleteSlide(DECK, 2);
+  assert.equal(out, DECK.replace('    <section data-layout="centered">\n      <h2>Beta</h2>\n    </section>\n', ''),
+    'the deck must differ by exactly the three lines that were the slide');
+  assert.doesNotMatch(out, /\n[ \t]*\n/, 'the indentation left behind would be a blank line nobody typed');
+});
+
+test('deleting the first slide moves the second one up rather than opening a hole', () => {
+  const out = deleteSlide(DECK, 1);
+  assert.deepEqual(running(out), ['Beta', 'Gamma']);
+  assert.equal(out, DECK.replace(
+    '    <section>\n      <h2>Alpha</h2>\n      <aside class="notes">one</aside>\n    </section>\n', ''));
+});
+
+test('deleting the last slide leaves the deck ending as it began', () => {
+  const out = deleteSlide(DECK, 3);
+  assert.deepEqual(running(out), ['Alpha', 'Beta']);
+  assert.equal(tail(out), tail(DECK), 'the closing </div> and the runtime must still follow the last slide');
+  assert.doesNotMatch(out, /\n[ \t]*\n/);
+});
+
+test('reordering exchanges two sections and rewrites nothing inside either', () => {
+  const up = swapSlides(DECK, 1, 2);
+  assert.deepEqual(running(up), ['Beta', 'Alpha', 'Gamma']);
+  assert.equal(source(up, 1), source(DECK, 2), 'the moved slide arrives byte for byte');
+  assert.equal(source(up, 2), source(DECK, 1));
+  assert.equal(source(up, 3), source(DECK, 3), 'the slide that did not move must not have moved');
+
+  const down = swapSlides(DECK, 2, 3);
+  assert.deepEqual(running(down), ['Alpha', 'Gamma', 'Beta']);
+  assert.equal(source(down, 1), source(DECK, 1));
+});
+
+test('swapping two slides twice is the deck you started with', () => {
+  assert.equal(swapSlides(swapSlides(DECK, 2, 3), 2, 3), DECK,
+    'a reorder that did not round-trip would drift the file one edit at a time');
+  assert.equal(swapSlides(DECK, 2, 2), DECK, 'a slide swapped with itself is not an edit');
+  assert.equal(swapSlides(DECK, 3, 2), swapSlides(DECK, 2, 3), 'the pair is unordered — up and down are one op');
+});
+
+test('a slide taken from a deck at another depth lands at the depth it is going to', () => {
+  // Not the ordinary case, and the one the reindent is there for: a section
+  // pasted in two levels deep must not drag those levels up the file every
+  // time somebody presses the reorder key.
+  const mixed = [
+    '<div class="decklight">',
+    '  <section>',
+    '    <h2>Shallow</h2>',
+    '  </section>',
+    '      <section>',
+    '        <h2>Deep</h2>',
+    '      </section>',
+    '</div>',
+  ].join('\n');
+  const out = swapSlides(mixed, 1, 2);
+  assert.deepEqual(running(out), ['Deep', 'Shallow']);
+  assert.equal(out, [
+    '<div class="decklight">',
+    '  <section>',
+    '    <h2>Deep</h2>',
+    '  </section>',
+    '      <section>',
+    '        <h2>Shallow</h2>',
+    '      </section>',
+    '</div>',
+  ].join('\n'), 'each slide takes the other\'s indentation, not its own');
+});
+
+test('a hidden slide is numbered and moved like any other section', () => {
+  // Numbering here is by SOURCE ORDER (DECK_ANATOMY): a hidden slide keeps its
+  // number, exactly as comments, review anchors and history number it.
+  const deck = DECK.replace('<section data-layout="centered">', '<section data-hidden>');
+  assert.equal(sectionBodies(deck).length, 3, 'the hidden slide is still one of the three');
+  const out = swapSlides(deck, 2, 3);
+  assert.deepEqual(running(out), ['Alpha', 'Gamma', 'Beta']);
+  assert.match(source(out, 3), /^<section data-hidden>/, 'and it keeps being hidden after the move');
+});
+
+// ── insertImage ───────────────────────────────────────────────────────────
+
+test('an image with no index lands on the slide, before the asides', () => {
+  const { html, index } = insertImage(DECK, 1, null, { src: 'assets/chart.png', alt: 'a chart' });
+  assert.equal(index, 1, 'the new element is the second child — after the heading, before the notes');
+  assert.equal(source(html, 1), [
+    '<section>',
+    '      <h2>Alpha</h2>',
+    '      <img src="assets/chart.png" alt="a chart">',
+    '      <aside class="notes">one</aside>',
+    '    </section>',
+  ].join('\n'), 'an image inside the notes is an image the audience never sees');
+  assert.equal(head(html), head(DECK));
+  assert.equal(tail(html), tail(DECK));
+});
+
+test('an image with an index lands after that child, and says which child it now is', () => {
+  const { html, index } = insertImage(DECK, 1, 0, { src: 'assets/a.png', alt: '' });
+  assert.equal(index, 1, 'everything after the insertion has shifted, so the caller is told where it went');
+  assert.equal(source(html, 1), [
+    '<section>',
+    '      <h2>Alpha</h2>',
+    '      <img src="assets/a.png" alt="">',
+    '      <aside class="notes">one</aside>',
+    '    </section>',
+  ].join('\n'));
+});
+
+test('an image can be asked for after the notes aside, when that is what was asked', () => {
+  const { html, index } = insertImage(DECK, 1, 1, { src: 'assets/a.png' });
+  assert.equal(index, 2);
+  assert.match(source(html, 1), /<\/aside>\n      <img src="assets\/a\.png" alt="">/,
+    'an explicit index is the author\'s decision, not something to second-guess');
+});
+
+test('a slide that is all asides still takes an image onto the slide itself', () => {
+  const deck = '<div>\n  <section>\n    <aside class="notes">talk</aside>\n  </section>\n</div>';
+  const { html, index } = insertImage(deck, 1, null, { src: 'a.png', alt: 'x' });
+  assert.equal(index, 0);
+  assert.equal(html, '<div>\n  <section>\n    <img src="a.png" alt="x">\n    <aside class="notes">talk</aside>\n  </section>\n</div>');
+});
+
+test('src and alt are escaped, so neither can close the tag it is written into', () => {
+  const { html } = insertImage(DECK, 1, null, { src: 'a"onerror="alert(1).png', alt: 'a <b> & "c"' });
+  assert.match(html, /<img src="a&quot;onerror=&quot;alert\(1\)\.png" alt="a &lt;b&gt; &amp; &quot;c&quot;">/,
+    'an unescaped quote here would end the attribute and hand the slide a handler');
+});
+
+test('an image onto a slide or an index that does not exist throws rather than guessing', () => {
+  assert.throws(() => insertImage(DECK, 9, null, { src: 'a.png' }), /no slide 9/);
+  assert.throws(() => insertImage(DECK, 1, 9, { src: 'a.png' }), /no element at index 9/);
 });

@@ -8,6 +8,8 @@
 // never drift apart. Lives under tools/ because tools/shot.mjs is a consumer
 // and the dependency only ever flows cli/ → tools/.
 
+import { escapeHtml } from './escape.mjs';
+
 /**
  * A section's `<aside class="notes">`. Capture group [1] is the inner HTML (what
  * voiceover pulls); the whole match is what edit tests for and replaces.
@@ -418,4 +420,153 @@ export function setSectionAttrs(html, n, { clear = [], clearIf = null, set = {} 
   for (const [k, v] of Object.entries(set)) had[k] = v;
   parts[idx] = `${writeAttrs(had)}>${rest}`;
   return { html: parts.join(''), replaced };
+}
+
+// ── whole-slide operations: new · duplicate · delete · reorder ─────────────
+// The slide bar's five verbs, as string transforms over the deck FILE rather
+// than over a parsed DOM — the same reason every other file-side edit here is
+// (SPEC DECK_ANATOMY): the file is what an author reads and diffs, so moving a
+// slide has to hand back the bytes they typed, not a re-serialisation of them.
+//
+// Numbering is by SOURCE ORDER throughout. A hidden slide is a slide here,
+// exactly as it is for comments, review anchors and history — `isHiddenSection`
+// is for tools that produce one THING per slide, and none of these do.
+
+/**
+ * Slide `n`'s source range in the deck: `[start, end)`, spanning its
+ * `<section` through its own `</section>`, plus the indentation the line it
+ * opens on sits at.
+ *
+ * The two offsets are what makes a move a MOVE — the section's bytes are cut
+ * and pasted rather than rebuilt, so duplicating a slide or swapping two of
+ * them changes nothing whatever about the slides themselves.
+ */
+export function slideRange(html, n) {
+  const src = String(html ?? '');
+  const { parts, idx } = locateSlide(src, n);
+  let start = 0;
+  for (let i = 0; i < idx - 1; i++) start += parts[i].length;   // up to, not including, the `<section` token
+  const close = sectionCloseIndex(parts[idx]);
+  if (close === -1) throw new Error(`slide ${n}: no </section> to work with`);
+  const end = start + parts[idx - 1].length + close + '</section>'.length;
+  return { start, end, indent: /\n([ \t]*)$/.exec(src.slice(0, start))?.[1] ?? '' };
+}
+
+/**
+ * The section a `new` slide inserts. Written at zero indentation and moved
+ * into place by `reindentSection`, so it lands level with its neighbours in a
+ * deck whose sections sit inside `<div class="decklight">` and in one whose
+ * sections sit at the left margin alike.
+ */
+export const BLANK_SLIDE = `<section>
+  <h2>New slide</h2>
+  <p>Say something here.</p>
+  <aside class="notes"></aside>
+</section>`;
+
+/** A deck with a blank slide inserted after slide `after`. */
+export const insertBlankSlide = (html, after) =>
+  insertSectionsAfter(String(html ?? ''), after, [BLANK_SLIDE]);
+
+/**
+ * A deck with slide `n` copied to sit right after itself.
+ *
+ * The copy is BYTE-IDENTICAL, not reindented: it is going in at the same
+ * indentation it came out of, and a duplicate that differs from its original
+ * by a space is a diff that says something happened when nothing did.
+ */
+export function duplicateSlide(html, n) {
+  const src = String(html ?? '');
+  const { start, end, indent } = slideRange(src, n);
+  const copy = src.slice(start, end);
+  return src.slice(0, end) + '\n' + indent + copy + src.slice(end);
+}
+
+/**
+ * A deck with slide `n` removed — and with the line it sat on removed too.
+ *
+ * Cutting the section alone would leave its newline and its indentation
+ * behind as a blank line that nobody typed, and the next `git diff` would
+ * carry it. The newline taken is the one BEFORE the slide, so the newline
+ * that ends the slide goes on ending whatever now follows it.
+ */
+export function deleteSlide(html, n) {
+  const src = String(html ?? '');
+  const { start, end } = slideRange(src, n);
+  const before = /\n[ \t]*$/.exec(src.slice(0, start));
+  if (before) return src.slice(0, before.index) + src.slice(end);
+  // slide 1 of a deck that opens on it (no line above to take): drop the
+  // break that followed it instead, so the next slide moves up to the top.
+  const after = /^[ \t]*\n/.exec(src.slice(end));
+  return src.slice(0, start) + src.slice(end + (after ? after[0].length : 0));
+}
+
+/**
+ * A deck with slides `a` and `b` swapped, each landing at the OTHER'S
+ * indentation (`reindentSection`) rather than carrying its own along.
+ *
+ * In the ordinary deck, where both sit at the same depth, that is a no-op and
+ * the two sections are exchanged byte for byte. It matters for the deck it is
+ * not: a slide pasted in at the wrong depth must not drag that depth up the
+ * file with it every time somebody presses the reorder key.
+ */
+export function swapSlides(html, a, b) {
+  const src = String(html ?? '');
+  const [lo, hi] = a < b ? [a, b] : [b, a];
+  if (lo === hi) return src;
+  const first = slideRange(src, lo);
+  const second = slideRange(src, hi);
+  // The destination's own leading whitespace is already in the deck — it sits
+  // before `start` — so the moved section is reindented and then has its FIRST
+  // line's indentation taken off again, or every swap would push the pair one
+  // level deeper than the one before it.
+  const moved = (text, indent) => reindentSection(text, indent).replace(/^[ \t]*/, '');
+  return src.slice(0, first.start)
+    + moved(src.slice(second.start, second.end), first.indent)
+    + src.slice(first.end, second.start)
+    + moved(src.slice(first.start, first.end), second.indent)
+    + src.slice(second.end);
+}
+
+/**
+ * A deck with `<img src alt>` inserted into slide `slide`, after top-level
+ * child `index` — the same addressing the element-edit routes use
+ * (`sectionChildRanges`).
+ *
+ * `index === null` means "on the slide": the image goes after the last content
+ * child and BEFORE the asides, so a picture dropped on a slide that has
+ * speaker notes lands on the slide and not inside the notes, where the
+ * audience would never see it (DECK_ANATOMY — notes, sources and rehearse are
+ * all `<aside>` siblings at the end of a section).
+ *
+ * Returns `{ html, index }`: the caller has to be able to tell the browser
+ * which child the new element IS, since every element route addresses by
+ * position and everything after the insertion has just shifted.
+ */
+export function insertImage(html, slide, index, { src = '', alt = '' } = {}) {
+  const deck = String(html ?? '');
+  const { parts, idx } = locateSlide(deck, slide);
+  const seg = parts[idx];
+  const ranges = sectionChildRanges(seg);
+  // the whitespace a child's own line begins at, or null when it does not
+  // begin a line (a slide written on one line stays on one line)
+  const indentOf = (r) => (r ? /\n([ \t]*)$/.exec(seg.slice(0, r.start))?.[1] ?? null : null);
+
+  let at;         // offset in `seg` to insert at
+  let position;   // the new element's child index once it is in
+  if (index === null || index === undefined) {
+    let k = ranges.length;
+    while (k > 0 && ranges[k - 1].tag === 'aside') k--;
+    position = k;
+    at = k > 0 ? ranges[k - 1].end : seg.indexOf('>') + 1;
+  } else {
+    const r = ranges[index];
+    if (!r) throw new Error(`slide ${slide}: no element at index ${index} (has ${ranges.length})`);
+    position = index + 1;
+    at = r.end;
+  }
+  const tag = `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}">`;
+  const indent = indentOf(ranges[Math.max(0, position - 1)]) ?? indentOf(ranges[0]);
+  parts[idx] = seg.slice(0, at) + (indent === null ? tag : `\n${indent}${tag}`) + seg.slice(at);
+  return { html: parts.join(''), index: position };
 }

@@ -82,6 +82,7 @@ const ENGINE_GROUPS = {
   handover: ['exportpptx', 'exportfail', 'publish'],
   templates: ['template', 'templatelook'],
   sources: ['sources', 'sourcesedit'],
+  authoring: ['authoring'],
 };
 const ENGINE_HARNESSES = Object.keys(ENGINE_GROUPS).map((g) => `engine-render:${g}`);
 
@@ -108,6 +109,7 @@ const HARNESSES = [
   'engine-render:handover',
   'engine-render:templates',
   'engine-render:sources',
+  'engine-render:authoring',
   'pin-render',
   'overflow-render',
   'split-render',

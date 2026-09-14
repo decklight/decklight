@@ -43,14 +43,14 @@ const repo = path.resolve(here, '..');
 /** narration-render's five concerns, as verify runs them (see test/verify.mjs). */
 const NARRATION = ['narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record'];
 /** engine-render's concerns, likewise (see test/verify.mjs). */
-const ENGINE = ['engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources'];
+const ENGINE = ['engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources', 'engine-render:authoring'];
 
 /** Every harness `verify` knows, in its running order. */
 export const ALL = [
   'render', 'player-render',
   'narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record',
   'record-render', 'review-render',
-  'character-render', 'engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources', 'pin-render', 'overflow-render', 'split-render',
+  'character-render', 'engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources', 'engine-render:authoring', 'pin-render', 'overflow-render', 'split-render',
   'strict-render', 'shot-render', 'plugin-render', 'extension-check-render',
   'deckfile-render', 'pdf-render', 'pptx-render', 'import-render', 'contrast', 'palette-rules',
 ];
@@ -91,7 +91,7 @@ const RULES = [
   [/^src\/core\/overflow\.js$/, ['overflow-render', 'pin-render'], 'the overflow guardrail and the pinned-title case'],
   [/^src\/core\/annotate\.js$/, [...ENGINE, 'render'], 'ink rides the engine scale'],
   [/^src\/core\/themes\.js$/, ['render', 'contrast'], 'theme picking, and the contrast gate behind it'],
-  [/^src\/core\/(editmode|history|templates)\.js$/, ENGINE, 'the author surfaces the engine harness drives'],
+  [/^src\/core\/(editmode|history|templates|authoring)\.js$/, ENGINE, 'the author surfaces the engine harness drives'],
   [/^tools\/template-slides\.mjs$/, ENGINE, 'what the template picker lists and inserts'],
   [/^src\/core\/hud\.js$/, ENGINE, 'clock and progress live on the engine'],
   [/^src\/core\/finder\.js$/, [...ENGINE, 'review-render'], 'slide titles: the finder names them, review anchors by them'],

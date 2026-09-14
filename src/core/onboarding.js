@@ -48,6 +48,7 @@ export const TIPS = [
   { id: 'messages', text: 'press ` (left of 1) for the message log — every message the deck has shown' },
   { id: 'fullscreen', text: 'press F for fullscreen, B to black out the screen mid-talk' },
   { id: 'author', text: 'author mode (decklight author <deck.html>) turns this player into an editor — A asks an AI agent' },
+  { id: 'inline', text: 'in author mode, double-click any text to edit it in place, and drop a picture onto a slide to add it' },
 ];
 
 const SEEN_KEY = 'decklight-onboarded';   // the welcome card, once per browser

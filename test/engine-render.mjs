@@ -31,6 +31,7 @@ export const MODES = [
   'restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'publish',
   'template', 'templatelook', 'sources', 'sourcesedit',
+  'authoring',
 ];
 
 // A typo in a mode name would otherwise run NOTHING and exit 0, which is the

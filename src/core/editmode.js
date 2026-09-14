@@ -755,13 +755,22 @@ export function createEditMode({
       // the element) — distinct from "remove effect", which strips data-build.
       rows.push({ label: 'none (instant)', run: () => commitEffect('none') });
       rows.push({ label: 'remove effect', run: () => commitEffect(null) });
+    } else if (menuView === 'slide') {
+      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      rows.push({ label: 'New slide after this one', run: () => { closeElementMenu(); slideOp('new'); } });
+      rows.push({ label: 'Duplicate this slide', run: () => { closeElementMenu(); slideOp('duplicate'); } });
+      rows.push({ label: 'Move slide up', run: () => { closeElementMenu(); slideOp('up'); } });
+      rows.push({ label: 'Move slide down', run: () => { closeElementMenu(); slideOp('down'); } });
+      rows.push({ label: 'Delete this slide', run: () => { closeElementMenu(); slideOp('delete'); } });
     } else if (menuTarget.index === null) {
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
+      rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     } else {
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
       rows.push({ label: 'Remove element', run: commitRemove });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
       rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
+      rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     }
     menuRows = rows;
     rows.forEach((r, i) => {
@@ -805,6 +814,38 @@ export function createEditMode({
     card.style.left = Math.max(4, left) + 'px';
     card.style.top = Math.max(4, top) + 'px';
     closeOnBackdrop(menuEl, closeElementMenu);
+  }
+
+  /**
+   * The five things you do to a slide as a whole — new, duplicate, delete, up,
+   * down (SPEC PRESENTING, author mode). Until now every one of them meant
+   * opening the HTML in a text editor; the starter deck's own notes said
+   * "duplicate the section for more". One POST, one undo entry; the server
+   * answers with the slide to be on afterwards, and the hash is moved there
+   * before the file watcher's reload lands, so the reload opens on it.
+   */
+  async function slideOp(op) {
+    if (!editAvailable) { toast(needsDevMode('editing slides', location), 3200); return; }
+    const slide = instance.state.slide;
+    try {
+      const res = await fetch(editBase + '/edit/slide', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ op, slide }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || String(res.status));
+      const said = {
+        new: `new slide added after ${slide}`,
+        duplicate: `slide ${slide} duplicated`,
+        delete: `slide ${slide} deleted — Z takes it back`,
+        up: `slide ${slide} moved up`,
+        down: `slide ${slide} moved down`,
+      }[op] ?? 'done';
+      toast(`${said} — reloading`, 2000);
+      if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
+    } catch (e) {
+      toast(`could not ${op === 'new' ? 'add a slide' : `${op} the slide`}: ${String(e.message || e).slice(0, 80)}`, 3000);
+    }
   }
 
   async function commitRemove() {
@@ -1577,6 +1618,8 @@ export function createEditMode({
     toggleElementEdit,
     /** Is element edit mode currently armed? The palette's own on/off label asks. */
     elementEditOn: () => elementEditOn,
+    /** New / duplicate / delete / up / down on the current slide — the palette's rows. */
+    slideOp,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside author mode. */
     wizard: openWizard,
     /** What the server's ping said a wizard can configure — the palette's Configure rows. */
