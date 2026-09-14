@@ -366,6 +366,9 @@
     try {
       localStorage.setItem('decklight-onboarded', '1');
       localStorage.setItem('decklight-tips-off', '1');
+      const capKey = 'decklight-captions:' + location.pathname;
+      if (mode === 'captions') localStorage.setItem(capKey, '1');
+      else localStorage.removeItem(capKey);
     } catch { /* ignore */ }
 
     // The built-in rhythm is now 0.5s between builds and 1s before a slide
@@ -708,6 +711,25 @@
             r.warnedOverflow = msgs().some((m) => /3 ⟨CLICK⟩ segments but 2 build steps/.test(m));
             r.PASS = r.PASS && r.warnedOverflow;
           }
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        // #490: captions sit on the root, outside the scaled stage, so they must
+        // follow the stage scale down themselves — or a preview iframe shows a
+        // thumbnail of the slide under a full-size caption bar. The headless
+        // window is smaller than the 1280×720 design, so the scale here is < 1.
+        if (mode === 'captions') {
+          await new Promise((ok) => setTimeout(ok, 300));
+          const bar = document.querySelector('.decklight-captions');
+          const scale = deck._scale;
+          const px = bar ? parseFloat(getComputedStyle(bar).fontSize) : NaN;
+          r.scale = Math.round(scale * 1000) / 1000;
+          r.px = px;
+          r.shown = !!bar;
+          r.stageIsSmallHere = scale < 1;       // or the assertion below proves nothing
+          r.followsTheStage = Math.abs(px - 21 * Math.min(1, scale)) < 0.5;
+          r.PASS = r.shown && r.stageIsSmallHere && r.followsTheStage;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

@@ -1732,16 +1732,21 @@
 
 /* closed captions (C) — the current notes segment, youtube-style */
 .decklight-captions {
+  /* The bar lives on the root, outside the scaled stage, so px here are px on
+     the screen: in a finder or theme-picker preview it stayed full-size over a
+     thumbnail of the slide (#490). It follows the stage scale DOWN — never up,
+     so a full-screen deck captions exactly as it always has. */
+  --cap-k: min(1, var(--stage-scale, 1));
   position: absolute;
   left: 50%;
   bottom: 7%;
   transform: translateX(-50%);
   max-width: 72%;
-  padding: 10px 18px;
-  border-radius: 8px;
+  padding: calc(10px * var(--cap-k)) calc(18px * var(--cap-k));
+  border-radius: calc(8px * var(--cap-k));
   background: rgba(8, 9, 12, .8);
   color: #fff;
-  font-size: 21px;
+  font-size: calc(21px * var(--cap-k));
   line-height: 1.45;
   text-align: center;
   z-index: 45;

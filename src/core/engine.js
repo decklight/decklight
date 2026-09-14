@@ -2038,6 +2038,10 @@ export function init(userConfig = {}) {
     const s = Math.min((box.width - dl - dr) / config.width,
                        (box.height - db) / config.height) || 1;
     instance._scale = s;
+    // Published for the chrome that sits OUTSIDE the scaled stage: captions are
+    // sized in px on the root, so in a preview iframe they stayed full-size over
+    // a thumbnail of the slide (#490). A var, not a second copy of this maths.
+    root.style.setProperty('--stage-scale', String(s));
     stage.style.transform =
       `translate(-50%, -50%) translate(${(dl - dr) / 2}px, ${-db / 2}px) scale(${s})`;
   }

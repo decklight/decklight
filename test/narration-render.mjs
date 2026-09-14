@@ -136,7 +136,7 @@ let slowest = 0;
 // without ever being watched fail.
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const MODES = ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'manifest', 'expired',
+  'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'captions', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
@@ -367,6 +367,12 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} still on 1 mid-beat=${r.stayedForTheBeat}`
       + ` · jumped to ${r.visited?.join('→')} (asked for 4=${r.wentWhereAsked},`
       + ` never fell through to 2=${r.neverJumpedToTwo})`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (m === 'captions') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} shown=${r.shown} · stage scale ${r.scale} (<1 here=${r.stageIsSmallHere})`
+      + ` · caption ${r.px}px follows it=${r.followsTheStage}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
