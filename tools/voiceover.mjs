@@ -8,7 +8,7 @@
 //                            [--voice <name>] [--data-dir <dir>]
 //                            [--project <id>] [--location global] [--lang en-US]
 //                            [--tts-model gemini-2.5-pro-tts]
-//                            [--model qwen3:30b-a3b] [--no-llm] [--reuse-text]
+//                            [--reuse-text]
 //                            [--keep-wav]  (keep the lossless intermediates —
 //                                           tools/lipsync.mjs consumes them)
 //
@@ -36,15 +36,19 @@
 //   gcloud auth application-default login.
 //
 // Pipeline: extract each slide's notes (HTML asides or markdown Note: blocks,
-// ⟨CLICK⟩ markers removed) → optionally rewrite into flowing narration with a
-// LOCAL Ollama model (LLMs write text; they don't speak) → synthesize → AAC
-// .m4a per slide + manifest.json. --reuse-text skips the LLM pass and
-// re-voices the existing slide-NN.txt files, so switching voices or engines
-// doesn't re-roll the narration. Audio is a build artifact, not source.
+// ⟨CLICK⟩ markers removed) → synthesize them as written → AAC .m4a per slide +
+// manifest.json. --reuse-text re-voices the existing slide-NN.txt files, so a
+// script edited by hand, or another voice or engine, narrates the same words.
+// Audio is a build artifact, not source.
+//
+// Nothing here writes or rewrites the words. The notes ARE the script: a
+// deck's content — its notes included — is written by the author or by the
+// agent they ask (A in author mode, SPEC PRESENTING), and an agent that runs on
+// a local model brings that model with it. A second writer here, voicing words
+// nobody had read, was the wrong place for one.
 
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { resolve, join, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { createEngine } from './tts-engines.mjs';
@@ -59,7 +63,7 @@ const HELP = `decklight voiceover — batch-synthesize a deck's narration into a
 
 Usage:
   decklight voiceover <deck.html> [-o <dir>] [--engine piper|chirp|gemini|elevenlabs]
-                      [--voice <name>] [--no-llm] [--reuse-text] [--keep-wav]
+                      [--voice <name>] [--reuse-text] [--keep-wav]
                       [--no-cache]
 
 The headless counterpart of the deck's V \u2192 Record this deck\u2026: it reads each slide's speaker
@@ -71,9 +75,8 @@ narration: { files: [{ label, dir, segments: true }] }.
   --engine       piper (local, free, default) · chirp · gemini · elevenlabs
   --voice        the engine's voice name (piper: a model name; elevenlabs: omit
                  for the first of YOUR voices)
-  --no-llm       skip the local-LLM notes rewrite; voice the notes as written
-  --reuse-text   re-voice the existing slide-NN.txt without re-rolling the text
-                 — switch voices or engines without a new narration pass
+  --reuse-text   re-voice the existing slide-NN.txt (edit one to change what is
+                 said) — switch voices or engines on the same script
   --keep-wav     keep the lossless WAVs (tools/lipsync.mjs consumes them)
   --no-cache     re-synthesize every slide, ignoring the shared clip cache
 
@@ -100,8 +103,6 @@ const style = opt('--style',
   'engineer who is still curious about new technology.');
 const dataDir = resolve(opt('--data-dir', join(homedir(), '.local', 'share', 'piper')));
 const project = opt('--project', process.env.GOOGLE_CLOUD_PROJECT);
-const model = opt('--model', 'qwen3:30b-a3b');
-const useLlm = !args.includes('--no-llm');
 const reuseText = args.includes('--reuse-text');
 const keepWav = args.includes('--keep-wav');
 const useCache = !args.includes('--no-cache');
@@ -165,24 +166,6 @@ if (!canSegment && raw.some((r) => notesSegments(r))) {
   console.log('  note: ⟨CLICK⟩ segments need ffmpeg to concatenate — narrating each slide whole');
 }
 console.log(`${basename(deckPath)}: ${slides.length} slides, ${slides.filter(Boolean).length} with notes`);
-
-// ── optional narration pass through a local model ────────────────────────────
-function narrate(text, slideNo) {
-  if (!useLlm || !text) return text;
-  const prompt =
-    'Rewrite these presentation speaker notes as a single flowing voice-over ' +
-    'narration paragraph. Natural spoken English, roughly the same length, no ' +
-    'headings, no stage directions, no markdown, plain text only. Notes: ' +
-    text + ' /no_think';
-  try {
-    const out = execFileSync('ollama', ['run', model, prompt], { encoding: 'utf8', timeout: 180000 });
-    const cleaned = out.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-    return cleaned || text;
-  } catch (e) {
-    console.warn(`  slide ${slideNo}: ollama failed (${String(e).slice(0, 60)}) — using raw notes`);
-    return text;
-  }
-}
 
 // ── synthesize ────────────────────────────────────────────────────────────────
 // TWO layers of reuse, and they answer different questions.
@@ -265,7 +248,7 @@ for (let i = 0; i < slides.length; i++) {
   // second take (other engine/voice) narrates the SAME text, not a re-roll
   const prior = [txt, join(resolve(deckPath, '..'), 'voiceover', `slide-${n}.txt`)]
     .find((f) => reuseText && existsSync(f));
-  const text = prior ? readFileSync(prior, 'utf8').trim() : narrate(slides[i], i + 1);
+  const text = prior ? readFileSync(prior, 'utf8').trim() : slides[i];
   const wav = join(outDir, `slide-${n}.wav`);
   const m4a = join(outDir, `slide-${n}.m4a`);
   writeFileSync(txt, text);

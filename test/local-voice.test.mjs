@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import {
   parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs, TIER_LABEL,
   parseWinrtVoices, winrtTier, winrtArgs, WINRT_LIST, SAPI_LIST,
-  detectLocalVoice, ollamaRunning, OLLAMA_NOTE, onPath, probe,
+  detectLocalVoice, onPath, probe,
   withoutSupersededPlain, plainName, PLAIN_TIER,
 } from '../tools/local-voice.mjs';
 import { planServices, voiceModelOffer } from '../cli/dev.mjs';
@@ -188,15 +188,6 @@ test('the native engines are real engines the bridge can be asked for', () => {
   for (const e of NATIVE_ENGINES) assert.ok(ENGINES.includes(e), `${e} is selectable`);
 });
 
-test('an Ollama that is not there costs nothing and answers false', async () => {
-  assert.equal(await ollamaRunning({ fetchImpl: async () => { throw new Error('ECONNREFUSED'); } }), false);
-  assert.equal(await ollamaRunning({ fetchImpl: async () => ({ ok: true }) }), true);
-  assert.equal(await ollamaRunning({ fetchImpl: async () => ({ ok: false }) }), false);
-  // a hung Ollama must not hang dev — the probe aborts on its own
-  const hangs = () => new Promise(() => {});
-  assert.equal(await ollamaRunning({ fetchImpl: hangs, timeoutMs: 20 }), false);
-});
-
 // ── how dev uses it ───────────────────────────────────────────────────────
 
 const say = () => ({ engine: 'say', voices: [{ name: 'Ava (Premium)', locale: 'en_US', tier: 1 }], label: 'macOS premium: Ava (Premium)' });
@@ -245,14 +236,7 @@ test('nothing at all is a skip that explains this machine, not a generic hint', 
   assert.match(skipped, /needs a GCP project/);
   assert.match(skipped, /no system voice either: Linux ships no system speech synthesizer/);
   assert.match(skipped, /install piper/);
-  assert.doesNotMatch(skipped, /Ollama/, 'and says nothing about Ollama when it is not running');
-});
-
-test('a running Ollama is told the truth about itself', () => {
-  // the single most common thing a local-AI user assumes covers this
-  const { skipped } = voiceEngine(planServices({ args: ['d.html'], env: {}, detect: nothing, hasBin: () => false, ollama: true }));
-  assert.match(skipped, /serves LLMs and cannot speak/);
-  assert.match(OLLAMA_NOTE, /no speech endpoint/);
+  assert.doesNotMatch(skipped, /Ollama/, 'and never mentions Ollama: decklight does not use it');
 });
 
 test('--no-tts still wins over everything', () => {
