@@ -1822,3 +1822,40 @@ test('a long export says where it is, slide by slide, on the event stream', asyn
   assert.deepEqual(events.filter((e) => e.state === 'slide').map((e) => [e.n, e.of]), [[1, 2], [2, 2]]);
   assert.equal(events.at(-1).file, 'deck.pptx');
 });
+
+// ── the deck is written atomically (tools/atomic-write.mjs) ────────────────
+
+test('a server-side edit lands whole, leaves no staging file, and reloads exactly once', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } }); // PATH=dir: no git, no agents
+
+  // The deck's own reload stream. The watcher listens to the DIRECTORY (a path
+  // watch follows the inode a rename replaces), so an atomic write is two
+  // directory events — the staging file appearing, and the rename over the
+  // deck. Only the second is about this deck, and the deck must be told once.
+  let reloads = 0;
+  const res = await fetch(base + '/edit/events');
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  (async () => {
+    for (;;) {
+      const { done, value } = await reader.read().catch(() => ({ done: true }));
+      if (done) return;
+      reloads += (dec.decode(value, { stream: true }).match(/data: reload/g) ?? []).length;
+    }
+  })();
+  t.after(() => reader.cancel().catch(() => { /* already closed */ }));
+
+  assert.equal((await post(base, '/edit/layout', { slide: 1, layout: 'split' })).status, 200);
+  // well past the 150 ms debounce, so a second event would have arrived
+  const stop = Date.now() + 2500;
+  while (reloads < 1 && Date.now() < stop) await new Promise((ok) => setTimeout(ok, 25));
+  await new Promise((ok) => setTimeout(ok, 600));
+
+  assert.equal(reloads, 1, 'one edit must be one reload — the staging file is not a change to the deck');
+  assert.match(readFileSync(deck, 'utf8'), /<section data-layout="split">/);
+  assert.deepEqual(readdirSync(dir).sort(), ['deck.html'],
+    'a staging file left beside the deck is one `decklight bundle` would find');
+});

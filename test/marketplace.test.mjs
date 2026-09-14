@@ -22,7 +22,7 @@ import {
   FIRST_PARTY, MANIFEST_PATH, MarketplaceError, TRANSFORM_API_VERSION, IMPORTER_API_VERSION,
   ENGINE_API_VERSION, ENGINE_CAPABILITIES, INSTALL_HINT,
   checkoutPath, classifySource, cloneUrl, configHome, ensureFirstPartyRegistered, fetchManifest,
-  jsonLineMap, loadCatalog, loadRegistry, parseErrorLine, resolveEntry,
+  clearCatalogCache, jsonLineMap, loadCatalog, loadRegistry, parseErrorLine, resolveEntry,
   validateManifest,
 } from '../cli/marketplace.mjs';
 import { resolveSource } from '../cli/theme.mjs';
@@ -716,4 +716,64 @@ test('engine stopped being a kind nothing installs — the hint names a real com
   // It was `null`, which marketplace.mjs documents as "real but nothing
   // installs it here yet" (#267 is what changed that).
   assert.match(INSTALL_HINT.engine, /decklight engine add/);
+});
+
+// ── the catalog cache (loadCatalog) ───────────────────────────────────────
+// A catalog is a file on this machine that changes only when `marketplace
+// update` fetches one, and loadCatalog is called in LOOPS — the theme browser,
+// the template list and the engine-wizard roster each walk every registered
+// marketplace, and one `/edit/ping` calls all three. Re-reading and
+// re-validating the same JSON for each is work nobody asked for.
+
+test('a second loadCatalog of an unchanged file is the SAME answer, not a second one', () => {
+  const home = tmp();
+  const repo = marketRepo(GOOD);
+  run(home, 'add', repo);
+  clearCatalogCache();
+
+  const first = loadCatalog('nord-pack', home);
+  assert.equal(first.ok, true, 'the fixture must validate, or this proves nothing');
+  const second = loadCatalog('nord-pack', home);
+  // Identity, not deep equality: two reads that agree would also pass a
+  // deepEqual, and the whole claim here is that the second one never happened.
+  assert.equal(second, first, 'the file was read and validated a second time');
+  assert.equal(second.manifest, first.manifest);
+});
+
+test('a catalog whose mtime moved is read again', () => {
+  const home = tmp();
+  const repo = marketRepo(GOOD);
+  run(home, 'add', repo);
+  clearCatalogCache();
+
+  const cache = path.join(home, 'marketplaces', 'nord-pack.json');
+  const first = loadCatalog('nord-pack', home);
+  // The file's CONTENT is untouched; only its timestamp moves. That is the
+  // whole test: the cache is keyed on what the filesystem says about the file,
+  // not on having been told, so a catalog replaced by anything at all — an
+  // update, a restored backup, a hand edit — is noticed.
+  const later = new Date(Date.now() + 5000);
+  fs.utimesSync(cache, later, later);
+  const second = loadCatalog('nord-pack', home);
+  assert.notEqual(second, first, 'a moved mtime must invalidate the remembered answer');
+  assert.deepEqual(second, first, 'and the answer itself must be unchanged — the bytes did not move');
+});
+
+test('a catalog that is removed stops being remembered', () => {
+  const home = tmp();
+  const repo = marketRepo(GOOD);
+  run(home, 'add', repo);
+  clearCatalogCache();
+
+  assert.equal(loadCatalog('nord-pack', home).ok, true);
+  fs.rmSync(path.join(home, 'marketplaces', 'nord-pack.json'));
+  assert.equal(loadCatalog('nord-pack', home), null,
+    'a deleted catalog must read as never-fetched, not as whatever was cached');
+});
+
+test('a never-fetched marketplace is still null, and asking twice is still null', () => {
+  const home = tmp();
+  clearCatalogCache();
+  assert.equal(loadCatalog(FIRST_PARTY.name, home), null);
+  assert.equal(loadCatalog(FIRST_PARTY.name, home), null, 'a miss must not be remembered as an answer');
 });

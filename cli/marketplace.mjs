@@ -33,9 +33,13 @@
 // no marketplace.
 
 import {
-  existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync,
+  existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+// The registry is the file that says which marketplaces exist at all. A
+// truncate interrupted halfway leaves JSON that no longer parses, and
+// loadRegistry rightly refuses to guess at it — so the write is a rename.
+import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
@@ -118,7 +122,7 @@ export function loadRegistry(home = configHome()) {
 
 export function saveRegistry(reg, home = configHome()) {
   mkdirSync(join(home, 'marketplaces'), { recursive: true });
-  writeFileSync(registryPath(home), JSON.stringify(reg, null, 2) + '\n');
+  writeFileAtomic(registryPath(home), JSON.stringify(reg, null, 2) + '\n');
 }
 
 /**
@@ -742,11 +746,37 @@ export function adoptCheckout(home, name, checkout) {
 
 // ── the cache, and names ───────────────────────────────────────────────────
 
+/**
+ * Every validated catalog this process has already read, keyed by path.
+ *
+ * A catalog is a file on this machine that changes only when `marketplace
+ * update` fetches one — and `loadCatalog` is called in LOOPS: the theme
+ * browser, the template list and the engine-wizard roster each walk every
+ * registered marketplace, and the author server calls all three to answer one
+ * `/edit/ping`. Every one of those calls re-read the JSON off disk and re-ran
+ * validateManifest over it, which walks every entry and every field. So the
+ * answer is remembered against the file's mtime and size: a catalog that has
+ * not moved is not read and not re-validated, and one that has is, on the next
+ * call, with nothing to remember to invalidate by hand.
+ */
+const catalogCache = new Map();
+
+/** Forget every remembered catalog — for tests, and for nothing else. */
+export function clearCatalogCache() { catalogCache.clear(); }
+
 /** The cached manifest for `name`: null when never fetched, else a validation. */
 export function loadCatalog(name, home = configHome()) {
   const p = cachePath(home, name);
-  if (!existsSync(p)) return null;
-  return validateManifest(readFileSync(p, 'utf8'));
+  // stat, not existsSync: the question "is it there" and the question "is it
+  // the one I read" are the same syscall, and asking twice is how they end up
+  // disagreeing about a file that was removed in between.
+  let st;
+  try { st = statSync(p); } catch { catalogCache.delete(p); return null; }
+  const hit = catalogCache.get(p);
+  if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.value;
+  const value = validateManifest(readFileSync(p, 'utf8'));
+  catalogCache.set(p, { mtimeMs: st.mtimeMs, size: st.size, value });
+  return value;
 }
 
 /**
@@ -885,6 +915,11 @@ async function addMain(args, home) {
 function writeCache(home, name, raw) {
   mkdirSync(join(home, 'marketplaces'), { recursive: true });
   writeFileSync(cachePath(home, name), raw);
+  // mtime has a resolution, and an update that lands in the same millisecond
+  // as the read before it would otherwise be invisible to loadCatalog. The
+  // writer knows what it just did, so it says so rather than leaving the
+  // reader to notice.
+  catalogCache.delete(cachePath(home, name));
 }
 
 function listMain(home) {
@@ -990,6 +1025,7 @@ function removeMain(args, home) {
   delete reg.marketplaces[name];
   saveRegistry(reg, home);
   rmSync(cachePath(home, name), { force: true });
+  catalogCache.delete(cachePath(home, name));
   rmSync(checkoutPath(home, name), { recursive: true, force: true });
   console.log(`removed ${name} — re-add any time with: decklight marketplace add ${m.source}`);
   return 0;
