@@ -24,9 +24,10 @@ function el({ terminal = false, children = [] } = {}) {
     isConnected: true,
     _terminal: terminal,
     _listeners: [],
+    _qsa: 0,                                   // how often the subtree was walked
     parentElement: null,
     children,
-    querySelectorAll: () => descendants(node),
+    querySelectorAll: () => { node._qsa++; return descendants(node); },
     addEventListener: (t, fn, capture) => node._listeners.push([t, fn, capture]),
     removeEventListener: (t, fn) => {
       const i = node._listeners.findIndex(([lt, lfn]) => lt === t && lfn === fn);
@@ -44,6 +45,7 @@ const descendants = (n) => n.children.flatMap((c) => [c, ...descendants(c)]);
 class FakeObserver {
   constructor(cb) { this.cb = cb; this.observed = []; this.disconnects = 0; }
   observe(n) { this.observed.push(n); }
+  unobserve(n) { const i = this.observed.indexOf(n); if (i >= 0) this.observed.splice(i, 1); }
   disconnect() { this.disconnects++; this.observed = []; }
 }
 
@@ -141,7 +143,9 @@ test('re-aiming drops the previous slide entirely, listeners included', () => {
   h.flush();
   assert.equal(a._listeners.length, 0, 'the old slide is released, not left listening');
   assert.deepEqual(h.watch.watched, [b]);
-  assert.equal(h.observers.resize.disconnects, 2, 'every arm starts by dropping the last one');
+  assert.deepEqual(h.observers.resize.observed, [b], 'and a is off the resize watch, node by node');
+  assert.equal(h.observers.resize.disconnects, 0,
+    'the observers outlive every navigation — only their targets change');
 
   h.measured.length = 0;
   a.fire('load');
@@ -163,4 +167,104 @@ test('no observers at all (an old engine, a headless shim) still measures on arm
   watch.watch([a]);
   pending();
   assert.deepEqual(measured, [1], 'the guardrail degrades to one measurement, never to none');
+});
+
+// ── arming is a diff, not a rebuild ────────────────────────────────────────
+//
+// Every navigation used to disconnect both observers and recruit the incoming
+// slide from scratch: `querySelectorAll('*')` plus a `.closest('.terminal')`
+// walk per node, for a subtree that was the same subtree it was the last time
+// that slide was on stage. These pin the cheaper shape — the observers live as
+// long as the watch does, and a section keeps what it already had.
+
+test('re-arming the same slide costs nothing — sync() after an in-place re-render', () => {
+  const a = el({ children: [el(), el()] });
+  const h = harness({ sections: [a] });
+  h.watch.watch([a]);
+  assert.equal(h.observers.resize.observed.length, 3, 'the section and its two descendants');
+  const first = h.observers.resize.observed.slice();
+
+  h.watch.watch([a]);      // what sync() does on every rescan
+  assert.deepEqual(h.observers.resize.observed, first,
+    'observe() ran a second time for nodes that never left the watch');
+  assert.equal(a._qsa, 1, 'and the subtree was walked again to work out what to observe');
+  assert.equal(h.observers.resize.disconnects, 0, 'nothing was torn down to do it');
+  h.flush();
+  assert.deepEqual(h.measured, [1], 'arming is still the measurement, every time');
+});
+
+test('going to the next slide and back does not re-derive the first one', () => {
+  // The descendant list is cached per section, so the return trip is an
+  // observe() per node and nothing else — no second walk of the subtree.
+  const a = el({ children: [el()] }), b = el();
+  const h = harness({ sections: [a, b] });
+  h.watch.watch([a]);
+  h.watch.watch([b]);
+  h.watch.watch([a]);
+  assert.equal(a._qsa, 1, 'coming back walked a’s subtree a second time');
+  assert.equal(b._qsa, 1);
+  assert.equal(h.observers.resize.disconnects, 0, 'the observers outlive the whole trip');
+  assert.deepEqual(h.observers.resize.observed, [a, a.children[0]],
+    'exactly what is on stage is on watch — no more, and no less');
+  assert.deepEqual(h.watch.watched, [a]);
+});
+
+test('a childList mutation drops the cached list, so the next arming sees the new node', () => {
+  const a = el();
+  const h = harness({ sections: [a] });
+  h.watch.watch([a]);
+  h.flush();
+  assert.equal(a._qsa, 1);
+
+  const late = el();                       // content arriving into the slide
+  a.children.push(late);
+  late.parentElement = a;
+  h.observers.mutate.cb([{ type: 'childList', target: a, addedNodes: [late] }]);
+  assert.ok(h.observers.resize.observed.includes(late), 'the arriving node joins immediately');
+
+  h.watch.watch([]);                       // off stage…
+  h.watch.watch([a]);                      // …and back
+  assert.equal(a._qsa, 2, 'a stale cache survived a DOM change under the section');
+  assert.ok(h.observers.resize.observed.includes(late),
+    'the late node must be re-armed with the rest, not dropped on the way back');
+});
+
+test('a mutation under a slide that left the stage is somebody else’s business', () => {
+  // A MutationObserver has no `unobserve`, so the departed slide is still
+  // registered. The filter is what makes that harmless.
+  const a = el(), b = el();
+  const h = harness({ sections: [a, b] });
+  h.watch.watch([a]);
+  h.watch.watch([b]);
+  h.flush();
+  h.measured.length = 0;
+
+  h.observers.mutate.cb([{ type: 'childList', target: a, addedNodes: [el()] }]);
+  h.flush();
+  assert.deepEqual(h.measured, [], 'an off-stage slide re-measured the one on it');
+  assert.deepEqual(h.observers.resize.observed, [b], 'and recruited its nodes into the watch');
+});
+
+test('a slide re-rendered in place is re-armed, not left holding what left', () => {
+  // Dev mode replaces a slide's content under a deck that never navigates off
+  // it. The nodes that went must come off the resize watch with the re-render
+  // that removed them, or an authoring session accumulates registrations for
+  // DOM that is long gone.
+  const gone = el();
+  const a = el({ children: [gone] });
+  const h = harness({ sections: [a] });
+  h.watch.watch([a]);
+  assert.deepEqual(h.observers.resize.observed, [a, gone]);
+
+  const fresh = el();
+  a.children.length = 0;
+  a.children.push(fresh);
+  fresh.parentElement = a;
+  gone.parentElement = null;
+  h.observers.mutate.cb([{ type: 'childList', target: a, addedNodes: [fresh] }]);
+  h.watch.watch([a]);                      // what sync() does after a re-render
+  assert.deepEqual(h.observers.resize.observed, [a, fresh],
+    'the replaced node is still on the resize watch');
+  assert.equal(h.observers.resize.disconnects, 0, 'and it took no teardown to drop it');
+  assert.equal(a._listeners.length, 2, 'load + error, not doubled by the re-arm');
 });

@@ -19,18 +19,13 @@
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { agentChipText, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
+import { createPreview } from './preview.js';
 import { hljs } from '../code/code.js';
 
-/**
- * Wire the dev-server features to a deck.
- *
- * `dismissOthers` is the engine's "an overlay is opening" callback: the R
- * dialog shares the stage with the theme picker, the slide finder and the
- * palette, and the engine owns two of those three.
- */
+/** Wire the dev-server features to a deck. */
 export function createEditMode({
   root, config, params, printMode, toast, progress, debugLog, overlays, instance,
-  notesSegs, dismissOthers,
+  notesSegs,
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
   // Served by the edit server: the deck subscribes to /edit/events and
@@ -142,7 +137,7 @@ export function createEditMode({
     const state = (await refreshCommit()) ?? commitNow;
     if (!state?.canWrite) { toast('this session is not committing — start author with --git', 3000); return; }
     if (!state.dirty) { toast('nothing to commit — the deck matches its last commit', 2400); return; }
-    dismissOthers();
+    overlays.opening();
     commitEl = document.createElement('div');
     commitEl.className = 'decklight-narr decklight-commit';
     commitEl.innerHTML = '<div class="narr-card" role="dialog" aria-label="Commit"></div>';
@@ -454,7 +449,7 @@ export function createEditMode({
       if (!r.ok) return toast('this deck is not a tracked file in a git clone — nothing to update from', 3400);
       status = await r.json();
     } catch { return toast('deck update: the presenting server did not answer', 3000); }
-    dismissOthers();
+    overlays.opening();
     upEl = document.createElement('div');
     upEl.className = 'decklight-theme-picker decklight-finder decklight-restore decklight-history';
     upEl.innerHTML =
@@ -470,6 +465,7 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!upEl,
     close: closeUpstream,
+    transient: true,
     keydown: (e) => e.key === 'Escape' && (closeUpstream(), true),
   });
 
@@ -738,7 +734,7 @@ export function createEditMode({
     }
     const child = topLevelChild(sec, e.target);
     const index = child ? [...sec.children].indexOf(child) : null;
-    dismissOthers?.();
+    overlays.opening();
     openElementMenu(e.clientX, e.clientY, { sec, slide, index });
   });
 
@@ -941,6 +937,7 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!menuEl,
     close: closeElementMenu,
+    transient: true,
     keydown(e) {
       switch (e.key) {
         case 'ArrowDown': selectElementRow(menuSel + 1, true); break;
@@ -977,7 +974,13 @@ export function createEditMode({
   // setting `src` to a new hash would re-parse all of it, and the arrows would
   // feel broken. `?embedded` decks accept a `goto` from their parent (the same
   // one the slide finder uses), so once the frame is up we only ever message it.
-  let previewSlide = 1, previewReady = false, previewPending = null;
+  let previewSlide = 1;
+  let previewDoc = null; // the commit the preview frame is showing, by hash
+  const preview = createPreview({
+    docOf: (t) => t.doc,
+    srcFor: (t) => `${editBase}/edit/at?ref=${encodeURIComponent(t.doc)}&embedded`,
+    messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, 0] } }),
+  });
   // Armed, not fired. `⏎` on a row used to restore it on the spot, and a CLICK
   // did too — which is a keystroke and a half between browsing your history and
   // rewriting the deck on disk. Restoring is recoverable (it only ever adds a
@@ -1009,8 +1012,7 @@ export function createEditMode({
     const total = previewTotal();
     previewSlide = Math.max(1, total ? Math.min(n, total) : n);
     const frame = restoreEl?.querySelector('iframe');
-    if (!previewReady) previewPending = previewSlide;
-    else frame?.contentWindow?.postMessage({ __decklightPreview: { goto: [previewSlide, 0] } }, '*');
+    if (frame && previewDoc) preview.show(frame, { doc: previewDoc, slide: previewSlide });
     renderNav();
   }
   function renderNav() {
@@ -1036,14 +1038,11 @@ export function createEditMode({
 
   function restorePreview(frame, entry) {
     if (!entry) return;
-    previewReady = false;
-    previewPending = null;
-    previewSlide = 1;
-    frame.addEventListener('load', () => {
-      previewReady = true;
-      if (previewPending != null) { const n = previewPending; previewPending = null; previewGoto(n); }
-    }, { once: true });
-    frame.src = `${editBase}/edit/at?ref=${encodeURIComponent(entry.hash)}&embedded`;
+    // a row re-selected is a message, not a reload — the same short-circuit the
+    // finder and the pickers have always had
+    if (entry.hash !== previewDoc) previewSlide = 1;
+    previewDoc = entry.hash;
+    preview.show(frame, { doc: previewDoc, slide: previewSlide });
     renderNav();
   }
   function selectRestoreRow(i, immediate) {
@@ -1091,7 +1090,7 @@ export function createEditMode({
       remote = j.remote || null;
     } catch { return toast(`${label}: could not read the deck history`, 3000); }
     if (!entries.length) return toast(`${label}: git has no record of this deck yet`, 3000);
-    dismissOthers();
+    overlays.opening();
     restoreRows = entries;
     restoreArmed = false;
     restoreEl = document.createElement('div');
@@ -1215,8 +1214,7 @@ export function createEditMode({
     restoreEl?.remove();
     restoreEl = null;
     restoreArmed = false;
-    previewReady = false;
-    previewPending = null;
+    previewDoc = null;
   }
 
   /**
@@ -1296,6 +1294,7 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!restoreEl,
     close: closeRestore,
+    transient: true,
     keydown(e) {
       switch (e.key) {
         case 'ArrowDown': selectRestoreRow(restoreSel + 1, false); break;
@@ -1356,7 +1355,7 @@ export function createEditMode({
       prov = j.provenance;
     } catch { toast('the author server did not answer', 2600); return; }
 
-    dismissOthers?.();
+    overlays.opening();
     wizEl = document.createElement('div');
     wizEl.className = 'decklight-narr decklight-editor';
     const card = document.createElement('div');

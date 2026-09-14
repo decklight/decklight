@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { selectInList, typeaheadKeydown } from '../src/core/overlay.js';
+import { createOverlays, selectInList, typeaheadKeydown } from '../src/core/overlay.js';
 
 const row = () => ({
   _cls: new Set(),
@@ -94,4 +94,59 @@ test('an unhandled key is reported as not consumed, so the deck can drop it', ()
   assert.equal(h.press('F5'), false);
   assert.equal(h.press('Shift'), false, 'a modifier name is longer than one character');
   assert.deepEqual(h.calls, []);
+});
+
+// ── the registry ───────────────────────────────────────────────────────────
+
+/** An overlay that can be opened and closed, and records when it was closed. */
+function overlay(extra = {}) {
+  const o = { open: false, closedBy: 0 };
+  return Object.assign(o, {
+    isOpen: () => o.open,
+    close: () => { o.open = false; o.closedBy++; },
+    keydown: () => false,
+  }, extra);
+}
+
+test('the first registered overlay that is open owns the keyboard', () => {
+  const overlays = createOverlays();
+  const a = overlays.register(overlay());
+  const b = overlays.register(overlay());
+  assert.equal(overlays.active(), undefined, 'nothing open, nothing active');
+  b.open = true;
+  assert.equal(overlays.active(), b);
+  a.open = true;
+  assert.equal(overlays.active(), a, 'registration order is priority');
+});
+
+test('opening() clears the pickers and leaves every other overlay alone', () => {
+  // A picker has no business under whatever opens next; a typing surface has
+  // every business staying — ⌘K reaches the commit window from inside the notes
+  // editor, and the sentence in the editor must survive the commit.
+  const overlays = createOverlays();
+  const picker = overlays.register(overlay({ transient: true }));
+  const menu = overlays.register(overlay({ transient: true }));
+  const editor = overlays.register(overlay());
+  const docked = overlays.register(overlay({ modal: false }));
+  for (const o of [picker, menu, editor, docked]) o.open = true;
+  overlays.opening();
+  assert.deepEqual([picker.open, menu.open, editor.open, docked.open], [false, false, true, true]);
+  assert.equal(picker.closedBy, 1);
+});
+
+test('opening(keep) spares the picker that is itself opening', () => {
+  const overlays = createOverlays();
+  const picker = overlays.register(overlay({ transient: true }));
+  const other = overlays.register(overlay({ transient: true }));
+  picker.open = other.open = true;
+  overlays.opening(picker);
+  assert.equal(picker.open, true, 'the one opening is not the one being cleared');
+  assert.equal(other.open, false);
+});
+
+test('opening() does not close a picker that is already closed', () => {
+  const overlays = createOverlays();
+  const picker = overlays.register(overlay({ transient: true }));
+  overlays.opening();
+  assert.equal(picker.closedBy, 0, 'close() has side effects (it removes DOM) and is not called idly');
 });

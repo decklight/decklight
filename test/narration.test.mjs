@@ -16,7 +16,7 @@ import { notesSegments } from '../tools/deck-html.mjs';
 import {
   hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack, parseVoiceQuery, voiceMatches,
-  splitSentences, fmtTime, stitchWav, silencePcm, micWhy,
+  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -446,4 +446,40 @@ test('micWhy names the fix for each way a microphone refuses, and escapes the re
   assert.match(odd, /could not be opened/);
   assert.doesNotMatch(odd, /<img/, 'an error message reached the card as markup');
   assert.match(odd, /&lt;img/);
+});
+
+// ── notesSegsOf — the same notes, split once ──────────────────────────────
+//
+// Segmenting a slide's notes is a DOM read, a split and a whitespace pass per
+// segment, and it is asked for on every slide change, on every build step, and
+// once per sentence by the lookahead worker — for a list that is the same list
+// it was the last time. The memo is validated by the notes' own text, so
+// nothing has to remember to invalidate it.
+
+test('the same notes are segmented once and handed back as the same list', () => {
+  const aside = { textContent: 'One. ⟨CLICK⟩ Two.' };
+  const first = notesSegsOf(aside);
+  assert.deepEqual(first, ['One.', 'Two.']);
+  assert.equal(notesSegsOf(aside), first, 'notes that had not changed were split a second time');
+});
+
+test('notes rewritten under a live deck re-segment, with nobody telling the cache', () => {
+  // The author server re-renders a slide in place, so the aside a running deck
+  // holds can be handed new words at any moment. The text IS the validity
+  // check, which is exactly why the editor needs to know nothing about this.
+  const aside = { textContent: 'One.' };
+  assert.deepEqual(notesSegsOf(aside), ['One.']);
+  aside.textContent = 'One. ⟨CLICK⟩ Two.';
+  const after = notesSegsOf(aside);
+  assert.deepEqual(after, ['One.', 'Two.'], 'the deck would go on speaking the old notes');
+  assert.equal(notesSegsOf(aside), after, 'and the new ones are memoized in their turn');
+});
+
+test('every part of the split is kept, and a slide with no notes is still one segment', () => {
+  // Segment k narrates build step k, so an empty ⟨CLICK⟩ part is a silent
+  // beat, not a nothing to drop — the difference from notesSegments in tools/.
+  assert.deepEqual(notesSegsOf({ textContent: ' ⟨CLICK⟩ A ⟨CLICK⟩ B ' }), ['', 'A', 'B']);
+  assert.deepEqual(notesSegsOf({ textContent: 'A\n\n  B' }), ['A B'], 'whitespace collapses');
+  assert.deepEqual(notesSegsOf(null), [''], 'a slide with no aside still has a step 0');
+  assert.deepEqual(notesSegsOf(undefined), ['']);
 });

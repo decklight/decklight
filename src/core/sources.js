@@ -47,7 +47,7 @@ function sourcesOf(section) {
   return facts.length || links.length ? { facts, links } : null;
 }
 
-export function createSources({ root, overlays, reflow, sectionAt, slideOf, editmode, toast, dismissOthers }) {
+export function createSources({ root, overlays, reflow, sectionAt, slideOf, editmode, toast }) {
   // Beside the slide, not over it — the review panel's placement, shared
   // (dock.js). Docked, this is a reference open next to the talk: you keep
   // navigating and it follows the slide.
@@ -283,11 +283,11 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
     // cannot do anything about it.
     if (!read()) {
       if (!canEdit()) { toast(`slide ${slideOf()} does not say where it got that`, 2600); return; }
-      dismissOthers?.();
+      overlays.opening();
       startEditing();
       return;
     }
-    dismissOthers?.();
+    overlays.opening();
     sel = 0;
     draft = null;
     renderRead();
