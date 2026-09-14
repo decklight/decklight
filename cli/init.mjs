@@ -39,8 +39,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 const { basename, relative } = path;
-import { pathToFileURL } from 'node:url';
-import { spawn, execFileSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 
 import {
@@ -58,6 +58,10 @@ import {
   looksLikeGitUrl, noPromptEnv, oneline, remoteNames, splitDeckPaths,
 } from './git.mjs';
 import { makeFail, runMain } from './util.mjs';
+import { openCommand, openDeck, openUrl } from './open-browser.mjs';
+
+// still exported from here — record and review used to import the opener from init
+export { openCommand, openDeck, openUrl };
 import { isMain } from '../tools/args.mjs';
 
 const fail = makeFail('init');
@@ -356,61 +360,6 @@ export function epilogue({ deckPath, tty = false, noColor = false }) {
   ].join('\n') + '\n';
 }
 
-// ── --open: hand the deck's file:// URL to the platform launcher ────────────
-
-/**
- * Platform → launcher invocation for a URL, as pure data so it can be tested
- * without spawning anything. macOS ships `open`; Windows goes through cmd's
- * `start` builtin (the empty '' fills the window-title slot, or the URL would
- * become the title); everything else gets freedesktop's xdg-open. Zero new
- * dependencies by design.
- */
-export function openCommand(platform, url) {
-  if (platform === 'darwin') return { cmd: 'open', args: [url] };
-  if (platform === 'win32') return { cmd: 'cmd', args: ['/c', 'start', '', url] };
-  return { cmd: 'xdg-open', args: [url] };
-}
-
-/**
- * Launch the default browser on the deck's file:// URL — the deck is
- * self-contained, so the file IS the presentation. Spawned detached with
- * stdio ignored (the dev.mjs idiom) so init exits promptly. A machine that
- * cannot launch (headless, no xdg-open) gets one dim line and a normal exit:
- * the deck was created, which is the product.
- */
-export async function openDeck(deckPath, opts = {}) {
-  const rel = path.relative('.', deckPath) || deckPath;
-  // the prefix names the FLAG that asked, which is what a reader of the line
-  // needs: --open is opt-in, and its one dim failure line has to say so
-  return openUrl(pathToFileURL(deckPath).href, { ...opts, what: rel, prefix: '--open: ' });
-}
-
-/**
- * The same launcher, for a URL that is not a file — `decklight record` serves
- * the deck over http://127.0.0.1 precisely because a browser will not open a
- * microphone for a `file://` page.
- */
-export async function openUrl(url, {
-  platform = process.platform, spawnFn = spawn, out = process.stdout, what = url, prefix = '',
-} = {}) {
-  const { cmd, args } = openCommand(platform, url);
-  const rel = what;
-  const dim = (s) => (out.isTTY && !process.env.NO_COLOR ? `${DIM}${s}${RESET}` : s);
-  const skipped = (err) =>
-    out.write(dim(`${prefix}could not launch a browser (${cmd}: ${err.code ?? err.message}) — open ${rel} yourself\n`));
-  await new Promise((resolve) => {
-    let child;
-    try {
-      child = spawnFn(cmd, args, { stdio: 'ignore', detached: true });
-    } catch (err) { skipped(err); resolve(); return; }
-    child.once('error', (err) => { skipped(err); resolve(); });
-    child.once('spawn', () => {
-      child.unref();
-      out.write(`opening ${rel} in your default browser\n`);
-      resolve();
-    });
-  });
-}
 
 function starterDeck(title, themeNames, activeTheme) {
   title = escapeHtml(title); // a prompt invites &, < and quotes
@@ -474,7 +423,7 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …]
                  [--from <template>] [--git | --no-git] [--open] [--force]
-                 [--no-skill | --global-skill]
+                 [--no-skill | --global-skill] [--author | --no-author]
 
 Options:
   -o <file>       deck output path (default: deck.html)
@@ -496,6 +445,11 @@ Options:
   --no-git        never touch git
   --open          open the scaffolded deck in your default browser
                   (the deck is self-contained — the file is the presentation)
+  --author        go straight into author mode once the deck is written —
+                  live reload, edits from the browser, an AI agent on A —
+                  and open it there. On a terminal init ASKS this; --author
+                  answers yes without asking, --no-author answers no.
+  --no-author     scaffold and stop; print the command instead
   --force         overwrite an existing deck file (default: refuses)
   --no-skill      skip the agent skill entirely (project and global), and the
                   where-should-it-go question with it
@@ -530,6 +484,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--themes') themesSel = args[++i];
     else if (a === '--force') force = true;
     else if (a === '--open') openAfter = true;
+    else if (a === '--author' || a === '--no-author') ; // the handoff question, below
     else if (a === '--no-skill' || a === '--global-skill') ; // consumed by planSkill below
     else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
     else if (a === '--remote') i++;                // consumed by planRemote below
@@ -735,17 +690,33 @@ unless --no-skill is given. The deck file is only touched with --force.
 
   process.stdout.write(epilogue({ deckPath, tty: !!process.stdout.isTTY, noColor: !!process.env.NO_COLOR }));
 
+  // ── the handoff: author mode, offered ──────────────────────────────────────
+  // The epilogue names the command. On a terminal init also offers to run it,
+  // because the deck opened as a FILE is one where E, A and L all answer
+  // "needs decklight author": the newcomer's first three keystrokes hit the one
+  // command they have not seen yet. A question with a default, not an action:
+  // Enter goes, `n` keeps init out of the way, and a run that cannot answer —
+  // no TTY, or stdin closed under it — never has a server started for it.
+  // Everything init printed stays on screen above author's banner.
+  let handoff = argv.includes('--author') ? 'yes' : argv.includes('--no-author') || !tty ? 'no' : 'ask';
+  if (handoff === 'ask') {
+    const a = (await question('  open it in author mode now — live reload, edits from the browser? [Y/n] ')).trim();
+    handoff = (stdinGone && !a) || /^n/i.test(a) ? 'no' : 'yes';
+  }
+  rl?.close();
+  if (handoff === 'yes') {
+    const rel = path.relative(root, deckPath);
+    const cli = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
+    // the banner has been printed once, by this run; the child is the same version
+    const r = spawnSync(process.execPath, [cli, 'author', rel, '--open'],
+      { stdio: 'inherit', cwd: root, env: { ...process.env, DECKLIGHT_BANNER: '1' } });
+    return r.status ?? 0;
+  }
+
   // last of the writes, so every "created/wrote" line is on screen before the
   // browser steals focus; opens the deck FILE, not a served URL — the deck is
   // self-contained by design
   if (openAfter) await openDeck(deckPath);
-
-  // No handoff. init scaffolds and gets out of the way: the epilogue above
-  // prints `decklight author <deck>` under "start editing", and that command IS
-  // the handoff. Starting a server for you means init does not return until
-  // you stop it — you cannot look at what it made, or read the lines it just
-  // printed, without first killing something.
-  rl?.close();
 }
 
 if (isMain(import.meta.url)) process.exitCode = await runMain('init', initMain);

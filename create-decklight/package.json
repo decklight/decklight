@@ -1,0 +1,33 @@
+{
+  "name": "create-decklight",
+  "version": "0.1.0",
+  "description": "npm create decklight — scaffold a Decklight deck with the latest release, no version to remember",
+  "type": "module",
+  "bin": {
+    "create-decklight": "bin.mjs"
+  },
+  "files": [
+    "bin.mjs",
+    "lib.mjs",
+    "README.md"
+  ],
+  "homepage": "https://decklight.io",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/decklight/decklight.git",
+    "directory": "create-decklight"
+  },
+  "bugs": "https://github.com/decklight/decklight/issues",
+  "keywords": [
+    "presentation",
+    "slides",
+    "deck",
+    "create",
+    "decklight"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "author": "Gilles Philippart <gilles.philippart@gmail.com>",
+  "license": "Apache-2.0"
+}

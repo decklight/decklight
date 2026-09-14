@@ -47,7 +47,7 @@ import { runMain } from './util.mjs';
 import { staticFiles, allowEditRequest, listenTakingOverIfNeeded } from './serve.mjs';
 import { inGitRepo, gitAutocommit, gitAvailable, commitSubject, oneline } from './git.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
-import { openUrl } from './init.mjs';
+import { openUrl } from './open-browser.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
 const USAGE = `usage: decklight review <deck.html> [--port 8790] [--no-open] [--no-git]

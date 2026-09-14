@@ -1569,8 +1569,11 @@ decklight/
   src/terminal/  ansi.mjs (parser), player.mjs (provider + modes)
   cli/           decklight.mjs (dispatcher: init/skills/cast/refresh/export/bundle/restore/history/upgrade/pdf/pptx/
                  import/theme/publish/marketplace/plugin/template/importer/transform/engine/extension/voice/agent/
-                 tts/lipsync/video/author/record/voiceover/review/comments/present/associate/report-bug; `dev` is a
-                 hidden alias for `author`; `edit` (folded into `author`) and `rec` (renamed `cast`) are gone —
+                 tts/lipsync/video/author/record/voiceover/review/comments/present/associate/report-bug/doctor; `dev` is a
+                 hidden alias for `author`; a FILE as the first argument implies its verb (a deck → author, a
+                 .decklight → present, an Office file or Slides URL → import, a YAML script → cast), a bare
+                 `decklight` on a terminal reads the directory (start.mjs), and an unknown command names the one
+                 it probably meant; `edit` (folded into `author`) and `rec` (renamed `cast`) are gone —
                  an unknown command, printing the roster) + commands.mjs (the roster itself: one row per command naming its
                  module and main, plus the help text — test/commands.test.mjs holds the two in step) + pkg.mjs (the package root and the one
                  runtime-inlining transform) and util.mjs (CommandError + runMain: every command fails
@@ -1585,7 +1588,9 @@ decklight/
                  core), present.mjs, edit.mjs (the author server: a route table, with the slide-mutation routes in
                  edit-slides.mjs), dev.mjs, remote.mjs, agents.mjs (AI-agent roster), git.mjs (the
                  autocommit decision table), update-check.mjs (the "a newer decklight exists" notice), qr.mjs,
-                 port-conflict.mjs, supervise.mjs, skill-content.mjs (the agent skill's shipped text)
+                 port-conflict.mjs, supervise.mjs, skill-content.mjs (the agent skill's shipped text), start.mjs (a bare
+                 `decklight`: start a deck here, or open the one that is), doctor.mjs (what this machine can do),
+                 open-browser.mjs (hand a URL to the platform launcher)
   tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes) + template-slides.mjs (a deck template as a list of slides you can take, UNITS#REST) + lorem.mjs (a taken slide's prose replaced, its markup and its code left alone) + css-slice.mjs (the rules a taken slide is shaped by, cut out of the stylesheet it came from), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), atomic-write.mjs (a temp sibling and a rename, so a
                  crash never truncates a deck), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the

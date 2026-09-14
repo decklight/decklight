@@ -38,6 +38,7 @@ import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
 import { detectLocalVoice, OLLAMA_NOTE } from '../tools/local-voice.mjs';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { runMain } from './util.mjs';
+import { openUrl } from './open-browser.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
 import { nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
@@ -57,6 +58,7 @@ const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 878
                     on a TTY, or moves to the next free port otherwise)
   --tts-port N      live voice bridge                                 [8787]
   --lipsync-port N  lip-sync bridge (visemes + talking head)          [8789]
+  --open            open the deck in your browser once the server is up
   --no-tts          don't start the voice bridge
   --no-lipsync      don't start the lip-sync bridge
   --git / --no-git  keep the deck in git (snapshot + K commits) / never touch git
@@ -492,6 +494,9 @@ export async function devMain(args) {
       for (const l of renderBanner({ deck, url: banner.url, keys: banner.keys, rows, color: tty })) {
         process.stdout.write(`${l}\n`);
       }
+      // after the banner, so the URL is on screen before the browser takes the
+      // focus — and a machine that cannot launch one gets its dim line here
+      if (args.includes('--open')) openUrl(banner.url, { what: 'the deck' }).catch(() => {});
     }
   }
 

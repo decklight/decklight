@@ -70,6 +70,7 @@ export const COMMANDS = {
   present: { module: './present.mjs', main: 'presentMain' },
   associate: { module: './associate.mjs', main: 'associateMain' },
   'report-bug': { module: './report-bug.mjs', main: 'reportBugMain' },
+  doctor: { module: './doctor.mjs', main: 'doctorMain' },
 };
 
 /** `refresh` and `export` are castMain subcommands; `--help` must still reach it bare. */
@@ -87,6 +88,133 @@ export function resolveCommand(name) {
 /** The commands `decklight help` lists, in help order — aliases excluded. */
 export const listedCommands = () => [...GLOBAL_HELP.slice(GLOBAL_HELP.indexOf('Commands:\n'))
   .matchAll(/^  ([a-z-]+) +\S/gm)].map((m) => m[1]);
+
+/** The one-line description GLOBAL_HELP opens a command's paragraph with. */
+export function commandSummary(name) {
+  const m = new RegExp(`^  ${name} +(\\S.*)$`, 'm').exec(GLOBAL_HELP.slice(GLOBAL_HELP.indexOf('Commands:\n')));
+  return m ? m[1].trim() : '';
+}
+
+/**
+ * The journey, in order: make a deck, work on it, show it, bring one in, hand
+ * it over. What a bare `decklight` and an unknown command print, because a
+ * newcomer who typed the wrong thing does not need the other thirty commands
+ * on screen to find the right one — they need these six and a way to the rest.
+ */
+export const START_COMMANDS = ['init', 'author', 'present', 'import', 'bundle', 'publish', 'doctor'];
+
+/** One line each, written to fit a terminal — GLOBAL_HELP's paragraphs wrap. */
+const SHORT = {
+  init: 'start a deck here, plus the skill that teaches an AI agent to write it',
+  author: 'work on a deck: live reload, edits from the browser, an AI agent on A',
+  present: 'play a deck you did not write: read-only, under a CSP, what runs is listed',
+  import: 'bring a PowerPoint, Keynote or Google Slides deck across',
+  bundle: 'one self-contained HTML file to hand over',
+  publish: 'bundle and push to GitHub Pages, Netlify, Vercel or a folder',
+  doctor: 'what this machine can do, and the install line for what it cannot',
+};
+
+export function shortHelp() {
+  const width = Math.max(...START_COMMANDS.map((c) => c.length)) + 2;
+  const rows = START_COMMANDS.map((c) => `  ${c.padEnd(width)}${SHORT[c] ?? commandSummary(c)}`);
+  const more = listedCommands().filter((c) => !START_COMMANDS.includes(c) && c !== 'help' && c !== 'version').length;
+  return `decklight — author, record, and package Decklight presentations
+
+Usage:
+  decklight <deck.html>          open a deck in author mode: live reload, edits from the browser
+  decklight <talk.pptx>          bring a PowerPoint, Keynote or Google Slides deck across
+  decklight                      in a directory: start a deck here, or pick one to open
+  decklight <command> [options]  (decklight <command> --help for its flags)
+
+Commands:
+${rows.join('\n')}
+
+  decklight help                 every command (${more} more), one paragraph each
+`;
+}
+
+/**
+ * What a FILE means as the first argument — the verb the argument implies.
+ *
+ * `decklight talk.html` was "unknown command", which is the least useful
+ * answer to the most natural thing to type. A deck opens in author mode, a
+ * `.decklight` container is somebody else's deck and plays read-only, an
+ * Office file or a Slides URL is something to import, a YAML script is a
+ * terminal cast to record. Unknown kinds return null and stay unknown
+ * commands; a file that does not exist still routes, so the refusal names the
+ * file ("no such deck: talk.html") instead of the word.
+ */
+export function routeForPath(arg) {
+  const a = String(arg ?? '');
+  if (/^https?:\/\/docs\.google\.com\/presentation\//i.test(a)) return 'import';
+  if (a.startsWith('-')) return null;
+  const ext = /\.([a-z0-9]+)$/i.exec(a)?.[1]?.toLowerCase();
+  if (!ext) return null;
+  if (ext === 'html' || ext === 'htm') return 'author';
+  if (ext === 'decklight') return 'present';
+  if (ext === 'pptx' || ext === 'key' || ext === 'keynote') return 'import';
+  if (ext === 'yaml' || ext === 'yml') return 'cast';
+  return null;
+}
+
+/**
+ * The word people reach for that is not the command's name. Every entry here
+ * is a guess somebody would plausibly type; the values are the roster's names.
+ */
+export const SYNONYMS = {
+  edit: 'author', serve: 'author', start: 'author', run: 'author', watch: 'author', write: 'author',
+  new: 'init', create: 'init', scaffold: 'init', make: 'init',
+  preview: 'present', play: 'present', show: 'present', view: 'present', open: 'present',
+  build: 'bundle', pack: 'bundle', flatten: 'bundle',
+  deploy: 'publish', ship: 'publish', pages: 'publish',
+  convert: 'import', pptx2html: 'import',
+  check: 'doctor', env: 'doctor', diagnose: 'doctor',
+  update: 'upgrade', undo: 'restore', log: 'history',
+  themes: 'theme', plugins: 'plugin', templates: 'template', voices: 'voice', engines: 'engine',
+};
+
+/** Levenshtein distance, for the typo half of did-you-mean. */
+function editDistance(a, b) {
+  const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let diag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j - 1] + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
+/**
+ * The command somebody who typed `name` most likely meant, or null.
+ *
+ * Synonyms first — `edit` is not a typo of `author`, it is the word for it —
+ * then a unique prefix (`pub` → publish), then a name within two edits. Two,
+ * not three: `cast` and `past` are one apart, `cast` and `pdf` are four, and
+ * the useful distance is the one that catches a slipped finger and never an
+ * unrelated word.
+ */
+export function suggestCommand(name) {
+  const n = String(name ?? '').toLowerCase();
+  if (!n || COMMANDS[n]) return null;
+  if (SYNONYMS[n]) return SYNONYMS[n];
+  const names = Object.keys(COMMANDS).filter((c) => !COMMANDS[c].alias);
+  const prefixed = names.filter((c) => c.startsWith(n));
+  if (n.length >= 2 && prefixed.length === 1) return prefixed[0];
+  // How many slips a word can absorb depends on how long it is: two in
+  // `bundel`, one in `pdff`, none in `p` — which is within two of `pdf` and
+  // meant nothing of the kind.
+  const budget = n.length >= 5 ? 2 : n.length >= 3 ? 1 : 0;
+  let best = null, bestD = budget + 1;
+  for (const c of names) {
+    const d = editDistance(n, c);
+    if (d < bestD) { best = c; bestD = d; }
+  }
+  return best;
+}
 
 export const GLOBAL_HELP = `decklight — author, record, and package Decklight presentations
 
@@ -186,6 +314,9 @@ Commands:
            EXAMPLE: decklight associate   (per-user, no admin rights; --uninstall undoes it)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL
            EXAMPLE: decklight report-bug   (prints and exits — nothing is sent anywhere)
+  doctor   what this machine can do — Chrome, ffmpeg, git, the optional deps, the agents on PATH —
+           and, for each thing missing, which commands it unlocks and the line that installs it
+           EXAMPLE: decklight doctor
   help     show this help, or a command's help: decklight help bundle
   version  print the installed version (also --version / -v)
 `;
