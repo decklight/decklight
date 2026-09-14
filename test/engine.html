@@ -227,6 +227,13 @@
         }
         if (u.includes('/edit/undo')) return json({ ok: true, undo: 0, redo: 1 });
       }
+      if (HARNESS_MODE === 'codeedit') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/element/source')) {
+          return json({ ok: true, html: '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>' });
+        }
+        if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'contextmenu') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
@@ -289,6 +296,10 @@
     // does what, not whether audio decodes.
     // in-file chapters (#479): the markers must be on the sections BEFORE init,
     // because createPlaylist reads them once at setup
+    if (HARNESS_MODE === 'codeedit') {
+      document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
+        '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>');
+    }
     if (HARNESS_MODE.startsWith('chapters')) {
       const secs = document.querySelectorAll('.decklight > section');
       secs[1].setAttribute('data-module', 'Foundations');
@@ -1029,6 +1040,49 @@
           && r.editableReleased && r.escapeReverts && r.escapeWroteNothing && r.unchangedWritesNothing
           && r.paletteRunsASlideOp && r.landsOnTheNewSlide && r.saysWhatItDid
           && r.menuOffersTheSlide && r.slideSubmenu;
+      }
+
+      // Double-click a code block: its SOURCE text, plain, not the highlighted DOM.
+      if (mode === 'codeedit') {
+        await settle();                       // /edit/ping: editAvailable
+        deck.goto(3, 0);
+        await settle();
+        const code = document.querySelector('.decklight-stage > section.active pre > code');
+        const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        const key = (k, o = {}) => code.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...o }));
+        const contentPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/element/content'));
+        const firstLine = code.querySelector('.code-line');
+        r.renderedHighlighted = !!firstLine;
+        dbl(code);
+        await settle(); await settle();
+        r.becomesEditable = code.isContentEditable && code.classList.contains('dl-editing');
+        r.showsTheSourceText = !code.querySelector('span') && code.textContent === 'const a = 1;\nconst b = 2;';
+        key('ArrowRight');
+        r.keysStayInTheCode = deck.state.slide === 3;
+        key('Enter');                         // a newline in code, never a save
+        await settle();
+        r.enterIsNotASave = contentPosts().length === 0 && code.isContentEditable;
+        // Escape gives it up and puts back the SAME rendered lines, so the
+        // data-lines build still has nodes to step through
+        code.textContent = 'junk';
+        key('Escape');
+        await settle();
+        r.escapePutsTheLinesBack = code.querySelector('.code-line') === firstLine && !code.isContentEditable;
+        r.escapeWroteNothing = contentPosts().length === 0;
+        // ⌘Enter saves the text into the source: attributes kept, markup escaped,
+        // the file's own newlines around the code kept
+        dbl(code);
+        await settle(); await settle();
+        code.textContent = 'const a = 10;\nif (a < b) go();';
+        key('Enter', { metaKey: true });
+        await settle(); await settle();
+        const saved = contentPosts()[0];
+        r.savesIntoTheSource = !!saved && saved.body.slide === 3 && saved.body.index === 1;
+        r.keepsTheBlockExactly = saved?.body.html
+          === '<pre data-lines="1|2"><code class="language-js">\nconst a = 10;\nif (a &lt; b) go();\n</code></pre>';
+        r.PASS = r.renderedHighlighted && r.becomesEditable && r.showsTheSourceText && r.keysStayInTheCode
+          && r.enterIsNotASave && r.escapePutsTheLinesBack && r.escapeWroteNothing
+          && r.savesIntoTheSource && r.keepsTheBlockExactly;
       }
 
       // G surfaces a merged deck's chapters as rows of their own (#479).

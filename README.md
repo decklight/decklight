@@ -78,9 +78,10 @@ and write the HTML yourself. This is the whole anatomy:
 
 ## What's in the box
 
-- **Editing in the browser.** In author mode, double-click any text to change
-  it, drop a picture onto a slide to add it, and add, duplicate, move or delete
-  slides from the palette or the right-click menu. Every edit lands in the file
+- **Editing in the browser.** In author mode, double-click any text — or a
+  code block, edited as plain source — to change it, drop a picture onto a
+  slide to add it, and add, duplicate, move or delete slides from the palette
+  or the right-click menu. Every edit lands in the file
   and `Z` takes it back. `decklight check` reports what an author or an agent
   would otherwise only see by looking: clipped slides, missing images, notes
   whose ⟨CLICK⟩ count disagrees with the builds.
