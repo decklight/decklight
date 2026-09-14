@@ -8,7 +8,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { agentChipText, elapsedLabel, needsDevMode, pushToastText, shortAge, AGE_UNIT } from '../src/core/devmode.js';
+import {
+  agentChipText, boundedFetch, elapsedLabel, needsDevMode, pushToastText, shortAge, stalledMessage, AGE_UNIT, FETCH_TIMEOUT_MS,
+} from '../src/core/devmode.js';
 
 const FILE = { protocol: 'file:', pathname: '/Users/gp/decks/talk.html' };
 const HTTP = { protocol: 'https:', pathname: '/talks/talk.html' };
@@ -217,4 +219,52 @@ test('every unit git can emit has a letter', () => {
     assert.match(shortAge(`7 ${unit}s ago`), /^7[a-z]+$/, unit);
   }
   assert.equal(Object.keys(AGE_UNIT).length, 7);
+});
+
+// ── boundedFetch ─────────────────────────────────────────────────────────────
+// A same-origin fetch queued behind Chrome's six-per-origin socket pool (each
+// tab's live-reload EventSource pins one) never reaches the server and never
+// rejects, so the element content editor sat on `loading…` with no toast and
+// no way out but Esc. The bound turns that into the error the catch paths
+// already know how to show.
+
+/** A fetch that answers only when its signal aborts, the way a queued request behaves. */
+const stalledFetch = (url, init) => new Promise((_, reject) => {
+  init.signal.addEventListener('abort', () => reject(new DOMException('The user aborted a request.', 'AbortError')));
+});
+
+test('a fetch the browser never sends fails within the bound, with a message an author can act on', async () => {
+  const t0 = Date.now();
+  await assert.rejects(boundedFetch('/edit/element/source', {}, { ms: 40, fetchFn: stalledFetch }), (e) => {
+    assert.equal(e.message, stalledMessage(40), 'the browser’s own abort wording never reaches a toast');
+    return true;
+  });
+  assert.ok(Date.now() - t0 < 2000, 'it gave up, it did not wait the request out');
+});
+
+test('the stalled message fits the toasts’ 60-character slice and names the remedy', () => {
+  const msg = stalledMessage();
+  assert.ok(msg.length <= 60, `${msg.length} chars: ${msg}`);
+  assert.match(msg, new RegExp(`^no answer in ${FETCH_TIMEOUT_MS / 1000}s`));
+  assert.match(msg, /close other tabs of this deck/);
+});
+
+test('an answer, or a failure of its own, passes through untouched', async () => {
+  const seen = [];
+  const answers = async (url, init) => { seen.push({ url, init }); return { ok: true, status: 200 }; };
+  const res = await boundedFetch('/edit/notes', { method: 'POST', body: '{}' }, { ms: 40, fetchFn: answers });
+  assert.equal(res.status, 200);
+  assert.equal(seen[0].init.method, 'POST', 'the caller’s init is forwarded');
+  assert.ok(seen[0].init.signal instanceof AbortSignal, 'with the timer’s signal attached');
+  assert.equal(seen[0].init.signal.aborted, false, 'an answered request is never aborted after the fact');
+  const refused = async () => { throw new TypeError('Failed to fetch'); };
+  await assert.rejects(boundedFetch('/edit/notes', {}, { ms: 40, fetchFn: refused }), /Failed to fetch/,
+    'a connection refused is reported as itself, not as a stall');
+});
+
+test('a caller’s own signal still cancels, and is not mistaken for the timer', async () => {
+  const ctl = new AbortController();
+  const p = boundedFetch('/edit/element/source', { signal: ctl.signal }, { ms: 5000, fetchFn: stalledFetch });
+  ctl.abort();
+  await assert.rejects(p, (e) => e.name === 'AbortError');
 });

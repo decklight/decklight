@@ -17,7 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
-import { agentChipText, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
+import { agentChipText, boundedFetch, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { hljs } from '../code/code.js';
@@ -526,7 +526,10 @@ export function createEditMode({
     p.then(done, done);
     return p;
   }
-  const writeFetch = (url, init) => trackWrite(fetch(url, init));
+  // Bounded: a write queued behind a saturated socket pool would otherwise hold
+  // Z hostage forever, and its own catch path (the "save failed" toast) would
+  // never run — see boundedFetch.
+  const writeFetch = (url, init) => trackWrite(boundedFetch(url, init));
 
   // undo/redo (Z / ⇧Z) — the dev server's edit history: layout picks, notes
   // saves, and agent runs all snapshot into ONE stack, wholly independent of
@@ -974,7 +977,10 @@ export function createEditMode({
     root.appendChild(contentEl);
     (async () => {
       try {
-        const res = await fetch(`${editBase}/edit/element/source?slide=${slide}&index=${index}`);
+        // Bounded, so a request the browser never sends (every socket to this
+        // origin pinned by another tab's live reload) reaches the catch below
+        // and its toast, rather than leaving the textarea on `loading…` for good.
+        const res = await boundedFetch(`${editBase}/edit/element/source?slide=${slide}&index=${index}`);
         const j = await res.json().catch(() => ({}));
         if (!res.ok || !j.ok) throw new Error(j.error || res.status);
         // Dedented, so the element reads at its own depth rather than at the
