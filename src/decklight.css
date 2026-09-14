@@ -2110,3 +2110,20 @@
   text-align: left;
 }
 .decklight-sources .src-add:hover { opacity: 1; }
+
+/* ── author mode: double-click to edit, drop to add (src/core/authoring.js) ── */
+.decklight .dl-editing {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+  cursor: text;
+}
+.decklight.dl-dropping > .decklight-stage { outline: 3px dashed var(--accent); outline-offset: -3px; }
+.decklight.dl-dropping > .decklight-stage::after {
+  content: 'drop to add the picture to this slide';
+  position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%);
+  padding: 0.4em 1em; border-radius: 999px;
+  background: var(--accent); color: var(--accent-contrast);
+  font: 600 0.9rem var(--font-body); letter-spacing: 0.01em;
+  pointer-events: none;
+}

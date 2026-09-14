@@ -205,6 +205,18 @@
       // an author server to exist at all, same as every other author-mode
       // feature here: enough of /edit/ping for editAvailable, plus the four
       // /edit/element/* routes the menu's actions actually call.
+      // Mouse editing (authoring.js): a double-click saves through the SOURCE
+      // of the element and the content route, and the slide operations are one
+      // POST each answering with the slide to land on.
+      if (HARNESS_MODE === 'authoring') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/edit/slide')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, slide: b.op === 'delete' ? b.slide : b.slide + 1, total: 5, undo: 1, redo: 0 });
+        }
+      }
       if (HARNESS_MODE === 'contextmenu') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
@@ -919,6 +931,70 @@
           && r.enterSaves && r.sentTheEditedFact && r.closesOnSave && r.saysItSaved;
       }
 
+      // Double-click to edit, and the slide as a whole from the palette and the
+      // right-click menu (authoring.js, SPEC PRESENTING author mode).
+      if (mode === 'authoring') {
+        await settle();                       // /edit/ping: editAvailable
+        deck.goto(1, 0);
+        await settle();
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        dbl(h1);
+        r.becomesEditable = h1.isContentEditable && h1.classList.contains('dl-editing');
+        // the deck's shortcuts stand aside while a word is being fixed
+        press('ArrowRight');
+        r.keysStayInTheText = deck.state.slide === 1;
+        h1.textContent = 'One, edited';
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle();
+        await settle();
+        const saved = CALLS.post.find((c) => c.u.includes('/edit/element/content'));
+        r.enterSaves = !!saved && saved.body.slide === 1 && saved.body.index === 0;
+        r.savedIntoTheSource = !!saved && saved.body.html === '<h1>One, edited</h1>';
+        r.editableReleased = !h1.isContentEditable && !h1.classList.contains('dl-editing');
+        // Escape gives the edit up, and writes nothing
+        dbl(h1);
+        h1.textContent = 'junk';
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        r.escapeReverts = h1.textContent === 'One, edited' && !h1.isContentEditable;
+        r.escapeWroteNothing = CALLS.post.filter((c) => c.u.includes('/edit/element/content')).length === 1;
+        // an unchanged edit writes nothing either
+        dbl(h1);
+        h1.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        await settle();
+        r.unchangedWritesNothing = CALLS.post.filter((c) => c.u.includes('/edit/element/content')).length === 1;
+
+        // the slide as a whole, from the palette
+        press('/');
+        for (const ch of 'duplicate') press(ch);
+        press('Enter');
+        await settle();
+        await settle();
+        const op = CALLS.post.find((c) => c.u.includes('/edit/slide'));
+        r.paletteRunsASlideOp = !!op && op.body.op === 'duplicate' && op.body.slide === 1;
+        r.landsOnTheNewSlide = location.hash === '#/2/0';
+        r.saysWhatItDid = [...document.querySelectorAll('.decklight-toast')].some((n) => /slide 1 duplicated/.test(n.textContent));
+
+        // and from the right-click menu on the slide background
+        press('e');                           // arm element edit mode
+        const sec = document.querySelector('.decklight-stage > section.active');
+        sec.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        await settle();
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
+        r.menuOffersTheSlide = rows().includes('Slide ▸');
+        [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => n.textContent === 'Slide ▸')?.click();
+        await settle();
+        r.slideSubmenu = rows().includes('New slide after this one') && rows().includes('Delete this slide')
+          && rows().includes('Move slide up');
+        press('Escape');
+
+        r.PASS = r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
+          && r.editableReleased && r.escapeReverts && r.escapeWroteNothing && r.unchangedWritesNothing
+          && r.paletteRunsASlideOp && r.landsOnTheNewSlide && r.saysWhatItDid
+          && r.menuOffersTheSlide && r.slideSubmenu;
+      }
+
       // G surfaces a merged deck's chapters as rows of their own (#479).
       if (mode === 'chapters') {
         press('g');
@@ -1362,7 +1438,7 @@
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
         r.fullMenuRows = JSON.stringify(rowsText())
-          === JSON.stringify(['Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Add text effect ▸']);
+          === JSON.stringify(['Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
         press('ArrowDown');
@@ -1374,7 +1450,8 @@
         // editing lives now that E means something else
         rightClick(sections[0]);
         r.opensOnBackground = !!document.querySelector(M);
-        r.backgroundOnlyNotes = JSON.stringify(rowsText()) === JSON.stringify(['Edit speaker notes']);
+        // the background has no element to act on, so the slide itself is what is offered
+        r.backgroundOnlyNotes = JSON.stringify(rowsText()) === JSON.stringify(['Edit speaker notes', 'Slide ▸']);
         press('Escape');
 
         // "Add text effect ▸" drills into a submenu — the 7 SPEC entrance

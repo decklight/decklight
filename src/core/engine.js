@@ -19,6 +19,7 @@ import { buildPrintPages } from './print.js';
 import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
+import { createAuthoring } from './authoring.js';
 import { createTemplates } from './templates.js';
 import { createSources } from './sources.js';
 import { createOnboarding, TIPS } from './onboarding.js';
@@ -710,6 +711,13 @@ export function init(userConfig = {}) {
       })),
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
       { label: 'Cycle slide layout (dev)', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
+      // The slide as a whole. Author mode only, like every row that writes the
+      // file — and absent rather than greyed out when there is no server.
+      editmode.available() && { label: 'New slide after this one (dev)', alias: 'add slide insert blank create page', run: () => editmode.slideOp('new') },
+      editmode.available() && { label: 'Duplicate this slide (dev)', alias: 'copy slide clone', run: () => editmode.slideOp('duplicate') },
+      editmode.available() && { label: 'Move slide up (dev)', alias: 'reorder earlier before swap', run: () => editmode.slideOp('up') },
+      editmode.available() && { label: 'Move slide down (dev)', alias: 'reorder later after swap', run: () => editmode.slideOp('down') },
+      editmode.available() && { label: 'Delete this slide (dev)', alias: 'remove slide drop', run: () => editmode.slideOp('delete') },
       { label: 'Undo deck edit (dev)', hint: 'Z', alias: 'revert back history', run: () => deckHistory('undo') },
       { label: 'Redo deck edit (dev)', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') },
       { label: 'Ask agent… (dev)', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk },
@@ -1799,7 +1807,7 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
-    if (/^(input|textarea|select)$/i.test(e.target.tagName)) return;
+    if (/^(input|textarea|select)$/i.test(e.target.tagName) || e.target.isContentEditable || authoring.editing()) return;
     // ⌃T generates, ⌃⇧T saves — both must precede the modifier early-return
     // (macOS tab shortcuts are ⌘-based, so Ctrl reaches the page; on
     // Windows/Linux the browser owns Ctrl+T and these can't be intercepted).
@@ -2104,6 +2112,9 @@ export function init(userConfig = {}) {
   // palette's Configure rows. Same author-mode gate either way.
   instance.wizard = editmode.wizard;
   instance.toggleElementEdit = toggleElementEdit;           // E programmatically; author mode only
+  // Double-click text to edit it, drop a picture to add it (authoring.js):
+  // the two gestures every editor teaches, on top of the routes above.
+  const authoring = createAuthoring({ root, instance, toast, editmode, debugLog });
 
   // `hasTracks`, not `track`: narration is OFF until somebody picks, so a deck
   // that ships audio has no chosen track to test for — and `?voiceover` is
