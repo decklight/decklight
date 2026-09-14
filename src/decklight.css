@@ -1151,6 +1151,11 @@
 
 /* a finder row that is another module (a separate file), not a slide here */
 .decklight-finder .tp-row.tp-module { color: #cbb6ff; }
+/* the outline (#489): a chapter's slides fold underneath it */
+.decklight-finder .tp-row.tp-child { padding-left: 30px; }
+.decklight-finder .tp-fold { display: inline-block; width: 1em; text-align: center; cursor: pointer; }
+.decklight-finder .tp-fold:hover { color: #fff; }
+.decklight-finder .tp-count { opacity: .55; }
 
 /* overview */
 .decklight-overview-grid {

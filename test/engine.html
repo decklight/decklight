@@ -997,46 +997,84 @@
 
       // G surfaces a merged deck's chapters as rows of their own (#479).
       if (mode === 'chapters') {
+        // #489: with chapters and an empty query, G is the deck's OUTLINE.
+        // Fixture: slide 1 before any chapter; Foundations = slides 2–3;
+        // Operations = slide 4. The deck starts on slide 1.
+        const F = '.decklight-finder';
+        const rows = () => [...document.querySelectorAll(`${F} .tp-row`)];
+        const texts = () => rows().map((n) => n.textContent);
+        const sel = () => rows().findIndex((n) => n.classList.contains('tp-selected'));
+        const at = (re) => rows().findIndex((n) => re.test(n.textContent));
         press('g');
         await settle();
-        const rows = () => [...document.querySelectorAll('.decklight-finder .tp-row')];
-        const texts = () => rows().map((n) => n.textContent);
-        r.opens = !!document.querySelector('.decklight-finder');
-        // chapters FIRST, then the slide list
-        r.chaptersLeadTheList = texts()[0] === '▸ Foundations — module'
-          && texts()[1] === '▸ Operations — module'
-          && texts()[2] === '1 · One';
-        r.chapterRowsAreStyledAsModules = rows().slice(0, 2)
-          .every((n) => n.classList.contains('tp-module'))
-          && !rows()[2].classList.contains('tp-module');
-        r.slideListStillWhole = texts().filter((t) => /^\d+ · /.test(t)).length === 4;
+        r.opens = !!document.querySelector(F);
+        // folded by default — you see the outline, not every slide
+        r.outlineWhenEmpty = texts().length === 3
+          && texts()[0] === '1 · One'
+          && texts()[1] === '▸ Foundations — module · 2 slides'
+          && texts()[2] === '▸ Operations — module · 1 slide';
+        r.chapterRowsAreStyledAsModules = rows()[1].classList.contains('tp-module')
+          && rows()[2].classList.contains('tp-module') && !rows()[0].classList.contains('tp-module');
         r.placeholderSaysModule = /type to find a slide or module…/.test(
-          document.querySelector('.decklight-finder .tp-filter').textContent);
-        r.captionSaysWhereItGoes = (() => {
-          document.querySelectorAll('.decklight-finder .tp-row')[0]
-            .dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
-          return /module — Foundations \(slide 2 of this deck\)/.test(
-            document.querySelector('.decklight-finder .tp-caption').textContent);
-        })();
+          document.querySelector(`${F} .tp-filter`).textContent);
+        rows()[1].dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+        r.captionSaysWhereItGoes = /module — Foundations \(slide 2 of this deck\)/.test(
+          document.querySelector(`${F} .tp-caption`).textContent);
 
-        // typing finds a chapter by name, and it still ranks as a title hit
+        // → unfolds, → again steps in, ↓ walks the outline, ← climbs and folds
+        press('ArrowRight');
+        r.rightUnfolds = texts().length === 5 && texts()[1] === '▾ Foundations — module · 2 slides'
+          && texts()[2] === '2 · Two' && rows()[2].classList.contains('tp-child') && sel() === 1;
+        press('ArrowRight');
+        r.rightStepsIn = sel() === 2;
+        press('ArrowDown');
+        r.downWalksTheOutline = texts()[sel()] === '3 · Three';
+        press('ArrowLeft');
+        r.leftClimbsAndFolds = texts().length === 3 && sel() === 1;
+
+        // the glyph folds in place: nothing closes, nothing navigates
+        rows()[2].querySelector('.tp-fold').click();
+        r.glyphFoldsInPlace = texts()[3] === '4 · Four' && !!document.querySelector(F)
+          && deck.state.slide === 1;
+
+        // typing drops the fold: the flat ranked list, chapters still findable
         for (const ch of 'operations') press(ch);
         await settle();
         r.typingFindsChapters = texts()[0] === '▸ Operations — module';
         for (let i = 0; i < 'operations'.length; i++) press('Backspace');
+        for (const ch of 'three') press(ch);
         await settle();
+        r.typingIsFlat = texts()[0] === '3 · Three' && !document.querySelector(`${F} .tp-count`);
+        // clearing returns to the outline, unfolded on the hit's chapter, cursor on the hit
+        for (let i = 0; i < 'three'.length; i++) press('Backspace');
+        await settle();
+        r.clearingKeepsYourPlace = texts()[at(/Foundations/)] === '▾ Foundations — module · 2 slides'
+          && texts()[sel()] === '3 · Three';
 
-        // ⏎ on a chapter is a goto in this file, not a page load
+        // ⏎ / click on a chapter row still goes there — a goto, not a page load
         const before = location.href;
-        rows()[0].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        rows()[at(/Foundations — module/)].dispatchEvent(new MouseEvent('click', { bubbles: true }));
         await settle();
         r.jumpsToTheChapter = deck.state.slide === 2;
         r.noPageLoad = location.href === before;
-        r.closesOnJump = !document.querySelector('.decklight-finder');
+        r.closesOnJump = !document.querySelector(F);
 
-        r.PASS = r.opens && r.chaptersLeadTheList && r.chapterRowsAreStyledAsModules
-          && r.slideListStillWhole && r.placeholderSaysModule && r.captionSaysWhereItGoes
-          && r.typingFindsChapters && r.jumpsToTheChapter && r.noPageLoad && r.closesOnJump;
+        // opening from inside a chapter unfolds just that one, cursor on your slide
+        deck.goto(3, 0);
+        await settle();
+        press('g');
+        await settle();
+        r.opensOnYourChapter = texts()[at(/Foundations/)] === '▾ Foundations — module · 2 slides'
+          && texts()[sel()] === '3 · Three'
+          && texts().includes('▸ Operations — module · 1 slide');
+        press('Escape');
+
+        r.PASS = r.opens && r.outlineWhenEmpty && r.chapterRowsAreStyledAsModules
+          && r.placeholderSaysModule && r.captionSaysWhereItGoes && r.rightUnfolds
+          && r.rightStepsIn && r.downWalksTheOutline && r.leftClimbsAndFolds
+          && r.glyphFoldsInPlace && r.typingFindsChapters && r.typingIsFlat
+          && r.clearingKeepsYourPlace && r.jumpsToTheChapter && r.noPageLoad
+          && r.closesOnJump && r.opensOnYourChapter;
       }
 
       // …and a cross-file playlist is left exactly as it was.

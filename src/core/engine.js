@@ -558,19 +558,93 @@ export function init(userConfig = {}) {
     }));
     return [...chapters, ...rows];
   }
+  // ── the outline (#489) ────────────────────────────────────────────────────
+  // With chapters and nothing typed, the finder is the deck's OUTLINE: each
+  // chapter folds its own slides underneath it. #479 made chapters visible as
+  // rows ahead of the slides; in a 150-slide merge that was ten useful rows
+  // bolted onto a dump of everything. Typing drops the fold and shows the flat
+  // ranked list, because a query's answer is sorted by relevance and a tree
+  // would hide half of it — folding is a BROWSING aid, not a search one.
+  let finderOpen = new Set();        // chapter slide numbers currently unfolded
+  const finderOutlined = () => hasMarkersDOM && !playlist && !finderQuery;
+  /** The chapter a slide belongs to — the last marker at or before it — or null. */
+  const chapterOf = (slide) => {
+    let at = null;
+    for (const m of moduleNav.markers()) if (m.slide <= slide) at = m.slide;
+    return at;
+  };
+  function finderOutline() {
+    const slides = finderEl.__index.filter((m) => !m.chapter && !m.href);
+    const marks = moduleNav.markers();
+    const out = [];
+    // slides before the first chapter belong to none, and stay top-level
+    for (const sl of slides) if (!marks.length || sl.slide < marks[0].slide) out.push(sl);
+    marks.forEach((mk, i) => {
+      const end = marks[i + 1]?.slide ?? Infinity;
+      const kids = slides.filter((sl) => sl.slide >= mk.slide && sl.slide < end);
+      const open = finderOpen.has(mk.slide);
+      out.push({ slide: mk.slide, title: mk.title, chapter: true, count: kids.length, open });
+      if (open) for (const k of kids) out.push({ ...k, child: true, parent: mk.slide });
+    });
+    return out;
+  }
+  /** Re-render the outline keeping the cursor on `pick`, a row predicate. */
+  function refold(pick) {
+    renderFinderList();
+    const i = finderMatches.findIndex(pick);
+    if (i >= 0) selectFinderRow(i, false);
+  }
+  /** ← and → over the outline: unfold, step in, fold, climb out. */
+  function finderFold(right) {
+    const m = finderMatches[finderSel];
+    if (!m) return true;
+    if (right) {
+      if (m.chapter && !m.open) {
+        finderOpen.add(m.slide);
+        refold((r) => r.chapter && r.slide === m.slide);
+      } else if (m.chapter && finderMatches[finderSel + 1]?.child) {
+        selectFinderRow(finderSel + 1, false);
+      }
+      return true;
+    }
+    const at = m.chapter ? m.slide : m.parent;
+    if (at == null) return true;     // a slide before the first chapter: no parent
+    finderOpen.delete(at);
+    refold((r) => r.chapter && r.slide === at);
+    return true;
+  }
   function renderFinderList() {
     const listBox = finderEl.querySelector('.tp-list');
-    finderMatches = rankMatches(finderEl.__index, finderQuery);
+    finderMatches = finderOutlined() ? finderOutline() : rankMatches(finderEl.__index, finderQuery);
     listBox.textContent = '';
     finderMatches.forEach((m, i) => {
       const row = document.createElement('div');
-      row.className = 'tp-row' + (m.slide === instance.state.slide ? ' tp-current' : '')
-        + (m.href || m.chapter ? ' tp-module' : '');
+      row.className = 'tp-row' + (m.slide === instance.state.slide && !m.chapter ? ' tp-current' : '')
+        + (m.href || m.chapter ? ' tp-module' : '') + (m.child ? ' tp-child' : '');
       // Both shapes read the same, because they mean the same thing to the
       // person looking for one (`playlist.js`: two shapes, one vocabulary).
       // What differs is what happens on ⏎ — a page load or a goto — and the
       // caption is where that is said.
-      row.textContent = m.href || m.chapter ? `▸ ${m.title} — module` : `${m.slide} · ${m.title}`;
+      if (m.chapter && m.count != null) {
+        // In the outline the glyph is a real control: clicking it folds, and
+        // clicking the rest of the row still goes there, as every row does.
+        const fold = document.createElement('span');
+        fold.className = 'tp-fold';
+        fold.textContent = m.open ? '▾' : '▸';
+        fold.title = m.open ? 'fold (←)' : 'unfold (→)';
+        fold.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          if (m.open) finderOpen.delete(m.slide); else finderOpen.add(m.slide);
+          refold((r) => r.chapter && r.slide === m.slide);
+        });
+        row.append(fold, ` ${m.title} — module`);
+        const count = document.createElement('span');
+        count.className = 'tp-count';
+        count.textContent = ` · ${m.count} slide${m.count === 1 ? '' : 's'}`;
+        row.append(count);
+      } else {
+        row.textContent = m.href || m.chapter ? `▸ ${m.title} — module` : `${m.slide} · ${m.title}`;
+      }
       row.addEventListener('mouseenter', () => selectFinderRow(i, false));
       row.addEventListener('click', () => { selectFinderRow(i, true); commitFinder(); });
       listBox.appendChild(row);
@@ -601,10 +675,33 @@ export function init(userConfig = {}) {
     else finderDebounce = setTimeout(() => finderPreviewSwap(frame, m), 60);
   }
   function setFinderQuery(q) {
+    const had = finderMatches[finderSel];
+    const prevQuery = finderQuery;
     finderQuery = q;
+    if (finderOutlined() && had && !had.href) {
+      // back to the outline: unfold the chapter of whatever the query had found,
+      // and land on it, rather than dropping you at the top of a folded tree
+      const ch = had.chapter ? had.slide : chapterOf(had.slide);
+      if (ch != null) finderOpen.add(ch);
+      renderFinderList();
+      const i = finderMatches.findIndex((r) => r.slide === had.slide && !!r.chapter === !!had.chapter);
+      selectFinderRow(Math.max(0, i), false);
+      return;
+    }
+    const widening = q.length < prevQuery.length && prevQuery.startsWith(q);
     renderFinderList();
-    if (finderMatches.length) selectFinderRow(0, false);
-    else finderEl.querySelector('.tp-caption').textContent = 'no match';
+    if (!finderMatches.length) {
+      finderEl.querySelector('.tp-caption').textContent = 'no match';
+      return;
+    }
+    // Backspacing WIDENS the query, and every row you could see is still there:
+    // keep the one you had rather than snapping to the top on each keystroke —
+    // otherwise, by the time the query is empty, "where you were" is whatever
+    // `t` happened to rank first. Typing narrows, so it picks the best hit.
+    const kept = widening && had
+      ? finderMatches.findIndex((r) => r.slide === had.slide && !!r.chapter === !!had.chapter && r.href === had.href)
+      : -1;
+    selectFinderRow(Math.max(0, kept), false);
   }
   function commitFinder() {
     const m = finderMatches[finderSel];
@@ -626,10 +723,14 @@ export function init(userConfig = {}) {
         '<div class="tp-preview"><iframe title="Slide preview"></iframe>' +
         '<div class="tp-caption"></div></div></div>';
     finderEl.__index = finderIndex();
+    // the outline opens folded, except where you are standing
+    finderOpen = new Set();
+    const here = hasMarkersDOM && !playlist ? chapterOf(instance.state.slide) : null;
+    if (here != null) finderOpen.add(here);
     renderFinderList();
     closeOnBackdrop(finderEl, closeSlideFinder);
     root.appendChild(finderEl);
-    selectFinderRow(Math.max(0, finderMatches.findIndex((m) => m.slide === instance.state.slide)), true);
+    selectFinderRow(Math.max(0, finderMatches.findIndex((m) => !m.chapter && m.slide === instance.state.slide)), true);
   }
   function closeSlideFinder() {
     clearTimeout(finderDebounce);
@@ -1741,7 +1842,9 @@ export function init(userConfig = {}) {
     isOpen: () => !!finderEl,
     close: closeSlideFinder,
     transient: true,
-    keydown: (e) => typeaheadKeydown(e, {
+    keydown: (e) => ((e.key === 'ArrowRight' || e.key === 'ArrowLeft') && finderOutlined()
+      ? finderFold(e.key === 'ArrowRight')
+      : typeaheadKeydown(e, {
       query: finderQuery,
       onMove: (d) => selectFinderRow(finderSel + d, false),
       onCommit: commitFinder,
@@ -1749,7 +1852,7 @@ export function init(userConfig = {}) {
       onBackspace: () => setFinderQuery(finderQuery.slice(0, -1)),
       onClear: () => setFinderQuery(''),
       onClose: closeSlideFinder,
-    }),
+    })),
   });
   overlays.register({
     isOpen: () => !!overviewEl,
