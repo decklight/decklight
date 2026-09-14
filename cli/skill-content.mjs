@@ -73,8 +73,8 @@ with a build and notes already wired):
 
 A long deck can be split into chapters with \`data-module\` on the section that
 starts one — every slide after it belongs to that chapter until the next marker.
-The deck shows the current chapter in its chrome and lists the chapters first in
-the slide finder (**G**). Use it for a course or a merged multi-part deck; a
+The deck shows the current chapter in its chrome and shows them as a foldable
+outline in the slide finder (**G**). Use it for a course or a merged multi-part deck; a
 fifteen-slide talk does not need chapters:
 
 \`\`\`html
