@@ -370,8 +370,8 @@ export function diagramSvg(nodes, kind) {
   const n = nodes.length;
   const boxW = Math.round((W - GAP * (n - 1)) / n);
   const chars = Math.max(8, Math.floor(boxW / 8.4));
-  const arrow = `<defs><marker id="dgm-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">`
-    + `<polygon points="0 0, 8 3, 0 6" style="fill: var(--d-stroke)"/></marker></defs>`;
+  const arrow = `<defs><marker id="dgm-arrow" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">`
+    + `<polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>`;
   const groups = nodes.map((node, i) => {
     const x = i * (boxW + GAP);
     const mid = x + boxW / 2;
@@ -503,8 +503,8 @@ function edgePoint(b, to) {
 export function drawingSvg({ shapes, links, box }) {
   const at = (b) => ({ x: b.x - box.x, y: b.y - box.y, w: b.w, h: b.h });
   const byId = new Map(shapes.map((s) => [s.id, s]));
-  const arrow = `<defs><marker id="dwg-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">`
-    + `<polygon points="0 0, 8 3, 0 6" style="fill: var(--d-stroke)"/></marker></defs>`;
+  const arrow = `<defs><marker id="dwg-arrow" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">`
+    + `<polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>`;
 
   const lines = links.map((l) => {
     const a = byId.get(l.from), b = byId.get(l.to);
