@@ -158,3 +158,44 @@ export function commitChipText(state) {
   const what = n ? `${n} line${n === 1 ? '' : 's'}` : 'changes';
   return `${what} uncommitted${age} — K commits`;
 }
+
+// ── a fetch that gives up ────────────────────────────────────────────────────
+// The editors read and write the deck through same-origin fetches to the author
+// server, and every one of them assumed a request either answers or rejects.
+// There is a third outcome. Chrome gives a plain-HTTP origin six sockets, shared
+// across every tab of the deck, and each tab pins one to `/edit/events` for as
+// long as it is open (live reload). Once the six are pinned, a new fetch queues
+// in the BROWSER — it never reaches the server, so the server cannot 500 it,
+// and it never rejects, so the catch path that owns the toast never runs. The
+// element content editor sat on `loading…`, disabled, with Esc as the only way
+// out. Bounded, a stalled request fails like any other, with a message that
+// names the one thing the author can do about it.
+
+/** How long an editor read or write may go unanswered before it fails visibly. */
+export const FETCH_TIMEOUT_MS = 8000;
+
+/** What the toast says when the author server was never even asked — under 60 chars, the toasts' slice. */
+export function stalledMessage(ms = FETCH_TIMEOUT_MS) {
+  return `no answer in ${Math.round(ms / 1000)}s — close other tabs of this deck and retry`;
+}
+
+/**
+ * `fetch` that rejects after `ms` instead of waiting forever. A timeout rejects
+ * with a plain Error carrying `stalledMessage()` (never the browser's own
+ * "signal is aborted" wording, which says nothing an author can act on); any
+ * other failure, and any answer, passes through untouched. A caller's own
+ * `signal` in `init` still wins — it is honored alongside the timer.
+ */
+export function boundedFetch(url, init = {}, { ms = FETCH_TIMEOUT_MS, fetchFn = fetch } = {}) {
+  const ctl = new AbortController();
+  let stalled = false;
+  const timer = setTimeout(() => { stalled = true; ctl.abort(); }, ms);
+  const outer = init.signal;
+  if (outer) {
+    if (outer.aborted) ctl.abort(outer.reason);
+    else outer.addEventListener('abort', () => ctl.abort(outer.reason), { once: true });
+  }
+  return fetchFn(url, { ...init, signal: ctl.signal })
+    .catch((e) => { throw stalled ? new Error(stalledMessage(ms)) : e; })
+    .finally(() => clearTimeout(timer));
+}

@@ -19,6 +19,8 @@
  * that changed.
  */
 
+import { boundedFetch } from './devmode.js';
+
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
 /** Where a double-click must NOT edit: generated or structured content the source does not spell out. */
@@ -85,8 +87,11 @@ export function editableTarget(target, sec) {
 export function createAuthoring({ root, instance, toast, editmode, debugLog = () => {} }) {
   const available = () => editmode.available?.() === true;
   const base = () => editmode.base?.() ?? '';
+  // Every read and write here is bounded (boundedFetch): a request the browser
+  // queues behind a saturated socket pool never rejects on its own, and the
+  // toasts below only speak when something does.
   const post = async (path, body) => {
-    const res = await fetch(base() + path, {
+    const res = await boundedFetch(base() + path, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     const j = await res.json().catch(() => ({}));
@@ -117,7 +122,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const inner = cur.el.innerHTML;
     if (inner === cur.original) return; // nothing changed: nothing written, no reload
     try {
-      const src = await fetch(`${base()}/edit/element/source?slide=${cur.slide}&index=${cur.index}`);
+      const src = await boundedFetch(`${base()}/edit/element/source?slide=${cur.slide}&index=${cur.index}`);
       const j = await src.json().catch(() => ({}));
       if (!src.ok || typeof j.html !== 'string') throw new Error(j.error || 'no source for this element');
       // The SOURCE of the top-level element, parsed inertly, so the file's own
@@ -163,7 +168,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
   // ── double-click a code block ─────────────────────────────────────────────
   /** The source text of the `<code>` at `path` inside a top-level element, straight from the file. */
   async function codeSource(slide, index, path) {
-    const src = await fetch(`${base()}/edit/element/source?slide=${slide}&index=${index}`);
+    const src = await boundedFetch(`${base()}/edit/element/source?slide=${slide}&index=${index}`);
     const j = await src.json().catch(() => ({}));
     if (!src.ok || typeof j.html !== 'string') throw new Error(j.error || 'no source for this code block');
     const tpl = document.createElement('template');
