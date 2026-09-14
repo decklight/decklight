@@ -302,6 +302,36 @@ export function splitSentences(text) {
     .map((s) => s.trim()).filter(Boolean);
 }
 
+// One segmentation per notes element, and it is the same segmentation nearly
+// every time it is asked for. `notesSegsOf` is reached on every slide change,
+// on every build step, and once per sentence by the lookahead worker — each
+// one a DOM walk, a `textContent` serialization, a split and a whitespace pass
+// over every segment, to re-derive a list that has not changed since the last
+// slide turn.
+const notesCache = new WeakMap();
+
+/**
+ * The ⟨CLICK⟩ segments of one `aside.notes`, memoized on the element.
+ *
+ * Validated by the notes' own text rather than invalidated by whoever wrote
+ * them: a compare of one string is cheaper than the split it saves, and the
+ * author server rewrites notes under a LIVE deck (dev mode re-renders a slide
+ * in place), so a cache that had to be told would be a cache that goes stale
+ * exactly when someone is watching.
+ *
+ * Every part of the split is kept, empties included — segment k must line up
+ * with build step k. `notesSegments` in tools/ drops them because it is naming
+ * files; that difference is the contract asserted in test/narration.test.mjs.
+ */
+export function notesSegsOf(aside) {
+  const text = aside?.textContent ?? '';
+  const hit = aside && notesCache.get(aside);
+  if (hit && hit.text === text) return hit.segs;
+  const segs = text.split('⟨CLICK⟩').map((s) => s.replace(/\s+/g, ' ').trim());
+  if (aside) notesCache.set(aside, { text, segs });
+  return segs;
+}
+
 /** `47s`, `1m05s` — how the recorder's progress line says how long it has been. */
 export function fmtTime(ms) {
   const s = Math.round(ms / 1000);
@@ -541,8 +571,7 @@ export function createNarration({
   // build step k (0 = arrival, before any build), exactly like a presenter
   // reading the notes and clicking between segments.
   function notesSegs(sl) {
-    const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
-    return t.split('⟨CLICK⟩').map((s) => s.replace(/\s+/g, ' ').trim());
+    return notesSegsOf(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
   }
   // resolves { url, blob }: playback needs the object URL, the the synthesized recorder stitcher
   // needs the raw bytes — one cache serves both
@@ -639,8 +668,16 @@ export function createNarration({
   }
 
   const sentenceKey = (sl, step, i) => `${sl}|s${step}|n${i}|${liveCfg.voice}|${liveCfg.style}`;
-  function fetchLiveSentence(sl, step, i) {
-    const sentence = stepSentences(sl, step)[i] ?? '';
+  /**
+   * The clip for sentence `i` of slide `sl`'s step `step`, synthesized or
+   * cached.
+   *
+   * `text` is that sentence, for the callers that already hold the step's
+   * sentence list — which every loop that walks a step does. Without it this
+   * re-segments the whole slide to fetch ONE sentence, once per sentence.
+   */
+  function fetchLiveSentence(sl, step, i, text) {
+    const sentence = text ?? stepSentences(sl, step)[i] ?? '';
     return synthLive(sentence, sentenceKey(sl, step, i), `slide ${sl} seg ${step} #${i + 1}`);
   }
   // data-narration="hold": an interactive slide (quiz, exercise, live
@@ -728,16 +765,20 @@ export function createNarration({
         const hole = upcomingSentences(LIVE_LOOKAHEAD)
           .find(([sl, step, i]) => !liveCache.has(sentenceKey(sl, step, i)));
         if (!hole) return; // window full — the next slide/build event re-arms
+        const [sl, step, i] = hole;
+        // One segmentation for the whole iteration. The clip and the
+        // character's copy of it are the same sentence of the same step —
+        // deriving each on its own re-split every note on the slide, twice,
+        // to warm one entry.
+        const key = sentenceKey(sl, step, i);
+        const sentences = stepSentences(sl, step);
         try {
-          await fetchLiveSentence(hole[0], hole[1], hole[2]);
+          await fetchLiveSentence(sl, step, i, sentences[i]);
           // the character's lip-sync data prefetches through the SAME
           // window: hand the sentence's audio promise to the controller so
           // visemes/video for the next 10 sentences warm alongside the voice
           if (character.mode !== 'off') {
-            const [sl, step, i] = hole;
-            character.prefetchSentence(sentenceKey(sl, step, i),
-              liveCache.get(sentenceKey(sl, step, i)),
-              splitSentences(notesSegs(sl)[step])[i] ?? '');
+            character.prefetchSentence(key, liveCache.get(key), sentences[i] ?? '');
           }
         } catch {
           return; // bridge unreachable — stop; the next event retries
@@ -861,7 +902,7 @@ export function createNarration({
         if (stale()) return;
         let clip;
         try {
-          clip = await fetchLiveSentence(sl, step, i);
+          clip = await fetchLiveSentence(sl, step, i, sentences[i]);
         } catch (err) {
           // The VOICE IS THE CLOCK. If it cannot speak, the deck must not keep
           // moving: auto-advancing in silence would walk the talk past slides
@@ -2363,7 +2404,7 @@ export function createNarration({
       const { sentences, segStarts } = stepAudio(sl, step);
       const runs = stepSegmentRuns(sl, step);
       for (let i = 0; i < sentences.length; i++) {
-        const clip = await fetchLiveSentence(sl, step, i); // cache-first
+        const clip = await fetchLiveSentence(sl, step, i, sentences[i]); // cache-first
         if (run !== recRun) return null;
         if (!clip) continue;
         const buf = await clip.blob.arrayBuffer();
@@ -2409,7 +2450,7 @@ export function createNarration({
         const runs = stepSegmentRuns(sl, step);
         for (let i = 0; i < sentences.length; i++) {
           const tl = await character.ensureTimeline(
-            sentenceKey(sl, step, i), fetchLiveSentence(sl, step, i), sentences[i]);
+            sentenceKey(sl, step, i), fetchLiveSentence(sl, step, i, sentences[i]), sentences[i]);
           if (run !== recRun) return null;
           if (!tl) continue;
           parts.push({ timeline: tl, gap: parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl)) : 0 });

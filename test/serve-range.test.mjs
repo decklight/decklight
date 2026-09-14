@@ -16,7 +16,7 @@ import { createServer } from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmTemp } from './helpers.mjs';
+import { rmTemp, tmp } from './helpers.mjs';
 
 import { staticFiles } from '../cli/serve.mjs';
 
@@ -108,4 +108,96 @@ test('the deck itself still serves whole, ranges and all', async (t) => {
   const body = await r.text();
   assert.match(body, /injected/);
   assert.equal(r.headers.get('content-length'), String(Buffer.byteLength(body)));
+});
+
+// ── big files: what the server must NOT do to answer a seek ────────────────
+//
+// A deck's background video is a 200 MB file, and a browser plays it as a long
+// march of small ranges. Answering each one by reading the whole file is a
+// synchronous multi-hundred-megabyte read per seek, on the event loop the SSE
+// reload channel and every other request share. The bytes must come off a read
+// stream bounded to the range, and the length math off the stat.
+
+/** Serve `dir` on an ephemeral port, closed with the test. */
+async function serveDir(t, dir) {
+  const files = staticFiles(dir);
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (!files(req, res, url)) { res.writeHead(405); res.end(); }
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  t.after(() => server.close());
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+test('a multi-megabyte file served in two ranges stitches back byte for byte', async (t) => {
+  const dir = tmp('range-big', t);
+  // 3 MB of a pattern with a long period, so a slice off by one byte — or
+  // taken from the wrong offset — cannot compare equal by luck
+  const bytes = Buffer.alloc(3 * 1024 * 1024);
+  for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 37 + (i >> 13)) & 0xff;
+  fs.writeFileSync(path.join(dir, 'bg.mp4'), bytes);
+  const base = await serveDir(t, dir);
+
+  const half = bytes.length / 2;
+  const head = await fetch(`${base}/bg.mp4`, { headers: { range: `bytes=0-${half - 1}` } });
+  const tail = await fetch(`${base}/bg.mp4`, { headers: { range: `bytes=${half}-` } });
+  assert.equal(head.status, 206);
+  assert.equal(tail.status, 206);
+  assert.equal(head.headers.get('content-range'), `bytes 0-${half - 1}/${bytes.length}`);
+  assert.equal(tail.headers.get('content-range'), `bytes ${half}-${bytes.length - 1}/${bytes.length}`);
+  assert.equal(head.headers.get('content-type'), 'video/mp4');
+  const stitched = Buffer.concat([
+    Buffer.from(await head.arrayBuffer()),
+    Buffer.from(await tail.arrayBuffer()),
+  ]);
+  assert.equal(Buffer.compare(stitched, bytes), 0, 'the two halves are not the file');
+});
+
+test('a range response is as long as the range, not as long as the file', async (t) => {
+  // The one thing a caller can see from outside that says the whole file was
+  // not held: a 3 MB file answering a 1 KB ask with a 1 KB body and a
+  // content-length that describes the SLICE.
+  const dir = tmp('range-len', t);
+  fs.writeFileSync(path.join(dir, 'bg.mp4'), Buffer.alloc(3 * 1024 * 1024, 7));
+  const base = await serveDir(t, dir);
+  const r = await fetch(`${base}/bg.mp4`, { headers: { range: 'bytes=1000-1999' } });
+  assert.equal(r.status, 206);
+  assert.equal(r.headers.get('content-length'), '1000', 'the length must describe the slice');
+  assert.equal(r.headers.get('accept-ranges'), 'bytes', 'the streamed path keeps every header');
+  assert.equal(r.headers.get('cache-control'), 'no-cache');
+  assert.equal((await r.arrayBuffer()).byteLength, 1000);
+});
+
+test('an unsatisfiable range on a big file is a bodiless 416 naming the size', async (t) => {
+  const dir = tmp('range-416', t);
+  const size = 3 * 1024 * 1024;
+  fs.writeFileSync(path.join(dir, 'bg.mp4'), Buffer.alloc(size));
+  const base = await serveDir(t, dir);
+  const r = await fetch(`${base}/bg.mp4`, { headers: { range: `bytes=${size + 1}-${size + 100}` } });
+  assert.equal(r.status, 416);
+  assert.equal(r.headers.get('content-range'), `bytes */${size}`, 'the size is how a client re-asks');
+  assert.equal((await r.arrayBuffer()).byteLength, 0, '416 carries no slice');
+});
+
+test('a kilobyte out of a hundred megabytes is answered without reading the rest', async (t) => {
+  // Behavioural, and no spy needed: a sparse 100 MB file costs nothing to
+  // stat and nothing to stream 1 KB out of, and rather a lot to read whole.
+  // The budget is deliberately loose — this fails on the shape of the bug
+  // (the whole file in memory first), not on a slow machine.
+  const dir = tmp('range-sparse', t);
+  const file = path.join(dir, 'huge.mp4');
+  const fd = fs.openSync(file, 'w');
+  fs.ftruncateSync(fd, 100 * 1024 * 1024);
+  fs.closeSync(fd);
+  const base = await serveDir(t, dir);
+
+  const t0 = Date.now();
+  const r = await fetch(`${base}/huge.mp4`, { headers: { range: 'bytes=0-1023' } });
+  const body = Buffer.from(await r.arrayBuffer());
+  const ms = Date.now() - t0;
+  assert.equal(r.status, 206);
+  assert.equal(r.headers.get('content-range'), 'bytes 0-1023/104857600');
+  assert.equal(body.length, 1024);
+  assert.ok(ms < 1000, `a 1 KB range took ${ms}ms — the file is being read whole`);
 });

@@ -10,7 +10,7 @@
 // /edit/* routes ABSENT — not merely refused. Nothing in this module writes a
 // file.
 
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, createReadStream } from 'node:fs';
 import { resolve, extname, sep } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
@@ -168,6 +168,24 @@ export function withHeaders(headers, handler) {
 }
 
 /**
+ * The one byte range `header` asks for out of a body of `size`, or null when a
+ * full 200 answers it.
+ *
+ * One range, which is all a media element ever sends. Malformed and multipart
+ * ranges read as null and fall through to the plain 200 — RFC 7233 allows
+ * ignoring Range entirely, so partial support must never invent a 416 for a
+ * request a full response satisfies. `satisfiable` marks the one case that must
+ * be refused instead: a range that starts past the end of the body.
+ */
+function rangeOf(header, size) {
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header ?? '');
+  if (!m || !(m[1] || m[2])) return null;
+  const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+  const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+  return { start, end, satisfiable: start <= end && start < size };
+}
+
+/**
  * Static files under `root`, GET only: traversal-guarded, MIME-typed,
  * no-cache. `index` is the path "/" serves (the deck). Returns whether the
  * request was handled.
@@ -197,7 +215,8 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     const rel = url.pathname === '/' ? index : decodeURIComponent(url.pathname);
     const file = resolve(root, '.' + rel);
     if (!file.startsWith(root + sep) && file !== root) { res.writeHead(403); res.end('forbidden'); return true; }
-    if (!existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end('not found'); return true; }
+    const stat = existsSync(file) ? statSync(file) : null;
+    if (!stat?.isFile()) { res.writeHead(404); res.end('not found'); return true; }
     // Policy refusals come AFTER the existence check on purpose: a path that
     // is not there stays a plain 404, indistinguishable from any other unknown
     // path — a probe for /edit/ping must not learn anything from the answer.
@@ -205,8 +224,6 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     if (rel.split('/').some((s) => s.startsWith('.')) || (knownTypesOnly && !type)) {
       res.writeHead(403); res.end('forbidden'); return true;
     }
-    let body = readFileSync(file);
-    if (rewriteHtml && type === MIME['.html']) body = Buffer.from(rewriteHtml(body.toString('utf8'), file), 'utf8');
     const headers = {
       'content-type': type ?? 'application/octet-stream',
       'cache-control': 'no-cache',
@@ -218,32 +235,67 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
       // outright, which surfaced as "no narration for slide 1" pointing at a
       // file that was sitting right there.
       'accept-ranges': 'bytes',
-      'content-length': body.length,
     };
-    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
-    if (range && (range[1] || range[2])) {
-      // One range, which is all a media element ever sends. Malformed or
-      // multipart ranges fall through to the plain 200 — RFC 7233 allows
-      // ignoring Range entirely, so partial support must never invent a 416
-      // for a request a full response satisfies.
-      const start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2]));
-      const end = range[1] && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
-      if (start <= end && start < body.length) {
-        const slice = body.subarray(start, end + 1);
+
+    // The deck is the one response whose bytes are not the file's — `--strict`
+    // (PRESENT#STRICT) rewrites the text on its way out — so its length and its
+    // ranges have to be measured on what was SENT, which means holding it. It
+    // is a page; everything else streams below.
+    if (rewriteHtml && type === MIME['.html']) {
+      const body = Buffer.from(rewriteHtml(readFileSync(file).toString('utf8'), file), 'utf8');
+      const want = rangeOf(req.headers.range, body.length);
+      if (want && !want.satisfiable) {
+        res.writeHead(416, { 'content-range': `bytes */${body.length}` });
+        res.end();
+        return true;
+      }
+      if (want) {
+        const slice = body.subarray(want.start, want.end + 1);
         res.writeHead(206, {
           ...headers,
           'content-length': slice.length,
-          'content-range': `bytes ${start}-${end}/${body.length}`,
+          'content-range': `bytes ${want.start}-${want.end}/${body.length}`,
         });
         res.end(slice);
         return true;
       }
-      res.writeHead(416, { 'content-range': `bytes */${body.length}` });
+      res.writeHead(200, { ...headers, 'content-length': body.length });
+      res.end(body);
+      return true;
+    }
+
+    // Every other type is STREAMED, and the length math comes off the stat
+    // rather than a buffer. A deck's background video is a 200 MB file that a
+    // browser fetches in a long march of small ranges, and reading all of it
+    // synchronously to answer each one froze the event loop — the SSE reload
+    // channel and the next request included — once per seek.
+    const size = stat.size;
+    const want = rangeOf(req.headers.range, size);
+    if (want && !want.satisfiable) {
+      res.writeHead(416, { 'content-range': `bytes */${size}` });
       res.end();
       return true;
     }
-    res.writeHead(200, headers);
-    res.end(body);
+    const start = want ? want.start : 0;
+    const end = want ? want.end : size - 1;
+    res.writeHead(want ? 206 : 200, {
+      ...headers,
+      'content-length': end - start + 1,
+      ...(want ? { 'content-range': `bytes ${start}-${end}/${size}` } : {}),
+    });
+    if (end < start) { res.end(); return true; }   // an empty file: nothing to open
+    const stream = createReadStream(file, { start, end });
+    // A viewer who seeks away, closes the tab or reloads abandons the response
+    // mid-body. Without this the read runs to the end of the range into a
+    // socket nobody is holding, and the descriptor goes with it.
+    res.on('close', () => stream.destroy());
+    stream.on('error', () => {
+      // The headers are already out, so there is no status left to report a
+      // failed read with and writeHead would throw on top of it. Cutting the
+      // connection is what tells the client the body it was promised is short.
+      res.destroy();
+    });
+    stream.pipe(res);
     return true;
   };
 }
