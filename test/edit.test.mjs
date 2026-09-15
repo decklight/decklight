@@ -1392,6 +1392,65 @@ test('/edit/export refuses a file it does not write, and still answers the old n
   assert.equal(old.file, 'deck.pptx');
 });
 
+// `decklight video` shells out to ffmpeg and ffprobe as well as Chrome. The
+// stand-ins do the least the command checks: `-version` answers, ffmpeg writes
+// its last argument (always the output), ffprobe reports a duration.
+const FAKE_FFMPEG = `
+import { writeFileSync } from 'node:fs';
+const args = process.argv.slice(2);
+if (args[0] !== '-version') writeFileSync(args[args.length - 1], 'mp4');
+`;
+const FAKE_FFPROBE = `
+if (process.argv[2] !== '-version') console.log('2.5');
+`;
+
+async function videoSession(t) {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  writeFakeBin(dir, 'ffmpeg', FAKE_FFMPEG);
+  writeFakeBin(dir, 'ffprobe', FAKE_FFPROBE);
+  return { dir, ...(await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } })) };
+}
+
+test('/edit/export renders a video of just the slides asked for, named for them', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base, log } = await videoSession(t);
+  const r = await (await post(base, '/edit/export', { kind: 'video', slides: '2', narration: null })).json();
+  assert.equal(r.ok, true, `export refused: ${r.error}`);
+  assert.equal(r.file, 'deck.slides-2.mp4', 'a range never overwrites the whole talk');
+  assert.ok(existsSync(path.join(dir, 'deck.slides-2.mp4')), 'the file landed beside the deck');
+  assert.match(log(), /export: deck\.html → video of slides 2/);
+  assert.match(log(), /slide 02/, 'the render reports each slide to the terminal');
+  assert.doesNotMatch(log(), /slide 01/, 'slide 1 is outside the range');
+  assert.equal(readFileSync(path.join(dir, 'deck.html'), 'utf8'), DECK, 'an export is not an edit');
+});
+
+test('/edit/export refuses a video it cannot make as asked, and says why', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base } = await videoSession(t);
+  const ask = async (body) => {
+    const res = await post(base, '/edit/export', { kind: 'video', ...body });
+    return { status: res.status, error: (await res.json()).error };
+  };
+  // checked before anything runs: both fields come from a page
+  let r = await ask({ slides: 'two' });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /slides must be a-b/);
+  r = await ask({ narration: '../elsewhere' });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /inside the deck's folder/);
+  r = await ask({ narration: 'voices' });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /no recorded narration in voices\//, 'a track with no audio refuses rather than rendering silent');
+  // past the deck's end is the COMMAND's refusal, passed through in its words
+  r = await ask({ slides: '9' });
+  assert.equal(r.status, 500);
+  assert.match(r.error, /--slides 9 is outside this deck/);
+  assert.ok(!existsSync(path.join(dir, 'deck.slides-9.mp4')));
+  assert.equal((await (await fetch(base + '/edit/ping')).json()).ok, true, 'the session survives its refusal');
+});
+
 // The shape `decklight init` scaffolds: themes already inline, nothing left
 // for the bundler to flatten. It is the common deck to publish, and the one
 // `decklight publish` needs --no-bundle for — which the route works out rather

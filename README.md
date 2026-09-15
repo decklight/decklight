@@ -137,7 +137,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
 | `pptx deck.html` | a PowerPoint file, every slide a picture, notes as notes |
-| `video deck.html` | a narrated mp4 (`--voiceover` synthesizes first) |
+| `video deck.html` | a narrated mp4 (`--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette) |
 | `voiceover deck.html` | batch-synthesize the narration into a folder |
 
 | Keeping track | |

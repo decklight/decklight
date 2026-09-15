@@ -15,6 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
+import { rangeLabel } from './ranges.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
@@ -375,6 +376,7 @@ export function micWhy(e) {
 
 export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
+  rangePicker = null, chapters = () => [],
   syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
   authorReady = () => Promise.resolve(),
 }) {
@@ -1817,6 +1819,22 @@ export function createNarration({
       });
     } else if (view === 'record') {
       head.textContent = 'record this deck — writes wav files beside it';
+      // Which slides, first: both recorders below walk this range, so it is
+      // chosen before either is. Redoing one chapter used to mean quitting to
+      // a terminal for `decklight record --slides`.
+      if (rangePicker) {
+        narrRows.push({
+          text: `📑 Slides — ${rangeLabel(recRange)}`,
+          flavor: recRange ? 'only these are recorded — the rest are left alone' : 'or just part of the deck…',
+          cur: !!recRange,
+          commit: () => rangePicker.open({
+            title: 'record which slides?',
+            total: instance.state.totalSlides, slide: instance.state.slide, chapters: chapters(),
+            current: recRange,
+            onPick: (slides) => { recRange = slides; if (narrEl && narrView === 'record') renderNarr('record'); },
+          }),
+        });
+      }
       // Each row carries its own reason for being unavailable rather than
       // toasting one after the fact: the synthesized recorder used to refuse AFTER you pressed it.
       // A blocked row REFUSES IN PLACE. `blocked` dims the label and prints the
@@ -2282,9 +2300,13 @@ export function createNarration({
   // it, and a loop only acts while its own run is still current — a cancel
   // followed by an immediate re-record can't resurrect the old loop.
   let recEl = null, recView = 'confirm', recRun = 0, recTarget = null;
+  // The range both recorders walk: `?slides=a-b` when `decklight record --slides`
+  // opened the deck, and whatever V → Record this deck… → Slides picks after that.
+  let recRange = /^\d+(?:-\d+)?$/.test(params?.get?.('slides') ?? '') ? params.get('slides') : null;
   /**
    * The slides a recorder walks: every one that has something to say, narrowed
-   * by `?slides=a-b` when `decklight record --slides` asked for a range.
+   * by the range picked in V → Record this deck… → Slides, which starts as
+   * `?slides=a-b` when `decklight record --slides` asked for one.
    *
    * The range exists because recording starts at slide 1 and there is no way
    * to skip: fluff slide 30 of a 40-slide deck and you would read 29 slides of
@@ -2295,7 +2317,7 @@ export function createNarration({
   function slidesWithNotes() {
     const out = [];
     for (let sl = 1; sl <= instance.state.totalSlides; sl++) if (notesText(sl)) out.push(sl);
-    const m = /^(\d+)(?:-(\d+))?$/.exec(params?.get?.('slides') ?? '');
+    const m = /^(\d+)(?:-(\d+))?$/.exec(recRange ?? '');
     if (!m) return out;
     const from = Number(m[1]);
     const to = m[2] ? Number(m[2]) : from;
@@ -2309,6 +2331,7 @@ export function createNarration({
       card.innerHTML = `<div class="narr-head">record offline narration</div>
         <div class="rec-line">⚡ ${liveCfg.voice} · ${liveCfg.tone}</div>
         <div class="rec-line">${n} slide${n === 1 ? '' : 's'} stitched from the sentence cache — only unheard sentences synthesize</div>
+        ${recRange ? `<div class="rec-line"><strong>${escapeHtml(rangeLabel(recRange))} only — everything else is left alone</strong></div>` : ''}
         ${folderRow(data.target)}
         <div class="narr-row narr-sel">Start recording</div>
         <div class="rec-hint">Enter to start · Esc to cancel</div>`;
@@ -3087,7 +3110,7 @@ export function createNarration({
     const why = micUnavailable();
     const list = slidesWithNotes();
     const beats = list.reduce((n, sl) => n + recordPlan(notesSegs(sl), buildSteps(sl)).length, 0);
-    const range = params?.get?.('slides');
+    const range = recRange;
     micTarget = null;
     renderMicCard('intro', why ? { why } : { slides: list.length, beats, range });
     if (why) return;
