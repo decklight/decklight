@@ -40,7 +40,9 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader, isMain } from './args.mjs';
-import { injectBeforeBodyEnd, sectionBodies, isHiddenSection } from './deck-html.mjs';
+import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './video-options.mjs';
+import { splitSentences } from './sentences.mjs';
 import { serveForRender } from '../cli/present.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
 
@@ -51,11 +53,19 @@ export const TAIL_SECONDS = 0.4;
 
 const HELP = `decklight video <deck.html> [options] — render the deck to a narrated mp4
 
-  -o, --out <file>     output mp4 (default: <deck>.mp4 next to the deck, or
-                       <deck>.slides-a-b.mp4 for a --slides range)
+  -o, --out <file>     output file (default: <deck>.mp4 next to the deck, or
+                       <deck>.slides-a-b.mp4 for a --slides range; .mov/.webm
+                       with --format)
   --narration <dir>    narration dir (default: <deckdir>/voiceover if it has a
                        manifest.json; otherwise the deck renders silent)
   --no-narration       render silent, even with a voiceover/ beside the deck
+  --format <f>         mp4 (H.264/AAC, the default) · mov (H.264/AAC) · webm
+                       (VP9/Opus); read off -o's extension when that names one
+  --quality <q>        draft (quick, small) · standard (the default) · high
+                       (slower to render, sharper, larger)
+  --subtitles <how>    none (the default) · embed (a track the player can turn
+                       on) · file (a .srt beside the video, .vtt for webm) —
+                       what the narration says, timed against its audio
   --size <WxH>         frame size (default 1280x720; both must be even)
   --fps <n>            video frame rate (default 30)
   --hold <s>           seconds a slide without narration holds (default 5;
@@ -109,8 +119,36 @@ export function parseSlideRange(s, total) {
  * export row writes the same name, because what a row writes is what this
  * command writes.
  */
-export function videoOut(deck, slides = null) {
-  return `${deck.replace(/\.html?$/i, '')}${slides ? `.slides-${slides}` : ''}.mp4`;
+export function videoOut(deck, slides = null, format = 'mp4') {
+  return `${deck.replace(/\.html?$/i, '')}${slides ? `.slides-${slides}` : ''}.${ENCODINGS[format]?.ext ?? 'mp4'}`;
+}
+
+/** The sidecar subtitles of a render: the video's name, with the container's own subtitle extension. */
+export function subtitlesOut(out, format = 'mp4') {
+  return `${out.replace(/\.[^./\\]+$/, '')}.${ENCODINGS[format].subtitleExt}`;
+}
+
+/**
+ * --format, --quality and --subtitles, checked. The format is read off `-o`
+ * when only the file name says it, and a name and a flag that disagree are
+ * refused rather than settled: `-o talk.mp4 --format webm` would otherwise write
+ * a WebM that every player then refuses by its extension.
+ */
+export function videoOptions({ out = null, format = null, quality = null, subtitles = null } = {}) {
+  const formats = valuesOf(VIDEO_FORMATS);
+  if (format != null && !formats.includes(format)) throw new Error(`--format must be ${formats.join(', ')} (got "${format}")`);
+  const named = out ? /\.([a-z0-9]+)$/i.exec(basename(out))?.[1]?.toLowerCase() ?? null : null;
+  if (format && named && named !== ENCODINGS[format].ext) {
+    throw new Error(`-o ${basename(out)} is not a .${ENCODINGS[format].ext} — drop --format, or name the file .${ENCODINGS[format].ext}`);
+  }
+  if (!format && named && !formats.includes(named)) {
+    throw new Error(`-o ${basename(out)}: .${named} is not a format this writes — use ${formats.map((f) => `.${f}`).join(', ')}`);
+  }
+  const qualities = valuesOf(VIDEO_QUALITIES);
+  if (quality != null && !qualities.includes(quality)) throw new Error(`--quality must be ${qualities.join(', ')} (got "${quality}")`);
+  const modes = valuesOf(VIDEO_SUBTITLES);
+  if (subtitles != null && !modes.includes(subtitles)) throw new Error(`--subtitles must be ${modes.join(', ')} (got "${subtitles}")`);
+  return { format: format ?? named ?? 'mp4', quality: quality ?? 'standard', subtitles: subtitles ?? 'none' };
 }
 
 /**
@@ -302,6 +340,36 @@ export function planTimeline(manifest, durations, holds, range = null, { steps =
 }
 
 /**
+ * How each container is encoded, at each quality.
+ *
+ * `standard` for mp4 is what this command always wrote (x264's own defaults,
+ * AAC at 128k), so a render that asks for nothing comes out as it did. WebM is
+ * VP9 in constant-quality mode (`-b:v 0` is what makes `-crf` mean that) with
+ * Opus, which takes 48 kHz and nothing else — so its silent segments are
+ * synthesized at 48 kHz too, or the concat's `-c copy` audio would change rate
+ * mid-file. Draft trades VP9's quality search for speed (`realtime`), because a
+ * draft is for checking the timing, not the picture.
+ */
+const X264 = { draft: { preset: 'veryfast', crf: '28' }, standard: { preset: 'medium', crf: '23' }, high: { preset: 'slow', crf: '18' } };
+const VP9 = { draft: { crf: '40', deadline: 'realtime', cpu: '8' }, standard: { crf: '32', deadline: 'good', cpu: '4' }, high: { crf: '24', deadline: 'good', cpu: '2' } };
+const AUDIO_KBPS = { draft: '96k', standard: '128k', high: '192k' };
+const H264 = {
+  faststart: true, subtitleCodec: 'mov_text', subtitleExt: 'srt', sampleRate: 44100,
+  video: (q) => ['-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p', '-preset', X264[q].preset, '-crf', X264[q].crf],
+  audio: (q) => ['-c:a', 'aac', '-b:a', AUDIO_KBPS[q], '-ar', '44100', '-ac', '2'],
+};
+export const ENCODINGS = {
+  mp4: { ext: 'mp4', ...H264 },
+  mov: { ext: 'mov', ...H264 },
+  webm: {
+    ext: 'webm', faststart: false, subtitleCodec: 'webvtt', subtitleExt: 'vtt', sampleRate: 48000,
+    video: (q) => ['-c:v', 'libvpx-vp9', '-pix_fmt', 'yuv420p', '-b:v', '0', '-crf', VP9[q].crf,
+      '-deadline', VP9[q].deadline, '-cpu-used', VP9[q].cpu, '-row-mt', '1'],
+    audio: (q) => ['-c:a', 'libopus', '-b:a', AUDIO_KBPS[q], '-ar', '48000', '-ac', '2'],
+  },
+};
+
+/**
  * ffmpeg argv for one slide's segment: the still looped at --fps under its
  * audio. Narrated slides pad the audio with `pad` — the tail, plus whatever
  * beat the slide asked for (`data-narration-pause`) — and stop there; silent
@@ -310,15 +378,15 @@ export function planTimeline(manifest, durations, holds, range = null, { steps =
  * goes discontinuous. -t bounds both the infinite loop and the infinite
  * anullsrc (-shortest can't end a segment whose streams are both endless).
  */
-export function segmentArgs({ frame, audio, duration, fps, out, pad = TAIL_SECONDS }) {
+export function segmentArgs({ frame, audio, duration, fps, out, pad = TAIL_SECONDS, format = 'mp4', quality = 'standard' }) {
+  const enc = ENCODINGS[format];
   return [
     '-y', '-loop', '1', '-framerate', String(fps), '-i', frame,
     ...(audio
       ? ['-i', audio, '-af', `apad=pad_dur=${pad}`]
-      : ['-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100']),
-    '-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p',
-    '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-ac', '2',
-    '-t', Number(duration).toFixed(3), '-movflags', '+faststart', out,
+      : ['-f', 'lavfi', '-i', `anullsrc=channel_layout=stereo:sample_rate=${enc.sampleRate}`]),
+    ...enc.video(quality), ...enc.audio(quality),
+    '-t', Number(duration).toFixed(3), ...(enc.faststart ? ['-movflags', '+faststart'] : []), out,
   ];
 }
 
@@ -327,10 +395,96 @@ export function concatList(segments) {
   return segments.map((s) => `file '${s.replaceAll("'", "'\\''")}'`).join('\n') + '\n';
 }
 
-/** ffmpeg argv joining the segments into the output without re-encoding. */
-export function concatArgs(listFile, out) {
-  return ['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy',
-    '-movflags', '+faststart', out];
+/**
+ * ffmpeg argv joining the segments into the output without re-encoding — and,
+ * when there are subtitles to embed, mapping them in as a track of the
+ * container's own kind (the only step that encodes anything, and it is text).
+ */
+export function concatArgs(listFile, out, { format = 'mp4', subtitles = null } = {}) {
+  const enc = ENCODINGS[format];
+  return ['-y', '-f', 'concat', '-safe', '0', '-i', listFile,
+    ...(subtitles ? ['-i', subtitles, '-map', '0', '-map', '1'] : []),
+    '-c', 'copy', ...(subtitles ? ['-c:s', enc.subtitleCodec] : []),
+    ...(enc.faststart ? ['-movflags', '+faststart'] : []), out];
+}
+
+/** A subtitle longer than this is split into cues of its own; two lines of about half each is what a player shows. */
+export const CUE_MAX_CHARS = 84;
+
+/** Words into runs of at most `max` characters, never mid-word. */
+function chunkCue(text, max) {
+  if (text.length <= max) return [text];
+  const out = [];
+  let line = '';
+  for (const word of text.split(' ')) {
+    if (line && line.length + 1 + word.length > max) { out.push(line); line = word; } else line = line ? `${line} ${word}` : word;
+  }
+  if (line) out.push(line);
+  return out;
+}
+
+/** One cue's text on at most two lines, broken at the space nearest the middle. */
+function wrapCue(text, line = CUE_MAX_CHARS / 2) {
+  if (text.length <= line) return text;
+  const mid = text.length / 2;
+  let at = -1;
+  for (let i = text.indexOf(' '); i >= 0; i = text.indexOf(' ', i + 1)) if (at < 0 || Math.abs(i - mid) < Math.abs(at - mid)) at = i;
+  return at < 0 ? text : `${text.slice(0, at)}\n${text.slice(at + 1)}`;
+}
+
+/**
+ * The subtitles of a render: what each narrated frame SAYS, timed against the
+ * frame's real audio.
+ *
+ * The unit is the sentence, split by the very function the live captions use
+ * (`splitSentences`, tools/sentences.mjs), so a video's subtitles break
+ * where the deck's captions do. Within one beat the audio is ONE file, so
+ * where a sentence starts inside it is not known — it is shared out by length,
+ * which lands close for speech and is exact at every beat boundary. The breath
+ * after a slide (`pad`) carries no caption, and a silent frame none at all.
+ *
+ * @param plan    planTimeline's frames, in order
+ * @param textOf  frame → the words its audio speaks
+ * @returns {Array<{start, end, text}>} seconds from the start of the video
+ */
+export function subtitleCues(plan, textOf) {
+  const cues = [];
+  let t = 0;
+  for (const p of plan) {
+    const speech = p.audio ? Math.max(0, p.duration - (p.pad ?? 0)) : 0;
+    const text = speech ? String(textOf(p) ?? '').replace(/\s+/g, ' ').trim() : '';
+    if (text) {
+      const pieces = splitSentences(text).flatMap((s) => chunkCue(s, CUE_MAX_CHARS));
+      const chars = pieces.reduce((n, s) => n + s.length, 0);
+      let at = t;
+      for (const piece of pieces) {
+        const len = speech * (piece.length / chars);
+        cues.push({ start: round(at), end: round(at + len), text: wrapCue(piece) });
+        at += len;
+      }
+    }
+    t += p.duration;
+  }
+  return cues;
+}
+
+const stamp = (s, mark) => {
+  const ms = Math.round(s * 1000);
+  const two = (n) => String(n).padStart(2, '0');
+  return `${two(Math.floor(ms / 3600000))}:${two(Math.floor(ms / 60000) % 60)}:${two(Math.floor(ms / 1000) % 60)}${mark}${String(ms % 1000).padStart(3, '0')}`;
+};
+// An arrow inside a line would read as a timing line to a strict parser.
+const safeCue = (text) => text.replaceAll('-->', '→');
+
+/** SubRip: numbered cues, comma before the milliseconds. */
+export function toSrt(cues) {
+  return cues.map((c, i) => `${i + 1}\n${stamp(c.start, ',')} --> ${stamp(c.end, ',')}\n${safeCue(c.text).replaceAll('<', '‹')}\n`).join('\n');
+}
+
+/** WebVTT: a header, a dot before the milliseconds, and `<` / `&` escaped — cue text is markup there. */
+export function toVtt(cues) {
+  const esc = (t) => safeCue(t).replaceAll('&', '&amp;').replaceAll('<', '&lt;');
+  return `WEBVTT\n\n${cues.map((c) => `${stamp(c.start, '.')} --> ${stamp(c.end, '.')}\n${esc(c.text)}\n`).join('\n')}`;
 }
 
 /** ffprobe argv for a file's real duration in seconds (prints one number). */
@@ -447,7 +601,11 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
 
   let out; let plan; let narration;
   try {
-    out = resolve(opt('-o', opt('--out', videoOut(deck, opt('--slides')))));
+    const named = opt('-o', opt('--out'));
+    const { format, quality, subtitles } = videoOptions({
+      out: named, format: opt('--format'), quality: opt('--quality'), subtitles: opt('--subtitles'),
+    });
+    out = resolve(named ?? videoOut(deck, opt('--slides'), format));
     const { w, h } = parseSize(opt('--size', '1280x720'));
     const fps = Number(opt('--fps', '30'));
     const hold = Number(opt('--hold', '5'));
@@ -559,9 +717,9 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
           `${server.origin}${deckPath}#/${p.slide}/${p.step}`,
         ));
         if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
-        const seg = join(work, `seg-${id}.mp4`);
+        const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);
         await exec('ffmpeg', segmentArgs({
-          frame, duration: p.duration, pad: p.pad, fps, out: seg,
+          frame, duration: p.duration, pad: p.pad, fps, out: seg, format, quality,
           audio: p.audio ? join(narration.dir, p.audio) : null,
         }));
         segments.push(seg);
@@ -569,9 +727,34 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
         log(`  slide ${nn}${where}: ${p.duration.toFixed(1)}s ${p.audio ?? '(silence)'}`);
       }
 
+      // Subtitles are the words the audio speaks: the script voiceover wrote
+      // beside each clip when there is one (it may have been edited to change
+      // what is said), the deck's own notes for that beat when there is not.
+      let embedded = null;
+      if (subtitles !== 'none') {
+        const sections = sectionBodies(html);
+        const textOf = (p) => {
+          const script = join(narration.dir, p.audio.replace(/\.[^.]+$/, '.txt'));
+          if (existsSync(script)) return readFileSync(script, 'utf8');
+          const notes = sections[p.slide - 1]?.match(NOTES_ASIDE)?.[1] ?? '';
+          const k = narration.slides?.[p.slide - 1]?.segments?.findIndex((sg) => sg.file === p.audio) ?? -1;
+          return k >= 0 ? (notesSegments(notes)?.[k] ?? '') : cleanNotes(notes);
+        };
+        const cues = narration ? subtitleCues(plan, textOf) : [];
+        const enc = ENCODINGS[format];
+        if (!cues.length) {
+          console.warn('  subtitles: nothing is spoken in this render — none written');
+        } else {
+          const file = subtitles === 'embed' ? join(work, `subtitles.${enc.subtitleExt}`) : subtitlesOut(out, format);
+          writeFileSync(file, enc.subtitleExt === 'vtt' ? toVtt(cues) : toSrt(cues));
+          if (subtitles === 'embed') embedded = file;
+          log(`  subtitles: ${cues.length} cue${cues.length === 1 ? '' : 's'} ${subtitles === 'embed' ? 'embedded' : `→ ${file}`}`);
+        }
+      }
+
       const list = join(work, 'concat.txt');
       writeFileSync(list, concatList(segments));
-      await exec('ffmpeg', concatArgs(list, out));
+      await exec('ffmpeg', concatArgs(list, out, { format, subtitles: embedded }));
     } finally {
       await server.close();
       rmSync(work, { recursive: true, force: true });

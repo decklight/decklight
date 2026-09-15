@@ -63,6 +63,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, wa
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, claudeActivity } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
@@ -236,7 +237,8 @@ export const EXPORT_KINDS = {
  * What is wrong with a video export request, or null. Every field comes from a
  * page, so every one is checked before anything runs.
  *
- * - `slides` is the command's own `--slides` spelling.
+ * - `slides` is the command's own `--slides` spelling; `format`, `quality` and
+ *   `subtitles` its `--format`, `--quality` and `--subtitles`.
  * - The voice is ONE of three: `narration` names a recorded folder (inside the
  *   deck's directory, holding a manifest — a render that cannot find its audio
  *   should refuse, not come out silent); `synthesize` asks for the live voice
@@ -247,7 +249,11 @@ export const EXPORT_KINDS = {
  *   engine and this voice; anything else — a manifest for another voice, or
  *   audio with no manifest at all, which is what your own voice leaves — refuses.
  */
-export function videoExportProblem({ slides, narration, synthesize, silent } = {}, deckDir) {
+export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles } = {}, deckDir) {
+  // the card's rows and the command's flags read one list (src/core/video-options.js)
+  for (const [field, value, list] of [['format', format, VIDEO_FORMATS], ['quality', quality, VIDEO_QUALITIES], ['subtitles', subtitles, VIDEO_SUBTITLES]]) {
+    if (value != null && !valuesOf(list).includes(value)) return `${field} must be ${valuesOf(list).join(', ')}`;
+  }
   if (slides != null && slides !== '' && !(typeof slides === 'string' && /^\d+(?:-\d+)?$/.test(slides))) {
     return 'slides must be a-b or a single slide number';
   }
@@ -2156,10 +2162,11 @@ export async function editMain(args, { onListen = null } = {}) {
       + `${req.synthesize ? `, voiced by ${req.synthesize.engine} into ${req.synthesize.dir}/` : ''} …`);
     broadcast('export', { state: 'start', kind, what: job.what });
     try {
-      let out, code, reason = null;
+      let out, code, reason = null, subs = null;
       if (kind === 'video') {
-        const { videoOut, videoProgress, voiceoverProgress } = await import('../tools/video.mjs');
-        out = videoOut(deckPath, req.slides || null);
+        const { videoOut, videoProgress, voiceoverProgress, subtitlesOut } = await import('../tools/video.mjs');
+        out = videoOut(deckPath, req.slides || null, req.format || 'mp4');
+        subs = req.subtitles === 'file' ? subtitlesOut(out, req.format || 'mp4') : null;
         // Two phases, each told apart on the channel: voicing is minutes on a
         // cloud engine, and a row that said "rendering" through all of it would
         // read as stuck on slide one.
@@ -2171,6 +2178,9 @@ export async function editMain(args, { onListen = null } = {}) {
           const narration = req.synthesize?.dir ?? req.narration ?? null;
           ({ code, reason } = await runTool('video', [deckPath, '-o', out,
             ...(req.slides ? ['--slides', req.slides] : []),
+            ...(req.format ? ['--format', req.format] : []),
+            ...(req.quality ? ['--quality', req.quality] : []),
+            ...(req.subtitles ? ['--subtitles', req.subtitles] : []),
             ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : [])],
           videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }))));
         }
@@ -2192,7 +2202,12 @@ export async function editMain(args, { onListen = null } = {}) {
         broadcast('export', { state: 'done', kind, ok: false });
         return json(500, { ok: false, error: reason ?? 'the export refused — see the author server\'s output' });
       }
-      const voiced = req.synthesize ? { voiced: req.synthesize.dir } : {};
+      // A render with nothing spoken writes no subtitles and says so; the deck
+      // is told of a file only when there is one to open.
+      const voiced = {
+        ...(req.synthesize ? { voiced: req.synthesize.dir } : {}),
+        ...(subs && existsSync(subs) ? { subtitles: relative(process.cwd(), subs) || basename(subs) } : {}),
+      };
       broadcast('export', { state: 'done', kind, ok: true, file, seconds, ...voiced });
       return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced });
     } catch (e) {

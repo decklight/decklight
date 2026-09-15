@@ -1309,9 +1309,12 @@
 .decklight-range .range-custom input { flex: 0 0 7em; min-width: 0; font: inherit; padding: 2px 8px; border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, .25); background: rgba(0, 0, 0, .25); color: inherit; }
 .decklight-range .range-custom input:focus { outline: 2px solid var(--accent, #6af); outline-offset: 1px; }
-/* the export card's voice row: a setting above the ranges, not one of them */
-.decklight-range .range-source { margin-bottom: 6px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, .12); border-radius: 8px 8px 0 0; }
-.decklight-range .range-source .narr-flavor { display: block; margin: 2px 0 0; }
+/* wide enough that a synthesized voice's folder and the key hint stay on one line */
+.decklight-range .narr-card { width: min(560px, 90vw); }
+/* the export card's settings: answers above the ranges, not ranges */
+.decklight-range .range-setting { gap: 12px; }
+.decklight-range .range-setting-name { flex: 0 0 5.2em; opacity: .55; font-size: .85em; }
+.decklight-range .range-setting-last { margin-bottom: 6px; padding-bottom: 8px; border-bottom: 1px solid rgba(255, 255, 255, .12); border-radius: 8px 8px 0 0; }
 .decklight-narr .narr-prev-btn {
   flex: none;
   background: none;
