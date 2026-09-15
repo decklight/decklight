@@ -89,8 +89,29 @@ Cloud engines need --project or $GOOGLE_CLOUD_PROJECT and application-default
 credentials; elevenlabs needs $ELEVENLABS_API_KEY. Audio is a build artifact.`;
 
 if (args.includes('--help') || args.includes('-h')) { console.log(HELP); process.exit(0); }
-const deckPath = args.find((a) => !a.startsWith('-'));
+// Every option voiceover takes, and nothing else. It used to accept anything
+// that started with a dash and ignore whatever it did not read, so a removed or
+// mistyped flag was dropped without a word and the run went ahead doing
+// something else. The value options are listed apart because the token after
+// one is its VALUE, not the deck — which is also how `-o out deck.html` used to
+// take `out` for the deck.
+const VALUE_OPTIONS = new Set(['-o', '--engine', '--voice', '--style', '--data-dir', '--project',
+  '--location', '--lang', '--tts-model', '--tts-format']);
+const SWITCHES = new Set(['--reuse-text', '--keep-wav', '--no-cache']);
+let deckPath;
+for (let i = 0; i < args.length; i++) {
+  const a = args[i];
+  if (VALUE_OPTIONS.has(a)) { i++; continue; }
+  if (SWITCHES.has(a)) continue;
+  if (a.startsWith('-')) {
+    console.error(`decklight voiceover: unknown option ${a} — see decklight voiceover --help`);
+    process.exit(1);
+  }
+  deckPath ??= a;
+}
 if (!deckPath) { console.error('decklight voiceover: name the deck to voice\n\n' + HELP); process.exit(1); }
+// before the engine and encoder probes: a mistyped deck is not a missing ffmpeg
+if (!existsSync(deckPath)) { console.error(`decklight voiceover: no deck at ${deckPath}`); process.exit(1); }
 const { opt } = argReader(args);
 const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
 const engine = opt('--engine', 'piper');

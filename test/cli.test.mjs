@@ -79,6 +79,24 @@ test('voiceover is a first-class command: routed, documented, and helps to stdou
   const bad = spawnSync('node', [CLI, 'voiceover'], { encoding: 'utf8' });
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /decklight voiceover: name the deck/);
+
+  // an option voiceover does not take is refused by name, not ignored — the
+  // notes rewrite and its two flags are gone, and a run that silently dropped
+  // a flag would go ahead doing something other than what was asked
+  for (const flag of [['--no-llm'], ['--model', 'qwen3:30b-a3b']]) {
+    const r = spawnSync('node', [CLI, 'voiceover', 'deck.html', ...flag], { encoding: 'utf8' });
+    assert.equal(r.status, 1, `${flag[0]} is refused`);
+    assert.match(r.stderr, new RegExp(`decklight voiceover: unknown option ${flag[0]}`));
+  }
+  // and every option it DOES take still parses: with the deck missing, the
+  // failure names the deck, never an option — and a value option's value is
+  // not mistaken for the deck (`-o out deck.html` used to read `out`)
+  const known = spawnSync('node', [CLI, 'voiceover', '-o', 'out', '--engine', 'say', '--voice', 'V',
+    '--style', 's', '--data-dir', 'd', '--project', 'p', '--location', 'l', '--lang', 'en-US',
+    '--tts-model', 'm', '--tts-format', 'pcm', '--reuse-text', '--keep-wav', '--no-cache',
+    'missing-deck.html'], { encoding: 'utf8' });
+  assert.doesNotMatch(known.stderr, /unknown option/);
+  assert.match(known.stderr, /decklight voiceover: no deck at missing-deck\.html/);
 });
 
 test('unknown subcommand exits 1 with the global help', () => {
