@@ -55,6 +55,7 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
                        <deck>.slides-a-b.mp4 for a --slides range)
   --narration <dir>    narration dir (default: <deckdir>/voiceover if it has a
                        manifest.json; otherwise the deck renders silent)
+  --no-narration       render silent, even with a voiceover/ beside the deck
   --size <WxH>         frame size (default 1280x720; both must be even)
   --fps <n>            video frame rate (default 30)
   --hold <s>           seconds a slide without narration holds (default 5;
@@ -127,6 +128,21 @@ export function videoProgress(onSlide) {
     if (head) { of = Number(head[1]); return; }
     const frame = /^\s+slide (\d+)[:\s·]/.exec(line);
     if (frame && of && !seen.has(frame[1])) { seen.add(frame[1]); onSlide(seen.size, of); }
+  };
+}
+
+/**
+ * The same, for `tools/voiceover.mjs` when an export voices its slides first:
+ * its plan line ends `· N to voice`, and each slide line after it — synthesized,
+ * or kept from an earlier run — is one of those N done.
+ */
+export function voiceoverProgress(onSlide) {
+  let of = 0;
+  let n = 0;
+  return (line) => {
+    const head = / · (\d+) to voice$/.exec(line);
+    if (head) { of = Number(head[1]); return; }
+    if (of && /^\s+slide \d+: /.test(line)) onSlide(++n, of);
   };
 }
 
@@ -456,7 +472,9 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       if (r.status !== 0) throw new Error('voiceover batch failed — see its output above');
     }
 
-    narration = resolveNarration(deck, opt('--narration'));
+    // --no-narration is silence asked for by name: without it, a voiceover/
+    // beside the deck narrates whether or not that was the voice wanted
+    narration = argv.includes('--no-narration') ? null : resolveNarration(deck, opt('--narration'));
 
     // real durations, not the manifest's word count: ffprobe each audio file
     const durations = {};

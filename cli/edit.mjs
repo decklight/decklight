@@ -233,25 +233,65 @@ export const EXPORT_KINDS = {
 };
 
 /**
- * What is wrong with a video export request, or null. Both fields come from a
- * page, so both are checked before anything runs: `slides` is the command's own
- * `--slides` spelling, and `narration` names a recorded track's folder, which
- * must sit inside the deck's own directory and hold a manifest — a render that
- * cannot find its audio should refuse, not quietly come out silent.
+ * What is wrong with a video export request, or null. Every field comes from a
+ * page, so every one is checked before anything runs.
+ *
+ * - `slides` is the command's own `--slides` spelling.
+ * - The voice is ONE of three: `narration` names a recorded folder (inside the
+ *   deck's directory, holding a manifest — a render that cannot find its audio
+ *   should refuse, not come out silent); `synthesize` asks for the live voice
+ *   to be voiced into a folder first; `silent` is silence by name. None of them
+ *   is the command's own default: a `voiceover/` beside the deck if there is one.
+ * - A synthesized voice never lands on a take somebody recorded. A folder that
+ *   already holds audio is refreshed only when its manifest says it was this
+ *   engine and this voice; anything else — a manifest for another voice, or
+ *   audio with no manifest at all, which is what your own voice leaves — refuses.
  */
-export function videoExportProblem({ slides, narration } = {}, deckDir) {
+export function videoExportProblem({ slides, narration, synthesize, silent } = {}, deckDir) {
   if (slides != null && slides !== '' && !(typeof slides === 'string' && /^\d+(?:-\d+)?$/.test(slides))) {
     return 'slides must be a-b or a single slide number';
   }
-  if (narration == null || narration === '') return null;
-  if (typeof narration !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(narration)) {
-    return 'the narration is a folder beside the deck, not a URL';
+  const given = [narration, synthesize, silent].filter((v) => v != null && v !== '' && v !== false);
+  if (given.length > 1) return 'one voice at a time — a recorded track, a synthesized one, or silence';
+  if (synthesize != null) {
+    if (typeof synthesize !== 'object') return 'synthesize names an engine, a voice and a folder';
+    const { engine, model, voice, style, dir } = synthesize;
+    if (typeof engine !== 'string' || !/^[a-z][a-z0-9-]{0,40}$/.test(engine)) return 'name the engine to synthesize with';
+    for (const [field, value, max] of [['model', model, 200], ['voice', voice, 200], ['style', style, 2000]]) {
+      if (value != null && (typeof value !== 'string' || value.length > max || /\p{Cc}/u.test(value))) {
+        return `the ${field} is not one this server will pass on`;
+      }
+    }
+    const bad = folderProblem(dir, deckDir, 'the synthesized voice');
+    if (bad) return bad;
+    const at = resolve(deckDir, dir);
+    let audio = [];
+    try { audio = readdirSync(at).filter((f) => /^slide-\d+(-\d+)?\.(wav|m4a|mp3)$/.test(f)); } catch { /* a new folder */ }
+    if (audio.length) {
+      let m = null;
+      try { m = JSON.parse(readFileSync(resolve(at, 'manifest.json'), 'utf8')); } catch { /* recorded by hand */ }
+      if (!m || m.engine !== engine || (m.voice ?? null) !== (voice ?? null)) {
+        return `${dir}/ already holds ${m?.voice ? `${m.voice}'s recording` : 'a recording'} — synthesizing into it would replace it`;
+      }
+    }
+    return null;
   }
-  const dir = resolve(deckDir, narration);
-  if (!dir.startsWith(resolve(deckDir) + sep)) return `the narration folder must be inside the deck's folder (${narration})`;
-  if (!existsSync(resolve(dir, 'manifest.json'))) {
+  if (narration == null || narration === '') return null;
+  const bad = folderProblem(narration, deckDir, 'the narration');
+  if (bad) return bad;
+  if (!existsSync(resolve(deckDir, narration, 'manifest.json'))) {
     return `no recorded narration in ${narration}/ — record the deck first (V → Record this deck…)`;
   }
+  return null;
+}
+
+/** A folder named by a page: relative, inside the deck's own directory. */
+function folderProblem(dir, deckDir, what) {
+  if (typeof dir !== 'string' || !dir || dir.length > 200 || /^[a-z][a-z0-9+.-]*:/i.test(dir)) {
+    return `${what} is a folder beside the deck, not a URL`;
+  }
+  const at = resolve(deckDir, dir);
+  if (!at.startsWith(resolve(deckDir) + sep)) return `${what} folder must be inside the deck's folder (${dir})`;
   return null;
 }
 
@@ -2028,10 +2068,10 @@ export async function editMain(args, { onListen = null } = {}) {
       try { entries = readdirSync(resolve(root2, rel), { withFileTypes: true }); } catch { return; }
       const wav = entries.filter((e) => e.isFile() && /^slide-\d+(-\d+)?\.(wav|m4a|mp3)$/.test(e.name));
       if (wav.length) {
-        let engine = null; let voice = null;
+        let engine = null; let voice = null; let manifest = false;
         try {
           const m = JSON.parse(readFileSync(resolve(root2, rel, 'manifest.json'), 'utf8'));
-          engine = m.engine ?? null; voice = m.voice ?? null;
+          engine = m.engine ?? null; voice = m.voice ?? null; manifest = true;
         } catch { /* a folder recorded by hand has no manifest, and needs none */ }
         seen.push({
           dir: rel.split(sep).join('/'),
@@ -2042,6 +2082,9 @@ export async function editMain(args, { onListen = null } = {}) {
           ext: (wav[0].name.split('.').pop()),
           engine,
           voice,
+          // only a folder with a manifest is one `decklight video` can render
+          // from — your own voice leaves none, and the export must not offer it
+          manifest,
         });
       }
       return entries;
@@ -2109,15 +2152,28 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     exporting = true;
     const started = Date.now();
-    console.log(`  export: ${basename(deckPath)} → ${job.what}${req.slides ? ` of slides ${req.slides}` : ''} …`);
+    console.log(`  export: ${basename(deckPath)} → ${job.what}${req.slides ? ` of slides ${req.slides}` : ''}`
+      + `${req.synthesize ? `, voiced by ${req.synthesize.engine} into ${req.synthesize.dir}/` : ''} …`);
     broadcast('export', { state: 'start', kind, what: job.what });
     try {
       let out, code, reason = null;
       if (kind === 'video') {
-        const { videoOut, videoProgress } = await import('../tools/video.mjs');
+        const { videoOut, videoProgress, voiceoverProgress } = await import('../tools/video.mjs');
         out = videoOut(deckPath, req.slides || null);
-        ({ code, reason } = await renderVideo(req, out,
-          videoProgress((n, of) => broadcast('export', { state: 'slide', kind, n, of }))));
+        // Two phases, each told apart on the channel: voicing is minutes on a
+        // cloud engine, and a row that said "rendering" through all of it would
+        // read as stuck on slide one.
+        if (req.synthesize) {
+          ({ code, reason } = await runTool('voiceover', await voiceoverArgv(req),
+            voiceoverProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'voice', n, of }))));
+        }
+        if (!code) {
+          const narration = req.synthesize?.dir ?? req.narration ?? null;
+          ({ code, reason } = await runTool('video', [deckPath, '-o', out,
+            ...(req.slides ? ['--slides', req.slides] : []),
+            ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : [])],
+          videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }))));
+        }
       } else if (kind === 'pptx') {
         const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
         out = pptxOut(deckPath);
@@ -2136,8 +2192,9 @@ export async function editMain(args, { onListen = null } = {}) {
         broadcast('export', { state: 'done', kind, ok: false });
         return json(500, { ok: false, error: reason ?? 'the export refused — see the author server\'s output' });
       }
-      broadcast('export', { state: 'done', kind, ok: true, file, seconds });
-      return json(200, { ok: true, kind, what: job.what, file, seconds });
+      const voiced = req.synthesize ? { voiced: req.synthesize.dir } : {};
+      broadcast('export', { state: 'done', kind, ok: true, file, seconds, ...voiced });
+      return json(200, { ok: true, kind, what: job.what, file, seconds, ...voiced });
     } catch (e) {
       // A render that hangs or a Chrome that dies is the export's problem,
       // never the session's: the message goes back to the palette and the
@@ -2151,23 +2208,21 @@ export async function editMain(args, { onListen = null } = {}) {
   }
 
   /**
-   * `decklight video`, run as a CHILD rather than through its `main` like the
-   * other exports: that `main` ends in `process.exit` on every refusal and runs
-   * the voiceover batch synchronously — right for a command, and each would take
-   * this session down or freeze it. A child keeps both where they belong, and
-   * its output is read line by line for the progress it already prints.
+   * `decklight video` (and `decklight voiceover` before it, when the export
+   * voices its slides), run as CHILDREN rather than through their `main`s like
+   * the other exports: both end in `process.exit` on every refusal, and each
+   * would take this session down or freeze it. A child keeps that where it
+   * belongs, and its output is read line by line for the progress it already
+   * prints.
    *
    * Served from the same root `pptx` picks: the current directory when the deck
    * is under it, its own directory otherwise.
    */
-  function renderVideo({ slides, narration }, out, onLine) {
-    const script = fileURLToPath(new URL('../tools/video.mjs', import.meta.url));
-    const argv = [script, deckPath, '-o', out,
-      ...(slides ? ['--slides', slides] : []),
-      ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : [])];
+  function runTool(name, argv, onLine) {
+    const script = fileURLToPath(new URL(`../tools/${name}.mjs`, import.meta.url));
     const cwd = deckPath.startsWith(process.cwd() + sep) ? process.cwd() : dirname(deckPath);
     return new Promise((done) => {
-      const child = spawn(process.execPath, argv, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      const child = spawn(process.execPath, [script, ...argv], { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
       let pending = '', err = '';
       child.stdout.on('data', (chunk) => {
         pending += chunk;
@@ -2183,10 +2238,36 @@ export async function editMain(args, { onListen = null } = {}) {
       child.on('close', (code) => {
         // the command's own refusal is the sentence the deck shows
         const said = err.split('\n').map((l) => l.trim()).filter(Boolean);
-        const refusal = said.findLast((l) => l.startsWith('decklight video')) ?? said.at(-1);
-        done({ code, reason: code === 0 ? null : (refusal?.replace(/^decklight video:\s*/, '') ?? null) });
+        const prefix = `decklight ${name}:`;
+        const refusal = said.findLast((l) => l.startsWith(prefix)) ?? said.at(-1);
+        done({ code, reason: code === 0 ? null : (refusal?.replace(prefix, '').trim() ?? null) });
       });
     });
+  }
+
+  /**
+   * argv for voicing an export: the live voice the deck is speaking with, as
+   * `decklight voiceover` spells it. The deck sends what only it knows — the
+   * engine and model the bridge answered with, the voice and tone picked in V —
+   * and the rest comes from where the bridge itself reads it (the environment,
+   * then ~/.config/decklight/tts.json for the same engine), so a sentence
+   * already heard live is a cache hit here and not a second bill.
+   */
+  async function voiceoverArgv({ slides, synthesize: s }) {
+    const { loadTtsConfig } = await import('../tools/tts-setup.mjs');
+    const { piperModelDir } = await import('../tools/tts-engines.mjs');
+    const saved = loadTtsConfig();
+    const savedFor = saved?.engine === s.engine ? saved : null;
+    const project = process.env.GOOGLE_CLOUD_PROJECT ?? saved?.project;
+    const dataDir = savedFor?.dataDir ?? (s.engine === 'piper' ? piperModelDir() : null);
+    return [deckPath, '-o', resolve(dirname(deckPath), s.dir), '--engine', s.engine,
+      ...(s.voice ? ['--voice', s.voice] : []),
+      ...(s.style ? ['--style', s.style] : []),
+      ...(s.model ? ['--tts-model', s.model] : []),
+      ...(savedFor?.format ? ['--tts-format', savedFor.format] : []),
+      ...(dataDir ? ['--data-dir', dataDir] : []),
+      ...(project && (s.engine === 'gemini' || s.engine === 'chirp') ? ['--project', project] : []),
+      ...(slides ? ['--slides', slides] : [])];
   }
 
   /**

@@ -195,9 +195,13 @@ const segmented = raw.map((r) => (canSegment ? notesSegments(r) : null));
 if (!canSegment && raw.some((r) => notesSegments(r))) {
   console.log('  note: ⟨CLICK⟩ segments need ffmpeg to concatenate — narrating each slide whole');
 }
+// `· N to voice` closes the line because the author server reads it: an export
+// that voices its slides first counts them off against this number.
+const toVoice = slides.filter((s, i) => s && i + 1 >= range.from && i + 1 <= range.to).length;
 console.log(`${basename(deckPath)}: ${slides.length} slides, ${slides.filter(Boolean).length} with notes`
   + `${!opt('--slides') ? '' : range.from === range.to ? ` — voicing slide ${range.from} only`
-    : ` — voicing slides ${range.from}–${range.to} only`}`);
+    : ` — voicing slides ${range.from}–${range.to} only`}`
+  + ` · ${toVoice} to voice`);
 
 // ── synthesize ────────────────────────────────────────────────────────────────
 // TWO layers of reuse, and they answer different questions.

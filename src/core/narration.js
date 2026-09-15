@@ -427,6 +427,7 @@ export function createNarration({
   let liveVoices = GEMINI_VOICES;
   let liveStylable = true;  // only gemini takes a delivery instruction
   let liveEngine = null;
+  let liveModel = null;   // what the bridge said it speaks with — an export voices with the same
   let liveCaveat = null;   // the engine's standing note — say's Siri hint rides here
   // Which collapsed voice shelves this OPEN of the picker has unfolded. Never
   // persisted, cleared on close: a tail of 140 foreign voices should be one
@@ -476,6 +477,7 @@ export function createNarration({
   function adoptBridge(p) {
     if (!p) return null;
     liveEngine = p.engine ?? null;
+    liveModel = p.model ?? null;
     liveCaveat = typeof p.caveat === 'string' ? p.caveat : null;
     if (Array.isArray(p.voices) && p.voices.length) liveVoices = p.voices;
     liveStylable = p.stylable !== false;
@@ -2576,6 +2578,18 @@ export function createNarration({
     return at(proposed.dir, 'new');
   }
 
+  /**
+   * Where a video export's synthesized voice is written: refreshed in place when
+   * this engine and voice already recorded a folder (its manifest says so), a
+   * new `voices/<voice>` otherwise. Never the deck's configured folder — unlike
+   * the recorder, which asks first on its card, an export writes without a
+   * second look, and that folder may hold somebody's own take.
+   */
+  function synthTarget(tracks) {
+    const same = tracks.find((t) => t.manifest && t.engine === liveEngine && t.voice === liveCfg.voice);
+    return same ? same.dir : proposeTrack({ engine: liveEngine, voice: liveCfg.voice }, tracks.map((t) => t.dir)).dir;
+  }
+
   const RECORD_DIR = 'voiceover';
   const plainFolder = (d) => (typeof d === 'string' && d
     && !/^[a-z][a-z0-9+.-]*:/i.test(d) && !/^[/\\]/.test(d) && !d.split(/[/\\]/).includes('..')
@@ -3238,6 +3252,39 @@ export function createNarration({
     changeNarrRate,
     toggleCaptions,
     openPicker: openNarrPicker,
+    /**
+     * The voices a video export can carry (PRESENTING), for its card: every
+     * folder beside the deck that `decklight video` can render from (one with a
+     * manifest — your own voice leaves none), the live voice when a bridge is
+     * speaking — voiced into a folder first, so a second export does not pay
+     * again — and silence.
+     *
+     * The one already chosen goes first: the live voice when V is set to it,
+     * the recorded track V plays, the `voiceover/` a render would have found on
+     * its own, else silence. Never a paid engine nobody picked.
+     */
+    async exportSources() {
+      const [tracks, bridge] = await Promise.all([knownTracks(), probeLive()]);
+      const options = [];
+      for (const t of tracks.filter((x) => x.manifest)) {
+        const who = t.voice ? `${t.voice}${t.engine ? ` · ${t.engine}` : ''}` : 'recorded';
+        options.push({ label: `🔊 ${who} — ${t.dir}/`, value: { kind: 'recorded', dir: t.dir } });
+      }
+      if (bridge && liveEngine) {
+        const dir = synthTarget(tracks);
+        options.push({
+          label: `⚡ Synthesize — ${liveCfg.voice} · ${liveEngine} → ${dir}/`,
+          value: { kind: 'live', engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveCfg.style, dir },
+        });
+      }
+      options.push({ label: '🔇 Silent', value: { kind: 'silent' } });
+      const find = (ok) => options.findIndex((o) => ok(o.value));
+      let index = narrSet?.live ? find((v) => v.kind === 'live') : -1;
+      if (index < 0 && narrSet?.dir) index = find((v) => v.dir === narrSet.dir);
+      if (index < 0) index = find((v) => v.dir === 'voiceover');
+      if (index < 0) index = options.length - 1;
+      return { options, index };
+    },
     openRecordDialog,
     openMicRecorder,
     applySolo,
