@@ -67,7 +67,7 @@ function containerBounds(html) {
 }
 
 /** Cut `const PLAYLIST = {…};` (brace-matched) and the `playlist: X` init
- *  property out of a merged deck — cross-file navigation has no meaning
+ *  property out of the deck being bundled — cross-file navigation has no meaning
  *  inside one file; in-file data-module markers replace it. */
 function stripPlaylist(html) {
   const declM = html.match(/const\s+PLAYLIST\s*=\s*/);
@@ -212,7 +212,7 @@ Options:
                    --sign, because the container is the signed artifact. A
                    .decklight renamed to .html still plays in a browser: the
                    deck comes first in the file and the metadata is appended.
-  --title <t>      <title> for a merged presentation
+  --title <t>      <title> for the multi-module deck
   --transform <name>  run an installed build-time transform (decklight transform
                    add <name>) on the deck's own source before anything else
                    is inlined — repeatable, applied in the order given

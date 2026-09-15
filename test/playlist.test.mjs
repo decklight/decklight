@@ -1,8 +1,8 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Module navigation: chained files (config.playlist) and one merged file's
-// data-module chapters — the two shapes a course comes in, and the precedence
+// Module navigation: chained files (config.playlist) and one multi-module
+// deck's data-module chapters — the two shapes a course comes in, and the precedence
 // between them.
 //
 // Extracted from init()'s closure, so this is the first time any of it can be
@@ -90,7 +90,7 @@ test('the current chapter is the last marker at or before the slide', () => {
   }
 });
 
-test('a merged deck takes precedence over a playlist, and stays in the file', () => {
+test('a multi-module deck takes precedence over a playlist, and stays in the file', () => {
   // bundle --all writes markers into one file. If that file ALSO carries a
   // playlist config, following the config would load a page for a chapter
   // that is already right here.

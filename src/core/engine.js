@@ -374,8 +374,8 @@ export function init(userConfig = {}) {
   const overlays = createOverlays();
 
   // ----- playlist (multi-deck navigation) ------------------------------------
-  // Two shapes, one vocabulary: chained FILES (config.playlist) and one merged
-  // file's data-module chapters. playlist.js holds the difference so that the
+  // Two shapes, one vocabulary: chained FILES (config.playlist) and one
+  // multi-module deck's data-module chapters. playlist.js holds the difference so that the
   // finder, the chrome and the palette can just ask.
   const moduleNav = createPlaylist({
     config, root,
@@ -541,7 +541,7 @@ export function init(userConfig = {}) {
       modules: playlist?.modules ?? [],
       skipModule: playlistIndex,
     });
-    // A merged deck's chapters get rows of their own, ahead of the slide list.
+    // A multi-module deck's chapters get rows of their own, ahead of the slide list.
     // `buildIndex` used to hold that in-file chapters "need nothing special —
     // they are already indexed as ordinary slides", which is true of FINDING
     // one and false of seeing that the deck has any: in a 100-slide merge the
