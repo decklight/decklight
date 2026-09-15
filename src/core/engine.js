@@ -2224,22 +2224,20 @@ export function init(userConfig = {}) {
   });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
 
-  // The video export (PRESENTING): which slides first, then the door every
-  // export uses. The voice is the recorded track picked in V, and the card says
-  // so before anything renders — a video that comes out silent is a surprise
-  // you find four minutes later.
-  function openVideoExport() {
-    const t = narration.status().track;
-    const recorded = t && !t.live && !t.manifest && t.dir ? t : null;
+  // The video export (PRESENTING): which slides, and which voice, on one card,
+  // then the door every export uses. The voice row starts on the one already
+  // chosen — the live voice V speaks with, the track it plays, else silence — so
+  // the common case is one Enter; ← → turn it to another before anything renders.
+  async function openVideoExport() {
+    const source = await narration.exportSources();
     rangePicker.open({
       title: 'export a video — which slides?',
-      lines: [recorded
-        ? `🔊 narrated by ${recorded.label} (${recorded.dir}/)`
-        : '🔇 no recorded track picked in V — a voiceover/ folder beside the deck narrates it if there is one, otherwise it is silent'],
       total: instance.state.totalSlides, slide: instance.state.slide, chapters: moduleNav.markers(),
-      onPick: (slides) => editmode.exportDeck('video', { slides, narration: recorded?.dir ?? null }),
+      source,
+      onPick: (slides, voice) => editmode.exportDeck('video', { slides, voice }),
     });
   }
+
   // R programmatically — and what the headless overlay harness drives, since
   // it cannot reach a git server to populate the real list.
   instance.restore = editmode.restore;

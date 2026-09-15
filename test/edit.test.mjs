@@ -13,7 +13,7 @@ import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { childEnv, rmTemp, writeFakeBin, stop } from './helpers.mjs';
+import { childEnv, rmTemp, writeFakeBin, stop, homeEnv } from './helpers.mjs';
 
 import http from 'node:http';
 
@@ -1404,13 +1404,46 @@ const FAKE_FFPROBE = `
 if (process.argv[2] !== '-version') console.log('2.5');
 `;
 
-async function videoSession(t) {
+// A stand-in piper: `--help` answers, and each line on stdin becomes a small
+// valid WAV in the spool dir, announced the way piper announces it.
+const FAKE_PIPER = `
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+const args = process.argv.slice(2);
+if (args.includes('--help')) process.exit(0);
+const spool = args[args.indexOf('-d') + 1];
+const pcm = Buffer.alloc(800);
+const head = Buffer.alloc(44);
+head.write('RIFF', 0); head.writeUInt32LE(36 + pcm.length, 4); head.write('WAVE', 8);
+head.write('fmt ', 12); head.writeUInt32LE(16, 16); head.writeUInt16LE(1, 20); head.writeUInt16LE(1, 22);
+head.writeUInt32LE(16000, 24); head.writeUInt32LE(32000, 28); head.writeUInt16LE(2, 32); head.writeUInt16LE(16, 34);
+head.write('data', 36); head.writeUInt32LE(pcm.length, 40);
+let n = 0;
+createInterface({ input: process.stdin }).on('line', () => {
+  const file = join(spool, (++n) + '.wav');
+  writeFileSync(file, Buffer.concat([head, pcm]));
+  process.stderr.write('INFO:__main__:Wrote ' + file + '\\n');
+});
+`;
+
+// DECK with something to say on every slide — voiceover skips a silent one.
+const SPOKEN_DECK = DECK.replace(/<\/section>/g, '<aside class="notes">Said aloud.</aside></section>');
+
+async function videoSession(t, { deck = DECK } = {}) {
   const dir = tmp(t);
-  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  writeFileSync(path.join(dir, 'deck.html'), deck);
   const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
   writeFakeBin(dir, 'ffmpeg', FAKE_FFMPEG);
   writeFakeBin(dir, 'ffprobe', FAKE_FFPROBE);
-  return { dir, ...(await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } })) };
+  writeFakeBin(dir, 'piper', FAKE_PIPER);
+  // A home, a cache and a config of its own: a voiced export writes the shared
+  // clip cache, and a stand-in voice filed under a real model name would be
+  // served to the next real run. No key either — nothing here may bill anyone.
+  const env = { PATH: dir, DECKLIGHT_CHROME: chrome, ...homeEnv(dir),
+    XDG_CACHE_HOME: path.join(dir, '.cache'), XDG_CONFIG_HOME: path.join(dir, '.config'),
+    ELEVENLABS_API_KEY: '', GOOGLE_CLOUD_PROJECT: '' };
+  return { dir, ...(await startEdit(t, dir, { env })) };
 }
 
 test('/edit/export renders a video of just the slides asked for, named for them', async (t) => {
@@ -1449,6 +1482,84 @@ test('/edit/export refuses a video it cannot make as asked, and says why', async
   assert.match(r.error, /--slides 9 is outside this deck/);
   assert.ok(!existsSync(path.join(dir, 'deck.slides-9.mp4')));
   assert.equal((await (await fetch(base + '/edit/ping')).json()).ok, true, 'the session survives its refusal');
+});
+
+test('/edit/export voices the range with the live voice first, into a folder a second export reuses', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base, log } = await videoSession(t, { deck: SPOKEN_DECK });
+  const synthesize = { engine: 'piper', model: 'en_US-ryan-high', voice: 'en_US-ryan-high', style: 'warm', dir: 'voices/en-us-ryan-high' };
+  const r = await (await post(base, '/edit/export', { kind: 'video', slides: '2', synthesize })).json();
+  assert.equal(r.ok, true, `export refused: ${r.error}\n${log()}`);
+  assert.equal(r.file, 'deck.slides-2.mp4');
+  assert.equal(r.voiced, 'voices/en-us-ryan-high', 'the deck is told where the voice went');
+  const voices = path.join(dir, 'voices', 'en-us-ryan-high');
+  const manifest = JSON.parse(readFileSync(path.join(voices, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.engine, 'piper', 'the shape `decklight voiceover -o` writes');
+  assert.equal(manifest.slides[0], null, 'slide 1 is outside the range and was not voiced');
+  assert.equal(manifest.slides[1]?.file, 'slide-02.m4a');
+  assert.ok(existsSync(path.join(voices, 'slide-02.m4a')));
+  assert.ok(existsSync(path.join(dir, 'deck.slides-2.mp4')), 'and then the video rendered from it');
+  assert.match(log(), /export: deck\.html → video of slides 2, voiced by piper into voices\/en-us-ryan-high\//);
+  assert.match(log(), /voicing slide 2 only · 1 to voice/);
+  assert.match(log(), /1 narrated/, 'the render found the voice it had just been given');
+
+  // the same export again re-pays nothing: the folder is refreshed in place and
+  // the unchanged slide is kept
+  const again = await (await post(base, '/edit/export', { kind: 'video', slides: '2', synthesize })).json();
+  assert.equal(again.ok, true, again.error);
+  assert.match(log(), /slide 02: unchanged — kept/);
+});
+
+test('/edit/export never synthesizes over a recorded take, and passes an engine\'s refusal through', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base } = await videoSession(t, { deck: SPOKEN_DECK });
+  const ask = async (body) => {
+    const res = await post(base, '/edit/export', { kind: 'video', ...body });
+    return { status: res.status, error: (await res.json()).error };
+  };
+  // your own voice: audio, and no manifest
+  mkdirSync(path.join(dir, 'voices', 'me'), { recursive: true });
+  writeFileSync(path.join(dir, 'voices', 'me', 'slide-01.wav'), 'a take');
+  let r = await ask({ synthesize: { engine: 'piper', voice: 'en_US-ryan-high', dir: 'voices/me' } });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /voices\/me\/ already holds a recording/);
+  // another voice's folder
+  mkdirSync(path.join(dir, 'voices', 'rachel'), { recursive: true });
+  writeFileSync(path.join(dir, 'voices', 'rachel', 'slide-01.m4a'), 'audio');
+  writeFileSync(path.join(dir, 'voices', 'rachel', 'manifest.json'), JSON.stringify({ engine: 'elevenlabs', voice: 'Rachel', slides: [] }));
+  r = await ask({ synthesize: { engine: 'piper', voice: 'en_US-ryan-high', dir: 'voices/rachel' } });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /Rachel's recording/);
+  assert.equal(readFileSync(path.join(dir, 'voices', 'me', 'slide-01.wav'), 'utf8'), 'a take', 'untouched');
+
+  r = await ask({ synthesize: { engine: 'piper', voice: 'x', dir: '../elsewhere' } });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /inside the deck's folder/);
+  r = await ask({ synthesize: { engine: 'piper --no-cache', voice: 'x', dir: 'voices/x' } });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /name the engine/);
+  r = await ask({ silent: true, synthesize: { engine: 'piper', voice: 'x', dir: 'voices/x' } });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /one voice at a time/);
+
+  // An engine that cannot start is refused by voiceover, in its own words, and
+  // nothing is rendered after it.
+  r = await ask({ slides: '2', synthesize: { engine: 'elevenlabs', voice: 'Rachel', dir: 'voices/eleven' } });
+  assert.equal(r.status, 500);
+  assert.match(r.error, /ElevenLabs needs an API key/);
+  assert.ok(!existsSync(path.join(dir, 'deck.slides-2.mp4')));
+});
+
+test('/edit/export renders silent when silence is picked, even beside a voiceover/', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base, log } = await videoSession(t);
+  const vo = path.join(dir, 'voiceover');
+  mkdirSync(vo, { recursive: true });
+  writeFileSync(path.join(vo, 'slide-01.m4a'), 'audio');
+  writeFileSync(path.join(vo, 'manifest.json'), JSON.stringify({ engine: 'say', voice: 'Samantha', slides: [{ file: 'slide-01.m4a', hash: 'x' }, null] }));
+  const r = await (await post(base, '/edit/export', { kind: 'video', silent: true })).json();
+  assert.equal(r.ok, true, r.error);
+  assert.match(log(), /0 narrated \(silent\)/, 'the voiceover/ beside it was not used');
 });
 
 // The shape `decklight init` scaffolds: themes already inline, nothing left

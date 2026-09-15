@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import {
   TAIL_SECONDS, LAST_STEP, SLIDE_PAUSE_DEFAULT, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps, voiceoverArgs,
-  videoOut, videoProgress,
+  videoOut, videoProgress, voiceoverProgress,
 } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
@@ -119,6 +119,18 @@ test('videoProgress: one tick per slide, counted against the slides in the rende
   read('  slide 06: 3.1s slide-06.m4a');
   read('done → /d/talk.slides-5-6.mp4 (13.1s)');
   assert.deepEqual(ticks, ['1/2', '2/2'], 'a slide that builds is still one slide');
+});
+
+test('voiceoverProgress: voiced and kept slides both count against the plan line', () => {
+  const ticks = [];
+  const read = voiceoverProgress((n, of) => ticks.push(`${n}/${of}`));
+  read('  slide 02: before the plan line, nothing to count against');
+  read('talk.html: 5 slides, 4 with notes — voicing slides 2–4 only · 3 to voice');
+  read('  slide 02: 24 chars → slide-02.m4a · cached');
+  read('  slide 03: unchanged — kept');
+  read('  slide 04: 31 chars → slide-04.m4a (2 ⟨CLICK⟩ segments)');
+  read('done → /d/voices/ryan');
+  assert.deepEqual(ticks, ['1/3', '2/3', '3/3']);
 });
 
 test('--voiceover voices only the --slides range it renders', () => {

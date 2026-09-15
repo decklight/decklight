@@ -341,7 +341,7 @@ export function createEditMode({
             try {
               const d = JSON.parse(ev.data);
               if (d.state === 'slide' && exportRun) {
-                exportRun.run.update(`${exportRun.doing} — slide ${d.n} of ${d.of}…`);
+                exportRun.run.update(`${exportRun.doing} — ${d.phase === 'voice' ? 'voicing ' : ''}slide ${d.n} of ${d.of}…`);
               }
               debugLog('export', `${d.kind} ${d.state}${d.n ? ` ${d.n}/${d.of}` : ''}`);
             } catch { /* malformed event */ }
@@ -1560,7 +1560,13 @@ export function createEditMode({
     video: 'video',
   };
   let exportRun = null;
-  async function exportDeck(kind, { slides = null, narration = null } = {}) {
+  // The voice picked on the export card, as the route spells it. No choice at
+  // all sends none, which leaves the command's own default: a voiceover/ beside
+  // the deck if there is one.
+  const videoVoice = (voice) => (voice?.kind === 'recorded' ? { narration: voice.dir }
+    : voice?.kind === 'live' ? { synthesize: { engine: voice.engine, model: voice.model, voice: voice.voice, style: voice.style, dir: voice.dir } }
+      : voice?.kind === 'silent' ? { silent: true } : {});
+  async function exportDeck(kind, { slides = null, voice = null } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
     // The server refuses a second export too (one browser, one output path);
@@ -1568,17 +1574,20 @@ export function createEditMode({
     if (exportRun) { toast('already exporting — one at a time'); return; }
     // A video is of SOMETHING — a range, a voice — and takes minutes, so the row
     // says which slides it is rendering rather than just that it is busy.
-    const doing = kind === 'video' ? `rendering a video of ${rangeLabel(slides)}` : `exporting to ${what}`;
+    const voicing = kind === 'video' && voice?.kind === 'live';
+    const doing = kind === 'video'
+      ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}`
+      : `exporting to ${what}`;
     const run = progress(`${doing} — this takes a moment…`);
     exportRun = { run, what, doing };
     try {
       const r = await fetch(editBase + '/edit/export', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(kind === 'video' ? { kind, slides, narration } : { kind }),
+        body: JSON.stringify(kind === 'video' ? { kind, slides, ...videoVoice(voice) } : { kind }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
-      run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}`);
+      run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}${j.voiced ? ` — its voice is in ${j.voiced}/` : ''}`);
       debugLog('export', `${kind} → ${j.file}`);
     } catch (e) {
       run.done(`could not export to ${what} — ${e.message}`, 5200);

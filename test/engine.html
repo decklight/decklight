@@ -128,11 +128,23 @@
       // like it silently did nothing.
       if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail' || HARNESS_MODE === 'exportvideo') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        // The video card's voices: a folder recorded by `say` (a manifest, so
+        // offerable), your own take (no manifest, so not), and a piper bridge.
+        if (HARNESS_MODE === 'exportvideo' && u.includes('/edit/tracks')) {
+          return json({ ok: true, tracks: [
+            { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false },
+            { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true },
+          ] });
+        }
+        if (HARNESS_MODE === 'exportvideo' && u.endsWith('/ping')) {
+          return json({ ok: true, engine: 'piper', model: 'en_US-ryan-high', stylable: false, voices: [['en_US-ryan-high', 'local']] });
+        }
         if (u.includes('/edit/export')) {
           const kind = JSON.parse(init?.body ?? '{}').kind;
           return HARNESS_MODE === 'exportfail'
             ? json({ ok: false, error: 'no Chrome found — install one, or point $CHROME at it' }, 503)
-            : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : kind === 'video' ? 'deck.slides-2-3.mp4' : 'deck.handout.pdf', seconds: 6.2 });
+            : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : kind === 'video' ? 'deck.slides-2-3.mp4' : 'deck.handout.pdf', seconds: 6.2,
+              ...(kind === 'video' ? { voiced: 'voices/en-us-ryan-high' } : {}) });
         }
       }
       // The Publish row (PRESENTING) is the one that reaches off the machine,
@@ -597,11 +609,19 @@
         r.rowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Export a video/.test(n.textContent));
         press('Enter');
         await settle();
+        await settle();                       // the card waits on the tracks and the bridge
         const card = () => document.querySelector('.decklight-range .narr-card');
         const rows = () => [...document.querySelectorAll('.decklight-range .narr-row')].map((n) => n.textContent);
         r.asksWhichSlides = !!card() && /which slides/.test(card().textContent);
         r.offersRanges = rows().some((t) => /All slides/.test(t)) && rows().some((t) => /This slide/.test(t));
-        r.saysWhichVoice = /no recorded track picked/.test(card()?.textContent ?? '');
+        // The voice row starts on what a render would have used anyway — the
+        // voiceover/ folder — never offers your own take, and ← → turn it to the
+        // live voice, which proposes a new folder rather than the say one.
+        const voiceRow = () => document.querySelector('.decklight-range .range-source')?.textContent ?? '';
+        r.startsOnTheRecordedTrack = /Samantha · say — voiceover\//.test(voiceRow());
+        r.ownTakeNotOffered = !/voices\/me/.test(card()?.textContent ?? '');
+        press('ArrowRight');
+        r.arrowTurnsToLiveVoice = /Synthesize — en_US-ryan-high · piper → voices\/en-us-ryan-high\//.test(voiceRow());
         for (const ch of '9-99') press(ch);
         const box = () => document.querySelector('.decklight-range input');
         r.typingFillsTheBox = box()?.value === '9-99';
@@ -616,15 +636,20 @@
         // and its answer rewrites the very row being checked
         r.closesOnPick = !card();
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
-        r.saysWhatItRenders = said().some((t) => /rendering a video of slides 2–3/.test(t));
-        window.__es.emit('export', { state: 'slide', kind: 'video', n: 1, of: 2 });
-        r.saysWhereItIs = said().some((t) => /slides 2–3 — slide 1 of 2/.test(t));
+        r.saysWhatItRenders = said().some((t) => /voicing and rendering a video of slides 2–3/.test(t));
+        window.__es.emit('export', { state: 'slide', kind: 'video', phase: 'voice', n: 1, of: 2 });
+        r.saysWhereItIs = said().some((t) => /slides 2–3 — voicing slide 1 of 2/.test(t));
+        window.__es.emit('export', { state: 'slide', kind: 'video', phase: 'render', n: 2, of: 2 });
+        r.saysTheRenderPhase = said().some((t) => /slides 2–3 — slide 2 of 2/.test(t));
         await settle();
         await settle();
         const sent = CALLS.post.find((c) => c.u.includes('/edit/export'))?.body;
-        r.postsTheRange = sent?.kind === 'video' && sent.slides === '2-3' && sent.narration === null;
-        r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t));
-        r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges && r.saysWhichVoice
+        r.postsTheRange = sent?.kind === 'video' && sent.slides === '2-3' && !('narration' in sent)
+          && sent.synthesize?.engine === 'piper' && sent.synthesize.model === 'en_US-ryan-high'
+          && sent.synthesize.voice === 'en_US-ryan-high' && sent.synthesize.dir === 'voices/en-us-ryan-high';
+        r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));
+        r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges
+          && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.arrowTurnsToLiveVoice && r.saysTheRenderPhase
           && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick
           && r.saysWhatItRenders && r.saysWhereItIs && r.postsTheRange && r.answered;
       }

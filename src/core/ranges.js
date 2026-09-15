@@ -70,13 +70,29 @@ export function rangeChoices({ slide, total, chapters = [] }) {
  * inside that panel as often as from the palette and should look like it
  * belongs there.
  *
+ * `source`, when given, is a second question asked on the same card — which
+ * voice a video carries — as a row at the top that ← and → (or a click) turn
+ * through. It is not a step of its own: the answer is usually already right,
+ * and a card you have to page past to reach the slides is a card in the way.
+ *
  * Register it BEFORE the narration panel: overlays that overlap give the
  * keyboard to the one registered first, and this one opens on top.
  */
 export function createRangePicker({ root, overlays }) {
-  let el = null, rows = [], rowEls = [], sel = 0, input = null, note = null, want = null;
+  let el = null, rows = [], rowEls = [], sel = 0, input = null, note = null, want = null, src = null;
 
-  function close() { el?.remove(); el = null; want = null; }
+  function close() { el?.remove(); el = null; want = null; src = null; }
+
+  function paintSource() {
+    const i = rows.findIndex((r) => r.source);
+    if (i < 0) return;
+    rowEls[i].querySelector('.narr-row-label').firstChild.textContent = src.options[src.index].label;
+  }
+  function turnSource(by) {
+    if (!src || src.options.length < 2) return;
+    src.index = (src.index + by + src.options.length) % src.options.length;
+    paintSource();
+  }
 
   // Not the `hidden` attribute: .rec-line sets a display of its own, and an
   // author rule beats the attribute's.
@@ -94,6 +110,7 @@ export function createRangePicker({ root, overlays }) {
   function pick(i = sel) {
     const row = rows[i];
     if (!row || !want) return;
+    if (row.source) { turnSource(1); return; }
     let slides = row.slides;
     if (row.custom) {
       const typed = input.value.trim();
@@ -108,14 +125,16 @@ export function createRangePicker({ root, overlays }) {
       slides = rangeArg(r, want.total);
     }
     const { onPick } = want;
+    const voice = src ? src.options[src.index].value : undefined;
     close();
-    onPick(slides);
+    onPick(slides, voice);
   }
 
-  function open({ title, lines = [], total, slide, chapters = [], current = null, onPick }) {
+  function open({ title, lines = [], total, slide, chapters = [], current = null, source = null, onPick }) {
     if (el) close();
     want = { total, onPick };
-    rows = [...rangeChoices({ slide, total, chapters }), { label: 'Slides…', custom: true }];
+    src = source?.options?.length ? { options: source.options, index: Math.max(0, source.index ?? 0) } : null;
+    rows = [...(src ? [{ source: true }] : []), ...rangeChoices({ slide, total, chapters }), { label: 'Slides…', custom: true }];
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-range';
     const card = document.createElement('div');
@@ -132,14 +151,20 @@ export function createRangePicker({ root, overlays }) {
       line.textContent = text;
       card.append(line);
     }
-    const known = rows.some((c) => !c.custom && c.slides === current);
+    const known = rows.some((c) => !c.custom && !c.source && c.slides === current);
     rowEls = rows.map((row, i) => {
       const r = document.createElement('div');
-      r.className = 'narr-row' + (row.custom ? ' range-custom' : '')
-        + ((row.custom ? current && !known : row.slides === current) ? ' narr-cur' : '');
+      r.className = 'narr-row' + (row.custom ? ' range-custom' : '') + (row.source ? ' range-source' : '')
+        + ((row.source ? false : row.custom ? current && !known : row.slides === current) ? ' narr-cur' : '');
       const label = document.createElement('span');
       label.className = 'narr-row-label';
-      label.textContent = row.label;
+      label.textContent = row.source ? src.options[src.index].label : row.label;
+      if (row.source && src.options.length > 1) {
+        const how = document.createElement('span');
+        how.className = 'narr-flavor';
+        how.textContent = '← → change the voice';
+        label.append(how);
+      }
       r.append(label);
       if (row.custom) {
         input = document.createElement('input');
@@ -182,7 +207,7 @@ export function createRangePicker({ root, overlays }) {
     el.append(card);
     closeOnBackdrop(el, close);
     root.appendChild(el);
-    const at = rows.findIndex((c) => !c.custom && c.slides === current);
+    const at = rows.findIndex((c) => !c.custom && !c.source && c.slides === current);
     select(at >= 0 ? at : current ? rows.length - 1 : 0, { focusBox: false });
   }
 
@@ -192,7 +217,8 @@ export function createRangePicker({ root, overlays }) {
     keydown(e) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         select(sel + (e.key === 'ArrowDown' ? 1 : -1), { focusBox: false });
-      } else if (e.key === 'Enter') pick();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') turnSource(e.key === 'ArrowRight' ? 1 : -1);
+      else if (e.key === 'Enter') pick();
       else if (e.key === 'Escape') close();
       // A digit starts a range: it lands in the box, and the box has the
       // keyboard from there. Consumed, so the browser does not type it twice.
