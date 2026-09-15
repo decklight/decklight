@@ -11,7 +11,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,6 +71,8 @@ writeFileSync(deck, `<!doctype html>
 </body></html>`);
 
 const out = join(tmpdir(), `deck-e2e-${process.pid}.mp4`);
+const webm = join(tmpdir(), `deck-e2e-${process.pid}.webm`);
+const subbed = join(tmpdir(), `deck-e2e-${process.pid}-subs.mp4`);
 try {
   const log = execFileSync(process.execPath,
     [join(root, 'cli', 'decklight.mjs'), 'video', deck, '-o', out, '--hold', '1', '--fps', '10'],
@@ -112,7 +114,35 @@ try {
   assert.ok(streams.some((s) => s.includes('aac,audio')), `has an aac audio stream (${streams})`);
 
   console.log(`video-e2e: OK — ${out} is ${duration.toFixed(2)}s of playable mp4`);
+
+  // Formats and subtitles, with ffprobe as the judge. Slide two gets a voice —
+  // a generated tone and the script beside it, which is all a voiceover folder
+  // is to this command — and the deck renders as a WebM with its subtitles as a
+  // track, then as an mp4 with a .srt beside it.
+  const vo = join(dir, 'voiceover');
+  mkdirSync(vo);
+  execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1.5', '-c:a', 'aac', join(vo, 'slide-02.m4a')]);
+  writeFileSync(join(vo, 'slide-02.txt'), 'Slide two speaks. Then it stops.');
+  writeFileSync(join(vo, 'manifest.json'), JSON.stringify({ slides: [null, { file: 'slide-02.m4a', hash: 'e2e' }] }));
+  const streamsOf = (file) => execFileSync('ffprobe', ['-v', 'error', '-show_entries',
+    'stream=codec_type,codec_name', '-of', 'csv=p=0', file], { encoding: 'utf8' }).trim().split('\n');
+  const render = (file, ...flags) => console.log(execFileSync(process.execPath,
+    [join(root, 'cli', 'decklight.mjs'), 'video', deck, '-o', file, '--hold', '1', '--fps', '10', ...flags],
+    { encoding: 'utf8', cwd: root }).trim());
+
+  render(webm, '--quality', 'draft', '--subtitles', 'embed');
+  const ws = streamsOf(webm);
+  for (const want of ['vp9,video', 'opus,audio', 'webvtt,subtitle']) assert.ok(ws.some((s) => s.includes(want)), `webm has ${want} (${ws})`);
+
+  render(subbed, '--subtitles', 'file');
+  const srt = readFileSync(subbed.replace(/\.mp4$/, '.srt'), 'utf8');
+  // slide one is three 1s frames of builds, so slide two starts speaking at 3s
+  assert.match(srt, /^1\n00:00:03,000 --> 00:00:03,\d{3}\nSlide two speaks\.\n\n2\n/, srt);
+  assert.match(srt, /Then it stops\.\n$/);
+  assert.ok(!streamsOf(subbed).some((s) => s.includes('subtitle')), 'a sidecar is not also a track');
+  console.log('video-e2e: OK — webm with an embedded WebVTT track, mp4 with a .srt beside it');
 } finally {
   rmSync(dir, { recursive: true, force: true });
   rmSync(out, { force: true });
+  for (const f of [webm, subbed, subbed.replace(/\.mp4$/, '.srt')]) rmSync(f, { force: true });
 }

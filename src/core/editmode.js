@@ -1566,7 +1566,7 @@ export function createEditMode({
   const videoVoice = (voice) => (voice?.kind === 'recorded' ? { narration: voice.dir }
     : voice?.kind === 'live' ? { synthesize: { engine: voice.engine, model: voice.model, voice: voice.voice, style: voice.style, dir: voice.dir } }
       : voice?.kind === 'silent' ? { silent: true } : {});
-  async function exportDeck(kind, { slides = null, voice = null } = {}) {
+  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
     // The server refuses a second export too (one browser, one output path);
@@ -1583,11 +1583,12 @@ export function createEditMode({
     try {
       const r = await fetch(editBase + '/edit/export', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(kind === 'video' ? { kind, slides, ...videoVoice(voice) } : { kind }),
+        body: JSON.stringify(kind === 'video' ? { kind, slides, format, quality, subtitles, ...videoVoice(voice) } : { kind }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
-      run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}${j.voiced ? ` — its voice is in ${j.voiced}/` : ''}`);
+      run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}${j.subtitles ? ` · subtitles in ${j.subtitles}` : ''}`
+        + `${j.voiced ? ` — its voice is in ${j.voiced}/` : ''}`);
       debugLog('export', `${kind} → ${j.file}`);
     } catch (e) {
       run.done(`could not export to ${what} — ${e.message}`, 5200);

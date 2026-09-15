@@ -27,6 +27,7 @@ import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
+import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
 import { createDebugLog } from './debuglog.js';
@@ -2224,19 +2225,37 @@ export function init(userConfig = {}) {
   });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
 
-  // The video export (PRESENTING): which slides, and which voice, on one card,
-  // then the door every export uses. The voice row starts on the one already
-  // chosen — the live voice V speaks with, the track it plays, else silence — so
-  // the common case is one Enter; ← → turn it to another before anything renders.
+  // The video export (PRESENTING): which slides, and how — voice, format,
+  // quality, subtitles — on one card, then the door every export uses. Each
+  // setting starts on the answer already chosen, so the common case is one
+  // Enter: the voice V speaks with, and the format, quality and subtitles this
+  // browser picked last time. ↑ reaches them; ← → turn them.
+  const VIDEO_PREFS = 'decklight:video-export';
+  function videoPrefs() {
+    try { return JSON.parse(localStorage.getItem(VIDEO_PREFS) ?? '{}') ?? {}; } catch { return {}; }
+  }
   async function openVideoExport() {
-    const source = await narration.exportSources();
+    const voice = await narration.exportSources();
+    const prefs = videoPrefs();
+    const at = (list, value, fallback) => Math.max(0, list.findIndex((o) => o.value === (value ?? fallback)));
     rangePicker.open({
       title: 'export a video — which slides?',
       total: instance.state.totalSlides, slide: instance.state.slide, chapters: moduleNav.markers(),
-      source,
-      onPick: (slides, voice) => editmode.exportDeck('video', { slides, voice }),
+      settings: [
+        { key: 'voice', name: 'Voice', ...voice },
+        { key: 'format', name: 'Format', options: VIDEO_FORMATS, index: at(VIDEO_FORMATS, prefs.format, 'mp4') },
+        { key: 'quality', name: 'Quality', options: VIDEO_QUALITIES, index: at(VIDEO_QUALITIES, prefs.quality, 'standard') },
+        { key: 'subtitles', name: 'Subtitles', options: VIDEO_SUBTITLES, index: at(VIDEO_SUBTITLES, prefs.subtitles, 'none') },
+      ],
+      onPick: (slides, { voice: v, format, quality, subtitles }) => {
+        // Remembered here and not per deck: a format is a habit of the person
+        // exporting, and the voice is not remembered at all — it follows V.
+        try { localStorage.setItem(VIDEO_PREFS, JSON.stringify({ format, quality, subtitles })); } catch { /* private mode */ }
+        editmode.exportDeck('video', { slides, voice: v, format, quality, subtitles });
+      },
     });
   }
+
 
   // R programmatically — and what the headless overlay harness drives, since
   // it cannot reach a git server to populate the real list.

@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 import {
   TAIL_SECONDS, LAST_STEP, SLIDE_PAUSE_DEFAULT, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps, voiceoverArgs,
-  videoOut, videoProgress, voiceoverProgress,
+  videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
 } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
@@ -131,6 +131,104 @@ test('voiceoverProgress: voiced and kept slides both count against the plan line
   read('  slide 04: 31 chars → slide-04.m4a (2 ⟨CLICK⟩ segments)');
   read('done → /d/voices/ryan');
   assert.deepEqual(ticks, ['1/3', '2/3', '3/3']);
+});
+
+// --- formats, quality and subtitles ------------------------------------------
+
+test('every format the export card offers is one this command encodes, at every quality', async () => {
+  const { VIDEO_FORMATS, VIDEO_QUALITIES } = await import('../tools/video-options.mjs');
+  assert.deepEqual(VIDEO_FORMATS.map((o) => o.value).sort(), Object.keys(ENCODINGS).sort());
+  for (const format of Object.keys(ENCODINGS)) {
+    for (const { value: quality } of VIDEO_QUALITIES) {
+      const a = segmentArgs({ frame: 'f.png', audio: null, duration: 1, fps: 30, out: `o.${format}`, format, quality });
+      assert.ok(a.includes('-crf'), `${format}/${quality} asks for a quality`);
+    }
+  }
+});
+
+test('segmentArgs: webm is VP9 and Opus at 48 kHz, with no mp4 flags', () => {
+  const a = segmentArgs({ frame: 'f.png', audio: null, duration: 2, fps: 30, out: 'o.webm', format: 'webm', quality: 'high' });
+  const arg = (flag) => a[a.indexOf(flag) + 1];
+  assert.equal(arg('-c:v'), 'libvpx-vp9');
+  assert.equal(arg('-b:v'), '0', 'constant quality, which is what makes -crf mean it');
+  assert.equal(arg('-crf'), '24');
+  assert.equal(arg('-c:a'), 'libopus');
+  assert.equal(arg('-b:a'), '192k');
+  assert.ok(a.includes('anullsrc=channel_layout=stereo:sample_rate=48000'), 'Opus takes 48 kHz only — the silence must match');
+  assert.ok(!a.includes('-movflags'));
+});
+
+test('segmentArgs: quality moves the encoder, and standard mp4 is what it always was', () => {
+  const pick = (quality) => {
+    const a = segmentArgs({ frame: 'f.png', audio: null, duration: 1, fps: 30, out: 'o.mp4', quality });
+    return [a[a.indexOf('-preset') + 1], a[a.indexOf('-crf') + 1], a[a.indexOf('-b:a') + 1]];
+  };
+  assert.deepEqual(pick('draft'), ['veryfast', '28', '96k']);
+  assert.deepEqual(pick('standard'), ['medium', '23', '128k'], "x264's own defaults and the old 128k");
+  assert.deepEqual(pick('high'), ['slow', '18', '192k']);
+});
+
+test('concatArgs: an embedded subtitle track is mapped in, as the container encodes subtitles', () => {
+  assert.deepEqual(concatArgs('l.txt', 'o.mp4'),
+    ['-y', '-f', 'concat', '-safe', '0', '-i', 'l.txt', '-c', 'copy', '-movflags', '+faststart', 'o.mp4'], 'no subtitles: unchanged');
+  const mp4 = concatArgs('l.txt', 'o.mp4', { subtitles: 's.srt' });
+  const i = mp4.indexOf('s.srt');
+  assert.deepEqual(mp4.slice(i - 1, i + 5), ['-i', 's.srt', '-map', '0', '-map', '1']);
+  assert.equal(mp4[mp4.indexOf('-c:s') + 1], 'mov_text');
+  const webm = concatArgs('l.txt', 'o.webm', { format: 'webm', subtitles: 's.vtt' });
+  assert.equal(webm[webm.indexOf('-c:s') + 1], 'webvtt');
+  assert.ok(!webm.includes('-movflags'));
+});
+
+test('videoOptions: the format follows -o, and a name and a flag that disagree are refused', () => {
+  assert.deepEqual(videoOptions({}), { format: 'mp4', quality: 'standard', subtitles: 'none' });
+  assert.equal(videoOptions({ out: 'talk.webm' }).format, 'webm');
+  assert.equal(videoOptions({ out: '/d/my.talk.MOV' }).format, 'mov');
+  assert.equal(videoOptions({ out: 'talk.webm', format: 'webm' }).format, 'webm');
+  assert.throws(() => videoOptions({ out: 'talk.mp4', format: 'webm' }), /talk\.mp4 is not a \.webm/);
+  assert.throws(() => videoOptions({ out: 'talk.avi' }), /\.avi is not a format this writes/);
+  assert.throws(() => videoOptions({ format: 'gif' }), /--format must be mp4, mov, webm/);
+  assert.throws(() => videoOptions({ quality: 'ultra' }), /--quality must be draft, standard, high/);
+  assert.throws(() => videoOptions({ subtitles: 'burn' }), /--subtitles must be none, embed, file/);
+  assert.equal(videoOut('/d/talk.html', '5-9', 'webm'), '/d/talk.slides-5-9.webm');
+  assert.equal(subtitlesOut('/d/talk.slides-5-9.webm', 'webm'), '/d/talk.slides-5-9.vtt');
+  assert.equal(subtitlesOut('/d/talk.mov', 'mov'), '/d/talk.srt');
+});
+
+test('subtitleCues: sentences share their beat by length, from where the speech starts', () => {
+  const plan = [
+    { slide: 1, step: 999, audio: null, duration: 5 },
+    { slide: 2, step: 0, audio: 'slide-02-01.m4a', duration: 3, pad: 0 },
+    { slide: 2, step: 999, audio: 'slide-02-02.m4a', duration: 2.4, pad: 0.4 },
+  ];
+  const said = { 'slide-02-01.m4a': 'One two. Three four five six.', 'slide-02-02.m4a': 'Done.' };
+  const cues = subtitleCues(plan, (p) => said[p.audio]);
+  assert.deepEqual(cues.map((c) => c.text), ['One two.', 'Three four five six.', 'Done.']);
+  assert.equal(cues[0].start, 5, 'after the silent slide');
+  assert.equal(cues[0].end, 5.857, 'eight of the beat\'s 28 characters');
+  assert.equal(cues[1].end, 8, 'a beat\'s last sentence ends with its audio');
+  assert.equal(cues[2].start, 8);
+  assert.equal(cues[2].end, 10, 'the breath after the slide carries no caption');
+});
+
+test('subtitleCues: a long sentence becomes cues of two short lines, never a wall', () => {
+  const long = 'This sentence is deliberately long enough that no player could show it on one line, or even two of them.';
+  const cues = subtitleCues([{ slide: 1, step: 999, audio: 'a.m4a', duration: 4, pad: 0 }], () => long);
+  assert.ok(cues.length >= 2, `split into ${cues.length} cues`);
+  for (const c of cues) {
+    const lines = c.text.split('\n');
+    assert.ok(lines.length <= 2 && lines.every((l) => l.length <= 50), JSON.stringify(c.text));
+  }
+  assert.equal(cues.at(-1).end, 4);
+  assert.deepEqual(subtitleCues([{ slide: 1, step: 999, audio: null, duration: 4 }], () => 'unheard'), [], 'silence says nothing');
+});
+
+test('toSrt and toVtt: the two files, and text that would break them made safe', () => {
+  const cues = [{ start: 0, end: 1.5, text: 'Hi.' }, { start: 61.25, end: 3725.004, text: 'a --> b <i> & c' }];
+  const srt = toSrt(cues);
+  assert.equal(srt, '1\n00:00:00,000 --> 00:00:01,500\nHi.\n\n2\n00:01:01,250 --> 01:02:05,004\na → b ‹i> & c\n');
+  const vtt = toVtt(cues);
+  assert.equal(vtt, 'WEBVTT\n\n00:00:00.000 --> 00:00:01.500\nHi.\n\n00:01:01.250 --> 01:02:05.004\na → b &lt;i> &amp; c\n');
 });
 
 test('--voiceover voices only the --slides range it renders', () => {

@@ -1396,9 +1396,12 @@ test('/edit/export refuses a file it does not write, and still answers the old n
 // stand-ins do the least the command checks: `-version` answers, ffmpeg writes
 // its last argument (always the output), ffprobe reports a duration.
 const FAKE_FFMPEG = `
-import { writeFileSync } from 'node:fs';
+import { appendFileSync, writeFileSync } from 'node:fs';
 const args = process.argv.slice(2);
-if (args[0] !== '-version') writeFileSync(args[args.length - 1], 'mp4');
+if (args[0] !== '-version') {
+  writeFileSync(args[args.length - 1], 'mp4');
+  appendFileSync('ffmpeg-calls.log', args.join(' ') + '\\n');
+}
 `;
 const FAKE_FFPROBE = `
 if (process.argv[2] !== '-version') console.log('2.5');
@@ -1560,6 +1563,52 @@ test('/edit/export renders silent when silence is picked, even beside a voiceove
   const r = await (await post(base, '/edit/export', { kind: 'video', silent: true })).json();
   assert.equal(r.ok, true, r.error);
   assert.match(log(), /0 narrated \(silent\)/, 'the voiceover/ beside it was not used');
+});
+
+test('/edit/export writes the format, quality and subtitles the card asked for', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base, log } = await videoSession(t);
+  const vo = path.join(dir, 'voiceover');
+  mkdirSync(vo, { recursive: true });
+  writeFileSync(path.join(vo, 'slide-01.m4a'), 'audio');
+  writeFileSync(path.join(vo, 'slide-01.txt'), 'Hello there. This is the first slide.');
+  writeFileSync(path.join(vo, 'manifest.json'), JSON.stringify({ engine: 'say', voice: 'Samantha', slides: [{ file: 'slide-01.m4a', hash: 'x' }, null] }));
+  const calls = () => readFileSync(path.join(dir, 'ffmpeg-calls.log'), 'utf8');
+
+  const r = await (await post(base, '/edit/export', { kind: 'video', narration: 'voiceover', format: 'webm', quality: 'draft', subtitles: 'file' })).json();
+  assert.equal(r.ok, true, `export refused: ${r.error}\n${log()}`);
+  assert.equal(r.file, 'deck.webm');
+  assert.equal(r.subtitles, 'deck.vtt', 'WebM carries WebVTT, and the deck is told where');
+  assert.match(calls(), /libvpx-vp9 .*-crf 40 .*libopus/, 'the draft VP9 encode reached ffmpeg');
+  // ffprobe stands in at 2.5s: the two sentences share it by length (12 + 24 characters)
+  assert.equal(readFileSync(path.join(dir, 'deck.vtt'), 'utf8'),
+    'WEBVTT\n\n00:00:00.000 --> 00:00:00.833\nHello there.\n\n00:00:00.833 --> 00:00:02.500\nThis is the first slide.\n');
+
+  const embedded = await (await post(base, '/edit/export', { kind: 'video', narration: 'voiceover', format: 'mov', quality: 'high', subtitles: 'embed' })).json();
+  assert.equal(embedded.ok, true, embedded.error);
+  assert.equal(embedded.file, 'deck.mov');
+  assert.equal(embedded.subtitles, undefined, 'an embedded track is not a file to open');
+  assert.match(calls(), /-crf 18 /);
+  assert.match(calls(), /-map 0 -map 1 -c copy -c:s mov_text .*deck\.mov/);
+  assert.ok(!existsSync(path.join(dir, 'deck.srt')));
+
+  // refused before anything runs
+  for (const [body, why] of [[{ format: 'avi' }, /format must be mp4, mov, webm/],
+    [{ quality: 'ultra' }, /quality must be draft, standard, high/], [{ subtitles: 'burn' }, /subtitles must be none, embed, file/]]) {
+    const res = await post(base, '/edit/export', { kind: 'video', ...body });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, why);
+  }
+});
+
+test('/edit/export writes no subtitles for a render with nothing spoken, and says so', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base, log } = await videoSession(t);
+  const r = await (await post(base, '/edit/export', { kind: 'video', silent: true, subtitles: 'file' })).json();
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.subtitles, undefined);
+  assert.ok(!existsSync(path.join(dir, 'deck.srt')));
+  assert.match(log(), /subtitles: nothing is spoken in this render — none written/);
 });
 
 // The shape `decklight init` scaffolds: themes already inline, nothing left

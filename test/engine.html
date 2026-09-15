@@ -617,11 +617,25 @@
         // The voice row starts on what a render would have used anyway — the
         // voiceover/ folder — never offers your own take, and ← → turn it to the
         // live voice, which proposes a new folder rather than the say one.
-        const voiceRow = () => document.querySelector('.decklight-range .range-source')?.textContent ?? '';
-        r.startsOnTheRecordedTrack = /Samantha · say — voiceover\//.test(voiceRow());
+        // The settings sit above the ranges: ↑ reaches them from the slides, and
+        // ← → turn the one under the selection.
+        const settingRow = (name) => [...document.querySelectorAll('.decklight-range .range-setting')]
+          .find((n) => n.querySelector('.range-setting-name')?.textContent === name)?.textContent ?? '';
+        r.startsOnTheRecordedTrack = /Samantha · say — voiceover\//.test(settingRow('Voice'));
         r.ownTakeNotOffered = !/voices\/me/.test(card()?.textContent ?? '');
-        press('ArrowRight');
-        r.arrowTurnsToLiveVoice = /Synthesize — en_US-ryan-high · piper → voices\/en-us-ryan-high\//.test(voiceRow());
+        r.defaultsAreMp4Standard = /MP4/.test(settingRow('Format')) && /Standard/.test(settingRow('Quality'))
+          && /None/.test(settingRow('Subtitles'));
+        press('ArrowRight');           // on a range row, ← → change nothing
+        r.arrowsLeaveRangesAlone = /MP4/.test(settingRow('Format')) && /Samantha/.test(settingRow('Voice'));
+        press('ArrowUp');              // Subtitles
+        press('ArrowRight');           // → in the video
+        press('ArrowUp');              // Quality
+        press('ArrowUp');              // Format
+        press('ArrowRight');           // → MOV
+        press('ArrowUp');              // Voice
+        press('ArrowRight');           // → the live voice
+        r.arrowsTurnTheSettings = /In the video/.test(settingRow('Subtitles')) && /MOV/.test(settingRow('Format'))
+          && /Synthesize — en_US-ryan-high · piper → voices\/en-us-ryan-high\//.test(settingRow('Voice'));
         for (const ch of '9-99') press(ch);
         const box = () => document.querySelector('.decklight-range input');
         r.typingFillsTheBox = box()?.value === '9-99';
@@ -646,10 +660,13 @@
         const sent = CALLS.post.find((c) => c.u.includes('/edit/export'))?.body;
         r.postsTheRange = sent?.kind === 'video' && sent.slides === '2-3' && !('narration' in sent)
           && sent.synthesize?.engine === 'piper' && sent.synthesize.model === 'en_US-ryan-high'
-          && sent.synthesize.voice === 'en_US-ryan-high' && sent.synthesize.dir === 'voices/en-us-ryan-high';
+          && sent.synthesize.voice === 'en_US-ryan-high' && sent.synthesize.dir === 'voices/en-us-ryan-high'
+          && sent.format === 'mov' && sent.quality === 'standard' && sent.subtitles === 'embed';
+        r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '');
         r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));
         r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges
-          && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.arrowTurnsToLiveVoice && r.saysTheRenderPhase
+          && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.defaultsAreMp4Standard && r.arrowsLeaveRangesAlone
+          && r.arrowsTurnTheSettings && r.remembersTheFormat && r.saysTheRenderPhase
           && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick
           && r.saysWhatItRenders && r.saysWhereItIs && r.postsTheRange && r.answered;
       }

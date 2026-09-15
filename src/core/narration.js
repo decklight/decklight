@@ -15,6 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
+import { splitSentences } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
@@ -297,11 +298,8 @@ export function narrationTracks(narration) {
  * sentence boundary and a WAV header are unit tests, and now they are.
  */
 
-/** Where the live voice breathes: sentence ends, with closing quotes kept on the sentence. */
-export function splitSentences(text) {
-  return ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? [])
-    .map((s) => s.trim()).filter(Boolean);
-}
+// splitSentences lives in tools/sentences.mjs, shared with a video's subtitles.
+export { splitSentences };
 
 // One segmentation per notes element, and it is the same segmentation nearly
 // every time it is asked for. `notesSegsOf` is reached on every slide change,
