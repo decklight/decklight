@@ -110,6 +110,8 @@ for (let i = 0; i < args.length; i++) {
   deckPath ??= a;
 }
 if (!deckPath) { console.error('decklight voiceover: name the deck to voice\n\n' + HELP); process.exit(1); }
+// before the engine and encoder probes: a mistyped deck is not a missing ffmpeg
+if (!existsSync(deckPath)) { console.error(`decklight voiceover: no deck at ${deckPath}`); process.exit(1); }
 const { opt } = argReader(args);
 const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
 const engine = opt('--engine', 'piper');

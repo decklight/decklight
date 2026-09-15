@@ -96,7 +96,7 @@ test('voiceover is a first-class command: routed, documented, and helps to stdou
     '--tts-model', 'm', '--tts-format', 'pcm', '--reuse-text', '--keep-wav', '--no-cache',
     'missing-deck.html'], { encoding: 'utf8' });
   assert.doesNotMatch(known.stderr, /unknown option/);
-  assert.match(known.stderr, /missing-deck\.html/);
+  assert.match(known.stderr, /decklight voiceover: no deck at missing-deck\.html/);
 });
 
 test('unknown subcommand exits 1 with the global help', () => {
