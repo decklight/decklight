@@ -126,13 +126,13 @@
       // and the export itself. `exportfail` is the same deck with a server
       // that refuses, which is the branch that must not leave the row looking
       // like it silently did nothing.
-      if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail') {
+      if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail' || HARNESS_MODE === 'exportvideo') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/export')) {
           const kind = JSON.parse(init?.body ?? '{}').kind;
           return HARNESS_MODE === 'exportfail'
             ? json({ ok: false, error: 'no Chrome found — install one, or point $CHROME at it' }, 503)
-            : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : 'deck.handout.pdf', seconds: 6.2 });
+            : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : kind === 'video' ? 'deck.slides-2-3.mp4' : 'deck.handout.pdf', seconds: 6.2 });
         }
       }
       // The Publish row (PRESENTING) is the one that reaches off the machine,
@@ -585,6 +585,50 @@
       // naming the file (or saying why not). A row that fires and reports
       // nothing is indistinguishable from a broken one, which is the whole
       // reason the toast is part of the contract.
+      // The video row asks WHICH slides before it renders anything — a range
+      // from the rows, or typed; digits typed at the card land in its box. A
+      // range that is not one stays in the box with its reason, and nothing is
+      // posted until a real one is picked.
+      if (mode === 'exportvideo') {
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        await settle();
+        press('/');
+        for (const ch of 'mp4') press(ch);
+        r.rowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Export a video/.test(n.textContent));
+        press('Enter');
+        await settle();
+        const card = () => document.querySelector('.decklight-range .narr-card');
+        const rows = () => [...document.querySelectorAll('.decklight-range .narr-row')].map((n) => n.textContent);
+        r.asksWhichSlides = !!card() && /which slides/.test(card().textContent);
+        r.offersRanges = rows().some((t) => /All slides/.test(t)) && rows().some((t) => /This slide/.test(t));
+        r.saysWhichVoice = /no recorded track picked/.test(card()?.textContent ?? '');
+        for (const ch of '9-99') press(ch);
+        const box = () => document.querySelector('.decklight-range input');
+        r.typingFillsTheBox = box()?.value === '9-99';
+        const enterInBox = () => box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+        enterInBox();
+        await settle();
+        r.badRangeStaysOpen = !!card() && /not a range of this deck/.test(card().textContent);
+        r.nothingPostedYet = !CALLS.post.some((c) => c.u.includes('/edit/export'));
+        box().value = '2-3';
+        enterInBox();
+        // read BEFORE yielding: the stand-in server answers within one settle,
+        // and its answer rewrites the very row being checked
+        r.closesOnPick = !card();
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent);
+        r.saysWhatItRenders = said().some((t) => /rendering a video of slides 2–3/.test(t));
+        window.__es.emit('export', { state: 'slide', kind: 'video', n: 1, of: 2 });
+        r.saysWhereItIs = said().some((t) => /slides 2–3 — slide 1 of 2/.test(t));
+        await settle();
+        await settle();
+        const sent = CALLS.post.find((c) => c.u.includes('/edit/export'))?.body;
+        r.postsTheRange = sent?.kind === 'video' && sent.slides === '2-3' && sent.narration === null;
+        r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t));
+        r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges && r.saysWhichVoice
+          && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick
+          && r.saysWhatItRenders && r.saysWhereItIs && r.postsTheRange && r.answered;
+      }
+
       if (mode === 'exportpptx' || mode === 'exportfail') {
         const Q = '.decklight-palette', ROW = '.pal-row';
         await settle();                       // let /edit/ping settle: editAvailable
@@ -1329,6 +1373,21 @@
         await settle();
         r.recordViewLists = rowText().some((t) => /With your voice/.test(t))
           && rowText().some((t) => /synthesized voice/.test(t));
+        // Which slides comes first, since both recorders walk it. The picker
+        // opens ON TOP of the panel, owns the keys while it is up, and hands
+        // back to a panel whose row now says what was picked.
+        const slidesRow = () => [...document.querySelectorAll('.decklight-narr:not(.decklight-range) .narr-row')]
+          .find((n) => /Slides —/.test(n.textContent));
+        r.recordAsksWhichSlides = /Slides — all slides/.test(slidesRow()?.textContent ?? '');
+        slidesRow()?.click();
+        await settle();
+        r.rangePickerOnTop = !!document.querySelector('.decklight-range');
+        press('ArrowDown');
+        press('Enter');
+        await settle();
+        r.rangeKeptThePanel = !document.querySelector('.decklight-range')
+          && !!document.querySelector('.decklight-narr .narr-card');
+        r.rangeRowSaysSlide = /Slides — slide \d+/.test(slidesRow()?.textContent ?? '');
         // The synthesized row is BLOCKED here — this deck has no live voice —
         // and a blocked row must refuse in place, with its reason, rather than
         // closing the panel and refusing afterwards. `commitNarrRow` fires any
@@ -1356,6 +1415,7 @@
         r.PASS = r.vOpensPanel && r.panelOffersRecording && r.panelOffersCaptions
           && r.panelOffersSpeed && r.recordViewLists && r.blockedRowSaysWhy
           && r.blockedRowKeptThePanel && r.escapeGoesBack
+          && r.recordAsksWhichSlides && r.rangePickerOnTop && r.rangeKeptThePanel && r.rangeRowSaysSlide
           && r.vCloses && r.nDoesNothing;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

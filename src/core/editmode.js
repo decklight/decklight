@@ -17,6 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
@@ -340,7 +341,7 @@ export function createEditMode({
             try {
               const d = JSON.parse(ev.data);
               if (d.state === 'slide' && exportRun) {
-                exportRun.run.update(`exporting to ${exportRun.what} — slide ${d.n} of ${d.of}…`);
+                exportRun.run.update(`${exportRun.doing} — slide ${d.n} of ${d.of}…`);
               }
               debugLog('export', `${d.kind} ${d.state}${d.n ? ` ${d.n}/${d.of}` : ''}`);
             } catch { /* malformed event */ }
@@ -1556,19 +1557,24 @@ export function createEditMode({
     pdf: 'PDF',
     'pdf-notes': 'PDF with notes',
     'pdf-handout': 'PDF handout',
+    video: 'video',
   };
   let exportRun = null;
-  async function exportDeck(kind) {
+  async function exportDeck(kind, { slides = null, narration = null } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
     // The server refuses a second export too (one browser, one output path);
     // this is the same answer without the round trip.
     if (exportRun) { toast('already exporting — one at a time'); return; }
-    const run = progress(`exporting to ${what} — this takes a moment…`);
-    exportRun = { run, what };
+    // A video is of SOMETHING — a range, a voice — and takes minutes, so the row
+    // says which slides it is rendering rather than just that it is busy.
+    const doing = kind === 'video' ? `rendering a video of ${rangeLabel(slides)}` : `exporting to ${what}`;
+    const run = progress(`${doing} — this takes a moment…`);
+    exportRun = { run, what, doing };
     try {
       const r = await fetch(editBase + '/edit/export', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind }),
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(kind === 'video' ? { kind, slides, narration } : { kind }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);

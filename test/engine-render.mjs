@@ -29,7 +29,7 @@ export const MODES = [
   'palette', 'exclusive', 'contextmenu', 'commit',
   'narration', 'nonarration', 'panel',
   'restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
-  'exportpptx', 'exportfail', 'publish',
+  'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'template', 'templatelook', 'sources', 'sourcesedit',
   'authoring', 'codeedit',
 ];

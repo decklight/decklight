@@ -26,6 +26,7 @@ import { createOnboarding, TIPS } from './onboarding.js';
 import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
+import { createRangePicker } from './ranges.js';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
 import { createDebugLog } from './debuglog.js';
@@ -904,6 +905,11 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Export a PDF handout… (dev)',
         alias: 'pdf handout three per page audience note-taking export file send print',
         run: () => editmode.exportDeck('pdf-handout') },
+      // Minutes rather than seconds, and usually of PART of the deck — the
+      // chapter you just re-recorded — so it asks which slides before it starts.
+      editmode.available() && { label: 'Export a video… (dev)',
+        alias: 'video mp4 movie film render narrated voiceover export range chapter share upload youtube',
+        run: () => openVideoExport() },
       // The last one is a URL rather than a file, so it asks first: one press
       // shows where it would go, the next one sends it.
       editmode.available() && { label: 'Publish this deck… (dev)',
@@ -2134,8 +2140,13 @@ export function init(userConfig = {}) {
   // chrome the engine owns and it invalidates — the mute button and the D
   // panel's status line — and the engine reads its playback state back
   // through status().
+  // Registered before the narration panel: a range picked FROM that panel opens
+  // on top of it, and overlapping overlays give the keyboard to the one
+  // registered first.
+  const rangePicker = createRangePicker({ root, overlays });
   const narration = createNarration({
     root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
+    rangePicker, chapters: () => moduleNav.markers(),
     syncSoundBtn, updateDebugState, downloadFromUrl,
     // the synthesized recorder writes its slide-NN.wav next to the deck when there is a server that
     // owns the deck file; a thunk because editmode is built below this, and its
@@ -2212,6 +2223,23 @@ export function init(userConfig = {}) {
     notesSegs,
   });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
+
+  // The video export (PRESENTING): which slides first, then the door every
+  // export uses. The voice is the recorded track picked in V, and the card says
+  // so before anything renders — a video that comes out silent is a surprise
+  // you find four minutes later.
+  function openVideoExport() {
+    const t = narration.status().track;
+    const recorded = t && !t.live && !t.manifest && t.dir ? t : null;
+    rangePicker.open({
+      title: 'export a video — which slides?',
+      lines: [recorded
+        ? `🔊 narrated by ${recorded.label} (${recorded.dir}/)`
+        : '🔇 no recorded track picked in V — a voiceover/ folder beside the deck narrates it if there is one, otherwise it is silent'],
+      total: instance.state.totalSlides, slide: instance.state.slide, chapters: moduleNav.markers(),
+      onPick: (slides) => editmode.exportDeck('video', { slides, narration: recorded?.dir ?? null }),
+    });
+  }
   // R programmatically — and what the headless overlay harness drives, since
   // it cannot reach a git server to populate the real list.
   instance.restore = editmode.restore;

@@ -79,7 +79,7 @@ const ENGINE_GROUPS = {
   palette: ['palette', 'exclusive', 'contextmenu', 'commit'],
   narration: ['narration', 'nonarration', 'panel'],
   navigation: ['restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
-  handover: ['exportpptx', 'exportfail', 'publish'],
+  handover: ['exportpptx', 'exportfail', 'exportvideo', 'publish'],
   templates: ['template', 'templatelook'],
   sources: ['sources', 'sourcesedit'],
   authoring: ['authoring', 'codeedit'],

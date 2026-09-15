@@ -62,6 +62,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, wa
 // that is interrupted leaves a prefix of a talk where the talk was.
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { resolve, relative, dirname, sep, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, claudeActivity } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
@@ -228,7 +229,31 @@ export const EXPORT_KINDS = {
   pdf: { what: 'PDF', variant: '' },
   'pdf-notes': { what: 'PDF with notes', variant: 'notes' },
   'pdf-handout': { what: 'PDF handout', variant: 'handout' },
+  video: { what: 'video', variant: null },
 };
+
+/**
+ * What is wrong with a video export request, or null. Both fields come from a
+ * page, so both are checked before anything runs: `slides` is the command's own
+ * `--slides` spelling, and `narration` names a recorded track's folder, which
+ * must sit inside the deck's own directory and hold a manifest — a render that
+ * cannot find its audio should refuse, not quietly come out silent.
+ */
+export function videoExportProblem({ slides, narration } = {}, deckDir) {
+  if (slides != null && slides !== '' && !(typeof slides === 'string' && /^\d+(?:-\d+)?$/.test(slides))) {
+    return 'slides must be a-b or a single slide number';
+  }
+  if (narration == null || narration === '') return null;
+  if (typeof narration !== 'string' || /^[a-z][a-z0-9+.-]*:/i.test(narration)) {
+    return 'the narration is a folder beside the deck, not a URL';
+  }
+  const dir = resolve(deckDir, narration);
+  if (!dir.startsWith(resolve(deckDir) + sep)) return `the narration folder must be inside the deck's folder (${narration})`;
+  if (!existsSync(resolve(dir, 'manifest.json'))) {
+    return `no recorded narration in ${narration}/ — record the deck first (V → Record this deck…)`;
+  }
+  return null;
+}
 
 export const LAYOUTS = ['auto', 'centered', 'pinned', 'top', 'split', 'split-flip'];
 
@@ -2067,10 +2092,15 @@ export async function editMain(args, { onListen = null } = {}) {
     // `/edit/pptx` was 0.8.1's name for the PowerPoint half. A deck carries
     // its OWN copy of the runtime, so a deck written then and opened under
     // this server still asks for that path; it costs one `||` to answer.
-    const kind = url.pathname === '/edit/pptx' ? 'pptx' : (JSON.parse(body || '{}').kind ?? 'pptx');
+    const req = url.pathname === '/edit/pptx' ? {} : JSON.parse(body || '{}');
+    const kind = url.pathname === '/edit/pptx' ? 'pptx' : (req.kind ?? 'pptx');
     const job = EXPORT_KINDS[kind];
     if (!job) {
       return json(400, { ok: false, error: `not a file this server writes: ${kind} — try ${Object.keys(EXPORT_KINDS).join(', ')}` });
+    }
+    if (kind === 'video') {
+      const bad = videoExportProblem(req, dirname(deckPath));
+      if (bad) return json(400, { ok: false, error: bad });
     }
     if (exporting) return json(409, { ok: false, error: 'an export is already running' });
     const { findChrome } = await import('../tools/chrome.mjs');
@@ -2079,11 +2109,16 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     exporting = true;
     const started = Date.now();
-    console.log(`  export: ${basename(deckPath)} → ${job.what} …`);
+    console.log(`  export: ${basename(deckPath)} → ${job.what}${req.slides ? ` of slides ${req.slides}` : ''} …`);
     broadcast('export', { state: 'start', kind, what: job.what });
     try {
-      let out, code;
-      if (kind === 'pptx') {
+      let out, code, reason = null;
+      if (kind === 'video') {
+        const { videoOut, videoProgress } = await import('../tools/video.mjs');
+        out = videoOut(deckPath, req.slides || null);
+        ({ code, reason } = await renderVideo(req, out,
+          videoProgress((n, of) => broadcast('export', { state: 'slide', kind, n, of }))));
+      } else if (kind === 'pptx') {
         const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
         out = pptxOut(deckPath);
         code = await pptxMain([deckPath], {
@@ -2099,7 +2134,7 @@ export async function editMain(args, { onListen = null } = {}) {
       const seconds = Math.round((Date.now() - started) / 100) / 10;
       if (code !== 0) {
         broadcast('export', { state: 'done', kind, ok: false });
-        return json(500, { ok: false, error: 'the export refused — see the author server\'s output' });
+        return json(500, { ok: false, error: reason ?? 'the export refused — see the author server\'s output' });
       }
       broadcast('export', { state: 'done', kind, ok: true, file, seconds });
       return json(200, { ok: true, kind, what: job.what, file, seconds });
@@ -2113,6 +2148,45 @@ export async function editMain(args, { onListen = null } = {}) {
     } finally {
       exporting = false;
     }
+  }
+
+  /**
+   * `decklight video`, run as a CHILD rather than through its `main` like the
+   * other exports: that `main` ends in `process.exit` on every refusal and runs
+   * the voiceover batch synchronously — right for a command, and each would take
+   * this session down or freeze it. A child keeps both where they belong, and
+   * its output is read line by line for the progress it already prints.
+   *
+   * Served from the same root `pptx` picks: the current directory when the deck
+   * is under it, its own directory otherwise.
+   */
+  function renderVideo({ slides, narration }, out, onLine) {
+    const script = fileURLToPath(new URL('../tools/video.mjs', import.meta.url));
+    const argv = [script, deckPath, '-o', out,
+      ...(slides ? ['--slides', slides] : []),
+      ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : [])];
+    const cwd = deckPath.startsWith(process.cwd() + sep) ? process.cwd() : dirname(deckPath);
+    return new Promise((done) => {
+      const child = spawn(process.execPath, argv, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+      let pending = '', err = '';
+      child.stdout.on('data', (chunk) => {
+        pending += chunk;
+        for (let i; (i = pending.indexOf('\n')) >= 0;) {
+          const line = pending.slice(0, i);
+          pending = pending.slice(i + 1);
+          console.log(`  ${line}`);
+          onLine(line);
+        }
+      });
+      child.stderr.on('data', (chunk) => { err += chunk; process.stdout.write(String(chunk).replace(/^/gm, '  ')); });
+      child.on('error', (e) => done({ code: 1, reason: oneline(e) }));
+      child.on('close', (code) => {
+        // the command's own refusal is the sentence the deck shows
+        const said = err.split('\n').map((l) => l.trim()).filter(Boolean);
+        const refusal = said.findLast((l) => l.startsWith('decklight video')) ?? said.at(-1);
+        done({ code, reason: code === 0 ? null : (refusal?.replace(/^decklight video:\s*/, '') ?? null) });
+      });
+    });
   }
 
   /**

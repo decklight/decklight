@@ -51,7 +51,8 @@ export const TAIL_SECONDS = 0.4;
 
 const HELP = `decklight video <deck.html> [options] — render the deck to a narrated mp4
 
-  -o, --out <file>     output mp4 (default: <deck>.mp4 next to the deck)
+  -o, --out <file>     output mp4 (default: <deck>.mp4 next to the deck, or
+                       <deck>.slides-a-b.mp4 for a --slides range)
   --narration <dir>    narration dir (default: <deckdir>/voiceover if it has a
                        manifest.json; otherwise the deck renders silent)
   --size <WxH>         frame size (default 1280x720; both must be even)
@@ -99,6 +100,34 @@ export function parseSlideRange(s, total) {
     throw new Error(`--slides ${s} is outside this deck (${total} slide${total === 1 ? '' : 's'})`);
   }
   return { from, to };
+}
+
+/**
+ * Where a render lands: `talk.mp4`, or `talk.slides-5-9.mp4` for a range — so
+ * five slides rendered to check a fix never overwrite the whole talk. The deck's
+ * export row writes the same name, because what a row writes is what this
+ * command writes.
+ */
+export function videoOut(deck, slides = null) {
+  return `${deck.replace(/\.html?$/i, '')}${slides ? `.slides-${slides}` : ''}.mp4`;
+}
+
+/**
+ * Read this command's own output as progress: the plan line names how many
+ * slides the render covers, and each frame line names its slide. `onSlide(n, of)`
+ * fires once per slide, when its first frame is done — the author server
+ * relays it to the deck's export row, which is how a render that takes minutes
+ * keeps saying where it is.
+ */
+export function videoProgress(onSlide) {
+  let of = 0;
+  const seen = new Set();
+  return (line) => {
+    const head = /^\S.*: (\d+) slides?, \d+ narrated/.exec(line);
+    if (head) { of = Number(head[1]); return; }
+    const frame = /^\s+slide (\d+)[:\s·]/.exec(line);
+    if (frame && of && !seen.has(frame[1])) { seen.add(frame[1]); onSlide(seen.size, of); }
+  };
 }
 
 /**
@@ -402,7 +431,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
 
   let out; let plan; let narration;
   try {
-    out = resolve(opt('-o', opt('--out', deck.replace(/\.html?$/i, '.mp4'))));
+    out = resolve(opt('-o', opt('--out', videoOut(deck, opt('--slides')))));
     const { w, h } = parseSize(opt('--size', '1280x720'));
     const fps = Number(opt('--fps', '30'));
     const hold = Number(opt('--hold', '5'));
