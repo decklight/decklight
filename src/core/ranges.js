@@ -41,7 +41,7 @@ export function rangeLabel(slides) {
 
 /**
  * The ranges worth one keystroke from where you are: the whole deck, this slide,
- * the chapter you are in (a merged deck's `data-module` markers), from here to
+ * the chapter you are in (a multi-module deck's `data-module` markers), from here to
  * the end, and up to here. A choice that comes out the same as an earlier one is
  * dropped — on slide 1, "from here to the end" IS the whole deck.
  */

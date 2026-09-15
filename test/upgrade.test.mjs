@@ -183,19 +183,19 @@ test('a file with no Decklight.init is refused: exit 1, clear message, file unto
   rmTemp(dir);
 });
 
-// A merged deck that has been hand-edited since, with the per-module sources
+// A multi-module deck that has been hand-edited since, with the per-module sources
 // long gone, IS the source of truth — and the refusal that used to stand here
 // protected a re-merge nobody could do (#483).
-const mergedDeck = (dir) => {
+const multiModuleDeck = (dir) => {
   const p = oldDeck(dir);
   fs.writeFileSync(p, fs.readFileSync(p, 'utf8')
     .replace('<section data-pin="none">', '<section data-module="Module One" data-pin="none">'));
   return p;
 };
 
-test('a merged multi-module bundle upgrades like any other deck', () => {
+test('a multi-module deck upgrades like any other deck', () => {
   const dir = tmp();
-  const p = mergedDeck(dir);
+  const p = multiModuleDeck(dir);
   const before = fs.readFileSync(p, 'utf8');
   const r = spawnSync('node', [CLI, 'upgrade', p], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
@@ -205,7 +205,8 @@ test('a merged multi-module bundle upgrades like any other deck', () => {
   assert.equal(fs.existsSync(`${p}.bak`), true, 'with the backup every upgrade writes');
 
   // said, not refused: the information the old refusal carried is still there
-  assert.match(r.stdout, /merged multi-module bundle/);
+  assert.match(r.stdout, /this is a multi-module deck \(bundle --all\)/);
+  assert.doesNotMatch(r.stdout, /merged/, 'named for what the file is, not how it was made (#503)');
   assert.match(r.stdout, /overwrites this file/);
 
   // and everything else behaves as it does for a single deck
@@ -215,9 +216,9 @@ test('a merged multi-module bundle upgrades like any other deck', () => {
   rmTemp(dir);
 });
 
-test('--dry-run on a merged bundle previews without writing', () => {
+test('--dry-run on a multi-module deck previews without writing', () => {
   const dir = tmp();
-  const p = mergedDeck(dir);
+  const p = multiModuleDeck(dir);
   const before = fs.readFileSync(p, 'utf8');
   const r = spawnSync('node', [CLI, 'upgrade', p, '--dry-run'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
@@ -228,7 +229,7 @@ test('--dry-run on a merged bundle previews without writing', () => {
 
 test('--all is still refused, as bundle\'s flag rather than a workflow lecture', () => {
   const dir = tmp();
-  const p = mergedDeck(dir);
+  const p = multiModuleDeck(dir);
   const r = spawnSync('node', [CLI, 'upgrade', p, '--all'], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /not an upgrade flag/);

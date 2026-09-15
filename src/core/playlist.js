@@ -30,10 +30,10 @@ export function createPlaylist({ config, root, embedded, sectionsOf, slideOf, na
   const index = playlist ? (playlist.index ?? 0) : 0;
 
   // Markers are read once: `bundle --all` writes them, and nothing at run time
-  // adds a chapter to a merged deck.
+  // adds a chapter to a multi-module deck.
   const hasMarkers = !!root.querySelector('section[data-module]');
 
-  /** The merged deck's chapters, as `{ title, slide }` in deck order. */
+  /** The multi-module deck's chapters, as `{ title, slide }` in deck order. */
   function markers() {
     const out = [];
     (sectionsOf() || []).forEach((s, i) => {
