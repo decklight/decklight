@@ -93,10 +93,16 @@ test('voiceover is a first-class command: routed, documented, and helps to stdou
   // not mistaken for the deck (`-o out deck.html` used to read `out`)
   const known = spawnSync('node', [CLI, 'voiceover', '-o', 'out', '--engine', 'say', '--voice', 'V',
     '--style', 's', '--data-dir', 'd', '--project', 'p', '--location', 'l', '--lang', 'en-US',
-    '--tts-model', 'm', '--tts-format', 'pcm', '--reuse-text', '--keep-wav', '--no-cache',
+    '--tts-model', 'm', '--tts-format', 'pcm', '--slides', '2', '--reuse-text', '--keep-wav', '--no-cache',
     'missing-deck.html'], { encoding: 'utf8' });
   assert.doesNotMatch(known.stderr, /unknown option/);
   assert.match(known.stderr, /decklight voiceover: no deck at missing-deck\.html/);
+  // a range past the deck's end is refused before any engine or encoder is
+  // probed — it is a typo, not a reason to install ffmpeg
+  const past = spawnSync('node', [CLI, 'voiceover', path.resolve(here, '../demo/intro.html'), '--slides', '9999'],
+    { encoding: 'utf8' });
+  assert.equal(past.status, 1);
+  assert.match(past.stderr, /decklight voiceover: --slides 9999 is outside this deck/);
 });
 
 test('unknown subcommand exits 1 with the global help', () => {

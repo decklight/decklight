@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   TAIL_SECONDS, LAST_STEP, SLIDE_PAUSE_DEFAULT, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
-  segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps,
+  segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps, voiceoverArgs,
 } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
@@ -100,6 +100,16 @@ test('parseSlideRange: a-b, a single slide, and the honest failures', () => {
   assert.throws(() => parseSlideRange('3-9', 5), /outside this deck/);
   assert.throws(() => parseSlideRange('3-2', 5), /outside this deck/);
   assert.throws(() => parseSlideRange('a-b', 5), /--slides/);
+});
+
+test('--voiceover voices only the --slides range it renders', () => {
+  const [script, ...rest] = voiceoverArgs('/d/talk.html', { slides: '5-9' });
+  assert.match(script, /voiceover\.mjs$/);
+  assert.deepEqual(rest, ['/d/talk.html', '--slides', '5-9']);
+  assert.deepEqual(voiceoverArgs('/d/talk.html').slice(1), ['/d/talk.html'], 'no range, the whole deck');
+  const withDir = voiceoverArgs('/d/talk.html', { narration: 'voices', slides: '3' }).slice(1);
+  assert.deepEqual(withDir.slice(1, 2), ['-o']);
+  assert.deepEqual(withDir.slice(-2), ['--slides', '3']);
 });
 
 test('parseSize accepts WxH and refuses odd dimensions (yuv420p would)', () => {

@@ -291,6 +291,7 @@ Commands:
            EXAMPLE: decklight lipsync    (then pick "Character…" in the deck's / palette)
   video    render the deck to ONE narrated mp4 — a still per slide, held for its narration audio
            EXAMPLE: decklight video deck.html -o deck.mp4   (add --voiceover to synthesize first)
+           EXAMPLE: decklight video deck.html --slides 5-9 --voiceover   (just those slides, voiced)
   author   one command for the whole authoring loop: live-reload editing + every bridge this
            machine can run, one Ctrl-C; E in the player edits speaker notes back into the file
            EXAMPLE: decklight author demo/showcase.html   (bridges without prerequisites are skipped)

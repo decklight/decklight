@@ -56,6 +56,7 @@ import { clipKey, createTtsCache, extFor } from './tts-cache.mjs';
 import { argReader } from './args.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, notesSegments, isHiddenSection } from './deck-html.mjs';
 import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
+import { parseSlideRange } from './video.mjs';
 
 const args = process.argv.slice(2);
 
@@ -64,7 +65,7 @@ const HELP = `decklight voiceover — batch-synthesize a deck's narration into a
 Usage:
   decklight voiceover <deck.html> [-o <dir>] [--engine piper|chirp|gemini|elevenlabs]
                       [--voice <name>] [--reuse-text] [--keep-wav]
-                      [--no-cache]
+                      [--slides a-b] [--no-cache]
 
 The headless counterpart of the deck's V \u2192 Record this deck\u2026: it reads each slide's speaker
 notes and writes one slide-NN.m4a per slide (plus a file per \u27e8CLICK\u27e9 beat)
@@ -78,6 +79,8 @@ narration: { files: [{ label, dir, segments: true }] }.
   --reuse-text   re-voice the existing slide-NN.txt (edit one to change what is
                  said) — switch voices or engines on the same script
   --keep-wav     keep the lossless WAVs (tools/lipsync.mjs consumes them)
+  --slides a-b   voice only this range (1-based, inclusive; "7" for one slide)
+                 — every other slide's files and manifest entry are left alone
   --no-cache     re-synthesize every slide, ignoring the shared clip cache
 
 Synthesis is cached on disk (~/.cache/decklight/tts) under a key made of
@@ -96,7 +99,7 @@ if (args.includes('--help') || args.includes('-h')) { console.log(HELP); process
 // one is its VALUE, not the deck — which is also how `-o out deck.html` used to
 // take `out` for the deck.
 const VALUE_OPTIONS = new Set(['-o', '--engine', '--voice', '--style', '--data-dir', '--project',
-  '--location', '--lang', '--tts-model', '--tts-format']);
+  '--location', '--lang', '--tts-model', '--tts-format', '--slides']);
 const SWITCHES = new Set(['--reuse-text', '--keep-wav', '--no-cache']);
 let deckPath;
 for (let i = 0; i < args.length; i++) {
@@ -110,9 +113,17 @@ for (let i = 0; i < args.length; i++) {
   deckPath ??= a;
 }
 if (!deckPath) { console.error('decklight voiceover: name the deck to voice\n\n' + HELP); process.exit(1); }
-// before the engine and encoder probes: a mistyped deck is not a missing ffmpeg
-if (!existsSync(deckPath)) { console.error(`decklight voiceover: no deck at ${deckPath}`); process.exit(1); }
 const { opt } = argReader(args);
+// before the engine and encoder probes: a mistyped deck or a range past its end
+// is not a missing ffmpeg
+if (!existsSync(deckPath)) { console.error(`decklight voiceover: no deck at ${deckPath}`); process.exit(1); }
+const html = readFileSync(deckPath, 'utf8');
+const sections = sectionBodies(html);
+let range;
+try { range = parseSlideRange(opt('--slides'), sections.length); } catch (e) {
+  console.error(`decklight voiceover: ${e.message}`);
+  process.exit(1);
+}
 const outDir = resolve(opt('-o', join(resolve(deckPath, '..'), 'voiceover')));
 const engine = opt('--engine', 'piper');
 // elevenlabs has no default name worth guessing: the roster is the account's,
@@ -157,8 +168,6 @@ const toAac = (wav, m4a) => run(encoder, encoder === 'ffmpeg'
   : ['-f', 'm4af', '-d', 'aac', wav, m4a], { stdio: 'ignore', timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
 
 // ── extract per-slide narration text ─────────────────────────────────────────
-const html = readFileSync(deckPath, 'utf8');
-const sections = sectionBodies(html);
 const raw = sections.map((sec) => {
   if (isHiddenSection(sec)) return '';   // no file for a hidden slide; the numbering stays
   const aside = sec.match(NOTES_ASIDE);
@@ -186,7 +195,9 @@ const segmented = raw.map((r) => (canSegment ? notesSegments(r) : null));
 if (!canSegment && raw.some((r) => notesSegments(r))) {
   console.log('  note: ⟨CLICK⟩ segments need ffmpeg to concatenate — narrating each slide whole');
 }
-console.log(`${basename(deckPath)}: ${slides.length} slides, ${slides.filter(Boolean).length} with notes`);
+console.log(`${basename(deckPath)}: ${slides.length} slides, ${slides.filter(Boolean).length} with notes`
+  + `${!opt('--slides') ? '' : range.from === range.to ? ` — voicing slide ${range.from} only`
+    : ` — voicing slides ${range.from}–${range.to} only`}`);
 
 // ── synthesize ────────────────────────────────────────────────────────────────
 // TWO layers of reuse, and they answer different questions.
@@ -263,6 +274,10 @@ let skipped = 0;
 const manifest = [];
 for (let i = 0; i < slides.length; i++) {
   const n = String(i + 1).padStart(2, '0');
+  // Outside --slides the folder's own entry stands, segments and all: a ranged
+  // run is a surgical redo of a middle, the same promise `decklight record
+  // --slides` makes, and the video rendered from this folder still finds the rest.
+  if (i + 1 < range.from || i + 1 > range.to) { manifest.push(prev?.slides?.[i] ?? null); continue; }
   if (!slides[i]) { manifest.push(null); continue; }
   const txt = join(outDir, `slide-${n}.txt`);
   // --reuse-text falls back to the deck's default voiceover/ scripts so a
