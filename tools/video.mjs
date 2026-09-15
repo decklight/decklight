@@ -66,7 +66,8 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
                        pace the deck does)
   --theme <name>       render with themes/<name>.css instead of the deck's theme
   --slides <a-b>       only this slide range (1-based, inclusive)
-  --voiceover          run the voiceover batch (tools/voiceover.mjs) first
+  --voiceover          run the voiceover batch (tools/voiceover.mjs) first —
+                       over the --slides range only, when one is given
 
 Every slide BUILDS, one frame per step. A narrated slide takes its timing from
 its own audio: ⟨CLICK⟩ in the speaker notes splits the narration, and segment k
@@ -98,6 +99,15 @@ export function parseSlideRange(s, total) {
     throw new Error(`--slides ${s} is outside this deck (${total} slide${total === 1 ? '' : 's'})`);
   }
   return { from, to };
+}
+
+/**
+ * argv for the `--voiceover` batch. The range rides along: rendering slides 5-9
+ * should not synthesise the other thirty, and on a paid engine that is a bill.
+ */
+export function voiceoverArgs(deck, { narration, slides } = {}) {
+  return [fileURLToPath(new URL('./voiceover.mjs', import.meta.url)), deck,
+    ...(narration ? ['-o', resolve(narration)] : []), ...(slides ? ['--slides', slides] : [])];
 }
 
 /** Per-slide hold seconds: data-video-hold="8" on the section, else the default. */
@@ -412,9 +422,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     const range = parseSlideRange(opt('--slides'), holds.length);
 
     if (argv.includes('--voiceover')) {
-      const vo = [fileURLToPath(new URL('./voiceover.mjs', import.meta.url)), deck];
-      const nd = opt('--narration');
-      if (nd) vo.push('-o', resolve(nd));
+      const vo = voiceoverArgs(deck, { narration: opt('--narration'), slides: opt('--slides') });
       const r = spawnSync(process.execPath, vo, { stdio: 'inherit' });
       if (r.status !== 0) throw new Error('voiceover batch failed — see its output above');
     }
