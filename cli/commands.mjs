@@ -296,6 +296,7 @@ Commands:
   author   one command for the whole authoring loop: live-reload editing + every bridge this
            machine can run, one Ctrl-C; E in the player edits speaker notes back into the file
            EXAMPLE: decklight author demo/showcase.html   (bridges without prerequisites are skipped)
+           EXAMPLE: decklight author https://github.com/you/talk   (clones it, opens the deck inside)
   record   capture the deck's narration in YOUR voice — the deck reads you its notes
            one ⟨CLICK⟩ beat at a time, and → ends a beat AND reveals the next build
            (this records YOU — decklight cast records a terminal)
