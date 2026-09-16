@@ -1752,7 +1752,7 @@ export function init(userConfig = {}) {
     if (msgListEl) { msgListEl.remove(); msgListEl = null; return; }
     msgListEl = document.createElement('div');
     msgListEl.className = 'decklight-msglog';
-    msgListEl.innerHTML = '<div class="msg-head">messages — the key left of 1 closes</div><div class="msg-log"></div>';
+    msgListEl.innerHTML = '<div class="msg-head">messages — <kbd title="the key left of 1">&#96;</kbd></div><div class="msg-log"></div>';
     root.appendChild(msgListEl);
     renderMsgList();
   }
