@@ -16,7 +16,7 @@
 // path that does not exist is "no such deck", not a clone attempt.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { refProblem } from './marketplace.mjs';
 import { oneline } from './git.mjs';
@@ -84,6 +84,18 @@ export function cloneDeck(source, { into = null, cwd = process.cwd(), exec = exe
     git(['clone', '--quiet', ...(source.ref ? ['--branch', source.ref] : []), source.url, dir]);
   } catch (e) {
     throw new Error(`git clone ${source.url}${source.ref ? ` --branch ${source.ref}` : ''} failed — ${oneline(e)}`);
+  }
+  // A clone that checked out NOTHING: the remote's HEAD names a branch that
+  // does not exist there — a repository whose default branch was renamed, or
+  // a bare repo initialised on one name and pushed on another. Left in place
+  // it would read as "no decklight deck", and a retry would find it "already
+  // cloned"; so it is removed, and the branches that DO exist are named.
+  try { git(['rev-parse', '-q', '--verify', 'HEAD'], { cwd: dir }); } catch {
+    let branches = [];
+    try { branches = git(['branch', '-r', '--format=%(refname:short)'], { cwd: dir }).split('\n').map((b) => b.replace(/^origin\//, '')).filter((b) => b && b !== 'HEAD'); } catch { /* none to name */ }
+    rmSync(dir, { recursive: true, force: true });
+    throw new Error(`${source.url} checked out nothing — its default branch is missing there. Pass --branch`
+      + (branches.length ? `: ${branches.join(', ')}` : ' <name>'));
   }
   return { dir, reused: false, ref: source.ref };
 }

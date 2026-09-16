@@ -38,11 +38,14 @@ test('parseDeckSource: only an explicit git URL counts, and a GitHub file link n
 
 // ── a bare repository to clone from ──────────────────────────────────────────
 const g = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-function bareRepo(root, files, { branch = 'main' } = {}) {
+function bareRepo(root, files, { branch = 'main', head = branch } = {}) {
   const bare = path.join(root, 'talk.git');
   const work = path.join(root, 'seed');
   fs.mkdirSync(work, { recursive: true });
-  g(['init', '--bare', '-q', bare], root);
+  // -b: the bare repo's HEAD must name the branch that is pushed, whatever
+  // this machine's init.defaultBranch is — CI's is `master`, and a clone of a
+  // bare repo whose HEAD names a missing branch checks out nothing
+  g(['init', '--bare', '-q', '-b', head, bare], root);
   g(['init', '-q', '-b', branch], work);
   g(['config', 'user.email', 't@e.com'], work);
   g(['config', 'user.name', 'T'], work);
@@ -92,6 +95,14 @@ test('cloneDeck: a full clone into ./<repo>, a branch when asked, and an existin
   const other = bareRepo(path.join(root, 'other'), { 'deck.html': DECK });
   assert.throws(() => cloneDeck(parseDeckSource(other.url), { cwd }), /is not a clone of .*\(its origin is file:/);
 
+  // a repository whose HEAD names a branch that is not there (a renamed default
+  // branch) checks out nothing: refused by name, with the branches that exist,
+  // and the empty clone removed so a retry with --branch is not "already cloned"
+  const renamed = bareRepo(path.join(root, 'renamed'), { 'deck.html': DECK }, { branch: 'main', head: 'master' });
+  assert.throws(() => cloneDeck(parseDeckSource(renamed.url), { cwd, into: 'renamed-empty' }), /checked out nothing — its default branch is missing there\. Pass --branch: main/);
+  assert.ok(!fs.existsSync(path.join(cwd, 'renamed-empty')), 'the empty clone was removed, so a retry is not "already cloned"');
+  const retried = cloneDeck(parseDeckSource(renamed.url, { branch: 'main' }), { cwd, into: 'renamed-ok' });
+  assert.ok(fs.existsSync(path.join(retried.dir, 'deck.html')));
   // an unreachable repository is a sentence, not a hang or a prompt
   assert.throws(() => cloneDeck(parseDeckSource(`file://${root}/nowhere.git`), { cwd }), /git clone file:.*nowhere\.git failed/);
 });
