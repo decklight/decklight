@@ -736,6 +736,22 @@
   letter-spacing: .04em;
   text-transform: uppercase;
 }
+.decklight-msglog .msg-head kbd {
+  /* the key, printed as the key: a chip like the recorder's, and NOT uppercased
+     with the rest of the heading — a shortcut is the character on the keycap */
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, .25);
+  border-radius: 4px;
+  /* a backtick is a small glyph sitting at cap height: at the heading's size it
+     reads as an empty keycap, so the chip carries it a little larger and centred */
+  font-size: 1.1em;
+  line-height: 1.4;
+  text-align: center;
+  text-transform: none;
+  letter-spacing: 0;
+}
 .decklight-msglog .msg-log {
   overflow-y: auto;
   padding: 8px 14px 12px;
