@@ -150,7 +150,7 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Bringing things in | |
 |---|---|
-| `import talk.pptx` | convert PowerPoint, Keynote or Google Slides (`--theme template` keeps its palette) |
+| `import talk.pptx` | convert PowerPoint, Keynote or Google Slides (`--theme template` keeps its palette, `--shapes auto` draws its shape arrangements) |
 | `theme check\|add` | validate a theme against the token contract, or install one |
 | `marketplace add owner/repo` | register a catalog; it is cloned with your git credentials, then read from disk |
 | `plugin add <name>` | presenter chrome for your machine only. `present` loads it, `bundle` never does |

@@ -21,7 +21,7 @@ import { unzip, zipEntries } from '../tools/zip.mjs';
 import { parseXml, find, findAll, children, textOf, decodeEntities } from '../tools/ooxml.mjs';
 import {
   listHtml, resolvePart, slideOrder, parseSlide, notesText, mimeOf, paragraphHtml, parseChart, chartHtml, slideSection,
-  parseDiagram, diagramKind, diagramBlockHtml, shapeBox, asDrawing, drawingSvg, groupFrame, placeIn } from '../tools/pptx.mjs';
+  parseDiagram, diagramKind, diagramBlockHtml, shapeBox, asDrawing, drawingSvg, groupFrame, placeIn, drawnIntent, rotationOf, POLYGONS } from '../tools/pptx.mjs';
 import { convert, outPath, slidesId, slidesExportUrl, sourceKind, slug, keynoteScript } from '../cli/import.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -323,6 +323,116 @@ test('a grouped diagram crosses with its shapes where the slide shows them, arro
   assert.match(drawingSvg(d), /<line x1="212" y1="52" x2="312"/);
 });
 
+// ── the per-shape rule (--shapes auto), lines, transforms, presets, wordy boxes ──
+const sp2 = (id, x, y, w, h, prst, text, { txBox = false, rot = 0, flipH = false, noFill = false, body = null, custom = false } = {}) => `<p:sp>
+  <p:nvSpPr><p:cNvPr id="${id}" name="s${id}"/><p:cNvSpPr${txBox ? ' txBox="1"' : ''}/><p:nvPr/></p:nvSpPr>
+  <p:spPr><a:xfrm${rot ? ` rot="${rot * 60000}"` : ''}${flipH ? ' flipH="1"' : ''}><a:off x="${x * M}" y="${y * M}"/><a:ext cx="${w * M}" cy="${h * M}"/></a:xfrm>
+   ${custom ? '<a:custGeom><a:pathLst/></a:custGeom>' : `<a:prstGeom prst="${prst}"/>`}${noFill ? '<a:noFill/>' : ''}</p:spPr>
+  ${body ?? `<p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody>`}</p:sp>`;
+const looseLine = (id, x, y, w, h, { flipH = false, tail = 'triangle', head = null } = {}) => `<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="${id}" name="l"/>
+  <p:cNvCxnSpPr/><p:nvPr/></p:nvCxnSpPr>
+  <p:spPr><a:xfrm${flipH ? ' flipH="1"' : ''}><a:off x="${x * M}" y="${y * M}"/><a:ext cx="${w * M}" cy="${h * M}"/></a:xfrm>
+   <a:prstGeom prst="straightConnector1"/><a:ln>${head ? `<a:headEnd type="${head}"/>` : ''}${tail ? `<a:tailEnd type="${tail}"/>` : ''}</a:ln></p:spPr></p:cxnSp>`;
+const parse = (inner, shapes) => parseSlide(slideXml(inner), { rels: new Map(), shapes });
+
+test('--shapes auto believes a DRAWN shape; strict still wants an attached arrow; two text boxes are never a drawing', () => {
+  const chevronAndBox = sp2(2, 40, 200, 200, 90, 'chevron', 'Plan') + sp2(3, 300, 200, 200, 90, 'rect', 'Build');
+  assert.deepEqual(parse(chevronAndBox, 'strict').blocks.map((b) => b.kind), ['list', 'list'], 'strict: no connector, no drawing');
+  assert.deepEqual(parse(chevronAndBox, 'auto').blocks.map((b) => b.kind), ['drawing'], 'auto: a chevron was drawn, not typed');
+  // the strict report says what auto would have done
+  assert.ok(parse(chevronAndBox, 'strict').drops.some((d) => /--shapes auto would draw it/.test(d)));
+
+  // two text boxes — flagged as such, or plain rects — are a layout under every mode
+  const twoTextBoxes = sp2(2, 40, 200, 200, 90, 'rect', 'left', { txBox: true }) + sp2(3, 300, 200, 200, 90, 'rect', 'right', { txBox: true });
+  assert.deepEqual(parse(twoTextBoxes, 'auto').blocks.map((b) => b.kind), ['list', 'list']);
+  assert.deepEqual(parse(twoTextBoxes, 'auto').drops, []);
+  // a text box flagged txBox never lends intent, whatever its preset says
+  const flaggedChevron = sp2(2, 40, 200, 200, 90, 'chevron', 'a', { txBox: true }) + sp2(3, 300, 200, 200, 90, 'rect', 'b');
+  assert.deepEqual(parse(flaggedChevron, 'auto').blocks.map((b) => b.kind), ['list', 'list']);
+  // hand-drawn geometry is intent too
+  const custom = sp2(2, 40, 200, 200, 90, '', 'blob', { custom: true }) + sp2(3, 300, 200, 200, 90, 'rect', 'b');
+  assert.deepEqual(parse(custom, 'auto').blocks.map((b) => b.kind), ['drawing']);
+  assert.ok(drawnIntent({ prst: '', custom: true, textBox: false }));
+  assert.ok(!drawnIntent({ prst: 'rect', custom: false, textBox: false }));
+  assert.ok(!drawnIntent({ prst: 'chevron', custom: false, textBox: true }));
+});
+
+test('--shapes text never draws, and does not complain about it', () => {
+  const drawn = sp2(2, 60, 230, 220, 96, 'roundRect', 'Client') + sp2(3, 420, 230, 220, 96, 'rect', 'Service') + cxnXml(5, 2, 3);
+  const t = parse(drawn, 'text');
+  assert.deepEqual(t.blocks.map((b) => b.kind), ['list', 'list']);
+  assert.deepEqual(t.drops, [], 'asked for by name, so not a loss');
+  assert.deepEqual(parse(drawn, 'strict').blocks.map((b) => b.kind), ['drawing'], 'the same slide draws under strict');
+});
+
+test('a line attached at neither end is drawn from its own place, with the arrowhead the file gave it', () => {
+  // two boxes and a loose arrow between them: under auto the line is the intent
+  const inner = sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b') + looseLine(9, 240, 245, 160, 0);
+  const slide = parse(inner, 'auto');
+  assert.deepEqual(slide.blocks.map((b) => b.kind), ['drawing']);
+  const d = slide.blocks[0].drawing;
+  assert.equal(d.loose.length, 1);
+  assert.deepEqual(d.loose[0].geo, { x1: 240, y1: 245, x2: 400, y2: 245, headArrow: false, tailArrow: true });
+  const svg = drawingSvg(d);
+  // the diagram's box starts 12px up and left of the first shape (28,188), so the line runs (212,57) → (372,57)
+  assert.match(svg, /<line x1="212" y1="57" x2="372" y2="57"[^>]*marker-end="url\(#dwg-arrow\)"/);
+  assert.ok(!/marker-start/.test(svg), 'no head arrow was asked for');
+  assert.match(svg, /orient="auto-start-reverse"/, 'one marker serves both ends');
+  // flipped: the line runs the other way; a head arrow becomes marker-start
+  const flipped = parse(sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b')
+    + looseLine(9, 240, 245, 160, 0, { flipH: true, tail: null, head: 'arrow' }), 'auto').blocks[0].drawing;
+  assert.deepEqual(flipped.loose[0].geo, { x1: 400, y1: 245, x2: 240, y2: 245, headArrow: true, tailArrow: false });
+  assert.match(drawingSvg(flipped), /marker-start="url\(#dwg-arrow\)"/);
+  // a line drawn as a SHAPE (prst line) is a line too — it never becomes a box
+  const asShape = parse(sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b') + sp2(9, 240, 245, 160, 0, 'line', ''), 'auto');
+  assert.equal(asShape.blocks[0].drawing.shapes.length, 2);
+  assert.equal(asShape.blocks[0].drawing.loose.length, 1);
+  // strict still wants an ATTACHED arrow: the loose line alone does not draw, and the report says auto would
+  const strict = parse(inner, 'strict');
+  assert.deepEqual(strict.blocks.map((b) => b.kind), ['list', 'list']);
+  assert.ok(strict.drops.some((d) => /--shapes auto would draw it/.test(d)));
+});
+
+test('rotation and flips ride on the shape as a transform about its centre; an unfilled outline stays one', () => {
+  const inner = sp2(2, 100, 100, 200, 100, 'rect', 'tilted', { rot: 30 }) + sp2(3, 400, 100, 100, 100, 'ellipse', 'mirrored', { flipH: true })
+    + sp2(4, 600, 100, 100, 100, 'roundRect', 'region', { noFill: true });
+  const svg = drawingSvg(parse(inner, 'auto').blocks[0].drawing);
+  // box origin is (88,88): the tilted rect sits at (12,12) 200×100, so its centre is (112, 62)
+  assert.match(svg, /<g transform="rotate\(30 112 62\)">/);
+  assert.match(svg, /<g transform="translate\(362 62\) scale\(-1 1\) translate\(-362 -62\)">/);
+  assert.match(svg, /<rect x="512"[^>]*style="fill: none; stroke: var\(--d-stroke\)"/, 'noFill keeps the outline');
+  assert.match(svg, /<rect x="12"[^>]*style="fill: var\(--d-fill-1\)/, 'a filled shape still takes a palette slot');
+  assert.equal(rotationOf(find(parseXml(sp2(2, 0, 0, 10, 10, 'rect', 'x', { rot: 45 })), 'p:sp')), 45);
+});
+
+test('the presets people draw with are polygons of their kind; the rest keep their family or fall back to a box', () => {
+  const kinds = ['chevron', 'rightArrow', 'star5', 'hexagon', 'parallelogram', 'plus'];
+  const inner = kinds.map((k, i) => sp2(2 + i, 40 + i * 150, 200, 120, 80, k, k)).join('');
+  // the arrowhead marker in <defs> is a polygon too; the shapes are what is counted
+  const svg = drawingSvg(parse(inner, 'auto').blocks[0].drawing).replace(/<defs>.*?<\/defs>/, '');
+  assert.equal((svg.match(/<polygon/g) || []).length, kinds.length, 'one polygon per drawn kind');
+  assert.equal((svg.match(/<rect/g) || []).length, 0);
+  for (const k of Object.keys(POLYGONS)) assert.ok(POLYGONS[k].every(([px, py]) => px >= 0 && px <= 1 && py >= 0 && py <= 1), `${k} stays on the unit box`);
+  const family = drawingSvg(parse(sp2(2, 0, 0, 100, 60, 'wedgeRoundRectCallout', 'said') + sp2(3, 200, 0, 100, 60, 'cloud', 'thought')
+    + sp2(4, 400, 0, 100, 60, 'flowChartMagneticDisk', 'unknown'), 'auto').blocks[0].drawing);
+  assert.match(family, /<rect[^>]*rx="10"/, 'a callout is a rounded box');
+  assert.match(family, /<ellipse/, 'a cloud is an oval');
+  assert.match(family, /<rect[^>]*rx="3"/, 'an unknown preset falls back to a plain box');
+});
+
+test('a box with more to say than a label keeps every word: HTML that wraps, never four lines and silence', () => {
+  const list = '<p:txBody><a:p><a:r><a:t>Owns the ledger</a:t></a:r></a:p><a:p><a:r><a:t>Settles nightly</a:t></a:r></a:p></p:txBody>';
+  const long = 'This box explains, at some length, what the service does and why it exists, which no four lines of fourteen-pixel text could hold.';
+  const inner = sp2(2, 40, 100, 160, 120, 'roundRect', 'Ledger', { body: list }) + sp2(3, 300, 100, 200, 120, 'ellipse', long) + sp2(4, 600, 100, 100, 60, 'rect', 'short');
+  const svg = drawingSvg(parse(inner, 'auto').blocks[0].drawing);
+  assert.match(svg, /<foreignObject x="12" y="12" width="160" height="120"><div xmlns="http:\/\/www.w3.org\/1999\/xhtml" class="dwg-text"><ul><li>Owns the ledger<\/li><li>Settles nightly<\/li><\/ul><\/div><\/foreignObject>/,
+    'a list stays a list');
+  assert.match(svg, /<foreignObject[^>]*><div[^>]*class="dwg-text"><p>This box explains/, 'a long paragraph wraps as HTML');
+  assert.match(svg, /<text[^>]*><tspan[^>]*>short<\/tspan><\/text>/, 'a label is still plain SVG text, not a list of one');
+  assert.match(svg, /no four lines of fourteen-pixel text could hold\.<\/p>/, 'every word is present, to the last');
+  assert.ok(!/<tspan[^>]*>This box explains/.test(svg), 'and not ALSO as truncated tspans');
+});
+
 test('boxes with an attached arrow between them are a diagram; two text boxes are not', () => {
   const box = (id) => ({ id: String(id), box: { x: id * 100, y: 0, w: 80, h: 40 }, prst: 'rect', plain: `b${id}` });
   assert.ok(asDrawing([box(1), box(2)], [{ from: '1', to: '2' }]), 'two boxes and an attached connector');
@@ -529,6 +639,15 @@ test('import refuses to overwrite without --force, and refuses an unknown theme'
     assert.equal(theme.status, 1);
     assert.match(theme.stderr, /no theme "nope"/);
     assert.match(theme.stderr, /available: .*midnight/, 'and it lists what there is');
+
+    // --shapes takes three words and refuses a fourth by name
+    const shapes = spawnSync('node', [CLI, 'import', FIXTURE, '-o', path.join(dir, 'c.html'), '--shapes', 'gif'], { encoding: 'utf8' });
+    assert.equal(shapes.status, 1);
+    assert.match(shapes.stderr, /--shapes must be auto, strict or text \(got "gif"\)/);
+    // and auto still draws the fixture's drawn slide — the connector rule is a subset of it
+    const auto = spawnSync('node', [CLI, 'import', FIXTURE, '-o', path.join(dir, 'd.html'), '--shapes', 'auto', '-v'], { encoding: 'utf8' });
+    assert.equal(auto.status, 0, auto.stderr);
+    assert.match(auto.stderr, /3 drawn shapes as an SVG diagram/);
   } finally { rmTemp(dir); }
 });
 

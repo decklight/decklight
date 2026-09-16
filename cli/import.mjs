@@ -42,6 +42,12 @@ const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url
   --build all|none|auto
                    which lists step in                            [auto]
                    auto follows PowerPoint's own per-paragraph build list
+  --shapes auto|strict|text
+                   when drawn shapes cross as one SVG diagram     [strict]
+                   strict: boxes with an arrow attached between them
+                   auto:   any two placed shapes where one was drawn — a
+                           chevron, an ellipse, a loose line — not just typed
+                   text:   never; every shape's words cross as text
   --force          overwrite an existing output file
   -v, --verbose    print every slide's line, not just the ones with drops
 
@@ -167,7 +173,7 @@ async function fetchSlides(url, { fetchImpl = fetch } = {}) {
  * The whole conversion, from archive bytes to sections and a report.
  * Pure apart from the parsing, so the mapping is testable without a CLI.
  */
-export function convert(zip, { build = 'auto' } = {}) {
+export function convert(zip, { build = 'auto', shapes = 'strict' } = {}) {
   const part = (name) => zip.get(name)?.toString('utf8');
   const order = slideOrder(part('ppt/presentation.xml'), part('ppt/_rels/presentation.xml.rels'));
   if (!order.length) throw new Error('no slides found — is this really a PowerPoint file?');
@@ -180,6 +186,7 @@ export function convert(zip, { build = 'auto' } = {}) {
     if (!xml) continue;
     const rels = parseRels(part(`${slidePath.replace(/([^/]+)$/, '_rels/$1')}.rels`));
     const slide = parseSlide(xml, {
+      shapes,
       rels,
       mediaOf: (target) => {
         const p = resolvePart(slidePath, target);
@@ -275,7 +282,7 @@ export async function importMain(args = []) {
     return args.length ? 0 : 1;
   }
   const { opt } = argReader(args);
-  const VALUE = new Set(['-o', '--theme', '--build']);
+  const VALUE = new Set(['-o', '--theme', '--build', '--shapes']);
   const source = args.find((a, i) => !a.startsWith('-') && !VALUE.has(args[i - 1]));
   if (!source) { console.error(`decklight import: needs a file or a Google Slides URL\n\n${USAGE}`); return 1; }
 
@@ -292,6 +299,11 @@ export async function importMain(args = []) {
   const build = opt('--build', 'auto');
   if (!['auto', 'all', 'none'].includes(build)) {
     console.error(`decklight import: --build must be auto, all or none (got "${build}")`);
+    return 1;
+  }
+  const shapes = opt('--shapes', 'strict');
+  if (!['auto', 'strict', 'text'].includes(shapes)) {
+    console.error(`decklight import: --shapes must be auto, strict or text (got "${shapes}")`);
     return 1;
   }
 
@@ -372,7 +384,7 @@ export async function importMain(args = []) {
   let result;
   try {
     const zip = unzip(bytes);
-    result = convert(zip, { build });
+    result = convert(zip, { build, shapes });
     // The template's palette and fonts — most of what "our template" means —
     // are in ppt/theme/theme1.xml. Derived only when asked, because the
     // default (a shipped theme) is what every existing import produced.

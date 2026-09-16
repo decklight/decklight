@@ -811,6 +811,15 @@
 .decklight .chart { width: 100%; max-width: 860px; margin: 0.2em auto; }
 .decklight .chart > svg { display: block; width: 100%; height: auto; }
 .decklight .chart-svg text { font-family: var(--font-body, system-ui, sans-serif); }
+/* an imported drawing's wordy boxes (tools/pptx.mjs drawingSvg): HTML inside the
+   SVG, so a paragraph wraps and a list stays a list — <text> can do neither */
+.decklight svg foreignObject .dwg-text {
+  display: flex; flex-direction: column; justify-content: center;
+  height: 100%; box-sizing: border-box; padding: 4px 8px;
+  font: 600 14px/1.3 var(--font-body, system-ui, sans-serif); color: var(--d-text); text-align: center;
+}
+.decklight svg foreignObject .dwg-text p { margin: 0 0 .3em; }
+.decklight svg foreignObject .dwg-text ul, .decklight svg foreignObject .dwg-text ol { margin: 0; padding-left: 1.2em; text-align: left; font-weight: 400; }
 /* invalid chart JSON: a visible error box (the terminal-broken idiom) —
    never a blank slide */
 .decklight .chart-broken {
