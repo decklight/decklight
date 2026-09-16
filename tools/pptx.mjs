@@ -562,6 +562,74 @@ export function shapeBodyHtml(blocks) {
 }
 
 /**
+ * `a:custGeom` as SVG path data on the shape's box — the geometry somebody
+ * drew by hand, which no preset table can know.
+ *
+ * Each `a:path` is a subpath in its own coordinate space (`w`/`h`, or the
+ * shape's EMU extent when omitted), scaled onto the placed box. Lines and
+ * Béziers map one to one. `a:arcTo` is the odd one: it gives radii and a
+ * start/sweep angle (in 60,000ths of a degree) from the CURRENT point, so the
+ * centre is recovered from that point and the end computed from it — which is
+ * exactly what SVG's arc command wants the other way round. A path may say it
+ * is unfilled or unstroked; that travels with it.
+ */
+export function customPathD(node, box, emuExt = null) {
+  const geom = find(find(node, 'p:spPr') ?? node, 'a:custGeom');
+  const lst = geom && find(geom, 'a:pathLst');
+  if (!lst || !box) return null;
+  const rad = (v) => (Number(v ?? 0) / 60000) * (Math.PI / 180);
+  const f = (n) => Math.round(n * 100) / 100;
+  const out = [];
+  for (const path of children(lst, 'a:path')) {
+    const pw = Number(path.attrs.w) || emuExt?.w || box.w * EMU_PX;
+    const ph = Number(path.attrs.h) || emuExt?.h || box.h * EMU_PX;
+    const sx = box.w / pw, sy = box.h / ph;
+    const P = (pt) => [box.x + Number(pt.attrs.x) * sx, box.y + Number(pt.attrs.y) * sy];
+    let d = '';
+    let cur = [box.x, box.y];
+    for (const c of path.children ?? []) {
+      const pts = children(c, 'a:pt').map(P);
+      if (c.name === 'a:moveTo' && pts[0]) { d += `M${f(pts[0][0])} ${f(pts[0][1])}`; cur = pts[0]; }
+      else if (c.name === 'a:lnTo' && pts[0]) { d += `L${f(pts[0][0])} ${f(pts[0][1])}`; cur = pts[0]; }
+      else if (c.name === 'a:cubicBezTo' && pts.length === 3) { d += `C${pts.map(([x, y]) => `${f(x)} ${f(y)}`).join(' ')}`; cur = pts[2]; }
+      else if (c.name === 'a:quadBezTo' && pts.length === 2) { d += `Q${pts.map(([x, y]) => `${f(x)} ${f(y)}`).join(' ')}`; cur = pts[1]; }
+      else if (c.name === 'a:arcTo') {
+        const rx = Number(c.attrs.wR) * sx, ry = Number(c.attrs.hR) * sy;
+        const st = rad(c.attrs.stAng), sw = rad(c.attrs.swAng);
+        if (!(rx > 0 && ry > 0) || !sw) continue;
+        const cx = cur[0] - rx * Math.cos(st), cy = cur[1] - ry * Math.sin(st);
+        const end = [cx + rx * Math.cos(st + sw), cy + ry * Math.sin(st + sw)];
+        d += `A${f(rx)} ${f(ry)} 0 ${Math.abs(sw) > Math.PI ? 1 : 0} ${sw > 0 ? 1 : 0} ${f(end[0])} ${f(end[1])}`;
+        cur = end;
+      } else if (c.name === 'a:close') d += 'Z';
+    }
+    if (d) out.push({ d, fill: path.attrs.fill !== 'none', stroke: path.attrs.stroke !== '0' });
+  }
+  return out.length ? out : null;
+}
+
+/**
+ * Attach the lines PowerPoint never attached. `a:stCxn`/`a:endCxn` are written
+ * only when an arrow was snapped to a box's connection site; a line merely
+ * drawn from one box to another carries no such thing, and is the commoner of
+ * the two in a deck drawn in a hurry. An end that lands within `tol` px of a
+ * shape's edge (or inside it) belongs to that shape; both ends on two different
+ * shapes is an attachment. The arrow keeps its direction: a line with a head
+ * arrow and no tail arrow points backwards, so its ends swap.
+ */
+export function attachLoose(shapes, links, tol = 8) {
+  const near = (x, y) => shapes.find((s) => x >= s.box.x - tol && x <= s.box.x + s.box.w + tol
+    && y >= s.box.y - tol && y <= s.box.y + s.box.h + tol);
+  return links.map((l) => {
+    if ((l.from != null && l.to != null) || !l.geo) return l;
+    const a = near(l.geo.x1, l.geo.y1), b = near(l.geo.x2, l.geo.y2);
+    if (!a || !b || a === b || a.id == null || b.id == null) return l;
+    const backwards = l.geo.headArrow && !l.geo.tailArrow;
+    return { ...l, from: backwards ? b.id : a.id, to: backwards ? a.id : b.id, inferred: true };
+  });
+}
+
+/**
  * Drawn intent, per shape: geometry that was CHOSEN. A text box is never it
  * (PowerPoint flags those), and a plain `rect` is what a text box is when the
  * flag is missing — so only a preset other than rect, or custom geometry,
@@ -609,6 +677,8 @@ export const POLYGONS = {
  */
 export function asDrawing(shapes, links, { mode = 'strict' } = {}) {
   if (mode === 'text') return null;
+  // strict means the file's own attachments; auto is allowed to see one
+  if (mode === 'auto') links = attachLoose(shapes, links);
   const joined = links.filter((l) => l.from != null && l.to != null);
   // a line that is not attached at both ends still has a place on the slide,
   // and is drawn from it
@@ -617,7 +687,10 @@ export function asDrawing(shapes, links, { mode = 'strict' } = {}) {
   // `auto` believes the shapes themselves: two placed shapes of which one was
   // DRAWN (a chevron, an ellipse, a hand-drawn outline), or a loose line among
   // them, is an arrangement. Two text boxes side by side are still a layout.
-  const intent = mode === 'auto' && shapes.length >= 2 && (shapes.some(drawnIntent) || loose.length > 0);
+  // …and a PICTURE with lines on it is an arrangement of one: the screenshot
+  // the arrows point at. A lone text box with a line beside it is not.
+  const annotated = shapes.some((s) => s.image) && loose.length > 0;
+  const intent = mode === 'auto' && (shapes.length >= 2 || annotated) && (shapes.some(drawnIntent) || loose.length > 0);
   if (!attached && !intent) return null;
   const pad = 12;
   const xs = shapes.map((s) => s.box);
@@ -661,21 +734,44 @@ export function drawingSvg({ shapes, links, loose = [], box }) {
     const ca = { x: a.box.x + a.box.w / 2, y: a.box.y + a.box.h / 2 };
     const cb = { x: b.box.x + b.box.w / 2, y: b.box.y + b.box.h / 2 };
     const p1 = edgePoint(a.box, cb), p2 = edgePoint(b.box, ca);
+    // a connector with no geometry of its own (older fixtures, tests) is an
+    // arrow; one that says which ends carry a head is believed
+    const g = l.geo;
+    const start = g?.headArrow && g?.tailArrow ? ' marker-start="url(#dwg-arrow)"' : '';
+    const end = !g || g.tailArrow || g.headArrow ? ' marker-end="url(#dwg-arrow)"' : '';
     return `<line x1="${Math.round(p1.x - box.x)}" y1="${Math.round(p1.y - box.y)}"`
       + ` x2="${Math.round(p2.x - box.x)}" y2="${Math.round(p2.y - box.y)}"`
-      + ` stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#dwg-arrow)"/>`;
+      + ` stroke-width="2" style="stroke: var(--d-stroke)"${start}${end}/>`;
   }).join('');
 
-  const boxes = shapes.map((s, i) => {
+  let slot = 0;   // palette slots go to shapes; a picture brings its own colours
+  const boxes = shapes.map((s) => {
     const r = at(s.box);
     const [x, y, w, h] = [r.x, r.y, r.w, r.h].map(Math.round);
+    const cx0 = x + w / 2, cy0 = y + h / 2;
+    const ops0 = [];
+    if (s.rot) ops0.push(`rotate(${Math.round(s.rot * 100) / 100} ${cx0} ${cy0})`);
+    if (s.box.flipH || s.box.flipV) ops0.push(`translate(${cx0} ${cy0}) scale(${s.box.flipH ? -1 : 1} ${s.box.flipV ? -1 : 1}) translate(${-cx0} ${-cy0})`);
+    const transform0 = ops0.length ? ` transform="${ops0.join(' ')}"` : '';
+    // a picture in the arrangement is the picture, at its place — stretched
+    // to its box exactly as PowerPoint shows it
+    if (s.image) {
+      return `<g${transform0}><image x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="none"`
+        + ` href="data:${s.mime};base64,${s.bytes.toString('base64')}"${s.alt ? ` aria-label="${escapeHtml(s.alt)}"` : ''}/></g>`;
+    }
+    const i = slot++;
     // an outline somebody left unfilled is a region, not a box; filling it by
     // palette slot would change what it says
     const fill = s.noFill ? 'none' : `var(--d-fill-${(i % 6) + 1})`;
     const stroke = ` style="fill: ${fill}; stroke: var(--d-stroke)" stroke-width="2"`;
     let shape;
     const poly = POLYGONS[s.prst];
-    if (poly) shape = `<polygon points="${poly.map(([px, py]) => `${Math.round(x + px * w)},${Math.round(y + py * h)}`).join(' ')}"${stroke}/>`;
+    if (s.path) {
+      // hand-drawn geometry: the path itself, each subpath with its own say on
+      // fill. Its numbers are slide coordinates; the diagram's origin moves them.
+      const shift = ` transform="translate(${-Math.round(box.x)} ${-Math.round(box.y)})"`;
+      shape = `<g${shift}>` + s.path.map((p) => `<path d="${p.d}" style="fill: ${p.fill && !s.noFill ? fill : 'none'}; stroke: ${p.stroke ? 'var(--d-stroke)' : 'none'}" stroke-width="2"/>`).join('') + '</g>';
+    } else if (poly) shape = `<polygon points="${poly.map(([px, py]) => `${Math.round(x + px * w)},${Math.round(y + py * h)}`).join(' ')}"${stroke}/>`;
     else if (OVAL.test(s.prst)) shape = `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}"${stroke}/>`;
     else if (DIAMOND.test(s.prst)) shape = `<polygon points="${x + w / 2},${y} ${x + w},${y + h / 2} ${x + w / 2},${y + h} ${x},${y + h / 2}"${stroke}/>`;
     else if (TRIANGLE.test(s.prst)) shape = `<polygon points="${x + w / 2},${y} ${x + w},${y + h} ${x},${y + h}"${stroke}/>`;
@@ -697,12 +793,7 @@ export function drawingSvg({ shapes, links, loose = [], box }) {
         + `</text>`;
     }
     // rotation about the shape's own centre, and a flip as a mirror through it
-    const cx = x + w / 2, cy = y + h / 2;
-    const ops = [];
-    if (s.rot) ops.push(`rotate(${Math.round(s.rot * 100) / 100} ${cx} ${cy})`);
-    if (s.box.flipH || s.box.flipV) ops.push(`translate(${cx} ${cy}) scale(${s.box.flipH ? -1 : 1} ${s.box.flipV ? -1 : 1}) translate(${-cx} ${-cy})`);
-    const transform = ops.length ? ` transform="${ops.join(' ')}"` : '';
-    return `<g${transform}>${shape}${text}</g>`;
+    return `<g${transform0}>${shape}${text}</g>`;
   }).join('');
 
   const label = shapes.map((s) => s.plain).filter(Boolean).join(', ');
@@ -787,6 +878,7 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
               prst,
               textBox: isTextBox(node),
               custom: hasCustomGeometry(node),
+              path: customPathD(node, box, shapeBoxEmu(node)),
               noFill: hasNoFill(node),
               rot: rotationOf(node),
               plain: txBody ? textOf(txBody).replace(/\s+/g, ' ').trim() : '',
@@ -831,7 +923,17 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
         const media = rel && mediaOf?.(rel.target);
         if (!media) { drop('an image could not be read from the file'); continue; }
         const alt = find(node, 'p:cNvPr')?.attrs.descr ?? '';
-        blocks.push({ kind: 'image', ...media, alt });
+        // A placed picture may be part of an arrangement — the screenshot the
+        // arrows point at. It is kept as its own block unless the drawing
+        // decision (below) takes it, exactly like a placed shape's text.
+        const box = shapeBox(node, frames);
+        if (box) {
+          drawn.push({
+            id: find(node, 'p:cNvPr')?.attrs.id, box, image: true, ...media, alt,
+            prst: '', plain: '', html: '', rot: rotationOf(node), at: blocks.length,
+          });
+        }
+        blocks.push(box ? { kind: 'image', ...media, alt, placed: true } : { kind: 'image', ...media, alt });
         continue;
       }
 
@@ -899,8 +1001,9 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
     // Under strict, a slide that auto WOULD draw is worth a line on its own:
     // that is the one case where the fix is a flag rather than a redraw.
     const auto = mode === 'strict' && !!asDrawing(drawn, links, { mode: 'auto' });
-    if (mode !== 'text' && (auto || drawn.length >= 3 || (drawn.length >= 2 && links.length))) {
-      drop(`${drawn.length} drawn shapes came across as text — their arrangement did not (SPEC SVG_DIAGRAMS)`
+    const boxes = drawn.filter((s) => !s.image);
+    if (mode !== 'text' && (auto || boxes.length >= 3 || (boxes.length >= 2 && links.length))) {
+      drop(`${boxes.length} drawn shape${boxes.length === 1 ? '' : 's'} came across as text — the arrangement did not (SPEC SVG_DIAGRAMS)`
         + (auto ? ' · --shapes auto would draw it' : ''));
     }
   }
@@ -970,9 +1073,11 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
       did.push(`SmartArt (${b.shape}, ${count} node${count === 1 ? '' : 's'}) as ${as}`);
       parts.push(`      ${html}`);
     } else if (b.kind === 'drawing') {
-      const n = b.drawing.shapes.length;
+      const pics = b.drawing.shapes.filter((s) => s.image).length;
+      const n = b.drawing.shapes.length - pics;
       const k = b.drawing.loose?.length ?? 0;
-      did.push(`${n} drawn shapes${k ? ` and ${k} line${k === 1 ? '' : 's'}` : ''} as an SVG diagram`);
+      const parts_ = [n ? `${n} drawn shape${n === 1 ? '' : 's'}` : '', k ? `${k} line${k === 1 ? '' : 's'}` : '', pics ? `${pics} image${pics === 1 ? '' : 's'}` : ''].filter(Boolean);
+      did.push(`${parts_.join(' and ')} as an SVG diagram`);
       parts.push(`      ${drawingSvg(b.drawing)}`);
     } else if (b.kind === 'image') {
       did.push(`image inlined (${Math.round(b.bytes.length / 1024)} KB)`);
