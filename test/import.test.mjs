@@ -21,7 +21,7 @@ import { unzip, zipEntries } from '../tools/zip.mjs';
 import { parseXml, find, findAll, children, textOf, decodeEntities } from '../tools/ooxml.mjs';
 import {
   listHtml, resolvePart, slideOrder, parseSlide, notesText, mimeOf, paragraphHtml, parseChart, chartHtml, slideSection,
-  parseDiagram, diagramKind, diagramBlockHtml, shapeBox, asDrawing, drawingSvg, groupFrame, placeIn, drawnIntent, rotationOf, POLYGONS } from '../tools/pptx.mjs';
+  parseDiagram, diagramKind, diagramBlockHtml, shapeBox, asDrawing, drawingSvg, groupFrame, placeIn, drawnIntent, rotationOf, POLYGONS, customPathD, attachLoose } from '../tools/pptx.mjs';
 import { convert, outPath, slidesId, slidesExportUrl, sourceKind, slug, keynoteScript } from '../cli/import.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -366,31 +366,127 @@ test('--shapes text never draws, and does not complain about it', () => {
 });
 
 test('a line attached at neither end is drawn from its own place, with the arrowhead the file gave it', () => {
-  // two boxes and a loose arrow between them: under auto the line is the intent
-  const inner = sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b') + looseLine(9, 240, 245, 160, 0);
+  // two boxes and a loose arrow floating between them, 30px clear of both:
+  // under auto the line is the intent, and it stays a free line
+  const inner = sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b') + looseLine(9, 270, 245, 100, 0);
   const slide = parse(inner, 'auto');
   assert.deepEqual(slide.blocks.map((b) => b.kind), ['drawing']);
   const d = slide.blocks[0].drawing;
   assert.equal(d.loose.length, 1);
-  assert.deepEqual(d.loose[0].geo, { x1: 240, y1: 245, x2: 400, y2: 245, headArrow: false, tailArrow: true });
+  assert.deepEqual(d.loose[0].geo, { x1: 270, y1: 245, x2: 370, y2: 245, headArrow: false, tailArrow: true });
   const svg = drawingSvg(d);
-  // the diagram's box starts 12px up and left of the first shape (28,188), so the line runs (212,57) → (372,57)
-  assert.match(svg, /<line x1="212" y1="57" x2="372" y2="57"[^>]*marker-end="url\(#dwg-arrow\)"/);
+  // the diagram's box starts 12px up and left of the first shape (28,188), so the line runs (242,57) → (342,57)
+  assert.match(svg, /<line x1="242" y1="57" x2="342" y2="57"[^>]*marker-end="url\(#dwg-arrow\)"/);
   assert.ok(!/marker-start/.test(svg), 'no head arrow was asked for');
   assert.match(svg, /orient="auto-start-reverse"/, 'one marker serves both ends');
   // flipped: the line runs the other way; a head arrow becomes marker-start
   const flipped = parse(sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b')
-    + looseLine(9, 240, 245, 160, 0, { flipH: true, tail: null, head: 'arrow' }), 'auto').blocks[0].drawing;
-  assert.deepEqual(flipped.loose[0].geo, { x1: 400, y1: 245, x2: 240, y2: 245, headArrow: true, tailArrow: false });
+    + looseLine(9, 270, 245, 100, 0, { flipH: true, tail: null, head: 'arrow' }), 'auto').blocks[0].drawing;
+  assert.deepEqual(flipped.loose[0].geo, { x1: 370, y1: 245, x2: 270, y2: 245, headArrow: true, tailArrow: false });
   assert.match(drawingSvg(flipped), /marker-start="url\(#dwg-arrow\)"/);
   // a line drawn as a SHAPE (prst line) is a line too — it never becomes a box
-  const asShape = parse(sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b') + sp2(9, 240, 245, 160, 0, 'line', ''), 'auto');
+  const asShape = parse(sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b') + sp2(9, 270, 245, 100, 0, 'line', ''), 'auto');
   assert.equal(asShape.blocks[0].drawing.shapes.length, 2);
   assert.equal(asShape.blocks[0].drawing.loose.length, 1);
   // strict still wants an ATTACHED arrow: the loose line alone does not draw, and the report says auto would
   const strict = parse(inner, 'strict');
   assert.deepEqual(strict.blocks.map((b) => b.kind), ['list', 'list']);
   assert.ok(strict.drops.some((d) => /--shapes auto would draw it/.test(d)));
+});
+
+test('a line that LANDS on two shapes is attached to them under auto — direction kept, strict unmoved', () => {
+  const boxes = sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b');
+  // drawn from a's right edge to b's left edge, never snapped: the file has no stCxn/endCxn
+  const d = parse(boxes + looseLine(9, 240, 245, 160, 0), 'auto').blocks[0].drawing;
+  assert.equal(d.loose.length, 0, 'not loose any more');
+  const link = d.links.find((l) => l.inferred);
+  assert.deepEqual([link.from, link.to], ['2', '3']);
+  // …and drawn edge to edge like a snapped connector, arrow at b
+  assert.match(drawingSvg(d), /<line x1="212" y1="57" x2="372" y2="57"[^>]*marker-end="url\(#dwg-arrow\)"/);
+  assert.ok(!/marker-start/.test(drawingSvg(d)));
+
+  // within 8px counts; a head-only arrow points backwards, so the ends swap
+  const back = parse(boxes + looseLine(9, 246, 245, 148, 0, { tail: null, head: 'triangle' }), 'auto').blocks[0].drawing;
+  const l2 = back.links.find((l) => l.inferred);
+  assert.deepEqual([l2.from, l2.to], ['3', '2']);
+  assert.match(drawingSvg(back), /<line x1="372" y1="57" x2="212" y2="57"[^>]*marker-end/);
+  // a plain line between them is a line, not an arrow; arrows at both ends are both
+  const plain = drawingSvg(parse(boxes + looseLine(9, 240, 245, 160, 0, { tail: null }), 'auto').blocks[0].drawing);
+  assert.ok(!/marker-/.test(plain), 'no head asked for, none drawn');
+  const both = drawingSvg(parse(boxes + looseLine(9, 240, 245, 160, 0, { tail: 'triangle', head: 'triangle' }), 'auto').blocks[0].drawing);
+  assert.match(both, /marker-start="url\(#dwg-arrow\)"[^>]*marker-end="url\(#dwg-arrow\)"|marker-start[^>]*marker-end/);
+  // both ends in the same box is not an attachment
+  const same = parse(boxes + looseLine(9, 60, 220, 100, 30), 'auto').blocks[0].drawing;
+  assert.equal(same.loose.length, 1);
+  // strict believes only the file's own attachments
+  const strict = parse(boxes + looseLine(9, 240, 245, 160, 0), 'strict');
+  assert.deepEqual(strict.blocks.map((b) => b.kind), ['list', 'list']);
+  assert.deepEqual(attachLoose([{ id: '1', box: { x: 0, y: 0, w: 10, h: 10 } }], [{ from: null, to: null, geo: { x1: 0, y1: 0, x2: 5, y2: 5 } }])[0].from, null,
+    'one shape cannot be attached to itself');
+});
+
+test('hand-drawn geometry crosses as the path it is, scaled onto its box', () => {
+  const geom = (paths) => `<p:sp><p:nvSpPr><p:cNvPr id="2" name="s"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+    <p:spPr><a:xfrm><a:off x="${40 * M}" y="${200 * M}"/><a:ext cx="${200 * M}" cy="${90 * M}"/></a:xfrm>
+      <a:custGeom><a:pathLst>${paths}</a:pathLst></a:custGeom></p:spPr>
+    <p:txBody><a:p><a:r><a:t>blob</a:t></a:r></a:p></p:txBody></p:sp>`;
+  const pt = (x, y) => `<a:pt x="${x}" y="${y}"/>`;
+  const tri = `<a:path w="100" h="100"><a:moveTo>${pt(0, 0)}</a:moveTo><a:lnTo>${pt(100, 0)}</a:lnTo><a:lnTo>${pt(50, 100)}</a:lnTo><a:close/></a:path>`;
+  const node = find(parseXml(geom(tri)), 'p:sp');
+  const box = shapeBox(node);
+  assert.deepEqual(customPathD(node, box), [{ d: 'M40 200L240 200L140 290Z', fill: true, stroke: true }], 'path space 100×100 → the 200×90 box');
+
+  // an arc: from (0,50) sweeping −180° with radius 50 lands at (100,50) — an SVG arc from the current point
+  const arc = `<a:path w="100" h="100"><a:moveTo>${pt(0, 50)}</a:moveTo><a:arcTo wR="50" hR="50" stAng="10800000" swAng="-10800000"/></a:path>`;
+  const arcNode = find(parseXml(geom(arc)), 'p:sp');
+  assert.deepEqual(customPathD(arcNode, { x: 0, y: 0, w: 100, h: 100 })[0].d, 'M0 50A50 50 0 0 0 100 50');
+
+  // no w/h: the path is in the shape's own EMU space, so its far corner is the box's
+  const emu = `<a:path><a:moveTo>${pt(0, 0)}</a:moveTo><a:lnTo>${pt(200 * M, 90 * M)}</a:lnTo></a:path>`;
+  const emuNode = find(parseXml(geom(emu)), 'p:sp');
+  assert.equal(customPathD(emuNode, box, { w: 200 * M, h: 90 * M })[0].d, 'M40 200L240 290');
+
+  // a subpath that says it is unfilled stays so; a Bézier maps one to one
+  const two = `<a:path w="10" h="10" fill="none"><a:moveTo>${pt(0, 0)}</a:moveTo><a:cubicBezTo>${pt(0, 10)}${pt(10, 10)}${pt(10, 0)}</a:cubicBezTo></a:path>`
+    + `<a:path w="10" h="10"><a:moveTo>${pt(5, 5)}</a:moveTo><a:quadBezTo>${pt(10, 5)}${pt(10, 10)}</a:quadBezTo></a:path>`;
+  const parts = customPathD(find(parseXml(geom(two)), 'p:sp'), { x: 0, y: 0, w: 10, h: 10 });
+  assert.deepEqual(parts.map((p) => p.fill), [false, true]);
+  assert.equal(parts[0].d, 'M0 0C0 10 10 10 10 0');
+  assert.equal(parts[1].d, 'M5 5Q10 5 10 10');
+
+  // in a slide: custom geometry is intent, and the SVG carries the path, moved to the diagram's origin
+  const slide = parse(geom(tri) + sp2(3, 400, 200, 200, 90, 'rect', 'b'), 'auto');
+  assert.deepEqual(slide.blocks.map((b) => b.kind), ['drawing']);
+  const svg = drawingSvg(slide.blocks[0].drawing);
+  assert.match(svg, /<g transform="translate\(-28 -188\)"><path d="M40 200L240 200L140 290Z" style="fill: var\(--d-fill-1\); stroke: var\(--d-stroke\)"/);
+  assert.ok(!/<rect x="12"/.test(svg), 'not ALSO a rectangle');
+});
+
+test('a picture the arrows point at crosses inside the drawing, at its place', () => {
+  const pic = (id, x, y, w, h) => `<p:pic><p:nvPicPr><p:cNvPr id="${id}" name="shot" descr="the screen"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>
+    <p:blipFill><a:blip r:embed="rId9"/></p:blipFill>
+    <p:spPr><a:xfrm><a:off x="${x * M}" y="${y * M}"/><a:ext cx="${w * M}" cy="${h * M}"/></a:xfrm></p:spPr></p:pic>`;
+  const opts = { rels: new Map([['rId9', { target: '../media/image1.png', type: 'image' }]]), mediaOf: () => ({ bytes: Buffer.from('png!'), mime: 'image/png' }) };
+  const annotated = pic(7, 100, 100, 400, 300) + looseLine(9, 520, 150, 100, 0, { flipH: true });   // an arrow pointing at the picture
+  const auto = parseSlide(slideXml(annotated), { ...opts, shapes: 'auto' });
+  assert.deepEqual(auto.blocks.map((b) => b.kind), ['drawing'], 'the picture went INTO the drawing, not beside it');
+  const d = auto.blocks[0].drawing;
+  assert.equal(d.shapes.filter((s) => s.image).length, 1);
+  const svg = drawingSvg(d);
+  assert.match(svg, /<image x="12" y="12" width="400" height="300" preserveAspectRatio="none" href="data:image\/png;base64,cG5nIQ==" aria-label="the screen"\/>/);
+  assert.match(svg, /<line /, 'and the arrow is drawn');
+  assert.equal(slideSection(auto).did.find((l) => /SVG diagram/.test(l)), '1 line and 1 image as an SVG diagram');
+
+  // a picture lends no intent: beside a text box it is a layout, and two of them are a layout
+  const withText = parseSlide(slideXml(pic(7, 100, 100, 400, 300) + sp2(3, 600, 100, 200, 90, 'rect', 'caption')), { ...opts, shapes: 'auto' });
+  assert.deepEqual(withText.blocks.map((b) => b.kind), ['image', 'list']);
+  assert.ok(!withText.blocks.some((b) => 'placed' in b), 'no bookkeeping leaks');
+  const twoPics = parseSlide(slideXml(pic(7, 100, 100, 400, 300) + pic(8, 600, 100, 400, 300)), { ...opts, shapes: 'auto' });
+  assert.deepEqual(twoPics.blocks.map((b) => b.kind), ['image', 'image']);
+  // strict leaves the annotated picture as a picture, and says what auto would do
+  const strict = parseSlide(slideXml(annotated), { ...opts, shapes: 'strict' });
+  assert.deepEqual(strict.blocks.map((b) => b.kind), ['image']);
+  assert.ok(strict.drops.some((x) => /--shapes auto would draw it/.test(x)));
 });
 
 test('rotation and flips ride on the shape as a transform about its centre; an unfilled outline stays one', () => {
