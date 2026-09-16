@@ -21,8 +21,7 @@ import { unzip, zipEntries } from '../tools/zip.mjs';
 import { parseXml, find, findAll, children, textOf, decodeEntities } from '../tools/ooxml.mjs';
 import {
   listHtml, resolvePart, slideOrder, parseSlide, notesText, mimeOf, paragraphHtml, parseChart, chartHtml, slideSection,
-  parseDiagram, diagramKind, diagramBlockHtml, shapeBox, asDrawing, drawingSvg,
-} from '../tools/pptx.mjs';
+  parseDiagram, diagramKind, diagramBlockHtml, shapeBox, asDrawing, drawingSvg, groupFrame, placeIn } from '../tools/pptx.mjs';
 import { convert, outPath, slidesId, slidesExportUrl, sourceKind, slug, keynoteScript } from '../cli/import.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -267,6 +266,61 @@ test('a placed shape reports its box in pixels; one the slide never placed repor
   const doc = parseXml(shapeXml(2, 40, 200, 220, 96, 'rect', 'x'));
   assert.deepEqual(shapeBox(find(doc, 'p:sp')), { x: 40, y: 200, w: 220, h: 96, flipH: false, flipV: false });
   assert.equal(shapeBox(find(parseXml('<p:sp><p:spPr/></p:sp>'), 'p:sp')), null);
+});
+
+// ── grouped shapes: a child's box is in its GROUP's space, not the slide's ──
+const grpXml = (off, ext, chOff, chExt, inner) => `<p:grpSp><p:nvGrpSpPr><p:cNvPr id="90" name="g"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+  <p:grpSpPr><a:xfrm><a:off x="${off[0] * M}" y="${off[1] * M}"/><a:ext cx="${ext[0] * M}" cy="${ext[1] * M}"/>
+    <a:chOff x="${chOff[0] * M}" y="${chOff[1] * M}"/><a:chExt cx="${chExt[0] * M}" cy="${chExt[1] * M}"/></a:xfrm></p:grpSpPr>
+  ${inner}</p:grpSp>`;
+
+test('a group that was moved and resized places its children where PowerPoint shows them', () => {
+  // the group's child space is 200×100 at the origin; on the slide it sits at
+  // (100,100) stretched to 400×200 — so a child at (50,25) 100×50 shows at
+  // (200,150) 200×100. Reading the child's own box put it at (50,25).
+  const frame = groupFrame(find(parseXml(grpXml([100, 100], [400, 200], [0, 0], [200, 100], '')), 'p:grpSp'));
+  assert.deepEqual(frame, { x: 100 * M, y: 100 * M, cx: 0, cy: 0, sx: 2, sy: 2 });
+  const child = find(parseXml(shapeXml(2, 50, 25, 100, 50, 'rect', 'x')), 'p:sp');
+  assert.deepEqual(shapeBox(child, [frame]), { x: 200, y: 150, w: 200, h: 100, flipH: false, flipV: false });
+  assert.deepEqual(shapeBox(child), { x: 50, y: 25, w: 100, h: 50, flipH: false, flipV: false }, 'ungrouped, as before');
+
+  // a moved group with no resize: chExt equals ext, so the children only shift
+  const moved = groupFrame(find(parseXml(grpXml([300, 40], [200, 100], [0, 0], [200, 100], '')), 'p:grpSp'));
+  assert.deepEqual(shapeBox(child, [moved]), { x: 350, y: 65, w: 100, h: 50, flipH: false, flipV: false });
+  // a group with no transform at all leaves its children in the parent's space
+  assert.equal(groupFrame(find(parseXml('<p:grpSp><p:grpSpPr/></p:grpSp>'), 'p:grpSp')), null);
+  // a zero child extent scales nothing on that axis — it only moves
+  assert.equal(placeIn({ x: 10, y: 10, w: 5, h: 5 }, { x: 100, y: 100, cx: 0, cy: 0, sx: 1, sy: 1 }).w, 5);
+});
+
+test('nested groups compose, outermost first', () => {
+  // outer: child space 400×400 at origin → slide (0,0) 800×800 (×2)
+  // inner: child space 100×100 at (0,0) → outer space (100,100) 200×200 (×2)
+  // a shape at (10,10) 20×20 in the inner space → outer (120,120) 40×40 → slide (240,240) 80×80
+  const outer = { x: 0, y: 0, cx: 0, cy: 0, sx: 2, sy: 2 };
+  const inner = { x: 100 * M, y: 100 * M, cx: 0, cy: 0, sx: 2, sy: 2 };
+  const shape = find(parseXml(shapeXml(2, 10, 10, 20, 20, 'rect', 'x')), 'p:sp');
+  assert.deepEqual(shapeBox(shape, [outer, inner]), { x: 240, y: 240, w: 80, h: 80, flipH: false, flipV: false });
+});
+
+test('a grouped diagram crosses with its shapes where the slide shows them, arrows included', () => {
+  // Three boxes and two attached arrows, grouped, then the group dragged to
+  // the right half of the slide and doubled in size. The diagram's own box is
+  // the union of the PLACED shapes: at child coordinates it would sit at the
+  // top-left and be half the size.
+  const inner = shapeXml(2, 0, 0, 100, 40, 'roundRect', 'Client')
+    + shapeXml(3, 150, 0, 100, 40, 'rect', 'Service')
+    + shapeXml(4, 300, 0, 100, 40, 'ellipse', 'Ledger')
+    + cxnXml(5, 2, 3) + cxnXml(6, 3, 4);
+  const slide = parseSlide(slideXml(grpXml([640, 300], [800, 80], [0, 0], [400, 40], inner)), { rels: new Map() });
+  assert.deepEqual(slide.blocks.map((b) => b.kind), ['drawing']);
+  const d = slide.blocks[0].drawing;
+  assert.deepEqual(d.shapes.map((s) => [s.box.x, s.box.y, s.box.w, s.box.h]),
+    [[640, 300, 200, 80], [940, 300, 200, 80], [1240, 300, 200, 80]]);
+  assert.deepEqual(d.box, { x: 628, y: 288, w: 824, h: 104 });
+  // and the SVG is drawn in the placed coordinates: the first arrow leaves the
+  // first box's right edge, 12px of padding in from the diagram's left
+  assert.match(drawingSvg(d), /<line x1="212" y1="52" x2="312"/);
 });
 
 test('boxes with an attached arrow between them are a diagram; two text boxes are not', () => {

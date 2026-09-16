@@ -444,16 +444,77 @@ export function diagramBlockHtml({ shape, nodes }) {
 /** A drawing unit: 914400 EMU to the inch, 96 of those to the CSS pixel. */
 const EMU_PX = 9525;
 
-/** `a:xfrm` as pixels, or null for a shape the slide never placed. */
-export function shapeBox(node) {
+/** `a:xfrm` in EMU, in whatever space the shape's parent uses; null when the slide never placed it. */
+function shapeBoxEmu(node) {
   const xfrm = find(find(node, 'p:spPr') ?? node, 'a:xfrm');
   const off = xfrm && find(xfrm, 'a:off');
   const ext = xfrm && find(xfrm, 'a:ext');
   if (!off || !ext) return null;
-  const n = (v) => Number(v ?? NaN) / EMU_PX;
+  const n = (v) => Number(v ?? NaN);
   const box = { x: n(off.attrs.x), y: n(off.attrs.y), w: n(ext.attrs.cx), h: n(ext.attrs.cy),
     flipH: xfrm.attrs.flipH === '1', flipV: xfrm.attrs.flipV === '1' };
   return Object.values(box).slice(0, 4).every(Number.isFinite) ? box : null;
+}
+
+const toPx = (box) => box && { ...box, x: box.x / EMU_PX, y: box.y / EMU_PX, w: box.w / EMU_PX, h: box.h / EMU_PX };
+
+/**
+ * `a:xfrm` as pixels, or null for a shape the slide never placed. `frames` are
+ * the groups the shape sits inside, outermost first: a grouped shape's own
+ * transform is in its group's child space, and only the composed frames say
+ * where on the slide that is.
+ */
+export function shapeBox(node, frames = []) {
+  let box = shapeBoxEmu(node);
+  if (!box) return null;
+  // innermost group first: a nested group's frame places into ITS parent's
+  // child space, which the outer frame then places on the slide
+  for (let i = frames.length - 1; i >= 0; i--) box = placeIn(box, frames[i]);
+  return toPx(box);
+}
+
+/**
+ * A group's frame: how its children's coordinates map into its parent's.
+ *
+ * Shapes inside a `p:grpSp` are NOT placed on the slide. Their `a:off`/`a:ext`
+ * are in the group's own child space, whose origin and size are `a:chOff` /
+ * `a:chExt` on the group's `a:xfrm`, and the group's `a:off`/`a:ext` say where
+ * that space lands on the slide. Move or resize a group after grouping it and
+ * the two stop agreeing — which is every group anyone has ever adjusted, and
+ * reading the children's boxes as slide coordinates put them wherever they
+ * were BEFORE the adjustment. Groups nest, so frames compose.
+ *
+ * Null when the group carries no transform (its children are already in the
+ * parent's space). A child extent of zero cannot scale anything; that axis
+ * keeps its size and only moves.
+ */
+export function groupFrame(grpSp) {
+  const xfrm = find(find(grpSp, 'p:grpSpPr') ?? grpSp, 'a:xfrm');
+  const off = xfrm && find(xfrm, 'a:off');
+  const ext = xfrm && find(xfrm, 'a:ext');
+  if (!off || !ext) return null;
+  const n = (v, d = NaN) => (v == null ? d : Number(v));
+  const chOff = find(xfrm, 'a:chOff');
+  const chExt = find(xfrm, 'a:chExt');
+  const frame = {
+    x: n(off.attrs.x), y: n(off.attrs.y),
+    cx: n(chOff?.attrs.x, 0), cy: n(chOff?.attrs.y, 0),
+    sx: n(chExt?.attrs.cx) ? n(ext.attrs.cx) / n(chExt.attrs.cx) : 1,
+    sy: n(chExt?.attrs.cy) ? n(ext.attrs.cy) / n(chExt.attrs.cy) : 1,
+  };
+  return Object.values(frame).every(Number.isFinite) ? frame : null;
+}
+
+/** A box in a group's child space, placed by that group's frame — all in EMU. */
+export function placeIn(box, frame) {
+  if (!frame) return box;
+  return {
+    ...box,
+    x: frame.x + (box.x - frame.cx) * frame.sx,
+    y: frame.y + (box.y - frame.cy) * frame.sy,
+    w: box.w * frame.sx,
+    h: box.h * frame.sy,
+  };
 }
 
 /** The preset shape name, e.g. `roundRect` — absent for a shape with custom geometry. */
@@ -570,9 +631,13 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
   const drawn = [];   // placed, non-placeholder shapes — a diagram, maybe
   const links = [];   // connectors, and which shapes they join
 
-  const walk = (tree) => {
+  const walk = (tree, frames = []) => {
     for (const node of tree.children ?? []) {
-      if (node.name === 'p:grpSp') { walk(node); continue; }
+      if (node.name === 'p:grpSp') {
+        const frame = groupFrame(node);
+        walk(node, frame ? [...frames, frame] : frames);
+        continue;
+      }
 
       // A connector NAMES the shapes it joins; that is what makes a set of
       // boxes a diagram rather than a layout (asDrawing).
@@ -599,7 +664,7 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
         // exactly as it always was, and a shape with no text is skipped.
         let placed = false;
         if (!ph) {
-          const box = shapeBox(node);
+          const box = shapeBox(node, frames);
           if (box) {
             placed = true;
             drawn.push({
