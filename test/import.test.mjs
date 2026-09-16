@@ -28,6 +28,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 const FIXTURE = path.resolve(here, 'fixtures/sample.pptx');
 const zip = () => unzip(readFileSync(FIXTURE));
+// The shape fixture, written by python-pptx (test/fixtures/make-shapes.py) so it
+// carries what PowerPoint itself writes — see the tests at the end of this file.
+const SHAPES = path.resolve(here, 'fixtures/shapes.pptx');
+const shapesZip = () => unzip(readFileSync(SHAPES));
 
 // What is IN the fixture, because it is a binary and nothing else says:
 //
@@ -495,7 +499,8 @@ test('rotation and flips ride on the shape as a transform about its centre; an u
   const svg = drawingSvg(parse(inner, 'auto').blocks[0].drawing);
   // box origin is (88,88): the tilted rect sits at (12,12) 200×100, so its centre is (112, 62)
   assert.match(svg, /<g transform="rotate\(30 112 62\)">/);
-  assert.match(svg, /<g transform="translate\(362 62\) scale\(-1 1\) translate\(-362 -62\)">/);
+  // the mirror wraps the SHAPE only — a flipped arrow's label still reads left to right
+  assert.match(svg, /<g><g transform="translate\(362 62\) scale\(-1 1\) translate\(-362 -62\)"><ellipse[^>]*\/><\/g><text/);
   assert.match(svg, /<rect x="512"[^>]*style="fill: none; stroke: var\(--d-stroke\)"/, 'noFill keeps the outline');
   assert.match(svg, /<rect x="12"[^>]*style="fill: var\(--d-fill-1\)/, 'a filled shape still takes a palette slot');
   assert.equal(rotationOf(find(parseXml(sp2(2, 0, 0, 10, 10, 'rect', 'x', { rot: 45 })), 'p:sp')), 45);
@@ -875,4 +880,80 @@ test('a PowerPoint hidden slide is kept as a hidden decklight slide, not dropped
   assert.match(slideSection(hidden).html, /^\s*<section data-hidden>/);
   const shown = parseSlide('<p:sld><p:cSld><p:spTree/></p:cSld></p:sld>');
   assert.match(slideSection(shown).html, /^\s*<section>/);
+});
+
+// ── the shape fixture: what PowerPoint writes, not what a test typed ─────────
+
+test('the shape fixture carries the markers the rule reads — written by the library, not by hand', () => {
+  const z = shapesZip();
+  const xml = (n) => z.get(`ppt/slides/slide${n}.xml`).toString();
+  const all = [1, 2, 3, 4, 5, 6].map(xml).join('');
+  assert.equal((all.match(/txBox="1"/g) || []).length, 5, 'inserted text boxes are flagged');
+  assert.equal((all.match(/<a:chOff/g) || []).length, 1, 'one group, with its own child space');
+  assert.equal((all.match(/<a:custGeom>/g) || []).length, 1, 'one hand-drawn shape');
+  assert.equal((all.match(/<a:stCxn /g) || []).length, 3, 'three snapped connector ends… ');
+  assert.equal((all.match(/<a:endCxn /g) || []).length, 3, '…and their other ends; the rest are merely drawn');
+  assert.match(all, / rot="720000"/, 'a 12° rotation, in 60,000ths');
+});
+
+test('the shape fixture, under the default: every arrangement crosses, every layout stays text', () => {
+  const { sections, report } = convert(shapesZip());
+  const did = (n) => report[n - 1].did.join(' · ');
+  assert.equal(sections.length, 6);
+  // 1: a title, a subtitle and a text box — a layout
+  assert.match(did(1), /1 bullet/); assert.doesNotMatch(did(1), /SVG diagram/); assert.deepEqual(report[0].drops, []);
+  // 2: chevrons with snapped arrows, a table, notes
+  assert.match(did(2), /3 drawn shapes as an SVG diagram/); assert.match(did(2), /table 3×3/); assert.match(did(2), /notes/);
+  // 3: the group, a loose line, rotation, a flip, an unfilled region
+  assert.match(did(3), /^6 drawn shapes as an SVG diagram$/);
+  // 4: a picture with two arrows on it, a callout and a text box
+  assert.match(did(4), /2 drawn shapes and 2 lines and 1 image as an SVG diagram/);
+  // 5: a hand-drawn blob, three presets, a wordy box
+  assert.match(did(5), /5 drawn shapes as an SVG diagram/);
+  // 6: two text boxes of bullets — a layout, and silent about it
+  assert.match(did(6), /4 bullets/); assert.doesNotMatch(did(6), /SVG diagram/); assert.deepEqual(report[5].drops, []);
+  assert.ok(!report.some((r) => r.drops.length), `nothing dropped: ${JSON.stringify(report.map((r) => r.drops))}`);
+});
+
+test('the shape fixture, slide 3: a group placed where it was dragged, a line attached by where it lands, a readable mirrored label', () => {
+  const { sections } = convert(shapesZip());
+  const svg = sections[2].match(/<svg[\s\S]*?<\/svg>/)[0];
+  // the group's children were at x≈1in in their own space; the group was then
+  // dragged to 4.5in and scaled 1.3× — the API box lands right of the region
+  assert.match(svg, /<rect x="386" y="31" width="312" height="125" rx="10"/, 'API, through the group frame');
+  assert.match(svg, /<rect x="12" y="12" width="336" height="461" rx="10" style="fill: none;/, 'the region keeps its outline only');
+  assert.match(svg, /<g transform="rotate\(12 165 156\)"><rect/, 'the worker is tilted, label and all');
+  assert.match(svg, /<g><g transform="translate\(166 324\) scale\(-1 1\) translate\(-166 -324\)"><polygon[^>]*\/><\/g><text/, 'the arrow is mirrored; its label is not');
+  assert.equal((svg.match(/<line /g) || []).length, 2, 'the snapped arrow and the merely-drawn one');
+  assert.equal((svg.match(/marker-end/g) || []).length, 2, 'both arrows keep their heads');
+  assert.match(svg, /rx="10"[^>]*\/><text[^>]*><tspan[^>]*>Ledger/, 'a can is a rounded box');
+  assert.match(svg, /<polygon points="536,281 661,356 536,431 411,356"/, 'the diamond');
+});
+
+test('the shape fixture, slides 4 and 5: the picture inside the drawing, the hand-drawn path, the box that keeps every word', () => {
+  const { sections } = convert(shapesZip());
+  const s4 = sections[3].match(/<svg[\s\S]*?<\/svg>/)[0];
+  assert.match(s4, /<image x="\d+" y="\d+" width="\d+" height="\d+" preserveAspectRatio="none" href="data:image\/png;base64,/);
+  assert.equal((s4.match(/<line /g) || []).length, 2);
+  assert.match(s4, /the button that matters/); assert.match(s4, /and the total, here/);
+  assert.ok(!/<img /.test(sections[3]), 'the picture is IN the drawing, not also a block');
+  const s5 = sections[4].match(/<svg[\s\S]*?<\/svg>/)[0];
+  assert.match(s5, /<path d="M96 288L240 192L384 288L326\.4 441\.6L153\.6 441\.6Z"/, 'the freeform, as drawn');
+  assert.equal((s5.replace(/<defs>.*?<\/defs>/, '').match(/<polygon/g) || []).length, 3, 'star, hexagon, left-right arrow');
+  assert.match(s5, /<foreignObject[^>]*><div[^>]*class="dwg-text"><ul><li>The service<ul><li>owns the ledger<\/li>/, 'a real list, nested as it was');
+  assert.match(s5, /never loses a write/, 'to the last word');
+});
+
+test('the shape fixture under --shapes strict and text', () => {
+  const strict = convert(shapesZip(), { shapes: 'strict' });
+  const did = (r, n) => r.report[n - 1].did.join(' · ');
+  assert.match(did(strict, 2), /3 drawn shapes as an SVG diagram/, 'snapped arrows draw under strict');
+  assert.match(did(strict, 3), /6 drawn shapes and 1 line as an SVG diagram/, 'one snapped arrow in the group is enough — and strict infers nothing, so the drawn line stays loose');
+  assert.doesNotMatch(did(strict, 4), /SVG diagram/); assert.match(did(strict, 4), /image inlined/);
+  assert.ok(strict.report[3].drops.some((d) => /--shapes auto would draw it/.test(d)), 'and strict says what auto would do');
+  assert.doesNotMatch(did(strict, 5), /SVG diagram/);
+  assert.ok(strict.report[4].drops.some((d) => /--shapes auto would draw it/.test(d)));
+  const text = convert(shapesZip(), { shapes: 'text' });
+  assert.ok(!text.sections.some((s) => /<svg/.test(s)), 'text never draws');
+  assert.ok(!text.report.some((r) => r.drops.some((d) => /arrangement/.test(d))), 'and does not complain');
 });

@@ -675,7 +675,7 @@ export const POLYGONS = {
  * which is drawing a diagram and not laying out a caption. Two shapes and one
  * attached connector is the floor.
  */
-export function asDrawing(shapes, links, { mode = 'strict' } = {}) {
+export function asDrawing(shapes, links, { mode = 'auto' } = {}) {
   if (mode === 'text') return null;
   // strict means the file's own attachments; auto is allowed to see one
   if (mode === 'auto') links = attachLoose(shapes, links);
@@ -748,16 +748,20 @@ export function drawingSvg({ shapes, links, loose = [], box }) {
   const boxes = shapes.map((s) => {
     const r = at(s.box);
     const [x, y, w, h] = [r.x, r.y, r.w, r.h].map(Math.round);
+    // Rotation carries the label with the shape, as PowerPoint turns the
+    // words too. A FLIP does not: a mirrored arrow still reads left to right
+    // in PowerPoint, so the mirror wraps the shape alone and the text sits
+    // outside it — the fixture's first render read its label backwards.
     const cx0 = x + w / 2, cy0 = y + h / 2;
-    const ops0 = [];
-    if (s.rot) ops0.push(`rotate(${Math.round(s.rot * 100) / 100} ${cx0} ${cy0})`);
-    if (s.box.flipH || s.box.flipV) ops0.push(`translate(${cx0} ${cy0}) scale(${s.box.flipH ? -1 : 1} ${s.box.flipV ? -1 : 1}) translate(${-cx0} ${-cy0})`);
-    const transform0 = ops0.length ? ` transform="${ops0.join(' ')}"` : '';
+    const transform0 = s.rot ? ` transform="rotate(${Math.round(s.rot * 100) / 100} ${cx0} ${cy0})"` : '';
+    const mirror = (s.box.flipH || s.box.flipV)
+      ? [`<g transform="translate(${cx0} ${cy0}) scale(${s.box.flipH ? -1 : 1} ${s.box.flipV ? -1 : 1}) translate(${-cx0} ${-cy0})">`, '</g>']
+      : ['', ''];
     // a picture in the arrangement is the picture, at its place — stretched
     // to its box exactly as PowerPoint shows it
     if (s.image) {
-      return `<g${transform0}><image x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="none"`
-        + ` href="data:${s.mime};base64,${s.bytes.toString('base64')}"${s.alt ? ` aria-label="${escapeHtml(s.alt)}"` : ''}/></g>`;
+      return `<g${transform0}>${mirror[0]}<image x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="none"`
+        + ` href="data:${s.mime};base64,${s.bytes.toString('base64')}"${s.alt ? ` aria-label="${escapeHtml(s.alt)}"` : ''}/>${mirror[1]}</g>`;
     }
     const i = slot++;
     // an outline somebody left unfilled is a region, not a box; filling it by
@@ -792,8 +796,7 @@ export function drawingSvg({ shapes, links, loose = [], box }) {
         + lines_.map((t, k) => `<tspan x="${Math.round(x + w / 2)}" y="${Math.round(first + k * 18)}">${escapeHtml(t)}</tspan>`).join('')
         + `</text>`;
     }
-    // rotation about the shape's own centre, and a flip as a mirror through it
-    return `<g${transform0}>${shape}${text}</g>`;
+    return `<g${transform0}>${mirror[0]}${shape}${mirror[1]}${text}</g>`;
   }).join('');
 
   const label = shapes.map((s) => s.plain).filter(Boolean).join(', ');
@@ -808,7 +811,7 @@ export function drawingSvg({ shapes, links, loose = [], box }) {
  * order the slide did. Groups are walked into: a shape inside a group is still
  * content, and skipping groups loses whole slides' worth of text.
  */
-export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0, shapes: mode = 'strict' } = {}) {
+export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0, shapes: mode = 'auto' } = {}) {
   const doc = parseXml(xml);
   const sld = find(doc, 'p:sld');
   const hidden = sld?.attrs.show === '0';
