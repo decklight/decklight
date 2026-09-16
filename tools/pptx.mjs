@@ -519,11 +519,82 @@ export function placeIn(box, frame) {
 
 /** The preset shape name, e.g. `roundRect` — absent for a shape with custom geometry. */
 const presetOf = (node) => find(node, 'a:prstGeom')?.attrs.prst ?? '';
+/** PowerPoint marks an inserted TEXT BOX so; a drawn shape carries no such flag. */
+const isTextBox = (node) => find(node, 'p:cNvSpPr')?.attrs.txBox === '1';
+/** Geometry somebody drew by hand rather than picked from the gallery. */
+const hasCustomGeometry = (node) => !!find(find(node, 'p:spPr') ?? node, 'a:custGeom');
+/** `a:noFill` as the shape's OWN fill — a direct child of spPr, not the line's. */
+const hasNoFill = (node) => { const spPr = find(node, 'p:spPr'); return !!spPr && children(spPr, 'a:noFill').length > 0; };
+/** `a:xfrm@rot` in degrees — the file stores 60,000ths of one. */
+export function rotationOf(node) {
+  const xfrm = find(find(node, 'p:spPr') ?? node, 'a:xfrm');
+  const r = Number(xfrm?.attrs.rot ?? 0);
+  return Number.isFinite(r) ? r / 60000 : 0;
+}
+/** A line's end decorations: `a:ln/a:headEnd` and `a:tailEnd`, anything but `none` is an arrowhead. */
+function lineEnds(node) {
+  const ln = find(find(node, 'p:spPr') ?? node, 'a:ln');
+  const arrow = (name) => { const t = ln && find(ln, name)?.attrs.type; return !!t && t !== 'none'; };
+  return { headArrow: arrow('a:headEnd'), tailArrow: arrow('a:tailEnd') };
+}
+/** Presets that are lines, whatever element carries them. */
+const LINE = /^(line|straightConnector\d*|bentConnector\d*|curvedConnector\d*)$/;
+/**
+ * A line's two ends from its box: a connector runs corner to corner of its
+ * `a:xfrm`, and the flips say which corners. Bent and curved connectors are
+ * drawn straight between the same two points.
+ */
+export function lineGeometry(box, { headArrow = false, tailArrow = false } = {}) {
+  if (!box) return null;
+  const x1 = box.flipH ? box.x + box.w : box.x, x2 = box.flipH ? box.x : box.x + box.w;
+  const y1 = box.flipV ? box.y + box.h : box.y, y2 = box.flipV ? box.y : box.y + box.h;
+  return { x1, y1, x2, y2, headArrow, tailArrow };
+}
+/**
+ * A shape's body as HTML. A paragraph is a bullet unless it says otherwise —
+ * PowerPoint's default, and right for a body placeholder — but inside a drawn
+ * box a single unmarked paragraph is the box's LABEL, not a list of one; only
+ * a real list, or several paragraphs, is the kind of body that wraps.
+ */
+export function shapeBodyHtml(blocks) {
+  if (blocks.length === 1 && blocks[0].kind === 'list' && blocks[0].items.length === 1) return `<p>${blocks[0].items[0].html}</p>`;
+  return blocks.map((b) => (b.kind === 'list' ? listHtml(b) : `<p>${b.html}</p>`)).join('');
+}
 
-const ROUND = /roundRect|round1Rect|round2SameRect|round2DiagRect|snip/;
-const OVAL = /ellipse|circle|oval|flowChartConnector|flowChartTerminator/;
+/**
+ * Drawn intent, per shape: geometry that was CHOSEN. A text box is never it
+ * (PowerPoint flags those), and a plain `rect` is what a text box is when the
+ * flag is missing — so only a preset other than rect, or custom geometry,
+ * says somebody was drawing rather than typing.
+ */
+export const drawnIntent = (s) => !s.textBox && (!!s.custom || (!!s.prst && s.prst !== 'rect'));
+
+const ROUND = /roundRect|round1Rect|round2SameRect|round2DiagRect|snip|Callout|^can$|flowChartProcess/;
+const OVAL = /ellipse|circle|oval|cloud|flowChartConnector|flowChartTerminator/;
 const DIAMOND = /diamond|flowChartDecision/;
 const TRIANGLE = /triangle/;
+/**
+ * The presets people actually draw with, as polygons on the unit box. The
+ * adjust handles (how deep a chevron's notch is, how wide an arrow's shaft)
+ * are ignored: these are themed approximations of a shape's KIND, which is
+ * what a diagram is read by. Anything else falls back to a rectangle.
+ */
+export const POLYGONS = {
+  chevron: [[0, 0], [.8, 0], [1, .5], [.8, 1], [0, 1], [.2, .5]],
+  homePlate: [[0, 0], [.8, 0], [1, .5], [.8, 1], [0, 1]],
+  rightArrow: [[0, .25], [.6, .25], [.6, 0], [1, .5], [.6, 1], [.6, .75], [0, .75]],
+  leftArrow: [[1, .25], [.4, .25], [.4, 0], [0, .5], [.4, 1], [.4, .75], [1, .75]],
+  upArrow: [[.25, 1], [.25, .4], [0, .4], [.5, 0], [1, .4], [.75, .4], [.75, 1]],
+  downArrow: [[.25, 0], [.25, .6], [0, .6], [.5, 1], [1, .6], [.75, .6], [.75, 0]],
+  leftRightArrow: [[0, .5], [.3, 0], [.3, .25], [.7, .25], [.7, 0], [1, .5], [.7, 1], [.7, .75], [.3, .75], [.3, 1]],
+  hexagon: [[.25, 0], [.75, 0], [1, .5], [.75, 1], [.25, 1], [0, .5]],
+  pentagon: [[.5, 0], [1, .38], [.81, 1], [.19, 1], [0, .38]],
+  parallelogram: [[.25, 0], [1, 0], [.75, 1], [0, 1]],
+  trapezoid: [[.25, 0], [.75, 0], [1, 1], [0, 1]],
+  plus: [[.33, 0], [.67, 0], [.67, .33], [1, .33], [1, .67], [.67, .67], [.67, 1], [.33, 1], [.33, .67], [0, .67], [0, .33], [.33, .33]],
+  star5: [[.5, 0], [.62, .38], [1, .38], [.69, .62], [.81, 1], [.5, .76], [.19, 1], [.31, .62], [0, .38], [.38, .38]],
+  star4: [[.5, 0], [.62, .38], [1, .5], [.62, .62], [.5, 1], [.38, .62], [0, .5], [.38, .38]],
+};
 
 /**
  * The shapes and connectors of a slide, as one drawing — or null when what is
@@ -536,16 +607,27 @@ const TRIANGLE = /triangle/;
  * which is drawing a diagram and not laying out a caption. Two shapes and one
  * attached connector is the floor.
  */
-export function asDrawing(shapes, links) {
+export function asDrawing(shapes, links, { mode = 'strict' } = {}) {
+  if (mode === 'text') return null;
   const joined = links.filter((l) => l.from != null && l.to != null);
-  if (shapes.length < 2 || !joined.length) return null;
+  // a line that is not attached at both ends still has a place on the slide,
+  // and is drawn from it
+  const loose = links.filter((l) => !(l.from != null && l.to != null) && l.geo);
+  const attached = shapes.length >= 2 && joined.length > 0;
+  // `auto` believes the shapes themselves: two placed shapes of which one was
+  // DRAWN (a chevron, an ellipse, a hand-drawn outline), or a loose line among
+  // them, is an arrangement. Two text boxes side by side are still a layout.
+  const intent = mode === 'auto' && shapes.length >= 2 && (shapes.some(drawnIntent) || loose.length > 0);
+  if (!attached && !intent) return null;
   const pad = 12;
   const xs = shapes.map((s) => s.box);
-  const minX = Math.min(...xs.map((b) => b.x)) - pad;
-  const minY = Math.min(...xs.map((b) => b.y)) - pad;
-  const maxX = Math.max(...xs.map((b) => b.x + b.w)) + pad;
-  const maxY = Math.max(...xs.map((b) => b.y + b.h)) + pad;
-  return { shapes, links, box: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
+  const px = [...xs.map((b) => b.x), ...loose.flatMap((l) => [l.geo.x1, l.geo.x2])];
+  const py = [...xs.map((b) => b.y), ...loose.flatMap((l) => [l.geo.y1, l.geo.y2])];
+  const qx = [...xs.map((b) => b.x + b.w), ...loose.flatMap((l) => [l.geo.x1, l.geo.x2])];
+  const qy = [...xs.map((b) => b.y + b.h), ...loose.flatMap((l) => [l.geo.y1, l.geo.y2])];
+  const minX = Math.min(...px) - pad, minY = Math.min(...py) - pad;
+  const maxX = Math.max(...qx) + pad, maxY = Math.max(...qy) + pad;
+  return { shapes, links, loose, box: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
 }
 
 /** Where a line from `b` towards `to` leaves b's box — its edge, not its middle. */
@@ -561,11 +643,17 @@ function edgePoint(b, to) {
 }
 
 /** A drawing as a themed SVG, in the coordinates the slide used. */
-export function drawingSvg({ shapes, links, box }) {
+export function drawingSvg({ shapes, links, loose = [], box }) {
   const at = (b) => ({ x: b.x - box.x, y: b.y - box.y, w: b.w, h: b.h });
   const byId = new Map(shapes.map((s) => [s.id, s]));
-  const arrow = `<defs><marker id="dwg-arrow" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto">`
+  // auto-start-reverse: the one marker serves both ends of a line
+  const arrow = `<defs><marker id="dwg-arrow" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto-start-reverse">`
     + `<polygon points="0 0, 6 2, 0 4" style="fill: var(--d-stroke)"/></marker></defs>`;
+  // lines with a place of their own — drawn where they were, arrowheads where
+  // the file put them, and stopped at nothing because they joined nothing
+  const free = loose.map(({ geo: g }) => `<line x1="${Math.round(g.x1 - box.x)}" y1="${Math.round(g.y1 - box.y)}"`
+    + ` x2="${Math.round(g.x2 - box.x)}" y2="${Math.round(g.y2 - box.y)}" stroke-width="2" style="stroke: var(--d-stroke)"`
+    + `${g.headArrow ? ' marker-start="url(#dwg-arrow)"' : ''}${g.tailArrow ? ' marker-end="url(#dwg-arrow)"' : ''}/>`).join('');
 
   const lines = links.map((l) => {
     const a = byId.get(l.from), b = byId.get(l.to);
@@ -581,27 +669,45 @@ export function drawingSvg({ shapes, links, box }) {
   const boxes = shapes.map((s, i) => {
     const r = at(s.box);
     const [x, y, w, h] = [r.x, r.y, r.w, r.h].map(Math.round);
-    const fill = `var(--d-fill-${(i % 6) + 1})`;
+    // an outline somebody left unfilled is a region, not a box; filling it by
+    // palette slot would change what it says
+    const fill = s.noFill ? 'none' : `var(--d-fill-${(i % 6) + 1})`;
     const stroke = ` style="fill: ${fill}; stroke: var(--d-stroke)" stroke-width="2"`;
     let shape;
-    if (OVAL.test(s.prst)) shape = `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}"${stroke}/>`;
+    const poly = POLYGONS[s.prst];
+    if (poly) shape = `<polygon points="${poly.map(([px, py]) => `${Math.round(x + px * w)},${Math.round(y + py * h)}`).join(' ')}"${stroke}/>`;
+    else if (OVAL.test(s.prst)) shape = `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${w / 2}" ry="${h / 2}"${stroke}/>`;
     else if (DIAMOND.test(s.prst)) shape = `<polygon points="${x + w / 2},${y} ${x + w},${y + h / 2} ${x + w / 2},${y + h} ${x},${y + h / 2}"${stroke}/>`;
     else if (TRIANGLE.test(s.prst)) shape = `<polygon points="${x + w / 2},${y} ${x + w},${y + h} ${x},${y + h}"${stroke}/>`;
     else shape = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${ROUND.test(s.prst) ? 10 : 3}"${stroke}/>`;
-    const lines_ = wrapLines(s.plain, Math.max(6, Math.floor(w / 8.4))).slice(0, 4);
-    const first = y + h / 2 - ((lines_.length - 1) * 18) / 2 + 5;
-    const text = lines_.length
-      ? `<text text-anchor="middle" font-size="14" font-weight="600"`
+    // Four short lines of <text> is a label. More than that, or a list, or
+    // several paragraphs, is a box with something to SAY — and <text> cannot
+    // wrap, so it went in as HTML that can, never as four lines and silence.
+    const lines_ = wrapLines(s.plain, Math.max(6, Math.floor(w / 8.4)));
+    const wordy = !!s.html && (lines_.length > 4 || /<(ul|ol)\b/.test(s.html) || (s.html.match(/<p>/g) ?? []).length > 1);
+    let text = '';
+    if (wordy) {
+      text = `<foreignObject x="${x}" y="${y}" width="${w}" height="${h}">`
+        + `<div xmlns="http://www.w3.org/1999/xhtml" class="dwg-text">${s.html}</div></foreignObject>`;
+    } else if (lines_.length) {
+      const first = y + h / 2 - ((lines_.length - 1) * 18) / 2 + 5;
+      text = `<text text-anchor="middle" font-size="14" font-weight="600"`
         + ` style="font-family: var(--font-body); fill: var(--d-text)">`
         + lines_.map((t, k) => `<tspan x="${Math.round(x + w / 2)}" y="${Math.round(first + k * 18)}">${escapeHtml(t)}</tspan>`).join('')
-        + `</text>`
-      : '';
-    return `<g>${shape}${text}</g>`;
+        + `</text>`;
+    }
+    // rotation about the shape's own centre, and a flip as a mirror through it
+    const cx = x + w / 2, cy = y + h / 2;
+    const ops = [];
+    if (s.rot) ops.push(`rotate(${Math.round(s.rot * 100) / 100} ${cx} ${cy})`);
+    if (s.box.flipH || s.box.flipV) ops.push(`translate(${cx} ${cy}) scale(${s.box.flipH ? -1 : 1} ${s.box.flipV ? -1 : 1}) translate(${-cx} ${-cy})`);
+    const transform = ops.length ? ` transform="${ops.join(' ')}"` : '';
+    return `<g${transform}>${shape}${text}</g>`;
   }).join('');
 
   const label = shapes.map((s) => s.plain).filter(Boolean).join(', ');
   return `<svg viewBox="0 0 ${Math.round(box.w)} ${Math.round(box.h)}" width="${Math.round(Math.min(box.w, 960))}"`
-    + ` role="img" aria-label="${escapeHtml(label || 'diagram')}">${arrow}${lines}${boxes}</svg>`;
+    + ` role="img" aria-label="${escapeHtml(label || 'diagram')}">${arrow}${free}${lines}${boxes}</svg>`;
 }
 
 /**
@@ -611,7 +717,7 @@ export function drawingSvg({ shapes, links, box }) {
  * order the slide did. Groups are walked into: a shape inside a group is still
  * content, and skipping groups loses whole slides' worth of text.
  */
-export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0 } = {}) {
+export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0, shapes: mode = 'strict' } = {}) {
   const doc = parseXml(xml);
   const sld = find(doc, 'p:sld');
   const hidden = sld?.attrs.show === '0';
@@ -646,6 +752,8 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
         links.push({
           from: cxn && find(cxn, 'a:stCxn')?.attrs.id,
           to: cxn && find(cxn, 'a:endCxn')?.attrs.id,
+          // its own place, for when it is attached at neither end
+          geo: lineGeometry(shapeBox(node, frames), lineEnds(node)),
         });
         continue;
       }
@@ -665,13 +773,26 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
         let placed = false;
         if (!ph) {
           const box = shapeBox(node, frames);
+          const prst = presetOf(node);
+          // a line drawn as a shape is a line: it joins the connectors, not the boxes
+          if (box && LINE.test(prst)) {
+            links.push({ from: null, to: null, geo: lineGeometry(box, lineEnds(node)) });
+            continue;
+          }
           if (box) {
             placed = true;
             drawn.push({
               id: find(node, 'p:cNvPr')?.attrs.id,
               box,
-              prst: presetOf(node),
+              prst,
+              textBox: isTextBox(node),
+              custom: hasCustomGeometry(node),
+              noFill: hasNoFill(node),
+              rot: rotationOf(node),
               plain: txBody ? textOf(txBody).replace(/\s+/g, ' ').trim() : '',
+              // the body as the HTML it would have been on the slide, for a box
+              // with more to say than a label
+              html: txBody ? shapeBodyHtml(bodyBlocks(txBody, { rels })) : '',
               at: blocks.length,
             });
           }
@@ -762,7 +883,7 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
   // a diagram. When it holds, the shapes' own text blocks give way to the
   // picture that has them in it; when it does not, nothing changes except that
   // the slide now SAYS its arrangement did not survive.
-  const drawing = asDrawing(drawn, links);
+  const drawing = asDrawing(drawn, links, { mode });
   if (drawing) {
     const at = blocks.findIndex((b) => b.placed);
     const kept = blocks.filter((b) => !b.placed);
@@ -774,8 +895,13 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
     // Said only when the slide LOOKED like a drawing — three placed shapes, or
     // two with a line between them. Two text boxes side by side is a layout,
     // and warning about every one of those is how a report stops being read.
-    if (drawn.length >= 3 || (drawn.length >= 2 && links.length)) {
-      drop(`${drawn.length} drawn shapes came across as text — their arrangement did not (SPEC SVG_DIAGRAMS)`);
+    // …unless text was asked for by name, in which case that IS the answer.
+    // Under strict, a slide that auto WOULD draw is worth a line on its own:
+    // that is the one case where the fix is a flag rather than a redraw.
+    const auto = mode === 'strict' && !!asDrawing(drawn, links, { mode: 'auto' });
+    if (mode !== 'text' && (auto || drawn.length >= 3 || (drawn.length >= 2 && links.length))) {
+      drop(`${drawn.length} drawn shapes came across as text — their arrangement did not (SPEC SVG_DIAGRAMS)`
+        + (auto ? ' · --shapes auto would draw it' : ''));
     }
   }
 
@@ -845,7 +971,8 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
       parts.push(`      ${html}`);
     } else if (b.kind === 'drawing') {
       const n = b.drawing.shapes.length;
-      did.push(`${n} drawn shapes as an SVG diagram`);
+      const k = b.drawing.loose?.length ?? 0;
+      did.push(`${n} drawn shapes${k ? ` and ${k} line${k === 1 ? '' : 's'}` : ''} as an SVG diagram`);
       parts.push(`      ${drawingSvg(b.drawing)}`);
     } else if (b.kind === 'image') {
       did.push(`image inlined (${Math.round(b.bytes.length / 1024)} KB)`);
