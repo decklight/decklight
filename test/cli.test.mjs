@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { resolveTitle, planGit, planSkill, initRepo, epilogue, openCommand, openDeck } from '../cli/init.mjs';
 import { createRepo, inGitRepo, STARTER_GITIGNORE } from '../cli/edit.mjs';
-import { deckHistory, restoreDeck } from '../cli/restore.mjs';
+import { deckAt, deckHistory, restoreDeck } from '../cli/restore.mjs';
 import * as restoreMod from '../cli/restore.mjs';
 import { packSkill } from '../cli/skills.mjs';
 import { zipSync, crc32 } from '../cli/zip.mjs';
@@ -1036,6 +1036,33 @@ test('restore preserves the file byte for byte, trailing newline included', (t) 
 
   restoreDeck(deck, g(['rev-parse', '--short', 'HEAD~1']).trim(), dir);
   assert.equal(fs.readFileSync(deck, 'utf8'), exact, 'whitespace is content');
+});
+
+// ── #508: a deck bigger than Node's 1 MB stdout cap ──────────────────────
+//
+// `execFileSync` does not truncate past `maxBuffer` — it THROWS `ENOBUFS`, and
+// every caller here read that as "no such revision". Single-file decks are over
+// that cap as a matter of course (the runtime, the themes and the talk in one
+// file), so this was every large deck's history: a preview that drew black and
+// a restore that could not complete. The padding is a comment, so the bytes are
+// content git must hand back byte for byte rather than something it can pack
+// away to nothing.
+const BIG = `<p>one</p>\n<!-- ${'pad '.repeat(420_000)}-->\n`;
+
+test('a deck over 1MB previews and restores — the buffer cap is not a missing revision', (t) => {
+  const { dir, deck, g } = restoreRepo();
+  t.after(() => rmTemp(dir));
+  fs.writeFileSync(deck, BIG);
+  g(['commit', '-qam', 'big']);
+  assert.ok(fs.statSync(deck).size > 1024 * 1024, 'the fixture must exceed the default cap');
+  fs.writeFileSync(deck, '<p>after</p>\n');
+  g(['commit', '-qam', 'small again']);
+
+  const big = g(['rev-parse', '--short', 'HEAD~1']).trim();
+  assert.equal(deckAt(deck, big, dir), BIG, 'the preview reads the whole blob');
+  const res = restoreDeck(deck, big, dir);
+  assert.equal(res.changed, true);
+  assert.equal(fs.readFileSync(deck, 'utf8'), BIG, 'restored byte for byte');
 });
 
 test('an unknown ref fails before anything is written', (t) => {
