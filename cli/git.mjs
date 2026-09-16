@@ -10,9 +10,21 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve, basename } from 'node:path';
 
+/**
+ * How much a git command may print before Node gives up on it.
+ *
+ * `execFileSync` caps stdout at 1 MB unless told otherwise, and a bundled deck
+ * is routinely bigger than that — the runtime, the themes and the talk in one
+ * file. Past the cap the call does not truncate, it THROWS `ENOBUFS`, which
+ * read as "no such revision" two layers up and painted the history preview
+ * black for every large deck (#508). 128 MB is the number `decorateHistory`
+ * already picked for the same reason; this is that decision, named once.
+ */
+export const GIT_MAX_BUFFER = 128 * 1024 * 1024;
+
 /** Run git in `cwd`, return trimmed stdout; throws on failure (stderr on e.stderr). */
 export const git = (args, cwd, exec = execFileSync) =>
-  exec('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  exec('git', args, { cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 /** Is `dir` inside a git work tree? (exec injectable for tests) */
 export function inGitRepo(dir, exec = execFileSync) {

@@ -234,6 +234,29 @@ export const EXPORT_KINDS = {
 };
 
 /**
+ * The preview frame's failure, as a page rather than as a bare line of text.
+ *
+ * This frame is 700px of dark chrome inside the history dialog, and a
+ * plain-text body rendered in it reads as a black rectangle — which is how
+ * #508 looked to everyone who hit it. Styled here, in the server's own words,
+ * so the panel needs no failure branch of its own: whatever went wrong is
+ * legible in the place somebody is already looking.
+ */
+export function previewError(why) {
+  return `<!doctype html><meta charset="utf-8"><title>preview unavailable</title>
+<style>
+  :root { color-scheme: dark light; }
+  body { margin: 0; display: grid; place-items: center; min-height: 100vh;
+    background: #16181d; color: #e8eaee; font: 14px/1.6 system-ui, sans-serif; }
+  .box { max-width: 34em; padding: 24px; text-align: center; }
+  h1 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  p { margin: 0; opacity: .7; }
+</style>
+<div class="box"><h1>this version could not be previewed</h1><p>${escapeHtml(why)}</p></div>
+`;
+}
+
+/**
  * What is wrong with a video export request, or null. Every field comes from a
  * page, so every one is checked before anything runs.
  *
@@ -1456,9 +1479,23 @@ export async function editMain(args, { onListen = null } = {}) {
       const html = withBaseHref(deckAt(deckPath, url.searchParams.get('ref') || '', root));
       res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
       return res.end(html);
-    } catch {
-      res.writeHead(404, { ...CORS, 'content-type': 'text/plain' });
-      return res.end('no such revision of this deck');
+    } catch (e) {
+      // Two different failures, and answering both with the same 404 is how
+      // #508 hid for a release: a deck over Node's stdout cap threw ENOBUFS
+      // here, was reported as a missing revision, and the preview iframe drew
+      // a bare 404 body as a black rectangle. A ref git does not know is the
+      // only 404; anything else is this server's problem and says so — in the
+      // terminal, and in the frame, which is where somebody is looking.
+      // git's own two ways of saying "not here": `invalid object name 'x'` for a
+      // ref it cannot resolve, `path 'x' does not exist in 'HEAD'` for a deck that
+      // was not in that commit. Everything else — ENOBUFS above all (#508) — is a
+      // failure of this server, not a missing revision, and must not wear a 404.
+      const missing = /invalid object name|unknown revision|does not exist in|exists on disk, but not in/i
+        .test(String(e.stderr || e.message || e));
+      const why = missing ? 'no such revision of this deck' : oneline(e);
+      if (!missing) console.log(`  history: previewing ${basename(deckPath)} failed — ${why}`);
+      res.writeHead(missing ? 404 : 500, { ...CORS, 'content-type': 'text/html; charset=utf-8' });
+      return res.end(previewError(why));
     }
   }
 

@@ -26,7 +26,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { resolve, dirname, relative, basename } from 'node:path';
 import { isMain } from '../tools/args.mjs';
-import { git, inGitRepo, isIdentityError, oneline } from './git.mjs';
+import { git, inGitRepo, isIdentityError, oneline, GIT_MAX_BUFFER } from './git.mjs';
 
 // A control character, written as an escape so no editor can silently strip
 // it: a commit subject may contain any printable character, so a printable
@@ -155,7 +155,7 @@ export function decorateHistory(entries, deckPath, cwd, {
     const buf = exec('git', ['cat-file', '--batch'], {
       cwd,
       input: heads.map((h) => `${h}:${rel}\n`).join(''),
-      maxBuffer: 128 * 1024 * 1024,
+      maxBuffer: GIT_MAX_BUFFER,
       stdio: ['pipe', 'pipe', 'ignore'],
     });
     const slides = parseCatFileBatch(buf, heads);
@@ -173,9 +173,16 @@ export function formatEntry({ hash, when, subject }, pad = 14) {
  * Read the deck's content AT `ref` without going through git()'s trim — a
  * deck's trailing newline is content, and a restore that quietly reformats
  * the file is not a restore.
+ *
+ * `maxBuffer` is the whole of #508: a deck over Node's 1 MB default made this
+ * THROW `ENOBUFS` rather than return, which the preview route reported as
+ * "no such revision" and the panel drew as a black rectangle. Single-file
+ * decks are over that cap as a matter of course.
  */
 function showAt(ref, rel, cwd, exec = execFileSync) {
-  return exec('git', ['show', `${ref}:./${rel}`], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  return exec('git', ['show', `${ref}:./${rel}`], {
+    cwd, encoding: 'utf8', maxBuffer: GIT_MAX_BUFFER, stdio: ['ignore', 'pipe', 'pipe'],
+  });
 }
 
 /**

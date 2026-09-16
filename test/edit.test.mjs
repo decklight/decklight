@@ -1611,6 +1611,37 @@ test('/edit/export writes no subtitles for a render with nothing spoken, and say
   assert.match(log(), /subtitles: nothing is spoken in this render — none written/);
 });
 
+test('/edit/at previews a deck over 1MB, and says why when it cannot (#508)', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  // over Node's 1 MB execFileSync default, which used to throw ENOBUFS and be
+  // reported as a missing revision — a black rectangle in the history panel
+  const big = `${DECK}<!-- ${'pad '.repeat(420_000)}-->\n`;
+  writeFileSync(deck, big);
+  const g = (args) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  g(['init', '-q', '.']);
+  g(['config', 'user.email', 't@example.com']);
+  g(['config', 'user.name', 'Test']);
+  g(['add', '-A']);
+  g(['commit', '-qm', 'big deck']);
+  const at = g(['rev-parse', '--short', 'HEAD']).trim();
+  const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
+
+  const r = await fetch(`${base}/edit/at?ref=${at}&embedded`);
+  assert.equal(r.status, 200, 'a big deck is not a missing revision');
+  const html = await r.text();
+  assert.ok(html.length > 1024 * 1024, `the whole deck came back (${html.length} bytes)`);
+  assert.match(html, /<base href="\/">/, 'and it is the preview shape, with its base href');
+
+  // a ref git really does not know is still a 404 — but a legible one, because
+  // this body is rendered inside the preview frame
+  const missing = await fetch(`${base}/edit/at?ref=nosuchref&embedded`);
+  assert.equal(missing.status, 404);
+  const body = await missing.text();
+  assert.match(body, /no such revision of this deck/);
+  assert.match(body, /<!doctype html>/i, 'a page, not a bare line that renders as a black rectangle');
+});
+
 // The shape `decklight init` scaffolds: themes already inline, nothing left
 // for the bundler to flatten. It is the common deck to publish, and the one
 // `decklight publish` needs --no-bundle for — which the route works out rather
