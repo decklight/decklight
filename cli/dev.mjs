@@ -36,7 +36,9 @@ import {
 import { KEY_ENV as ELEVENLABS_KEY_ENV } from '../tools/elevenlabs-tts.mjs';
 import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
 import { detectLocalVoice } from '../tools/local-voice.mjs';
+import { relative } from 'node:path';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
+import { parseDeckSource, cloneDeck, findDeck } from './clone-deck.mjs';
 import { runMain } from './util.mjs';
 import { openUrl } from './open-browser.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
@@ -48,10 +50,18 @@ const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 // run directly. The dispatcher would refuse `edit` out loud.
 const EDIT = fileURLToPath(new URL('./edit.mjs', import.meta.url));
 
-const USAGE = `usage: decklight author <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+const USAGE = `usage: decklight author <deck.html | git url> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
+
+  A git URL clones the repository (in full — its history is the deck's) into
+  ./<repo>, finds the deck in it, and opens that; a directory already cloned
+  from the same remote is opened as it is. A GitHub link to the deck file
+  itself (…/blob/<branch>/<path>) names branch and deck at once; so does
+  <url>#<path>. Nothing is ever pushed.
+  --branch <ref>    the branch or tag to clone
+  --into <dir>      where to clone (default: ./<repo name>)
 
   --port N          edit server (live reload + edit write-back)       [8788]
                     (taken already? author offers to take over that session
@@ -100,6 +110,7 @@ const VALUE_FLAGS = new Set([
   '--rhubarb', '--portrait', '--wav2lip-dir', '--wav2lip-ckpt', '--sadtalker-dir',
   '--python', '--cache-dir', '--commit-every', '--agent', '--git-mode',
   '--veo-project', '--veo-model', '--veo-seconds', '--veo-prompt', '--veo-location', '--veo-face-y',
+  '--branch', '--into',
 ]);
 
 /**
@@ -312,12 +323,49 @@ export async function devMain(args) {
     process.exitCode = 2;
     return;
   }
-  const deck = plan.deck;
+  let deck = plan.deck;
   if (!deck) {
     console.error('decklight author needs a deck: decklight author <deck.html>\n');
     console.error(USAGE);
     process.exitCode = 1;
     return;
+  }
+  // A git URL: clone it (or open the clone already here), find the deck in
+  // it, and carry on as `decklight author <that path>` — in a repository, so
+  // `--git` is a fact rather than a question.
+  const { opt } = argReader(args);
+  let source = null;
+  try { source = parseDeckSource(deck, { branch: opt('--branch') }); } catch (e) {
+    console.error(`decklight author: ${e.message}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (source) {
+    let local;
+    try {
+      const { dir, reused } = cloneDeck(source, { into: opt('--into') });
+      // Said BEFORE the deck is looked for: a clone that happened is a fact
+      // worth knowing even when the pick fails — it is where the next try
+      // opens. stderr, like every line author says about itself; stdout is
+      // the URL's.
+      const at = relative(process.cwd(), dir) || dir;
+      console.error(reused ? `  already cloned — opening ${at}` : `  cloned ${source.url}${source.ref ? ` (${source.ref})` : ''} → ${at}`);
+      local = findDeck(dir, source.deck);
+      // The clone becomes the working directory. The edit server keeps its
+      // git in `process.cwd()` — so does every bridge it starts — and without
+      // this, `--git` created a fresh repository in the directory author was
+      // run from, with the clone nested inside it.
+      process.chdir(dir);
+      local = relative(dir, local);
+    } catch (e) {
+      console.error(`decklight author: ${e.message}`);
+      process.exitCode = 1;
+      return;
+    }
+    args = args.map((a) => (a === deck ? local : a)).filter((a, i, all) => !(a === '--branch' || a === '--into' || all[i - 1] === '--branch' || all[i - 1] === '--into'));
+    if (!args.includes('--no-git') && !args.includes('--git')) args.push('--git');
+    deck = local;
+    plan = planServices({ args, saved: loadTtsConfig() });
   }
   if (!existsSync(deck)) {
     console.error(`decklight author: no such deck: ${deck}`);
