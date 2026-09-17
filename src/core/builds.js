@@ -5,6 +5,8 @@
 // The container opts in; the engine claims children. A step is either a DOM
 // element or one unit of a registered provider's count.
 
+import { computeGroups, orderItem } from '../../tools/build-groups.mjs';
+
 const CONTAINER_TAGS = new Set(['UL', 'OL', 'TABLE', 'TBODY', 'DL', 'SVG']);
 const SVG_SKIP = new Set(['defs', 'title', 'desc', 'style', 'metadata']);
 
@@ -45,27 +47,9 @@ function stepSource(el) {
   return eligibleChildren(el);
 }
 
-// Pure sequencing: items = [{key, explicit}] in document/emission order.
-// Returns groups of item indices. Only explicit steps sharing a key merge.
-export function computeGroups(items) {
-  const indexed = items.map((it, i) => ({ ...it, i }));
-  indexed.sort((a, b) => a.key - b.key || a.i - b.i);
-  const groups = [];
-  let cur = null;
-  let curKey = null;
-  let curExplicit = false;
-  for (const it of indexed) {
-    if (cur && it.explicit && curExplicit && it.key === curKey) {
-      cur.push(it.i);
-      continue;
-    }
-    cur = [it.i];
-    curKey = it.key;
-    curExplicit = it.explicit;
-    groups.push(cur);
-  }
-  return groups;
-}
+// The click grouping rule lives in tools/build-groups.mjs, shared with
+// `decklight check` (#526); re-exported here for the engine's callers.
+export { computeGroups };
 
 function markStep(el, style) {
   el.classList.add('build-step');
@@ -464,10 +448,8 @@ export function scanSlide(section) {
   let auto = 0;
 
   const push = (step, orderAttr) => {
-    const explicit = orderAttr != null && orderAttr !== '';
-    const key = explicit ? parseInt(orderAttr, 10) : auto;
     steps.push(step);
-    items.push({ key: Number.isFinite(key) ? key : auto, explicit });
+    items.push(orderItem(orderAttr, auto));
     auto++;
   };
 

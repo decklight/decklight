@@ -39,6 +39,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
+import { computeGroups, orderItem } from '../tools/build-groups.mjs';
 import { findChrome, chromeArgs } from '../tools/chrome.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import {
@@ -263,19 +264,59 @@ function stepSource(node) {
  * all: a guess against a number nobody can know is a warning about nothing.
  */
 export function buildSteps(node) {
-  let steps = 0;
+  return buildItems(node).length;
+}
+
+/**
+ * The slide's build steps as the order items `computeGroups` takes — the
+ * static twin of `scanSlide`'s `push`: a container's children each one step
+ * keyed by their own `data-build-order`, a leaf one step keyed by its own; a
+ * stroke drawing in stages (`data-draw-stops`, #522) one step per stop, since
+ * its count is right there in the attribute, unlike a provider's.
+ */
+function buildItems(node) {
+  const items = [];
+  let auto = 0;
+  const push = (orderAttr) => { items.push(orderItem(orderAttr, auto)); auto++; };
+  const stops = (n) => parseDrawStops(readAttrs(n.attrs)['data-draw-stops']).length;
+  const stepsOf = (n) => {
+    const attrs = readAttrs(n.attrs);
+    if ('data-draw-stops' in attrs && stops(n)) { for (let i = 0; i < stops(n); i++) push(null); return; }
+    push(attrs['data-build-order']);
+  };
   const walk = (parent) => {
     for (const child of parent.children) {
       if (child.tag === 'aside' || OPAQUE_ELEMENTS.has(child.tag)) continue;
-      if ('data-build' in readAttrs(child.attrs)) {
-        if (isContainer(child)) { steps += stepSource(child).length; continue; }
-        steps += 1;    // a leaf is one step, and the engine keeps walking into it
+      const attrs = readAttrs(child.attrs);
+      if ('data-build' in attrs) {
+        if (isContainer(child)) { for (const c of stepSource(child)) stepsOf(c); continue; }
+        stepsOf(child);    // a leaf is one step, and the engine keeps walking into it
+      } else if ('data-draw-stops' in attrs && stops(child)) {
+        stepsOf(child);    // a staged stroke outside any build container is its own provider
+        continue;
       }
       walk(child);
     }
   };
   walk(node);
-  return steps;
+  return items;
+}
+
+/**
+ * How many CLICKS the slide's builds take — steps tied by a shared explicit
+ * `data-build-order` advance together (SPEC BUILD_SEMANTICS), so a slide with
+ * three steps in two ties takes two clicks, and its notes want three segments,
+ * not four (#526). The same `computeGroups` the runtime applies to the DOM.
+ */
+export function buildClicks(node) {
+  return computeGroups(buildItems(node)).length;
+}
+
+/** The stop count a `data-draw-stops` attribute declares (the runtime's `parseDrawStops`, without a length to clamp to). */
+function parseDrawStops(attr) {
+  const raw = String(attr ?? '').trim().split(/[\s,]+/).filter(Boolean);
+  const nums = raw.map((s) => parseFloat(s));
+  return nums.length && nums.every((n) => Number.isFinite(n) && n >= 0) ? nums : [];
 }
 
 /**
@@ -358,12 +399,14 @@ export function staticFindings(html, { dir = '.', exists = existsSync } = {}) {
     const tree = parseTree(inner);
     const segments = clickSegments(NOTES_ASIDE.exec(inner)?.[1]);
     const steps = buildSteps(tree);
+    const clicks = buildClicks(tree);
     // segments = clicks + 1, so a slide with one segment has no ⟨CLICK⟩ at all
     // and is making no claim about the builds.
-    if (segments > 1 && segments - 1 !== steps && !hasProvider(tree)) {
+    if (segments > 1 && segments - 1 !== clicks && !hasProvider(tree)) {
+      const tied = clicks !== steps ? ` (${steps} build steps, tied by data-build-order)` : '';
       out.push(finding('warn', 'clicks-vs-builds', slide, head,
-        `${segments} ⟨CLICK⟩ segment${segments === 1 ? '' : 's'} but ${steps} build step${steps === 1 ? '' : 's'}`
-        + ' — segment k narrates build step k, so the narration and the builds drift apart here'));
+        `${segments} ⟨CLICK⟩ segment${segments === 1 ? '' : 's'} but ${clicks} build click${clicks === 1 ? '' : 's'}${tied}`
+        + ' — segment k narrates click k, so the narration and the builds drift apart here'));
     }
   }
 
