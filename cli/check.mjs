@@ -281,7 +281,12 @@ function buildItems(node) {
   const stops = (n) => parseDrawStops(readAttrs(n.attrs)['data-draw-stops']).length;
   const stepsOf = (n) => {
     const attrs = readAttrs(n.attrs);
-    if ('data-draw-stops' in attrs && stops(n)) { for (let i = 0; i < stops(n); i++) push(null); return; }
+    if ('data-draw-stops' in attrs && stops(n)) {
+      // its stops count up from its data-build-order, when it has one (#524)
+      const base = parseInt(attrs['data-build-order'] ?? '', 10);
+      for (let i = 0; i < stops(n); i++) push(Number.isFinite(base) ? String(base + i) : null);
+      return;
+    }
     push(attrs['data-build-order']);
   };
   const walk = (parent) => {

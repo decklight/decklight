@@ -346,3 +346,15 @@ test('no deck at all prints the usage rather than guessing', async () => {
   assert.match(err, /needs a deck/);
   assert.match(err, /usage: decklight check/);
 });
+
+test('a staged stroke with data-build-order ties its stops to the elements sharing those keys (#524)', () => {
+  const svg = `<svg data-build="draw">
+    <line data-draw-stops="327 522 747" data-build-order="1"/>
+    <g data-build="fade-up" data-build-self data-build-order="1"><rect/></g>
+    <g data-build="fade-up" data-build-self data-build-order="2"><rect/></g>
+    <g data-build="fade-up" data-build-self data-build-order="3"><rect/></g>
+  </svg>`;
+  assert.equal(buildSteps(parseTree(svg)), 6, 'three stops and three boxes…');
+  assert.equal(buildClicks(parseTree(svg)), 3, '…in three clicks');
+  assert.equal(buildClicks(parseTree(svg.replace(' data-build-order="1"/>', '/>'))), 6, 'without the order the stops keep their own places');
+});

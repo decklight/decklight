@@ -51,6 +51,12 @@ function stepSource(el) {
 // `decklight check` (#526); re-exported here for the engine's callers.
 export { computeGroups };
 
+/** The explicit order a provider's steps count up from, or null when it has none. */
+function orderBase(el) {
+  const n = parseInt(el.getAttribute('data-build-order') ?? '', 10);
+  return Number.isFinite(n) ? n : null;
+}
+
 function markStep(el, style) {
   el.classList.add('build-step');
   el.setAttribute('data-build-style', style);
@@ -463,8 +469,11 @@ export function scanSlide(section) {
       if (provider) registerProvider(el, provider);
     }
     if (provider) {
+      // a provider element carrying data-build-order gives its steps the keys
+      // N, N+1, … so a DOM step sharing one advances with that step (#524)
+      const base = orderBase(el);
       for (let sub = 0; sub < provider.count; sub++) {
-        push({ kind: 'provider', provider, el, sub }, null);
+        push({ kind: 'provider', provider, el, sub }, base === null ? null : String(base + sub));
       }
       // provider element subtree is opaque to further build scanning
       el.querySelectorAll('*').forEach((d) => claimed.add(d));
@@ -482,7 +491,8 @@ export function scanSlide(section) {
           const stops = providerRegistry.get(child) ?? drawStopsProvider(child);
           if (stops) {
             registerProvider(child, stops);
-            for (let sub = 0; sub < stops.count; sub++) push({ kind: 'provider', provider: stops, el: child, sub }, null);
+            const base = orderBase(child);
+            for (let sub = 0; sub < stops.count; sub++) push({ kind: 'provider', provider: stops, el: child, sub }, base === null ? null : String(base + sub));
             continue;
           }
         }
