@@ -405,15 +405,16 @@ test('a line that LANDS on two shapes is attached to them under auto — directi
   assert.equal(d.loose.length, 0, 'not loose any more');
   const link = d.links.find((l) => l.inferred);
   assert.deepEqual([link.from, link.to], ['2', '3']);
-  // …and drawn edge to edge like a snapped connector, arrow at b
+  // …and drawn where the file drew it — here edge to edge — arrow at b
   assert.match(drawingSvg(d), /<line x1="212" y1="57" x2="372" y2="57"[^>]*marker-end="url\(#dwg-arrow\)"/);
   assert.ok(!/marker-start/.test(drawingSvg(d)));
 
-  // within 8px counts; a head-only arrow points backwards, so the ends swap
+  // within 8px counts; a head-only arrow points backwards, so the ends swap —
+  // and the line is still drawn exactly where the file drew it, head at its start
   const back = parse(boxes + looseLine(9, 246, 245, 148, 0, { tail: null, head: 'triangle' }), 'auto').blocks[0].drawing;
   const l2 = back.links.find((l) => l.inferred);
   assert.deepEqual([l2.from, l2.to], ['3', '2']);
-  assert.match(drawingSvg(back), /<line x1="372" y1="57" x2="212" y2="57"[^>]*marker-end/);
+  assert.match(drawingSvg(back), /<line x1="218" y1="57" x2="366" y2="57"[^>]*marker-start="url\(#dwg-arrow\)"\/>/);
   // a plain line between them is a line, not an arrow; arrows at both ends are both
   const plain = drawingSvg(parse(boxes + looseLine(9, 240, 245, 160, 0, { tail: null }), 'auto').blocks[0].drawing);
   assert.ok(!/marker-/.test(plain), 'no head asked for, none drawn');
@@ -892,6 +893,36 @@ test('a PowerPoint hidden slide is kept as a hidden decklight slide, not dropped
   assert.match(slideSection(shown).html, /^\s*<section>/);
 });
 
+// ── two text boxes side by side: the split layout, not a list of two lists ───
+test('two text boxes side by side cross as the split layout — left column first, whatever the file said', () => {
+  const two = (leftFirst) => {
+    const l = sp2(2, 40, 200, 300, 200, 'rect', 'left one', { txBox: true, body: '<p:txBody><a:p><a:r><a:t>left one</a:t></a:r></a:p><a:p><a:r><a:t>left two</a:t></a:r></a:p></p:txBody>' });
+    const r = sp2(3, 400, 210, 300, 200, 'rect', 'right one', { txBox: true });
+    return leftFirst ? l + r : r + l;
+  };
+  const slide = parse(two(false));
+  assert.equal(slide.layout, 'split');
+  assert.deepEqual(slide.blocks.map((b) => [b.kind, b.column]), [['list', 0], ['list', 1]], 'left first, though the file listed the right box first');
+  const { html, did } = slideSection(slide);
+  assert.match(html, /<section data-layout="split">/);
+  assert.match(html, /<div>\n\s+<ul><li>left one<\/li><li>left two<\/li><\/ul>\n\s+<\/div>\n\s+<div>\n\s+<ul><li>right one<\/li><\/ul>\n\s+<\/div>/);
+  assert.ok(did.includes('two columns'));
+  assert.ok(!slide.blocks.some((b) => 'placed' in b), 'no bookkeeping leaks');
+
+  // not a comparison: three boxes, a stacked pair, an empty partner, a box with nothing placed beside it
+  const three = parse(two(true) + sp2(4, 760, 200, 200, 200, 'rect', 'third', { txBox: true }));
+  assert.equal(three.layout, null);
+  const stacked = parse(sp2(2, 40, 100, 300, 120, 'rect', 'top', { txBox: true }) + sp2(3, 40, 300, 300, 120, 'rect', 'bottom', { txBox: true }));
+  assert.equal(stacked.layout, null);
+  const empty = parse(sp2(2, 40, 200, 300, 200, 'rect', 'words', { txBox: true }) + sp2(3, 400, 200, 300, 200, 'rect', '', { txBox: true }));
+  assert.equal(empty.layout, null);
+  assert.doesNotMatch(slideSection(three).html, /data-layout/);
+  // a drawing is a drawing, never columns: two boxes with a snapped arrow
+  const drawn = parse(sp2(2, 40, 200, 200, 90, 'rect', 'a') + sp2(3, 400, 200, 200, 90, 'rect', 'b') + cxnXml(5, 2, 3));
+  assert.equal(drawn.layout, null);
+  assert.deepEqual(drawn.blocks.map((b) => b.kind), ['drawing']);
+});
+
 // ── the shape fixture: what PowerPoint writes, not what a test typed ─────────
 
 test('the shape fixture carries the markers the rule reads — written by the library, not by hand', () => {
@@ -920,8 +951,10 @@ test('the shape fixture, under the default: every arrangement crosses, every lay
   assert.match(did(4), /2 drawn shapes and 2 lines and 1 image as an SVG diagram/);
   // 5: a hand-drawn blob, three presets, a wordy box
   assert.match(did(5), /5 drawn shapes as an SVG diagram/);
-  // 6: two text boxes of bullets — a layout, and silent about it
-  assert.match(did(6), /4 bullets/); assert.doesNotMatch(did(6), /SVG diagram/); assert.deepEqual(report[5].drops, []);
+  // 6: two text boxes of bullets — a layout, and it crosses as one: two columns
+  assert.match(did(6), /4 bullets/); assert.match(did(6), /two columns/); assert.doesNotMatch(did(6), /SVG diagram/); assert.deepEqual(report[5].drops, []);
+  assert.match(sections[5], /<section data-layout="split">/);
+  assert.match(sections[5], /<div>\n\s+<ul><li>left one<\/li><li>left two<\/li><\/ul>\n\s+<\/div>\n\s+<div>\n\s+<ul><li>right one<\/li><li>right two<\/li><\/ul>/);
   assert.ok(!report.some((r) => r.drops.length), `nothing dropped: ${JSON.stringify(report.map((r) => r.drops))}`);
 });
 
@@ -936,6 +969,10 @@ test('the shape fixture, slide 3: a group placed where it was dragged, a line at
   assert.match(svg, /<g><g transform="translate\(166 324\) scale\(-1 1\) translate\(-166 -324\)"><polygon[^>]*\/><\/g><text/, 'the arrow is mirrored; its label is not');
   assert.equal((svg.match(/<line /g) || []).length, 2, 'the snapped arrow and the merely-drawn one');
   assert.equal((svg.match(/marker-end/g) || []).length, 2, 'both arrows keep their heads');
+  // the merely-drawn line was vertical in the file (cx="0"): it stays vertical,
+  // not re-drawn centre to centre between two boxes whose centres differ by a hair
+  const vertical = (svg.match(/<line x1="(\d+)" y1="\d+" x2="(\d+)"/g) || []).map((m) => m.match(/x1="(\d+)".*x2="(\d+)"/).slice(1));
+  assert.ok(vertical.some(([x1, x2]) => x1 === x2), `one of the lines is vertical: ${JSON.stringify(vertical)}`);
   assert.match(svg, /rx="10"[^>]*\/><text[^>]*><tspan[^>]*>Ledger/, 'a can is a rounded box');
   assert.match(svg, /<polygon points="536,281 661,356 536,431 411,356"/, 'the diamond');
 });

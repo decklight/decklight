@@ -630,6 +630,30 @@ export function attachLoose(shapes, links, tol = 8) {
 }
 
 /**
+ * Two text boxes SIDE BY SIDE are a layout — and the layout is worth keeping.
+ * The importer used to keep only their words, flowed one under the other,
+ * which turned every comparison slide into a list of two lists. decklight has
+ * a `split` layout (two sibling blocks as columns, PRESENTING), so the pair
+ * crosses as one: the two boxes, in left-to-right order, or null.
+ *
+ * Exactly two text-bearing placed shapes, both with something in them, each
+ * entirely left of or right of the other (8px of slack), overlapping in
+ * height by at least half the shorter one. A third box, a stacked pair or an
+ * empty one is not a comparison.
+ */
+export function twoColumns(shapes, blocks) {
+  // a column is a text box or a plain rectangle with words in it — a chevron
+  // beside a box is a drawing that did not qualify, not a comparison
+  const text = shapes.filter((s) => !s.image && s.plain && !drawnIntent(s) && blocks.some((b) => b.placed === s));
+  if (text.length !== 2 || shapes.some((s) => !s.image && s.plain && !text.includes(s))) return null;
+  const [a, b] = [...text].sort((p, q) => p.box.x - q.box.x);
+  if (a.box.x + a.box.w > b.box.x + 8) return null;
+  const overlap = Math.min(a.box.y + a.box.h, b.box.y + b.box.h) - Math.max(a.box.y, b.box.y);
+  if (overlap < Math.min(a.box.h, b.box.h) / 2) return null;
+  return [a, b];
+}
+
+/**
  * Drawn intent, per shape: geometry that was CHOSEN. A text box is never it
  * (PowerPoint flags those), and a plain `rect` is what a text box is when the
  * flag is missing — so only a preset other than rect, or custom geometry,
@@ -731,17 +755,27 @@ export function drawingSvg({ shapes, links, loose = [], box }) {
   const lines = links.map((l) => {
     const a = byId.get(l.from), b = byId.get(l.to);
     if (!a || !b) return '';
+    const g = l.geo;
+    // A connector with geometry of its own is drawn WHERE THE FILE DREW IT,
+    // its arrowheads where the file put them. Drawing it centre to centre
+    // instead turned a line that was perfectly vertical in PowerPoint into
+    // a slanted one whenever the two boxes' centres differed by a hair —
+    // which they always do. Centre to centre, clipped at the edges, stays
+    // only for a connector with no geometry (older fixtures, tests), which
+    // is an arrow.
+    if (g) {
+      const start = g.headArrow ? ' marker-start="url(#dwg-arrow)"' : '';
+      const end = g.tailArrow ? ' marker-end="url(#dwg-arrow)"' : '';
+      return `<line x1="${Math.round(g.x1 - box.x)}" y1="${Math.round(g.y1 - box.y)}"`
+        + ` x2="${Math.round(g.x2 - box.x)}" y2="${Math.round(g.y2 - box.y)}"`
+        + ` stroke-width="2" style="stroke: var(--d-stroke)"${start}${end}/>`;
+    }
     const ca = { x: a.box.x + a.box.w / 2, y: a.box.y + a.box.h / 2 };
     const cb = { x: b.box.x + b.box.w / 2, y: b.box.y + b.box.h / 2 };
     const p1 = edgePoint(a.box, cb), p2 = edgePoint(b.box, ca);
-    // a connector with no geometry of its own (older fixtures, tests) is an
-    // arrow; one that says which ends carry a head is believed
-    const g = l.geo;
-    const start = g?.headArrow && g?.tailArrow ? ' marker-start="url(#dwg-arrow)"' : '';
-    const end = !g || g.tailArrow || g.headArrow ? ' marker-end="url(#dwg-arrow)"' : '';
     return `<line x1="${Math.round(p1.x - box.x)}" y1="${Math.round(p1.y - box.y)}"`
       + ` x2="${Math.round(p2.x - box.x)}" y2="${Math.round(p2.y - box.y)}"`
-      + ` stroke-width="2" style="stroke: var(--d-stroke)"${start}${end}/>`;
+      + ` stroke-width="2" style="stroke: var(--d-stroke)" marker-end="url(#dwg-arrow)"/>`;
   }).join('');
 
   let slot = 0;   // palette slots go to shapes; a picture brings its own colours
@@ -827,6 +861,7 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
   let title = null;
   let titleIsH1 = false;
   let subtitle = null;
+  let layout = null;   // 'split' when two text boxes sit side by side
   const blocks = [];
   const drawn = [];   // placed, non-placeholder shapes — a diagram, maybe
   const links = [];   // connectors, and which shapes they join
@@ -874,8 +909,9 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
             continue;
           }
           if (box) {
-            placed = true;
-            drawn.push({
+            // the block carries its SHAPE, not a flag: the drawing swap needs only
+            // truthiness, but the column pairing needs to know which box is which
+            drawn.push(placed = {
               id: find(node, 'p:cNvPr')?.attrs.id,
               box,
               prst,
@@ -996,6 +1032,20 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
     blocks.length = 0;
     blocks.push(...kept);
   } else {
+    // Not a drawing — but perhaps a comparison: two boxes side by side cross
+    // as the split layout's two columns, left first, whatever order the file
+    // listed them in. Anything else on the slide follows, as the footer.
+    const cols = twoColumns(drawn, blocks);
+    if (cols) {
+      layout = 'split';
+      for (const b of blocks) if (b.placed) b.column = cols.indexOf(b.placed);
+      // gathered BEFORE the list is emptied — a lazy filter here read an empty list
+      const left = blocks.filter((b) => b.column === 0);
+      const right = blocks.filter((b) => b.column === 1);
+      const rest = blocks.filter((b) => b.column == null || b.column < 0);
+      blocks.length = 0;
+      blocks.push(...left, ...right, ...rest);
+    }
     for (const b of blocks) delete b.placed;
     // Said only when the slide LOOKED like a drawing — three placed shapes, or
     // two with a line between them. Two text boxes side by side is a layout,
@@ -1011,7 +1061,7 @@ export function parseSlide(xml, { rels, mediaOf, chartOf, diagramOf, slideNo = 0
     }
   }
 
-  return { slideNo, hidden, title, titleIsH1, subtitle, blocks, drops };
+  return { slideNo, hidden, title, titleIsH1, subtitle, layout, blocks, drops };
 }
 
 /** The notes text of a notesSlide part — the body placeholder, paragraph per line. */
@@ -1049,6 +1099,9 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
   }
   if (slide.subtitle) parts.push(`      <p>${slide.subtitle}</p>`);
 
+  const head = parts.length;
+  const cols = [[], []];
+  const push = (b, html) => (b.column === 0 || b.column === 1 ? cols[b.column] : parts).push(html);
   let bullets = 0;
   for (const b of slide.blocks) {
     if (b.kind === 'list') {
@@ -1056,37 +1109,41 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
       // --build all forces it on, none forces it off; auto follows PowerPoint's
       // own per-paragraph build list
       const on = build === 'all' || (build === 'auto' && b.build);
-      parts.push(`      ${listHtml(b, { build: on ? 'fade-up' : null })}`);
+      push(b, `      ${listHtml(b, { build: on ? 'fade-up' : null })}`);
     } else if (b.kind === 'p') {
-      parts.push(`      <p>${b.html}</p>`);
+      push(b, `      <p>${b.html}</p>`);
     } else if (b.kind === 'table') {
       const rows = children(b.node, 'a:tr');
       const cols = rows.length ? children(rows[0], 'a:tc').length : 0;
       did.push(`table ${rows.length}×${cols}`);
-      parts.push(`      ${tableHtml(b.node)}`);
+      push(b, `      ${tableHtml(b.node)}`);
     } else if (b.kind === 'chart') {
       const size = b.type === 'scatter'
         ? `${b.series.reduce((n, sr) => n + sr.points.length, 0)} points`
         : `${b.labels.length}`;
       did.push(`chart (${b.type}, ${b.series.length} series × ${size})`);
-      parts.push(`      ${chartHtml(b)}`);
+      push(b, `      ${chartHtml(b)}`);
     } else if (b.kind === 'diagram') {
       const { html, as } = diagramBlockHtml(b);
       const count = (function count(list) { return list.reduce((n, x) => n + 1 + count(x.children), 0); })(b.nodes);
       did.push(`SmartArt (${b.shape}, ${count} node${count === 1 ? '' : 's'}) as ${as}`);
-      parts.push(`      ${html}`);
+      push(b, `      ${html}`);
     } else if (b.kind === 'drawing') {
       const pics = b.drawing.shapes.filter((s) => s.image).length;
       const n = b.drawing.shapes.length - pics;
       const k = b.drawing.loose?.length ?? 0;
       const parts_ = [n ? `${n} drawn shape${n === 1 ? '' : 's'}` : '', k ? `${k} line${k === 1 ? '' : 's'}` : '', pics ? `${pics} image${pics === 1 ? '' : 's'}` : ''].filter(Boolean);
       did.push(`${parts_.join(' and ')} as an SVG diagram`);
-      parts.push(`      ${drawingSvg(b.drawing)}`);
+      push(b, `      ${drawingSvg(b.drawing)}`);
     } else if (b.kind === 'image') {
       did.push(`image inlined (${Math.round(b.bytes.length / 1024)} KB)`);
-      parts.push(`      <img src="data:${b.mime};base64,${b.bytes.toString('base64')}"`
+      push(b, `      <img src="data:${b.mime};base64,${b.bytes.toString('base64')}"`
         + `${b.alt ? ` alt="${escapeHtml(b.alt)}"` : ' alt=""'}>`);
     }
+  }
+  if (slide.layout === 'split') {
+    did.push('two columns');
+    parts.splice(head, 0, ...cols.map((c) => `      <div>\n${c.map((l) => `  ${l}`).join('\n')}\n      </div>`));
   }
   if (bullets) did.unshift(`${bullets} bullet${bullets === 1 ? '' : 's'}`);
   if (notes.length) {
@@ -1095,5 +1152,6 @@ export function slideSection(slide, notes = [], { build = 'auto' } = {}) {
     for (const line of notes) parts.push(`        <p>${line}</p>`);
     parts.push('      </aside>');
   }
-  return { html: `    <section${slide.hidden ? ' data-hidden' : ''}>\n${parts.join('\n')}\n    </section>`, did };
+  const attrs = `${slide.hidden ? ' data-hidden' : ''}${slide.layout ? ` data-layout="${slide.layout}"` : ''}`;
+  return { html: `    <section${attrs}>\n${parts.join('\n')}\n    </section>`, did };
 }
