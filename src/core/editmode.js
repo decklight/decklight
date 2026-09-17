@@ -21,6 +21,7 @@ import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
+import { createDock } from './dock.js';
 import { hljs } from '../code/code.js';
 
 /** Wire the dev-server features to a deck. */
@@ -905,15 +906,36 @@ export function createEditMode({
   // FILE (never the live DOM: the engine mutates elements in place, so what
   // the player sees is not what a Save should write back over).
   let contentEl = null;
-  function closeContentEditor() { contentEl?.remove(); contentEl = null; }
-  function openElementContentEditor({ slide, index }) {
+  let contentTarget = null;   // the element on the slide, outlined while its source is open
+  let onEditorResize = null;
+  // Beside the slide, not over it (#530): the review and sources panels'
+  // placement, shared (dock.js). Docked, the slide stays whole and navigable
+  // next to the editor — you change a `y=` while looking at the box it moves.
+  const editorDock = createDock({
+    root,
+    reflow: () => instance._reflow?.(),
+    key: 'decklight-editor-dock:' + location.pathname,
+    getEl: () => contentEl,
+    closeLabel: 'close (esc)',
+  });
+  function closeContentEditor() {
+    contentEl?.remove(); contentEl = null;
+    contentTarget?.classList.remove('dl-editing'); contentTarget = null;
+    if (onEditorResize) { window.removeEventListener('resize', onEditorResize); onEditorResize = null; }
+    editorDock.release();   // or the stage keeps reflowing around a gutter nothing sits in
+  }
+  function openElementContentEditor({ sec, slide, index }) {
     contentEl = document.createElement('div');
-    contentEl.className = 'decklight-narr decklight-editor';
+    contentEl.className = 'decklight-narr decklight-dockable decklight-editor';
     const card = document.createElement('div');
     card.className = 'narr-card';
     const head = document.createElement('div');
     head.className = 'narr-head';
-    head.textContent = `edit content — slide ${slide}, element ${index} · ⌘⏎ saves · Esc closes`;
+    head.append(Object.assign(document.createElement('span'), {
+      className: 'ed-heading', textContent: `edit content — slide ${slide}, element ${index} · ⌘⏎ saves`,
+    }));
+    head.append(editorDock.controls(closeContentEditor));
+    editorDock.wireHeader(head);
     // A textarea cannot render markup, so the highlighting is a <pre> BEHIND a
     // textarea whose own text is transparent — the standard shape, and the only
     // one that keeps a real caret, real selection, real undo and real IME.
@@ -942,7 +964,14 @@ export function createEditMode({
     const repaint = () => {
       code.innerHTML = hljs.highlight(`${ta.value}\n`, { language: 'xml' }).value;
     };
-    ta.addEventListener('input', repaint);
+    // The textarea's scrollbar, when it is a classic one, narrows its text by
+    // a scrollbar's width; the painted layer has none (overflow hidden), so
+    // it pads by the same amount and the two wrap identically. Re-measured
+    // whenever the box changes size — a dock, a resize — or the content grows
+    // past the fold and the scrollbar appears.
+    const syncGutter = () => { pre.style.paddingRight = `${12 + (ta.offsetWidth - ta.clientWidth)}px`; };
+    ta.addEventListener('input', () => { repaint(); syncGutter(); });
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(syncGutter).observe(ta);
     ta.addEventListener('scroll', () => {
       pre.scrollTop = ta.scrollTop;
       pre.scrollLeft = ta.scrollLeft;
@@ -974,8 +1003,14 @@ export function createEditMode({
     actions.appendChild(btn);
     card.append(head, wrap, actions);
     contentEl.appendChild(card);
-    closeOnBackdrop(contentEl, closeContentEditor);
     root.appendChild(contentEl);
+    // no backdrop to click: a dockable panel dims nothing (the × and Esc close)
+    editorDock.reserveGutter();
+    onEditorResize = () => editorDock.reserveGutter();
+    window.addEventListener('resize', onEditorResize);
+    // the element under edit keeps the same outline a double-click edit gets
+    contentTarget = index === null ? null : (sec?.children?.[index] ?? null);
+    contentTarget?.classList.add('dl-editing');
     (async () => {
       try {
         // Bounded, so a request the browser never sends (every socket to this
@@ -991,7 +1026,13 @@ export function createEditMode({
         ta.value = dedentHtml(j.html);
         ta.disabled = false;
         repaint();
+        syncGutter();
         ta.focus();
+        // At the TOP, caret first: focus() lands after the last character and
+        // scrolls to it, which opened a long element at its end (#529).
+        ta.setSelectionRange(0, 0);
+        ta.scrollTop = 0;
+        pre.scrollTop = 0;
       } catch (e) {
         ta.value = '';
         toast(`could not read the element's source: ${String(e.message || e).slice(0, 60)}`, 2600);
@@ -1017,6 +1058,9 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!contentEl,
     close: closeContentEditor,
+    // floating, it is the modal it always was; docked, the deck's keys work
+    // whenever the caret is not in the textarea (which stops its own keys)
+    modal: () => editorDock.isFloat(),
     keydown: (e) => e.key === 'Escape' && (closeContentEditor(), true),
   });
 
