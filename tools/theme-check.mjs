@@ -17,7 +17,7 @@
 // runtime IS passing that runtime's check — and when the contract grows a
 // token, the report names exactly what an older theme is missing.
 
-import { colorsIn, contrast, parseTheme } from './color.mjs';
+import { colorsIn, contrast, parseTheme, nestedTone, toOklab } from './color.mjs';
 
 /**
  * Every token a theme must declare (SPEC THEMING). Presence is checked separately
@@ -120,8 +120,35 @@ export function validateTheme(css) {
     }
   }
 
+  // Fill on fill (SVG_DIAGRAMS, #541): a box nested in a panel is painted the
+  // panel's nested tone — `--d-fill-N-in`, the theme's own or the runtime's
+  // default mix toward the ink — and it has to be a step the eye reads AND
+  // still carry the ink. A theme can pass every ink gate while its nested
+  // boxes vanish into their panels; this is the gate for that.
+  const ink = colorsIn(tokens['d-text'] ?? '')[0];
+  for (let i = 1; i <= 6; i++) {
+    const fill = colorsIn(tokens[`d-fill-${i}`] ?? '')[0];
+    if (!ink || !fill) continue;   // missing or unparseable: already reported above
+    const own = tokens[`d-fill-${i}-in`];
+    const tone = own ? colorsIn(own)[0] : nestedTone(fill, ink);
+    if (!tone) { failures.push({ fg: `d-fill-${i}-in`, bg: `d-fill-${i}`, min: NESTED_MIN_DL, ratio: null }); errors.push(`--d-fill-${i}-in: unparseable color`); continue; }
+    const dL = Math.abs(toOklab(tone)[0] - toOklab(fill)[0]);
+    if (dL < NESTED_MIN_DL) {
+      failures.push({ fg: `d-fill-${i}-in`, bg: `d-fill-${i}`, min: NESTED_MIN_DL, ratio: dL });
+      errors.push(`--d-fill-${i}-in on --d-fill-${i}: ΔL ${dL.toFixed(3)} < ${NESTED_MIN_DL} — a box nested in this panel would vanish into it`);
+    }
+    const r = contrast(ink, tone);
+    if (r < 3.0) {
+      failures.push({ fg: 'd-text', bg: `d-fill-${i}-in`, min: 3.0, ratio: r });
+      errors.push(`--d-text on --d-fill-${i}-in${own ? '' : ' (derived)'}: ${r.toFixed(2)} < 3`);
+    }
+  }
+
   return { ok: errors.length === 0, tokens, exceptions, missing, failures, errors, empty: false };
 }
+
+/** The least OKLab lightness step between a panel and the tone of a box nested in it. */
+export const NESTED_MIN_DL = 0.06;
 
 /** A theme name from a path or URL: the basename, minus .css. */
 export function themeNameFrom(source) {
