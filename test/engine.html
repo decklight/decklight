@@ -239,6 +239,17 @@
         }
         if (u.includes('/edit/undo')) return json({ ok: true, undo: 0, redo: 1 });
       }
+      if (HARNESS_MODE === 'editor') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        // a long element: eighty lines, one of them four hundred characters —
+        // the shape whose painted layer fell out of step with the textarea (#529)
+        if (u.includes('/edit/element/source')) {
+          const lines = [];
+          for (let i = 1; i <= 80; i++) lines.push(i === 7 ? `<text x="1" y="1">${'lorem ipsum '.repeat(34)}</text>` : `<rect x="${i}" y="${i}" width="10" height="10"/>`);
+          return json({ ok: true, html: `<g>\n${lines.join('\n')}\n</g>` });
+        }
+        if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'codeedit') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) {
@@ -1141,6 +1152,44 @@
       }
 
       // Double-click a code block: its SOURCE text, plain, not the highlighted DOM.
+      if (mode === 'editor') {
+        // The element content editor (#529): a highlighted <pre> painted BEHIND
+        // a transparent textarea, which only works while the two agree on
+        // every metric — the code-slide rule had reached the painted <code>
+        // and shrunk it. Opened on an 80-line element with a 400-character
+        // line, the layers measure the same, the paint follows the scroll,
+        // and the editor opens at the top.
+        await settle();
+        deck.goto(1, 0); await settle();
+        press('e');
+        const h1 = document.querySelector('.decklight-stage > section.active h1');
+        h1.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+        await settle();
+        const row = [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => /Edit content/.test(n.textContent));
+        row?.click();
+        const W = '.decklight-editor';
+        const ta = document.querySelector(`${W} textarea`);
+        const pre = document.querySelector(`${W} .edit-code > pre`);
+        const code = pre?.querySelector('code');
+        r.opens = !!ta && !!code;
+        r.loaded = await until(() => !ta.disabled && ta.value.length > 3000);
+        await settle();
+        const cs = (el) => getComputedStyle(el);
+        r.codeInheritsTheMetrics = cs(code).fontSize === cs(ta).fontSize && cs(code).lineHeight === cs(ta).lineHeight
+          && cs(code).whiteSpace === 'pre-wrap' && cs(code).display === 'inline';
+        r.layersMeasureTheSame = Math.abs(pre.scrollHeight - ta.scrollHeight) <= 1;
+        r.longLineWraps = ta.scrollWidth <= ta.clientWidth + 1 && pre.scrollWidth <= pre.clientWidth + 1;
+        r.opensAtTheTop = ta.selectionStart === 0 && ta.scrollTop === 0 && pre.scrollTop === 0;
+        // scrolling the textarea moves the paint with it, all the way down
+        const bottom = ta.scrollHeight - ta.clientHeight;
+        r.hasRoomToScroll = bottom > 400;
+        ta.scrollTop = bottom; ta.dispatchEvent(new Event('scroll'));
+        r.paintFollowsToTheEnd = Math.abs(pre.scrollTop - ta.scrollTop) <= 1 && ta.scrollTop >= bottom - 1;
+        r.PASS = r.opens && r.loaded && r.codeInheritsTheMetrics && r.layersMeasureTheSame && r.longLineWraps
+          && r.opensAtTheTop && r.hasRoomToScroll && r.paintFollowsToTheEnd;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
       if (mode === 'codeedit') {
         await settle();                       // /edit/ping: editAvailable
         deck.goto(3, 0);

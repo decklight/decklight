@@ -1074,6 +1074,25 @@
   background: var(--code-bg, rgba(0, 0, 0, .35));
   border-radius: 8px;
 }
+/* The <code> the highlighter paints into sits inside .decklight, so the
+   code-SLIDE rule (`.decklight pre code`, below) reached it too: a 0.62em
+   font and `white-space: pre` on the painted layer alone. Past the first
+   wrapped line the layers disagreed on every metric, and the textarea had
+   2 000 px of scroll the paint could not follow — wheel, arrows and the caret
+   all "dead" (#529). Every metric comes from the one rule above, inherited. */
+.decklight-narr .edit-code > pre > code {
+  display: inline;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  white-space: inherit;
+  overflow-wrap: inherit;
+  tab-size: inherit;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border-radius: 0;
+}
 .decklight-narr .edit-code > textarea {
   position: relative;
   display: block;

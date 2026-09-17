@@ -992,6 +992,11 @@ export function createEditMode({
         ta.disabled = false;
         repaint();
         ta.focus();
+        // At the TOP, caret first: focus() lands after the last character and
+        // scrolls to it, which opened a long element at its end (#529).
+        ta.setSelectionRange(0, 0);
+        ta.scrollTop = 0;
+        pre.scrollTop = 0;
       } catch (e) {
         ta.value = '';
         toast(`could not read the element's source: ${String(e.message || e).slice(0, 60)}`, 2600);
