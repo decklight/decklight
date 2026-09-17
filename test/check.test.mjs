@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  buildSteps, checkMain, clickSegments, formatFindings, localAsset, parseTree,
+  buildClicks, buildSteps, checkMain, clickSegments, formatFindings, localAsset, parseTree,
   renderFindings, sectionRanges, staticFindings,
 } from '../cli/check.mjs';
 
@@ -98,7 +98,7 @@ test('⟨CLICK⟩ segments and build steps: agreement is silent, disagreement na
   const found = only(staticFindings(drift, everything), 'clicks-vs-builds');
   assert.equal(found.length, 1);
   assert.equal(found[0].level, 'warn', 'a count that disagrees is worth saying, not worth failing on');
-  assert.match(found[0].message, /3 ⟨CLICK⟩ segments but 4 build steps/);
+  assert.match(found[0].message, /3 ⟨CLICK⟩ segments but 4 build clicks/);
 
   // notes without a single ⟨CLICK⟩ make no claim about the builds at all
   const quiet = deck(`  <section>
@@ -145,6 +145,46 @@ test('build steps are counted the way src/core/builds.js counts them', () => {
   </section>`);
   assert.deepEqual(only(staticFindings(chart, everything), 'clicks-vs-builds'), [],
     'an empty chart div is not one build step — the series are, once the svg exists');
+});
+
+test('steps tied by data-build-order are one click — the count the presenter will make (#526)', () => {
+  // A + A' advance together, then B: two clicks, three segments — exactly right
+  const tied = (notes) => deck(`  <section>
+    <h2>Tie count</h2>
+    <ul>
+      <li data-build data-build-order="1">A</li>
+      <li data-build data-build-order="1">A'</li>
+      <li data-build data-build-order="2">B</li>
+    </ul>
+    <aside class="notes">${notes}</aside>
+  </section>`);
+  assert.equal(buildSteps(parseTree(tied(''))), 3, 'three steps…');
+  assert.equal(buildClicks(parseTree(tied(''))), 2, '…in two clicks');
+  assert.deepEqual(only(staticFindings(tied('<p>Intro.</p><p>⟨CLICK⟩</p><p>A and A prime together.</p><p>⟨CLICK⟩</p><p>B.</p>'), everything), 'clicks-vs-builds'), []);
+  // four segments still warn, and the number printed is the click count, with the tie explained
+  const found = only(staticFindings(tied('<p>a</p><p>⟨CLICK⟩</p><p>b</p><p>⟨CLICK⟩</p><p>c</p><p>⟨CLICK⟩</p><p>d</p>'), everything), 'clicks-vs-builds');
+  assert.equal(found.length, 1);
+  assert.match(found[0].message, /4 ⟨CLICK⟩ segments but 2 build clicks \(3 build steps, tied by data-build-order\)/);
+  // auto steps never merge, even at equal keys (computeGroups' own rule)
+  assert.equal(buildClicks(parseTree('<ul data-build><li>a</li><li>b</li></ul><p data-build>c</p>')), 3);
+  // explicit keys reorder as well as tie: a container child and a leaf sharing one key are one click
+  assert.equal(buildClicks(parseTree('<ul data-build><li data-build-order="2">a</li><li data-build-order="1">b</li></ul><p data-build data-build-order="1">c</p>')), 2);
+});
+
+test('a staged stroke counts one step per stop — its count is in the attribute, unlike a provider’s (#526)', () => {
+  const svg = (line) => `<svg data-build="draw"><defs><marker id="a"></marker></defs>${line}<g><rect/><text>x</text></g></svg>`;
+  const stops = '<line x1="0" y1="0" x2="700" y2="0" data-draw-stops="300 500 700" marker-end="url(#a)"/>';
+  assert.equal(buildSteps(parseTree(svg(stops))), 4, 'three stops and one group');
+  assert.equal(buildClicks(parseTree(svg(stops))), 4);
+  assert.equal(buildClicks(parseTree('<line data-build="draw" data-draw-stops="25% 50% 100%"/>')), 3, 'a leaf stroke with stops');
+  assert.equal(buildClicks(parseTree('<svg><line data-draw-stops="1 2"/></svg>')), 2, 'outside any build container it is still its own provider');
+  assert.equal(buildClicks(parseTree('<line data-build="draw" data-draw-stops=""/>')), 1, 'no stops parsed: one draw step, as the runtime falls back to');
+  const slide = deck(`  <section>
+    <h2>Progress</h2>
+    ${svg(stops)}
+    <aside class="notes"><p>a</p><p>⟨CLICK⟩</p><p>b</p><p>⟨CLICK⟩</p><p>c</p><p>⟨CLICK⟩</p><p>d</p><p>⟨CLICK⟩</p><p>e</p></aside>
+  </section>`);
+  assert.deepEqual(only(staticFindings(slide, everything), 'clicks-vs-builds'), [], 'four clicks, five segments: in step');
 });
 
 test('clickSegments follows the runtime rule: every part kept, empties included', () => {
