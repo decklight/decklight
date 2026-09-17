@@ -25,7 +25,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
-import { THEMES_DIR, themeCss as shippedThemeCss, runtimeCss, runtimeJs } from './pkg.mjs';
+import { THEMES_DIR, themeCss as shippedThemeCss, runtimeCss, runtimeJs, PKG } from './pkg.mjs';
 import { unzip } from '../tools/zip.mjs';
 import { decodeEntities } from '../tools/ooxml.mjs';
 import { parseRels, resolvePart, slideOrder, parseSlide, notesText, slideSection, mimeOf } from '../tools/pptx.mjs';
@@ -48,6 +48,8 @@ const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url
                    auto:   any two placed shapes where one was drawn — a
                            chevron, an ellipse, a loose line — not just typed
                    text:   never; every shape's words cross as text
+  --inline         write a self-contained deck (runtime and theme embedded)
+                   instead of one that links the installed runtime
   --force          overwrite an existing output file
   -v, --verbose    print every slide's line, not just the ones with drops
 
@@ -213,8 +215,39 @@ export function convert(zip, { build = 'auto', shapes = 'strict' } = {}) {
   return { sections, report };
 }
 
-/** The self-contained deck, runtime and theme inlined — the `init` output shape. */
-export function deckHtml(sections, { title, theme, themeCss = null }) {
+/**
+ * The deck, in the `init` output shape: the runtime and its theme LINKED, to be
+ * served from the installed package and embedded by `bundle` at hand-over
+ * (#517) — or, with `inline`, self-contained. A theme derived from the
+ * template's own palette (`--theme template`) is not shipped, so it is always
+ * embedded, whatever the runtime does.
+ */
+export function deckHtml(sections, { title, theme, themeCss = null, inline = false }) {
+  const safeTitle = title.replace(/[<&]/g, (c) => (c === '<' ? '&lt;' : '&amp;'));
+  if (!inline) {
+    const themeTag = themeCss
+      ? `<style data-theme="${theme}">\n${themeCss.replace(/<\/(script|style)/gi, '<\\/$1')}\n  </style>`
+      : `<link rel="stylesheet" href="themes/${theme}.css">`;
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>${safeTitle}</title>
+  <link rel="stylesheet" href="decklight.css" data-decklight-runtime="css">
+  ${themeTag}
+</head>
+<body>
+  <div class="decklight">
+
+${sections.join('\n\n')}
+
+  </div>
+  <script src="decklight.js" data-decklight-runtime="js" data-decklight-version="${PKG.version}"></script>
+  <script>Decklight.init({});</script>
+</body>
+</html>
+`;
+  }
   const css = runtimeCss();
   // `themeCss` is a theme that is not shipped — the one derived from the
   // template's own palette and fonts (tools/template-theme.mjs)
@@ -369,7 +402,7 @@ export async function importMain(args = []) {
       const { html: sectionsHtml } = await runImporter(offered.name, readFileSync(source));
 
       const title = basename(out).replace(/\.html$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
-      writeFileSync(out, deckHtml([sectionsHtml], { title, theme }));
+      writeFileSync(out, deckHtml([sectionsHtml], { title, theme, inline: args.includes('--inline') }));
       const slideCount = (sectionsHtml.match(/<section[\s>]/gi) ?? []).length;
       const kb = Math.round(readFileSync(out).length / 1024);
       console.error(`${out} · ${slideCount} slide(s) · theme ${theme} · ${kb} KB · imported via ${offered.name}`);
@@ -430,7 +463,7 @@ export async function importMain(args = []) {
   }
 
   const title = basename(out).replace(/\.html$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
-  writeFileSync(out, deckHtml(result.sections, { title, theme, themeCss }));
+  writeFileSync(out, deckHtml(result.sections, { title, theme, themeCss, inline: args.includes('--inline') }));
   const kb = Math.round(readFileSync(out).length / 1024);
   const hiddenCount = result.report.filter((r) => r.hidden).length;
   console.error(`${out} · ${result.sections.length} slides${hiddenCount ? ` (${hiddenCount} hidden)` : ''} · theme ${theme} · ${kb} KB`

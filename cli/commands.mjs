@@ -224,7 +224,8 @@ Usage:
   decklight <command> [options]        (decklight <command> --help for full flags)
 
 Commands:
-  init     scaffold a starter deck, plus an agent skill (.claude/skills/decklight/, AGENTS.md)
+  init     scaffold a starter deck that links the installed runtime, plus an agent skill
+           (.claude/skills/decklight/, AGENTS.md); --inline embeds the runtime instead
            EXAMPLE: decklight init "My Deck"
   skills   install the Decklight authoring skill for AI agents (Claude, Codex, OpenCode, IBM Bob)
            EXAMPLE: decklight skills claude codex   (or --all, or omit to use detected agents)
@@ -245,7 +246,8 @@ Commands:
            EXAMPLE: decklight restore deck.html a1b2c3d  (restore, as a new commit on top)
   history  what decklight committed, and which commits are only on this machine
            EXAMPLE: decklight history deck.html
-  upgrade  bring a self-contained deck's inlined runtime + themes up to the installed version, in place
+  upgrade  bring a self-contained deck's embedded runtime + themes up to the installed version, in place;
+           --link turns the embed back into references (the reverse of bundle)
            EXAMPLE: decklight upgrade deck.html --dry-run   (see what would change; drop the flag to apply)
   pdf      render the deck to a PDF — one slide per page, at its own size, in its theme
            EXAMPLE: decklight pdf deck.html   (writes deck.pdf; --theme exports in another)

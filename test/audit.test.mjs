@@ -46,6 +46,27 @@ test('a source deck loads the runtime by src, and says so', () => {
   assert.equal(r.state, 'not-inlined', 'a file we never see is not a file we can hash');
 });
 
+test('a linked runtime is named with the version the deck was written for, against what this install serves (#517)', () => {
+  const deck = (attrs) => `<script src="decklight.js"${attrs}></script><script>Decklight.init()</script>`;
+  const written = auditDeck(deck(' data-decklight-runtime="js" data-decklight-version="0.8.1"'));
+  assert.equal(written.runtime.state, 'not-inlined');
+  assert.equal(written.runtime.version, '0.8.1', 'the record on the <script src>, not a banner the file does not have');
+  assert.equal(typeof written.runtime.installedVersion, 'string');
+  const line = formatLabel(written).find((l) => /runtime linked/.test(l));
+  assert.match(line, /runtime linked from decklight\.js — written for 0\.8\.1, served as this install's \d+\.\d+\.\d+/);
+  // a different MAJOR is the one thing worth saying out loud
+  const old = auditDeck(deck(' data-decklight-version="0.3.0"'));
+  const served = old.runtime.installedVersion;
+  assert.equal(old.runtime.majorMismatch, served.split('.')[0] !== '0');
+  const unrecorded = auditDeck(deck(''));
+  assert.equal(unrecorded.runtime.version, null);
+  assert.match(formatLabel(unrecorded).find((l) => /runtime linked/.test(l)), /written for an unrecorded version/);
+  // a far-future major, to see the warning itself
+  const future = auditDeck(deck(' data-decklight-version="9.0.0"'));
+  assert.equal(future.runtime.majorMismatch, true);
+  assert.match(formatLabel(future).find((l) => /runtime linked/.test(l)), /a different MAJOR; behaviour may differ/);
+});
+
 test('JSON and template blocks are data, not findings', () => {
   const html = `<script data-decklight-runtime="js">var Decklight = {}</script>
 <script type="application/json" id="cast-one">{"v":2}</script>

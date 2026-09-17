@@ -80,7 +80,10 @@ export function deckRuntimeVersion(html) {
   const isDeck = /<[a-z][^>]*\bclass=["'](?:[^"']*\s)?decklight(?:\s[^"']*)?["']/i.test(html)
     && /Decklight\.init\s*\(/.test(html);
   if (!isDeck) return undefined;
-  const banner = /\/\*!\s*Decklight v(\d+\.\d+\.\d+[^\s*]*)/.exec(html);
+  // an embedded runtime carries its build banner; a linked one (#517) records
+  // the version it was written for on its <script src> instead
+  const banner = /\/\*!\s*Decklight v(\d+\.\d+\.\d+[^\s*]*)/.exec(html)
+    ?? /<script\b[^>]*\bsrc=["'][^"']*decklight[^"']*\.js["'][^>]*\bdata-decklight-version=["']([^"']+)["']/i.exec(html);
   return banner ? banner[1] : null;
 }
 
@@ -361,8 +364,33 @@ export function epilogue({ deckPath, tty = false, noColor = false }) {
 }
 
 
-function starterDeck(title, themeNames, activeTheme) {
+function starterDeck(title, themeNames, activeTheme, { inline = false } = {}) {
   title = escapeHtml(title); // a prompt invites &, < and quotes
+  // The deck REFERENCES the runtime (#517): `decklight.js`, `decklight.css`
+  // and its theme as siblings it does not ship — `author`, `present` and every
+  // render answer them from the installed package, and `bundle` inlines them
+  // at hand-over. A few KB of slides, always the installed runtime, a git
+  // history that is only slides. `--inline` is the self-contained scaffold:
+  // double-clickable, pinned to this version, 650 KB before the first slide.
+  if (!inline) {
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>${title}</title>
+  <link rel="stylesheet" href="decklight.css" data-decklight-runtime="css">
+  <link rel="stylesheet" href="themes/${activeTheme}.css">
+</head>
+<body>
+  <div class="decklight">
+${starterSlides(title)}
+  </div>
+  <script src="decklight.js" data-decklight-runtime="js" data-decklight-version="${PKG.version}"></script>
+  <script>Decklight.init({});</script>
+</body>
+</html>
+`;
+  }
   const css = runtimeCss();
   // one <style data-theme> per theme; only the active one applies (the rest
   // carry media="not all", which the runtime's inline-theme mode toggles).
@@ -383,7 +411,18 @@ ${themeBlocks}
 </head>
 <body>
   <div class="decklight">
+${starterSlides(title)}
+  </div>
+  <script data-decklight-runtime="js">${runtimeJs()}</script>
+  <script>Decklight.init({});</script>
+</body>
+</html>
+`;
+}
 
+/** The two starter slides, shared by the linked and the self-contained scaffold. `title` is already escaped. */
+function starterSlides(title) {
+  return `
     <section>
       <h1>${title}</h1>
       <p>Made with Decklight — press → to advance, ? for every key</p>
@@ -407,12 +446,6 @@ ${themeBlocks}
         <p>And that's it — replace this slide's content, duplicate the section for more, and you have a deck.</p>
       </aside>
     </section>
-
-  </div>
-  <script data-decklight-runtime="js">${runtimeJs()}</script>
-  <script>Decklight.init({});</script>
-</body>
-</html>
 `;
 }
 
@@ -421,7 +454,7 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
     process.stdout.write(`decklight init — scaffold a starter deck + agent skill
 
 Usage:
-  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--themes …]
+  decklight init ["Deck Title"] [-o deck.html] [--dir path] [--inline [--themes …]]
                  [--from <template>] [--git | --no-git] [--open] [--force]
                  [--no-skill | --global-skill] [--author | --no-author]
 
@@ -435,7 +468,12 @@ Options:
                   install command rather than fetching — installing is its own
                   step, and init does not reach the network.
                   Cannot be combined with --themes: a template brings its own.
-  --themes <sel>  which themes to inline into the deck:
+  --inline        a self-contained deck: runtime and themes embedded, so it
+                  opens from disk without decklight — pinned to this version,
+                  ~650 KB before the first slide. The default links them
+                  instead: author/present serve the installed runtime, and
+                  \`decklight bundle\` embeds it when the deck is handed over.
+  --themes <sel>  with --inline, which themes to embed:
                     all           every shipped theme (default)
                     name,name,…   an explicit list (aurora stays active when
                                   included, else the first listed)
@@ -473,7 +511,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     return 0;
   }
 
-  let title = null, outFile = 'deck.html', dir = '.', force = false, themesSel = 'all', openAfter = false;
+  let title = null, outFile = 'deck.html', dir = '.', force = false, themesSel = 'all', openAfter = false, inline = false;
   let from = null;
   const args = [...argv];
   for (let i = 0; i < args.length; i++) {
@@ -482,6 +520,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--dir') dir = args[++i];
     else if (a === '--from') from = args[++i];
     else if (a === '--themes') themesSel = args[++i];
+    else if (a === '--inline') inline = true;
     else if (a === '--force') force = true;
     else if (a === '--open') openAfter = true;
     else if (a === '--author' || a === '--no-author') ; // the handoff question, below
@@ -574,10 +613,11 @@ unless --no-skill is given. The deck file is only touched with --force.
     body = titleTemplate(found.html, title);
     themeNote = `from template ${from}`;
   } else {
-    body = starterDeck(title, themeNames, activeTheme);
-    themeNote = themeNames.length === 1
-      ? `theme: ${themeNames[0]}`
-      : `${themeNames.length} themes, ${activeTheme} active`;
+    body = starterDeck(title, themeNames, activeTheme, { inline });
+    themeNote = !inline ? `theme: ${activeTheme} · links the installed runtime — decklight bundle embeds it to send`
+      : themeNames.length === 1
+        ? `theme: ${themeNames[0]}`
+        : `${themeNames.length} themes, ${activeTheme} active`;
   }
   fs.writeFileSync(deckPath, body);
   note(`created ${path.relative('.', deckPath) || outFile} (${themeNote})`);

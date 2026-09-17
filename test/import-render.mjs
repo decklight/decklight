@@ -17,7 +17,7 @@
  * out for somebody else's template.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,15 @@ process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 
 const deck = path.join(dir, 'imported.html');
 execFileSync('node', [CLI, 'import', FIXTURE, '-o', deck], { stdio: ['ignore', 'ignore', 'ignore'] });
+// The imported deck LINKS the runtime (#517): served, the package answers those
+// references; loaded over file:// as this harness does, they must be beside
+// it — exactly what a person gets by copying decklight's own files next to
+// the deck. The default output shape is what renders here, not --inline.
+const pkg = path.resolve(here, '..');
+for (const [from, to] of [['dist/decklight.js', 'decklight.js'], ['dist/decklight.css', 'decklight.css'], ['themes/midnight.css', 'themes/midnight.css']]) {
+  fs.mkdirSync(path.dirname(path.join(dir, to)), { recursive: true });
+  fs.copyFileSync(path.join(pkg, from), path.join(dir, to));
+}
 
 // The probe rides in the deck the importer actually wrote — no second
 // template. It goes in at the LAST </body>: the inlined runtime contains that

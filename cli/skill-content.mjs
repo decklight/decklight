@@ -46,9 +46,11 @@ name: decklight
 description: Author and edit Decklight presentations — single-file HTML decks with Keynote-style builds, theme-aware SVG diagrams, 46 built-in themes, truthful terminal recordings, and live TTS narration. Use whenever creating or editing a Decklight deck (a .html file with a <div class="decklight"> of <section> slides) in this project.
 ---
 
-Decklight decks are one HTML file: no build step, no bundler, no server to
-author. A deck is \`<div class="decklight">\` containing \`<section>\` slides;
-the runtime is one JS file + one CSS file + one theme CSS file.
+Decklight decks are one HTML file of slides: no build step, no bundler. A deck
+is \`<div class="decklight">\` containing \`<section>\` slides; it *references*
+the runtime — one JS file + one CSS file + one theme CSS file — which
+\`decklight author\` and \`decklight present\` serve from the installed package,
+and which \`decklight bundle\` embeds into one self-contained file to hand over.
 
 **Full authoring contract**: read [${referenceHref}](${referenceHref}) in this same
 skill directory before authoring or editing a slide — SLIDE_DENSITY is how much goes on

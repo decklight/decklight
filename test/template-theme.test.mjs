@@ -89,5 +89,7 @@ test('decklight import --theme template opens the deck in the derived theme, and
   const r2 = cli(['import', src, '-o', join(dir, 'plain.html'), '--force']);
   assert.equal(r2.code, 0, r2.out);
   assert.match(r2.stderr, /--theme template/);
-  assert.match(readFileSync(join(dir, 'plain.html'), 'utf8'), /<style data-theme="midnight">/);
+  // a shipped theme is LINKED in the default output (#517); the derived one above
+  // is not shipped, which is why it is embedded even there
+  assert.match(readFileSync(join(dir, 'plain.html'), 'utf8'), /<link rel="stylesheet" href="themes\/midnight\.css">/);
 });

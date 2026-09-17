@@ -104,13 +104,24 @@ tool (and init) writes and older unmarked init/bundle output are recognized.
 
 Options:
   --dry-run   print what would change; write nothing
+  --link      the reverse of bundle: replace the embedded runtime, stylesheet
+              and themes with references beside the deck (decklight.js,
+              decklight.css, themes/<active>.css), which author, present
+              and every render answer from the installed package. Everything
+              the author wrote survives byte-for-byte; a theme added from
+              outside decklight stays embedded.
+
+A deck that already links the runtime is always current — it runs whatever
+is installed — so upgrade only refreshes the version it records itself as
+written for (data-decklight-version), which is what present --check compares.
 `);
     return 0;
   }
 
-  let file = null, dryRun = false;
+  let file = null, dryRun = false, link = false;
   for (const a of argv) {
     if (a === '--dry-run') dryRun = true;
+    else if (a === '--link') link = true;
     else if (a === '--all') fail('--all is bundle\'s merge flag, not an upgrade flag — upgrade takes one deck');
     else if (!a.startsWith('-')) file = file ?? a;
     else fail(`unknown argument: ${a}`);
@@ -143,7 +154,37 @@ Options:
   // ------------------------------------------------------ runtime js block
 
   const allScripts = scripts(html);
-  let jsBlock = allScripts.find((s) => /\bdata-decklight-runtime\b/i.test(s.attrs)) ?? null;
+  // A deck that LINKS the runtime (#517) — marked or not — is handled first:
+  // init marks its <script src> with data-decklight-runtime too, and the
+  // marked-block lookup below would otherwise swap the reference for an embed.
+    const linked = allScripts.find((s) => /\bsrc\s*=\s*["'][^"']*decklight[^"']*\.js["']/i.test(s.attrs));
+    if (linked) {
+      if (link) { process.stdout.write(`${rel} already links the runtime\n`); return; }
+      // A deck that LINKS the runtime is always current: it runs whatever is
+      // installed (#517). What it can be behind on is its own record of the
+      // version it was written for, which present --check compares — so that
+      // is what is refreshed, and nothing else in the file moves.
+      const wasM = /\bdata-decklight-version\s*=\s*["']([^"']*)["']/i.exec(linked.attrs);
+      const was = wasM?.[1] ?? null;
+      if (was === PKG.version) {
+        process.stdout.write(`${rel} links the runtime and is written for decklight ${PKG.version} — already current\n`);
+        return;
+      }
+      const attrs = wasM
+        ? linked.attrs.replace(wasM[0], `data-decklight-version="${PKG.version}"`)
+        : `${linked.attrs} data-decklight-version="${PKG.version}"`;
+      const next = `${html.slice(0, linked.start)}<script${attrs}>${linked.inner}</script>${html.slice(linked.end)}`;
+      if (dryRun) {
+        process.stdout.write(`${rel} links the runtime — would record it as written for decklight ${PKG.version}${was ? ` (was ${was})` : ''}; nothing else changes (dry run)\n`);
+        return;
+      }
+      fs.writeFileSync(`${deckPath}.bak`, html);
+      fs.writeFileSync(deckPath, next);
+      process.stdout.write(`${rel} links the runtime — now recorded as written for decklight ${PKG.version}${was ? ` (was ${was})` : ''}; backup: ${rel}.bak\n`);
+      return;
+    }
+
+  let jsBlock = allScripts.find((s) => /\bdata-decklight-runtime\b/i.test(s.attrs) && !/\bsrc\s*=/i.test(s.attrs)) ?? null;
   if (!jsBlock) {
     // Unmarked deck: the runtime is the <script> defining Decklight, before
     // the <script>Decklight.init(...) call (init and bundle both write them
@@ -156,9 +197,6 @@ Options:
       if (!/\bsrc\s*=/i.test(s.attrs) && definesRuntime(s)) { jsBlock = s; break; }
     }
     if (!jsBlock) {
-      if (allScripts.some((s) => /\bsrc\s*=\s*["'][^"']*decklight[^"']*\.js["']/i.test(s.attrs))) {
-        fail(`${rel} references the runtime by src= — it is not self-contained, so there is nothing inlined to upgrade (its decklight.{js,css} files are the thing to update; decklight bundle produces a self-contained file)`);
-      }
       fail(`${rel}: could not find the inlined runtime (no <script> defining Decklight before the Decklight.init call)`);
     }
   }
@@ -187,25 +225,51 @@ Options:
       + ' a later `bundle --all` overwrites this file');
   }
 
-  edits.push({ start: jsBlock.start, end: jsBlock.end,
-    text: `<script data-decklight-runtime="js">${distJs}</script>` });
-  if (edits[0].text !== jsBlock.tag) changed.push(`runtime js (${kb(jsBlock.inner)} → ${kb(distJs)})`);
+  if (link) {
+    // The reverse of bundle (#517): the embedded runtime and stylesheet become
+    // references beside the deck; the ACTIVE theme becomes a link and the
+    // other shipped themes go, since a linked deck's picker fetches any of
+    // them from the package; a theme that is not decklight's stays embedded.
+    edits.push({ start: jsBlock.start, end: jsBlock.end,
+      text: `<script src="decklight.js" data-decklight-runtime="js" data-decklight-version="${PKG.version}"></script>` });
+    changed.push(`runtime js (${kb(jsBlock.inner)} → a link)`);
+    if (cssBlock) {
+      edits.push({ start: cssBlock.start, end: cssBlock.end, text: '<link rel="stylesheet" href="decklight.css" data-decklight-runtime="css">' });
+      changed.push(`runtime css (${kb(cssBlock.inner)} → a link)`);
+    }
+    let active = null; let dropped = 0; let kept = 0;
+    const themeBlocks = styles.filter((s) => s !== cssBlock && /\bdata-theme\s*=\s*["'][\w-]+["']/i.test(s.attrs));
+    for (const s of themeBlocks) {
+      const name = s.attrs.match(/\bdata-theme\s*=\s*["']([\w-]+)["']/i)[1];
+      const shipped = fs.existsSync(path.join(PKG_ROOT, 'themes', `${name}.css`)) && !/\bdata-theme-added\b/i.test(s.attrs);
+      if (!shipped) { kept++; continue; }
+      const isActive = !/\bmedia\s*=\s*["']not all["']/i.test(s.attrs);
+      if (isActive && !active) { active = name; edits.push({ start: s.start, end: s.end, text: `<link rel="stylesheet" href="themes/${name}.css">` }); }
+      else { dropped++; edits.push({ start: s.start, end: s.end, text: '' }); }
+    }
+    if (active) changed.push(`theme ${active} → a link${dropped ? `, ${dropped} embedded theme${dropped === 1 ? '' : 's'} dropped (the picker fetches any shipped theme)` : ''}`);
+    if (kept) warnings.push(`${kept} theme${kept === 1 ? '' : 's'} not decklight's stay embedded`);
+  } else {
+    edits.push({ start: jsBlock.start, end: jsBlock.end,
+      text: `<script data-decklight-runtime="js">${distJs}</script>` });
+    if (edits[0].text !== jsBlock.tag) changed.push(`runtime js (${kb(jsBlock.inner)} → ${kb(distJs)})`);
+  }
 
-  if (cssBlock) {
+  if (cssBlock && !link) {
     // Keep the closing tag's own indentation so a marked, current deck
     // round-trips byte-identical (init writes "\n<css>\n  </style>").
     const closeIndent = (cssBlock.inner.match(/\n([ \t]*)$/) || [, ''])[1];
     const text = `<style data-decklight-runtime="css">\n${distCss}\n${closeIndent}</style>`;
     edits.push({ start: cssBlock.start, end: cssBlock.end, text });
     if (text !== cssBlock.tag) changed.push(`runtime css (${kb(cssBlock.inner)} → ${kb(distCss)})`);
-  } else {
+  } else if (!cssBlock) {
     warnings.push('no runtime <style> block found in <head> — css left alone');
   }
 
   // ----------------------------------------------------------- theme blocks
 
   let themesRefreshed = 0, themesCurrent = 0;
-  for (const s of styles) {
+  for (const s of link ? [] : styles) {
     if (s === cssBlock) continue;
     const nameM = s.attrs.match(/\bdata-theme\s*=\s*["']([\w-]+)["']/i);
     if (!nameM) continue; // generated blocks (valueless data-theme) stay the author's
@@ -264,7 +328,7 @@ Options:
 
   fs.writeFileSync(`${deckPath}.bak`, html);
   fs.writeFileSync(deckPath, next);
-  process.stdout.write(`upgraded ${rel} to decklight ${PKG.version} (${changed.join(', ')}; backup: ${rel}.bak)\n`);
+  process.stdout.write(`${link ? 'linked' : 'upgraded'} ${rel} ${link ? 'to' : 'to decklight'} ${link ? `the installed runtime (decklight ${PKG.version})` : PKG.version} (${changed.join(', ')}; backup: ${rel}.bak)\n`);
 }
 
 if (isMain(import.meta.url)) process.exitCode = await runMain('upgrade', upgradeMain);
