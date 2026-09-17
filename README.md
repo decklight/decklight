@@ -44,11 +44,14 @@ decklight                 # in a folder: start a deck, or pick one to open
 decklight talk.html       # open a deck in author mode
 decklight talk.pptx       # bring a PowerPoint, Keynote or Slides deck across
 decklight talk.decklight  # play somebody else's deck, read-only
+decklight bundle talk.html  # one self-contained file to send — the runtime embedded
 decklight doctor          # what this machine can do, and how to get the rest
 ```
 
 Type a command wrong and it tells you which one you meant. Or skip the scaffold
-and write the HTML yourself. This is the whole anatomy:
+and write the HTML yourself. A deck you author *references* the runtime and
+`author`/`present` serve it; `bundle` embeds it when you hand the file over.
+This is the whole anatomy:
 
 ```html
 <!doctype html>

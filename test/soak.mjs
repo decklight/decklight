@@ -1141,13 +1141,18 @@ try {
   });
 
   // ── bundle, validate, open ───────────────────────────────────────────────
-  await step('bundle refuses an init-scaffolded deck', () => {
+  // init scaffolds a deck that LINKS the runtime (#517), so the README's own
+  // quick start — init, then bundle to send — is exactly the path this walks:
+  // the bundle embeds the installed runtime and says so, and the deck on disk
+  // stays the few-KB linked one. (`init --inline` is the shape bundle refuses
+  // as already self-contained; that refusal is pinned in test/cli.test.mjs.)
+  await step('bundle embeds the installed runtime into an init-scaffolded deck', () => {
     const before = deck();
-    const r = dl(['bundle', 'deck.html'], { allowFail: true });
-    must(r.code !== 0, 'bundle accepted a deck whose themes are already inline');
-    must(r.all.includes('already self-contained'), 'the refusal does not say why');
-    must(r.all.includes('decklight upgrade'), 'the refusal does not name the command that does apply');
-    must(deck() === before, 'the refused bundle touched the deck');
+    const r = dl(['bundle', 'deck.html', '-o', 'sent.html']);
+    must(r.all.includes('inlined from the installed decklight'), 'the bundle did not say where the runtime came from');
+    must(deck() === before, 'bundling touched the deck');
+    const sent = readFileSync(join(PROJECT, 'sent.html'), 'utf8');
+    must(!/<script src="decklight\.js"/.test(sent) && /Decklight\.init/.test(sent), 'sent.html is not self-contained');
   });
 
   await step('upgrade is a no-op on a current deck', () => {

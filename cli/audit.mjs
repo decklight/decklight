@@ -123,7 +123,9 @@ const definesRuntime = (s) => /(?:\bvar\s+|\bwindow\.)Decklight\s*=/.test(s.inne
  */
 export function classifyScripts(html) {
   const all = scripts(html);
-  const marked = all.find((s) => /\bdata-decklight-runtime\b/i.test(s.attrs));
+  // the MARKED block is an embedded one: init marks a linked deck's <script src>
+  // with the same attribute (#517), and that is the engine by reference, below
+  const marked = all.find((s) => /\bdata-decklight-runtime\b/i.test(s.attrs) && !/\bsrc\s*=/i.test(s.attrs));
   // Unmarked decks (bundle writes a bare <script>): the runtime is the block
   // defining Decklight before the init call — upgrade's fallback, so the two
   // commands always agree on which block is the engine.
@@ -148,7 +150,8 @@ export function classifyScripts(html) {
       // a source deck loads dist/decklight.js by reference; anything else with
       // a src is a third party and is named as one
       return /(^|\/)decklight(\.min)?\.js(\?|#|$)/i.test(src)
-        ? { kind: 'runtime-src', ...at, src }
+        // the version the deck says it was written for (init / upgrade --link write it)
+        ? { kind: 'runtime-src', ...at, src, written: /\bdata-decklight-version\s*=\s*["']([^"']+)["']/i.exec(s.attrs)?.[1] ?? null }
         : { kind: 'external', ...at, src, snippet: src };
     }
     // Data, not findings. A JSON block is inert until the runtime reads it —
@@ -299,7 +302,14 @@ export function auditDeck(html, { installed = installedRuntime() } = {}) {
   } else if (rtSrc) {
     // A source deck's engine is a separate file this audit never sees. Naming
     // that limit beats hashing the empty <script> tag and reporting a match.
-    runtime = { kind: 'external', version, src: rtSrc.src, state: 'not-inlined' };
+    // A linked runtime is whatever this install serves (#517): the one thing
+    // the file can say is which version it was WRITTEN for, and the one thing
+    // worth flagging is a different major — behaviour may have moved.
+    const written = rtSrc.written ?? version ?? null;
+    const serves = installed?.version ?? null;
+    const major = (v) => String(v ?? '').split('.')[0];
+    runtime = { kind: 'external', version: written, src: rtSrc.src, state: 'not-inlined', installedVersion: serves,
+      majorMismatch: !!(written && serves && major(written) !== major(serves)) };
   } else {
     runtime = { kind: 'missing', version, state: 'not-found' };
   }
@@ -383,7 +393,8 @@ const RUNTIME_LINE = {
   differs: (r) => `runtime ${r.version ?? '(unversioned)'} — sha256 ${r.hash.slice(0, 12)}, DIFFERS from this install's build of ${r.installedVersion}`,
   'other-version': (r) => `runtime ${r.version} — sha256 ${r.hash.slice(0, 12)}, not comparable here (this install ships ${r.installedVersion})`,
   uncheckable: (r) => `runtime ${r.version ?? '(unversioned)'} — sha256 ${r.hash.slice(0, 12)}, no installed build to compare against`,
-  'not-inlined': (r) => `runtime ${r.version ?? '(unknown version)'} — loaded from ${r.src}, not inlined, so not hashed here`,
+  'not-inlined': (r) => `runtime linked from ${r.src} — written for ${r.version ?? 'an unrecorded version'}, served as this install's ${r.installedVersion ?? 'build'}`
+    + (r.majorMismatch ? ' — a different MAJOR; behaviour may differ (decklight upgrade records the deck as written for this one)' : ''),
   'not-found': () => 'no decklight runtime found in this file',
 };
 

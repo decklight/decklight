@@ -158,9 +158,24 @@ test('a tiny cast runs through the dispatcher end-to-end', { skip: recSkip }, ()
   rmTemp(dir);
 });
 
-test('init scaffolds a self-contained deck and the agent skill', () => {
+test('init scaffolds a deck that links the installed runtime — and --inline a self-contained one — plus the agent skill', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
-  const out = execFileSync('node', [CLI, 'init', 'Test Deck', '--dir', dir], { encoding: 'utf8' });
+  // the default (#517): a few KB of slides that reference the runtime beside them
+  const linkedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-linked-'));
+  const linkedOut = execFileSync('node', [CLI, 'init', 'Linked Deck', '--dir', linkedDir, '--no-skill'], { encoding: 'utf8' });
+  assert.match(linkedOut, /links the installed runtime — decklight bundle embeds it to send/);
+  const linked = fs.readFileSync(path.join(linkedDir, 'deck.html'), 'utf8');
+  assert.match(linked, /<link rel="stylesheet" href="decklight\.css" data-decklight-runtime="css">/);
+  assert.match(linked, /<link rel="stylesheet" href="themes\/aurora\.css">/);
+  assert.match(linked, /<script src="decklight\.js" data-decklight-runtime="js" data-decklight-version="[^"]+"><\/script>/);
+  assert.match(linked, /<script>Decklight\.init\(\{\}\);<\/script>/);
+  assert.doesNotMatch(linked, /<style data-/);
+  assert.ok(linked.length < 4000, `slides only (${linked.length} bytes)`);
+  assert.match(linked, /<h1>Linked Deck<\/h1>/);
+  rmTemp(linkedDir);
+
+  // --inline: the self-contained scaffold, every theme embedded, aurora active
+  const out = execFileSync('node', [CLI, 'init', 'Test Deck', '--dir', dir, '--inline'], { encoding: 'utf8' });
   assert.match(out, /created .*deck\.html/);
   assert.match(out, /SKILL\.md,reference\.md/);
   assert.match(out, /created AGENTS\.md/);
@@ -324,9 +339,10 @@ test('init refusal on a decklight deck leads with upgrade, names both versions',
 
 test('init refusal on a deck of unknown runtime version still suggests upgrade, versionless', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
+  // a linked scaffold records its version on the <script src>; strip that record
   execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
   const deck = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
-  fs.writeFileSync(path.join(dir, 'deck.html'), deck.replace(/\/\*! Decklight v[^*]*\*\//, ''));
+  fs.writeFileSync(path.join(dir, 'deck.html'), deck.replace(/ data-decklight-version="[^"]+"/, ''));
   const r = spawnSync('node', [CLI, 'init'], { encoding: 'utf8', cwd: dir });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /is already a decklight deck\n/, 'no version parenthetical');
@@ -348,7 +364,13 @@ test('init refusal on a non-decklight file keeps the plain --force message', () 
 test('deckRuntimeVersion: version for a scaffold, null when mangled, undefined for a non-deck', async () => {
   const { deckRuntimeVersion } = await import('../cli/init.mjs');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
-  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--themes', 'aurora'], { encoding: 'utf8' });
+  // the linked scaffold: the version is what the <script src> records
+  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill'], { encoding: 'utf8' });
+  const linked = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
+  assert.equal(deckRuntimeVersion(linked), runtimeVersion);
+  assert.equal(deckRuntimeVersion(linked.replace(/ data-decklight-version="[^"]+"/, '')), null, 'record stripped: still a deck, version unknown');
+  // the embedded scaffold: the version is the runtime's own build banner
+  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--force', '--inline', '--themes', 'aurora'], { encoding: 'utf8' });
   const scaffold = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
   rmTemp(dir);
   assert.equal(deckRuntimeVersion(scaffold), runtimeVersion);
@@ -368,14 +390,15 @@ test('init --themes ships only the named set; missing theme fails cleanly', () =
   // pick a real non-aurora theme so we exercise "first listed is active"
   const other = fs.readdirSync(path.resolve(here, '../themes'))
     .filter((f) => f.endsWith('.css')).map((f) => f.slice(0, -4)).find((n) => n !== 'aurora');
-  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--themes', `${other},aurora`], { encoding: 'utf8' });
+  // --themes selects what --inline embeds; a linked deck's picker fetches any shipped theme
+  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--inline', '--themes', `${other},aurora`], { encoding: 'utf8' });
   const deck = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
   const blocks = [...deck.matchAll(/<style data-theme="([\w-]+)"( media="not all")?>/g)];
   assert.deepEqual(blocks.map((m) => m[1]), [other, 'aurora']);
   // aurora stays active even when not listed first
   assert.deepEqual(blocks.filter((m) => !m[2]).map((m) => m[1]), ['aurora']);
 
-  const bad = spawnSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--force', '--themes', 'nope123'], { encoding: 'utf8' });
+  const bad = spawnSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--force', '--inline', '--themes', 'nope123'], { encoding: 'utf8' });
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /theme not found: nope123/);
   rmTemp(dir);

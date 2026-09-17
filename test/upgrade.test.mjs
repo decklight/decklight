@@ -36,7 +36,8 @@ const OLD_JS_STUB = 'var Decklight=(()=>({init:()=>({state:{}})}))(); /* 0.1.x-e
 /** Scaffold with init, then rewind it into an unmarked deck with an old
  *  runtime, a sentinel slide, an author style + script, and a real config. */
 function oldDeck(dir, { themes = 'aurora,graphite' } = {}) {
-  execFileSync('node', [CLI, 'init', 'Old Deck', '--dir', dir, '--no-skill', '--themes', themes],
+  // --inline: these tests are about the embedded runtime; init links it by default (#517)
+  execFileSync('node', [CLI, 'init', 'Old Deck', '--dir', dir, '--no-skill', '--inline', '--themes', themes],
     { encoding: 'utf8' });
   const p = path.join(dir, 'deck.html');
   let deck = fs.readFileSync(p, 'utf8');
@@ -109,9 +110,20 @@ test('upgrade is idempotent: a second run reports already current and changes no
   rmTemp(dir);
 });
 
-test('a freshly scaffolded deck is marked and already current', () => {
+test('a freshly scaffolded deck is marked and already current — linked by default, embedded with --inline', () => {
+  // the default scaffold links the runtime (#517): always current, and it records the version
+  const linkedDir = tmp();
+  execFileSync('node', [CLI, 'init', '--dir', linkedDir, '--no-skill'], { encoding: 'utf8' });
+  const lp = path.join(linkedDir, 'deck.html');
+  const linked = fs.readFileSync(lp, 'utf8');
+  assert.match(linked, /<script src="decklight\.js" data-decklight-runtime="js" data-decklight-version=/);
+  const lout = execFileSync('node', [CLI, 'upgrade', lp], { encoding: 'utf8' });
+  assert.match(lout, /links the runtime and is written for decklight .* already current/);
+  assert.equal(fs.readFileSync(lp, 'utf8'), linked);
+  rmTemp(linkedDir);
+
   const dir = tmp();
-  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--themes', 'aurora'], { encoding: 'utf8' });
+  execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--inline', '--themes', 'aurora'], { encoding: 'utf8' });
   const p = path.join(dir, 'deck.html');
   const deck = fs.readFileSync(p, 'utf8');
   // init marks the blocks it writes from now on
@@ -236,17 +248,61 @@ test('--all is still refused, as bundle\'s flag rather than a workflow lecture',
   rmTemp(dir);
 });
 
-test('a deck that references the runtime by src= is refused with a pointer to bundle', () => {
+// ── a deck that LINKS the runtime (#517) ─────────────────────────────────
+test('a deck that links the runtime is always current — upgrade only records the version it is written for', () => {
   const dir = tmp();
   const p = path.join(dir, 'linked.html');
-  fs.writeFileSync(p, `<!doctype html><html><head>
+  const body = `<!doctype html><html><head>
   <link rel="stylesheet" href="decklight/dist/decklight.css">
 </head><body><div class="decklight"><section><h1>Hi</h1></section></div>
 <script src="decklight/dist/decklight.js"></script>
 <script>Decklight.init({})</script>
-</body></html>`);
+</body></html>`;
+  fs.writeFileSync(p, body);
+  // no record of a version: one is written, nothing else moves
   const r = spawnSync('node', [CLI, 'upgrade', p], { encoding: 'utf8' });
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /not self-contained/);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /links the runtime — now recorded as written for decklight \d/);
+  const after = fs.readFileSync(p, 'utf8');
+  assert.match(after, /<script src="decklight\/dist\/decklight\.js" data-decklight-version="[^"]+"><\/script>/);
+  assert.equal(after.replace(/ data-decklight-version="[^"]+"/, ''), body, 'byte-for-byte otherwise');
+  assert.ok(fs.existsSync(`${p}.bak`));
+  // already recorded as this version: nothing to do, and it says so
+  const again = spawnSync('node', [CLI, 'upgrade', p], { encoding: 'utf8' });
+  assert.equal(again.status, 0);
+  assert.match(again.stdout, /links the runtime and is written for decklight .* already current/);
+  assert.equal(fs.readFileSync(p, 'utf8'), after);
+  // an older record is refreshed — the thing present --check compares
+  fs.writeFileSync(p, after.replace(/data-decklight-version="[^"]+"/, 'data-decklight-version="0.1.0"'));
+  const dry = spawnSync('node', [CLI, 'upgrade', p, '--dry-run'], { encoding: 'utf8' });
+  assert.match(dry.stdout, /would record it as written for decklight .* \(was 0\.1\.0\)/);
+  assert.match(fs.readFileSync(p, 'utf8'), /0\.1\.0/, 'dry run wrote nothing');
+  rmTemp(dir);
+});
+
+test('upgrade --link is the reverse of bundle: the embedded runtime becomes references, the author’s deck survives byte-for-byte', () => {
+  const dir = tmp();
+  const p = oldDeck(dir, { themes: 'aurora,graphite' });
+  const before = fs.readFileSync(p, 'utf8');
+  const r = spawnSync('node', [CLI, 'upgrade', p, '--link'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /linked .* to the installed runtime/);
+  assert.match(r.stdout, /runtime js \(.* → a link\)/);
+  assert.match(r.stdout, /theme aurora → a link, 1 embedded theme dropped/);
+  const after = fs.readFileSync(p, 'utf8');
+  assert.match(after, /<script src="decklight\.js" data-decklight-runtime="js" data-decklight-version="[^"]+"><\/script>/);
+  assert.match(after, /<link rel="stylesheet" href="decklight\.css" data-decklight-runtime="css">/);
+  assert.match(after, /<link rel="stylesheet" href="themes\/aurora\.css">/);
+  assert.doesNotMatch(after, /data-theme="graphite"/, 'the inactive embedded theme is gone — the picker fetches it');
+  assert.doesNotMatch(after, /window\.Decklight\s*=|var Decklight/, 'no runtime left inside');
+  // everything the author wrote is still there, untouched
+  for (const piece of [SENTINEL, AUTHOR_STYLE, AUTHOR_SCRIPT, INIT_CONFIG]) assert.ok(after.includes(piece), `kept: ${piece.slice(0, 40)}`);
+  // the fixture's runtime is a stub, so the drop is modest here; a real deck loses ~600 KB
+  assert.ok(after.length < before.length / 2, `smaller (${before.length} → ${after.length})`);
+  assert.ok(fs.existsSync(`${p}.bak`));
+  // and the linked deck is now always current
+  const again = spawnSync('node', [CLI, 'upgrade', p], { encoding: 'utf8' });
+  assert.equal(again.status, 0);
+  assert.match(again.stdout, /already current/);
   rmTemp(dir);
 });

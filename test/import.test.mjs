@@ -680,19 +680,29 @@ test('the output lands beside the source, named after it', () => {
 
 // ── the CLI ───────────────────────────────────────────────────────────────
 
-test('import writes a self-contained deck that needs no sibling files', () => {
+test('import writes a deck that links the installed runtime — and --inline one that needs no sibling files', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-import-'));
   try {
     const out = path.join(dir, 'deck.html');
     const r = spawnSync('node', [CLI, 'import', FIXTURE, '-o', out], { encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     const html = readFileSync(out, 'utf8');
-    assert.match(html, /<style data-decklight-runtime="css">/);
-    assert.match(html, /<script data-decklight-runtime="js">/);
-    assert.match(html, /<style data-theme="midnight">/);
+    // the init shape (#517): references, served from the package, embedded by bundle
+    assert.match(html, /<link rel="stylesheet" href="decklight\.css" data-decklight-runtime="css">/);
+    assert.match(html, /<link rel="stylesheet" href="themes\/midnight\.css">/);
+    assert.match(html, /<script src="decklight\.js" data-decklight-runtime="js" data-decklight-version="[^"]+"><\/script>/);
+    assert.doesNotMatch(html, /<style data-decklight-runtime/);
     assert.equal((html.match(/<section>/g) || []).length, 4);
-    assert.doesNotMatch(html, /<link rel="stylesheet"/, 'nothing to fetch from disk');
     assert.doesNotMatch(html, /src="ppt\//, 'the image is inlined, not referenced');
+    assert.ok(html.length < 200_000, `slides and pictures, not the runtime (${html.length} bytes)`);
+    // --inline: the self-contained deck, as before
+    const inl = path.join(dir, 'inline.html');
+    assert.equal(spawnSync('node', [CLI, 'import', FIXTURE, '-o', inl, '--inline'], { encoding: 'utf8' }).status, 0);
+    const embedded = readFileSync(inl, 'utf8');
+    assert.match(embedded, /<style data-decklight-runtime="css">/);
+    assert.match(embedded, /<script data-decklight-runtime="js">/);
+    assert.match(embedded, /<style data-theme="midnight">/);
+    assert.doesNotMatch(embedded, /<link rel="stylesheet"/, 'nothing to fetch from disk');
 
     // the report names the drops with their slide numbers
     assert.match(r.stderr, /3 {2}⚠/);
