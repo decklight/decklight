@@ -43,10 +43,10 @@ const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url
                    which lists step in                            [auto]
                    auto follows PowerPoint's own per-paragraph build list
   --shapes auto|strict|text
-                   when drawn shapes cross as one SVG diagram     [strict]
-                   strict: boxes with an arrow attached between them
+                   when drawn shapes cross as one SVG diagram       [auto]
                    auto:   any two placed shapes where one was drawn — a
                            chevron, an ellipse, a loose line — not just typed
+                   strict: only boxes with an arrow snapped between them
                    text:   never; every shape's words cross as text
   --inline         write a self-contained deck (runtime and theme embedded)
                    instead of one that links the installed runtime
@@ -175,7 +175,7 @@ async function fetchSlides(url, { fetchImpl = fetch } = {}) {
  * The whole conversion, from archive bytes to sections and a report.
  * Pure apart from the parsing, so the mapping is testable without a CLI.
  */
-export function convert(zip, { build = 'auto', shapes = 'strict' } = {}) {
+export function convert(zip, { build = 'auto', shapes = 'auto' } = {}) {
   const part = (name) => zip.get(name)?.toString('utf8');
   const order = slideOrder(part('ppt/presentation.xml'), part('ppt/_rels/presentation.xml.rels'));
   if (!order.length) throw new Error('no slides found — is this really a PowerPoint file?');
@@ -334,7 +334,7 @@ export async function importMain(args = []) {
     console.error(`decklight import: --build must be auto, all or none (got "${build}")`);
     return 1;
   }
-  const shapes = opt('--shapes', 'strict');
+  const shapes = opt('--shapes', 'auto');
   if (!['auto', 'strict', 'text'].includes(shapes)) {
     console.error(`decklight import: --shapes must be auto, strict or text (got "${shapes}")`);
     return 1;
