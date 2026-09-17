@@ -25,7 +25,8 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
-import { THEMES_DIR, themeCss as shippedThemeCss, runtimeCss, runtimeJs, PKG } from './pkg.mjs';
+import { THEMES_DIR, themeCss as shippedThemeCss, runtimeCss, runtimeJs } from './pkg.mjs';
+import { configBlockHtml } from './runtime-link.mjs';
 import { unzip } from '../tools/zip.mjs';
 import { decodeEntities } from '../tools/ooxml.mjs';
 import { parseRels, resolvePart, slideOrder, parseSlide, notesText, slideSection, mimeOf } from '../tools/pptx.mjs';
@@ -49,7 +50,8 @@ const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url
                    strict: only boxes with an arrow snapped between them
                    text:   never; every shape's words cross as text
   --inline         write a self-contained deck (runtime and theme embedded)
-                   instead of one that links the installed runtime
+                   instead of slides plus a configuration block, which
+                   author/present play with the installed runtime
   --force          overwrite an existing output file
   -v, --verbose    print every slide's line, not just the ones with drops
 
@@ -216,25 +218,24 @@ export function convert(zip, { build = 'auto', shapes = 'auto' } = {}) {
 }
 
 /**
- * The deck, in the `init` output shape: the runtime and its theme LINKED, to be
- * served from the installed package and embedded by `bundle` at hand-over
- * (#517) — or, with `inline`, self-contained. A theme derived from the
- * template's own palette (`--theme template`) is not shipped, so it is always
- * embedded, whatever the runtime does.
+ * The deck, in the `init` output shape: slides plus a configuration block, no
+ * runtime in the file (#520) — the servers reference the installed one on the
+ * way out, `bundle` embeds it at hand-over — or, with `inline`, self-contained.
+ * A theme derived from the template's own palette (`--theme template`) is not
+ * shipped, so it is always embedded, whatever the runtime does.
  */
 export function deckHtml(sections, { title, theme, themeCss = null, inline = false }) {
   const safeTitle = title.replace(/[<&]/g, (c) => (c === '<' ? '&lt;' : '&amp;'));
   if (!inline) {
     const themeTag = themeCss
-      ? `<style data-theme="${theme}">\n${themeCss.replace(/<\/(script|style)/gi, '<\\/$1')}\n  </style>`
-      : `<link rel="stylesheet" href="themes/${theme}.css">`;
+      ? `\n  <style data-theme="${theme}">\n${themeCss.replace(/<\/(script|style)/gi, '<\\/$1')}\n  </style>`
+      : '';
     return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>${safeTitle}</title>
-  <link rel="stylesheet" href="decklight.css" data-decklight-runtime="css">
-  ${themeTag}
+${configBlockHtml({ theme })}${themeTag}
 </head>
 <body>
   <div class="decklight">
@@ -242,8 +243,6 @@ export function deckHtml(sections, { title, theme, themeCss = null, inline = fal
 ${sections.join('\n\n')}
 
   </div>
-  <script src="decklight.js" data-decklight-runtime="js" data-decklight-version="${PKG.version}"></script>
-  <script>Decklight.init({});</script>
 </body>
 </html>
 `;

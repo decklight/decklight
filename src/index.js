@@ -34,8 +34,33 @@ export { registerBuildProvider };
 const terminalRegistrar = () =>
   (typeof terminal.registerTerminals === 'function' ? terminal.registerTerminals : null);
 
-export function init(config = {}) {
-  const instance = engineInit(config);
+/**
+ * The deck's configuration block (SPEC DECK_ANATOMY): one
+ * `<script type="application/json" data-decklight-config>` holding what
+ * `init` takes, as data. `decklight` (the version the deck was written for)
+ * and `theme` (what the server links) are the file's keys, not options.
+ * Null when the deck has no block; a block that is not JSON is reported and
+ * treated as empty rather than silently booting nothing.
+ */
+export function deckConfig() {
+  const el = document.querySelector('script[type="application/json"][data-decklight-config]');
+  if (!el) return null;
+  try {
+    const { decklight: _version, theme: _theme, ...config } = JSON.parse(el.textContent);
+    return config;
+  } catch (err) {
+    console.error('Decklight: the data-decklight-config block is not valid JSON — booting with defaults', err);
+    return {};
+  }
+}
+
+/**
+ * Boot the deck. With no argument the options come from the configuration
+ * block, which is how a deck that is only data boots; an argument is the JS
+ * API's escape hatch for a deck that scripts against the engine.
+ */
+export function init(config) {
+  const instance = engineInit(config ?? deckConfig() ?? {});
   const register = terminalRegistrar();
   if (register) {
     Promise.resolve(register({ registerBuildProvider }, document))
@@ -51,4 +76,26 @@ export function initTerminals(root = document) {
   return register
     ? Promise.resolve(register({ registerBuildProvider }, root))
     : Promise.resolve();
+}
+
+// A deck that calls no `init` boots itself once the document is parsed — a
+// deck as data (#520) is slides and a configuration block, and the server that
+// linked this engine into it is not going to add a boot call too. Guarded
+// three ways so a deck that DOES boot itself is never booted twice: the
+// engine's own re-init guard (`root.__decklight`), the block — a deck with one
+// never calls init — and, absent a block, any inline script that names
+// `Decklight.init`, which is the deck saying it will do it. That last is a
+// heuristic over the document's own text; a deck booting from an external
+// script is the one shape it cannot see, and that deck's late `init` is
+// answered with the running instance and a console warning.
+function autoBoot() {
+  const root = document.querySelector('.decklight');
+  if (!root || root.__decklight) return;
+  const hasBlock = !!document.querySelector('script[type="application/json"][data-decklight-config]');
+  if (!hasBlock && [...document.scripts].some((s) => !s.src && /Decklight\s*\.\s*init\s*\(/.test(s.textContent))) return;
+  try { init(); } catch (err) { console.error('Decklight: the deck did not boot', err); }
+}
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', autoBoot);
+  else autoBoot();
 }

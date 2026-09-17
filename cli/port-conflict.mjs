@@ -154,14 +154,13 @@ export async function nextFreePort(port, host = '127.0.0.1', tries = 64) {
  *   actually bound and you open that one, so bumping costs nothing.
  *
  *   a BRIDGE hands its address to nobody. The deck does not discover the
- *   bridge, it ASSUMES it: `src/core/narration.js` hardcodes
- *   `http://127.0.0.1:8787/tts` (and derives /ping, /engines, /voices from
- *   it), `src/core/character.js` hardcodes `:8789`, and the only override is
- *   a `liveUrl`/`bridgeUrl` written into the deck itself. author passes
- *   `--tts-port` to the bridge process and never tells the deck — it could
- *   not tell it anyway, since the deck is served verbatim and is as often
- *   opened over `file://`. The two sides agree only because both default to
- *   the same literal.
+ *   bridge, it ASSUMES it: served over http, `src/core/narration.js` asks its
+ *   own origin for `/tts` (and derives /ping, /engines, /voices from it) and
+ *   `src/core/character.js` for `/lipsync`, which the author server proxies
+ *   to the ports it gave the bridges (#520); opened from disk, both fall back
+ *   to `127.0.0.1:8787` and `:8789`, and the only override is a
+ *   `liveUrl`/`bridgeUrl` written into the deck itself. A bridge run alone
+ *   for a file:// deck is therefore still assumed at its literal port.
  *
  * So a bridge that bumps is a bridge nobody is talking to: the deck keeps
  * knocking on 8787, reaches whatever squats there, and reports no live voice
@@ -287,7 +286,8 @@ export async function resolvePortConflict(port, {
     }
     log(`  the deck asks for this bridge on ${port} and nowhere else, so it will not start.`);
     log(`  free the port (kill ${other ? other.pid : 'the process holding it'}), or move BOTH sides:`);
-    log(`  run with --port N and set narration.liveUrl in the deck to match.`);
+    log(`  run with --port N and set narration.liveUrl in the deck to match — or, under author,`);
+    log(`  author --tts-port N alone: the deck reaches the bridge on author's own origin (/tts).`);
     return null;
   }
 

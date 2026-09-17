@@ -55,7 +55,7 @@
 // exists — seeded with a starter .gitignore (createRepo, below).
 // `decklight author` asks interactively before passing --git down.
 
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, watch, existsSync } from 'node:fs';
 // Every write of the DECK goes through this rather than writeFileSync: the
 // author server rewrites the whole file on every small edit, and a truncate
@@ -88,8 +88,9 @@ import { runMain } from './util.mjs';
 // The flags that take a value, so the deck can be found past them. `--git-mode`
 // was missing, so `edit.mjs --git-mode agent deck.html` refused a deck called
 // "agent". (`decklight author` builds this argv itself and was never affected.)
-const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode'];
+const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
+import { configBlock, hasEmbeddedRuntime } from './runtime-link.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
 // pure transforms — is a deliberate static cycle and not a dynamic one: this
@@ -217,7 +218,10 @@ export function setSlideSources(html, slide, asideInner) {
  */
 export const alreadyOneFile = (html) =>
   !/<link\b[^>]*rel=["']stylesheet["'][^>]*href=["'][^"']*themes\/[\w-]+\.css["']/i.test(html)
-  && /<style\b[^>]*\bdata-theme\b/i.test(html);
+  && /<style\b[^>]*\bdata-theme\b/i.test(html)
+  // an imported deck with a derived theme embeds that theme and nothing else
+  // (#520): the runtime is still to be bundled in
+  && hasEmbeddedRuntime(html);
 
 /**
  * The files the palette's hand-over rows can ask for (PRESENTING). Each is one
@@ -591,6 +595,14 @@ export function narrationLiteral(cfg) {
  * config built outside the call, or a manifest-only track.
  */
 export function configuredTrackDirs(html) {
+  // A deck as data (#520): the configuration is JSON, and reads as such.
+  const block = configBlock(html);
+  if (block) {
+    const files = block.config?.narration?.files;
+    if (typeof files === 'string') return [files];
+    if (!Array.isArray(files)) return [];
+    return files.flatMap((e) => (typeof e === 'string' ? [e] : e && typeof e === 'object' && e.dir && !e.manifest ? [e.dir] : []));
+  }
   const arg = initArgument(html);
   if (!arg) return [];
   const raw = html.slice(arg.start, arg.end);
@@ -621,6 +633,31 @@ export function configuredTrackDirs(html) {
 }
 
 export function upsertNarrationTrack(html, track) {
+  // A deck as data (#520): the block is parsed, changed and written back as
+  // JSON — its own formatting goes, its every key survives. Null when the
+  // block is not JSON: an editor that guesses at broken data corrupts it.
+  const block = configBlock(html);
+  if (block) {
+    if (!block.config) return null;
+    const cfg = block.config;
+    if (cfg.narration !== undefined && (typeof cfg.narration !== 'object' || cfg.narration === null || Array.isArray(cfg.narration))) return null;
+    const narr = cfg.narration ?? (cfg.narration = {});
+    const entry = Object.fromEntries(Object.entries(track).filter(([, v]) => v !== undefined && v !== null));
+    let list;
+    if (Array.isArray(narr.files)) list = narr.files;
+    else if (typeof narr.files === 'string') {
+      // the one-string form becomes the first entry, ext/segments moving into it
+      const kept = { label: narr.files, dir: narr.files };
+      for (const k of ['ext', 'segments']) if (narr[k] !== undefined) { kept[k] = narr[k]; delete narr[k]; }
+      list = kept.dir === track.dir ? [] : [kept];
+    } else list = [];
+    const same = list.findIndex((e) => (typeof e === 'string' ? e : e?.dir) === track.dir);
+    if (same >= 0) list[same] = entry; else list.push(entry);
+    narr.files = list;
+    const indent = /(?:^|\n)([ \t]*)[^\n]*$/.exec(html.slice(0, block.start))?.[1] ?? '';
+    const json = JSON.stringify(cfg, null, 2).split('\n').map((l) => indent + l).join('\n');
+    return `${html.slice(0, block.innerStart)}\n${json}\n${indent}${html.slice(block.innerEnd)}`;
+  }
   const arg = initArgument(html);
   if (!arg) return null;
   const raw = html.slice(arg.start, arg.end);
@@ -1341,6 +1378,38 @@ export async function editMain(args, { onListen = null } = {}) {
   }
 
   // ── the session: what a deck asks on load, and how it ends ───────────────
+
+  // ── the bridges, on this origin (#520) ───────────────────────────────────
+  // A deck served here reaches its live voice at `/tts` (and the sibling
+  // routes the runtime derives from it) and its lip-sync at `/lipsync/*` —
+  // the deck's own origin, never a port it would have to spell (SPEC
+  // NARRATION). The bridges are separate processes on their own ports
+  // (`author --tts-port`, `--lipsync-port`); these forward to them, body and
+  // headers both ways, and answer 503 when the bridge is not there, which the
+  // deck takes exactly as it takes no bridge at all.
+  const ttsPort = parsePort(opt('--tts-port', 8787)) ?? 8787;
+  const lipsyncPort = parsePort(opt('--lipsync-port', 8789)) ?? 8789;
+  const proxyTo = (port, name, rewritePath = (p) => p) => ({ req, res, url, body }) => new Promise((done) => {
+    const { host: _host, ...headers } = req.headers;
+    const upstream = httpRequest({
+      host: '127.0.0.1', port, method: req.method, path: rewritePath(url.pathname) + url.search,
+      headers: { ...headers, host: `127.0.0.1:${port}` },
+    }, (up) => {
+      res.writeHead(up.statusCode ?? 502, up.headers);
+      up.pipe(res);
+      up.on('end', done);
+    });
+    upstream.on('error', (e) => {
+      if (!res.headersSent) res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end(`the ${name} bridge is not running on port ${port} (${e.code ?? e.message})`);
+      done();
+    });
+    // every proxied route is dispatched before the body is read, so the
+    // request streams through — audio for the lip-sync bridge included
+    if (body !== undefined) upstream.end(body); else req.pipe(upstream);
+  });
+  const ttsProxy = proxyTo(ttsPort, 'voice');
+  const lipsyncProxy = proxyTo(lipsyncPort, 'lip-sync', (p) => p.slice('/lipsync'.length));
 
   async function pingRoute({ json }) {
     return json(200, {
@@ -2431,6 +2500,10 @@ export async function editMain(args, { onListen = null } = {}) {
   // (`BEFORE_BODY`, and the prefix list below).
   const routes = new Map(Object.entries({
     'GET /edit/ping': pingRoute,
+    // the voice bridge, on this origin (#520): the runtime derives every one
+    // of these from `/tts`, exactly as it derives them from the bridge's URL
+    'POST /tts': ttsProxy, 'GET /ping': ttsProxy, 'GET /engines': ttsProxy,
+    'POST /engine': ttsProxy, 'GET /voices': ttsProxy, 'POST /voices/install': ttsProxy,
     'GET /edit/events': eventsRoute,
     'POST /edit/shutdown': shutdownRoute,
     'POST /edit/undo': undoRedoRoute,
@@ -2492,6 +2565,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // different payload — an image dropped on the stage, read under its own
   // 25 MB limit. The other three carry no body, and never had one read for them.
   const BEFORE_BODY = new Set([
+    'POST /tts', 'POST /engine', 'POST /voices/install',
     'POST /edit/record', 'POST /edit/asset',
     'POST /edit/shutdown', 'POST /edit/undo', 'POST /edit/redo',
   ]);
@@ -2501,7 +2575,13 @@ export async function editMain(args, { onListen = null } = {}) {
   // `/edit/*` path is exact today, so the list is empty; it is declared so the
   // first route that needs a prefix has somewhere to go other than the bottom
   // of the dispatcher, where the chain used to grow.
-  const PREFIX_ROUTES = [];   // { method, prefix, handler }
+  const PREFIX_ROUTES = [   // { method, prefix, handler }
+    // the lip-sync bridge, on this origin (#520): `/lipsync/ping`, `/viseme`, `/video`
+    // the audio a POST carries is binary and can pass the body cap, so it
+    // streams through unread, like /edit/record's
+    { method: 'GET', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
+    { method: 'POST', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
+  ];
 
   const files = staticFiles(root, { index: deckUrl });
   const server = createServer(async (req, res) => {
@@ -2527,9 +2607,10 @@ export async function editMain(args, { onListen = null } = {}) {
       };
       if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
       const key = `${req.method} ${url.pathname}`;
-      const handler = routes.get(key)
-        ?? PREFIX_ROUTES.find((r) => r.method === req.method && url.pathname.startsWith(r.prefix))?.handler;
-      if (handler && BEFORE_BODY.has(key)) return await handler({ req, res, url, json, CORS });
+      const prefixed = routes.has(key) ? null
+        : PREFIX_ROUTES.find((r) => r.method === req.method && url.pathname.startsWith(r.prefix));
+      const handler = routes.get(key) ?? prefixed?.handler;
+      if (handler && (BEFORE_BODY.has(key) || prefixed?.beforeBody)) return await handler({ req, res, url, json, CORS });
       // Read for every POST, matched or not — an oversized body is refused
       // whatever it was aimed at, exactly as the chain refused it.
       let body = '';

@@ -22,6 +22,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { dumpDom, resultsFrom } from './harness.mjs';
+import { linkRuntime } from '../cli/runtime-link.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -32,10 +33,12 @@ process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 
 const deck = path.join(dir, 'imported.html');
 execFileSync('node', [CLI, 'import', FIXTURE, '-o', deck], { stdio: ['ignore', 'ignore', 'ignore'] });
-// The imported deck LINKS the runtime (#517): served, the package answers those
-// references; loaded over file:// as this harness does, they must be beside
-// it — exactly what a person gets by copying decklight's own files next to
-// the deck. The default output shape is what renders here, not --inline.
+// The imported deck is slides plus a configuration block (#520): served, the
+// package's runtime is referenced into it on the way out (`linkRuntime`, the
+// same function the servers apply); loaded over file:// as this harness does,
+// those references must be beside it — exactly what a person gets by copying
+// decklight's own files next to the deck. The default output shape is what
+// renders here, not --inline.
 const pkg = path.resolve(here, '..');
 for (const [from, to] of [['dist/decklight.js', 'decklight.js'], ['dist/decklight.css', 'decklight.css'], ['themes/midnight.css', 'themes/midnight.css']]) {
   fs.mkdirSync(path.dirname(path.join(dir, to)), { recursive: true });
@@ -47,7 +50,7 @@ for (const [from, to] of [['dist/decklight.js', 'decklight.js'], ['dist/deckligh
 // string too, and a naive replace injects the probe into the middle of the
 // engine's own source, which breaks the page in a way that looks like the
 // importer's fault.
-const source = readFileSync(deck, 'utf8');
+const source = linkRuntime(readFileSync(deck, 'utf8'));
 const at = source.lastIndexOf('</body>');
 const html = (source.slice(0, at) + `<pre id="test-sink">running…</pre>
 <script>
@@ -61,7 +64,7 @@ setTimeout(() => {
   const sections = [...document.querySelectorAll('.decklight-stage > section')];
   // walk the whole deck: overflow is stamped on activation, so a slide nobody
   // visits is a slide nobody checked
-  const deckApi = window.__deck;
+  const deckApi = root && root.__decklight; // the deck booted itself from its configuration block
   for (let i = 1; i <= sections.length; i++) deckApi.goto(i, 999);
   setTimeout(() => {
     document.getElementById('test-sink').textContent = 'DECKLIGHT-IMPORT-RESULTS ' + JSON.stringify({
@@ -98,7 +101,7 @@ setTimeout(() => {
     });
   }, 200);
 }, 300);
-</script>` + source.slice(at)).replace('Decklight.init({});', 'window.__deck = Decklight.init({});');
+</script>` + source.slice(at));
 const probe = path.join(dir, 'probe.html');
 writeFileSync(probe, html);
 

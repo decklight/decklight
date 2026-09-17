@@ -1141,18 +1141,20 @@ try {
   });
 
   // ── bundle, validate, open ───────────────────────────────────────────────
-  // init scaffolds a deck that LINKS the runtime (#517), so the README's own
-  // quick start — init, then bundle to send — is exactly the path this walks:
-  // the bundle embeds the installed runtime and says so, and the deck on disk
-  // stays the few-KB linked one. (`init --inline` is the shape bundle refuses
-  // as already self-contained; that refusal is pinned in test/cli.test.mjs.)
+  // init scaffolds a deck that is slides plus a configuration block (#520), so
+  // the README's own quick start — init, then bundle to send — is exactly the
+  // path this walks: the bundle embeds the installed runtime and says so, and
+  // the deck on disk stays the few-KB data one. (`init --inline` is the shape
+  // bundle refuses as already self-contained; that refusal is pinned in
+  // test/cli.test.mjs.)
   await step('bundle embeds the installed runtime into an init-scaffolded deck', () => {
     const before = deck();
+    must(!/<script src=|Decklight\.init/.test(before), 'the scaffold carries a runtime or a boot call');
     const r = dl(['bundle', 'deck.html', '-o', 'sent.html']);
-    must(r.all.includes('inlined from the installed decklight'), 'the bundle did not say where the runtime came from');
+    must(r.all.includes('the deck carries no runtime — the installed decklight'), 'the bundle did not say where the runtime came from');
     must(deck() === before, 'bundling touched the deck');
     const sent = readFileSync(join(PROJECT, 'sent.html'), 'utf8');
-    must(!/<script src="decklight\.js"/.test(sent) && /Decklight\.init/.test(sent), 'sent.html is not self-contained');
+    must(!/<script src="decklight\.js"/.test(sent) && /\/\*!\s*Decklight v/.test(sent) && /data-decklight-config/.test(sent), 'sent.html is not self-contained');
   });
 
   await step('upgrade is a no-op on a current deck', () => {

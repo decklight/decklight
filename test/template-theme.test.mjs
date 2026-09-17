@@ -89,7 +89,10 @@ test('decklight import --theme template opens the deck in the derived theme, and
   const r2 = cli(['import', src, '-o', join(dir, 'plain.html'), '--force']);
   assert.equal(r2.code, 0, r2.out);
   assert.match(r2.stderr, /--theme template/);
-  // a shipped theme is LINKED in the default output (#517); the derived one above
-  // is not shipped, which is why it is embedded even there
-  assert.match(readFileSync(join(dir, 'plain.html'), 'utf8'), /<link rel="stylesheet" href="themes\/midnight\.css">/);
+  // a shipped theme is NAMED in the default output's configuration block (#520)
+  // and linked by the servers; the derived one above is not shipped, which is
+  // why it is embedded even there
+  const plain = readFileSync(join(dir, 'plain.html'), 'utf8');
+  assert.match(plain, /data-decklight-config>\n\s*\{ "decklight": "[^"]+", "theme": "midnight" \}/);
+  assert.doesNotMatch(plain, /<style data-theme|<link rel="stylesheet"/);
 });

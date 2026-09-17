@@ -18,7 +18,7 @@ import { childEnv, rmTemp, writeFakeBin, stop, homeEnv } from './helpers.mjs';
 import http from 'node:http';
 
 import {
-  upsertNarrationTrack, narrationLiteral, initArgument,
+  upsertNarrationTrack, narrationLiteral, initArgument, configuredTrackDirs,
   setSlideLayout, setSlideTiming, setSlideHidden, createHistory, gitAutocommit, inGitRepo, STARTER_GITIGNORE, lanAddress,
   removeSlideElement, setSlideElementHtml, setSlideElementBuild, BUILD_EFFECTS,
 } from '../cli/edit.mjs';
@@ -1646,7 +1646,11 @@ test('/edit/at previews a deck over 1MB, and says why when it cannot (#508)', as
 // for the bundler to flatten. It is the common deck to publish, and the one
 // `decklight publish` needs --no-bundle for — which the route works out rather
 // than handing a presenter a refusal about a flag.
-const ONE_FILE_DECK = DECK.replace('<html><body>', '<html><head><style data-theme="ink"></style></head><body>');
+// one file: an embedded theme AND an embedded runtime — a deck with only the
+// theme in it (an import with a derived theme, #520) still has the runtime to
+// bundle in
+const ONE_FILE_DECK = DECK.replace('<html><body>', '<html><head><style data-theme="ink"></style></head><body>')
+  .replace('</body>', '<script data-decklight-runtime="js">var Decklight = {}</script>\n</body>');
 
 /** A repo with a GitHub remote and one commit — what a plan can be made from. */
 function repoWithRemote(dir, html = ONE_FILE_DECK, { remote = 'git@github.com:acme/talks.git' } = {}) {
@@ -2108,4 +2112,31 @@ test('a server-side edit lands whole, leaves no staging file, and reloads exactl
   assert.match(readFileSync(deck, 'utf8'), /<section data-layout="split">/);
   assert.deepEqual(readdirSync(dir).sort(), ['deck.html'],
     'a staging file left beside the deck is one `decklight bundle` would find');
+});
+
+// ── a deck as data (#520): the configuration is JSON, and is edited as such ──
+test('a recorded track is written into the configuration block, as JSON, every other key kept', () => {
+  const data = (json) => '<!doctype html><html><head>\n  <script type="application/json" data-decklight-config>\n  ' + json + '\n  </script>\n</head><body><div class="decklight"><section><h1>x</h1></section></div></body></html>';
+  const blockOf = (html) => JSON.parse(/data-decklight-config>\n([\s\S]*?)\n\s*<\/script>/.exec(html)[1]);
+  const want = [{ label: 'Mine', dir: 'voiceover', ext: 'wav', segments: true }];
+  // an empty block, and a block with other keys
+  assert.deepEqual(blockOf(upsertNarrationTrack(data('{}'), TRACK)).narration.files, want);
+  const kept = upsertNarrationTrack(data('{ "decklight": "0.8.1", "theme": "aurora", "transition": "zoom" }'), TRACK);
+  assert.deepEqual(blockOf(kept), { decklight: '0.8.1', theme: 'aurora', transition: 'zoom', narration: { files: want } });
+  assert.match(kept, /\n  <script type="application\/json" data-decklight-config>\n  \{\n    "decklight": "0\.8\.1",/, 'indented where the block sits');
+  // the same folder twice updates in place; another folder is added
+  const twice = upsertNarrationTrack(upsertNarrationTrack(data('{}'), TRACK), { ...TRACK, label: 'Take 2' });
+  assert.deepEqual(blockOf(twice).narration.files, [{ ...want[0], label: 'Take 2' }]);
+  const two = upsertNarrationTrack(twice, { label: 'Cloned', dir: 'voices/clone' });
+  assert.equal(blockOf(two).narration.files.length, 2);
+  // the one-string form becomes the first entry, ext/segments moving into it
+  const one = upsertNarrationTrack(data('{ "narration": { "files": "old", "ext": "m4a", "liveUrl": "/tts" } }'), TRACK);
+  assert.deepEqual(blockOf(one).narration, { liveUrl: '/tts', files: [{ label: 'old', dir: 'old', ext: 'm4a' }, want[0]] });
+  // and the dirs read back the same way
+  assert.deepEqual(configuredTrackDirs(two), ['voiceover', 'voices/clone']);
+  assert.deepEqual(configuredTrackDirs(data('{ "narration": { "files": "old" } }')), ['old']);
+  assert.deepEqual(configuredTrackDirs(data('{}')), []);
+  // a block that is not JSON is refused, never guessed at
+  assert.equal(upsertNarrationTrack(data('{ nope }'), TRACK), null);
+  assert.deepEqual(configuredTrackDirs(data('{ nope }')), []);
 });

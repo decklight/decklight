@@ -692,11 +692,10 @@ test('import writes a deck that links the installed runtime — and --inline one
     const r = spawnSync('node', [CLI, 'import', FIXTURE, '-o', out], { encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     const html = readFileSync(out, 'utf8');
-    // the init shape (#517): references, served from the package, embedded by bundle
-    assert.match(html, /<link rel="stylesheet" href="decklight\.css" data-decklight-runtime="css">/);
-    assert.match(html, /<link rel="stylesheet" href="themes\/midnight\.css">/);
-    assert.match(html, /<script src="decklight\.js" data-decklight-runtime="js" data-decklight-version="[^"]+"><\/script>/);
-    assert.doesNotMatch(html, /<style data-decklight-runtime/);
+    // the init shape (#520): slides plus a configuration block naming the
+    // theme, no runtime in the file — served from the package, embedded by bundle
+    assert.match(html, /<script type="application\/json" data-decklight-config>\n\s*\{ "decklight": "[^"]+", "theme": "midnight" \}/);
+    assert.doesNotMatch(html, /<link rel="stylesheet"|<script src=|Decklight\.init|<style data-decklight-runtime/);
     assert.equal((html.match(/<section>/g) || []).length, 4);
     assert.doesNotMatch(html, /src="ppt\//, 'the image is inlined, not referenced');
     assert.ok(html.length < 200_000, `slides and pictures, not the runtime (${html.length} bytes)`);

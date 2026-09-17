@@ -404,3 +404,42 @@ test('every command that inlines the runtime produces bytes this install recogni
       'the escape is load-bearing — if this stops mattering, the comment above is stale');
   }
 });
+
+// ── a deck as data (#520): no runtime in the file is the best line the label has ──
+test('a deck with no runtime and no script at all is named as such, with the version its block records', () => {
+  const deck = (block) => `<!doctype html><html><head>${block}</head><body><div class="decklight"><section><h1>x</h1></section></div></body></html>`;
+  const written = auditDeck(deck('<script type="application/json" data-decklight-config>{ "decklight": "0.8.1", "theme": "aurora" }</script>'));
+  assert.equal(written.runtime.kind, 'none');
+  assert.equal(written.runtime.state, 'data');
+  assert.equal(written.runtime.version, '0.8.1', 'the block records the version');
+  assert.equal(written.counts.runtime, 0);
+  assert.equal(written.counts.data, 1, 'the block is a data block, inert');
+  assert.equal(written.counts.unaccounted, 0);
+  const line = formatLabel(written).find((l) => /no script in this file/.test(l));
+  assert.match(line, /no script in this file — the runtime is the one this install serves \(\d+\.\d+\.\d+\); written for 0\.8\.1/);
+  assert.match(formatLabel(written).join('\n'), /1 data block/);
+  // no block: still a deck, still nothing that executes, version unrecorded
+  const bare = auditDeck(deck(''));
+  assert.equal(bare.runtime.state, 'data');
+  assert.equal(bare.runtime.version, null);
+  assert.match(formatLabel(bare).find((l) => /no script/.test(l)), /written for an unrecorded version/);
+  // a different MAJOR is the one thing worth saying out loud, as for a linked deck
+  const future = auditDeck(deck('<script type="application/json" data-decklight-config>{ "decklight": "9.0.0" }</script>'));
+  assert.equal(future.runtime.majorMismatch, true);
+  assert.match(formatLabel(future).find((l) => /no script/.test(l)), /a different MAJOR/);
+  // an author script beside the block: the file executes something, and the line says so
+  const scripted = auditDeck(deck('<script type="application/json" data-decklight-config>{}</script><script>console.log(1)</script>'));
+  assert.equal(scripted.counts.unaccounted, 1);
+  assert.match(formatLabel(scripted).find((l) => /no runtime in this file/.test(l)), /^\s*no runtime in this file — the runtime is the one this install serves/);
+  // a file that is not a deck at all keeps the old line
+  assert.equal(auditDeck('<html><body><h1>hi</h1></body></html>').runtime.state, 'not-found');
+});
+
+test('a bundled deck as data has its runtime found by its mark — there is no init call to locate it by', () => {
+  const html = '<script type="application/json" data-decklight-config>{ "decklight": "0.8.1" }</script>'
+    + '<div class="decklight"></div><script data-decklight-runtime="js">var Decklight = {}</script>';
+  assert.deepEqual(kinds(html), ['data', 'runtime']);
+  // and an unmarked one, the way an older bundle would write it, by definition alone
+  const unmarked = '<script type="application/json" data-decklight-config>{}</script><div class="decklight"></div><script>var Decklight = {}</script>';
+  assert.deepEqual(kinds(unmarked), ['data', 'runtime']);
+});

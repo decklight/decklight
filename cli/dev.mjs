@@ -147,6 +147,9 @@ export function planServices({
     args: [deck, '--port', editPort,
       ...(has('--git') ? ['--git'] : []), ...(has('--no-git') ? ['--no-git'] : []),
       ...pass('--commit-every'), ...pass('--agent'), ...pass('--git-mode'),
+      // the deck reaches both bridges on the edit server's own origin (#520):
+      // `/tts` and `/lipsync/*` are proxied to the ports the bridges below take
+      ...pass('--tts-port'), ...pass('--lipsync-port'),
       // BOTH directions travel: the first-run question can answer no, and a no
       // that did not reach the server would be a question asked and ignored.
       ...(has('--commit-messages') ? ['--commit-messages'] : []),

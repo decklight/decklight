@@ -149,3 +149,8 @@ test('the CLI\'s handout constant is the runtime\'s, held by this test rather th
     'cli/pdf.mjs and src/core/print.js disagree about how many slides a handout page holds');
   assert.equal(HANDOUT_PER_PAGE, read('src/core/print.js'));
 });
+
+test('the printed URL takes a served origin as well as a path — the deck is served for Chrome (#520)', () => {
+  assert.equal(printUrl('http://127.0.0.1:4444/q3.html', { theme: 'graphite' }), 'http://127.0.0.1:4444/q3.html?print&theme=graphite');
+  assert.equal(printUrl('http://127.0.0.1:4444/q3.html', { variant: 'notes' }), 'http://127.0.0.1:4444/q3.html?print=notes');
+});

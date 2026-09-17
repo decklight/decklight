@@ -17,6 +17,7 @@ import { networkInterfaces } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import { resolvePortConflict } from './port-conflict.mjs';
 import { packageAsset } from './pkg.mjs';
+import { linkRuntime } from './runtime-link.mjs';
 
 // ── remote access: the security seam for the phone remote (#39) ────────────
 // --remote widens the LISTENER, never the editing surface: off-loopback,
@@ -192,7 +193,8 @@ function rangeOf(header, size) {
  * request was handled.
  *
  * `html` rewrites the text of every text/html response on its way out and
- * leaves every other type alone. It is how `present --strict` (PRESENT#STRICT)
+ * leaves every other type alone; after it, a deck that carries no runtime
+ * (#520) has the installed one referenced into its text (`linkRuntime`). It is how `present --strict` (PRESENT#STRICT)
  * serves a deck with the unaccounted blocks removed while the file on disk
  * stays exactly as it arrived: the transform sits between the read and the
  * write, so there is no point in this path where the modified bytes could be
@@ -254,12 +256,16 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
       'accept-ranges': 'bytes',
     };
 
-    // The deck is the one response whose bytes are not the file's — `--strict`
-    // (PRESENT#STRICT) rewrites the text on its way out — so its length and its
+    // A page's bytes are not the file's: the caller's rewrite (`--strict`,
+    // PRESENT#STRICT; a render's driver) runs on the text on its way out, and
+    // then a deck that carries no runtime — a deck as data (#520) — gets the
+    // engine, its stylesheet and its theme referenced (`linkRuntime`, which
+    // leaves every other document exactly as it was). So its length and its
     // ranges have to be measured on what was SENT, which means holding it. It
     // is a page; everything else streams below.
-    if (rewriteHtml && type === MIME['.html']) {
-      const body = Buffer.from(rewriteHtml(readFileSync(file).toString('utf8'), file), 'utf8');
+    if (type === MIME['.html']) {
+      const text = readFileSync(file).toString('utf8');
+      const body = Buffer.from(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text), 'utf8');
       const want = rangeOf(req.headers.range, body.length);
       if (want && !want.satisfiable) {
         res.writeHead(416, { 'content-range': `bytes */${body.length}` });

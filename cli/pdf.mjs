@@ -19,7 +19,8 @@
 // have already emailed is a slide nobody can fix.
 
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
+import { serveForRender } from './present.mjs';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
@@ -68,12 +69,14 @@ export function pdfOut(deckPath, oFlag, variant = '') {
 /**
  * The URL to print. `?print` is the whole rendering contract; `?theme=` is the
  * existing startup override, so exporting in another theme costs nothing here.
+ * `base` is where the deck is served — a `file://` path, or the render
+ * server's origin plus the deck's path under its root.
  */
-export function printUrl(absDeckPath, { theme, variant = '' } = {}) {
+export function printUrl(base, { theme, variant = '' } = {}) {
   // `?print=notes` / `?print=handout` are the runtime's own variants (src/core/print.js)
   const print = variant ? `?print=${variant}` : '?print';
   const q = theme ? `${print}&theme=${encodeURIComponent(theme)}` : print;
-  return `file://${absDeckPath}${q}`;
+  return `${/^[a-z]+:\/\//i.test(base) ? base : `file://${base}`}${q}`;
 }
 
 /**
@@ -150,16 +153,30 @@ export async function pdfMain(args = []) {
   const out = pdfOut(src, opt('-o'), variant);
   const theme = opt('--theme');
   const wait = Number(opt('--wait', 8000));
-  const url = printUrl(src, { theme, variant });
   const bin = chromeBin('pdf');
-  // file:// decks load their runtime, themes and casts as siblings
-  const shared = chromeArgs('--allow-file-access-from-files', `--virtual-time-budget=${wait}`);
+  // The deck is SERVED, from its own directory, the way shot and video serve
+  // theirs: a deck that references the runtime (#517) or carries none at all
+  // (#520) plays from the installed package that way, where a file:// load
+  // would find no engine beside it. Same-origin, so its casts and media load
+  // exactly as siblings did.
+  const root = dirname(src);
+  const server = await serveForRender(root);
+  const url = printUrl(`${server.origin}/${relative(root, src).split(sep).join('/')}`, { theme, variant });
+  const shared = chromeArgs(`--virtual-time-budget=${wait}`);
+  try {
+    return await printDeck({ src, out, url, bin, shared, variant, theme });
+  } finally {
+    await server.close();
+  }
+}
 
-  // Chrome is AWAITED, never `run`. Not for the deadlock reason pptx has (this
-  // command opens the deck as a file, and serves nothing) but because the
+async function printDeck({ src, out, url, bin, shared, variant, theme }) {
+
+  // Chrome is AWAITED, never `run`: the in-process render server above has
+  // to answer the browser it launched (the deadlock pptx documents), and the
   // author server runs `pdfMain` in its own process for the palette's Export
-  // rows: a synchronous child would freeze live reload, the SSE stream and the
-  // page itself for the ten seconds Chrome takes to print.
+  // rows, where a synchronous child would freeze live reload, the SSE stream
+  // and the page itself for the ten seconds Chrome takes to print.
   //
   // Pass one: the DOM, for the slide count and the overflow audit. Cheap — the
   // same URL, the same budget, and it is the only way to know what the PDF is

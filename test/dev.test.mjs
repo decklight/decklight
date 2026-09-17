@@ -174,7 +174,8 @@ test('ports and bridge flags pass through to the right child', () => {
       '--project', 'proj-9', '--tts-model', 'm', '--wav2lip-dir', '/w'],
     { hasBin: ALL_BINS },
   );
-  assert.equal(svc(p, 'edit').args.at(-1), '9000');
+  // the bridge ports reach the edit server too: the deck asks it for /tts and /lipsync (#520)
+  assert.deepEqual(svc(p, 'edit').args, ['deck.html', '--port', '9000', '--tts-port', '9001', '--lipsync-port', '9002']);
   assert.deepEqual(svc(p, 'tts').args, ['tts', '--port', '9001', '--project', 'proj-9', '--tts-model', 'm']);
   assert.deepEqual(svc(p, 'lipsync').args, ['lipsync', '--port', '9002', '--wav2lip-dir', '/w']);
 });
