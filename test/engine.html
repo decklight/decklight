@@ -334,6 +334,31 @@
       </svg>
     </section>`);
     }
+    // Nested fills (#541): two panels of different slots, each holding boxes
+    // authored with the same slot — only for the mode that looks at it
+    if (HARNESS_MODE === 'nestedfills') {
+      // this harness loads no theme: give the diagram tokens real colours so
+      // the computed fills can be told apart (the Confluent slots of the
+      // motivating slide, and its ink)
+      const tokens = { '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-4': '#171a3d', '--d-fill-6': '#33201a' };
+      for (const [k, v] of Object.entries(tokens)) document.querySelector('.decklight').style.setProperty(k, v);
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Nested</h2>
+        <svg viewBox="0 0 800 300" width="800" aria-label="two panels with two boxes each">
+          <rect class="nf-panel-a" x="20" y="40" width="340" height="240" style="fill: var(--d-fill-6)"/>
+          <rect class="nf-box-a1" x="50" y="70" width="120" height="40" style="fill: var(--d-fill-1)"/>
+          <g transform="translate(0 60)"><rect class="nf-box-a2" x="50" y="70" width="120" height="40" fill="var(--d-fill-1)"/></g>
+          <rect class="nf-deep" x="60" y="200" width="40" height="20" style="fill: var(--d-fill-in)"/>
+          <rect class="nf-panel-b" x="440" y="40" width="340" height="240" style="fill: var(--d-fill-4)"/>
+          <rect class="nf-box-b1" x="470" y="70" width="120" height="40" style="fill: var(--d-fill-1)"/>
+          <rect class="nf-box-b2" x="470" y="130" width="120" height="40" style="fill: var(--d-fill-1)"/>
+          <rect class="nf-concept" data-concept="tools" x="620" y="130" width="120" height="40" style="fill: var(--d-fill-1)"/>
+          <rect class="nf-off" data-nest="off" x="620" y="200" width="120" height="40" style="fill: var(--d-fill-1)"/>
+          <rect class="nf-outline" x="470" y="200" width="120" height="40" fill="none" stroke="var(--d-stroke)"/>
+          <rect class="nf-overlay" x="10" y="10" width="780" height="20" style="fill: var(--d-fill-2)"/>
+          <text class="nf-text" x="110" y="95" style="fill: var(--d-text)">label</text>
+        </svg>
+      </section>`);
+    }
     if (HARNESS_MODE === 'codeedit') {
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
         '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>');
@@ -1382,6 +1407,37 @@
         r.finderGone = !document.querySelector('.decklight-finder');
 
         r.PASS = r.pickerUp && r.paletteUp && r.pickerGone && r.finderUp && r.finderGone;
+      }
+      if (mode === 'nestedfills') {
+        // SVG_DIAGRAMS (#541): a box on a panel takes the panel's nested tone
+        deck.goto(5, 0); await settle();
+        const q = (c) => document.querySelector(`section[data-slide-index="5"] .${c}`);
+        const fillOf = (c) => getComputedStyle(q(c)).fill;
+        const styled = (c) => q(c).style.fill;
+        r.leftBoxesTakeTheLeftPanel = styled('nf-box-a1') === 'var(--d-fill-6-in)' && styled('nf-box-a2') === 'var(--d-fill-6-in)';
+        r.rightBoxesTakeTheRightPanel = styled('nf-box-b1') === 'var(--d-fill-4-in)' && styled('nf-box-b2') === 'var(--d-fill-4-in)';
+        // four distinct computed fills in two families: left ≠ right, and each box ≠ its panel
+        r.twoFamilies = fillOf('nf-box-a1') === fillOf('nf-box-a2') && fillOf('nf-box-b1') === fillOf('nf-box-b2')
+          && fillOf('nf-box-a1') !== fillOf('nf-box-b1') && fillOf('nf-box-a1') !== fillOf('nf-panel-a') && fillOf('nf-box-b1') !== fillOf('nf-panel-b');
+        r.shortcutTakesTheContainer = styled('nf-deep') === 'var(--d-fill-6-in)';
+        r.conceptWins = /--d-fill-\d\)$/.test(styled('nf-concept')) && !/-in/.test(styled('nf-concept'));
+        r.optOutKept = styled('nf-off') === 'var(--d-fill-1)';
+        r.outlineUntouched = !q('nf-outline').style.fill;
+        r.overlayIsNoPanel = styled('nf-overlay') === 'var(--d-fill-2)' && styled('nf-box-a1') === 'var(--d-fill-6-in)';
+        r.textUntouched = styled('nf-text') === 'var(--d-text)';
+        // idempotent: a rescan changes nothing
+        const before = ['nf-box-a1', 'nf-box-b1', 'nf-deep', 'nf-concept', 'nf-off'].map(styled).join('|');
+        deck.sync(); deck.goto(5, 0); await settle();
+        r.idempotent = ['nf-box-a1', 'nf-box-b1', 'nf-deep', 'nf-concept', 'nf-off'].map(styled).join('|') === before;
+        // the overview's clone of the slide shows the same fills
+        press('o'); await settle();
+        const cell = [...document.querySelectorAll('.decklight-overview-grid .ov-clone')][4];
+        r.overviewSame = cell?.querySelector('.nf-box-a1')?.style.fill === 'var(--d-fill-6-in)' && cell?.querySelector('.nf-box-b1')?.style.fill === 'var(--d-fill-4-in)';
+        press('Escape'); await settle();
+        r.PASS = r.leftBoxesTakeTheLeftPanel && r.rightBoxesTakeTheRightPanel && r.twoFamilies && r.shortcutTakesTheContainer
+          && r.conceptWins && r.optOutKept && r.outlineUntouched && r.overlayIsNoPanel && r.textUntouched && r.idempotent && r.overviewSame;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
       }
       if (mode === 'linedraw') {
         // MOTION / BUILD_ENTRANCES (#522): a draw build's arrowhead rides the

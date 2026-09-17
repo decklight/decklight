@@ -17,6 +17,24 @@
   --transition-duration: 350ms;
   --auto-animate-duration: 500ms;
   --dim-opacity: 0.35;
+  /* Nested diagram tones (SVG_DIAGRAMS, #541): a filled shape drawn inside a
+     filled shape is painted one lightness step of its panel toward the ink —
+     the same hue, so the boxes read as the panel's children. A theme may set
+     these itself; left alone they derive from the theme's own slots and ink,
+     in dark and light themes alike. `-in2` is the step below that, and the
+     last: deeper nesting stays there. */
+  --d-fill-1-in: color-mix(in oklab, var(--d-fill-1) 82%, var(--d-text));
+  --d-fill-2-in: color-mix(in oklab, var(--d-fill-2) 82%, var(--d-text));
+  --d-fill-3-in: color-mix(in oklab, var(--d-fill-3) 82%, var(--d-text));
+  --d-fill-4-in: color-mix(in oklab, var(--d-fill-4) 82%, var(--d-text));
+  --d-fill-5-in: color-mix(in oklab, var(--d-fill-5) 82%, var(--d-text));
+  --d-fill-6-in: color-mix(in oklab, var(--d-fill-6) 82%, var(--d-text));
+  --d-fill-1-in2: color-mix(in oklab, var(--d-fill-1-in) 82%, var(--d-text));
+  --d-fill-2-in2: color-mix(in oklab, var(--d-fill-2-in) 82%, var(--d-text));
+  --d-fill-3-in2: color-mix(in oklab, var(--d-fill-3-in) 82%, var(--d-text));
+  --d-fill-4-in2: color-mix(in oklab, var(--d-fill-4-in) 82%, var(--d-text));
+  --d-fill-5-in2: color-mix(in oklab, var(--d-fill-5-in) 82%, var(--d-text));
+  --d-fill-6-in2: color-mix(in oklab, var(--d-fill-6-in) 82%, var(--d-text));
 }
 
 /* Accent overlay: --bg is the canvas (color OR gradient — the shorthand takes

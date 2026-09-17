@@ -57,6 +57,16 @@
   --d-fill-4: #e6e7da;
   --d-fill-5: #e6d2db;
   --d-fill-6: #c9e4e2;
+  /* nested tones (SVG_DIAGRAMS): the runtime's default steps a panel toward
+     the ink, and this mid-grey ink has no headroom over these pastels — so
+     nested boxes step toward the paper instead: still a clear step off the
+     panel, and clearer for the ink */
+  --d-fill-1-in: #fafaf8;
+  --d-fill-2-in: #f5efed;
+  --d-fill-3-in: #e7eef3;
+  --d-fill-4-in: #fbfbf9;
+  --d-fill-5-in: #f4ebef;
+  --d-fill-6-in: #ecf6f5;
 
   /* ── terminal ───────────────────────────── */
   --term-bg: #002b36;

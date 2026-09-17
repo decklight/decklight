@@ -5,7 +5,7 @@
 // scaling, print. SPEC BUILD_SEMANTICS, SLIDE_TRANSITIONS, PRESENTING, JS_API.
 
 import { scanSlide, applyBuildState, stepLabels, registerProvider } from './builds.js';
-import { namespaceSvgIds, applyConcepts } from './svg.js';
+import { namespaceSvgIds, applyConcepts, applyNesting } from './svg.js';
 import { initCharts } from './charts.js';
 import { runAutoAnimate } from './autoanimate.js';
 import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
@@ -1362,7 +1362,7 @@ export function init(userConfig = {}) {
       const to = this._sections[slide - 1];
       // hero-logo slides carry their own large mark — hide the corner chrome
       root.classList.toggle('has-hero-logo', to?.hasAttribute('data-logo') ?? false);
-      if (from === to) { to.classList.add('active'); return; }
+      if (from === to) { to.classList.add('active'); applyNesting(to); return; }
       const initial = !from || !from.classList.contains('active');
 
       const autoAnim = from && to && !initial &&
@@ -1373,6 +1373,9 @@ export function init(userConfig = {}) {
         'active', 'entering', 'leaving', 'dir-fwd', 'dir-back',
         'tr-none', 'tr-fade', 'tr-slide', 'tr-scale', 'tr-flip'));
       to.classList.add('active');
+      // nested diagram fills need the slide laid out (bboxes), so the pass
+      // runs here, once the slide is displayed, rather than in sync()
+      applyNesting(to);
 
       if (initial || printMode) return;
 
@@ -1647,6 +1650,7 @@ export function init(userConfig = {}) {
         inp.disabled = true;
       });
       frame.appendChild(clone);
+      applyNesting(clone);   // a clone of a slide never shown has not had its fills nested yet
       cell.appendChild(frame);
       const num = document.createElement('span');
       num.className = 'ov-num';
@@ -2320,6 +2324,7 @@ export function init(userConfig = {}) {
     instance._sections.forEach((s, i) => {
       s.classList.add('active');
       applyBuildState(instance._records[i], instance._records[i].groups.length);
+      applyNesting(s);   // every slide is laid out in print
     });
     // Handout/notes variants restructure the DOM — sections wrapped into
     // .print-page slots — strictly AFTER sync() and applyBuildState above:

@@ -32,7 +32,7 @@ export const MODES = [
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'template', 'templatelook', 'sources', 'sourcesedit',
   'authoring', 'codeedit', 'editor',
-  'linedraw',
+  'linedraw', 'nestedfills',
 ];
 
 // A typo in a mode name would otherwise run NOTHING and exit 0, which is the
