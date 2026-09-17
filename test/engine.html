@@ -325,7 +325,10 @@
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Five</h2>
       <svg viewBox="0 0 800 200" width="800" data-build="draw">
         <defs><marker id="ld-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" fill="currentColor"/></marker></defs>
-        <line class="ld-stops" x1="20" y1="32" x2="767" y2="32" stroke="#c33" stroke-width="6" data-draw-stops="347 542 767" marker-end="url(#ld-arr)"/>
+        <line class="ld-stops" x1="20" y1="32" x2="767" y2="32" stroke="#c33" stroke-width="6" data-draw-stops="347 542 767" data-build-order="1" marker-end="url(#ld-arr)"/>
+        <g class="ld-box" data-build="fade-up" data-build-self data-build-order="1"><rect x="20" y="60" width="300" height="30"/></g>
+        <g class="ld-box" data-build="fade-up" data-build-self data-build-order="2"><rect x="340" y="60" width="180" height="30"/></g>
+        <g class="ld-box" data-build="fade-up" data-build-self data-build-order="3"><rect x="540" y="60" width="220" height="30"/></g>
         <path class="ld-curve" d="M 40 180 C 200 60, 500 60, 760 180" fill="none" stroke="#36c" stroke-width="4" marker-end="url(#ld-arr)"/>
         <line class="ld-plain" x1="20" y1="120" x2="400" y2="120" stroke="#888" stroke-width="3"/>
       </svg>
@@ -1422,9 +1425,17 @@
         deck.next(); const s1 = await ride(stops);
         r.ridesStage1 = rode(s1);
         r.stop1 = Math.round(drawn(stops)) === 347;
+        // #524: the stroke carries data-build-order="1", so its stops are keys
+        // 1, 2, 3 and the three boxes tied to those keys advance WITH them —
+        // the slide still takes five clicks (three ties, the curve, the plain
+        // line), and the speaker view names the stage
+        const boxes = () => [...document.querySelectorAll('.ld-box')].map((b) => b.getAttribute('data-build-state'));
+        r.tiedWithBox = boxes()[0] === 'current' && boxes()[1] === 'pending' && boxes()[2] === 'pending';
+        r.labelsStage = /draw to stop 1/.test(deck._stepLabels(4)[0]);
         r.headOnTip1 = gap(stops) < 1 && endHead(stops).style.visibility !== 'hidden';
         deck.next(); await finished(stops); r.stop2 = Math.round(drawn(stops)) === 542;
         deck.next(); await finished(stops); r.stop3 = Math.round(drawn(stops)) === 747;
+        r.allBoxesOut = boxes().every((s) => s !== 'pending');
         // the curve: its head rides an arc, oriented along it
         deck.next(); const c1 = await ride(curve);
         r.ridesCurve = rode(c1);
@@ -1450,7 +1461,7 @@
         r.PASS = r.steps && r.headsBuilt && r.markersGone && r.pendingHidden
           && r.ridesStage1 && r.stop1 && r.headOnTip1 && r.stop2 && r.stop3
           && r.ridesCurve && r.curveDone && r.ridesBack && r.curveHidden && r.ridesStageBack && r.backToStop2
-          && r.deepLink && r.overviewHead && r.pacedByLength;
+          && r.deepLink && r.overviewHead && r.pacedByLength && r.tiedWithBox && r.labelsStage && r.allBoxesOut;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

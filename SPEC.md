@@ -197,7 +197,7 @@ container, zero classes on the items.
 | `data-build="fade-up"` | entrance style (see 2.3) |
 | `data-build-order="3"` | explicit step index within the slide (default: document order) |
 | `data-build-stay` on a child of a `data-build` container | child is exempt (stays static) |
-| `data-draw-stops="347 542 767"` on a stroke in a `draw` build | one stroke drawn in stages — path lengths, or fractions of the total when every value is ≤ 1 (or written `25%`): step k draws to stop k, the arrowhead riding each stage, a reversed build retracting stage by stage (a build provider, so a deep link lands on the right stop). A staged stroke is **paced by length**, 300 path units per second by default (a 300 px stage takes a second, never less than the flat draw duration), so a longer stage takes longer — where the flat 660 ms read as a swoosh; `data-draw-speed="400"` (path units per second) sets the pace exactly |
+| `data-draw-stops="347 542 767"` on a stroke in a `draw` build | one stroke drawn in stages — path lengths, or fractions of the total when every value is ≤ 1 (or written `25%`): step k draws to stop k, the arrowhead riding each stage, a reversed build retracting stage by stage (a build provider, so a deep link lands on the right stop); with `data-build-order="N"` on the stroke its stops take the keys N, N+1, …, so an element carrying the same key fades in on the click that draws to that stop (BUILD_PROVIDER_API). A staged stroke is **paced by length**, 300 path units per second by default (a 300 px stage takes a second, never less than the flat draw duration), so a longer stage takes longer — where the flat 660 ms read as a swoosh; `data-draw-speed="400"` (path units per second) sets the pace exactly |
 
 ### BUILD_SEMANTICS — Engine semantics
 
@@ -225,7 +225,7 @@ Decklight.registerBuildProvider(element, {
 });
 ```
 
-The engine interleaves provider steps into the slide's sequence at the element's document position. Providers must be idempotent (`apply` may be called with any index in any order — e.g. deep links).
+The engine interleaves provider steps into the slide's sequence at the element's document position — or, when the element carries `data-build-order="N"`, at the explicit keys N, N+1, …, so a DOM step sharing one of those keys advances together with that provider step (#524; a staged stroke's stops tied to the boxes they reach). Providers must be idempotent (`apply` may be called with any index in any order — e.g. deep links).
 
 ## SVG_DIAGRAMS — SVG diagrams (first-class)
 
