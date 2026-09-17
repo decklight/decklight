@@ -261,18 +261,31 @@ function ease(t) {
 }
 
 /**
+ * The pace a stroke with stops draws at when the author names none: design
+ * units per second. A 300 px stage takes a second — about what Keynote's
+ * Line Draw gives a build — where the flat draw duration (660 ms, most of
+ * it in the first quarter second) read as a swoosh rather than growth.
+ */
+const STOPS_SPEED = 300;
+
+/**
  * How long a draw of `dist` path units takes, in ms: the CSS draw duration
  * (`--build-duration` × 2.2, read off the head so print, the overview,
  * `decklight-no-anim` and reduced motion zero it exactly as they zero the
- * stroke's own transition), or `data-draw-speed` (path units per second)
- * when the author wants a longer stage to take longer.
+ * stroke's own transition), or a pace in path units per second —
+ * `data-draw-speed` when the author sets one, `STOPS_SPEED` for a stroke
+ * that draws in stages — so a longer stage takes longer. The default pace
+ * never goes below the flat duration: a short stage is a normal draw, not a
+ * flicker. An explicit speed is the author's, exactly.
  */
 function drawDuration(s, dist) {
   const probe = s._drawHeads?.end?.el ?? s._drawHeads?.start?.el ?? s;
   const base = parseFloat(getComputedStyle(probe).transitionDuration) * 1000 || 0;
   if (!base) return 0;
   const speed = parseFloat(s.getAttribute('data-draw-speed'));
-  return speed > 0 ? dist / speed * 1000 : base;
+  if (speed > 0) return dist / speed * 1000;
+  if (s._drawStops) return Math.max(base, dist / STOPS_SPEED * 1000);
+  return base;
 }
 
 /**
@@ -423,6 +436,7 @@ function drawStopsProvider(s) {
     setDrawn(s, 0, len);
   }
   s._drawFinal = stops[stops.length - 1];
+  s._drawStops = true; // paced by length, not the flat duration (drawDuration)
   setDrawn(s, 0, len);
   return {
     count: stops.length,

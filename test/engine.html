@@ -1319,10 +1319,10 @@
         const finished = (s) => until(() => !drawing(s), 200);
         // sample the gap while a draw runs, then wait for it to end
         const ride = async (s) => {
-          let worst = 0; let n = 0;
+          let worst = 0; let n = 0; const t0 = performance.now();
           for (let i = 0; i < 200 && drawing(s); i++) { await new Promise((f) => setTimeout(f, 30)); if (drawing(s)) { worst = Math.max(worst, gap(s)); n++; } }
           await finished(s);
-          return { worst, n };
+          return { worst, n, ms: performance.now() - t0 };
         };
         const stops = stroke('ld-stops'); const curve = stroke('ld-curve'); const plain = stroke('ld-plain');
         deck.goto(5, 0); await settle();
@@ -1346,6 +1346,9 @@
         // the curve: its head rides an arc, oriented along it
         deck.next(); const c1 = await ride(curve);
         r.ridesCurve = rode(c1);
+        // a staged stroke is paced by length (300 px/s: stage 1 is 347 px, so
+        // over a second) where a plain draw takes the flat 660 ms
+        r.pacedByLength = r.instant || (s1.ms >= 1000 && c1.ms < 900);
         r.curveDone = Math.round(drawn(curve)) === Math.round(curve.getTotalLength()) && gap(curve) < 1;
         // reversed: the head retracts with the tip, then hides; a stage un-draws to the stop before
         deck.prev(); const c2 = await ride(curve);
@@ -1365,7 +1368,7 @@
         r.PASS = r.steps && r.headsBuilt && r.markersGone && r.pendingHidden
           && r.ridesStage1 && r.stop1 && r.headOnTip1 && r.stop2 && r.stop3
           && r.ridesCurve && r.curveDone && r.ridesBack && r.curveHidden && r.ridesStageBack && r.backToStop2
-          && r.deepLink && r.overviewHead;
+          && r.deepLink && r.overviewHead && r.pacedByLength;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

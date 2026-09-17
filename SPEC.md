@@ -196,7 +196,7 @@ container, zero classes on the items.
 | `data-build="fade-up"` | entrance style (see 2.3) |
 | `data-build-order="3"` | explicit step index within the slide (default: document order) |
 | `data-build-stay` on a child of a `data-build` container | child is exempt (stays static) |
-| `data-draw-stops="347 542 767"` on a stroke in a `draw` build | one stroke drawn in stages — path lengths, or fractions of the total when every value is ≤ 1 (or written `25%`): step k draws to stop k, the arrowhead riding each stage, a reversed build retracting stage by stage (a build provider, so a deep link lands on the right stop); `data-draw-speed="400"` (path units per second) lets a longer stage take longer instead of every stage taking the one draw duration |
+| `data-draw-stops="347 542 767"` on a stroke in a `draw` build | one stroke drawn in stages — path lengths, or fractions of the total when every value is ≤ 1 (or written `25%`): step k draws to stop k, the arrowhead riding each stage, a reversed build retracting stage by stage (a build provider, so a deep link lands on the right stop). A staged stroke is **paced by length**, 300 path units per second by default (a 300 px stage takes a second, never less than the flat draw duration), so a longer stage takes longer — where the flat 660 ms read as a swoosh; `data-draw-speed="400"` (path units per second) sets the pace exactly |
 
 ### BUILD_SEMANTICS — Engine semantics
 
