@@ -774,13 +774,18 @@
 
 /* draw style: strokes animate dash-offset; text/fills fade */
 .decklight .build-step[data-build-style="draw"] { visibility: visible; opacity: 1; }
-.decklight .build-step[data-build-style="draw"] .draw-stroke {
+/* a stroke inside a draw step, and a stroke that IS the step (a bare <line>
+   in a data-build="draw" svg, or one carrying data-build itself) */
+.decklight .build-step[data-build-style="draw"] .draw-stroke,
+.decklight .build-step.draw-stroke[data-build-style="draw"] {
   stroke-dasharray: var(--draw-len);
   stroke-dashoffset: var(--draw-len);
   transition: stroke-dashoffset calc(var(--build-duration) * 2.2) ease;
 }
 .decklight .build-step[data-build-style="draw"][data-build-state="current"] .draw-stroke,
-.decklight .build-step[data-build-style="draw"][data-build-state="done"] .draw-stroke {
+.decklight .build-step[data-build-style="draw"][data-build-state="done"] .draw-stroke,
+.decklight .build-step.draw-stroke[data-build-style="draw"][data-build-state="current"],
+.decklight .build-step.draw-stroke[data-build-style="draw"][data-build-state="done"] {
   stroke-dashoffset: 0;
 }
 .decklight .build-step[data-build-style="draw"] .draw-fade {
@@ -796,11 +801,17 @@
   /* strokes hidden by full dash offset; keep element itself visible */
   opacity: 1;
 }
+/* the arrowhead that rides a drawing stroke's tip (#522): placed by the
+   engine's frame loop, never by this transition — the duration is here only
+   to be READ, so print, the overview, no-anim and reduced motion turn the
+   loop instant by zeroing it exactly as they zero the stroke's own */
+.decklight .draw-head { transition: opacity calc(var(--build-duration) * 2.2) ease; pointer-events: none; }
 
 /* instant application (slide entry, deep links, back-nav restore) */
 .decklight.decklight-no-anim .build-step,
 .decklight.decklight-no-anim .build-step .draw-stroke,
-.decklight.decklight-no-anim .build-step .draw-fade {
+.decklight.decklight-no-anim .build-step .draw-fade,
+.decklight.decklight-no-anim .draw-head {
   transition: none !important;
   animation: none !important;
 }
@@ -1295,6 +1306,7 @@
 .decklight-overview .build-step { visibility: visible !important; opacity: 1 !important; transform: none !important; }
 .decklight-overview .draw-stroke { stroke-dashoffset: 0 !important; }
 .decklight-overview .draw-fade { opacity: 1 !important; }
+.decklight-overview .draw-head { visibility: visible !important; transition: none !important; }
 
 /* narration picker (N) */
 .decklight-narr {
@@ -2004,6 +2016,7 @@
 .decklight.decklight-print .build-step { visibility: visible !important; opacity: 1 !important; transform: none !important; }
 .decklight.decklight-print .draw-stroke { stroke-dashoffset: 0 !important; }
 .decklight.decklight-print .draw-fade { opacity: 1 !important; }
+.decklight.decklight-print .draw-head { visibility: visible !important; transition: none !important; }
 
 /* ---------- print variants: ?print=handout | notes (SPEC PRESENTING) ---------------
    Portrait pages, 816×1056 (US letter at 96dpi — the engine injects the
@@ -2082,7 +2095,7 @@
 @media (prefers-reduced-motion: reduce) {
   .decklight section.entering, .decklight section.leaving,
   .decklight .build-step, .decklight [data-animate],
-  .decklight .draw-stroke, .decklight .draw-fade, .decklight .aa-fresh {
+  .decklight .draw-stroke, .decklight .draw-fade, .decklight .draw-head, .decklight .aa-fresh {
     animation: none !important;
     transition: none !important;
   }

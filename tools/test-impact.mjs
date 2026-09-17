@@ -43,14 +43,14 @@ const repo = path.resolve(here, '..');
 /** narration-render's five concerns, as verify runs them (see test/verify.mjs). */
 const NARRATION = ['narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record'];
 /** engine-render's concerns, likewise (see test/verify.mjs). */
-const ENGINE = ['engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources', 'engine-render:authoring'];
+const ENGINE = ['engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources', 'engine-render:authoring', 'engine-render:builds'];
 
 /** Every harness `verify` knows, in its running order. */
 export const ALL = [
   'render', 'player-render',
   'narration-render:live', 'narration-render:picker', 'narration-render:recorded', 'narration-render:segments', 'narration-render:record',
   'record-render', 'review-render',
-  'character-render', 'engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources', 'engine-render:authoring', 'pin-render', 'overflow-render', 'split-render',
+  'character-render', 'engine-render:themes', 'engine-render:palette', 'engine-render:narration', 'engine-render:navigation', 'engine-render:handover', 'engine-render:templates', 'engine-render:sources', 'engine-render:authoring', 'engine-render:builds', 'pin-render', 'overflow-render', 'split-render',
   'strict-render', 'shot-render', 'plugin-render', 'extension-check-render',
   'deckfile-render', 'pdf-render', 'pptx-render', 'import-render', 'contrast', 'palette-rules',
 ];
@@ -226,7 +226,7 @@ const COST = {
   // engine-render's seven, roughly a second a mode plus a browser start
   'engine-render:themes': 6, 'engine-render:palette': 5, 'engine-render:narration': 4,
   'engine-render:navigation': 4, 'engine-render:handover': 4, 'engine-render:templates': 3,
-  'engine-render:sources': 3,
+  'engine-render:sources': 3, 'engine-render:authoring': 3, 'engine-render:builds': 3,
   'pdf-render': 10, 'split-render': 9, 'review-render': 8, 'pin-render': 7, 'record-render': 7,
   'strict-render': 6, 'overflow-render': 6, 'plugin-render': 6, 'deckfile-render': 4,
   'shot-render': 4, 'pptx-render': 6, 'player-render': 3, 'character-render': 2, 'import-render': 2,
