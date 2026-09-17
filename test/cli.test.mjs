@@ -158,21 +158,18 @@ test('a tiny cast runs through the dispatcher end-to-end', { skip: recSkip }, ()
   rmTemp(dir);
 });
 
-test('init scaffolds a deck that links the installed runtime — and --inline a self-contained one — plus the agent skill', () => {
+test('init scaffolds a deck that is slides plus a configuration block — and --inline a self-contained one — plus the agent skill', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
-  // the default (#517): a few KB of slides that reference the runtime beside them
-  const linkedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-linked-'));
-  const linkedOut = execFileSync('node', [CLI, 'init', 'Linked Deck', '--dir', linkedDir, '--no-skill'], { encoding: 'utf8' });
-  assert.match(linkedOut, /links the installed runtime — decklight bundle embeds it to send/);
-  const linked = fs.readFileSync(path.join(linkedDir, 'deck.html'), 'utf8');
-  assert.match(linked, /<link rel="stylesheet" href="decklight\.css" data-decklight-runtime="css">/);
-  assert.match(linked, /<link rel="stylesheet" href="themes\/aurora\.css">/);
-  assert.match(linked, /<script src="decklight\.js" data-decklight-runtime="js" data-decklight-version="[^"]+"><\/script>/);
-  assert.match(linked, /<script>Decklight\.init\(\{\}\);<\/script>/);
-  assert.doesNotMatch(linked, /<style data-/);
-  assert.ok(linked.length < 4000, `slides only (${linked.length} bytes)`);
-  assert.match(linked, /<h1>Linked Deck<\/h1>/);
-  rmTemp(linkedDir);
+  // the default (#520): a few KB of slides, one JSON block, nothing that executes
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-data-'));
+  const dataOut = execFileSync('node', [CLI, 'init', 'Data Deck', '--dir', dataDir, '--no-skill'], { encoding: 'utf8' });
+  assert.match(dataOut, /slides and a config block, no runtime in the file — decklight bundle embeds it to send/);
+  const data = fs.readFileSync(path.join(dataDir, 'deck.html'), 'utf8');
+  assert.match(data, /<script type="application\/json" data-decklight-config>\n  \{ "decklight": "[^"]+", "theme": "aurora" \}\n  <\/script>/);
+  assert.doesNotMatch(data, /<link rel="stylesheet"|<script src=|Decklight\.init|<style data-/, 'no runtime, no theme file, no boot call');
+  assert.ok(data.length < 4000, `slides only (${data.length} bytes)`);
+  assert.match(data, /<h1>Data Deck<\/h1>/);
+  rmTemp(dataDir);
 
   // --inline: the self-contained scaffold, every theme embedded, aurora active
   const out = execFileSync('node', [CLI, 'init', 'Test Deck', '--dir', dir, '--inline'], { encoding: 'utf8' });
@@ -339,10 +336,10 @@ test('init refusal on a decklight deck leads with upgrade, names both versions',
 
 test('init refusal on a deck of unknown runtime version still suggests upgrade, versionless', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
-  // a linked scaffold records its version on the <script src>; strip that record
+  // the scaffold records its version in the configuration block; strip that record
   execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
   const deck = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
-  fs.writeFileSync(path.join(dir, 'deck.html'), deck.replace(/ data-decklight-version="[^"]+"/, ''));
+  fs.writeFileSync(path.join(dir, 'deck.html'), deck.replace(/"decklight": "[^"]+", /, ''));
   const r = spawnSync('node', [CLI, 'init'], { encoding: 'utf8', cwd: dir });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /is already a decklight deck\n/, 'no version parenthetical');
@@ -364,10 +361,14 @@ test('init refusal on a non-decklight file keeps the plain --force message', () 
 test('deckRuntimeVersion: version for a scaffold, null when mangled, undefined for a non-deck', async () => {
   const { deckRuntimeVersion } = await import('../cli/init.mjs');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
-  // the linked scaffold: the version is what the <script src> records
+  // the data scaffold: the version is what the configuration block records
   execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill'], { encoding: 'utf8' });
-  const linked = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
-  assert.equal(deckRuntimeVersion(linked), runtimeVersion);
+  const data = fs.readFileSync(path.join(dir, 'deck.html'), 'utf8');
+  assert.equal(deckRuntimeVersion(data), runtimeVersion);
+  assert.equal(deckRuntimeVersion(data.replace(/"decklight": "[^"]+", /, '')), null, 'record stripped: still a deck, version unknown');
+  // the linked scaffold of #517: the version is what the <script src> records
+  const linked = '<div class="decklight"></div><script src="decklight.js" data-decklight-version="0.7.0"></script><script>Decklight.init({})</script>';
+  assert.equal(deckRuntimeVersion(linked), '0.7.0');
   assert.equal(deckRuntimeVersion(linked.replace(/ data-decklight-version="[^"]+"/, '')), null, 'record stripped: still a deck, version unknown');
   // the embedded scaffold: the version is the runtime's own build banner
   execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--force', '--inline', '--themes', 'aurora'], { encoding: 'utf8' });
@@ -1517,15 +1518,26 @@ test('bundling an already-inlined deck says so, instead of blaming a missing <li
     return true;
   });
 
-  // a deck with no theme in either form keeps the original message — it is
-  // accurate there, and it is the one that tells an author what to add
+  // a deck with no theme and no runtime in either form is a deck as data
+  // (#520): the installed runtime and the default theme are what it plays
+  // with, so they are what the bundle embeds — the init call it kept is the
+  // JS API's escape hatch, and the engine lands in front of it
   const bare = path.join(dir, 'bare.html');
-  fs.writeFileSync(bare, '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div>'
+  fs.writeFileSync(bare, '<!doctype html><html><head></head><body><div class="decklight"><section><h2>One</h2></section></div>'
     + '<script>Decklight.init({});</script></body></html>');
-  await assert.rejects(() => bundleMain([bare]), (e) => {
-    assert.match(e.message, /no theme <link>/);
-    return true;
-  });
+  await bundleMain([bare, '-o', path.join(dir, 'bare-out.html')]);
+  const out = fs.readFileSync(path.join(dir, 'bare-out.html'), 'utf8');
+  assert.match(out, /<style data-theme="aurora">/, 'the default theme, active');
+  assert.match(out, /<script data-decklight-runtime="js">\n\/\*! Decklight v/, 'the installed runtime, marked');
+  assert.ok(out.indexOf('data-decklight-runtime="js"') < out.indexOf('Decklight.init({})'), 'the engine before the boot call');
+  // a deck with a theme link and no runtime at all: only the runtime is added
+  const themed = path.join(dir, 'themed.html');
+  fs.writeFileSync(themed, '<!doctype html><html><head><link rel="stylesheet" href="themes/graphite.css"></head><body><div class="decklight"><section><h2>One</h2></section></div></body></html>');
+  await bundleMain([themed, '-o', path.join(dir, 'themed-out.html'), '--themes', 'current']);
+  const themedOut = fs.readFileSync(path.join(dir, 'themed-out.html'), 'utf8');
+  assert.match(themedOut, /<style data-theme="graphite">/);
+  assert.doesNotMatch(themedOut, /data-theme="aurora"/);
+  assert.match(themedOut, /\/\*! Decklight v/);
 
   rmTemp(dir);
 });

@@ -552,8 +552,17 @@ const STEP_PROBE = `<script>
 })();
 </script>`;
 
-/** Make the deck's instance reachable, the way test/import-render.mjs does. */
-const exposeInstance = (html) => html.replace(/\bDecklight\s*\.\s*init\s*\(/, 'window.__decklightProbe = Decklight.init(');
+/**
+ * Make the deck's instance reachable, the way test/import-render.mjs does: a
+ * deck that boots itself from its `init` call has the call's result exposed; a
+ * deck as data (#520) boots itself, so the probe reads the instance off the
+ * stage — lazily, since the engine is served into the page after this runs.
+ */
+const PROBE_GETTER = '<script>Object.defineProperty(window, "__decklightProbe", { get: () => document.querySelector(".decklight")?.__decklight });</script>\n';
+const exposeInstance = (html) => {
+  const out = html.replace(/\bDecklight\s*\.\s*init\s*\(/, 'window.__decklightProbe = Decklight.init(');
+  return out !== html ? out : (injectBeforeBodyEnd(html, PROBE_GETTER) ?? html);
+};
 
 /** Parse the probe's answer out of a dumped DOM; null when it did not report. */
 export function parseBuildSteps(dom, slides) {

@@ -36,9 +36,12 @@ const DECK = `<!doctype html>
 <html><head></head><body>
   <div class="decklight"><div class="decklight-stage"><section><h2>Alpha</h2>
     <aside class="notes">the quiet part</aside></section></div></div>
+  <script src="decklight.js"></script>
   <script>Decklight.init()</script>
 </body></html>
 `;
+// the deck loads the runtime itself, so the server has nothing to add to it
+// (#520) and the bytes it serves are exactly the file's — which is the claim
 
 const GOOD_MANIFEST = { name: 'timer', slot: 'corner-br', needs: ['position'], version: '1.0.0' };
 const GOOD_SOURCE = 'decklight.on(function (s) { document.body.textContent = s.elapsed; });';

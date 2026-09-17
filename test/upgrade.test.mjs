@@ -110,17 +110,28 @@ test('upgrade is idempotent: a second run reports already current and changes no
   rmTemp(dir);
 });
 
-test('a freshly scaffolded deck is marked and already current — linked by default, embedded with --inline', () => {
-  // the default scaffold links the runtime (#517): always current, and it records the version
-  const linkedDir = tmp();
-  execFileSync('node', [CLI, 'init', '--dir', linkedDir, '--no-skill'], { encoding: 'utf8' });
-  const lp = path.join(linkedDir, 'deck.html');
-  const linked = fs.readFileSync(lp, 'utf8');
-  assert.match(linked, /<script src="decklight\.js" data-decklight-runtime="js" data-decklight-version=/);
-  const lout = execFileSync('node', [CLI, 'upgrade', lp], { encoding: 'utf8' });
-  assert.match(lout, /links the runtime and is written for decklight .* already current/);
-  assert.equal(fs.readFileSync(lp, 'utf8'), linked);
-  rmTemp(linkedDir);
+test('a freshly scaffolded deck is marked and already current — data by default, embedded with --inline', () => {
+  // the default scaffold is slides plus a configuration block (#520): always
+  // current, and the block records the version it was written for
+  const dataDir = tmp();
+  execFileSync('node', [CLI, 'init', '--dir', dataDir, '--no-skill'], { encoding: 'utf8' });
+  const dp = path.join(dataDir, 'deck.html');
+  const data = fs.readFileSync(dp, 'utf8');
+  assert.match(data, /<script type="application\/json" data-decklight-config>\n\s*\{ "decklight": "[^"]+", "theme": "aurora" \}/);
+  assert.doesNotMatch(data, /decklight\.js|Decklight\.init/, 'no runtime, no boot call');
+  const dout = execFileSync('node', [CLI, 'upgrade', dp], { encoding: 'utf8' });
+  assert.match(dout, /slides and a configuration block, written for decklight .* already current/);
+  assert.equal(fs.readFileSync(dp, 'utf8'), data);
+  // an older record is refreshed in place — the block's own formatting kept
+  fs.writeFileSync(dp, data.replace(/"decklight": "[^"]+"/, '"decklight": "0.1.0"'));
+  const dry = execFileSync('node', [CLI, 'upgrade', dp, '--dry-run'], { encoding: 'utf8' });
+  assert.match(dry, /would record it as written for decklight .* \(was 0\.1\.0\)/);
+  assert.match(fs.readFileSync(dp, 'utf8'), /0\.1\.0/, 'dry run wrote nothing');
+  const rec = execFileSync('node', [CLI, 'upgrade', dp], { encoding: 'utf8' });
+  assert.match(rec, /now recorded as written for decklight .* \(was 0\.1\.0\)/);
+  assert.equal(fs.readFileSync(dp, 'utf8'), data, 'the record is the only byte that moved');
+  assert.match(execFileSync('node', [CLI, 'upgrade', dp, '--link'], { encoding: 'utf8' }), /already slides and a configuration block/);
+  rmTemp(dataDir);
 
   const dir = tmp();
   execFileSync('node', [CLI, 'init', '--dir', dir, '--no-skill', '--inline', '--themes', 'aurora'], { encoding: 'utf8' });
@@ -280,29 +291,50 @@ test('a deck that links the runtime is always current — upgrade only records t
   rmTemp(dir);
 });
 
-test('upgrade --link is the reverse of bundle: the embedded runtime becomes references, the author’s deck survives byte-for-byte', () => {
+test('upgrade --link is the reverse of bundle: the deck becomes slides plus a configuration block, the author’s deck survives byte-for-byte', () => {
   const dir = tmp();
   const p = oldDeck(dir, { themes: 'aurora,graphite' });
   const before = fs.readFileSync(p, 'utf8');
   const r = spawnSync('node', [CLI, 'upgrade', p, '--link'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /linked .* to the installed runtime/);
-  assert.match(r.stdout, /runtime js \(.* → a link\)/);
-  assert.match(r.stdout, /theme aurora → a link, 1 embedded theme dropped/);
+  assert.match(r.stdout, /is now slides and a configuration block, written for decklight/);
+  assert.match(r.stdout, /runtime js \(.* → gone; the servers add it\)/);
+  assert.match(r.stdout, /theme aurora → the configuration block, 1 embedded theme dropped/);
+  assert.match(r.stdout, /the Decklight\.init call → the configuration block/);
   const after = fs.readFileSync(p, 'utf8');
-  assert.match(after, /<script src="decklight\.js" data-decklight-runtime="js" data-decklight-version="[^"]+"><\/script>/);
-  assert.match(after, /<link rel="stylesheet" href="decklight\.css" data-decklight-runtime="css">/);
-  assert.match(after, /<link rel="stylesheet" href="themes\/aurora\.css">/);
-  assert.doesNotMatch(after, /data-theme="graphite"/, 'the inactive embedded theme is gone — the picker fetches it');
-  assert.doesNotMatch(after, /window\.Decklight\s*=|var Decklight/, 'no runtime left inside');
+  assert.doesNotMatch(after, /<script src=|<link rel="stylesheet"/, 'nothing referenced either — the servers add the runtime');
+  assert.doesNotMatch(after, /data-theme="graphite"|data-theme="aurora"/, 'the embedded themes are gone — the servers link the active one, the picker fetches the rest');
+  assert.doesNotMatch(after, /window\.Decklight\s*=|var Decklight|Decklight\.init/, 'no runtime, no boot call left inside');
+  // the init argument became the block, as data, with the theme beside it
+  const block = /<script type="application\/json" data-decklight-config>\n([\s\S]*?)\n\s*<\/script>/.exec(after);
+  assert.ok(block, 'a configuration block');
+  const cfg = JSON.parse(block[1]);
+  assert.equal(cfg.theme, 'aurora');
+  assert.equal(cfg.transition, 'fade', 'the init argument, as data');
+  assert.match(cfg.decklight, /^\d+\.\d+\.\d+/);
   // everything the author wrote is still there, untouched
-  for (const piece of [SENTINEL, AUTHOR_STYLE, AUTHOR_SCRIPT, INIT_CONFIG]) assert.ok(after.includes(piece), `kept: ${piece.slice(0, 40)}`);
+  for (const piece of [SENTINEL, AUTHOR_STYLE, AUTHOR_SCRIPT]) assert.ok(after.includes(piece), `kept: ${piece.slice(0, 40)}`);
   // the fixture's runtime is a stub, so the drop is modest here; a real deck loses ~600 KB
   assert.ok(after.length < before.length / 2, `smaller (${before.length} → ${after.length})`);
   assert.ok(fs.existsSync(`${p}.bak`));
-  // and the linked deck is now always current
+  // and the deck is now always current
   const again = spawnSync('node', [CLI, 'upgrade', p], { encoding: 'utf8' });
   assert.equal(again.status, 0);
   assert.match(again.stdout, /already current/);
+  rmTemp(dir);
+});
+
+test('upgrade --link keeps a Decklight.init call whose argument is code — the JS API’s escape hatch', () => {
+  const dir = tmp();
+  const p = oldDeck(dir, { themes: 'aurora' });
+  const code = 'Decklight.init({ transition: window.T || "fade" })';
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace(INIT_CONFIG, code));
+  const r = spawnSync('node', [CLI, 'upgrade', p, '--link'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /warning: the Decklight\.init argument is code, not data — the call stays/);
+  const after = fs.readFileSync(p, 'utf8');
+  assert.ok(after.includes(code), 'the call is kept verbatim');
+  assert.match(after, /data-decklight-config>\n\s*\{ "decklight": "[^"]+", "theme": "aurora" \}/, 'the block carries the version and the theme');
+  assert.doesNotMatch(after, /var Decklight|window\.Decklight\s*=/, 'the embedded runtime is gone');
   rmTemp(dir);
 });

@@ -47,10 +47,12 @@ description: Author and edit Decklight presentations — single-file HTML decks 
 ---
 
 Decklight decks are one HTML file of slides: no build step, no bundler. A deck
-is \`<div class="decklight">\` containing \`<section>\` slides; it *references*
-the runtime — one JS file + one CSS file + one theme CSS file — which
-\`decklight author\` and \`decklight present\` serve from the installed package,
-and which \`decklight bundle\` embeds into one self-contained file to hand over.
+is \`<div class="decklight">\` containing \`<section>\` slides, plus one JSON
+configuration block (\`<script type="application/json" data-decklight-config>\`)
+— and nothing that executes: no runtime in the file, no \`Decklight.init\` call.
+\`decklight author\` and \`decklight present\` add the installed runtime as they
+serve it, and \`decklight bundle\` embeds it into one self-contained file to hand
+over. Write slides and configuration; never write boilerplate.
 
 **Full authoring contract**: read [${referenceHref}](${referenceHref}) in this same
 skill directory before authoring or editing a slide — SLIDE_DENSITY is how much goes on

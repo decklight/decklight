@@ -397,7 +397,13 @@ export function createNarration({
   // unheard sentences synthesize), so the deck can later run RECORDED with
   // that set instead of depending on the bridge.
   const narrKey = 'decklight-narration:' + location.pathname;
-  const LIVE_URL = config.narration?.liveUrl ?? 'http://127.0.0.1:8787/tts';
+  // Same origin by convention (#520): a deck never spells a port. Served by
+  // `author`, `/tts` (and the sibling routes derived below) is proxied to the
+  // voice bridge author started; opened from disk there is no origin to speak
+  // of, and the bridge's own default port is the one thing left to assume.
+  // `narration.liveUrl` in the config still overrides both.
+  const LIVE_URL = config.narration?.liveUrl
+    ?? (/^https?:$/.test(location.protocol) ? `${location.origin}/tts` : 'http://127.0.0.1:8787/tts');
   // keep in sync with tools/gemini-tts.mjs GEMINI_VOICES
   const GEMINI_VOICES = [
     ['Zephyr', 'bright'], ['Puck', 'upbeat'], ['Charon', 'informative'],

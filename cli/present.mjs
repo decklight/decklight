@@ -41,6 +41,7 @@ import { corsHeaders, readBody } from '../tools/bridge.mjs';
 // same-origin with the server that serves it.
 const CORS = corsHeaders();
 import { auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
+import { linkRuntime } from './runtime-link.mjs';
 import { loadLibrary, injectChrome } from './plugin.mjs';
 import { verifyFile, verifyBytes, formatSignature, isVerified, UNSIGNED, TAMPERED, VERIFIED } from './sign.mjs';
 import {
@@ -439,6 +440,11 @@ export async function presentMain(args, { client } = {}) {
     const out = strip(text);
     return file === deckPath ? injectChrome(out, chrome.plugins) : out;
   };
+  // The deck served from memory below goes through the same seam a file
+  // does: a deck that is only data (#520) gets the runtime referenced on its
+  // way out, and the audit above described the bytes WITHOUT it — which is
+  // the point. `staticFiles` does this for every other page itself.
+  const serveText = (text) => linkRuntime(rewrite(text, deckPath));
   // No `index` here: "/" is the deck, and the deck is answered from memory
   // before this handler is consulted — a fallthrough should 404, not reopen
   // the disk read this route exists to avoid.
@@ -458,9 +464,7 @@ export async function presentMain(args, { client } = {}) {
   // audit and re-print the verdict — never silently serve new bytes.
   const servePayload = (req, res) => {
     if (req.method !== 'GET') return false;
-    const body = rewrite
-      ? Buffer.from(rewrite(deck.payload.toString('utf8'), deckPath), 'utf8')
-      : deck.payload;
+    const body = Buffer.from(serveText(deck.payload.toString('utf8')), 'utf8');
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
     res.end(body);
     return true;

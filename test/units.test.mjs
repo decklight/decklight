@@ -435,7 +435,7 @@ test('init without --from is exactly what it was', () => {
   const { code } = run(['init', 'Plain', '--no-skill', '--no-git'], m.home, work);
   assert.equal(code, 0);
   const deck = readFileSync(path.join(work, 'deck.html'), 'utf8');
-  assert.match(deck, /data-decklight-runtime="js"/, 'the starter deck still inlines the runtime');
+  assert.match(deck, /data-decklight-config/, 'the starter deck is still slides plus a configuration block');
   assert.match(deck, /<h1>Plain<\/h1>/);
   rmTemp(work);
   m.cleanup();
@@ -466,7 +466,7 @@ test('an installed adapter actually runs — decklight import produces a deck (E
     const deck = readFileSync(path.join(work, 'talk.html'), 'utf8');
     assert.match(deck, /<section><h2>Slide one<\/h2>first body<\/section>/);
     assert.match(deck, /<section><h2>Slide two<\/h2>second body<\/section>/);
-    assert.match(deck, /data-decklight-runtime="js"/, 'still the standard init output shape');
+    assert.match(deck, /data-decklight-config/, 'still the standard init output shape');
   } finally { rmTemp(work); m.cleanup(); }
 });
 

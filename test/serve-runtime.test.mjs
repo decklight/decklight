@@ -89,3 +89,36 @@ test('present’s knownTypesOnly policy still lets the linked runtime through', 
   assert.equal((await fetch(`${base}/decklight.js`)).status, 200);
   assert.equal((await fetch(`${base}/themes/midnight.css`)).status, 200);
 });
+
+// ── a deck as data (#520): the server references the runtime on the way out ──
+const DATA_DECK = '<!doctype html><html><head><meta charset="utf-8"><title>d</title>\n'
+  + '<script type="application/json" data-decklight-config>{ "decklight": "0.8.1", "theme": "midnight" }</script>\n'
+  + '</head><body><div class="decklight"><section><h1>data</h1></section></div>\n</body></html>\n';
+
+test('a deck that carries no runtime is served with the engine, its stylesheet and its theme referenced — and the file untouched', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-data-'));
+  t.after(() => rmTemp(dir));
+  fs.writeFileSync(path.join(dir, 'deck.html'), DATA_DECK);
+  fs.writeFileSync(path.join(dir, 'other.html'), '<!doctype html><h1>not a deck</h1><script>1</script>');
+  const files = staticFiles(dir, { index: '/deck.html', html: (txt) => txt.replace('</body>', '<script>window.probe = 1</script></body>') });
+  const server = createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (!files(req, res, url)) { res.writeHead(405); res.end(); }
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const page = await (await fetch(`${base}/`)).text();
+  assert.match(page, /<link rel="stylesheet" href="decklight\.css" data-decklight-runtime="css">\n<link rel="stylesheet" href="themes\/midnight\.css">\n<\/head>/, 'the stylesheet and the block’s theme, at the end of head');
+  assert.match(page, /<script src="decklight\.js" data-decklight-runtime="js"><\/script>\n<script>window\.probe = 1<\/script>/, 'the engine goes in front of the first script that executes — the caller’s rewrite ran first');
+  assert.equal((page.match(/decklight\.js/g) || []).length, 1, 'once');
+  assert.equal(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), DATA_DECK, 'the file is what it was');
+  // the references it now carries are answered from the package
+  assert.equal(await (await fetch(`${base}/decklight.js`)).text(), installed('dist/decklight.js'));
+  assert.equal(await (await fetch(`${base}/themes/midnight.css`)).text(), installed('themes/midnight.css'));
+  // a page that is not a deck is left alone; so is a deck that brought its own
+  assert.doesNotMatch(await (await fetch(`${base}/other.html`)).text(), /decklight\.js/);
+  const linked = await (await fetch(`${base}/`)).text();
+  fs.writeFileSync(path.join(dir, 'deck.html'), linked);
+  assert.equal(await (await fetch(`${base}/`)).text(), linked.replace('</body>', '<script>window.probe = 1</script></body>').replace('<script>window.probe = 1</script>\n<script>window.probe = 1</script>', '<script>window.probe = 1</script>'), 'idempotent: a linked deck passes through');
+});

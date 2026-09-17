@@ -47,6 +47,7 @@ import {
   PKG, PKG_ROOT, AGENTS_MARKER, agentsSection, claudeSkillMd, referenceDoc,
 } from './skill-content.mjs';
 import { THEMES_DIR, themeCss, runtimeCss, runtimeJs } from './pkg.mjs';
+import { configBlock, configBlockHtml, configVersion, hasRuntime } from './runtime-link.mjs';
 import { TARGETS, detectedTargets, installGlobalSkill, display } from './skills.mjs';
 import { onPath, detectAgents } from './agents.mjs';
 import {
@@ -67,24 +68,24 @@ import { isMain } from '../tools/args.mjs';
 const fail = makeFail('init');
 
 /**
- * Is this HTML a decklight deck, and which runtime does it carry?
- * Keys on the markers init itself writes — the `class="decklight"` stage div
- * plus the `Decklight.init(` call — and reads the version from the bundle's
+ * Is this HTML a decklight deck, and which runtime was it written for?
+ * Keys on the `class="decklight"` stage div plus one of the three things a
+ * deck boots by: a `Decklight.init(` call, a configuration block (#520), or a
+ * runtime in the file. The version comes from the bundle's
  * `/*! Decklight vX.Y.Z … ` banner (stamped by build.mjs; minification makes
- * the exported const unfindable).
+ * the exported const unfindable), a linked deck's `data-decklight-version`
+ * (#517), or the block's `decklight` key.
  *
  * @returns the runtime version string; `null` for a decklight deck whose
  *          version can't be extracted; `undefined` for a non-deck.
  */
 export function deckRuntimeVersion(html) {
   const isDeck = /<[a-z][^>]*\bclass=["'](?:[^"']*\s)?decklight(?:\s[^"']*)?["']/i.test(html)
-    && /Decklight\.init\s*\(/.test(html);
+    && (/Decklight\.init\s*\(/.test(html) || !!configBlock(html) || hasRuntime(html));
   if (!isDeck) return undefined;
-  // an embedded runtime carries its build banner; a linked one (#517) records
-  // the version it was written for on its <script src> instead
   const banner = /\/\*!\s*Decklight v(\d+\.\d+\.\d+[^\s*]*)/.exec(html)
     ?? /<script\b[^>]*\bsrc=["'][^"']*decklight[^"']*\.js["'][^>]*\bdata-decklight-version=["']([^"']+)["']/i.exec(html);
-  return banner ? banner[1] : null;
+  return banner ? banner[1] : configVersion(html);
 }
 
 // aurora is the deck's starting look; init ships every theme by default so the
@@ -366,27 +367,25 @@ export function epilogue({ deckPath, tty = false, noColor = false }) {
 
 function starterDeck(title, themeNames, activeTheme, { inline = false } = {}) {
   title = escapeHtml(title); // a prompt invites &, < and quotes
-  // The deck REFERENCES the runtime (#517): `decklight.js`, `decklight.css`
-  // and its theme as siblings it does not ship — `author`, `present` and every
-  // render answer them from the installed package, and `bundle` inlines them
-  // at hand-over. A few KB of slides, always the installed runtime, a git
-  // history that is only slides. `--inline` is the self-contained scaffold:
-  // double-clickable, pinned to this version, 650 KB before the first slide.
+  // The deck is DATA (#520): slides, plus one JSON block holding its
+  // configuration and the version it was written for. No runtime in the file
+  // — `author`, `present` and every render reference the installed one on
+  // the way out, and `bundle` embeds it at hand-over. A few KB of slides, a
+  // git history that is only slides, and nothing in the file that executes.
+  // `--inline` is the self-contained scaffold: double-clickable, pinned to
+  // this version, 650 KB before the first slide.
   if (!inline) {
     return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <title>${title}</title>
-  <link rel="stylesheet" href="decklight.css" data-decklight-runtime="css">
-  <link rel="stylesheet" href="themes/${activeTheme}.css">
+${configBlockHtml({ theme: activeTheme })}
 </head>
 <body>
   <div class="decklight">
 ${starterSlides(title)}
   </div>
-  <script src="decklight.js" data-decklight-runtime="js" data-decklight-version="${PKG.version}"></script>
-  <script>Decklight.init({});</script>
 </body>
 </html>
 `;
@@ -470,8 +469,9 @@ Options:
                   Cannot be combined with --themes: a template brings its own.
   --inline        a self-contained deck: runtime and themes embedded, so it
                   opens from disk without decklight — pinned to this version,
-                  ~650 KB before the first slide. The default links them
-                  instead: author/present serve the installed runtime, and
+                  ~650 KB before the first slide. The default is slides plus
+                  a JSON configuration block and no runtime in the file:
+                  author/present serve the installed runtime into it, and
                   \`decklight bundle\` embeds it when the deck is handed over.
   --themes <sel>  with --inline, which themes to embed:
                     all           every shipped theme (default)
@@ -482,7 +482,8 @@ Options:
                   (outside a repo + no flag: init ASKS on a TTY)
   --no-git        never touch git
   --open          open the scaffolded deck in your default browser
-                  (the deck is self-contained — the file is the presentation)
+                  (a self-contained --inline deck is the presentation; the
+                  default deck plays through decklight — see --author)
   --author        go straight into author mode once the deck is written —
                   live reload, edits from the browser, an AI agent on A —
                   and open it there. On a terminal init ASKS this; --author
@@ -614,7 +615,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     themeNote = `from template ${from}`;
   } else {
     body = starterDeck(title, themeNames, activeTheme, { inline });
-    themeNote = !inline ? `theme: ${activeTheme} · links the installed runtime — decklight bundle embeds it to send`
+    themeNote = !inline ? `theme: ${activeTheme} · slides and a config block, no runtime in the file — decklight bundle embeds it to send`
       : themeNames.length === 1
         ? `theme: ${themeNames[0]}`
         : `${themeNames.length} themes, ${activeTheme} active`;
@@ -754,8 +755,14 @@ unless --no-skill is given. The deck file is only touched with --force.
   }
 
   // last of the writes, so every "created/wrote" line is on screen before the
-  // browser steals focus; opens the deck FILE, not a served URL — the deck is
-  // self-contained by design
+  // browser steals focus; opens the deck FILE, not a served URL. A
+  // self-contained deck is the presentation; the default deck is slides plus
+  // a configuration block (#520) and plays through decklight, so the file
+  // alone shows unstyled slides — said before the tab opens, with the command
+  // that plays it.
+  if (openAfter && !inline && !from) {
+    note('  --open: this deck plays through decklight — as a file it is unstyled slides; `decklight author deck.html` plays it');
+  }
   if (openAfter) await openDeck(deckPath);
 }
 

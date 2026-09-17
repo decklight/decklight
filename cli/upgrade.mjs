@@ -31,6 +31,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, runMain } from './util.mjs';
 import { PKG, PKG_ROOT, runtimeCss, runtimeJs } from './pkg.mjs';
+import { bootCall, configBlock, configBlockHtml, configVersion, hasEmbeddedRuntime, isDeck, lineSpan, parseLiteral, withConfigVersion } from './runtime-link.mjs';
 import { isMain } from '../tools/args.mjs';
 
 
@@ -104,16 +105,21 @@ tool (and init) writes and older unmarked init/bundle output are recognized.
 
 Options:
   --dry-run   print what would change; write nothing
-  --link      the reverse of bundle: replace the embedded runtime, stylesheet
-              and themes with references beside the deck (decklight.js,
-              decklight.css, themes/<active>.css), which author, present
-              and every render answer from the installed package. Everything
-              the author wrote survives byte-for-byte; a theme added from
-              outside decklight stays embedded.
+  --link      the reverse of bundle: the deck becomes slides plus a JSON
+              configuration block (the shape init writes). The embedded — or
+              referenced — runtime, stylesheet and shipped themes go; author,
+              present and every render add the installed ones as they serve
+              it, and the active theme is named in the block. The
+              Decklight.init(…) argument becomes the block when it is plain
+              data; a call whose argument is code stays, as the JS API's
+              escape hatch. Everything the author wrote survives
+              byte-for-byte; a theme added from outside decklight stays
+              embedded.
 
-A deck that already links the runtime is always current — it runs whatever
-is installed — so upgrade only refreshes the version it records itself as
-written for (data-decklight-version), which is what present --check compares.
+A deck that is data, or that links the runtime, is always current — it runs
+whatever is installed — so upgrade only refreshes the version it records
+itself as written for (the block's "decklight", or data-decklight-version on
+the <script src>), which is what present --check compares.
 `);
     return 0;
   }
@@ -132,8 +138,8 @@ written for (data-decklight-version), which is what present --check compares.
   const html = fs.readFileSync(deckPath, 'utf8');
   const rel = path.relative('.', deckPath) || file;
 
-  if (!/Decklight\.init\s*\(/.test(html)) {
-    fail(`${rel} is not a Decklight deck (no Decklight.init call found) — nothing to upgrade`);
+  if (!isDeck(html)) {
+    fail(`${rel} is not a Decklight deck (no <div class="decklight"> found) — nothing to upgrade`);
   }
   // A multi-module deck upgrades like any other deck (#483).
   //
@@ -154,48 +160,84 @@ written for (data-decklight-version), which is what present --check compares.
   // ------------------------------------------------------ runtime js block
 
   const allScripts = scripts(html);
-  // A deck that LINKS the runtime (#517) — marked or not — is handled first:
-  // init marks its <script src> with data-decklight-runtime too, and the
-  // marked-block lookup below would otherwise swap the reference for an embed.
-    const linked = allScripts.find((s) => /\bsrc\s*=\s*["'][^"']*decklight[^"']*\.js["']/i.test(s.attrs));
-    if (linked) {
-      if (link) { process.stdout.write(`${rel} already links the runtime\n`); return; }
-      // A deck that LINKS the runtime is always current: it runs whatever is
-      // installed (#517). What it can be behind on is its own record of the
-      // version it was written for, which present --check compares — so that
-      // is what is refreshed, and nothing else in the file moves.
-      const wasM = /\bdata-decklight-version\s*=\s*["']([^"']*)["']/i.exec(linked.attrs);
-      const was = wasM?.[1] ?? null;
-      if (was === PKG.version) {
-        process.stdout.write(`${rel} links the runtime and is written for decklight ${PKG.version} — already current\n`);
-        return;
-      }
-      const attrs = wasM
-        ? linked.attrs.replace(wasM[0], `data-decklight-version="${PKG.version}"`)
-        : `${linked.attrs} data-decklight-version="${PKG.version}"`;
-      const next = `${html.slice(0, linked.start)}<script${attrs}>${linked.inner}</script>${html.slice(linked.end)}`;
-      if (dryRun) {
-        process.stdout.write(`${rel} links the runtime — would record it as written for decklight ${PKG.version}${was ? ` (was ${was})` : ''}; nothing else changes (dry run)\n`);
-        return;
-      }
-      fs.writeFileSync(`${deckPath}.bak`, html);
-      fs.writeFileSync(deckPath, next);
-      process.stdout.write(`${rel} links the runtime — now recorded as written for decklight ${PKG.version}${was ? ` (was ${was})` : ''}; backup: ${rel}.bak\n`);
+  const styles = headStyles(html);
+  const isSrc = (s) => /\bsrc\s*=/i.test(s.attrs);
+  const definesRuntime = (s) => /(?:\bvar\s+|\bwindow\.)Decklight\s*=/.test(s.inner);
+  const linked = allScripts.find((s) => /\bsrc\s*=\s*["'][^"']*decklight[^"']*\.js["']/i.test(s.attrs)) ?? null;
+
+  // ------------------------------------------------- a deck that is data
+
+  // Slides plus a configuration block, no runtime in the file (#520): it runs
+  // whatever is installed, so it is always current. What it can be behind on
+  // is its own record of the version it was written for — the block's
+  // `decklight` key, which present --check compares — and that is what is
+  // refreshed. --link asks for the shape it already has.
+  if (!linked && !hasEmbeddedRuntime(html)) {
+    const block = configBlock(html);
+    if (link) { process.stdout.write(`${rel} is already slides and a configuration block — no runtime in the file\n`); return; }
+    if (!block) {
+      process.stdout.write(`${rel} carries no runtime and no configuration block — it plays with whatever is installed; nothing to record\n`);
       return;
     }
+    if (block.error) fail(`${rel}: ${block.error}`);
+    const was = configVersion(html);
+    if (was === PKG.version) {
+      process.stdout.write(`${rel} is slides and a configuration block, written for decklight ${PKG.version} — already current\n`);
+      return;
+    }
+    const next = withConfigVersion(html, PKG.version);
+    if (next === null) fail(`${rel}: could not record the version in the configuration block`);
+    if (dryRun) {
+      process.stdout.write(`${rel} — would record it as written for decklight ${PKG.version}${was ? ` (was ${was})` : ''}; nothing else changes (dry run)\n`);
+      return;
+    }
+    fs.writeFileSync(`${deckPath}.bak`, html);
+    fs.writeFileSync(deckPath, next);
+    process.stdout.write(`${rel} — now recorded as written for decklight ${PKG.version}${was ? ` (was ${was})` : ''}; backup: ${rel}.bak\n`);
+    return;
+  }
 
-  let jsBlock = allScripts.find((s) => /\bdata-decklight-runtime\b/i.test(s.attrs) && !/\bsrc\s*=/i.test(s.attrs)) ?? null;
-  if (!jsBlock) {
+  // ------------------------------------------- a deck that links the runtime
+
+  // The referenced shape (#517), always current for the same reason; without
+  // --link, only its record on the <script src> is refreshed.
+  if (linked && !link) {
+    const wasM = /\bdata-decklight-version\s*=\s*["']([^"']*)["']/i.exec(linked.attrs);
+    const was = wasM?.[1] ?? null;
+    if (was === PKG.version) {
+      process.stdout.write(`${rel} links the runtime and is written for decklight ${PKG.version} — already current\n`);
+      return;
+    }
+    const attrs = wasM
+      ? linked.attrs.replace(wasM[0], `data-decklight-version="${PKG.version}"`)
+      : `${linked.attrs} data-decklight-version="${PKG.version}"`;
+    const next = `${html.slice(0, linked.start)}<script${attrs}>${linked.inner}</script>${html.slice(linked.end)}`;
+    if (dryRun) {
+      process.stdout.write(`${rel} links the runtime — would record it as written for decklight ${PKG.version}${was ? ` (was ${was})` : ''}; nothing else changes (dry run)\n`);
+      return;
+    }
+    fs.writeFileSync(`${deckPath}.bak`, html);
+    fs.writeFileSync(deckPath, next);
+    process.stdout.write(`${rel} links the runtime — now recorded as written for decklight ${PKG.version}${was ? ` (was ${was})` : ''}; backup: ${rel}.bak\n`);
+    return;
+  }
+
+  // ------------------------------------------------------ runtime js block
+
+  let jsBlock = linked ? null
+    : allScripts.find((s) => /\bdata-decklight-runtime\b/i.test(s.attrs) && !isSrc(s)) ?? null;
+  if (!jsBlock && !linked) {
     // Unmarked deck: the runtime is the <script> defining Decklight, before
     // the <script>Decklight.init(...) call (init and bundle both write them
     // adjacent; scanning back tolerates an author script slipped between).
-    const definesRuntime = (s) => /(?:\bvar\s+|\bwindow\.)Decklight\s*=/.test(s.inner);
     const initAt = allScripts.findIndex((s) =>
-      !/\bsrc\s*=/i.test(s.attrs) && /Decklight\.init\s*\(/.test(s.inner) && !definesRuntime(s));
+      !isSrc(s) && /Decklight\.init\s*\(/.test(s.inner) && !definesRuntime(s));
     for (let i = initAt - 1; i >= 0; i--) {
       const s = allScripts[i];
-      if (!/\bsrc\s*=/i.test(s.attrs) && definesRuntime(s)) { jsBlock = s; break; }
+      if (!isSrc(s) && definesRuntime(s)) { jsBlock = s; break; }
     }
+    // no init call: a bundle of a deck that boots from its configuration block
+    if (!jsBlock && initAt === -1) jsBlock = allScripts.find((s) => !isSrc(s) && definesRuntime(s)) ?? null;
     if (!jsBlock) {
       fail(`${rel}: could not find the inlined runtime (no <script> defining Decklight before the Decklight.init call)`);
     }
@@ -203,7 +245,6 @@ written for (data-decklight-version), which is what present --check compares.
 
   // ----------------------------------------------------- runtime css block
 
-  const styles = headStyles(html);
   const cssBlock =
     styles.find((s) => /\bdata-decklight-runtime\b/i.test(s.attrs))
     // unmarked: the first head style that is not a theme block and carries
@@ -226,17 +267,22 @@ written for (data-decklight-version), which is what present --check compares.
   }
 
   if (link) {
-    // The reverse of bundle (#517): the embedded runtime and stylesheet become
-    // references beside the deck; the ACTIVE theme becomes a link and the
-    // other shipped themes go, since a linked deck's picker fetches any of
+    // The reverse of bundle (#520): the deck becomes slides plus a
+    // configuration block. The runtime — embedded, or referenced (#517) —
+    // and its stylesheet go; the ACTIVE theme becomes the block's `theme`
+    // and the other shipped themes go too, since the servers link any of
     // them from the package; a theme that is not decklight's stays embedded.
-    edits.push({ start: jsBlock.start, end: jsBlock.end,
-      text: `<script src="decklight.js" data-decklight-runtime="js" data-decklight-version="${PKG.version}"></script>` });
-    changed.push(`runtime js (${kb(jsBlock.inner)} → a link)`);
-    if (cssBlock) {
-      edits.push({ start: cssBlock.start, end: cssBlock.end, text: '<link rel="stylesheet" href="decklight.css" data-decklight-runtime="css">' });
-      changed.push(`runtime css (${kb(cssBlock.inner)} → a link)`);
-    }
+    // The Decklight.init(…) argument becomes the block when it is data; a
+    // call that is code stays, as the JS API's escape hatch, and the servers
+    // put the engine in front of it.
+    const drop = (s) => { const span = lineSpan(html, s.start, s.end); edits.push({ ...span, text: '' }); };
+    const kb_ = (s) => (s.inner ? kb(s.inner) : 'a link');
+    const rtTag = linked ?? jsBlock;
+    drop(rtTag);
+    changed.push(`runtime js (${kb_(rtTag)} → gone; the servers add it)`);
+    const cssLink = [...html.matchAll(/<link\b[^>]*\bhref\s*=\s*["'][^"']*decklight(?:\.min)?\.css(?:[?#][^"']*)?["'][^>]*>/gi)][0];
+    if (cssBlock) { drop(cssBlock); changed.push(`runtime css (${kb(cssBlock.inner)} → gone)`); }
+    else if (cssLink) { drop({ start: cssLink.index, end: cssLink.index + cssLink[0].length }); changed.push('runtime css (a link → gone)'); }
     let active = null; let dropped = 0; let kept = 0;
     const themeBlocks = styles.filter((s) => s !== cssBlock && /\bdata-theme\s*=\s*["'][\w-]+["']/i.test(s.attrs));
     for (const s of themeBlocks) {
@@ -244,11 +290,45 @@ written for (data-decklight-version), which is what present --check compares.
       const shipped = fs.existsSync(path.join(PKG_ROOT, 'themes', `${name}.css`)) && !/\bdata-theme-added\b/i.test(s.attrs);
       if (!shipped) { kept++; continue; }
       const isActive = !/\bmedia\s*=\s*["']not all["']/i.test(s.attrs);
-      if (isActive && !active) { active = name; edits.push({ start: s.start, end: s.end, text: `<link rel="stylesheet" href="themes/${name}.css">` }); }
-      else { dropped++; edits.push({ start: s.start, end: s.end, text: '' }); }
+      if (isActive && !active) active = name;
+      else dropped++;
+      drop(s);
     }
-    if (active) changed.push(`theme ${active} → a link${dropped ? `, ${dropped} embedded theme${dropped === 1 ? '' : 's'} dropped (the picker fetches any shipped theme)` : ''}`);
+    const themeLink = [...html.matchAll(/<link\b[^>]*\bhref\s*=\s*["'][^"']*themes\/([\w-]+)\.css(?:[?#][^"']*)?["'][^>]*>/gi)][0];
+    if (themeLink && !active) {
+      active = themeLink[1];
+      drop({ start: themeLink.index, end: themeLink.index + themeLink[0].length });
+    }
+    if (active) changed.push(`theme ${active} → the configuration block${dropped ? `, ${dropped} embedded theme${dropped === 1 ? '' : 's'} dropped (the picker fetches any shipped theme)` : ''}`);
     if (kept) warnings.push(`${kept} theme${kept === 1 ? '' : 's'} not decklight's stay embedded`);
+
+    // the configuration: the block the deck has, or the init call as data
+    const boot = bootCall(html);
+    const existing = configBlock(html);
+    let config = existing?.config ?? null;
+    if (existing?.error) fail(`${rel}: ${existing.error}`);
+    if (boot) {
+      const parsed = parseLiteral(boot.arg);
+      if (parsed) {
+        config = { ...(config ?? {}), ...parsed.value };
+        drop(boot);
+        changed.push('the Decklight.init call → the configuration block');
+      } else {
+        warnings.push('the Decklight.init argument is code, not data — the call stays as the JS API\'s escape hatch, and the servers put the engine in front of it');
+      }
+    }
+    if (active && !kept) config = { ...(config ?? {}), theme: active };
+    if (existing) {
+      const inner = `\n${configBlockHtml(config ?? {}).split('\n').slice(1, -1).join('\n')}\n${' '.repeat(2)}`;
+      edits.push({ start: existing.innerStart, end: existing.innerEnd, text: inner });
+    } else if (config !== null || boot === null) {
+      // before </head>, on its own line, where init writes it
+      const headEnd = html.search(/<\/head>/i);
+      const at = headEnd !== -1 ? headEnd : (boot ? boot.start : html.search(/<body\b/i));
+      if (at === -1) fail(`${rel}: no <head> to hold the configuration block`);
+      edits.push({ start: at, end: at, text: `${configBlockHtml(config ?? {})}\n` });
+      if (!boot) changed.push('a configuration block added');
+    }
   } else {
     edits.push({ start: jsBlock.start, end: jsBlock.end,
       text: `<script data-decklight-runtime="js">${distJs}</script>` });
@@ -328,7 +408,9 @@ written for (data-decklight-version), which is what present --check compares.
 
   fs.writeFileSync(`${deckPath}.bak`, html);
   fs.writeFileSync(deckPath, next);
-  process.stdout.write(`${link ? 'linked' : 'upgraded'} ${rel} ${link ? 'to' : 'to decklight'} ${link ? `the installed runtime (decklight ${PKG.version})` : PKG.version} (${changed.join(', ')}; backup: ${rel}.bak)\n`);
+  process.stdout.write(link
+    ? `${rel} is now slides and a configuration block, written for decklight ${PKG.version} (${changed.join(', ')}; backup: ${rel}.bak)\n`
+    : `upgraded ${rel} to decklight ${PKG.version} (${changed.join(', ')}; backup: ${rel}.bak)\n`);
 }
 
 if (isMain(import.meta.url)) process.exitCode = await runMain('upgrade', upgradeMain);

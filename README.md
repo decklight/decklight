@@ -29,7 +29,8 @@ specified and implemented by agents, and a human approves what ships.
 npm create decklight my-talk
 ```
 
-That writes a self-contained `deck.html` in `my-talk/`, plus a
+That writes a `deck.html` in `my-talk/` — slides plus a two-line configuration
+block, nothing else — plus a
 `.claude/skills/decklight/` skill and an `AGENTS.md`, so Claude Code (or any
 agent that reads `AGENTS.md`) has the real authoring contract on hand instead of
 guessing from Reveal.js memory. Then it asks whether to open the deck in author
@@ -49,17 +50,18 @@ decklight doctor          # what this machine can do, and how to get the rest
 ```
 
 Type a command wrong and it tells you which one you meant. Or skip the scaffold
-and write the HTML yourself. A deck you author *references* the runtime and
-`author`/`present` serve it; `bundle` embeds it when you hand the file over.
-This is the whole anatomy:
+and write the HTML yourself. A deck you author is *data* — slides and a JSON
+configuration block — and `author`/`present` add the runtime as they serve it;
+`bundle` embeds it when you hand the file over. This is the whole anatomy:
 
 ```html
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <link rel="stylesheet" href="decklight/dist/decklight.css">
-  <link rel="stylesheet" href="decklight/themes/aurora.css">
+  <script type="application/json" data-decklight-config>
+  { "decklight": "0.8.1", "theme": "aurora", "transition": "fade" }
+  </script>
 </head>
 <body>
   <div class="decklight">
@@ -73,11 +75,13 @@ This is the whole anatomy:
       <aside class="notes">Speaker notes. ⟨CLICK⟩ markers line up with builds.</aside>
     </section>
   </div>
-  <script src="decklight/dist/decklight.js"></script>
-  <script>Decklight.init({ transition: 'fade' });</script>
 </body>
 </html>
 ```
+
+Nothing in that file executes. A deck that prefers to load the runtime
+itself — `<script src="decklight/dist/decklight.js">` and a
+`Decklight.init({ … })` call — is served exactly as written.
 
 ## What's in the box
 
@@ -195,8 +199,9 @@ npm test             # unit tests
 npm run verify       # build + headless render assertions, needs Chrome
 ```
 
-A deck references `dist/decklight.js`, `dist/decklight.css` and one theme file.
-Copy those three (or a single `bundle`) and nothing else.
+A deck you author carries no runtime: `author` and `present` reference
+`dist/decklight.js`, `dist/decklight.css` and one theme file into it as they
+serve it. To hand it over, `bundle` — one file, and nothing else to copy.
 
 <p align="center">
   <img src="docs/architecture.svg" width="860" alt="Decklight architecture: one deck.html and a theme.css feed a zero-dependency browser runtime; the CLI, the author server, the tts bridge and the review server run beside it on localhost; a verification band of contrast gates, palette rules and headless render assertions holds everything to SPEC.md.">

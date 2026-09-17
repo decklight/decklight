@@ -71,7 +71,11 @@ export function concatTimelines(parts) {
 
 export function createCharacter({ root, config, debugLog, toast }) {
   const cfg = config.narration?.character ?? {};
-  const BRIDGE = cfg.bridgeUrl ?? 'http://127.0.0.1:8789';
+  // Same origin by convention (#520), like the voice bridge: `author` proxies
+  // `/lipsync/*` to the lip-sync bridge it started; from disk, the bridge's
+  // own default port. `narration.character.bridgeUrl` overrides both.
+  const BRIDGE = cfg.bridgeUrl
+    ?? (/^https?:$/.test(location.protocol) ? `${location.origin}/lipsync` : 'http://127.0.0.1:8789');
   const FALLBACK = cfg.fallback ?? 'amplitude';
   const storeKey = 'decklight-character:' + location.pathname;
 

@@ -32,6 +32,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
+import { hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
@@ -325,9 +326,23 @@ if (transformNames.length) {
 // matching the inlined page flagged every deck that links the runtime.
 const sourceHtml = html;
 
+// A deck as data (#520) carries no runtime at all: the servers reference it
+// on the way out, and so does this — the same references, added by the same
+// function — after which it is the linked deck the sections below already
+// know how to flatten. What a bundle embeds is what the deck was playing with.
+const linked = !hasRuntime(html);
+if (linked) {
+  html = linkRuntime(html);
+  notices.push(`the deck carries no runtime — the installed decklight ${PKG.version} is embedded`);
+}
+
 const themeLinkRe = /<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']*themes\/([\w-]+)\.css)["'][^>]*>/i;
 const themeLinkM = html.match(themeLinkRe);
-if (!themeLinkM) {
+// An imported deck whose theme was derived from the file's own palette embeds
+// that one theme and nothing else (DECK_IMPORT): it has no link to flatten and
+// no runtime yet, and the theme it has is the theme it keeps.
+const ownTheme = !themeLinkM && linked && /<style\b[^>]*\bdata-theme\b/i.test(html);
+if (!themeLinkM && !ownTheme) {
   // A deck with its themes already INLINE is the common way to arrive here —
   // `decklight init` scaffolds one, and the README's own quick start goes
   // straight from init to bundle. Blaming a missing <link> sends that reader
@@ -340,7 +355,7 @@ if (!themeLinkM) {
       + '  to refresh its inlined runtime and themes instead: decklight upgrade <deck.html>'
     : 'no theme <link> (href matching themes/<name>.css) found in the deck');
 }
-const [themeLinkTag, themeHref, linkedTheme] = themeLinkM;
+const [themeLinkTag, themeHref, linkedTheme] = themeLinkM ?? [null, 'themes/', null];
 const themesDir = path.resolve(deckDir, path.dirname(themeHref));
 // A linked deck ships no themes/ beside itself: what it links is answered by
 // the installed package when served, and inlined from there here (#517). A
@@ -353,7 +368,10 @@ const themeFile = (name) => {
 };
 
 let themeNames;
-if (themesSel === 'current') {
+if (ownTheme) {
+  themeNames = [html.match(/<style\b[^>]*\bdata-theme\s*=\s*["']([\w-]+)["']/i)?.[1] ?? 'own'];
+  if (themesSel !== 'all' && themesSel !== 'current') notices.push('--themes ignored: the deck embeds a theme of its own, and that is the one it keeps');
+} else if (themesSel === 'current') {
   themeNames = [linkedTheme];
 } else if (themesSel === 'all') {
   themeNames = fs.readdirSync(fs.existsSync(themesDir) ? themesDir : THEMES_DIR).filter((f) => f.endsWith('.css'))
@@ -363,11 +381,11 @@ if (themesSel === 'current') {
 }
 if (!themeNames.length) fail('no themes selected');
 const activeTheme = themeNames.includes(linkedTheme) ? linkedTheme : themeNames[0];
-if (activeTheme !== linkedTheme) {
+if (!ownTheme && activeTheme !== linkedTheme) {
   notices.push(`linked theme "${linkedTheme}" not in --themes list; "${activeTheme}" is active`);
 }
 
-const themeBlocks = themeNames.map((name) => {
+const themeBlocks = ownTheme ? null : themeNames.map((name) => {
   const cssPath = themeFile(name);
   if (!cssPath) fail(`theme not found: ${name} (${path.join(themesDir, `${name}.css`)}, and not shipped)`);
   if (!cssPath.startsWith(themesDir)) notices.push(`theme ${name}: inlined from the installed decklight ${PKG.version}`);
@@ -375,7 +393,7 @@ const themeBlocks = themeNames.map((name) => {
   const media = name === activeTheme ? '' : ' media="not all"';
   return `<style data-theme="${name}"${media}>\n${css}\n</style>`;
 }).join('\n');
-html = html.replace(themeLinkTag, themeBlocks);
+if (themeBlocks !== null) html = html.replace(themeLinkTag, themeBlocks);
 
 // ------------------------------------------------- structure stylesheet(s)
 
@@ -429,10 +447,14 @@ html = html.replace(
 // ------------------------------------------------------------ runtime script
 
 html = html.replace(
-  /<script\b[^>]*src=["']([^"']+)["'][^>]*>\s*<\/script>/gi,
-  (tag, src) => {
+  /<script\b([^>]*)src=["']([^"']+)["']([^>]*)>\s*<\/script>/gi,
+  (tag, pre, src, post) => {
     if (/^(https?:)?\/\//.test(src)) { notices.push(`external script kept as src: ${src}`); return tag; }
-    return `<script>\n${inlineRuntime(read(src))}\n</script>`;
+    // the runtime's marker rides along (#520): a bundle that boots from its
+    // configuration block has no init call for the audit and upgrade to
+    // locate the engine by, so the mark is how they find it
+    const marked = /\bdata-decklight-runtime\s*=\s*["']js["']/i.test(pre + post) ? ' data-decklight-runtime="js"' : '';
+    return `<script${marked}>\n${inlineRuntime(read(src))}\n</script>`;
   });
 
 // ------------------------------------------------------------------- casts
