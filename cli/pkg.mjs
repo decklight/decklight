@@ -67,3 +67,28 @@ export function runtimeJs() {
 
 /** The installed runtime stylesheet. */
 export const runtimeCss = () => fs.readFileSync(path.join(PKG_ROOT, 'dist/decklight.css'), 'utf8');
+
+/**
+ * The installed package's own copy of a file a deck references beside itself
+ * but does not ship — `decklight.js`, `decklight.css`, `themes/<name>.css` —
+ * as `{ file, type }`, or null for anything else (#517).
+ *
+ * A deck that LINKS the runtime instead of carrying it is a few KB of slides
+ * whose runtime is whatever is installed. Every server (`author`, `present`,
+ * the render server behind pdf/pptx/video) answers those three shapes from
+ * here when nothing is on disk, and `bundle` inlines from here at hand-over,
+ * so the same deck plays served and travels self-contained. Matched on the
+ * path's TAIL, so a deck in `slides/` asking for `slides/decklight.js`, or a
+ * source deck reaching up for `../dist/decklight.js`, both resolve. A theme
+ * that is not shipped is null, like any other missing file.
+ */
+export function packageAsset(rel) {
+  const p = String(rel ?? '').split('\\').join('/');
+  const base = p.split('/').pop();
+  const at = (file, type) => (fs.existsSync(file) ? { file, type } : null);
+  if (base === 'decklight.js') return at(path.join(PKG_ROOT, 'dist', 'decklight.js'), 'text/javascript; charset=utf-8');
+  if (base === 'decklight.css') return at(path.join(PKG_ROOT, 'dist', 'decklight.css'), 'text/css; charset=utf-8');
+  const theme = /(?:^|\/)themes\/([\w-]+)\.css$/.exec(p);
+  if (theme) return at(path.join(THEMES_DIR, `${theme[1]}.css`), 'text/css; charset=utf-8');
+  return null;
+}
