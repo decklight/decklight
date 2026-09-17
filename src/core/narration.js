@@ -301,6 +301,31 @@ export function narrationTracks(narration) {
 // splitSentences lives in tools/sentences.mjs, shared with a video's subtitles.
 export { splitSentences };
 
+/**
+ * The in-memory key for one live sentence — voice, style and the TEXT (#537).
+ *
+ * The position (`slide|step|index`) is kept for a human reading a debug log,
+ * but it is the text's hash that decides a hit: a window that did not reload
+ * after a notes edit (a second tab, a speaker window whose live-reload socket
+ * died, a deck open from file:// while the source is edited) used to replay
+ * the clip first fetched for that POSITION, transcript current and audio
+ * stale — and a recording stitched from that window would have kept the old
+ * clips. The on-disk clip cache (tools/tts-cache.mjs) keys by text already;
+ * this brings the in-memory layer in line. One definition, exported: the
+ * character's viseme/video caches and the recorder's stitching take the same
+ * key from the same call.
+ */
+export function liveClipKey(sl, step, i, text, voice, style) {
+  return `${sl}|s${step}|n${i}|${voice}|${style}|t${textHash(text)}`;
+}
+/** FNV-1a over the normalized sentence — short, stable, no crypto needed. */
+export function textHash(text) {
+  const s = String(text ?? '').replace(/\s+/g, ' ').trim();
+  let h = 0x811c9dc5;
+  for (let k = 0; k < s.length; k++) { h ^= s.charCodeAt(k); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+
 // One segmentation per notes element, and it is the same segmentation nearly
 // every time it is asked for. `notesSegsOf` is reached on every slide change,
 // on every build step, and once per sentence by the lookahead worker — each
@@ -564,11 +589,13 @@ export function createNarration({
   // the lookahead worker, beginSentence per clip); recorded mode loads
   // slide-NN sidecar files. Configured in the V picker ("Character…").
   const character = createCharacter({ root, config, debugLog, toast });
-  // slide|voice|style → PROMISE of a blob URL. Caching the promise (not the
-  // resolved URL) dedups concurrent misses: the prefetch and a play (or a
-  // the synthesized recorder recording pass) for the same slide share one POST instead of racing
-  // two and leaking the loser's blob URL. Failures evict themselves so a
-  // bridge hiccup isn't cached forever.
+  // liveClipKey (position, voice, style, and the sentence's text hash) →
+  // PROMISE of a blob URL. Caching the promise (not the resolved URL) dedups
+  // concurrent misses: the prefetch and a play (or the synthesized recorder's
+  // pass) for the same sentence share one POST instead of racing two and
+  // leaking the loser's blob URL. Failures evict themselves so a bridge
+  // hiccup isn't cached forever. The text is in the key, so an edited
+  // sentence is a miss and its untouched neighbours stay hits (#537).
   const liveCache = new Map();
   function notesText(sl) {
     const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
@@ -675,7 +702,7 @@ export function createNarration({
     debugLog('narr', msg);
   }
 
-  const sentenceKey = (sl, step, i) => `${sl}|s${step}|n${i}|${liveCfg.voice}|${liveCfg.style}`;
+  const sentenceKey = (sl, step, i, text) => liveClipKey(sl, step, i, text, liveCfg.voice, liveCfg.style);
   /**
    * The clip for sentence `i` of slide `sl`'s step `step`, synthesized or
    * cached.
@@ -686,7 +713,7 @@ export function createNarration({
    */
   function fetchLiveSentence(sl, step, i, text) {
     const sentence = text ?? stepSentences(sl, step)[i] ?? '';
-    return synthLive(sentence, sentenceKey(sl, step, i), `slide ${sl} seg ${step} #${i + 1}`);
+    return synthLive(sentence, sentenceKey(sl, step, i, sentence), `slide ${sl} seg ${step} #${i + 1}`);
   }
   // data-narration="hold": an interactive slide (quiz, exercise, live
   // demo) — narration plays whatever notes it has and builds still sync,
@@ -756,8 +783,10 @@ export function createNarration({
         // stepSentences, not `segs[step]`: the last step may carry more than
         // its own segment, and a lookahead that under-counted would leave the
         // folded sentences to synthesize one at a time as they are reached.
-        const n = stepSentences(sl, step).length;
-        for (let i = 0; i < n && out.length < count; i++) out.push([sl, step, i]);
+        // The sentences ride along: the key needs their text, and this is
+        // the one segmentation of the step for the whole window.
+        const sentences = stepSentences(sl, step);
+        for (let i = 0; i < sentences.length && out.length < count; i++) out.push([sl, step, i, sentences[i]]);
       }
       sl += 1;
       step = 0;
@@ -771,17 +800,15 @@ export function createNarration({
         // find+start is synchronous within a worker's turn, and synthLive
         // registers the promise before awaiting — workers never double-fetch
         const hole = upcomingSentences(LIVE_LOOKAHEAD)
-          .find(([sl, step, i]) => !liveCache.has(sentenceKey(sl, step, i)));
+          .find(([sl, step, i, text]) => !liveCache.has(sentenceKey(sl, step, i, text)));
         if (!hole) return; // window full — the next slide/build event re-arms
-        const [sl, step, i] = hole;
-        // One segmentation for the whole iteration. The clip and the
-        // character's copy of it are the same sentence of the same step —
-        // deriving each on its own re-split every note on the slide, twice,
-        // to warm one entry.
-        const key = sentenceKey(sl, step, i);
-        const sentences = stepSentences(sl, step);
+        const [sl, step, i, text] = hole;
+        // The clip and the character's copy of it are the same sentence of
+        // the same step, keyed once: the window already segmented the step.
+        const key = sentenceKey(sl, step, i, text);
+        const sentences = { [i]: text };
         try {
-          await fetchLiveSentence(sl, step, i, sentences[i]);
+          await fetchLiveSentence(sl, step, i, text);
           // the character's lip-sync data prefetches through the SAME
           // window: hand the sentence's audio promise to the controller so
           // visemes/video for the next 10 sentences warm alongside the voice
@@ -930,7 +957,7 @@ export function createNarration({
         // and the fallback animates until it does.
         if (character.mode !== 'off') {
           character.attachAudio(narrAudio);
-          character.beginSentence(sentenceKey(sl, step, i), clip, sentences[i]);
+          character.beginSentence(sentenceKey(sl, step, i, sentences[i]), clip, sentences[i]);
         }
         // Both handlers cleared BEFORE the src moves: narrAudio is one shared
         // element across live and recorded playback, and a handler left behind
@@ -2487,7 +2514,7 @@ export function createNarration({
         const runs = stepSegmentRuns(sl, step);
         for (let i = 0; i < sentences.length; i++) {
           const tl = await character.ensureTimeline(
-            sentenceKey(sl, step, i), fetchLiveSentence(sl, step, i, sentences[i]), sentences[i]);
+            sentenceKey(sl, step, i, sentences[i]), fetchLiveSentence(sl, step, i, sentences[i]), sentences[i]);
           if (run !== recRun) return null;
           if (!tl) continue;
           parts.push({ timeline: tl, gap: parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl)) : 0 });

@@ -483,3 +483,15 @@ test('every part of the split is kept, and a slide with no notes is still one se
   assert.deepEqual(notesSegsOf(null), [''], 'a slide with no aside still has a step 0');
   assert.deepEqual(notesSegsOf(undefined), ['']);
 });
+
+// ── the live clip key carries the sentence (#537) ─────────────────────────
+import { liveClipKey, textHash } from '../src/core/narration.js';
+
+test('liveClipKey: the text decides the hit — an edited sentence misses, its neighbours and a re-spaced copy still hit', () => {
+  const k = (text) => liveClipKey(3, 1, 0, text, 'Kore', 'warm');
+  assert.equal(k('Hello there.'), k('Hello   there.'), 'whitespace is normalized, like the on-disk cache');
+  assert.notEqual(k('Hello there.'), k('Hello here.'), 'a changed sentence is a different key');
+  assert.notEqual(k('Hello there.'), liveClipKey(3, 1, 0, 'Hello there.', 'Puck', 'warm'), 'and so is a changed voice');
+  assert.match(k('Hello there.'), /^3\|s1\|n0\|Kore\|warm\|t[0-9a-f]{8}$/, 'the position stays readable in a log');
+  assert.equal(textHash(''), textHash(null), 'no text hashes the same way whatever it is called');
+});
