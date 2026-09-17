@@ -196,6 +196,7 @@ container, zero classes on the items.
 | `data-build="fade-up"` | entrance style (see 2.3) |
 | `data-build-order="3"` | explicit step index within the slide (default: document order) |
 | `data-build-stay` on a child of a `data-build` container | child is exempt (stays static) |
+| `data-draw-stops="347 542 767"` on a stroke in a `draw` build | one stroke drawn in stages — path lengths, or fractions of the total when every value is ≤ 1 (or written `25%`): step k draws to stop k, the arrowhead riding each stage, a reversed build retracting stage by stage (a build provider, so a deep link lands on the right stop); `data-draw-speed="400"` (path units per second) lets a longer stage take longer instead of every stage taking the one draw duration |
 
 ### BUILD_SEMANTICS — Engine semantics
 
@@ -207,7 +208,7 @@ container, zero classes on the items.
 
 ### BUILD_ENTRANCES — Entrance styles
 
-`fade` (default) · `fade-up` · `fade-down` · `zoom` · `pop` (overshoot) · `draw` (SVG paths/lines: stroke-dashoffset animation; non-stroke elements fall back to fade) · `highlight` (element already visible; step emphasizes it: accent outline + others dim) · `none` (instant).
+`fade` (default) · `fade-up` · `fade-down` · `zoom` · `pop` (overshoot) · `draw` (SVG paths/lines: stroke-dashoffset animation; non-stroke elements fall back to fade; **Line Draw** — a stroke with a `marker-end` (or `marker-start`) draws with its arrowhead riding the tip from the first frame, oriented along the path, on straight lines and curves alike, and un-draws with the head on the retracting tip, the way Keynote's Line Draw carries an arrowhead (#522): the marker's content becomes a head placed by the same frame loop that advances the dash offset, since a CSS transition on each would drift apart; `marker-mid`, and a marker on a shape that is not a path, wait at the endpoint until the stroke has drawn; `?print`, the overview and instant application show the finished stroke with its one head) · `highlight` (element already visible; step emphasizes it: accent outline + others dim) · `none` (instant).
 
 All entrance styles are CSS-driven (`.build-step[data-build-state="done|current|pending"]`), duration via `--build-duration` (theme-overridable, default 300ms).
 

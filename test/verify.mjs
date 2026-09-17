@@ -83,6 +83,7 @@ const ENGINE_GROUPS = {
   templates: ['template', 'templatelook'],
   sources: ['sources', 'sourcesedit'],
   authoring: ['authoring', 'codeedit'],
+  builds: ['linedraw'],
 };
 const ENGINE_HARNESSES = Object.keys(ENGINE_GROUPS).map((g) => `engine-render:${g}`);
 
@@ -110,6 +111,7 @@ const HARNESSES = [
   'engine-render:templates',
   'engine-render:sources',
   'engine-render:authoring',
+  'engine-render:builds',
   'pin-render',
   'overflow-render',
   'split-render',

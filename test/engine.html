@@ -308,6 +308,18 @@
     // does what, not whether audio decodes.
     // in-file chapters (#479): the markers must be on the sections BEFORE init,
     // because createPlaylist reads them once at setup
+    // Line Draw (#522): one more slide, only for the mode that looks at it —
+    // every other mode counts on four
+    if (HARNESS_MODE === 'linedraw') {
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Five</h2>
+      <svg viewBox="0 0 800 200" width="800" data-build="draw">
+        <defs><marker id="ld-arr" markerWidth="6" markerHeight="4" refX="5" refY="2" orient="auto"><polygon points="0 0, 6 2, 0 4" fill="currentColor"/></marker></defs>
+        <line class="ld-stops" x1="20" y1="32" x2="767" y2="32" stroke="#c33" stroke-width="6" data-draw-stops="347 542 767" marker-end="url(#ld-arr)"/>
+        <path class="ld-curve" d="M 40 180 C 200 60, 500 60, 760 180" fill="none" stroke="#36c" stroke-width="4" marker-end="url(#ld-arr)"/>
+        <line class="ld-plain" x1="20" y1="120" x2="400" y2="120" stroke="#888" stroke-width="3"/>
+      </svg>
+    </section>`);
+    }
     if (HARNESS_MODE === 'codeedit') {
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
         '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>');
@@ -1285,6 +1297,59 @@
         r.finderGone = !document.querySelector('.decklight-finder');
 
         r.PASS = r.pickerUp && r.paletteUp && r.pickerGone && r.finderUp && r.finderGone;
+      }
+      if (mode === 'linedraw') {
+        // MOTION / BUILD_ENTRANCES (#522): a draw build's arrowhead rides the
+        // tip, in both directions, and data-draw-stops turns one stroke into
+        // N steps. Measured, not eyeballed: at every sampled frame the head's
+        // origin sits on the stroke's drawn tip (both read off the DOM in the
+        // same frame), forward, reversed, and stage by stage.
+        const stroke = (cls) => document.querySelector(`.${cls}`);
+        const drawn = (s) => s.getTotalLength() - parseFloat(getComputedStyle(s).strokeDashoffset);
+        const endHead = (s) => { let h = null; for (let n = s.nextElementSibling; n?.classList.contains('draw-head'); n = n.nextElementSibling) h = n; return h; };
+        const gap = (s) => {
+          const tip = s.getPointAtLength(Math.max(0, drawn(s)));
+          const t = new DOMPoint(tip.x, tip.y).matrixTransform(s.getScreenCTM());
+          const h = new DOMPoint(0, 0).matrixTransform(endHead(s).getScreenCTM());
+          return Math.hypot(h.x - t.x, h.y - t.y);
+        };
+        // sample the gap over a draw: a handful of instants spread across it
+        // (timers, not frames — under a virtual-time budget no frame begins)
+        const ride = async (s) => { let worst = 0; for (let i = 0; i < 8; i++) { await new Promise((f) => setTimeout(f, 60)); worst = Math.max(worst, gap(s)); } return worst; };
+        const stops = stroke('ld-stops'); const curve = stroke('ld-curve'); const plain = stroke('ld-plain');
+        deck.goto(5, 0); await settle();
+        r.steps = deck.state.totalSlides && document.querySelector('section[data-slide-index="5"]') ? (() => { let n = 0; deck.goto(5, 99); n = deck.state.step; deck.goto(5, 0); return n; })() : -1;
+        await settle();
+        r.headsBuilt = document.querySelectorAll('section[data-slide-index="5"] .draw-head').length === 2;
+        r.markersGone = !stops.hasAttribute('marker-end') && !curve.hasAttribute('marker-end');
+        r.pendingHidden = Math.round(drawn(stops)) === 0 && endHead(stops).style.visibility === 'hidden' && Math.round(drawn(plain)) === 0;
+        // stage 1: the head rides from the start to the first stop
+        deck.next(); r.rideStage1 = await ride(stops); await settle(); await new Promise((f) => setTimeout(f, 800));
+        r.stop1 = Math.round(drawn(stops));
+        r.headOnTip1 = gap(stops) < 1 && endHead(stops).style.visibility !== 'hidden';
+        deck.next(); await settle(); await new Promise((f) => setTimeout(f, 800)); r.stop2 = Math.round(drawn(stops));
+        deck.next(); await settle(); await new Promise((f) => setTimeout(f, 800)); r.stop3 = Math.round(drawn(stops));
+        // the curve: its head rides an arc, oriented along it
+        deck.next(); r.rideCurve = await ride(curve); await settle(); await new Promise((f) => setTimeout(f, 800));
+        r.curveDone = Math.round(drawn(curve)) === Math.round(curve.getTotalLength()) && gap(curve) < 1;
+        // reversed: the head retracts with the tip, then hides; a stage un-draws to the stop before
+        deck.prev(); r.rideBack = await ride(curve); await settle(); await new Promise((f) => setTimeout(f, 800));
+        r.curveHidden = Math.round(drawn(curve)) === 0 && endHead(curve).style.visibility === 'hidden';
+        deck.prev(); r.rideStageBack = await ride(stops); await settle(); await new Promise((f) => setTimeout(f, 800));
+        r.backToStop2 = Math.round(drawn(stops)) === r.stop2;
+        // a deep link lands on a stop instantly, and the speaker view names the stages
+        deck.goto(1, 0); await settle(); deck.goto(5, 3); await settle();
+        r.deepLink = Math.round(drawn(stops)) === r.stop3 && Math.round(drawn(curve)) === 0;
+        // print and the overview show every stroke finished with its head on
+        press('o'); await settle();
+        r.overviewHead = getComputedStyle(endHead(curve)).visibility === 'visible' && Math.round(drawn(curve)) === Math.round(curve.getTotalLength());
+        press('Escape'); await settle();
+        r.PASS = r.steps === 5 && r.headsBuilt && r.markersGone && r.pendingHidden
+          && r.rideStage1 < 1 && r.stop1 === 347 && r.headOnTip1 && r.stop2 === 542 && r.stop3 === 747
+          && r.rideCurve < 1 && r.curveDone && r.rideBack < 1 && r.curveHidden && r.rideStageBack < 1 && r.backToStop2
+          && r.deepLink && r.overviewHead;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
       }
       if (mode === 'hidden') {
         // DECK_ANATOMY HIDDEN_SLIDES: slide 2 keeps its number and is stepped
