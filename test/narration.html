@@ -1510,6 +1510,29 @@
           return;
         }
 
+        if (mode === 'edited') {
+          // #537: a window that did NOT reload after a notes edit — this one,
+          // no reload — speaks the new sentence and does not re-fetch the
+          // untouched one. The cache keys by text, not by position.
+          deck._sections[0].dataset.narration = 'hold';          // stay on slide 1
+          deck.toggleNarration();
+          await new Promise((ok) => setTimeout(ok, 1500));
+          const before = bodies.map((b) => b.text);
+          deck.toggleNarration();                                // off
+          deck._sections[0].querySelector('aside.notes').textContent = 'First sentence here. Second sentence edited.';
+          deck.toggleNarration();                                // on again, same window
+          await new Promise((ok) => setTimeout(ok, 1500));
+          const after = bodies.map((b) => b.text).slice(before.length);
+          r.mode = mode; r.slide = deck.state.slide; r.total = deck.state.totalSlides; r.ttsCalls = calls; r.failures = failures;
+          r.spokeBefore = before.includes('First sentence here.') && before.includes('Second sentence here.');
+          r.speaksTheEdit = after.includes('Second sentence edited.');
+          r.keepsTheNeighbour = !after.includes('First sentence here.');
+          r.neverTheOldOne = !after.includes('Second sentence here.');
+          r.PASS = r.spokeBefore && r.speaksTheEdit && r.keepsTheNeighbour && r.neverTheOldOne;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
         deck.toggleNarration();                                  // P — the voice starts
         // `healthy` asks whether the voice carries the deck to the LAST slide,
         // so it waits until that happens rather than for a fixed 3s and a
