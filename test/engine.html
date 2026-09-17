@@ -1403,11 +1403,26 @@
         const drawing = (s) => !!s._drawAnim;
         const finished = (s) => until(() => !drawing(s), 200);
         // sample the gap while a draw runs, then wait for it to end
+        // #527: while the drawn length is short of the head's reach behind the
+        // tip, the head is clipped to the drawn part — the clip's near edge
+        // sits on the origin, i.e. at −drawn in the head's own coordinates
+        const clipState = (s) => {
+          const h = endHead(s); const ref = h.getAttribute('clip-path');
+          if (!ref) return null;
+          const rect = h.querySelector('clipPath rect');
+          return { x: parseFloat(rect.getAttribute('x')), drawn: drawn(s) };
+        };
         const ride = async (s) => {
-          let worst = 0; let n = 0; const t0 = performance.now();
-          for (let i = 0; i < 200 && drawing(s); i++) { await new Promise((f) => setTimeout(f, 30)); if (drawing(s)) { worst = Math.max(worst, gap(s)); n++; } }
+          let worst = 0; let n = 0; let clipped = 0; let clipRight = true; const t0 = performance.now();
+          for (let i = 0; i < 200 && drawing(s); i++) {
+            await new Promise((f) => setTimeout(f, 30));
+            if (!drawing(s)) break;
+            worst = Math.max(worst, gap(s)); n++;
+            const c = clipState(s);
+            if (c) { clipped++; if (Math.abs(c.x + c.drawn) > 1) clipRight = false; }
+          }
           await finished(s);
-          return { worst, n, ms: performance.now() - t0 };
+          return { worst, n, ms: performance.now() - t0, clipped, clipRight, clipGone: !endHead(s).hasAttribute('clip-path') };
         };
         const stops = stroke('ld-stops'); const curve = stroke('ld-curve'); const plain = stroke('ld-plain');
         deck.goto(5, 0); await settle();
@@ -1424,6 +1439,11 @@
         // stage 1: the head rides from the start to the first stop
         deck.next(); const s1 = await ride(stops);
         r.ridesStage1 = rode(s1);
+        // the reveal: a frame or more with the head clipped at the origin, the
+        // clip gone once the head is out (stage 1 is paced, so the first ~100 ms
+        // are inside the 30 px reach of a 6 px-wide stroke's head)
+        r.revealsFromPoint = r.instant || (s1.clipped >= 1 && s1.clipRight);
+        r.revealClipGone = s1.clipGone;
         r.stop1 = Math.round(drawn(stops)) === 347;
         // #524: the stroke carries data-build-order="1", so its stops are keys
         // 1, 2, 3 and the three boxes tied to those keys advance WITH them —
@@ -1449,6 +1469,11 @@
         r.curveHidden = Math.round(drawn(curve)) === 0 && endHead(curve).style.visibility === 'hidden';
         deck.prev(); const s2 = await ride(stops);
         r.ridesStageBack = rode(s2);
+        // the final retract runs the reveal backwards: clipped again near the origin, whole at rest
+        deck.prev(); await finished(stops); deck.prev(); const s3 = await ride(stops);
+        r.retractsIntoPoint = r.instant || (s3.clipped >= 1 && s3.clipRight);
+        r.retractClipGone = s3.clipGone && Math.round(drawn(stops)) === 0;
+        deck.goto(5, 2); await finished(stops);
         r.backToStop2 = Math.round(drawn(stops)) === 542;
         // a deep link lands on a stop instantly
         deck.goto(1, 0); await settle(); deck.goto(5, 3); await settle();
@@ -1461,7 +1486,8 @@
         r.PASS = r.steps && r.headsBuilt && r.markersGone && r.pendingHidden
           && r.ridesStage1 && r.stop1 && r.headOnTip1 && r.stop2 && r.stop3
           && r.ridesCurve && r.curveDone && r.ridesBack && r.curveHidden && r.ridesStageBack && r.backToStop2
-          && r.deepLink && r.overviewHead && r.pacedByLength && r.tiedWithBox && r.labelsStage && r.allBoxesOut;
+          && r.deepLink && r.overviewHead && r.pacedByLength && r.tiedWithBox && r.labelsStage && r.allBoxesOut
+          && r.revealsFromPoint && r.revealClipGone && r.retractsIntoPoint && r.retractClipGone;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

@@ -191,6 +191,25 @@ function buildHead(s, attr, which) {
   head.appendChild(inner);
   head.style.visibility = 'hidden';
   s.after(head);
+  // How far the head reaches behind and ahead of the point it is placed on,
+  // along the tangent (#527): the reveal below clips it to the drawn length
+  // until it is fully out. Measured from the marker's content once it is in
+  // the document; a marker that cannot be measured is taken at its box.
+  const refX = num('refX', 0);
+  let back = refX * scale; let front = (num('markerWidth', 3) - refX) * scale;
+  try {
+    const box = inner.getBBox();
+    if (box.width > 0) { back = (refX - box.x) * scale; front = (box.x + box.width - refX) * scale; }
+  } catch { /* not rendered — the box stands */ }
+  // the clip lives in the head's own placed coordinates: +x along the tangent,
+  // the placed point at 0 — so it is the same rect whatever the path's bearing
+  const clip = document.createElementNS(SVG_NS, 'clipPath');
+  clip.setAttribute('id', `dl-head-clip-${++headClips}`);
+  clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+  const clipRect = document.createElementNS(SVG_NS, 'rect');
+  clipRect.setAttribute('y', String(-CLIP_FAR)); clipRect.setAttribute('height', String(2 * CLIP_FAR));
+  clip.appendChild(clipRect);
+  head.appendChild(clip);
   s._drawHeads ??= {};
   s._drawHeads[which] = {
     el: head,
@@ -198,10 +217,37 @@ function buildHead(s, attr, which) {
     prefix: s.getAttribute('transform') ? `${s.getAttribute('transform')} ` : '',
     angle: auto ? null : (parseFloat(orient) || 0),
     reverse: orient === 'auto-start-reverse' && which === 'start',
+    back, front, clipId: clip.id, clipRect,
   };
   // the marker itself leaves the stroke for good; the head stands in for it
   s.removeAttribute(attr);
   return true;
+}
+
+let headClips = 0;
+const CLIP_FAR = 1e5;
+
+/**
+ * Reveal a head progressively (#527): with `d` units drawn, only the part of
+ * the head that lies within the drawn length shows — so a Line Draw grows
+ * out of a point, shaft and head as one silhouette, instead of a full-size
+ * head standing on the origin on the first frame, and retreats into it on
+ * the way back. The end head (placed on the tip, +x along the tangent) is
+ * clipped to x ≥ −d while d is short of its reach behind the tip; a start
+ * head (placed on the origin) to x ≤ d while short of its reach ahead — or,
+ * pointing back along the path (`auto-start-reverse`), to x ≥ −d like the
+ * end head. Once the head is fully out the clip goes, and the rendering is
+ * exactly the riding head; at d = 0 there is no clip either, so print and
+ * the overview, which force the stroke drawn, show the whole head.
+ */
+function revealHead(head, d, which) {
+  const el = head.el;
+  const behind = which === 'end' || head.reverse;
+  const reach = behind ? head.back : head.front;
+  if (!(d > 0) || d >= reach) { el.removeAttribute('clip-path'); return; }
+  if (behind) { head.clipRect.setAttribute('x', String(-d)); head.clipRect.setAttribute('width', String(CLIP_FAR)); }
+  else { head.clipRect.setAttribute('x', String(-CLIP_FAR)); head.clipRect.setAttribute('width', String(CLIP_FAR + d)); }
+  el.setAttribute('clip-path', `url(#${head.clipId})`);
 }
 
 /** The point and the tangent angle (degrees) at `d` along the stroke. */
@@ -233,10 +279,12 @@ function setDrawn(s, d, len) {
   const shown = d > 0;
   if (heads.end) {
     placeHead(s, heads.end, shown ? d : (s._drawFinal ?? len), len);
+    revealHead(heads.end, d, 'end');
     heads.end.el.style.visibility = shown ? '' : 'hidden';
   }
   if (heads.start) {
     placeHead(s, heads.start, 0, len);
+    revealHead(heads.start, d, 'start');
     heads.start.el.style.visibility = shown ? '' : 'hidden';
   }
 }
@@ -299,7 +347,7 @@ function driveDraw(s, target, len, onDone) {
     if (f < 1) {
       s.style.strokeDashoffset = String(Math.max(0, len - d));
       s._drawnLen = d;
-      for (const [which, h] of Object.entries(s._drawHeads ?? {})) placeHead(s, h, which === 'end' ? d : 0, len);
+      for (const [which, h] of Object.entries(s._drawHeads ?? {})) { placeHead(s, h, which === 'end' ? d : 0, len); revealHead(h, d, which); }
       s._drawAnim = nextFrame(tick);
     } else {
       s._drawAnim = null;
