@@ -31,7 +31,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe, runMain } from './util.mjs';
-import { inlineRuntime } from './pkg.mjs';
+import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
@@ -286,8 +286,13 @@ if (jobs) {
 
 const read = (rel) => {
   const p = path.resolve(deckDir, rel);
-  if (!fs.existsSync(p)) fail(`referenced file not found: ${rel} (${p})`);
-  return fs.readFileSync(p, 'utf8');
+  if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8');
+  // A deck that LINKS the runtime ships no decklight.js beside itself: the
+  // servers answer it from the installed package, and so does this (#517) —
+  // what a bundle carries is what the deck was playing with.
+  const asset = packageAsset(rel);
+  if (asset) { notices.push(`${rel}: inlined from the installed decklight ${PKG.version}`); return fs.readFileSync(asset.file, 'utf8'); }
+  fail(`referenced file not found: ${rel} (${p})`);
 };
 
 // --------------------------------------------------------------- transforms
@@ -315,6 +320,11 @@ if (transformNames.length) {
 
 // ---------------------------------------------------------- theme selection
 
+// The deck as the author wrote it, before anything is spliced in. The playlist
+// check below reads THIS: the runtime's own source says `playlist:` too, and
+// matching the inlined page flagged every deck that links the runtime.
+const sourceHtml = html;
+
 const themeLinkRe = /<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']*themes\/([\w-]+)\.css)["'][^>]*>/i;
 const themeLinkM = html.match(themeLinkRe);
 if (!themeLinkM) {
@@ -332,12 +342,21 @@ if (!themeLinkM) {
 }
 const [themeLinkTag, themeHref, linkedTheme] = themeLinkM;
 const themesDir = path.resolve(deckDir, path.dirname(themeHref));
+// A linked deck ships no themes/ beside itself: what it links is answered by
+// the installed package when served, and inlined from there here (#517). A
+// folder on disk wins, per theme and for the `all` listing alike.
+const themeFile = (name) => {
+  const own = path.join(themesDir, `${name}.css`);
+  if (fs.existsSync(own)) return own;
+  const shipped = path.join(THEMES_DIR, `${name}.css`);
+  return fs.existsSync(shipped) ? shipped : null;
+};
 
 let themeNames;
 if (themesSel === 'current') {
   themeNames = [linkedTheme];
 } else if (themesSel === 'all') {
-  themeNames = fs.readdirSync(themesDir).filter((f) => f.endsWith('.css'))
+  themeNames = fs.readdirSync(fs.existsSync(themesDir) ? themesDir : THEMES_DIR).filter((f) => f.endsWith('.css'))
     .map((f) => f.replace(/\.css$/, '')).sort();
 } else {
   themeNames = themesSel.split(',').map((s) => s.trim()).filter(Boolean);
@@ -349,8 +368,9 @@ if (activeTheme !== linkedTheme) {
 }
 
 const themeBlocks = themeNames.map((name) => {
-  const cssPath = path.join(themesDir, name + '.css');
-  if (!fs.existsSync(cssPath)) fail(`theme not found: ${name} (${cssPath})`);
+  const cssPath = themeFile(name);
+  if (!cssPath) fail(`theme not found: ${name} (${path.join(themesDir, `${name}.css`)}, and not shipped)`);
+  if (!cssPath.startsWith(themesDir)) notices.push(`theme ${name}: inlined from the installed decklight ${PKG.version}`);
   const css = fs.readFileSync(cssPath, 'utf8');
   const media = name === activeTheme ? '' : ' media="not all"';
   return `<style data-theme="${name}"${media}>\n${css}\n</style>`;
@@ -508,9 +528,9 @@ if (embeds.length) {
 }
 
 if (!jobs) {
-  const playlistM = html.match(/playlist\s*:/);
+  const playlistM = sourceHtml.match(/playlist\s*:/);
   if (playlistM) {
-    const hrefs = [...html.matchAll(/href:\s*['"]([^'"]+\.html)['"]/g)].map((m) => m[1]);
+    const hrefs = [...sourceHtml.matchAll(/href:\s*['"]([^'"]+\.html)['"]/g)].map((m) => m[1]);
     notices.push('deck has a playlist — cross-file module links cannot resolve inside a single file:' +
       (hrefs.length ? '\n    ' + [...new Set(hrefs)].join('\n    ') : ''));
   }

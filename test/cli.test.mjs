@@ -1858,3 +1858,33 @@ test('record serves the deck and prints the URL the browser is sent to', async (
   assert.equal(res.status, 200);
   assert.match(await res.text(), /class="decklight"/);
 });
+
+// ── a linked deck bundles from the installed package (#517) ──────────────────
+test('bundle: a deck that links the runtime and ships none of it inlines the installed package, and says so', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-linked-bundle-'));
+  t.after(() => rmTemp(dir));
+  fs.writeFileSync(path.join(dir, 'deck.html'), '<!doctype html>\n<html><head><link rel="stylesheet" href="decklight.css">'
+    + '<link rel="stylesheet" href="themes/midnight.css"></head><body>\n<div class="decklight"><section><h1>linked</h1></section></div>\n'
+    + '<script src="decklight.js"></script>\n<script>Decklight.init({})</script>\n</body></html>\n');
+  const r = spawnSync('node', [CLI, 'bundle', 'deck.html', '-o', 'out.html'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const said = r.stdout + r.stderr;   // bundle's notes go to stdout
+  for (const what of ['decklight.js', 'decklight.css', 'theme midnight']) {
+    assert.match(said, new RegExp(`${what.replace('.', '\\.')}: inlined from the installed decklight`), `${what} came from the package, and the note says so`);
+  }
+  const out = fs.readFileSync(path.join(dir, 'out.html'), 'utf8');
+  assert.match(out, /<style data-theme="midnight"/);
+  assert.ok(!/<script src="decklight\.js">/.test(out), 'no external reference left');
+  assert.ok(out.length > 500_000, `self-contained (${out.length} bytes)`);
+  // --themes all with no themes/ beside the deck lists the SHIPPED themes
+  const all = spawnSync('node', [CLI, 'bundle', 'deck.html', '-o', 'all.html', '--themes', 'all'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(all.status, 0, all.stderr);
+  assert.ok((fs.readFileSync(path.join(dir, 'all.html'), 'utf8').match(/<style data-theme=/g) || []).length > 30, 'every shipped theme');
+  // a themes/ folder beside the deck still wins
+  fs.mkdirSync(path.join(dir, 'themes'));
+  fs.writeFileSync(path.join(dir, 'themes', 'midnight.css'), '.decklight{--mine:1}');
+  const own = spawnSync('node', [CLI, 'bundle', 'deck.html', '-o', 'own.html'], { cwd: dir, encoding: 'utf8' });
+  assert.equal(own.status, 0, own.stderr);
+  assert.match(fs.readFileSync(path.join(dir, 'own.html'), 'utf8'), /--mine:1/);
+  assert.doesNotMatch(own.stdout + own.stderr, /theme midnight: inlined from the installed/);
+});

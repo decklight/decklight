@@ -16,6 +16,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import { resolvePortConflict } from './port-conflict.mjs';
+import { packageAsset } from './pkg.mjs';
 
 // ── remote access: the security seam for the phone remote (#39) ────────────
 // --remote widens the LISTENER, never the editing surface: off-loopback,
@@ -208,20 +209,36 @@ function rangeOf(header, size) {
  * `id_rsa`, a `.pem`, a database — is only ever fetched to be exfiltrated.
  * The author server does not, so an author's exotic asset still serves as
  * octet-stream from their own machine.
+ *
+ * The runtime a deck LINKS (#517) — `decklight.js`, `decklight.css`,
+ * `themes/<name>.css` — is answered from the installed package when the deck
+ * ships no such file, and also when the reference reaches outside `root`
+ * (`../dist/decklight.js`, the shape every source deck in this repository
+ * uses): the deck gets decklight's own file, never anything of the caller's.
+ * A copy that IS on disk beside the deck wins, so an author pinning their
+ * own build is honoured. Nothing else escapes root or answers for a
+ * missing path — a probe still learns nothing from a 404.
  */
 export function staticFiles(root, { index = '/index.html', html: rewriteHtml = null, knownTypesOnly = false } = {}) {
   return (req, res, url) => {
     if (req.method !== 'GET') return false;
     const rel = url.pathname === '/' ? index : decodeURIComponent(url.pathname);
-    const file = resolve(root, '.' + rel);
-    if (!file.startsWith(root + sep) && file !== root) { res.writeHead(403); res.end('forbidden'); return true; }
+    let file = resolve(root, '.' + rel);
+    let type;
+    const dotted = rel.split('/').some((s) => s.startsWith('.'));
+    const escapes = !file.startsWith(root + sep) && file !== root;
+    if (escapes || !existsSync(file)) {
+      const asset = !dotted && packageAsset(rel);
+      if (asset) { file = asset.file; type = asset.type; }
+      else if (escapes) { res.writeHead(403); res.end('forbidden'); return true; }
+    }
     const stat = existsSync(file) ? statSync(file) : null;
     if (!stat?.isFile()) { res.writeHead(404); res.end('not found'); return true; }
     // Policy refusals come AFTER the existence check on purpose: a path that
     // is not there stays a plain 404, indistinguishable from any other unknown
     // path — a probe for /edit/ping must not learn anything from the answer.
-    const type = MIME[extname(file).toLowerCase()];
-    if (rel.split('/').some((s) => s.startsWith('.')) || (knownTypesOnly && !type)) {
+    type ??= MIME[extname(file).toLowerCase()];
+    if (dotted || (knownTypesOnly && !type)) {
       res.writeHead(403); res.end('forbidden'); return true;
     }
     const headers = {
