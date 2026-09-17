@@ -1069,10 +1069,21 @@
 .decklight-narr .edit-code > pre {
   position: absolute;
   inset: 0;
-  overflow: auto;
+  /* hidden, not auto: the paint is scrolled by script to wherever the textarea
+     is, and a scrollbar of its own would narrow it by one scrollbar the
+     textarea may not have (classic scrollbars, headless Chrome) — the two
+     layers then wrap at different widths. The textarea's scrollbar is instead
+     added to this layer's right padding (editmode.js) */
+  overflow: hidden;
   pointer-events: none;       /* the textarea takes every click */
   background: var(--code-bg, rgba(0, 0, 0, .35));
   border-radius: 8px;
+  /* the code-slide rule's `max-width: 95%` and box-shadow reached this <pre>
+     too — a painted layer 5% narrower than the textarea wraps every long
+     line one column sooner (#529) */
+  max-width: none;
+  width: auto;
+  box-shadow: none;
 }
 /* The <code> the highlighter paints into sits inside .decklight, so the
    code-SLIDE rule (`.decklight pre code`, below) reached it too: a 0.62em
@@ -1939,6 +1950,20 @@
 /* notes editor (right-click a slide's background, or the palette) — E now
    arms element edit mode instead (below) */
 .decklight-editor .narr-card { width: min(640px, 88vw); }
+/* The element content editor is dockable (#530): floating it keeps the
+   modal's width, and docked to an edge its text area fills the gutter —
+   a column of source beside a slide that stays live — instead of the
+   46vh a centred card gets. */
+.decklight-editor.decklight-dockable[data-dock="float"] .narr-card { width: min(640px, 88vw); }
+.decklight-editor.decklight-dockable .ed-heading { flex: 1; opacity: .55; }
+.decklight-editor.decklight-dockable:not([data-dock="float"]) .narr-card { display: flex; flex-direction: column; overflow: hidden; }
+.decklight-editor.decklight-dockable:not([data-dock="float"]) .edit-code { flex: 1 1 auto; min-height: 0; display: flex; }
+/* min-width: 0 — a textarea's flex minimum is its intrinsic width, which
+   overhung the column by a scrollbar's width and wrapped the two layers at
+   different widths under classic scrollbars */
+.decklight-editor.decklight-dockable:not([data-dock="float"]) .edit-code > textarea { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; max-height: none; resize: none; }
+.decklight-editor.decklight-dockable:not([data-dock="float"]) .edit-code > pre { max-height: none; }
+.decklight-editor.decklight-dockable:not([data-dock="float"]) .tr-actions { flex: 0 0 auto; }
 /* the engine wizard's provenance line (ENGINES#WIZARD, #232): who is asking and
    where the answer goes — deliberately NOT the muted narr-head treatment, since
    this is the one line a presenter must read before pasting a key */

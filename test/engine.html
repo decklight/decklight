@@ -1185,8 +1185,41 @@
         r.hasRoomToScroll = bottom > 400;
         ta.scrollTop = bottom; ta.dispatchEvent(new Event('scroll'));
         r.paintFollowsToTheEnd = Math.abs(pre.scrollTop - ta.scrollTop) <= 1 && ta.scrollTop >= bottom - 1;
+        // #530: the editor is dockable — ◨ docks it right, the stage reflows
+        // away from the gutter, the deck's keys work while the caret is out of
+        // the textarea, the edited element is outlined, the placement is
+        // remembered per deck and restored on the next open, and closing
+        // hands the stage back
+        const editorEl = document.querySelector(W);
+        r.dockable = editorEl.classList.contains('decklight-dockable') && !!editorEl.querySelector('.narr-head .dk-btn[data-mode="right"]');
+        r.outlinesTheElement = h1.classList.contains('dl-editing');
+        r.noBackdrop = getComputedStyle(editorEl).backgroundColor === 'rgba(0, 0, 0, 0)';
+        editorEl.querySelector('.dk-btn[data-mode="right"]').click();
+        await settle();
+        const gutter = () => document.querySelector('.decklight').style.getPropertyValue('--dock-right');
+        r.docksRight = editorEl.dataset.dock === 'right' && parseFloat(gutter()) > 100;
+        r.fillsTheGutter = ta.clientHeight >= editorEl.querySelector('.narr-card').clientHeight - 200;
+        r.layersStillAgree = Math.abs(pre.scrollHeight - ta.scrollHeight) <= 1;
+        ta.blur();
+        press('ArrowRight'); await settle();
+        r.deckStaysNavigable = deck.state.slide === 2;
+        press('ArrowLeft'); await settle();
+        r.persists = JSON.parse(localStorage.getItem('decklight-editor-dock:' + location.pathname) ?? '{}').mode === 'right';
+        press('Escape'); await settle();
+        r.escapeCloses = !document.querySelector(W);
+        r.releasesTheStage = gutter() === '0px' && !h1.classList.contains('dl-editing');
+        // reopened, it comes back docked where it was left
+        h1.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 200, clientY: 200 }));
+        await settle();
+        [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((n) => /Edit content/.test(n.textContent))?.click();
+        await settle();
+        r.restoresTheDock = document.querySelector(W)?.dataset.dock === 'right' && parseFloat(gutter()) > 100;
+        press('Escape'); await settle();
+        try { localStorage.removeItem('decklight-editor-dock:' + location.pathname); } catch {}
         r.PASS = r.opens && r.loaded && r.codeInheritsTheMetrics && r.layersMeasureTheSame && r.longLineWraps
-          && r.opensAtTheTop && r.hasRoomToScroll && r.paintFollowsToTheEnd;
+          && r.opensAtTheTop && r.hasRoomToScroll && r.paintFollowsToTheEnd
+          && r.dockable && r.outlinesTheElement && r.noBackdrop && r.docksRight && r.fillsTheGutter && r.layersStillAgree
+          && r.deckStaysNavigable && r.persists && r.escapeCloses && r.releasesTheStage && r.restoresTheDock;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
