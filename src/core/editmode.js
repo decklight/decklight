@@ -1619,8 +1619,10 @@ export function createEditMode({
     // A video is of SOMETHING — a range, a voice — and takes minutes, so the row
     // says which slides it is rendering rather than just that it is busy.
     const voicing = kind === 'video' && voice?.kind === 'live';
+    const older = kind === 'video' && voice?.kind === 'recorded' && voice.stale > 0
+      ? ` — its voice was recorded from older notes on ${voice.stale} slide${voice.stale === 1 ? '' : 's'}` : '';
     const doing = kind === 'video'
-      ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}`
+      ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
       : `exporting to ${what}`;
     const run = progress(`${doing} — this takes a moment…`);
     exportRun = { run, what, doing };

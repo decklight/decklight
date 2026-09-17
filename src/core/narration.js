@@ -3330,7 +3330,11 @@ export function createNarration({
       const options = [];
       for (const t of tracks.filter((x) => x.manifest)) {
         const who = t.voice ? `${t.voice}${t.engine ? ` · ${t.engine}` : ''}` : 'recorded';
-        options.push({ label: `🔊 ${who} — ${t.dir}/`, value: { kind: 'recorded', dir: t.dir } });
+        // a track voiced from other notes than the deck has now is offered,
+        // marked — picking it says so on the export, and the render is told
+        // the choice was seen (#536)
+        const stale = t.stale > 0 ? ` · recorded from older notes on ${t.stale} slide${t.stale === 1 ? '' : 's'}` : '';
+        options.push({ label: `🔊 ${who} — ${t.dir}/${stale}`, value: { kind: 'recorded', dir: t.dir, stale: t.stale || 0 } });
       }
       if (bridge && liveEngine) {
         const dir = synthTarget(tracks);

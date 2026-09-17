@@ -494,3 +494,16 @@ test('a manifest from before all this renders exactly as it did', () => {
   const plan = planTimeline(old, { 'slide-01.m4a': 9 }, [5], null, { steps: [4] });
   assert.deepEqual(plan.map((p) => [p.step, p.audio]), [[LAST_STEP, 'slide-01.m4a']]);
 });
+
+test('resolveNarration carries the manifest header, which the freshness check hashes under (#536)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'decklight-video-hdr-'));
+  const deck = join(dir, 'deck.html');
+  writeFileSync(deck, '<div class="decklight"><section><aside class="notes">a</aside></section></div>');
+  const vo = join(dir, 'voiceover');
+  mkdirSync(vo);
+  writeFileSync(join(vo, 'manifest.json'), JSON.stringify({ engine: 'gemini', model: 'gemini-2.5-pro-tts', voice: 'Kore', style: 'warm', slides: [null] }));
+  const n = resolveNarration(deck);
+  assert.equal(n.dir, vo);
+  assert.deepEqual([n.engine, n.model, n.voice, n.style], ['gemini', 'gemini-2.5-pro-tts', 'Kore', 'warm']);
+  rmSync(dir, { recursive: true, force: true });
+});

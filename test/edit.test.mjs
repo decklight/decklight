@@ -1572,7 +1572,8 @@ test('/edit/export writes the format, quality and subtitles the card asked for',
   mkdirSync(vo, { recursive: true });
   writeFileSync(path.join(vo, 'slide-01.m4a'), 'audio');
   writeFileSync(path.join(vo, 'slide-01.txt'), 'Hello there. This is the first slide.');
-  writeFileSync(path.join(vo, 'manifest.json'), JSON.stringify({ engine: 'say', voice: 'Samantha', slides: [{ file: 'slide-01.m4a', hash: 'x' }, null] }));
+  // a take in your own voice carries no hash — the freshness check (#536) has nothing to hold it to
+  writeFileSync(path.join(vo, 'manifest.json'), JSON.stringify({ engine: 'say', voice: 'Samantha', slides: [{ file: 'slide-01.m4a' }, null] }));
   const calls = () => readFileSync(path.join(dir, 'ffmpeg-calls.log'), 'utf8');
 
   const r = await (await post(base, '/edit/export', { kind: 'video', narration: 'voiceover', format: 'webm', quality: 'draft', subtitles: 'file' })).json();
@@ -2183,4 +2184,40 @@ test('POST /edit/record?kind=manifest writes the take’s manifest.json — hash
   assert.equal((await post({ ...header, range: [2, 1], slides: {} })).status, 400);
   assert.equal((await fetch(base + '/edit/record?slide=1&kind=manifest&dir=voices%2Fkore', { method: 'POST', body: '{nope' })).status, 400);
   assert.equal((await fetch(base + '/edit/record?slide=1&kind=manifest&dir=..%2Fout', { method: 'POST', body: '{}' })).status, 400);
+});
+
+// ── a track recorded from older notes is named, and refused unless allowed (#536) ──
+test('/edit/export refuses a narration recorded from other notes, names the slides, and renders it when the card says so', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base, log } = await videoSession(t, { deck: SPOKEN_DECK });
+  const { manifestHash, slideTexts } = await import('../tools/narration-manifest.mjs');
+  const header = { engine: 'say', model: 'Samantha', voice: 'Samantha', style: '' };
+  const texts = slideTexts(SPOKEN_DECK);
+  const vo = path.join(dir, 'voices', 'samantha');
+  mkdirSync(vo, { recursive: true });
+  writeFileSync(path.join(vo, 'slide-01.m4a'), 'audio');
+  writeFileSync(path.join(vo, 'slide-02.m4a'), 'audio');
+  // slide 1 voiced from the notes the deck has; slide 2 from notes it no longer has
+  writeFileSync(path.join(vo, 'manifest.json'), JSON.stringify({ ...header, slides: [
+    { file: 'slide-01.m4a', hash: manifestHash(header, texts[0]) },
+    { file: 'slide-02.m4a', hash: manifestHash(header, 'what the notes used to say') },
+  ] }));
+  // the card learns it from the track list
+  const tracks = (await (await fetch(base + '/edit/tracks')).json()).tracks;
+  assert.equal(tracks.find((x) => x.dir === 'voices/samantha')?.stale, 1, 'one slide recorded from older notes');
+  // refused by default, with the slide and the way out
+  let r = await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha' });
+  assert.equal(r.status, 500);
+  const why = (await r.json()).error;
+  assert.match(why, /recorded from older notes on slide 2/);
+  assert.match(why, /re-record those slides .* or pass --allow-stale/);
+  assert.match(log(), /slide 2: narration was recorded from different notes/);
+  // a range that does not reach the stale slide is not stopped by it
+  r = await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha', slides: '1' });
+  assert.equal((await r.json()).ok, true, 'slide 1 alone is in step');
+  // picked on the card with the mark showing: rendered, and still said
+  r = await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha', allowStale: true });
+  assert.equal((await r.json()).ok, true);
+  assert.match(log(), /--allow-stale: rendering slide 2 with the older narration/);
+  assert.equal((await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha', allowStale: 'yes' })).status, 400, 'a flag, not a string');
 });

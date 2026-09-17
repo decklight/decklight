@@ -133,7 +133,9 @@
         if (HARNESS_MODE === 'exportvideo' && u.includes('/edit/tracks')) {
           return json({ ok: true, tracks: [
             { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false },
-            { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true },
+            { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, stale: 0 },
+            // voiced from notes the deck no longer has on two slides (#536): offered, marked
+            { dir: 'voices/older', files: 4, segments: false, ext: 'm4a', engine: 'say', voice: 'Daniel', manifest: true, stale: 2 },
           ] });
         }
         if (HARNESS_MODE === 'exportvideo' && u.endsWith('/ping')) {
@@ -684,6 +686,8 @@
         press('ArrowUp');              // Format
         press('ArrowRight');           // → MOV
         press('ArrowUp');              // Voice
+        press('ArrowRight');           // → the track voiced from older notes, offered marked (#536)
+        r.staleTrackMarked = /Daniel · say — voices\/older\/ · recorded from older notes on 2 slides/.test(settingRow('Voice'));
         press('ArrowRight');           // → the live voice
         r.arrowsTurnTheSettings = /In the video/.test(settingRow('Subtitles')) && /MOV/.test(settingRow('Format'))
           && /Synthesize — en_US-ryan-high · piper → voices\/en-us-ryan-high\//.test(settingRow('Voice'));
@@ -715,7 +719,7 @@
           && sent.format === 'mov' && sent.quality === 'standard' && sent.subtitles === 'embed';
         r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '');
         r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));
-        r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges
+        r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges && r.staleTrackMarked
           && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.defaultsAreMp4Standard && r.arrowsLeaveRangesAlone
           && r.arrowsTurnTheSettings && r.remembersTheFormat && r.saysTheRenderPhase
           && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick
