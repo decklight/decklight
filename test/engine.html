@@ -1326,6 +1326,11 @@
         };
         const stops = stroke('ld-stops'); const curve = stroke('ld-curve'); const plain = stroke('ld-plain');
         deck.goto(5, 0); await settle();
+        // A runner with reduced motion on (the hosted macOS image) zeroes the
+        // draw duration, as it should — then there is no ride to measure, and
+        // the instant end states are what is checked. Said in the flags.
+        r.instant = parseFloat(getComputedStyle(endHead(stops)).transitionDuration) === 0;
+        const rode = (x) => r.instant || (x.n >= 3 && x.worst < 1);
         deck.goto(5, 99); r.steps = deck.state.step === 5; deck.goto(5, 0);
         await finished(stops); await finished(curve);
         r.headsBuilt = document.querySelectorAll('section[data-slide-index="5"] .draw-head').length === 2;
@@ -1333,21 +1338,21 @@
         r.pendingHidden = Math.round(drawn(stops)) === 0 && endHead(stops).style.visibility === 'hidden' && Math.round(drawn(plain)) === 0;
         // stage 1: the head rides from the start to the first stop
         deck.next(); const s1 = await ride(stops);
-        r.ridesStage1 = s1.n >= 3 && s1.worst < 1;
+        r.ridesStage1 = rode(s1);
         r.stop1 = Math.round(drawn(stops)) === 347;
         r.headOnTip1 = gap(stops) < 1 && endHead(stops).style.visibility !== 'hidden';
         deck.next(); await finished(stops); r.stop2 = Math.round(drawn(stops)) === 542;
         deck.next(); await finished(stops); r.stop3 = Math.round(drawn(stops)) === 747;
         // the curve: its head rides an arc, oriented along it
         deck.next(); const c1 = await ride(curve);
-        r.ridesCurve = c1.n >= 3 && c1.worst < 1;
+        r.ridesCurve = rode(c1);
         r.curveDone = Math.round(drawn(curve)) === Math.round(curve.getTotalLength()) && gap(curve) < 1;
         // reversed: the head retracts with the tip, then hides; a stage un-draws to the stop before
         deck.prev(); const c2 = await ride(curve);
-        r.ridesBack = c2.n >= 3 && c2.worst < 1;
+        r.ridesBack = rode(c2);
         r.curveHidden = Math.round(drawn(curve)) === 0 && endHead(curve).style.visibility === 'hidden';
         deck.prev(); const s2 = await ride(stops);
-        r.ridesStageBack = s2.n >= 3 && s2.worst < 1;
+        r.ridesStageBack = rode(s2);
         r.backToStop2 = Math.round(drawn(stops)) === 542;
         // a deep link lands on a stop instantly
         deck.goto(1, 0); await settle(); deck.goto(5, 3); await settle();
