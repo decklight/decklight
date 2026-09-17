@@ -729,6 +729,18 @@
           r.shown = !!bar;
           r.stageIsSmallHere = scale < 1;       // or the assertion below proves nothing
           r.followsTheStage = Math.abs(px - 21 * Math.min(1, scale)) < 0.5;
+          // #490: the same deck with `?embedded` — a finder/picker preview —
+          // shows no bar although the setting says on, C in it changes
+          // nothing, and the setting the deck behind it reads is untouched
+          if (params.has('embedded')) {
+            r.embedded = true;
+            press('c', document.body); await new Promise((ok) => setTimeout(ok, 100));
+            r.stillNone = !document.querySelector('.decklight-captions');
+            r.settingKept = localStorage.getItem('decklight-captions:' + location.pathname) === '1';
+            r.PASS = !r.shown && r.stillNone && r.settingKept;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
           r.PASS = r.shown && r.stageIsSmallHere && r.followsTheStage;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;

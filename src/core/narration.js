@@ -1455,8 +1455,15 @@ export function createNarration({
   // live voice speaks) in a bar at the bottom, synced to slide/step. Works
   // with narration on or off — it's the deck's transcript. Persists per deck.
   const captionsKey = 'decklight-captions:' + location.pathname;
+  // A slide-finder or theme-picker preview is a thumbnail of wherever the
+  // cursor happens to be, not the deck being presented — so it shows no
+  // caption bar, the way the voice-over hint already keeps out of it
+  // (`hintApplies`), even though it reads the same per-deck setting as the
+  // deck behind it (#490). The setting itself is the parent's: a preview
+  // neither reads it as on nor writes it.
+  const embeddedPreview = !!params?.has('embedded');
   let captionsOn = false;
-  captionsOn = readPref(captionsKey) === '1';
+  captionsOn = !embeddedPreview && readPref(captionsKey) === '1';
   let captionEl = null;
   function setCaption(text) {
     if (!captionEl) return;
@@ -1481,6 +1488,7 @@ export function createNarration({
     updateCaption();
   }
   function toggleCaptions() {
+    if (embeddedPreview) return; // a preview has no captions to toggle, and no say over the deck's
     captionsOn = !captionsOn;
     writePref(captionsKey, captionsOn ? '1' : '0');
     if (captionsOn) { showCaptions(); dismissHint(); }  // same corner — one of them goes
