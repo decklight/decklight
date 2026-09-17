@@ -2826,6 +2826,26 @@ export function createNarration({
     const target = recTarget ?? targetFor({ mine: false }, await knownTracks());
     if (run !== recRun) return;
     const dir = base == null ? null : { base, name: target.dir };
+    // The take's manifest (#535): which slides this run recorded and their
+    // beats, posted after every slide so an aborted take still leaves a
+    // valid partial — the server hashes each slide's notes from the file and
+    // writes the shape voiceover writes, which is what makes this folder a
+    // track the export offers and the picker refreshes into next time.
+    const recorded = {};
+    const range = (() => {
+      const m = /^(\d+)(?:-(\d+))?$/.exec(recRange ?? '');
+      return m ? [Number(m[1]), m[2] ? Number(m[2]) : Number(m[1])] : [1, instance.state.totalSlides];
+    })();
+    const saveManifest = async () => {
+      if (!dir) return;
+      try {
+        await fetch(`${dir.base}/edit/record?slide=1&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveCfg.style, range, slides: recorded }),
+        });
+      } catch { /* the files are on disk; the manifest is the next slide's to retry */ }
+    };
     renderRecordCard('progress', { done, total: list.length, elapsedMs: 0 });
     for (const sl of list) {
       if (run !== recRun) return;
@@ -2836,6 +2856,7 @@ export function createNarration({
           if (await saveRecording(sl, 'wav', take.wav, dir)) toDisk++;
           if (run !== recRun) return;
           saved++;
+          recorded[sl] = { segments: take.segments.map((b) => b.file) };
           // …and one file per ⟨CLICK⟩ beat, so a synthesized track paces the
           // builds exactly as a track recorded with the your-voice recorder does. Same layout from
           // both recorders — the files on disk say nothing about which one
@@ -2860,6 +2881,8 @@ export function createNarration({
               new Blob([JSON.stringify(beat.timeline)], { type: 'application/json' }), dir, beat.file);
             if (run !== recRun) return;
           }
+          await saveManifest();
+          if (run !== recRun) return;
         }
       } catch {
         toast(`slide ${sl}: recording failed`);

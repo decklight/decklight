@@ -2125,7 +2125,7 @@ export async function editMain(args, { onListen = null } = {}) {
     const slide = Number(url.searchParams.get('slide'));
     const kind = url.searchParams.get('kind');
     if (!Number.isInteger(slide) || slide < 1 || slide > 9999) return json(400, { ok: false, error: 'bad slide' });
-    if (kind !== 'wav' && kind !== 'visemes') return json(400, { ok: false, error: 'bad kind' });
+    if (kind !== 'wav' && kind !== 'visemes' && kind !== 'manifest') return json(400, { ok: false, error: 'bad kind' });
     // `seg` is the per-⟨CLICK⟩ file number — the audio that lets a recording
     // step the builds (slide-NN-KK.wav) and the viseme timeline cut to
     // match it (slide-NN-KK.visemes.json). Absent means the whole slide.
@@ -2159,6 +2159,41 @@ export async function editMain(args, { onListen = null } = {}) {
       size += chunk.length;
       if (size > 64e6) return json(413, { ok: false, error: 'recording too large' });
       chunks.push(chunk);
+    }
+    // The take's manifest (#535), so a folder the deck recorded is a track
+    // `decklight video` renders from, the export offers and the picker
+    // refreshes into — the shape tools/voiceover.mjs writes, hashed the same
+    // way. The runtime says WHICH slides it recorded and their beat numbers;
+    // the notes each hash covers are read from the deck file here, the way
+    // voiceover and video read them, so the three can never disagree on the
+    // text. Written after every slide, so an aborted take is a valid partial.
+    if (kind === 'manifest') {
+      if (size > 1e6) return json(413, { ok: false, error: 'manifest too large' });
+      let req2;
+      try { req2 = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return json(400, { ok: false, error: 'the manifest is not JSON' }); }
+      const str = (v, max = 120) => (typeof v === 'string' && v.length <= max && /^[\w .:+()'-]*$/.test(v) ? v : null);
+      const header = { engine: str(req2.engine, 40), model: str(req2.model), voice: str(req2.voice), style: typeof req2.style === 'string' && req2.style.length <= 400 ? req2.style : null };
+      if (!header.engine) return json(400, { ok: false, error: 'the manifest names no engine' });
+      const from = Number(req2.range?.[0]), to = Number(req2.range?.[1]);
+      if (!Number.isInteger(from) || !Number.isInteger(to) || from < 1 || to < from || to > 9999) return json(400, { ok: false, error: 'bad range' });
+      const recorded = {};
+      for (const [k, v] of Object.entries(req2.slides ?? {})) {
+        const n = Number(k);
+        if (!Number.isInteger(n) || n < from || n > to) continue;
+        recorded[n] = { segments: Array.isArray(v?.segments) ? v.segments.map(Number) : [] };
+      }
+      const { recorderManifest, slideTexts } = await import('../tools/narration-manifest.mjs');
+      let prev = null;
+      try { prev = JSON.parse(readFileSync(resolve(dir, 'manifest.json'), 'utf8')); } catch { /* first take here */ }
+      const manifest = recorderManifest({ prev: Array.isArray(prev?.slides) ? prev : null, header, texts: slideTexts(readDeck()), range: { from, to }, recorded });
+      try {
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(resolve(dir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
+        // the script beside each file, as voiceover writes it — `--reuse-text` reads it back
+        const texts = slideTexts(readDeck());
+        for (const n of Object.keys(recorded)) writeFileSync(resolve(dir, `slide-${String(n).padStart(2, '0')}.txt`), texts[n - 1] ?? '');
+      } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
+      return json(200, { ok: true, dir: want, file: 'manifest.json', slides: manifest.slides.filter(Boolean).length });
     }
     try {
       mkdirSync(dir, { recursive: true });

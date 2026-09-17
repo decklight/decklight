@@ -2140,3 +2140,47 @@ test('a recorded track is written into the configuration block, as JSON, every o
   assert.equal(upsertNarrationTrack(data('{ nope }'), TRACK), null);
   assert.deepEqual(configuredTrackDirs(data('{ nope }')), []);
 });
+
+// ── the deck recorder's take gets a manifest (#535) ───────────────────────
+test('POST /edit/record?kind=manifest writes the take’s manifest.json — hashed from the deck’s notes, merged per range, and the folder becomes a track', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), SPOKEN_DECK);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const { manifestHash, slideTexts } = await import('../tools/narration-manifest.mjs');
+  const wav = Buffer.from('RIFF....WAVEfmt ');
+  await fetch(base + '/edit/record?slide=1&kind=wav&dir=voices%2Fkore', { method: 'POST', body: wav });
+  await fetch(base + '/edit/record?slide=1&kind=wav&seg=1&dir=voices%2Fkore', { method: 'POST', body: wav });
+  const header = { engine: 'gemini', model: 'gemini-2.5-pro-tts', voice: 'Kore', style: 'warm, welcoming' };
+  const post = (body) => fetch(base + '/edit/record?slide=1&kind=manifest&dir=voices%2Fkore', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  // after slide 1 of a whole-deck take: one entry, the rest of the range null
+  const r1 = await (await post({ ...header, range: [1, 2], slides: { 1: { segments: [1] } } })).json();
+  assert.deepEqual(r1, { ok: true, dir: 'voices/kore', file: 'manifest.json', slides: 1 });
+  const texts = slideTexts(SPOKEN_DECK);
+  let m = JSON.parse(readFileSync(path.join(dir, 'voices', 'kore', 'manifest.json'), 'utf8'));
+  assert.equal(m.engine, 'gemini'); assert.equal(m.voice, 'Kore'); assert.equal(m.model, 'gemini-2.5-pro-tts');
+  assert.deepEqual(m.slides[0], { file: 'slide-01.wav', hash: manifestHash(header, texts[0]), segments: [{ file: 'slide-01-01.wav' }] },
+    'the hash is the clip key of the deck’s own notes for the slide — the one voiceover.mjs would write');
+  assert.equal(m.slides[1], null, 'not recorded yet');
+  assert.equal(readFileSync(path.join(dir, 'voices', 'kore', 'slide-01.txt'), 'utf8'), texts[0], 'the script beside the file, as voiceover writes it');
+  // after slide 2: both
+  await post({ ...header, range: [1, 2], slides: { 1: { segments: [1] }, 2: { segments: [] } } });
+  m = JSON.parse(readFileSync(path.join(dir, 'voices', 'kore', 'manifest.json'), 'utf8'));
+  assert.equal(m.slides[1]?.file, 'slide-02.wav');
+  // a ranged re-record of slide 2 keeps slide 1's entry
+  await post({ ...header, range: [2, 2], slides: { 2: { segments: [] } } });
+  m = JSON.parse(readFileSync(path.join(dir, 'voices', 'kore', 'manifest.json'), 'utf8'));
+  assert.equal(m.slides[0]?.file, 'slide-01.wav', 'outside the range, the take stands');
+  // the folder is now a track the export can offer, refreshed into by this voice
+  const tracks = (await (await fetch(base + '/edit/tracks')).json()).tracks;
+  const kore = tracks.find((x) => x.dir === 'voices/kore');
+  assert.equal(kore?.manifest, true);
+  assert.equal(kore?.engine, 'gemini');
+  assert.equal(kore?.voice, 'Kore');
+  // what it refuses: no engine, a bad range, not JSON, a folder outside the deck
+  assert.equal((await post({ voice: 'Kore', range: [1, 2], slides: {} })).status, 400);
+  assert.equal((await post({ ...header, range: [2, 1], slides: {} })).status, 400);
+  assert.equal((await fetch(base + '/edit/record?slide=1&kind=manifest&dir=voices%2Fkore', { method: 'POST', body: '{nope' })).status, 400);
+  assert.equal((await fetch(base + '/edit/record?slide=1&kind=manifest&dir=..%2Fout', { method: 'POST', body: '{}' })).status, 400);
+});
