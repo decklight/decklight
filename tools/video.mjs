@@ -45,6 +45,7 @@ import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './vid
 import { splitSentences } from './sentences.mjs';
 import { serveForRender } from '../cli/present.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
+import { staleSlides, slideTexts } from './narration-manifest.mjs';
 
 const run = promisify(execFile);
 
@@ -59,6 +60,8 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --narration <dir>    narration dir (default: <deckdir>/voiceover if it has a
                        manifest.json; otherwise the deck renders silent)
   --no-narration       render silent, even with a voiceover/ beside the deck
+  --allow-stale        render although the narration was recorded from other
+                       notes than the deck has now (the slides are still named)
   --format <f>         mp4 (H.264/AAC, the default) · mov (H.264/AAC) · webm
                        (VP9/Opus); read off -o's extension when that names one
   --quality <q>        draft (quick, small) · standard (the default) · high
@@ -512,7 +515,8 @@ export function resolveNarration(deckPath, narrationDir) {
     if (!Array.isArray(m?.slides)) {
       throw new Error(`${path}: not a voiceover manifest (no slides array) — regenerate it with tools/voiceover.mjs`);
     }
-    return { dir, slides: m.slides };
+    // the header rides along: the freshness check hashes the deck's notes under it
+    return { dir, slides: m.slides, engine: m.engine, model: m.model, voice: m.voice, style: m.style };
   };
   if (narrationDir) return load(resolve(narrationDir), true);
   return load(join(resolve(deckPath, '..'), 'voiceover'), false);
@@ -642,6 +646,23 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     // --no-narration is silence asked for by name: without it, a voiceover/
     // beside the deck narrates whether or not that was the voice wanted
     narration = argv.includes('--no-narration') ? null : resolveNarration(deck, opt('--narration'));
+    // Is the track still THIS deck's notes? Each manifest slide carries the
+    // hash of the notes it was voiced from; a slide whose notes moved since
+    // would speak against its own captions, so it is named and, unless asked
+    // for by name, refused (#536). Only the slides being rendered are checked.
+    if (narration) {
+      const { stale, hashless } = staleSlides(narration, slideTexts(html), range);
+      if (hashless) log(`  narration: ${hashless} slide${hashless === 1 ? '' : 's'} in ${basename(narration.dir)}/ carr${hashless === 1 ? 'ies' : 'y'} no notes hash (recorded by hand) — not checked`);
+      for (const n of stale) console.warn(`  slide ${n}: narration was recorded from different notes`);
+      if (stale.length) {
+        const which = stale.length === 1 ? `slide ${stale[0]}` : `slides ${stale.join(', ')}`;
+        if (!argv.includes('--allow-stale')) {
+          throw new Error(`the narration in ${narration.dir} was recorded from older notes on ${which} — `
+            + `re-record those slides (V → Record this deck… → slides ${stale[0]}-${stale[stale.length - 1]}) or pass --allow-stale`);
+        }
+        console.warn(`  --allow-stale: rendering ${which} with the older narration`);
+      }
+    }
 
     // real durations, not the manifest's word count: ffprobe each audio file
     const durations = {};

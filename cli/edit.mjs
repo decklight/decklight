@@ -91,6 +91,7 @@ import { runMain } from './util.mjs';
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
 import { configBlock, hasEmbeddedRuntime } from './runtime-link.mjs';
+import { slideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
 // pure transforms — is a deliberate static cycle and not a dynamic one: this
@@ -276,7 +277,8 @@ export function previewError(why) {
  *   engine and this voice; anything else — a manifest for another voice, or
  *   audio with no manifest at all, which is what your own voice leaves — refuses.
  */
-export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles } = {}, deckDir) {
+export function videoExportProblem({ slides, narration, synthesize, silent, format, quality, subtitles, allowStale } = {}, deckDir) {
+  if (allowStale != null && typeof allowStale !== 'boolean') return 'allowStale is yes or no';
   // the card's rows and the command's flags read one list (src/core/video-options.js)
   for (const [field, value, list] of [['format', format, VIDEO_FORMATS], ['quality', quality, VIDEO_QUALITIES], ['subtitles', subtitles, VIDEO_SUBTITLES]]) {
     if (value != null && !valuesOf(list).includes(value)) return `${field} must be ${valuesOf(list).join(', ')}`;
@@ -2210,15 +2212,19 @@ export async function editMain(args, { onListen = null } = {}) {
   function tracksRoute({ json }) {
     const root2 = resolve(deckPath, '..');
     const seen = [];
+    const texts = slideTexts(readDeck());
     const look = (rel) => {
       let entries;
       try { entries = readdirSync(resolve(root2, rel), { withFileTypes: true }); } catch { return; }
       const wav = entries.filter((e) => e.isFile() && /^slide-\d+(-\d+)?\.(wav|m4a|mp3)$/.test(e.name));
       if (wav.length) {
-        let engine = null; let voice = null; let manifest = false;
+        let engine = null; let voice = null; let manifest = false; let stale = 0;
         try {
           const m = JSON.parse(readFileSync(resolve(root2, rel, 'manifest.json'), 'utf8'));
           engine = m.engine ?? null; voice = m.voice ?? null; manifest = true;
+          // how many of its slides were voiced from other notes than the deck
+          // has now — the export card marks the track with it (#536)
+          if (Array.isArray(m.slides)) stale = staleSlides(m, texts).stale.length;
         } catch { /* a folder recorded by hand has no manifest, and needs none */ }
         seen.push({
           dir: rel.split(sep).join('/'),
@@ -2232,6 +2238,7 @@ export async function editMain(args, { onListen = null } = {}) {
           // only a folder with a manifest is one `decklight video` can render
           // from — your own voice leaves none, and the export must not offer it
           manifest,
+          stale,
         });
       }
       return entries;
@@ -2322,7 +2329,9 @@ export async function editMain(args, { onListen = null } = {}) {
             ...(req.format ? ['--format', req.format] : []),
             ...(req.quality ? ['--quality', req.quality] : []),
             ...(req.subtitles ? ['--subtitles', req.subtitles] : []),
-            ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : [])],
+            ...(narration ? ['--narration', resolve(dirname(deckPath), narration)] : req.silent ? ['--no-narration'] : []),
+            // the card showed the track as recorded from older notes and it was picked anyway (#536)
+            ...(req.allowStale === true ? ['--allow-stale'] : [])],
           videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }))));
         }
       } else if (kind === 'pptx') {
