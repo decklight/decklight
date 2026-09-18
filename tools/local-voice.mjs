@@ -118,6 +118,23 @@ const QUALITY_SUFFIX = /\s*\((?:Personal Voice|Siri[^)]*|Premium|Neural|Enhanced
 export const plainName = (name) => String(name ?? '').replace(QUALITY_SUFFIX, '').trim();
 
 /**
+ * macOS 27 names a plain voice by its language too — `Daniel (English (UK))`,
+ * `Samantha (English (US))`, where earlier releases said `Daniel` and
+ * `Samantha`. A language-and-region pair, always nested exactly this way; a
+ * quality marker (`(Enhanced)`) is never nested, so the two cannot be taken for
+ * each other.
+ */
+const LANGUAGE_SUFFIX = /\s*\([^()]+\([^()]+\)\)\s*$/;
+
+/**
+ * The name under both suffixes: `Daniel (English (UK))` and `Daniel (Enhanced)`
+ * are both `Daniel`. For MATCHING only — a row keeps the name `say -v` was
+ * given, because the two are different builds: on macOS 27 `say -v Daniel`
+ * speaks the Enhanced one and `say -v "Daniel (English (UK))"` the compact one.
+ */
+export const baseName = (name) => plainName(name).replace(LANGUAGE_SUFFIX, '').trim();
+
+/**
  * Drop a plain voice that is the SAME VOICE as a better one beside it.
  *
  * A real Mac lists both `Daniel` and `Daniel (Enhanced)` in en_GB, and both
@@ -162,7 +179,10 @@ export function withoutSupersededPlain(voices = [], { keep } = {}) {
   return voices.filter((v) => {
     if (!Number.isInteger(v?.tier) || v.tier !== PLAIN_TIER) return true;
     if (keep && v.name === keep) return true;
-    return !better.has(`${(v.locale || '').toLowerCase()}\u0000${v.name}`);
+    // by BASE name: on macOS 27 the plain twin of `Daniel (Enhanced)` is
+    // listed as `Daniel (English (UK))`, and matching the whole name let every
+    // one of them through
+    return !better.has(`${(v.locale || '').toLowerCase()}\u0000${baseName(v.name)}`);
   });
 }
 
@@ -189,7 +209,13 @@ export function parseSayVoices(stdout, { lang } = {}) {
     const name = m[1].trim();
     if (!name) continue;
     const sample = (m[3] ?? '').trim();
-    out.push({ name, locale: m[2].replace('-', '_'), tier: sayTier(name, sample), sample });
+    const locale = m[2].replace('-', '_');
+    // macOS 27 prints some voices twice, line for line — one voice, and a
+    // picker that offered it twice would be offering nothing more. Line for
+    // line means the SAMPLE too: a Siri voice listed under a plain voice's name
+    // differs only there, and is the other rule's to drop (below).
+    if (out.some((v) => v.name === name && v.locale === locale && v.sample === sample)) continue;
+    out.push({ name, locale, tier: sayTier(name, sample), sample });
   }
   // the unaddressable Siri duplicates (see above), and the `((null))`
   // artifacts an undownloaded Siri stub can leave in the listing — both are

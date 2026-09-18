@@ -1258,18 +1258,31 @@
           r.rowCount = rows.length;
           r.groups = groups;
           r.hasShelf = groups.some((g) => /^(best|good|average)$/.test(g));
+          // By BASE name: macOS 27 lists `Samantha (English (US))` where earlier
+          // releases said `Samantha`, and a quality marker is a suffix too —
+          // the same rule tools/local-voice.mjs `baseName` matches by.
+          const base = (t) => t.replace(/\s*\((?:Personal Voice|Siri[^)]*|Premium|Neural|Enhanced)\)\s*$/i, '')
+            .replace(/\s*\([^()]+\([^()]+\)\)\s*$/, '').trim();
+          const quality = (t) => /\((?:Enhanced|Premium)\)\s*$/.test(t);
           // Samantha ships with every Mac and #429 exists to keep her offered
-          r.samantha = rows.includes('Samantha');
+          r.samantha = rows.some((t) => base(t) === 'Samantha');
           // the fold: a real Mac lists other languages, and they arrive folded
           r.othersFolded = rows.some((t) => /other languages \(\d+\)/.test(t));
           // #429's rule, observed through the product: where this Mac has an
           // Enhanced/Premium build of a voice, the plain twin is not offered
-          const betterOf = rows.map((t) => /^(.+?) \((Enhanced|Premium)\)/.exec(t)?.[1]).filter(Boolean);
-          const plainTwins = betterOf.filter((name) => rows.includes(name));
+          // (on macOS 27 the plain twin of `Daniel (Enhanced)` is `Daniel
+          // (English (UK))`, which a whole-name match never saw)
+          const betterOf = rows.filter(quality).map(base);
+          const plainTwins = rows.filter((t) => !quality(t) && betterOf.includes(base(t)));
           r.betterBuilds = betterOf.length;
           r.plainTwinsLeft = plainTwins;
           r.dedup = plainTwins.length === 0;
-          r.PASS = r.hasShelf && r.samantha && r.othersFolded && r.dedup && r.rowCount > 5;
+          // and no voice twice: macOS 27 prints some line for line (name AND
+          // locale — the same name in two locales is two voices)
+          const full = [...document.querySelectorAll('.narr-row')].map((n) => n.textContent.trim());
+          r.repeatedRows = full.filter((t, i) => full.indexOf(t) !== i);
+          r.noRepeats = r.repeatedRows.length === 0;
+          r.PASS = r.hasShelf && r.samantha && r.othersFolded && r.dedup && r.noRepeats && r.rowCount > 5;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }
