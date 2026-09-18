@@ -123,6 +123,7 @@ const HARNESSES = [
   'pdf-render',
   'pptx-render',
   'import-render',
+  'theme-config-render',
   'contrast',
   'palette-rules',
 ];

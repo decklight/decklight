@@ -1304,7 +1304,11 @@ test('/edit/timings writes every slide\'s rehearsed time in ONE edit, and refuse
 // server. So Chrome is a stand-in that writes a PNG and exits, which keeps
 // these fast and makes them run on a machine with no browser at all.
 const FAKE_CHROME = `
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, appendFileSync } from 'node:fs';
+// what it was asked to render, when a test wants to know (#547)
+if (process.env.FAKE_CHROME_LOG) {
+  appendFileSync(process.env.FAKE_CHROME_LOG, (process.argv.find((a) => /^https?:/.test(a)) ?? '') + '\\n');
+}
 // a 1×1 PNG — pptx only asks that the file exist and have bytes
 const PIXEL = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -1414,6 +1418,34 @@ test('/edit/export writes each of the PDFs `decklight pdf` writes, under its own
     assert.equal(r.ok, true, `${kind} refused: ${r.error}`);
     assert.equal(r.file, file);
     assert.ok(existsSync(path.join(dir, file)), `${kind} wrote no ${file}`);
+  }
+});
+
+test('/edit/export renders in the theme on screen — the browser names it, the render is told (#547)', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  const seen = path.join(dir, 'urls.log');
+  const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_LOG: seen } });
+
+  // The render is a fresh browser: the pick in the presenter's localStorage is
+  // invisible to it, so the route passes it on as --theme, which every render
+  // applies as ?theme= — reaching an inline block as well as a file.
+  for (const kind of ['pptx', 'pdf']) {
+    writeFileSync(seen, '');
+    const r = await (await post(base, '/edit/export', { kind, theme: 'eclipse' })).json();
+    assert.equal(r.ok, true, `${kind} refused: ${r.error}`);
+    const urls = readFileSync(seen, 'utf8').trim().split('\n').filter(Boolean);
+    assert.ok(urls.length && urls.every((u) => /[?&]theme=eclipse(?:[&#]|$)/.test(u)),
+      `${kind} rendered without the theme: ${urls.join(' ')}`);
+  }
+
+  // A name, and nothing else — it becomes an argument and a query parameter
+  for (const theme of ['../x', 'a b', 42, 'x'.repeat(65)]) {
+    const bad = await post(base, '/edit/export', { kind: 'pptx', theme });
+    assert.equal(bad.status, 400, `took ${JSON.stringify(theme)}`);
+    assert.match((await bad.json()).error, /theme name/);
   }
 });
 

@@ -2241,6 +2241,8 @@ export function init(userConfig = {}) {
   const editmode = createEditMode({
     root, config, params, printMode, toast, progress: progressToast, debugLog, overlays, instance,
     notesSegs,
+    // what an export renders in — the theme on screen, not the deck's default (#547)
+    renderTheme: () => themes.renderTheme(),
   });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
 

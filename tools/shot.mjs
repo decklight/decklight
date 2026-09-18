@@ -94,12 +94,11 @@ export async function shotMain(argv, { render = chromeShot } = {}) {
   ${driver}
 </script>`;
 
-  // Only the deck itself gets the theme link and the driver; every other html
+  // Only the deck itself gets the driver; every other html
   // asset under the root is served untouched.
   const inject = (text, file) => {
     if (file !== src) return text;
-    let h = theme ? text.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`) : text;
-    return injectBeforeBodyEnd(h, boot) ?? h + boot;
+    return injectBeforeBodyEnd(text, boot) ?? text + boot;
   };
 
   mkdirSync(dirname(out), { recursive: true });
@@ -110,7 +109,10 @@ export async function shotMain(argv, { render = chromeShot } = {}) {
     // (`?capture`, #548): no toasts, no voice-over hint, no welcome card. A
     // driven one is a picture of a feature being used, and the toast it raises
     // may be the very thing the ticket asked to see — that load stays live.
-    const search = [drive || keys.length ? null : 'capture', query].filter(Boolean).join('&');
+    // --theme rides the URL (`?theme=`), as in pdf/pptx/video: the runtime
+    // applies it to an inline block, an added one or a file alike (#547).
+    const search = [drive || keys.length ? null : 'capture', theme ? `theme=${encodeURIComponent(theme)}` : null, query]
+      .filter(Boolean).join('&');
     const url = `${server.origin}${deckPath}${search ? `?${search}` : ''}${slide ? `#/${slide}/0` : ''}`;
     await render(chromeBin('shot'), chromeArgs(
       '--hide-scrollbars',

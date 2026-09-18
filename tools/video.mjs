@@ -79,7 +79,8 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --build-hold <s>     seconds each build-up frame holds on a silent slide
                        (default: the slide's own hold, so builds move at the
                        pace the deck does)
-  --theme <name>       render with themes/<name>.css instead of the deck's theme
+  --theme <name>       render in another theme — one of the deck's own, an added
+                       one, or a themes/<name>.css file (rides ?theme=)
   --slides <a-b>       only this slide range (1-based, inclusive)
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first —
                        over the --slides range only, when one is given
@@ -687,18 +688,18 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     }
 
 
-    // --theme rides on the deck's response in memory (no temp file): only the
-    // deck itself gets the injected link; every other html asset under the root
-    // is served untouched. Over the loopback origin `themes/…` resolves exactly
-    // as the sibling-copy path used to, so a themed render is unchanged.
+    // --theme rides the deck URL as `?theme=` — the runtime's own startup
+    // override, as `decklight pdf` has always used it — so it reaches every
+    // kind of theme a deck can hold: one of its inline blocks, an added one, or
+    // a themes/<name>.css file. It used to inject a <link> to that file, which
+    // on a deck whose themes are inline blocks (every `upgrade --link` deck)
+    // pointed at nothing, and the render came out in the first block (#547).
+    // …and every load is declared a render (`?capture`, #548)
+    const renderQuery = `?capture${theme ? `&theme=${encodeURIComponent(theme)}` : ''}`;
     let probing = false;
     const inject = (text, file) => {
-      if (resolve(file) !== deck) return text;
-      let out = theme
-        ? text.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`)
-        : text;
-      if (probing) out = injectBeforeBodyEnd(exposeInstance(out), STEP_PROBE) ?? out;
-      return out;
+      if (resolve(file) !== deck || !probing) return text;
+      return injectBeforeBodyEnd(exposeInstance(text), STEP_PROBE) ?? text;
     };
     const deckPath = '/' + relative(root, deck).split(sep).join('/');
 
@@ -716,7 +717,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       try {
         const dom = await exec(chrome, chromeArgs(
           '--hide-scrollbars', `--window-size=${w},${h}`,
-          '--virtual-time-budget=2500', '--dump-dom', `${server.origin}${deckPath}?capture`,
+          '--virtual-time-budget=2500', '--dump-dom', `${server.origin}${deckPath}${renderQuery}`,
         ), { maxBuffer: 64 * 1024 * 1024 });
         steps = parseBuildSteps(dom.stdout, holds.length);
       } catch { /* fall through to one frame per slide */ }
@@ -746,7 +747,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
           `--window-size=${w},${h}`,
           '--virtual-time-budget=1500',
           `--screenshot=${frame}`,
-          `${server.origin}${deckPath}?capture#/${p.slide}/${p.step}`,
+          `${server.origin}${deckPath}${renderQuery}#/${p.slide}/${p.step}`,
         ));
         if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
         const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);

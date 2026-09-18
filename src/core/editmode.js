@@ -28,7 +28,7 @@ import { hljs } from '../code/code.js';
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
   root, config, params, printMode, toast, progress, debugLog, overlays, instance,
-  notesSegs,
+  notesSegs, renderTheme = () => ({}),
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
   // Served by the edit server: the deck subscribes to /edit/events and
@@ -1727,15 +1727,26 @@ export function createEditMode({
     const voicing = kind === 'video' && voice?.kind === 'live';
     const older = kind === 'video' && voice?.kind === 'recorded' && voice.stale > 0
       ? ` — its voice was recorded from older notes on ${voice.stale} slide${voice.stale === 1 ? '' : 's'}` : '';
+    // In the theme on screen (#547). The render is a fresh browser that cannot
+    // see this one's pick, so it is TOLD: without this it opened on the deck's
+    // default — or on its first inline theme block. A theme that lives only in
+    // this browser cannot be named to it, and the row says so rather than
+    // letting the file come out in another theme unannounced.
+    const { theme, local } = renderTheme() ?? {};
+    const themed = local ? ` — in the deck's own theme: ${local} is only in this browser` : '';
     const doing = kind === 'video'
-      ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
-      : `exporting to ${what}`;
+      ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}${themed}`
+      : `exporting to ${what}${themed}`;
     const run = progress(`${doing} — this takes a moment…`);
     exportRun = { run, what, doing };
     try {
       const r = await fetch(editBase + '/edit/export', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(kind === 'video' ? { kind, slides, format, quality, subtitles, ...videoVoice(voice) } : { kind }),
+        body: JSON.stringify({
+          kind,
+          ...(theme ? { theme } : {}),
+          ...(kind === 'video' ? { slides, format, quality, subtitles, ...videoVoice(voice) } : {}),
+        }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);

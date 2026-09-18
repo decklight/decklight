@@ -2362,6 +2362,12 @@ export async function editMain(args, { onListen = null } = {}) {
     if (!job) {
       return json(400, { ok: false, error: `not a file this server writes: ${kind} — try ${Object.keys(EXPORT_KINDS).join(', ')}` });
     }
+    // The theme on screen, which the render is told because it cannot see the
+    // browser's pick (#547). A name — what `--theme` takes — and nothing else.
+    if (req.theme != null && !(typeof req.theme === 'string' && /^[\w-]{1,64}$/.test(req.theme))) {
+      return json(400, { ok: false, error: 'the theme is a theme name' });
+    }
+    const themed = req.theme ? ['--theme', req.theme] : [];
     if (kind === 'video') {
       const bad = videoExportProblem(req, dirname(deckPath));
       if (bad) return json(400, { ok: false, error: bad });
@@ -2391,7 +2397,7 @@ export async function editMain(args, { onListen = null } = {}) {
         }
         if (!code) {
           const narration = req.synthesize?.dir ?? req.narration ?? null;
-          ({ code, reason } = await runTool('video', [deckPath, '-o', out,
+          ({ code, reason } = await runTool('video', [deckPath, '-o', out, ...themed,
             ...(req.slides ? ['--slides', req.slides] : []),
             ...(req.format ? ['--format', req.format] : []),
             ...(req.quality ? ['--quality', req.quality] : []),
@@ -2404,14 +2410,14 @@ export async function editMain(args, { onListen = null } = {}) {
       } else if (kind === 'pptx') {
         const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
         out = pptxOut(deckPath);
-        code = await pptxMain([deckPath], {
+        code = await pptxMain([deckPath, ...themed], {
           log: (line) => console.log(`  ${line}`),
           onSlide: (n, of) => broadcast('export', { state: 'slide', kind, n, of }),
         });
       } else {
         const { pdfMain, pdfOut } = await import('./pdf.mjs');
         out = pdfOut(deckPath, null, job.variant);
-        code = await pdfMain([deckPath, ...(job.variant ? [`--${job.variant}`] : [])]);
+        code = await pdfMain([deckPath, ...themed, ...(job.variant ? [`--${job.variant}`] : [])]);
       }
       const file = relative(process.cwd(), out) || basename(out);
       const seconds = Math.round((Date.now() - started) / 100) / 10;
