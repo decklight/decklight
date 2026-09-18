@@ -31,7 +31,7 @@ export const MODES = [
   'restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'template', 'templatelook', 'sources', 'sourcesedit',
-  'authoring', 'codeedit', 'editor', 'colors',
+  'authoring', 'codeedit', 'editor', 'colors', 'typingdock',
   'linedraw', 'nestedfills',
 ];
 
