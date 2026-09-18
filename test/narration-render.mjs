@@ -136,7 +136,7 @@ let slowest = 0;
 // without ever being watched fail.
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const MODES = ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'captions', 'captions&embedded', 'edited', 'manifest', 'expired',
+  'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
@@ -373,8 +373,11 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
   if (m === 'captions') {
     console.log(r.embedded
       ? `${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} preview shows no bar=${!r.shown} · C changes nothing=${r.stillNone} · the deck's setting kept=${r.settingKept}`
+      : r.dead
+        ? `${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} voice off shows the step=${r.voiceOffShowsTheStep} · the bridge failed=${r.failed} · the bar came back=${r.backAfterFailure}`
       : `${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} shown=${r.shown} · stage scale ${r.scale} (<1 here=${r.stageIsSmallHere})`
-      + ` · caption ${r.px}px follows it=${r.followsTheStage}`
+      + ` · caption ${r.px}px follows it=${r.followsTheStage} · voice off shows the step=${r.voiceOffShowsTheStep}`
+      + ` · follows the voice=${r.followsTheVoice} · back after stop=${r.backAfterStop}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

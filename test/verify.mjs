@@ -53,7 +53,7 @@ const env = { ...process.env, DECKLIGHT_HOME: HOME };
  * tools/test-impact.mjs and anyone's muscle memory keep working.
  */
 const NARRATION_GROUPS = {
-  live: ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'xss', 'switch', 'hint', 'hint&print', 'captions', 'captions&embedded', 'edited'],
+  live: ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'xss', 'switch', 'hint', 'hint&print', 'captions', 'captions&embedded', 'captions&dead', 'edited'],
   picker: ['roster', 'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'off', 'realsay'],
   recorded: ['recorded', 'manifest', 'expired', 'plainrec', 'segmanifest', 'segsigned'],
   segments: ['segoverflow', 'segments', 'segfold', 'segmiss', 'segnav', 'beatpause'],
