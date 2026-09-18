@@ -1726,7 +1726,10 @@ export function createEditMode({
     // says which slides it is rendering rather than just that it is busy.
     const voicing = kind === 'video' && voice?.kind === 'live';
     const older = kind === 'video' && voice?.kind === 'recorded' && voice.stale > 0
-      ? ` — its voice was recorded from older notes on ${voice.stale} slide${voice.stale === 1 ? '' : 's'}` : '';
+      ? (voice.engine
+        ? ` — re-voicing ${voice.stale} slide${voice.stale === 1 ? '' : 's'} from older notes first, in its own voice`
+        : ` — its voice was recorded from older notes on ${voice.stale} slide${voice.stale === 1 ? '' : 's'}`)
+      : '';
     // In the theme on screen (#547). The render is a fresh browser that cannot
     // see this one's pick, so it is TOLD: without this it opened on the deck's
     // default — or on its first inline theme block. A theme with a name the

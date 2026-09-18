@@ -1605,6 +1605,33 @@ test('/edit/export voices the range with the live voice first, into a folder a s
   assert.match(log(), /slide 02: unchanged — kept/);
 });
 
+test('/edit/export re-voices a machine-voiced track\'s stale slide in the track\'s own voice, then renders (#553)', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const { dir, base, log } = await videoSession(t, { deck: SPOKEN_DECK });
+  // the voice is "downloaded": engineStatus looks for the model before a render may use it
+  mkdirSync(path.join(dir, '.local', 'share', 'piper'), { recursive: true });
+  writeFileSync(path.join(dir, '.local', 'share', 'piper', 'en_US-ryan-high.onnx'), '');
+  const synthesize = { engine: 'piper', model: 'en_US-ryan-high', voice: 'en_US-ryan-high', style: 'warm', dir: 'voices/ryan' };
+  assert.equal((await (await post(base, '/edit/export', { kind: 'video', synthesize })).json()).ok, true, log());
+  const track = path.join(dir, 'voices', 'ryan');
+  const before = JSON.parse(readFileSync(path.join(track, 'manifest.json'), 'utf8'));
+
+  // the notes of slide 2 move on — the track now speaks old words there
+  const deckFile = path.join(dir, 'deck.html');
+  let n = 0;
+  writeFileSync(deckFile, readFileSync(deckFile, 'utf8').replace(/Said aloud\./g, (m) => (++n === 2 ? 'Said differently now.' : m)));
+
+  const r = await (await post(base, '/edit/export', { kind: 'video', narration: 'voices/ryan' })).json();
+  assert.equal(r.ok, true, `the stale slide was refused rather than re-voiced: ${r.error}\n${log()}`);
+  assert.match(log(), /re-voicing slide 2 in the track's own voice — 1 clip from piper \(en_US-ryan-high\)/);
+  const after = JSON.parse(readFileSync(path.join(track, 'manifest.json'), 'utf8'));
+  const { manifestHash, slideTexts } = await import('../tools/narration-manifest.mjs');
+  assert.equal(after.slides[1].hash, manifestHash(after, slideTexts(readFileSync(deckFile, 'utf8'))[1]), 'slide 2 is current again');
+  assert.equal(after.slides[1].file, before.slides[1].file, 'in the track\'s own file name and format');
+  assert.deepEqual(after.slides[0], before.slides[0], 'every other slide untouched');
+  assert.deepEqual([after.engine, after.voice], [before.engine, before.voice]);
+});
+
 test('/edit/export never synthesizes over a recorded take, and passes an engine\'s refusal through', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const { dir, base } = await videoSession(t, { deck: SPOKEN_DECK });
