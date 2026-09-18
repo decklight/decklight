@@ -136,7 +136,7 @@ let slowest = 0;
 // without ever being watched fail.
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const MODES = ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
+  'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
@@ -253,6 +253,14 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
       + ` · install row on BEST=${r.installRowShown} (opens Settings=${r.installPosted})`
       + ` · novelty expands in place=${r.noveltyExpands} · other languages too=${r.othersExpand}`
       + ` · ▶ warmed only the visible rows=${r.warmedOnlyVisible && r.foldedStayedCold}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'engineback' || mode === 'enginegone') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} asked the bridge for the saved engine=${r.askedForTheEngine}`
+      + (mode === 'engineback'
+        ? ` · kept voice and engine=${r.keptBoth} · spoke as it=${r.spokeAs}`
+        : ` · said the bridge refused=${r.saidSo} · spoke with the bridge's own=${r.spokeAs}`)
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

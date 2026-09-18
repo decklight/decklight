@@ -262,6 +262,17 @@
         return new Response(JSON.stringify({ ok: true, ...roster }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
+      // the deck asks for the engine its saved live voice was picked on
+      // (engineback); enginegone is that engine's key gone since
+      if (u.endsWith('/engine') && opts?.method === 'POST') {
+        window.__engineAsked = JSON.parse(opts.body ?? '{}').engine;
+        const answer = mode === 'enginegone'
+          ? { ok: false, error: 'missing-key', why: 'ELEVENLABS_API_KEY is not set' }
+          : { ok: true, engine: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false,
+            voices: [['Gilles', 'cloned'], ['Rachel', 'calm']], changed: true };
+        return new Response(JSON.stringify(answer),
+          { status: answer.ok ? 200 : 409, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/tts')) {
         calls++;
         try { bodies.push(JSON.parse(opts?.body ?? '{}')); } catch { /* not json */ }
@@ -332,7 +343,10 @@
         // `switch` STARTS live and swaps to the recorded track mid-sentence —
         // the persisted state must be the live one for the swap to be a swap
         : recordedDeck && mode !== 'switch' ? { dir: 'voices' }
-          : { live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
+          // a voice saved WITH its engine, on a bridge restarted on another
+          : mode === 'engineback' || mode === 'enginegone'
+            ? { live: { voice: 'Gilles', tone: 'Warm', style: 'warm', engine: 'elevenlabs' } }
+            : { live: { voice: 'Alnilam', tone: 'Warm', style: 'warm' } }));
     // the hint is once-per-deck FOREVER, so a previous run of this harness
     // would otherwise suppress it and the mode would pass by doing nothing
     if (mode === 'hint') localStorage.removeItem('decklight-narr-used:' + location.pathname);
@@ -1401,7 +1415,33 @@
           // and the bridge was asked for the voice it can speak, not the stale one
           r.spokeAs = bodies.every((b) => b.voice === 'My Voice');
           r.asked = bodies.length > 0;
-          r.PASS = r.swapped && r.persisted && r.saidSo && r.asked && r.spokeAs;
+          // and the voice is saved with the engine it belongs to
+          r.engineSaved = JSON.parse(localStorage.getItem(key)).live.engine === 'elevenlabs';
+          r.PASS = r.swapped && r.persisted && r.saidSo && r.asked && r.spokeAs && r.engineSaved;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'engineback' || mode === 'enginegone') {
+          // The live voice was saved with its engine, and this session's bridge
+          // started on another (the mock one, whose roster has no "Gilles").
+          // The probe asks for the saved engine BEFORE reading the roster, so
+          // the voice survives — or, when the bridge refuses, says so and
+          // speaks with what the bridge has.
+          deck.toggleNarration();                                // V — probes /ping
+          await new Promise((ok) => setTimeout(ok, 1500));
+          const saved = JSON.parse(localStorage.getItem(key)).live;
+          r.askedForTheEngine = window.__engineAsked === 'elevenlabs';
+          r.asked = bodies.length > 0;
+          if (mode === 'engineback') {
+            r.spokeAs = bodies.every((b) => b.voice === 'Gilles');
+            r.keptBoth = saved.voice === 'Gilles' && saved.engine === 'elevenlabs';
+            r.PASS = r.askedForTheEngine && r.asked && r.spokeAs && r.keptBoth;
+          } else {
+            r.saidSo = deck.messages().some((m) => /elevenlabs: ELEVENLABS_API_KEY is not set — speaking with mock/.test(m.text));
+            r.spokeAs = bodies.every((b) => b.voice === 'Alnilam');
+            r.PASS = r.askedForTheEngine && r.asked && r.saidSo && r.spokeAs;
+          }
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }
