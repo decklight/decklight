@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * A narration track's manifest.json — what `decklight voiceover` writes and
+ * A narration track's manifest.json — what the synthesis core writes
+ * (tools/narration-synth.mjs, behind `decklight voiceover`) and
  * the deck's own synthesized recorder now writes too (#535), so the two are
  * interchangeable to everything that reads one: `decklight video`, the export
  * dialog, the narration picker.
@@ -21,20 +22,28 @@ import { V3_MODEL as ELEVENLABS_V3_MODEL } from './elevenlabs-tts.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, isHiddenSection } from './deck-html.mjs';
 
 /**
- * Each slide's narration text, from the deck FILE — exactly the extraction
- * tools/voiceover.mjs voices from: the notes aside (or a markdown Note:
- * block), ⟨CLICK⟩ markers removed, whitespace collapsed; '' for a hidden slide
- * or one with no notes. Index i is slide i+1.
+ * Each slide's notes as WRITTEN — the notes aside's markup, or a markdown
+ * Note: block, ⟨CLICK⟩ markers and all; '' for a hidden slide (no file, and
+ * the numbering stays) or one with no notes. Index i is slide i+1. The raw
+ * form is what the ⟨CLICK⟩ beats are cut from (tools/narration-synth.mjs).
  */
-export function slideTexts(html) {
+export function slideNotes(html) {
   return sectionBodies(html).map((sec) => {
     if (isHiddenSection(sec)) return '';
     const aside = sec.match(NOTES_ASIDE);
-    if (aside) return cleanNotes(aside[1]);
+    if (aside) return aside[1];
     const md = sec.match(/^Note:\s*$([\s\S]*?)(?=^Rehearse:\s*$|<\/script>)/m);
-    return md ? cleanNotes(md[1]) : '';
+    return md ? md[1] : '';
   });
 }
+
+/**
+ * Each slide's narration text, from the deck FILE — exactly what the
+ * synthesis core voices (tools/narration-synth.mjs): the notes, ⟨CLICK⟩
+ * markers removed, whitespace collapsed; '' for a hidden slide or one with no
+ * notes. Index i is slide i+1.
+ */
+export const slideTexts = (html) => slideNotes(html).map((raw) => (raw ? cleanNotes(raw) : ''));
 
 /**
  * The key fields for a manifest header, the way `clipKey` derives them from
