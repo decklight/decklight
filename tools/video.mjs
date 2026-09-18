@@ -6,7 +6,7 @@
 //
 //   decklight video deck.html -o deck.mp4
 //                   [--narration <dir>] [--size 1280x720] [--fps 30] [--hold 5]
-//                   [--build-hold <s>] [--theme <name>] [--slides a-b] [--voiceover]
+//                   [--build-hold <s>] [--theme <name> | --gen <b64url>] [--slides a-b] [--voiceover]
 //
 // A still per FRAME — a narrated slide is one still, fully built, held for its
 // audio; a silent slide builds as it goes, one still per step — muxed with the
@@ -40,6 +40,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { chromeBin, chromeArgs } from './chrome.mjs';
 import { argReader, isMain } from './args.mjs';
+import { renderThemeParams } from './render-theme.mjs';
 import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './video-options.mjs';
 import { splitSentences } from './sentences.mjs';
@@ -81,6 +82,9 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
                        pace the deck does)
   --theme <name>       render in another theme — one of the deck's own, an added
                        one, or a themes/<name>.css file (rides ?theme=)
+  --gen <b64url>       render in a theme that has no name the deck knows — a
+                       custom or generated one, as {name, tokens} base64url JSON
+                       (rides ?gen=; the export row sends it for you)
   --slides <a-b>       only this slide range (1-based, inclusive)
   --voiceover          run the voiceover batch (tools/voiceover.mjs) first —
                        over the --slides range only, when one is given
@@ -631,6 +635,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       throw new Error(`--build-hold must be positive seconds`);
     }
     const theme = opt('--theme');
+    const themeParams = renderThemeParams({ theme, gen: opt('--gen') });   // throws on a bad value, before any work
 
     const html = readFileSync(deck, 'utf8');
     const holds = extractHolds(html, hold);
@@ -694,8 +699,9 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     // a themes/<name>.css file. It used to inject a <link> to that file, which
     // on a deck whose themes are inline blocks (every `upgrade --link` deck)
     // pointed at nothing, and the render came out in the first block (#547).
-    // …and every load is declared a render (`?capture`, #548)
-    const renderQuery = `?capture${theme ? `&theme=${encodeURIComponent(theme)}` : ''}`;
+    // …and every load is declared a render (`?capture`, #548). --gen rides
+    // `?gen=` the same way, for a theme that lives only in a browser.
+    const renderQuery = `?${['capture', ...themeParams].join('&')}`;
     let probing = false;
     const inject = (text, file) => {
       if (resolve(file) !== deck || !probing) return text;

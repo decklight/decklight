@@ -761,14 +761,17 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     /**
      * The theme on screen, as an export should ask for it (#547): `{ theme }`
      * when a fresh load of this deck can show it — one of its own blocks, an
-     * added one, a file — and `{ local }` for one that lives only in this
-     * browser (a saved custom theme, an unsaved roll), which a render on a
-     * clean profile cannot see.
+     * added one, a file — and `{ gen }` for one that lives only in this browser
+     * (a saved custom theme, an unsaved roll): its tokens, in the `?gen=` form
+     * the picker's previews already load, since a render on a clean profile
+     * has no localStorage to find them in.
      */
     renderTheme() {
       const name = currentTheme();
       if (!name) return {};
-      return customThemes[name] || (genTheme && name === genTheme.name) ? { local: name } : { theme: name };
+      if (customThemes[name]) return { gen: b64uEncode({ name, tokens: customThemes[name] }) };
+      if (genTheme && name === genTheme.name) return { gen: b64uEncode(genTheme) };
+      return { theme: name };
     },
     themeList,
     cycleTheme,

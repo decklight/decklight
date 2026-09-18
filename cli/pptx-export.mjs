@@ -14,17 +14,20 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader } from '../tools/args.mjs';
+import { renderThemeParams } from '../tools/render-theme.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import { NOTES_ASIDE, cleanNotes, sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
 import { buildPptx } from '../tools/pptx-write.mjs';
 import { serveForRender } from './present.mjs';
 
-const USAGE = `usage: decklight pptx <deck.html> [-o out.pptx] [--theme <name>] [--wait <ms>]
+const USAGE = `usage: decklight pptx <deck.html> [-o out.pptx] [--theme <name> | --gen <b64url>] [--wait <ms>]
   writes a PowerPoint file: every slide as a picture, rendered at 1280×720 with
   its builds complete, and its speaker notes as real notes
 
   -o <file>      output path                    [the deck's, with .pptx]
   --theme <name> export in another theme (rides ?theme=)
+  --gen <b64url> export in a custom or generated theme, as {name, tokens}
+                 base64url JSON (rides ?gen=)
   --wait <ms>    render budget per slide        [1500]
 
   Hidden slides (data-hidden) are not in the file, exactly as they are not in
@@ -87,7 +90,8 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
   const root = src.startsWith(process.cwd() + sep) ? process.cwd() : dirname(src);
   const out = pptxOut(src, opt('-o'));
   const wait = Number(opt('--wait', 1500));
-  const theme = opt('--theme');
+  let themeParams;
+  try { themeParams = renderThemeParams({ theme: opt('--theme'), gen: opt('--gen') }); } catch (e) { log(`decklight pptx: ${e.message}`); return 1; }
   const html = readFileSync(src, 'utf8');
   const notes = notesLines(html);
   // HIDDEN_SLIDES — the file you hand over holds what the audience saw, the
@@ -105,7 +109,7 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
   // --theme rides the URL (`?theme=`), which the runtime applies to any kind
   // of theme the deck holds — a <link> to themes/<name>.css reached only file
   // themes, and missed a deck whose themes are inline blocks (#547).
-  const renderQuery = `?capture${theme ? `&theme=${encodeURIComponent(theme)}` : ''}`;
+  const renderQuery = `?${['capture', ...themeParams].join('&')}`;
   const server = await serveForRender(root);
   const scratch = mkdtempSync(join(tmpdir(), 'decklight-pptx-'));
   const slides = [];

@@ -1729,14 +1729,13 @@ export function createEditMode({
       ? ` — its voice was recorded from older notes on ${voice.stale} slide${voice.stale === 1 ? '' : 's'}` : '';
     // In the theme on screen (#547). The render is a fresh browser that cannot
     // see this one's pick, so it is TOLD: without this it opened on the deck's
-    // default — or on its first inline theme block. A theme that lives only in
-    // this browser cannot be named to it, and the row says so rather than
-    // letting the file come out in another theme unannounced.
-    const { theme, local } = renderTheme() ?? {};
-    const themed = local ? ` — in the deck's own theme: ${local} is only in this browser` : '';
+    // default — or on its first inline theme block. A theme with a name the
+    // deck knows goes by name; one that lives only in this browser (a saved
+    // custom theme, an unsaved roll) goes as its tokens.
+    const { theme, gen } = renderTheme() ?? {};
     const doing = kind === 'video'
-      ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}${themed}`
-      : `exporting to ${what}${themed}`;
+      ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
+      : `exporting to ${what}`;
     const run = progress(`${doing} — this takes a moment…`);
     exportRun = { run, what, doing };
     try {
@@ -1744,7 +1743,7 @@ export function createEditMode({
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           kind,
-          ...(theme ? { theme } : {}),
+          ...(theme ? { theme } : gen ? { gen } : {}),
           ...(kind === 'video' ? { slides, format, quality, subtitles, ...videoVoice(voice) } : {}),
         }),
       });

@@ -35,7 +35,8 @@ test('the printed URL is the deck plus ?print — the whole rendering contract',
   assert.equal(printUrl('/talks/q3.html'), 'file:///talks/q3.html?print');
   assert.equal(printUrl('/talks/q3.html', { theme: 'graphite' }),
     'file:///talks/q3.html?print&theme=graphite');
-  assert.match(printUrl('/t/q.html', { theme: 'a b&c' }), /theme=a%20b%26c$/, 'a theme name is escaped');
+  // a theme is a NAME — anything else is refused, as video and pptx refuse it (#547)
+  assert.throws(() => printUrl('/t/q.html', { theme: 'a b&c' }), /theme name/);
 });
 
 test('pages are counted off the bytes — /Page, never /Pages', () => {
