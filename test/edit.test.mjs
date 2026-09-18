@@ -1447,6 +1447,23 @@ test('/edit/export renders in the theme on screen — the browser names it, the 
     assert.equal(bad.status, 400, `took ${JSON.stringify(theme)}`);
     assert.match((await bad.json()).error, /theme name/);
   }
+
+  // A theme that lives only in the presenter's browser goes as its tokens —
+  // base64url JSON, handed on as --gen and loaded by the render as ?gen=
+  const gen = Buffer.from(JSON.stringify({ name: 'mine', tokens: { '--bg': '#123456' } })).toString('base64url');
+  writeFileSync(seen, '');
+  const g = await (await post(base, '/edit/export', { kind: 'pptx', gen })).json();
+  assert.equal(g.ok, true, `gen refused: ${g.error}`);
+  assert.ok(readFileSync(seen, 'utf8').trim().split('\n').every((u) => u.includes(`gen=${gen}`)), 'rendered without the tokens');
+  for (const [body, why] of [
+    [{ kind: 'pptx', gen: 'not base64!' }, /base64url/],
+    [{ kind: 'pptx', gen: 'a'.repeat(16385) }, /base64url/],
+    [{ kind: 'pptx', gen, theme: 'eclipse' }, /one theme/],
+  ]) {
+    const bad = await post(base, '/edit/export', body);
+    assert.equal(bad.status, 400);
+    assert.match((await bad.json()).error, why);
+  }
 });
 
 test('/edit/export refuses a file it does not write, and still answers the old name', async (t) => {

@@ -23,6 +23,7 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { serveForRender } from './present.mjs';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 import { argReader, isMain } from '../tools/args.mjs';
+import { renderThemeParams } from '../tools/render-theme.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import { sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
 
@@ -43,7 +44,7 @@ import { sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
  */
 export const HANDOUT_PER_PAGE = 3;
 
-const USAGE = `usage: decklight pdf <deck.html> [-o out.pdf] [--theme <name>] [--wait <ms>]
+const USAGE = `usage: decklight pdf <deck.html> [-o out.pdf] [--theme <name> | --gen <b64url>] [--wait <ms>]
                     [--notes | --handout]
   renders the deck's ?print view to a PDF — one slide per page, at the deck's
   own 1280×720, in its theme, with every build complete
@@ -54,6 +55,8 @@ const USAGE = `usage: decklight pdf <deck.html> [-o out.pdf] [--theme <name>] [-
   --handout      three slides a page, portrait, ruled lines beside each for
                  the audience to write on           [out: <deck>.handout.pdf]
   --theme <name> export in another theme (rides ?theme=)
+  --gen <b64url> export in a custom or generated theme, as {name, tokens}
+                 base64url JSON (rides ?gen=)
   --wait <ms>    render budget for heavy decks  [8000]
 
   slides the print-mode overflow guardrail flags are named on stderr; the PDF
@@ -72,10 +75,10 @@ export function pdfOut(deckPath, oFlag, variant = '') {
  * `base` is where the deck is served — a `file://` path, or the render
  * server's origin plus the deck's path under its root.
  */
-export function printUrl(base, { theme, variant = '' } = {}) {
+export function printUrl(base, { theme, gen, variant = '' } = {}) {
   // `?print=notes` / `?print=handout` are the runtime's own variants (src/core/print.js)
   const print = variant ? `?print=${variant}` : '?print';
-  const q = theme ? `${print}&theme=${encodeURIComponent(theme)}` : print;
+  const q = [print, ...renderThemeParams({ theme, gen })].join('&');
   return `${/^[a-z]+:\/\//i.test(base) ? base : `file://${base}`}${q}`;
 }
 
@@ -152,6 +155,8 @@ export async function pdfMain(args = []) {
   }
   const out = pdfOut(src, opt('-o'), variant);
   const theme = opt('--theme');
+  const gen = opt('--gen');
+  try { renderThemeParams({ theme, gen }); } catch (e) { console.error(`decklight pdf: ${e.message}`); return 1; }
   const wait = Number(opt('--wait', 8000));
   const bin = chromeBin('pdf');
   // The deck is SERVED, from its own directory, the way shot and video serve
@@ -161,7 +166,7 @@ export async function pdfMain(args = []) {
   // exactly as siblings did.
   const root = dirname(src);
   const server = await serveForRender(root);
-  const url = printUrl(`${server.origin}/${relative(root, src).split(sep).join('/')}`, { theme, variant });
+  const url = printUrl(`${server.origin}/${relative(root, src).split(sep).join('/')}`, { theme, gen, variant });
   const shared = chromeArgs(`--virtual-time-budget=${wait}`);
   try {
     return await printDeck({ src, out, url, bin, shared, variant, theme });

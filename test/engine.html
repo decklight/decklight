@@ -796,9 +796,10 @@
 
         let themedOk = true;
         if (mode === 'exportpptx') {
-          // A theme that lives only in this browser — a roll nobody saved —
-          // cannot be named to a fresh render. Nothing is sent that it would
-          // not recognise, and the row says the file will be in the deck's own.
+          // A theme that lives only in this browser — a roll nobody saved — has
+          // no name a fresh render would know, so it goes as its TOKENS, in the
+          // `?gen=` form the picker's previews already load: the file comes out
+          // in the theme on screen, not in the deck's own.
           if (document.querySelector(Q)) press('Escape');  // the first Esc above cleared the query
           press('t', { ctrlKey: true });   // ⌃T rolls a generated theme
           await settle();
@@ -809,10 +810,12 @@
           await settle();
           await settle();
           const second = CALLS.post.filter((c) => c.u.includes('/edit/export'));
-          r.localThemeNotSent = second.length === posts + 1 && !('theme' in second.at(-1).body);
-          // the row is rewritten by the answer; the log keeps what it said first
-          r.localThemeSaidSo = deck.messages().some((m) => /in the deck's own theme: gen-[\w-]+ is only in this browser/.test(m.text));
-          themedOk = r.toldTheTheme && r.localThemeNotSent && r.localThemeSaidSo;
+          const body = second.at(-1)?.body ?? {};
+          let rolled = null;
+          try { rolled = JSON.parse(decodeURIComponent(escape(atob(body.gen.replace(/-/g, '+').replace(/_/g, '/'))))); } catch { /* reported below */ }
+          r.localThemeSentAsTokens = second.length === posts + 1 && !('theme' in body)
+            && /^gen-/.test(rolled?.name ?? '') && typeof rolled?.tokens?.['--bg'] === 'string';
+          themedOk = r.toldTheTheme && r.localThemeSentAsTokens;
         }
 
         r.PASS = r.rowIsThere && r.closesOnRun && r.saysItStarted && r.saysWhereItIs

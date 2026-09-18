@@ -858,6 +858,7 @@ import {
   describeCommit, describeWorking, messagesLine, rememberPref, storedPref,
 } from './commit-message.mjs';
 import { WIP_REF, deckDirty, nagText, planNag, snapshotWip, wipLine } from './commit-flow.mjs';
+import { THEME_NAME, GEN_THEME } from '../tools/render-theme.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
 /** Who the author is, from git's own answer — see cli/review.mjs. */
@@ -2363,11 +2364,17 @@ export async function editMain(args, { onListen = null } = {}) {
       return json(400, { ok: false, error: `not a file this server writes: ${kind} — try ${Object.keys(EXPORT_KINDS).join(', ')}` });
     }
     // The theme on screen, which the render is told because it cannot see the
-    // browser's pick (#547). A name — what `--theme` takes — and nothing else.
-    if (req.theme != null && !(typeof req.theme === 'string' && /^[\w-]{1,64}$/.test(req.theme))) {
+    // browser's pick (#547): a name — what `--theme` takes — or, for a theme
+    // that lives only in that browser, its tokens as `--gen` takes them
+    // (base64url JSON, the form `?gen=` loads; the runtime vets every token).
+    if (req.theme != null && !(typeof req.theme === 'string' && THEME_NAME.test(req.theme))) {
       return json(400, { ok: false, error: 'the theme is a theme name' });
     }
-    const themed = req.theme ? ['--theme', req.theme] : [];
+    if (req.gen != null && !(typeof req.gen === 'string' && GEN_THEME.test(req.gen))) {
+      return json(400, { ok: false, error: 'the generated theme is base64url, at most 16 KB' });
+    }
+    if (req.theme != null && req.gen != null) return json(400, { ok: false, error: 'one theme — a name or a generated one' });
+    const themed = req.theme ? ['--theme', req.theme] : req.gen ? ['--gen', req.gen] : [];
     if (kind === 'video') {
       const bad = videoExportProblem(req, dirname(deckPath));
       if (bad) return json(400, { ok: false, error: bad });

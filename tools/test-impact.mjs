@@ -116,6 +116,7 @@ const RULES = [
   [/^tools\/extension-check\.mjs$/, ['extension-check-render'], 'the admission gate itself'],
   [/^tools\/(theme-check|color)\.mjs$/, LINT, 'the theme lints'],
   [/^tools\/chrome\.mjs$/, ALL, 'every harness starts a browser through it'],
+  [/^tools\/render-theme\.mjs$/, ['pdf-render', 'pptx-render', 'shot-render'], 'the theme a render is told to open on'],
   [/^tools\/review-anchor\.mjs$/, ['review-render'], 'the anchor resolver both halves share'],
   [/^tools\/(tts-engines|local-voice|voiceover-server|lipsync)\.mjs$/, [...NARRATION, 'record-render'],
     'the voice bridge narration talks to'],

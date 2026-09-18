@@ -89,6 +89,10 @@ const CASES = [
   ['a configured ADDED theme is honoured', configuredAdded, '', (r) => r.bg === BG.added],
   ['a configured theme the deck lacks falls back to the first block', configuredMissing, '', (r) => r.bg === BG.first],
   ['a render (?capture) opens on the configured theme too', configured, '?capture', (r) => r.bg === BG.second],
+  // a theme that lives only in a browser reaches a render as its tokens (#547)
+  ['a render told a generated theme (?gen=) opens on it', configured,
+    `?capture&gen=${Buffer.from(JSON.stringify({ name: 'mine', tokens: { '--bg': '#555555', '--fg': '#eeeeee' } })).toString('base64url')}`,
+    (r) => r.bg === '#555555'],
 ];
 
 let bad = 0;
