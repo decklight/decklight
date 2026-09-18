@@ -259,6 +259,10 @@
         }
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      if (HARNESS_MODE === 'colors') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'contextmenu') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
@@ -359,6 +363,21 @@
           <rect class="nf-overlay" x="10" y="10" width="780" height="20" style="fill: var(--d-fill-2)"/>
           <text class="nf-text" x="110" y="95" style="fill: var(--d-text)">label</text>
         </svg>
+      </section>`);
+    }
+    // The colour picker: a diagram box with its label, a loose label, and an
+    // HTML block — only for the mode that looks at it. No theme loads here, so
+    // the palette's tokens are given inline (a secondary that IS one).
+    if (HARNESS_MODE === 'colors') {
+      const tokens = { '--accent': '#5ee6c0', '--accent-contrast': '#04261c', '--link': '#8ecbff', '--fg': '#eef0ff', '--bg': '#0d1b3d',
+        '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355' };
+      for (const [k, v] of Object.entries(tokens)) document.querySelector('.decklight').style.setProperty(k, v);
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Colours</h2>
+        <svg viewBox="0 0 800 200" width="800" aria-label="one labelled box">
+          <line class="cp-line" x1="0" y1="10" x2="100" y2="10" stroke="#888"/>
+          <g class="cp-group-a"><rect class="cp-box" x="40" y="40" width="220" height="120" style="fill: var(--d-fill-1); stroke: #fff"/><text class="cp-text" x="150" y="108" style="fill: var(--d-text)">Producer</text></g>
+        </svg>
+        <blockquote class="cp-quote">A quoted <strong>block</strong> of text.</blockquote>
       </section>`);
     }
     if (HARNESS_MODE === 'codeedit') {
@@ -1911,6 +1930,100 @@
           && r.refusesWithoutProvenance;
       }
 
+      if (mode === 'colors') {
+        // PRESENTING, element edit mode → Colors…: the background of the shape
+        // under the click and the text on it. What is pinned: the palette is
+        // the theme's, by name and BY REFERENCE; a custom colour is a separate
+        // tab with RGB and HSB; every pick previews and only Apply saves; the
+        // path the save names is the FILE's, not the DOM's; and the card docks.
+        const C = '.decklight-colorpicker';
+        const q = (s) => document.querySelector(`${C} ${s}`);
+        const rightClick = (el) => el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+        const openOn = (el) => {
+          rightClick(el);
+          [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === 'Colors…')?.click();
+        };
+        const type = (input, v) => { input.value = v; input.dispatchEvent(new Event('change', { bubbles: true })); };
+        await settle();
+        deck.goto(5);
+        await settle();
+        const box = document.querySelector('.cp-box'); const label = document.querySelector('.cp-text');
+        // what builds.js does to a drawn stroke: a node of the engine's, before
+        // the group, that the file has never heard of
+        const head = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        head.setAttribute('class', 'draw-head');
+        document.querySelector('.cp-line').after(head);
+        press('e');
+
+        openOn(box);
+        r.opens = !!q('.narr-card') && !document.querySelector('.decklight-ctxmenu');
+        r.docks = document.querySelector(C).classList.contains('decklight-dockable') && document.querySelectorAll(`${C} .dk-btn[data-mode]`).length === 4;
+        r.themeTabFirst = q('.cp-tabs [aria-selected="true"]')?.dataset.id === 'theme' && !q('.cp-range');
+        const labels = [...document.querySelectorAll(`${C} .cp-swatch`)].map((b) => b.getAttribute('aria-label'));
+        r.primaryAndSecondaryNamed = labels[0] === 'Primary (--accent)' && labels[1] === 'Secondary (--link)';
+        r.fillsNumbered = labels.includes('Fill 1 (--d-fill-1)') && labels.includes('Fill 3 (--d-fill-3)');
+        r.undefinedTokensLeftOut = !labels.some((l) => l.includes('--muted'));   // this page never defined it
+        r.currentMarked = q('.cp-swatch[aria-pressed="true"]')?.dataset.token === '--d-fill-1';
+        r.applyWaitsForAPick = q('.cp-apply').disabled;
+
+        // a theme pick is the TOKEN, previewed at once, and keeps the other declarations
+        q('.cp-swatch[data-token="--accent"]').click();
+        r.previewsToken = box.style.fill === 'var(--accent)' && box.style.stroke !== '';
+        // Escape takes the preview back and posts nothing
+        press('Escape');
+        r.escapeRestores = !document.querySelector(C) && box.style.fill === 'var(--d-fill-1)'
+          && !CALLS.post.some((c) => c.u.includes('/edit/element/style'));
+
+        // fill from the palette, text from the Custom tab, one save for the pair
+        openOn(box);
+        q('.cp-swatch[data-token="--accent"]').click();
+        q('.cp-side [data-id="text"]').click();
+        q('.cp-tabs [data-id="custom"]').click();
+        r.customHasRgb = ['r', 'g', 'b'].every((k) => q(`.cp-num[data-chan="${k}"]`));
+        r.customStartsFromTheTarget = q('.cp-hex').value === '#f2ece4';
+        q('.cp-model [data-id="hsb"]').click();
+        r.customHasHsb = ['h', 's', 'v'].every((k) => q(`.cp-num[data-chan="${k}"]`)) && !q('.cp-num[data-chan="r"]');
+        type(q('.cp-num[data-chan="h"]'), '40'); type(q('.cp-num[data-chan="s"]'), '90'); type(q('.cp-num[data-chan="v"]'), '100');
+        r.hsbPreviews = q('.cp-hex').value === '#ffb319' && getComputedStyle(label).fill === 'rgb(255, 179, 25)';
+        type(q('.cp-hex'), '0a0b0c');   // pasted without its #
+        r.hexTyped = q('.cp-hex').value === '#0a0b0c' && label.style.fill !== '';
+        q('.cp-apply').click();
+        await settle();
+        const post = CALLS.post.find((c) => c.u.includes('/edit/element/style'));
+        const edits = post?.body.edits ?? [];
+        r.postsBoth = post?.body.slide === 5 && post?.body.index === 1 && edits.length === 2
+          && edits[0].prop === 'fill' && edits[0].value === 'var(--accent)' && edits[0].tag === 'rect'
+          && edits[1].prop === 'fill' && edits[1].value === '#0a0b0c' && edits[1].tag === 'text';
+        // the engine's .draw-head sits before the group in the DOM: the path is still the file's [1, 0]
+        r.pathIsTheFiles = JSON.stringify(edits[0]?.path) === '[1,0]' && JSON.stringify(edits[1]?.path) === '[1,1]';
+        r.closesOnApply = !document.querySelector(C);
+
+        // right-clicking the LABEL means the same pair
+        openOn(label);
+        r.labelFindsItsBox = !q('.cp-side [data-id="fill"]').disabled && !q('.cp-side [data-id="text"]').disabled;
+        // Reset takes the colour off, and that is what is saved
+        q('.cp-reset').click();
+        q('.cp-apply').click();
+        await settle();
+        const reset = CALLS.post.filter((c) => c.u.includes('/edit/element/style'))[1];
+        r.resetPostsNull = reset?.body.edits.length === 1 && reset.body.edits[0].value === null;
+
+        // an HTML block, from the inline run inside it: background-color and color, on the block
+        openOn(document.querySelector('.cp-quote strong'));
+        q('.cp-swatch[data-token="--d-fill-2"]').click();
+        q('.cp-apply').click();
+        await settle();
+        const html = CALLS.post.filter((c) => c.u.includes('/edit/element/style'))[2];
+        r.htmlBlock = html?.body.index === 2 && html.body.edits.length === 1 && html.body.edits[0].tag === 'blockquote'
+          && html.body.edits[0].prop === 'background-color' && JSON.stringify(html.body.edits[0].path) === '[]';
+
+        r.PASS = r.opens && r.docks && r.themeTabFirst && r.primaryAndSecondaryNamed && r.fillsNumbered
+          && r.undefinedTokensLeftOut && r.currentMarked && r.applyWaitsForAPick && r.previewsToken
+          && r.escapeRestores && r.customHasRgb && r.customStartsFromTheTarget && r.customHasHsb
+          && r.hsbPreviews && r.hexTyped && r.postsBoth && r.pathIsTheFiles && r.closesOnApply
+          && r.labelFindsItsBox && r.resetPostsNull && r.htmlBlock;
+      }
+
       if (mode === 'contextmenu') {
         // Element edit mode (#112): E only ARMS it — right-clicking a slide
         // element is the actual surface, and the menu it opens differs by
@@ -1933,7 +2046,7 @@
         rightClick(h1);
         r.opensOnElement = !!document.querySelector(M);
         r.fullMenuRows = JSON.stringify(rowsText())
-          === JSON.stringify(['Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Add text effect ▸', 'Slide ▸']);
+          === JSON.stringify(['Edit speaker notes', 'Remove element', 'Edit content (HTML)', 'Colors…', 'Add text effect ▸', 'Slide ▸']);
         const a = selectedIndex(M, ROW, SEL);
         r.hasSelection = a.i === 0;
         press('ArrowDown');

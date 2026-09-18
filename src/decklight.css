@@ -2036,6 +2036,118 @@
   padding-bottom: 9px;
 }
 
+/* the colour picker (element menu → Colors…): a dockable panel like the
+   other editing surfaces (dock.js), so the shape stays in view while every
+   pick previews on it. Its own chrome is fixed dark like every engine
+   overlay; only the CHIPS take theme tokens, which is what makes them the
+   theme's palette and not a copy of it. */
+.decklight-colorpicker.decklight-dockable[data-dock="float"] .narr-card { width: min(320px, 88vw); }
+.decklight-colorpicker .cp-title { flex: 1; opacity: .55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-colorpicker .cp-main { max-width: 760px; margin-top: 8px; }
+.decklight-colorpicker .cp-side { margin-bottom: 8px; }
+/* the bottom tray is wide and short: the switches and Apply stand in a column
+   on the left, where they never scroll away, and the palette's groups sit
+   side by side in what is left */
+.decklight-colorpicker[data-dock="bottom"] .cp-main {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
+  grid-template-areas: "side body" "tabs body" "foot body";
+  column-gap: 24px;
+  max-width: 1100px;
+}
+.decklight-colorpicker[data-dock="bottom"] .cp-side { grid-area: side; }
+.decklight-colorpicker[data-dock="bottom"] .cp-tabs { grid-area: tabs; }
+.decklight-colorpicker[data-dock="bottom"] .cp-body { grid-area: body; }
+.decklight-colorpicker[data-dock="bottom"] .cp-foot { grid-area: foot; align-self: start; }
+.decklight-colorpicker[data-dock="bottom"] .cp-body[data-tab="theme"] { columns: 3 240px; column-gap: 24px; }
+.decklight-colorpicker[data-dock="bottom"] .cp-groupbox:first-child .cp-group { margin-top: 0; }
+.decklight-colorpicker .cp-groupbox { break-inside: avoid; }
+.decklight-colorpicker .cp-seg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: rgba(255, 255, 255, .07); }
+.decklight-colorpicker .cp-tabs, .decklight-colorpicker .cp-model { margin-bottom: 8px; }
+.decklight-colorpicker[data-dock="bottom"] .cp-body[data-tab="custom"] { max-width: 420px; }
+.decklight-colorpicker .cp-seg-btn {
+  flex: 1;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: #b9bec8;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.decklight-colorpicker .cp-seg-btn[aria-selected="true"] { background: rgba(255, 255, 255, .16); color: #fff; }
+.decklight-colorpicker .cp-seg-btn:disabled { opacity: .35; cursor: default; }
+.decklight-colorpicker .cp-group {
+  margin: 8px 2px 4px;
+  font-size: 10.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: #8d94a1;
+}
+.decklight-colorpicker .cp-swatches { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+.decklight-colorpicker .cp-swatches.cp-compact { grid-template-columns: repeat(6, 1fr); }
+.decklight-colorpicker .cp-swatch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 5px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.decklight-colorpicker .cp-compact .cp-swatch { flex-direction: column; gap: 2px; padding: 4px 0; font-size: 11px; color: #b9bec8; }
+.decklight-colorpicker .cp-swatch:hover { background: rgba(255, 255, 255, .09); }
+.decklight-colorpicker .cp-swatch[aria-pressed="true"] { background: rgba(255, 255, 255, .16); }
+.decklight-colorpicker .cp-chip, .decklight-colorpicker .cp-now {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  /* a chip the colour of the card would otherwise vanish into it */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .28);
+}
+.decklight-colorpicker .cp-compact .cp-chip { width: 28px; height: 22px; }
+.decklight-colorpicker .cp-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.decklight-colorpicker .cp-chan { display: flex; align-items: center; gap: 8px; padding: 3px 2px; font-size: 12.5px; }
+.decklight-colorpicker .cp-chan-name { width: 24px; color: #b9bec8; }
+.decklight-colorpicker .cp-range { flex: 1; min-width: 0; accent-color: #9ecbff; }
+.decklight-colorpicker .cp-num, .decklight-colorpicker .cp-hex {
+  width: 56px;
+  padding: 3px 6px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, .3);
+  color: inherit;
+  font: 12.5px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+.decklight-colorpicker .cp-hex { flex: 1; width: auto; }
+.decklight-colorpicker .cp-hexrow { margin-top: 4px; }
+.decklight-colorpicker .cp-foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, .12); }
+.decklight-colorpicker .cp-spacer { flex: 1; }
+.decklight-colorpicker .cp-btn {
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .08);
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.decklight-colorpicker .cp-btn:hover { background: rgba(255, 255, 255, .16); }
+.decklight-colorpicker .cp-apply { background: rgba(122, 214, 163, .16); color: #7cd6a3; }
+.decklight-colorpicker .cp-apply:hover { background: rgba(122, 214, 163, .26); }
+.decklight-colorpicker .cp-apply:disabled { opacity: .4; cursor: default; }
+.decklight-colorpicker :is(button, input):focus-visible { outline: 2px solid #9ecbff; outline-offset: 1px; }
+
 /* transcript overlay (palette → Transcript…) */
 .decklight-transcript .narr-card { width: min(680px, 88vw); }
 .decklight-transcript .tr-actions { display: flex; gap: 8px; padding: 4px 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, .09); }

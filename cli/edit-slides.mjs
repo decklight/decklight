@@ -39,7 +39,7 @@ import {
   sourcesToAside, setSlideSources,
   setSlideTiming, setSlideLayout, setSlideHidden,
   upsertNarrationTrack,
-  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild,
+  locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles,
 } from './edit.mjs';
 import { oneline } from './git.mjs';
 // The whole-slide and image transforms are NOT in edit.mjs with the rest: they
@@ -204,6 +204,21 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     }
     const changed = applyEdit((html) => setSlideElementBuild(html, slide, index, effect));
     if (changed) console.log(`  element effect saved: slide ${slide} #${index} → ${effect ?? '(removed)'}`);
+    return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  /**
+   * `POST /edit/element/style` — `{ slide, index, edits }`: the colour picker's
+   * save (element edit mode → Colors…). One applyEdit for a shape's fill and
+   * its text together, so `Z` takes the pair back in one press.
+   */
+  function elementStyleRoute({ body, json }) {
+    const { slide, index, edits } = JSON.parse(body);
+    if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0) throw new Error('bad payload');
+    let changed;
+    try { changed = applyEdit((html) => setElementStyles(html, slide, index, edits)); }
+    catch (e) { if (e.code !== 'STALE') throw e; return json(409, { ok: false, error: oneline(e) }); }
+    if (changed) console.log(`  element colours saved: slide ${slide} #${index} → ${edits.map((e) => `${e.prop} ${e.value}`).join(', ')}`);
     return json(200, { ok: true, changed, ...history.counts() });
   }
 
@@ -428,6 +443,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /edit/element/remove', elementRemoveRoute);
   routes.set('POST /edit/element/content', elementContentRoute);
   routes.set('POST /edit/element/effect', elementEffectRoute);
+  routes.set('POST /edit/element/style', elementStyleRoute);
   routes.set('POST /edit/slide', slideRoute);
   routes.set('POST /edit/asset', assetRoute);
   routes.set('POST /edit/image', imageRoute);

@@ -87,6 +87,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /edit/element/content',
     'POST /edit/element/effect',
     'POST /edit/element/remove',
+    'POST /edit/element/style',
     'POST /edit/hidden',
     'POST /edit/image',
     'POST /edit/layout',

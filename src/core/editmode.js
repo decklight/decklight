@@ -17,6 +17,7 @@
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { colorTargets, openColorPicker } from './colorpicker.js';
 import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
@@ -757,7 +758,7 @@ export function createEditMode({
     const child = topLevelChild(sec, e.target);
     const index = child ? [...sec.children].indexOf(child) : null;
     overlays.opening();
-    openElementMenu(e.clientX, e.clientY, { sec, slide, index });
+    openElementMenu(e.clientX, e.clientY, { sec, slide, index, top: child, clicked: e.target });
   });
 
   function closeElementMenu() {
@@ -791,6 +792,7 @@ export function createEditMode({
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
       rows.push({ label: 'Remove element', run: commitRemove });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
+      rows.push({ label: 'Colors…', run: openColors });
       rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     }
@@ -900,6 +902,44 @@ export function createEditMode({
     } catch (e) {
       toast(`effect save failed: ${String(e.message || e).slice(0, 60)}`, 2200);
     }
+  }
+
+  // "Colors…" — the background of the shape under the click and the text on
+  // it (colorpicker.js). The card takes the menu's place at the same point;
+  // what it saves is one POST and one undo entry for the pair.
+  let colorCard = null;
+  const colorDock = createDock({
+    root,
+    reflow: () => instance._reflow?.(),
+    key: 'decklight-colors-dock:' + location.pathname,
+    getEl: () => colorCard?.el ?? null,
+    closeLabel: 'close (esc)',
+  });
+  function openColors() {
+    const { slide, index, top, clicked } = menuTarget;
+    closeElementMenu();
+    colorCard?.close();   // a second shape: the first one's preview goes back before this one's starts
+    const targets = colorTargets(top, clicked);
+    if (!targets) { toast('nothing here to color — right-click a shape, its label, or a block', 2600); return; }
+    overlays.opening();
+    colorCard = openColorPicker({
+      root, dock: colorDock, targets,
+      onClose: () => { colorCard = null; },
+      onApply: async (edits) => {
+        try {
+          const res = await writeFetch(editBase + '/edit/element/style', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ slide, index, edits }),
+          });
+          const j = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(j.error || res.status);
+          toast(j.changed ? 'colors saved — reloading · Z takes them back' : 'colors unchanged');
+        } catch (e) {
+          for (const t of [...targets.fill, ...targets.text]) t.el.style.removeProperty(t.prop);
+          toast(`colors not saved: ${String(e.message || e).slice(0, 90)}`, 3400);
+        }
+      },
+    });
   }
 
   // "Edit content (HTML)" — the element's raw outerHTML, read fresh from the
@@ -1052,6 +1092,19 @@ export function createEditMode({
         case 'Escape': closeElementMenu(); break;
         default: return false;
       }
+      return true;
+    },
+  });
+  overlays.register({
+    isOpen: () => !!colorCard,
+    close: () => colorCard?.close(),
+    // floating it is over the slide and owns the keyboard; docked it sits
+    // beside it and the deck's keys work (the card stops its own — colorpicker.js)
+    modal: () => colorDock.isFloat(),
+    keydown(e) {
+      if (e.key === 'Escape') colorCard.close();
+      else if (e.key === 'Enter' && colorDock.isFloat()) colorCard.apply();
+      else return false;
       return true;
     },
   });

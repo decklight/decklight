@@ -493,6 +493,49 @@ test('element edit mode: source, content, effect, and remove all land on the und
   assert.equal((await post(base, '/edit/element/remove', { slide: 1, index: 99 })).status, 400);
 });
 
+test('element colours: a shape and its label in one edit, by path, and only ever a colour', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const SVG = '<svg viewBox="0 0 100 50"><!-- a note --><g><rect width="40" height="20" style="fill: var(--d-fill-1); stroke: red"/><text x="5" y="10">hi</text></g><circle r="3"/></svg>';
+  writeFileSync(deck, DECK.replace('<h2>Alpha</h2>', '<h2>Alpha</h2>' + SVG));
+  const { base } = await startEdit(t, dir, { env: { PATH: dir } });
+  const rect = { path: [0, 0], tag: 'rect', prop: 'fill' };
+  const text = { path: [0, 1], tag: 'text', prop: 'fill' };
+
+  // a theme token by reference for the box, a literal for its label: ONE undo entry
+  let r = await (await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: 'var(--accent)' }, { ...text, value: '#ffb319' }] })).json();
+  assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
+  let html = readFileSync(deck, 'utf8');
+  assert.match(html, /<rect width="40" height="20" style="stroke: red; fill: var\(--accent\)"\/>/, 'the old fill is replaced, the stroke kept');
+  assert.match(html, /<text x="5" y="10" style="fill: #ffb319">hi<\/text>/);
+  assert.match(html, /viewBox="0 0 100 50"><!-- a note -->/, 'nothing else in the element moved');
+
+  // null takes it back off, and an emptied style attribute goes with it
+  r = await (await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...text, value: null }] })).json();
+  assert.equal(r.changed, true);
+  assert.match(readFileSync(deck, 'utf8'), /<text x="5" y="10">hi<\/text>/);
+
+  // an HTML element is its own path
+  r = await (await post(base, '/edit/element/style', { slide: 1, index: 0, edits: [{ path: [], tag: 'h2', prop: 'background-color', value: 'var(--d-fill-2)' }, { path: [], tag: 'h2', prop: 'color', value: '#fff' }] })).json();
+  assert.match(readFileSync(deck, 'utf8'), /<h2 style="background-color: var\(--d-fill-2\); color: #fff">Alpha<\/h2>/);
+
+  // the page and the file disagree (the engine drew it, or the deck moved on): 409, file untouched
+  const before = readFileSync(deck, 'utf8');
+  let res = await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, tag: 'text', value: '#fff' }] });
+  assert.equal(res.status, 409);
+  assert.match((await res.json()).error, /the file has <rect>/);
+  assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ path: [0, 7], tag: 'rect', prop: 'fill', value: '#fff' }] })).status, 409);
+
+  // the value lands inside an attribute: a colour, or nothing
+  for (const bad of ['red" onload="x', 'url(javascript:1)', 'var(--x); position: fixed', 'expression(1)']) {
+    assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: bad }] })).status, 400, bad);
+  }
+  assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, prop: 'position', value: '#fff' }] })).status, 400);
+  assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [] })).status, 400);
+  assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, path: [-1], value: '#fff' }] })).status, 400);
+  assert.equal(readFileSync(deck, 'utf8'), before);
+});
+
 test('--git auto-commits on a cadence; undo/redo never consume the commits', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
