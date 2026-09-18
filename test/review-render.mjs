@@ -33,7 +33,7 @@ const run = (mode, extra = '') => resultsFrom(
   if (!ok) bad++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} reviewer   composer on the slide you are looking at=${r.saysWhichSlide}`
     + ` · what it posted carries the anchor=${r.anchoredToTheSlideOnScreen}`
-    + ` · listed straight after=${r.listedAfterPosting}`
+    + ` · listed straight after=${r.listedAfterPosting} · the panel writes at its foot=${r.panelCanWrite}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
 
   // The browser read this deck through the DOM; read the same file the way a
@@ -60,7 +60,9 @@ const run = (mode, extra = '') => resultsFrom(
     + ` · the card really moves to the edge and fills it=${r.cardActuallyMoved && r.cardOnTheRightEdge && r.cardFillsGutter && r.cardFullHeight}`
     + ` · slide clear of the panel=${r.slideClearOfPanel}`
     + ` · deck still navigable=${r.arrowNavigatedDeck}`
-    + ` · no composer in the reading panel=${r.panelHasNoComposer}`
+    + ` · writes from the panel: box follows the slide=${r.boxFollowsTheSlide} ⇧M into it=${r.shiftMFocusesTheBox}`
+    + ` typing keeps the slide=${r.typingDoesNotMoveTheDeck} posted on the slide on screen=${r.postedOnTheSlideOnScreen}`
+    + ` listed=${r.listedFromThePanel} box kept=${r.boxEmptiedAndKept} Esc keeps the draft=${r.escLeavesTheBox && r.draftKept}`
     + ` · gutter released on close=${r.gutterReleased}`
     + ` · placement remembered=${r.persisted && r.restoredPlacement}`
     + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
@@ -84,7 +86,7 @@ const run = (mode, extra = '') => resultsFrom(
   const r = run('author', '&seed');
   const ok = r.PASS === true;
   if (!ok) bad++;
-  console.log(`${ok ? 'ok  ' : 'FAIL'} author     no composer=${r.noComposerForAnAuthor}`
+  console.log(`${ok ? 'ok  ' : 'FAIL'} author     the panel writes for an author too=${r.authorCanWrite}`
     + ` · R arms rather than fires=${r.armedNotFired} (nothing sent=${r.nothingPostedYet})`
     + ` · Esc disarms without closing=${r.escapeDisarmedNotClosed}`
     + ` · a resolve is an append=${r.resolveIsAnAppend}`

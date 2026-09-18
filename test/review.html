@@ -181,14 +181,12 @@
           // anchor the author will need to find this slide again.
           deck.goto(2, 0);
           await wait(50);
-          // ⇧M composes, M reads — two moments, two surfaces. The composer used
-          // to sit at the top of the list, which put a text box above twenty
-          // comments you were trying to read.
+          // ⇧M with the panel closed opens a card of its own, with what is
+          // already said about the slide; the panel has its own box (dock mode).
           press('M', document.body, { shiftKey: true });
           const compose = await until(() => document.querySelector('.decklight-compose .narr-card'));
           r.composerShown = !!compose;
           r.saysWhichSlide = /on slide 2 · Why this matters/.test(compose?.querySelector('.rv-on')?.textContent ?? '');
-          // M itself carries no composer any more
           const input = await until(() => compose.querySelector('.rv-input'));
 
           input.value = 'This contradicts slide 1.';
@@ -197,7 +195,9 @@
           press('m');
           const card = await until(() => document.querySelector('.decklight-review .narr-card'));
           r.opened = !!card;
-          r.readingSurfaceHasNoComposer = !card.querySelector('.rv-input');
+          // the panel writes too — at its FOOT, below the list, never above it
+          const box = await until(() => card.querySelector('.rv-compose .rv-input'));
+          r.panelCanWrite = !!box && card.lastElementChild === box.closest('.rv-compose');
           await until(() => window.__posted.length);
           r.posted = window.__posted[0];
           r.anchoredToTheSlideOnScreen = r.posted?.slide === 2
@@ -225,7 +225,7 @@
           await until(() => window.__submitCalls);
           r.submittedOnSecond = window.__submitCalls === 1;
 
-          r.PASS = r.opened && r.composerShown && r.saysWhichSlide && r.readingSurfaceHasNoComposer
+          r.PASS = r.opened && r.composerShown && r.saysWhichSlide && r.panelCanWrite
             && r.anchoredToTheSlideOnScreen && r.listedAfterPosting
             && r.submitRowShown && r.submitArmedNotFired && r.submitEscapeDisarmed
             && r.stillNotFired && r.submittedOnSecond;
@@ -283,17 +283,48 @@
             r.persisted = JSON.parse(localStorage.getItem('decklight-review-dock:' + location.pathname))?.mode === 'right';
           } catch (e) { r.persisted = false; }
 
-          // non-modal: a touch on the deck hands the arrows back to the slides.
-          // (The composer's old "follow the slide, lock once you type" dance
-          // went with the composer — ⇧M opens a card for the slide you are on,
-          // so there is no target to drift while you browse.)
+          // non-modal: a touch on the deck hands the arrows back to the slides
           document.querySelector('.decklight-stage section')
             .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
           const wasSlide = deck.state.slide;
           press('ArrowRight');
           await wait(40);
           r.arrowNavigatedDeck = deck.state.slide === wasSlide + 1;
-          r.panelHasNoComposer = !card.querySelector('.rv-input');
+
+          // The panel WRITES, docked: its box names the slide on screen and
+          // follows the deck as you walk it, ⇧M goes into the box rather than
+          // opening a second card, typing never moves the deck, and ⌘⏎ leaves
+          // the comment on the slide on screen — the list picks it up and the
+          // box empties for the next one.
+          const box = await until(() => card.querySelector('.rv-compose .rv-input'));
+          const on = () => card.querySelector('.rv-compose .rv-on')?.textContent ?? '';
+          r.boxFollowsTheSlide = !!box && /on slide 2 · Why this matters/.test(on());
+          press('M', document.body, { shiftKey: true });
+          await wait(40);
+          r.shiftMFocusesTheBox = document.activeElement === box && !document.querySelector('.decklight-compose');
+          box.value = 'Docked, and still writing.';
+          box.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+          await wait(40);
+          r.typingDoesNotMoveTheDeck = deck.state.slide === 2;
+          box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+          await until(() => window.__posted.length);
+          const posted = window.__posted[0];
+          r.postedOnTheSlideOnScreen = posted?.slide === 2 && posted.title === 'Why this matters'
+            && posted.fp === was[1].fp && posted.body === 'Docked, and still writing.';
+          r.listedFromThePanel = !!(await until(() => [...card.querySelectorAll('.rv-body')]
+            .some((n) => n.textContent === 'Docked, and still writing.')));
+          r.boxEmptiedAndKept = box.isConnected && box.value === '';
+          // Esc leaves the box without closing the panel or losing the draft
+          box.value = 'half a thought';
+          box.focus();
+          box.setSelectionRange(4, 4);
+          press('Escape', box);                 // Esc leaves the box, keeps the draft
+          await wait(30);
+          r.escLeavesTheBox = document.activeElement !== box && !!document.querySelector('.decklight-review');
+          r.draftKept = box.value === 'half a thought';
+          box.value = '';
+          document.querySelector('.decklight-stage section')
+            .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
 
           // closing hands the stage its full width back
           press('m');
@@ -309,7 +340,9 @@
           r.PASS = r.opened && r.defaultFloat && r.dockedRight && r.reservedGutter
             && r.stageReflowed && r.cardActuallyMoved && r.cardOnTheRightEdge
             && r.cardFillsGutter && r.cardFullHeight && r.slideClearOfPanel
-            && r.persisted && r.arrowNavigatedDeck && r.panelHasNoComposer
+            && r.persisted && r.arrowNavigatedDeck && r.boxFollowsTheSlide && r.shiftMFocusesTheBox
+            && r.typingDoesNotMoveTheDeck && r.postedOnTheSlideOnScreen && r.listedFromThePanel
+            && r.boxEmptiedAndKept && r.escLeavesTheBox && r.draftKept
             && r.gutterReleased && r.restoredPlacement;
           sink.textContent = 'DECKLIGHT-REVIEW-RESULTS ' + JSON.stringify(r);
           return;
@@ -409,11 +442,12 @@
         }
 
         if (mode === 'author') {
-          // An author: no composer, and R resolves — armed, then confirmed.
+          // An author: the panel writes for them too (a note to self, as ⇧M
+          // always could), and R resolves — armed, then confirmed.
           press('m');
           const card = await until(() => document.querySelector('.decklight-review .narr-card'));
           await until(() => card.querySelectorAll('.rv-row').length >= 2);
-          r.noComposerForAnAuthor = !card.querySelector('.rv-input');
+          r.authorCanWrite = !!(await until(() => card.querySelector('.rv-compose .rv-input')));
           r.saysResolveIsThere = /R marks one done/.test(card.querySelector('.rec-hint')?.textContent ?? '');
           // what reviewers sent, above the local list — the COMMENTS
           // list — the COMMENTS, not a count and a git command
@@ -487,7 +521,7 @@
           r.enterDidNotCloseOrJump = !!document.querySelector('.decklight-review');
           r.resolveIsAnAppend = !!window.__posted[0]?.re;
 
-          r.PASS = r.noComposerForAnAuthor && r.saysResolveIsThere && r.armedNotFired
+          r.PASS = r.authorCanWrite && r.saysResolveIsThere && r.armedNotFired
             && r.nothingPostedYet && r.escapeDisarmedNotClosed && r.resolvedOnSecond
             && r.enterDidNotCloseOrJump && r.resolveIsAnAppend && r.incomingShown
             && r.incomingSaysWhoAndHowMany && r.incomingShowsTheComments && r.noGitCommandAsked

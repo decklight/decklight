@@ -60,9 +60,13 @@ import {
 //                      remote, and a reviewer's comment can be marked done here
 //   neither          → the list still reads, and says where comments come from
 //
-// TWO KEYS, not one surface: M reads (grouped by who said it), ⇧M writes (a card
-// for the slide on screen, with what is already said about it). The composer
-// used to sit at the top of the list, above the comments you were reading.
+// M reads (grouped by who said it), and the panel can write too: a box at its
+// FOOT, pinned there while the list scrolls, for the slide on screen — so a
+// docked panel is a place to walk the deck and leave comments without opening
+// anything else. At the foot, not the top: the composer once sat above the
+// list, which put a text box over twenty comments you were trying to read.
+// ⇧M still opens a card of its own when the panel is closed (with what is
+// already said about the slide); with the panel open it goes to the box.
 //
 // Rows are built as NODES, never innerHTML. A comment is somebody else's text
 // arriving over git — the same reasoning the history overlay records for commit
@@ -84,6 +88,9 @@ export function createReview({
   let engaged = false;     // last surface the user touched: the panel, or the deck
   let onResize = null;     // the viewport listener that re-sizes the gutter
   let onSurface = null;    // pointerdown/focusin router for `engaged`
+  let writable = false;    // can anything here take a comment? asked on open
+  let draft = null;        // the panel's composer, kept across renders AND closes
+  let followsSlides = false;
 
   // Where the panel sits — float, or docked to an edge so the slide you are
   // commenting on stays in view and navigable. The mechanism is shared with the
@@ -209,6 +216,11 @@ export function createReview({
     // of un-marking the first.
     const wasOn = rows[sel]?.id ?? null;
     const card = el.querySelector('.narr-card');
+    // The composer is the same node every render, so what is typed survives a
+    // repaint — but a node taken out of the document loses focus, so a caret
+    // that was in it is put back where it was.
+    const typing = draft && document.activeElement === draft.input;
+    const caret = typing ? [draft.input.selectionStart, draft.input.selectionEnd] : null;
     card.replaceChildren();
     const slides = slidesNow();
     const here = instance.state.slide;
@@ -317,11 +329,17 @@ export function createReview({
 
     card.append(el_('div', 'rec-hint', state.can === 'resolve'
       ? (incomingNow.length
-        ? '⏎ jumps · R marks one done (again reopens a reviewer\'s) · A moves here · Esc closes'
-        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done · A moves here · Esc closes')
+        ? '⏎ jumps · R marks one done (again reopens a reviewer\'s) · A moves here · ⇧M writes · Esc closes'
+        : '⏎ jumps (on a gone slide: shows what it said) · R marks one done · A moves here · ⇧M writes · Esc closes')
       : state.can === 'comment'
-        ? '⏎ jumps to the slide · S submits the review · Esc closes'
+        ? '⏎ jumps to the slide · ⇧M writes · S submits the review · Esc closes'
         : '⏎ jumps to the slide · Esc closes'));
+    // Last, so it is the card's foot — where the sticky pin holds it while the
+    // list scrolls above.
+    if (writable) {
+      card.append(composer());
+      if (typing) { draft.input.focus(); draft.input.setSelectionRange(...caret); }
+    }
     const back = wasOn === null ? -1 : rows.findIndex((r) => r.id === wasOn);
     select(back >= 0 ? back : Math.min(sel, Math.max(0, rows.length - 1)));
     // The card's height just changed; a floating one re-clamps into view.
@@ -331,6 +349,59 @@ export function createReview({
   function select(i) {
     if (!rows.length) return;
     sel = selectInList(rows.map((r) => r.node), i, 'rv-sel');
+  }
+
+  /**
+   * The panel's composer: a comment on the slide ON SCREEN, whichever that is
+   * when you post. Docked, you walk the deck beside the panel, and the line
+   * above the box follows you — the thing it names is the thing ⌘⏎ anchors to.
+   */
+  function paintOn() {
+    if (!draft) return;
+    const here = instance.state.slide;
+    const title = slidesNow()[here - 1]?.title;
+    draft.on.textContent = `on slide ${here}${title ? ` · ${title}` : ''}`;
+  }
+  function composer() {
+    if (!draft) {
+      const box = el_('div', 'rv-compose');
+      const on = el_('div', 'rv-on');
+      const input = el_('textarea', 'narr-input rv-input');
+      input.placeholder = 'leave a comment on this slide…';
+      input.rows = 2;
+      input.setAttribute('aria-label', 'Leave a comment on the slide on screen');
+      const send = el_('div', 'narr-row narr-sel rv-send', 'Leave this comment');
+      send.setAttribute('role', 'button');
+      send.tabIndex = 0;
+      const post = async () => {
+        const text = input.value;
+        if (!text.trim()) { input.focus(); return; }
+        const here = instance.state.slide;
+        input.value = '';
+        // put the words back if they did not land — and only if nothing new
+        // has been typed over them in the meantime
+        if (!(await submit(text, here, slidesNow()[here - 1])) && !input.value) input.value = text;
+      };
+      send.addEventListener('click', post);
+      input.addEventListener('keydown', (e) => {
+        // ⌘/⌃⏎ posts, as in the ⇧M card; a bare ⏎ is a newline. Esc leaves the
+        // box (the draft stays) and a second Esc closes the panel.
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post(); }
+        else if (e.key === 'Escape') { e.preventDefault(); input.blur(); }
+        e.stopPropagation();         // the deck must not advance while somebody types
+      });
+      box.append(on, input, send);
+      draft = { box, on, input };
+    }
+    paintOn();
+    return draft.box;
+  }
+  /** ⇧M with the panel up: into the box, and the panel owns the keyboard. */
+  function focusDraft() {
+    if (!draft?.box.isConnected) return false;
+    engaged = true;
+    draft.input.focus();
+    return true;
   }
   function jump() {
     const r = rows[sel];
@@ -398,7 +469,7 @@ export function createReview({
 
   async function submit(text, slide, anchor) {
     const body = String(text ?? '').trim();
-    if (!body) return;
+    if (!body) return false;
     // Whichever server is here takes it. A reviewer's goes to the review
     // server; an author's to their own — same file, same append-only rule, same
     // record shape (the two servers share `reviewRecord`, so a union merge of
@@ -407,7 +478,7 @@ export function createReview({
     const where = rbase !== null
       ? { url: `${rbase}/review/comments`, mine: false }
       : authorBase() != null ? { url: `${authorBase()}/edit/review`, mine: true } : null;
-    if (!where) return;
+    if (!where) return false;
     try {
       const r = await fetch(where.url, {
         method: 'POST',
@@ -422,8 +493,10 @@ export function createReview({
       // and `render` reads `el` — this used to be reachable only from inside
       // the list, which is exactly the assumption that stops being true.
       if (el) render(await load());
+      return true;
     } catch (e) {
       toast(`could not leave that comment — ${String(e.message || e)}`);
+      return false;
     }
   }
 
@@ -517,6 +590,8 @@ export function createReview({
   function closeCompose() { composeEl?.remove(); composeEl = null; }
   async function openCompose() {
     if (composeEl) return closeCompose();
+    // The panel is up and can write: its own box is the place, not a second card
+    if (el && focusDraft()) return;
     const base = await reviewBase();
     const author = authorBase();
     if (base === null && author == null) {
@@ -600,7 +675,11 @@ export function createReview({
     window.addEventListener('resize', onResize);
     dock.reserveGutter();
     render({ records: [], skipped: 0, can: 'none' });
+    // The line above the composer names the slide on screen, so it moves with
+    // the deck — subscribed once, and a no-op while the panel is closed.
+    if (!followsSlides) { followsSlides = true; instance.on('slide', () => { if (el) paintOn(); }); }
     await authorReady();
+    writable = (await reviewBase()) !== null || authorBase() != null;
     if (el) render(await load());
   }
   function close() {
@@ -669,7 +748,8 @@ export function createReview({
         case 'r': case 'R': resolve(); break;
         case 's': case 'S': submitAll(); break;
         case 'a': case 'A': anchorHere(); break;
-        case 'm': case 'M': close(); break;
+        // ⇧M writes, M closes — the same pair the deck's own keys are
+        case 'm': case 'M': if (e.shiftKey) { if (!focusDraft()) openCompose(); } else close(); break;
         default: return false;
       }
       return true;

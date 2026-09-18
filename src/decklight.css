@@ -1676,9 +1676,26 @@
 .decklight-dockable .dk-btn:hover { opacity: .9; background: rgba(255, 255, 255, .12); }
 .decklight-dockable .dk-on { opacity: 1; background: rgba(255, 255, 255, .18); }
 .decklight-dockable .dk-close { font-size: 16px; margin-left: 2px; }
-.decklight-review .rv-compose { padding: 4px 12px 10px; border-bottom: 1px solid rgba(255, 255, 255, .1); }
-.decklight-review .rv-on { font-size: 12px; opacity: .55; margin-bottom: 6px; }
-.decklight-review .rv-input { width: 100%; resize: vertical; margin-bottom: 6px; }
+/* the panel's composer: at the FOOT, and pinned there while the list scrolls
+   (the card is the scroller; -14px covers its padding, so nothing shows
+   through beneath the box). Opaque, or the rows would read through it. */
+.decklight-review .rv-compose {
+  position: sticky; bottom: -14px; z-index: 1;
+  margin: 6px -14px -14px; padding: 8px 14px 14px;
+  background: #16181d; border-top: 1px solid rgba(255, 255, 255, .1);
+}
+.decklight-review .rv-on { font-size: 12px; opacity: .55; margin-bottom: 4px; }
+.decklight-review .rv-input { width: 100%; resize: vertical; margin: 0 0 6px; }
+.decklight-review .rv-send { text-align: center; border-radius: 8px;
+  background: rgba(122, 214, 163, .16); color: #7cd6a3; }
+.decklight-review .rv-send:hover { background: rgba(122, 214, 163, .26); }
+/* the bottom tray is short, so the button sits beside the box, not under it */
+.decklight-review[data-dock="bottom"] .rv-compose {
+  display: grid; grid-template-columns: 1fr auto; column-gap: 10px; align-items: end;
+}
+.decklight-review[data-dock="bottom"] .rv-compose .rv-on { grid-column: 1 / -1; }
+.decklight-review[data-dock="bottom"] .rv-compose .rv-input { margin: 0; }
+.decklight-review[data-dock="bottom"] .rv-compose .rv-send { white-space: nowrap; }
 .decklight-review .rv-list { padding: 4px 0; }
 .decklight-review .rv-none,
 .decklight-review .rv-skipped { padding: 8px 12px; opacity: .55; font-size: 13px; }

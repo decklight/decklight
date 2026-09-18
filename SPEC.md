@@ -692,13 +692,21 @@ state and never renders as "none waiting"** — unchecked is its own answer and 
 glob is a frozen constant in the source; nothing derived from a deck, a request, or a reviewer's choices
 reaches a refspec position.
 
-**Reading and writing are two keys.** `M` shows every comment there is — yours and each review branch's —
+**The panel reads and writes.** `M` shows every comment there is — yours and each review branch's —
 **grouped by who said it**, one heading per source, open first and finished ones struck through below them
-inside their group. `⇧M` leaves a comment on the slide you are looking at, in a card of its own that also lists
-**what is already said about that slide**, so a point is not made twice. The composer used to live at the top of
-`M`, which put a text box above twenty comments you were trying to read — and, worse, appeared only when a
-`decklight review` server answered, so an author leaving themselves a note had to start a second server on a
-second port in a mode that would not let them edit the slide they were commenting on. `author` now takes a
+inside their group. **Its foot is a composer for the slide on screen**, pinned there while the list scrolls
+above it: the line over the box names the slide (`on slide 2 · Why this matters`) and follows the deck as you
+walk it, so a docked panel is a place to go through a talk and leave comments without opening anything else.
+`⌘⏎` leaves the comment on whatever slide is on screen at that moment, the list picks it up and the box empties
+for the next one; typing never moves the deck, `Esc` leaves the box with the draft kept, and a second `Esc`
+closes the panel. The box is the same node across repaints and closes, so a half-written comment survives both;
+docked at the bottom, the button sits beside the box, because the tray is short. It is at the **foot**, not the
+top: the composer once sat above the list, which put a text box over twenty comments you were trying to read.
+`⇧M` goes into that box when the panel is up; when it is not, it opens a card of its own that also lists
+**what is already said about that slide**, so a point is not made twice. Either way, an author can comment as
+well as a reviewer — the composer once appeared only when a `decklight review` server answered, so an author
+leaving themselves a note had to start a second server on a second port in a mode that would not let them edit
+the slide they were commenting on. `author` now takes a
 comment through the same append-only route it already used for resolves, and both servers build the record with
 the same `reviewRecord`, so a union merge never meets two shapes of one thing.
 
