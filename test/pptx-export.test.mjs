@@ -45,7 +45,8 @@ test('a deck becomes a PowerPoint file our importer opens — a picture per slid
   const code = await pptxMain(['talk.html'], { render, log: (l) => logs.push(l) });
   assert.equal(code, 0, logs.join('\n'));
   assert.deepEqual(asked.map((a) => a.n), [1, 2, 3]);
-  assert.match(asked[0].url, /\/talk\.html#\/1\/999$/, 'every slide is asked for at its last build step');
+  assert.match(asked[0].url, /\/talk\.html\?capture#\/1\/999$/,
+    'every slide is asked for at its last build step, as a render — no live-viewer chrome on the picture (#548)');
   const out = join(dir, 'talk.pptx');
   assert.ok(existsSync(out));
   const zip = unzip(readFileSync(out));
@@ -110,7 +111,7 @@ test('a deck outside the current directory is served from its own, not refused',
   const render = async (bin, argv, { png }) => { urls.push(argv.find((a) => a.startsWith('http'))); writeFileSync(png, PNG); };
   const logs = [];
   assert.equal(await pptxMain([join(dir, 'talk.html')], { render, log: (l) => logs.push(l) }), 0, logs.join('\n'));
-  assert.match(urls[0], /\/talk\.html#\/1\/999$/, 'the deck was not served from its own directory');
+  assert.match(urls[0], /\/talk\.html\?capture#\/1\/999$/, 'the deck was not served from its own directory');
   assert.ok(existsSync(join(dir, 'talk.pptx')));
 });
 

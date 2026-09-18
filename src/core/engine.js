@@ -343,6 +343,15 @@ export function init(userConfig = {}) {
   const config = { ...DEFAULTS, ...userConfig };
   if (params.has('embedded')) config.controls = false;
   const printMode = params.has('print');
+  // `?capture` — a render, not a live session (#548). `decklight video`, the
+  // pptx export and a plain `shot` load each frame as a one-shot headless
+  // Chrome, and everything that exists to talk to a person in the room —
+  // toasts, the voice-over hint, the welcome card and tips, the chevrons —
+  // would otherwise be photographed into the artifact. Not `?embedded`: that
+  // is the picker previews' mode and brings their postMessage and pref rules
+  // with it; not `?print`: that reveals every build and changes the layout.
+  const captureMode = params.has('capture');
+  if (captureMode) config.controls = false;
   // `?all` presents the hidden slides too — the author checking one, or a
   // reviewer who needs to see everything. Never the default: a hidden slide is
   // hidden from the AUDIENCE, and the default is the audience (DECK_ANATOMY).
@@ -411,7 +420,7 @@ export function init(userConfig = {}) {
   }
   function toast(msg, ms = 3200) {
     logOnly(msg);
-    if (printMode) return;
+    if (printMode || captureMode) return;
     if (!msgEl) {
       msgEl = document.createElement('div');
       msgEl.className = 'decklight-messages';
@@ -442,7 +451,7 @@ export function init(userConfig = {}) {
    */
   function progressToast(msg) {
     logOnly(msg);
-    if (printMode) return { update() {}, done() {} };
+    if (printMode || captureMode) return { update() {}, done() {} };
     if (!msgEl) {
       msgEl = document.createElement('div');
       msgEl.className = 'decklight-messages';
@@ -2151,6 +2160,12 @@ export function init(userConfig = {}) {
   const rangePicker = createRangePicker({ root, overlays });
   const narration = createNarration({
     root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
+    // where the hash sends this load: past the first build of the first slide
+    // is a talk in progress, not a first view — the same rule onboarding keeps
+    openedMidTalk: (() => {
+      const t = config.hash && parseHash(location.hash);
+      return !!t && (t.slide !== 1 || t.step !== 0);
+    })(),
     rangePicker, chapters: () => moduleNav.markers(),
     syncSoundBtn, updateDebugState, downloadFromUrl,
     // the synthesized recorder writes its slide-NN.wav next to the deck when there is a server that

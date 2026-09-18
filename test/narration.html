@@ -397,6 +397,9 @@
     if (mode !== 'pausedefaults') {
       cfg.narration = { ...(cfg.narration ?? {}), beatPause: 0, slidePause: 0 };
     }
+    // `hint&midtalk` is a link into the middle of the talk — the shape of every
+    // video frame after the first (#548). Set before init, which reads it.
+    if (mode === 'hint' && params.has('midtalk')) history.replaceState(null, '', '#/2/0');
     const deck = Decklight.init(cfg);
 
     // The message shortcut has to reach the presenter WHEREVER they are: mid-talk,
@@ -790,20 +793,42 @@
 
         if (mode === 'hint') {
           // A deck with a recorded track has to SAY so — a viewer on a laptop
-          // has no sound button and no reason to guess at V. Two runs: this
-          // one, and the same URL with ?print, where the pill must not exist.
+          // has no sound button and no reason to guess at V. Four runs: this
+          // one, and three loads where the pill must not exist — ?print,
+          // ?capture (a render: every `decklight video` frame, #548) and a
+          // URL into the middle of the talk.
           const pill = () => document.querySelector('.decklight-narr-hint');
           const printing = params.has('print');
+          const capturing = params.has('capture');
+          const midTalk = params.has('midtalk');
 
           r.printing = printing;
+          r.capturing = capturing;
+          r.midTalk = midTalk;
           r.beforeDelay = !pill();          // it waits for the slide to land first
           await new Promise((ok) => setTimeout(ok, 1400));
 
           const el = pill();
-          if (printing) {
-            // nothing to click on paper, and nothing to hear
-            r.PASS = !el;
+          if (printing || midTalk) {
+            // nothing to click on paper, nothing to hear; and a link into the
+            // middle of a talk is somebody presenting, not a first view
             r.hidden = !el;
+            r.PASS = r.hidden && (!midTalk || deck.state.slide === 2);
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
+          if (capturing) {
+            // A render shows only the deck. The pill is gone, and so is every
+            // other thing that talks to a person in the room: a toast is still
+            // LOGGED (a render's log is its own evidence) but never drawn, and
+            // the chevrons are not on the picture.
+            r.hidden = !el;
+            deck.toggleNarration();          // a toast-raising action — "🔊 Test"
+            await new Promise((ok) => setTimeout(ok, 300));
+            r.toastLogged = deck.messages().some((m) => /🔊 Test/.test(m.text));
+            r.noToastDrawn = !document.querySelector('.decklight-toast');
+            r.noChevrons = !document.querySelector('.decklight-controls');
+            r.PASS = r.hidden && r.toastLogged && r.noToastDrawn && r.noChevrons;
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
           }

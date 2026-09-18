@@ -122,10 +122,12 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
       // between would make the deck's own numbering count past the end.
       onSlide?.(i + 1, count);
       const png = join(scratch, `slide-${n}.png`);
-      // /999 lands on the last build step, whatever the slide has
+      // /999 lands on the last build step, whatever the slide has; `?capture`
+      // keeps the live-viewer chrome (toasts, the voice-over hint) off the
+      // picture (#548)
       await render(bin, chromeArgs(
         '--hide-scrollbars', '--window-size=1280,720', `--virtual-time-budget=${wait}`,
-        `--screenshot=${png}`, `${server.origin}${deckPath}#/${n}/999`,
+        `--screenshot=${png}`, `${server.origin}${deckPath}?capture#/${n}/999`,
       ), { n, png });
       if (!existsSync(png) || statSync(png).size === 0) { log(`decklight pptx: slide ${n} did not render — try a longer --wait`); return 1; }
       slides.push({ png: readFileSync(png), notes: notes[n - 1] });

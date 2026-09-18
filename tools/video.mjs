@@ -716,7 +716,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       try {
         const dom = await exec(chrome, chromeArgs(
           '--hide-scrollbars', `--window-size=${w},${h}`,
-          '--virtual-time-budget=2500', '--dump-dom', `${server.origin}${deckPath}`,
+          '--virtual-time-budget=2500', '--dump-dom', `${server.origin}${deckPath}?capture`,
         ), { maxBuffer: 64 * 1024 * 1024 });
         steps = parseBuildSteps(dom.stdout, holds.length);
       } catch { /* fall through to one frame per slide */ }
@@ -737,14 +737,16 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
         const nn = String(p.slide).padStart(2, '0');
         const id = `${nn}-${String(f++).padStart(3, '0')}`;
         const frame = join(work, `frame-${id}.png`);
-        // one one-shot Chrome per frame; LAST_STEP clamps to the last build
+        // one one-shot Chrome per frame; LAST_STEP clamps to the last build.
+        // `?capture` says it is a render: every frame is a fresh load, and
+        // without it each one greeted the viewer with the voice-over hint (#548)
         await exec(chrome, chromeArgs(
           '--hide-scrollbars',
           '--autoplay-policy=no-user-gesture-required',
           `--window-size=${w},${h}`,
           '--virtual-time-budget=1500',
           `--screenshot=${frame}`,
-          `${server.origin}${deckPath}#/${p.slide}/${p.step}`,
+          `${server.origin}${deckPath}?capture#/${p.slide}/${p.step}`,
         ));
         if (!existsSync(frame)) throw new Error(`chrome produced no frame for slide ${p.slide}`);
         const seg = join(work, `seg-${id}.${ENCODINGS[format].ext}`);

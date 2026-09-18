@@ -106,7 +106,12 @@ export async function shotMain(argv, { render = chromeShot } = {}) {
   const server = await serveForRender(root, { html: inject });
   try {
     const deckPath = '/' + relative(root, src).split(sep).join('/');
-    const url = `${server.origin}${deckPath}${query ? `?${query}` : ''}${slide ? `#/${slide}/0` : ''}`;
+    // A plain shot is a picture of the DECK, so it loads as a render
+    // (`?capture`, #548): no toasts, no voice-over hint, no welcome card. A
+    // driven one is a picture of a feature being used, and the toast it raises
+    // may be the very thing the ticket asked to see — that load stays live.
+    const search = [drive || keys.length ? null : 'capture', query].filter(Boolean).join('&');
+    const url = `${server.origin}${deckPath}${search ? `?${search}` : ''}${slide ? `#/${slide}/0` : ''}`;
     await render(chromeBin('shot'), chromeArgs(
       '--hide-scrollbars',
       '--autoplay-policy=no-user-gesture-required',
