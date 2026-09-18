@@ -718,7 +718,8 @@
         press('ArrowRight');           // → MOV
         press('ArrowUp');              // Voice
         press('ArrowRight');           // → the track voiced from older notes, offered marked (#536)
-        r.staleTrackMarked = /Daniel · say — voices\/older\/ · recorded from older notes on 2 slides/.test(settingRow('Voice'));
+        // a machine-voiced track is re-voiced on those slides first (#553), and says so
+        r.staleTrackMarked = /Daniel · say — voices\/older\/ · 2 slides from older notes, re-voiced first/.test(settingRow('Voice'));
         press('ArrowRight');           // → the live voice
         r.arrowsTurnTheSettings = /In the video/.test(settingRow('Subtitles')) && /MOV/.test(settingRow('Format'))
           && /Synthesize — en_US-ryan-high · piper → voices\/en-us-ryan-high\//.test(settingRow('Voice'));

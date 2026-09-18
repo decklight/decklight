@@ -40,11 +40,11 @@ function wavOf(text) {
 }
 
 /** An engine as tools/tts-engines.mjs shapes one, counting what it is asked to say. */
-function fakeTts({ name = 'fake', model = 'm1' } = {}) {
+function fakeTts({ name = 'fake', model = 'm1', ...traits } = {}) {
   const said = [];
   const synth = Object.assign(async (text) => { said.push(text); return { wav: wavOf(text), usage: { cost: 0 } }; },
     { mimeType: 'audio/wav' });
-  return { name, model, stylable: false, synth, said };
+  return { name, model, stylable: false, synth, said, ...traits };
 }
 
 const noCache = () => createTtsCache({ enabled: false });
@@ -223,4 +223,58 @@ test('voiceover into an existing track keeps its engine, voice and format — fl
   const other = voiceover(deckFile, '-o', out, '--slides', '2', '--voice', 'en_US-amy-medium');
   assert.equal(other.status, 1);
   assert.match(other.stderr, /two voices/);
+});
+
+// ── #553: a render re-voices a machine-voiced track's stale slides ─────────
+import { revoiceStale } from '../tools/video.mjs';
+
+/** A wav track voiced by a stand-in "piper", and the deck it was voiced from. */
+async function piperTrack(t) {
+  const dir = tmp('revoice', t);
+  const tts = fakeTts({ name: 'piper', model: 'en_US-ryan-high', voiceIsFixed: true });
+  await synthesizeSlides({ html: THREE, dir, tts, voice: 'en_US-ryan-high', style: 'warm', format: 'wav', cache: noCache(), log: quiet, encoder: null });
+  return { dir, narration: { ...readTrack(dir), dir } };
+}
+const ready = () => ({ ready: true, reason: 'ok' });
+
+test('revoice: exactly the stale slide is voiced again, in the track\'s own engine, voice and format', async (t) => {
+  const { dir, narration } = await piperTrack(t);
+  const edited = deck(['One says this.', 'Two has moved on.', 'Three says the rest.']);
+  const { stale } = staleSlides(narration, slideTexts(edited));
+  assert.deepEqual(stale, [2]);
+  const untouched = [1, 3].map((n) => readFileSync(path.join(dir, `slide-0${n}.wav`)));
+
+  const tts = fakeTts({ name: 'piper', model: 'en_US-ryan-high', voiceIsFixed: true });
+  let asked = null;
+  const lines = [];
+  const r = await revoiceStale({
+    html: edited, narration, stale, log: (l) => lines.push(l), cache: noCache(), status: ready,
+    create: (opts) => { asked = opts; return tts; },
+  });
+  assert.equal(r.ok, true, r.why);
+  assert.deepEqual([asked.engine, asked.voice], ['piper', 'en_US-ryan-high'], 'the track\'s engine and voice, not a default');
+  assert.deepEqual(tts.said, ['Two has moved on.']);
+  assert.match(lines[0], /re-voicing slide 2 in the track's own voice — 1 clip from piper \(en_US-ryan-high\)/, 'said before it spent anything');
+  const now = readTrack(dir);
+  assert.equal(now.slides[1].file, 'slide-02.wav', 'the track stays wav');
+  assert.deepEqual([1, 3].map((n) => readFileSync(path.join(dir, `slide-0${n}.wav`))), untouched);
+  assert.deepEqual(staleSlides(now, slideTexts(edited)).stale, [], 'and the render\'s check now passes');
+});
+
+test('revoice: a track with no engine is a human take — left to the refusal, and says why', async (t) => {
+  const { narration } = await piperTrack(t);
+  const r = await revoiceStale({ html: THREE, narration: { ...narration, engine: undefined }, stale: [2], status: ready, create: () => assert.fail('no engine to build') });
+  assert.equal(r.ok, false);
+  assert.match(r.why, /names no engine it was voiced with — a take in somebody's own voice is re-recorded/);
+});
+
+test('revoice: an engine this machine cannot run is named, with the missing credential — never a stack trace', async (t) => {
+  const { narration } = await piperTrack(t);
+  const r = await revoiceStale({
+    html: THREE, narration: { ...narration, engine: 'elevenlabs', voice: 'Rachel', model: 'eleven_multilingual_v2' }, stale: [2],
+    env: { ...process.env, ELEVENLABS_API_KEY: '' },
+    status: (name) => ({ name, ready: false, reason: 'no-key' }), create: () => assert.fail('not built when unavailable'),
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.why, /voiced by elevenlabs, which needs \$ELEVENLABS_API_KEY — export it/);
 });

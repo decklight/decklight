@@ -3379,9 +3379,13 @@ export function createNarration({
         const who = t.voice ? `${t.voice}${t.engine ? ` · ${t.engine}` : ''}` : 'recorded';
         // a track voiced from other notes than the deck has now is offered,
         // marked — picking it says so on the export, and the render is told
-        // the choice was seen (#536)
-        const stale = t.stale > 0 ? ` · recorded from older notes on ${t.stale} slide${t.stale === 1 ? '' : 's'}` : '';
-        options.push({ label: `🔊 ${who} — ${t.dir}/${stale}`, value: { kind: 'recorded', dir: t.dir, stale: t.stale || 0 } });
+        // the choice was seen (#536). A machine-voiced one is re-voiced on
+        // those slides before the render, in its own voice (#553), so the mark
+        // says THAT rather than warning about audio the file will not have.
+        const slides = `${t.stale} slide${t.stale === 1 ? '' : 's'}`;
+        const stale = !(t.stale > 0) ? ''
+          : t.engine ? ` · ${slides} from older notes, re-voiced first` : ` · recorded from older notes on ${slides}`;
+        options.push({ label: `🔊 ${who} — ${t.dir}/${stale}`, value: { kind: 'recorded', dir: t.dir, stale: t.stale || 0, engine: t.engine ?? null } });
       }
       if (bridge && liveEngine) {
         const dir = synthTarget(tracks);

@@ -46,7 +46,11 @@ import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './vid
 import { splitSentences } from './sentences.mjs';
 import { serveForRender } from '../cli/present.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
-import { staleSlides, slideTexts } from './narration-manifest.mjs';
+import { staleSlides, slideTexts, slideNotes } from './narration-manifest.mjs';
+import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';
+import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
+import { loadTtsConfig } from './tts-setup.mjs';
+import { createTtsCache } from './tts-cache.mjs';
 
 const run = promisify(execFile);
 
@@ -63,6 +67,10 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
   --no-narration       render silent, even with a voiceover/ beside the deck
   --allow-stale        render although the narration was recorded from other
                        notes than the deck has now (the slides are still named)
+                       — for what cannot be re-voiced; a machine-voiced track's
+                       stale slides are re-voiced first (below)
+  --no-revoice         leave a machine-voiced track's stale slides as they are:
+                       refuse them, or render them old with --allow-stale
   --format <f>         mp4 (H.264/AAC, the default) · mov (H.264/AAC) · webm
                        (VP9/Opus); read off -o's extension when that names one
   --quality <q>        draft (quick, small) · standard (the default) · high
@@ -527,6 +535,79 @@ export function resolveNarration(deckPath, narrationDir) {
   return load(join(resolve(deckPath, '..'), 'voiceover'), false);
 }
 
+/**
+ * Re-voice a machine-voiced track's stale slides, before a render (#553).
+ *
+ * A slide whose notes changed since it was voiced would speak against its own
+ * captions, so the render refuses it (#536). When the track was voiced by an
+ * ENGINE — its manifest header names one — and that engine is available here,
+ * the refusal has an obvious fix the render can make itself: voice just those
+ * slides again, in the track's own engine, model, voice and style, into its
+ * own format and file names. That is a range-scoped call into the one
+ * synthesis core every producer of a track shares (tools/narration-synth.mjs,
+ * #555), so the refreshed slide is exactly what `voiceover` or the deck's
+ * recorder would have written, and the freshness check it then passes is the
+ * same hash.
+ *
+ * Returns `{ ok: true }` once every stale slide is voiced, or `{ ok: false,
+ * why }` for a track that cannot be re-voiced — a human take (no engine), or an
+ * engine this machine cannot run (no key, no model) — naming what is missing.
+ * Before any synthesis it says how many clips it will ask for, from which
+ * engine: on a cloud engine that is money, and the clip cache makes any
+ * sentence already paid for free.
+ */
+export async function revoiceStale({
+  html, narration, stale, log = console.log, env = process.env,
+  create = createEngine, status = engineStatus, cache = createTtsCache(),
+}) {
+  const { dir, engine } = narration;
+  if (!engine || !ENGINES.includes(engine)) {
+    return { ok: false, why: `${basename(dir)}/ names no engine it was voiced with — a take in somebody's own voice is re-recorded, not re-voiced` };
+  }
+  // the engine's settings as the author server passes them to voiceover: the
+  // environment, then tts.json for THIS engine
+  const saved = loadTtsConfig(env);
+  const savedFor = saved?.engine === engine ? saved : null;
+  const project = env.GOOGLE_CLOUD_PROJECT ?? saved?.project ?? null;
+  const dataDir = savedFor?.dataDir ?? (engine === 'piper' ? piperModelDir(env) : null);
+  const voice = narration.voice ?? undefined;
+  const st = status(engine, { env, project, dataDir, voice: engine === 'piper' ? (voice ?? narration.model) : voice });
+  if (!st.ready) {
+    const b = engineBlocker(st, { env });
+    return { ok: false, why: `it was voiced by ${engine}, which ${b ? `${b.why} — ${b.fix}` : `is not available here (${st.reason})`}` };
+  }
+  let tts;
+  try {
+    tts = create({
+      engine, voice, project, dataDir, env,
+      // the model is identity only where an engine has more than one per voice
+      model: engine === 'elevenlabs' || engine === 'gemini' ? (narration.model ?? undefined) : undefined,
+      format: savedFor?.format,
+    });
+  } catch (e) {
+    return { ok: false, why: `it was voiced by ${engine}, which cannot start here — ${e.message}` };
+  }
+  try {
+    const raw = slideNotes(html);
+    const clips = stale.reduce((sum, n) => sum + (notesSegments(raw[n - 1] ?? '')?.length ?? 1), 0);
+    log(`  re-voicing ${stale.length === 1 ? `slide ${stale[0]}` : `slides ${stale.join(', ')}`} in the track's own voice — `
+      + `${clips} clip${clips === 1 ? '' : 's'} from ${engine}${voice ? ` (${voice})` : ''}`
+      + `${typeof tts.cost === 'string' ? `, ${tts.cost}` : ''}; any sentence already voiced comes from the clip cache`);
+    for (const n of stale) {
+      const prev = readTrack(dir);
+      await synthesizeSlides({
+        html, dir, tts, voice, style: narration.style ?? undefined,
+        format: trackFormat(prev) ?? 'wav', range: { from: n, to: n }, prev, cache, log,
+      });
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, why: e.message };
+  } finally {
+    tts.synth.close?.();
+  }
+}
+
 const have = (bin) => {
   try { runBounded(bin, ['-version'], { stdio: 'ignore', timeout: PROBE_MS }); return true; }
   catch (e) { return e?.code !== 'ENOENT'; }
@@ -657,13 +738,27 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     // would speak against its own captions, so it is named and, unless asked
     // for by name, refused (#536). Only the slides being rendered are checked.
     if (narration) {
-      const { stale, hashless } = staleSlides(narration, slideTexts(html), range);
+      let { stale, hashless } = staleSlides(narration, slideTexts(html), range);
       if (hashless) log(`  narration: ${hashless} slide${hashless === 1 ? '' : 's'} in ${basename(narration.dir)}/ carr${hashless === 1 ? 'ies' : 'y'} no notes hash (recorded by hand) — not checked`);
       for (const n of stale) console.warn(`  slide ${n}: narration was recorded from different notes`);
+      // A machine-voiced track fixes itself: its stale slides are voiced again
+      // in its own voice, and the check runs again on what that wrote (#553).
+      let unrevoiced = null;
+      if (stale.length && !argv.includes('--no-revoice')) {
+        const r = await revoiceStale({ html, narration, stale, log });
+        if (r.ok) {
+          narration = resolveNarration(deck, narration.dir);
+          ({ stale } = staleSlides(narration, slideTexts(html), range));
+        } else {
+          unrevoiced = r.why;
+          console.warn(`  not re-voiced: ${r.why}`);
+        }
+      }
       if (stale.length) {
         const which = stale.length === 1 ? `slide ${stale[0]}` : `slides ${stale.join(', ')}`;
         if (!argv.includes('--allow-stale')) {
-          throw new Error(`the narration in ${narration.dir} was recorded from older notes on ${which} — `
+          throw new Error(`the narration in ${narration.dir} was recorded from older notes on ${which}`
+            + `${unrevoiced ? ` and cannot be re-voiced here: ${unrevoiced}` : ''} — `
             + `re-record those slides (V → Record this deck… → slides ${stale[0]}-${stale[stale.length - 1]}) or pass --allow-stale`);
         }
         console.warn(`  --allow-stale: rendering ${which} with the older narration`);
