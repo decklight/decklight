@@ -89,7 +89,7 @@ import { runMain } from './util.mjs';
 // was missing, so `edit.mjs --git-mode agent deck.html` refused a deck called
 // "agent". (`decklight author` builds this argv itself and was never affected.)
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
-import { NOTES_ASIDE, locateSlide, sectionChildRanges } from '../tools/deck-html.mjs';
+import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { configBlock, hasEmbeddedRuntime } from './runtime-link.mjs';
 import { slideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
@@ -393,6 +393,73 @@ export function locateElement(html, slide, index) {
 export function removeSlideElement(html, slide, index) {
   const { parts, idx, seg, r } = locateElement(html, slide, index);
   parts[idx] = seg.slice(0, r.start) + seg.slice(r.end);
+  return parts.join('');
+}
+
+/**
+ * The colours a page may ask this server to write (PRESENTING, element edit
+ * mode): a theme token by reference — `var(--d-fill-3)`, so the deck stays
+ * theme-aware — or a literal hex colour. Nothing else: the value lands inside
+ * a style attribute, and a style attribute is markup.
+ */
+const STYLE_VALUE = /^(?:var\(--[a-z][a-z0-9-]{0,40}\)|#[0-9a-f]{3,8})$/i;
+const STYLE_PROPS = new Set(['fill', 'color', 'background-color']);
+
+/** The page and the file disagree about what is where: a 409, not a bad request. */
+const stale = (message) => Object.assign(new Error(message), { code: 'STALE' });
+
+/** `style` text with `prop` set to `value` (null: taken off) — its old declaration replaced, the rest kept in order. */
+export function withStyleProp(style, prop, value) {
+  const kept = String(style ?? '').split(';').map((d) => d.trim()).filter(Boolean)
+    .filter((d) => d.slice(0, d.indexOf(':')).trim().toLowerCase() !== prop);
+  return (value === null ? kept : [...kept, `${prop}: ${value}`]).join('; ');
+}
+
+/**
+ * Set style properties on elements INSIDE slide N's element `index` — a shape
+ * in a diagram and the text on it, in one edit (so `Z` takes both back).
+ *
+ * Each edit is `{ path, tag, prop, value }`: `path` is the element's
+ * child-index path below the slide's top-level element (`[]` is that element
+ * itself), counted over the FILE's elements, and `tag` is what the page found
+ * there — the live DOM is not the file (the engine adds nodes of its own), so
+ * a path that lands on a different tag is refused rather than recoloured.
+ * Only the open tag's `style` attribute is touched, textually: every other
+ * attribute — `viewBox` and its capitals included — survives byte for byte.
+ * A `value` of null takes the declaration back off, and a `style` left empty
+ * goes with it. A slot token picked on a nested box still takes its panel's
+ * tone (SVG_DIAGRAMS): the pick names the colour family, the engine keeps it
+ * legible where it sits — `data-nest="off"` in the markup is the opt-out.
+ */
+export function setElementStyles(html, slide, index, edits) {
+  if (!Array.isArray(edits) || !edits.length || edits.length > 40) throw new Error('bad edits');
+  const { parts, idx, seg, r } = locateElement(html, slide, index);
+  let el = seg.slice(r.start, r.end);
+  // each edit re-walks from the top: the one before it changed the offsets
+  for (const e of edits) {
+    if (!Array.isArray(e?.path) || e.path.length > 16 || e.path.some((n) => !Number.isInteger(n) || n < 0)) throw new Error('bad path');
+    if (!STYLE_PROPS.has(e.prop)) throw new Error(`not a colour property: ${e.prop}`);
+    if (e.value !== null && (typeof e.value !== 'string' || !STYLE_VALUE.test(e.value))) throw new Error(`not a colour this server writes: ${String(e.value).slice(0, 40)}`);
+    let start = 0; let end = el.length;
+    for (const n of e.path) {
+      const kids = elementChildRanges(el.slice(start, end));
+      const kid = kids[n];
+      if (!kid) throw stale(`slide ${slide} #${index}: the file has no element at ${e.path.join('.')} — the engine drew this one, or the deck changed; reload and try again`);
+      end = start + kid.end; start += kid.start;
+    }
+    const node = el.slice(start, end);
+    const tag = /^<([a-zA-Z][\w:-]*)/.exec(node)?.[1]?.toLowerCase();
+    if (e.tag && tag !== String(e.tag).toLowerCase()) {
+      throw stale(`slide ${slide} #${index}: the page found <${e.tag}> at ${e.path.join('.') || 'the element'}, the file has <${tag}> — reload and try again`);
+    }
+    const { attrs, close, rest } = splitOpenTag(node);
+    const styleM = /\sstyle\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
+    const style = withStyleProp(styleM ? (styleM[2] ?? styleM[3]) : '', e.prop, e.value).replace(/"/g, "'");
+    const attr = style ? ` style="${style}"` : '';
+    const head = styleM ? attrs.replace(styleM[0], () => attr) : attrs + attr;
+    el = el.slice(0, start) + head + close + rest + el.slice(end);
+  }
+  parts[idx] = seg.slice(0, r.start) + el + seg.slice(r.end);
   return parts.join('');
 }
 

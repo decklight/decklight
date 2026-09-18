@@ -337,6 +337,31 @@ export function sectionChildRanges(seg) {
 }
 
 /**
+ * The element children of ONE element's raw html (`<g …>…</g>`), by raw
+ * position — `sectionChildRanges` one level further down, so an edit can
+ * reach a shape inside a diagram by its path from the slide's top-level
+ * child. Offsets are into `el` itself. A void or self-closed element has none.
+ */
+export function elementChildRanges(el) {
+  const src = String(el ?? '');
+  const open = findTagEnd(src, 0);
+  if (src[0] !== '<' || open < 0 || src[open - 1] === '/') return [];
+  const name = readTagName(src, 1);
+  if (VOID_ELEMENTS.has(name) || OPAQUE_ELEMENTS.has(name)) return [];
+  const ranges = [];
+  let i = open + 1;
+  while (i < src.length) {
+    if (src[i] !== '<') { i++; continue; }
+    if (src.startsWith('<!--', i)) { i = skipComment(src, i); continue; }
+    if (src[i + 1] === '/') break; // the element's own closing tag
+    const child = consumeElement(src, i);
+    ranges.push({ tag: child.tag, start: child.start, end: child.end });
+    i = child.end;
+  }
+  return ranges;
+}
+
+/**
  * Put CSS into a deck's `<head>` under a marker, merging with what that marker
  * already holds rather than stacking a second block beside it.
  *
