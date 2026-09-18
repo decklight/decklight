@@ -88,6 +88,23 @@ test('a voice the machine DOES have is not refused', async () => {
     `a real voice was refused: ${out.message ?? ''}`);
 });
 
+test('macOS 27: a voice asked for by its bare name is not refused', async () => {
+  // macOS 27 lists `Samantha (English (US))`; `say -v Samantha` still speaks
+  // her, and a deck that saved `Samantha` — or a track recorded as her — must
+  // not start failing because the listing grew a suffix
+  const roster27 = [
+    { name: 'Samantha (English (US))', locale: 'en_US', tier: 3 },
+    { name: 'Daniel (Enhanced)', locale: 'en_GB', tier: 2 },
+  ];
+  const engine = createEngine({ engine: 'say', detect: () => ({ engine: 'say', voices: roster27, label: 'macOS 27' }) });
+  for (const voice of ['Samantha', 'Daniel']) {
+    const out = await engine.synth('hi', { voice }).catch((e) => e);
+    assert.ok(!(out instanceof Error && /no say voice named/.test(out.message)), `${voice} was refused: ${out.message ?? ''}`);
+  }
+  // …and a name with no voice under it is still refused
+  await assert.rejects(() => engine.synth('hi', { voice: 'Zephyr' }), /no say voice named "Zephyr"/);
+});
+
 test('the per-sentence voice wins over the one the bridge started with', async (t) => {
   // The bug, stated as a property. Every other engine takes the voice from the
   // second argument; this one used to take it from the closure, so the picker

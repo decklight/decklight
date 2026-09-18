@@ -53,7 +53,7 @@ import {
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
 } from './elevenlabs-tts.mjs';
 import {
-  detectLocalVoice, sayArgs, sapiArgs, winrtArgs, TIER_LABEL, withoutSupersededPlain,
+  detectLocalVoice, sayArgs, sapiArgs, winrtArgs, TIER_LABEL, withoutSupersededPlain, baseName,
 } from './local-voice.mjs';
 
 export const ENGINES = ['gemini', 'chirp', 'piper', 'elevenlabs', 'say', 'sapi'];
@@ -360,6 +360,11 @@ function createNative({
   // The roster this machine actually has, for the guard below. Held as names
   // because that is what the player sends and what `say -v` takes.
   const known = new Set(voices.map((v) => v?.name ?? v).filter(Boolean));
+  // …and the names under their suffixes, which `say -v` answers to as well:
+  // macOS 27 lists `Samantha (English (US))`, and `say -v Samantha` still
+  // speaks her. A deck that saved `Samantha`, and a track recorded as her, must
+  // not stop working because the listing grew a suffix.
+  const knownBase = new Set(kind === 'say' ? [...known].map(baseName).filter(Boolean) : []);
   /**
    * `(text, { voice })` — the SECOND argument is the voice for THIS sentence,
    * and it is the whole contract every other engine here implements.
@@ -376,7 +381,7 @@ function createNative({
     // stale saved voice, or a roster from another engine all sound like
     // success while giving you somebody else's voice. (PowerShell's
     // SelectVoice already throws on an unknown name; this makes the two agree.)
-    if (kind === 'say' && known.size && pick && !known.has(pick)) {
+    if (kind === 'say' && known.size && pick && !known.has(pick) && !knownBase.has(pick)) {
       throw new Error(`no ${kind} voice named ${JSON.stringify(pick)} on this machine`
         + ` — this bridge speaks ${known.size} others (GET /voices)`);
     }

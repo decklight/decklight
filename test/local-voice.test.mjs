@@ -15,7 +15,7 @@ import {
   parseSayVoices, parseSapiVoices, sayTier, sayArgs, sapiArgs, TIER_LABEL,
   parseWinrtVoices, winrtTier, winrtArgs, WINRT_LIST, SAPI_LIST,
   detectLocalVoice, onPath, probe,
-  withoutSupersededPlain, plainName, PLAIN_TIER,
+  withoutSupersededPlain, plainName, baseName, PLAIN_TIER,
 } from '../tools/local-voice.mjs';
 import { planServices, voiceModelOffer } from '../cli/dev.mjs';
 import { ENGINES, NATIVE_ENGINES } from '../tools/tts-engines.mjs';
@@ -101,6 +101,48 @@ test('a Siri voice hiding behind a duplicate name is dropped, not offered as a l
   assert.equal(v.filter((x) => x.name === 'Aman (English (India))').length, 1, 'the duplicate survived');
   assert.equal(v[0].name, 'Siri Voice 4', 'a Siri voice under its OWN name is kept, and wins');
   assert.equal(v[0].tier, 0);
+});
+
+// macOS 27's own listing, verbatim in shape: a plain voice now carries its
+// language (`Daniel (English (UK))`), and some voices are printed twice.
+const SAY_27 = `Daniel (English (UK)) en_GB    # Hello! My name is Daniel.
+Daniel (English (UK)) en_GB    # Hello! My name is Daniel.
+Daniel (Enhanced)   en_GB    # Hello! My name is Daniel.
+Samantha (English (US)) en_US    # Hello! My name is Samantha.
+Samantha (English (US)) en_US    # Hello! My name is Samantha.
+Eddy (English (UK)) en_GB    # Hello! My name is Eddy.
+Aman (English (India)) en_IN    # Hello! My name is Aman.
+Aman (English (India)) en_IN    # Hi, I’m Siri!`;
+
+test('macOS 27: a voice printed twice is offered once', () => {
+  const v = parseSayVoices(SAY_27);
+  const count = (n) => v.filter((x) => x.name === n).length;
+  assert.equal(count('Daniel (English (UK))'), 1);
+  assert.equal(count('Samantha (English (US))'), 1);
+  // …and a Siri voice sharing a plain voice's name is still the OTHER rule's:
+  // it differs by its sample, so it is not a repeat, and it is dropped as
+  // unaddressable rather than kept as the survivor of a dedupe
+  assert.equal(count('Aman (English (India))'), 1);
+  assert.ok(!v.some((x) => x.name === 'Aman (English (India))' && x.tier === 0), 'the Siri stub survived');
+});
+
+test('macOS 27: the base name is under both suffixes, quality and language', () => {
+  assert.equal(baseName('Daniel (English (UK))'), 'Daniel');
+  assert.equal(baseName('Daniel (Enhanced)'), 'Daniel');
+  assert.equal(baseName('Chinese (China mainland)'), 'Chinese (China mainland)', 'one level of parentheses is not a language pair');
+  assert.equal(baseName('Eddy (Chinese (China mainland))'), 'Eddy');
+  assert.equal(baseName('Samantha'), 'Samantha');
+});
+
+test('macOS 27: the plain twin of an Enhanced voice is not offered, under its new name', () => {
+  // `Daniel (English (UK))` is the compact build of `Daniel (Enhanced)`; the
+  // whole-name match let every such twin through on macOS 27
+  const v = withoutSupersededPlain(parseSayVoices(SAY_27));
+  const names = v.map((x) => x.name);
+  assert.ok(names.includes('Daniel (Enhanced)'));
+  assert.ok(!names.includes('Daniel (English (UK))'), 'the plain twin is still offered');
+  assert.ok(names.includes('Samantha (English (US))'), 'a plain voice with no better build stays');
+  assert.ok(names.includes('Eddy (English (UK))'), 'a persona is not a twin of anything');
 });
 
 test('Windows natural voices outrank the desktop ones', () => {

@@ -310,6 +310,7 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} a REAL say bridge · ${r.rowCount} rows · shelf=${r.hasShelf}`
       + ` · Samantha offered=${r.samantha} · other languages folded=${r.othersFolded}`
       + ` · ${r.betterBuilds} Enhanced/Premium builds, plain twins left=${JSON.stringify(r.plainTwinsLeft)}`
+      + ` · repeated rows=${JSON.stringify(r.repeatedRows ?? [])}`
       + (ok ? '' : `\n           rows: ${(r.sample ?? []).join(' | ')}\n           groups: ${JSON.stringify(r.groups)}`)
       + (r.exception ? ` \u00b7 ${r.exception.split('\n')[0]}` : ''));
     continue;
