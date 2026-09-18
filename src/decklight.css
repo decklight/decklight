@@ -1982,6 +1982,11 @@
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .edit-code > textarea { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; max-height: none; resize: none; }
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .edit-code > pre { max-height: none; }
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .tr-actions { flex: 0 0 auto; }
+/* the notes editor and the agent ask dock the same way: their plain textarea
+   (no painted layer behind it) is the part that takes the gutter */
+.decklight-editor.decklight-dockable:not([data-dock="float"]) .narr-card > textarea.edit-notes {
+  flex: 1 1 auto; box-sizing: border-box; width: 100%; min-width: 0; min-height: 0; max-height: none; resize: none;
+}
 /* the engine wizard's provenance line (ENGINES#WIZARD, #232): who is asking and
    where the answer goes — deliberately NOT the muted narr-head treatment, since
    this is the one line a presenter must read before pasting a key */

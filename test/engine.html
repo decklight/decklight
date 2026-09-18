@@ -252,6 +252,11 @@
         }
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      if (HARNESS_MODE === 'typingdock') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true,
+          agents: [{ name: 'claude', label: 'Claude Code', installed: true }] });
+        if (u.includes('/edit/notes')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'codeedit') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) {
@@ -1271,6 +1276,90 @@
           && r.opensAtTheTop && r.hasRoomToScroll && r.paintFollowsToTheEnd
           && r.dockable && r.outlinesTheElement && r.noBackdrop && r.docksRight && r.fillsTheGutter && r.layersStillAgree
           && r.deckStaysNavigable && r.persists && r.escapeCloses && r.releasesTheStage && r.restoresTheDock;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+      if (mode === 'typingdock') {
+        // The notes editor and the agent ask dock like the content editor:
+        // ◨ docks each right, the stage reflows away from the gutter, the text
+        // area fills it, the deck's keys work while the caret is out of it, the
+        // placement is remembered per deck and per card, and closing hands the
+        // stage back. Docked, the notes card follows the slide until it holds
+        // a draft — a draft stays with the slide it was written for.
+        await settle();                       // /edit/ping: editAvailable
+        deck.goto(1, 0); await settle();
+        const gutter = () => document.querySelector('.decklight').style.getPropertyValue('--dock-right');
+        const card = (W, name) => {
+          const el = document.querySelector(W);
+          const ta = el?.querySelector('textarea');
+          const out = {};
+          out[name + 'Dockable'] = !!el && el.classList.contains('decklight-dockable')
+            && !!el.querySelector('.narr-head .dk-btn[data-mode="right"]');
+          out[name + 'NoBackdrop'] = !!el && getComputedStyle(el).backgroundColor === 'rgba(0, 0, 0, 0)';
+          el?.querySelector('.dk-btn[data-mode="right"]')?.click();
+          return { el, ta, out };
+        };
+
+        // ── notes ── reached the way a presenter reaches it: E, then
+        // right-click the slide's background
+        press('e');
+        const openNotes = async () => {
+          const sec = document.querySelector('.decklight-stage > section.active');
+          sec.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+          await settle();
+          [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === 'Edit speaker notes')?.click();
+          await settle();
+        };
+        await openNotes();
+        const N = '.decklight-notes';
+        const n = card(N, 'notes');
+        Object.assign(r, n.out);
+        await settle();
+        const heading = () => document.querySelector(`${N} .ed-heading`)?.textContent ?? '';
+        r.notesDocksRight = n.el?.dataset.dock === 'right' && parseFloat(gutter()) > 100;
+        r.notesFillsTheGutter = !!n.ta && n.ta.clientHeight >= n.el.querySelector('.narr-card').clientHeight - 200;
+        n.ta?.blur();
+        press('ArrowRight'); await settle();
+        r.notesDeckNavigable = deck.state.slide === 2;
+        r.notesFollowsTheSlide = /slide 2/.test(heading());
+        // a draft stays with its slide
+        n.ta.value = 'a half-written note';
+        press('ArrowRight'); await settle();
+        r.notesDraftStays = deck.state.slide === 3 && /slide 2/.test(heading()) && n.ta.value === 'a half-written note';
+        n.ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle();
+        r.notesSavesItsOwnSlide = CALLS.post.some((c) => c.u.includes('/edit/notes') && c.body.slide === 2);
+        r.notesPersists = JSON.parse(localStorage.getItem('decklight-notes-dock:' + location.pathname) ?? '{}').mode === 'right';
+        press('Escape'); await settle();
+        r.notesEscapeCloses = !document.querySelector(N);
+        r.notesReleasesTheStage = gutter() === '0px';
+        await openNotes();
+        r.notesRestoresTheDock = document.querySelector(N)?.dataset.dock === 'right' && parseFloat(gutter()) > 100;
+        press('Escape'); await settle();
+        press('e');                           // disarm, so A is the agent's again
+
+        // ── agent ──
+        deck.goto(1, 0); await settle();
+        press('a'); await settle();
+        const A = '.decklight-agent';
+        const a = card(A, 'agent');
+        Object.assign(r, a.out);
+        await settle();
+        r.agentDocksRight = a.el?.dataset.dock === 'right' && parseFloat(gutter()) > 100;
+        r.agentFillsTheGutter = !!a.ta && a.ta.clientHeight >= a.el.querySelector('.narr-card').clientHeight - 200;
+        r.agentOwnKey = JSON.parse(localStorage.getItem('decklight-agent-dock:' + location.pathname) ?? '{}').mode === 'right';
+        a.ta?.blur();
+        press('ArrowRight'); await settle();
+        r.agentDeckNavigable = deck.state.slide === 2 && !!document.querySelector(A);
+        press('Escape'); await settle();
+        r.agentEscapeCloses = !document.querySelector(A);
+        r.agentReleasesTheStage = gutter() === '0px';
+
+        try {
+          localStorage.removeItem('decklight-notes-dock:' + location.pathname);
+          localStorage.removeItem('decklight-agent-dock:' + location.pathname);
+        } catch {}
+        r.PASS = Object.entries(r).every(([k, v]) => k === 'PASS' || v === true);
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

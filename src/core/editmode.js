@@ -555,12 +555,52 @@ export function createEditMode({
     }
   }
 
+  // The two typing cards — the agent ask and the notes editor — sit BESIDE
+  // the slide like the content editor (dock.js): float, or docked to an edge
+  // with the stage reflowing away from the gutter, each remembered per deck
+  // under its own key. Docked, you write a slide's notes while reading the
+  // slide, or ask the agent about it while it is on screen.
+  function typingCard(kind, dock, heading, onClose) {
+    const el = document.createElement('div');
+    el.className = `decklight-narr decklight-dockable decklight-editor decklight-${kind}`;
+    const card = document.createElement('div');
+    card.className = 'narr-card';
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    const title = Object.assign(document.createElement('span'), { className: 'ed-heading', textContent: heading });
+    head.append(title, dock.controls(onClose));
+    dock.wireHeader(head);
+    card.append(head);
+    el.append(card);
+    return { el, card, title };
+  }
+  function mountTypingCard(el, dock) {
+    root.appendChild(el);
+    // no backdrop to click: a dockable card dims nothing (the × and Esc close)
+    dock.reserveGutter();
+    const onResize = () => dock.reserveGutter();
+    window.addEventListener('resize', onResize);
+    return () => {
+      el.remove();
+      window.removeEventListener('resize', onResize);
+      dock.release();   // or the stage keeps reflowing around a gutter nothing sits in
+    };
+  }
+
   // ask an agent (A) — hand an installed coding agent (claude, codex, bob, …)
   // a one-shot editing task; the file watcher reloads the deck when it saves,
   // and the server snapshots first so Z takes the agent's edit back.
   let agentEl = null;
+  let unmountAgent = null;
+  const agentDock = createDock({
+    root,
+    reflow: () => instance._reflow?.(),
+    key: 'decklight-agent-dock:' + location.pathname,
+    getEl: () => agentEl,
+    closeLabel: 'close (esc)',
+  });
   function toggleAgentAsk() {
-    if (agentEl) { agentEl.remove(); agentEl = null; return; }
+    if (agentEl) { unmountAgent(); agentEl = null; unmountAgent = null; return; }
     if (!editAvailable) {
       toast(needsDevMode('asking an agent', location), 3200);
       return;
@@ -573,13 +613,9 @@ export function createEditMode({
       toast(`${agentBusy.agent} is still working on the last ask`, 2200);
       return;
     }
-    agentEl = document.createElement('div');
-    agentEl.className = 'decklight-narr decklight-editor';
-    const card = document.createElement('div');
-    card.className = 'narr-card';
-    const head = document.createElement('div');
-    head.className = 'narr-head';
-    head.textContent = `ask an agent — edits the deck file · ⌘⏎ sends · Esc closes`;
+    const { el, card } = typingCard('agent', agentDock,
+      'ask an agent — edits the deck file · ⌘⏎ sends', toggleAgentAsk);
+    agentEl = el;
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
     ta.placeholder = `e.g. "make slide ${instance.state.slide} a split layout with the diagram on the left"`;
@@ -646,31 +682,46 @@ export function createEditMode({
     btn.textContent = '🤖 send to agent';
     btn.addEventListener('click', send);
     actions.appendChild(btn);
-    card.append(head, ta, actions);
-    agentEl.appendChild(card);
-    closeOnBackdrop(agentEl, toggleAgentAsk);
-    root.appendChild(agentEl);
+    card.append(ta, actions);
+    unmountAgent = mountTypingCard(el, agentDock);
     setTimeout(() => ta.focus(), 0);
   }
+
   let editEl = null;
+  let unmountEditor = null;
+  let notesFollow = null;   // re-points a clean notes card at the slide on screen
+  const notesDock = createDock({
+    root,
+    reflow: () => instance._reflow?.(),
+    key: 'decklight-notes-dock:' + location.pathname,
+    getEl: () => editEl,
+    closeLabel: 'close (esc)',
+  });
+  // Docked, the deck stays navigable beside the notes card, so the card
+  // follows the slide — but only while it holds nothing unsaved: a draft
+  // stays with the slide it was written for, and its heading still says which.
+  instance.on('slide', () => notesFollow?.());
   function toggleEditor() {
-    if (editEl) { editEl.remove(); editEl = null; return; }
-    const sl = instance.state.slide;
+    if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; return; }
     if (!editAvailable) {
       toast(needsDevMode('editing notes', location), 3200);
       return;
     }
-    editEl = document.createElement('div');
-    editEl.className = 'decklight-narr decklight-editor';
-    const card = document.createElement('div');
-    card.className = 'narr-card';
-    const head = document.createElement('div');
-    head.className = 'narr-head';
-    head.textContent = `edit notes — slide ${sl} · ⌘⏎ saves · Esc closes`;
+    let sl = instance.state.slide;
+    const heading = () => `edit notes — slide ${sl} · ⌘⏎ saves`;
+    const { el, card, title } = typingCard('notes', notesDock, heading(), toggleEditor);
+    editEl = el;
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
-    ta.value = notesSegs(sl).filter((s, i, a) => s || i < a.length).join('\n\n⟨CLICK⟩\n\n');
+    const notesText = () => notesSegs(sl).filter((s, i, a) => s || i < a.length).join('\n\n⟨CLICK⟩\n\n');
+    let loaded = ta.value = notesText();
     ta.spellcheck = false;
+    notesFollow = () => {
+      if (ta.value !== loaded || instance.state.slide === sl) return;
+      sl = instance.state.slide;
+      loaded = ta.value = notesText();
+      title.textContent = heading();
+    };
     const save = async () => {
       try {
         const res = await writeFetch(editBase + '/edit/notes', {
@@ -699,10 +750,8 @@ export function createEditMode({
     btn.textContent = '💾 save to file';
     btn.addEventListener('click', save);
     actions.appendChild(btn);
-    card.append(head, ta, actions);
-    editEl.appendChild(card);
-    closeOnBackdrop(editEl, toggleEditor);
-    root.appendChild(editEl);
+    card.append(ta, actions);
+    unmountEditor = mountTypingCard(el, notesDock);
     setTimeout(() => ta.focus(), 0);
   }
 
@@ -1442,15 +1491,19 @@ export function createEditMode({
       toast(`restored ${entry.hash} — Z takes it back`, 2600);
     } catch { toast('restore failed: the edit server did not answer', 3000); }
   }
-  // typing surfaces — the textarea handles its own keys
+  // typing surfaces — the textarea handles its own keys. Floating, each is
+  // the modal it always was; docked, the deck's keys work whenever the caret
+  // is not in the textarea.
   overlays.register({
     isOpen: () => !!editEl,
     close: toggleEditor,
+    modal: () => notesDock.isFloat(),
     keydown: (e) => e.key === 'Escape' && (toggleEditor(), true),
   });
   overlays.register({
     isOpen: () => !!agentEl,
     close: toggleAgentAsk,
+    modal: () => agentDock.isFloat(),
     keydown: (e) => e.key === 'Escape' && (toggleAgentAsk(), true),
   });
   overlays.register({
