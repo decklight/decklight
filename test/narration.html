@@ -265,7 +265,9 @@
       if (u.endsWith('/tts')) {
         calls++;
         try { bodies.push(JSON.parse(opts?.body ?? '{}')); } catch { /* not json */ }
-        const fail = mode === 'dead' || (mode === 'flaky' && calls === 1);
+        // `&dead` on another mode: the bridge dies PARTWAY — slide three's words never arrive
+        const diesOnThree = params.has('dead') && /three/i.test(bodies[bodies.length - 1]?.text ?? '');
+        const fail = mode === 'dead' || diesOnThree || (mode === 'flaky' && calls === 1);
         if (fail) { failures++; return new Response('Quota exceeded', { status: 429 }); }
         return new Response(new Blob([new Uint8Array(64)], { type: 'audio/wav' }), { status: 200 });
       }
@@ -742,7 +744,32 @@
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
           }
-          r.PASS = r.shown && r.stageIsSmallHere && r.followsTheStage;
+          // "On" means shown, voice or no voice. The live voice owns the bar
+          // while it speaks; when it goes — switched off, or a bridge that fails
+          // before its first clip (`&dead`) — the bar goes back to the step's own
+          // text rather than keeping the last sentence, or nothing.
+          const STEP = 'First sentence here. Second sentence here.';
+          const text = () => document.querySelector('.decklight-captions.show')?.textContent ?? '';
+          const until = async (fn) => { for (let i = 0; i < 40 && !fn(); i++) await new Promise((ok) => setTimeout(ok, 50)); return fn(); };
+          r.voiceOffShowsTheStep = text() === STEP;
+          deck.toggleNarration();                                // the live voice
+          if (params.has('dead')) {
+            r.dead = true;
+            // arriving on a slide is where the voice takes the bar (it is blanked
+            // for the first sentence) — and this bridge never delivers one
+            r.spokeFirst = await until(() => /sentence here\.$/.test(text()) && text() !== STEP);
+            deck.goto(3, 0);
+            r.failed = await until(() => failures > 0 && !deck.narration.status().narrating);
+            r.backAfterFailure = await until(() => text() === 'Slide three speaks.');
+            r.PASS = r.shown && r.voiceOffShowsTheStep && r.spokeFirst && r.failed && r.backAfterFailure;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
+          r.followsTheVoice = await until(() => text() === 'First sentence here.' || text() === 'Second sentence here.');
+          deck.toggleNarration();                                // off, mid-beat
+          r.backAfterStop = text() === STEP;
+          r.PASS = r.shown && r.stageIsSmallHere && r.followsTheStage
+            && r.voiceOffShowsTheStep && r.followsTheVoice && r.backAfterStop;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

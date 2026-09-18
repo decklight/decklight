@@ -1390,6 +1390,13 @@ export function createNarration({
     narrPaused = false;
     narrAudio?.pause();
     character.stop();
+    // The live voice OWNS the caption bar while it speaks (updateCaption blanks
+    // it and the sentence chain fills it) — so when the voice goes, for any
+    // reason, the bar has to be handed back. It used to keep whatever the chain
+    // left: the last sentence spoken, or nothing at all when the bridge failed
+    // before its first clip — captions on, a slide full of notes, and an empty
+    // bar until the next navigation.
+    updateCaption();
     toast(msg);
     debugLog('narr', msg);
     syncSoundBtn();
@@ -1480,7 +1487,9 @@ export function createNarration({
   // ── closed captions (C) — SPEC PRESENTING ────────────────────────────────────────
   // YouTube-style captions: the CURRENT notes segment (the same text the
   // live voice speaks) in a bar at the bottom, synced to slide/step. Works
-  // with narration on or off — it's the deck's transcript. Persists per deck.
+  // with narration on or off — it's the deck's transcript, and "on" means
+  // shown: whenever no voice is speaking the bar carries the step's own text
+  // (stopNarration hands it back). Persists per deck.
   const captionsKey = 'decklight-captions:' + location.pathname;
   // A slide-finder or theme-picker preview is a thumbnail of wherever the
   // cursor happens to be, not the deck being presented — so it shows no
