@@ -476,8 +476,10 @@ export function createNarration({
   function probeLive() {
     livePing ??= fetch(PING_URL)
       .then((r) => (r.ok ? r.json() : null))
-      .then((p) => {
+      .then(async (p) => {
         if (!p) return null;
+        liveFound = true;
+        p = await restoreEngine(p);
         // A saved voice the LIVE bridge cannot speak is stale, not a choice: it
         // was picked for a different engine (the Gemini roster is the default,
         // and an ElevenLabs key knows none of those names). Sending it anyway
@@ -486,7 +488,6 @@ export function createNarration({
         // takes over. Said out loud, because a voice changing on its own is
         // exactly the kind of thing that should never be silent. adoptBridge
         // holds that rule, because a mid-session engine swap needs it too.
-        liveFound = true;
         adoptBridge(p);
         debugLog('tts', `bridge: ${p.engine} · ${p.model} · ${liveVoices.length} voice(s)`
           + (liveStylable ? '' : ' · no style'));
@@ -494,6 +495,33 @@ export function createNarration({
       })
       .catch(() => null); // no bridge — the picker still works, V just warns
     return livePing;
+  }
+  /**
+   * Put the bridge back on the engine this deck's live voice was picked on.
+   *
+   * A voice name belongs to an engine — `Alnilam` is Gemini's, an ElevenLabs
+   * voice is yours — so the two are saved together, and the next session
+   * restores both: a bridge restarted on its default engine would otherwise
+   * find the saved voice missing from its roster and replace it. The bridge
+   * refuses an engine that is not ready here (no key, no model), and then the
+   * deck speaks with what the bridge has — said out loud, never silently.
+   */
+  async function restoreEngine(p) {
+    const want = narrSet?.live ? liveCfg.engine : null;
+    if (!want || want === p.engine) return p;
+    try {
+      const r = await fetch(ENGINE_URL, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ engine: want }),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        debugLog('tts', `engine ${p.engine} → ${j.engine} (restored for this deck)`);
+        return j;
+      }
+      toast(`${want}: ${j.why ?? j.error ?? 'unavailable'} — speaking with ${p.engine}`, 4000);
+    } catch { /* the bridge answered /ping; speak with what it has */ }
+    return p;
   }
   /**
    * Take on what the bridge just told us about itself.
@@ -1610,7 +1638,9 @@ export function createNarration({
   function persistNarr() {
     try {
       writeJson(narrKey, narrSet?.live
-        ? { live: liveCfg }
+        // the engine rides with the voice, because a voice name is only a
+        // name on the engine it came from (restoreEngine)
+        ? { live: { ...liveCfg, engine: liveEngine ?? liveCfg.engine } }
         // `off` is written rather than left implied. An empty payload already
         // reads back as off today, but only by accident of nothing matching;
         // recording the choice means a later change to what "no choice" means
@@ -2271,13 +2301,13 @@ export function createNarration({
     }
   }
   /**
-   * Ask the bridge to speak with a different engine, for this session only.
+   * Ask the bridge to speak with a different engine.
    *
-   * NOT PERSISTED, deliberately. `~/.config/decklight/tts.json` is what the CLI
-   * and the setup wizard write, and it decides what the NEXT `decklight author`
-   * starts with; an experiment two minutes before a talk must not quietly
-   * become tomorrow's default. The bridge itself keeps the choice until it is
-   * restarted, so it survives a reload of the deck.
+   * Remembered by THIS DECK, with its live voice (restoreEngine), and nowhere
+   * else. `~/.config/decklight/tts.json` is what the CLI and the setup wizard
+   * write, and it decides what the NEXT `decklight author` starts with for
+   * every deck; an experiment two minutes before a talk must not quietly
+   * become every deck's default, so it is never written from here.
    *
    * A blocked engine is a dead end here on purpose (SPEC `NARRATION`): the row
    * says what is missing and where to fix it, and the fix is always something
@@ -2304,7 +2334,9 @@ export function createNarration({
       livePing = Promise.resolve(adoptBridge(j));
       liveMenu = null;
       debugLog('tts', `engine → ${j.engine} · ${j.model} · ${liveVoices.length} voice(s)`);
-      toast(`⚡ engine: ${j.engine}${j.cost ? ` · ${j.cost}` : ''} — this session only`, 3200);
+      if (narrSet?.live) persistNarr();
+      toast(`⚡ engine: ${j.engine}${j.cost ? ` · ${j.cost}` : ''}`
+        + (narrSet?.live ? ' — this deck remembers it' : ' — pick a voice to keep it'), 3200);
       if (j.caveat) toast(j.caveat, 6000);
       renderNarr('voices');
     } catch { toast(`${e.name}: the voice bridge did not answer`, 3000); }

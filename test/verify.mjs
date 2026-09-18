@@ -54,7 +54,7 @@ const env = { ...process.env, DECKLIGHT_HOME: HOME };
  */
 const NARRATION_GROUPS = {
   live: ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'xss', 'switch', 'hint', 'hint&print', 'captions', 'captions&embedded', 'captions&dead', 'edited'],
-  picker: ['roster', 'elevenlabsv3', 'scroll', 'sayshelves', 'filter', 'off', 'realsay'],
+  picker: ['roster', 'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'off', 'realsay'],
   recorded: ['recorded', 'manifest', 'expired', 'plainrec', 'segmanifest', 'segsigned'],
   segments: ['segoverflow', 'segments', 'segfold', 'segmiss', 'segnav', 'beatpause'],
   record: ['record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record'],
