@@ -136,7 +136,7 @@ let slowest = 0;
 // without ever being watched fail.
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const MODES = ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
-  'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
+  'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
@@ -172,7 +172,11 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
   }
   if (m === 'hint') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} `
-      + (r.printing
+      + (r.capturing
+        ? `a render: no pill=${r.hidden} · toast logged=${r.toastLogged} not drawn=${r.noToastDrawn} · no chevrons=${r.noChevrons}`
+        : r.midTalk
+        ? `opened mid-talk: no pill=${r.hidden}`
+        : r.printing
         ? `no pill on paper=${r.hidden}`
         : `shown=${r.shown} names V=${r.namesTheKey} button=${r.isAButton}`
           + ` · click plays=${r.clickStartsVoice} gone=${r.goneAfterClick} remembered=${r.remembered}`

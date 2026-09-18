@@ -83,6 +83,15 @@ test('--drive and --theme are injected into the deck response in memory', async 
   rmTemp(dir);
 });
 
+test('a plain shot loads as a render; a driven one stays live, so the toast it raises can be shot (#548)', async () => {
+  const plain = await runShot(['--slide', '3']);
+  assert.match(plain.meta.url, /\/deck\.html\?capture#\/3\/0$/, 'a picture of the deck carries ?capture');
+  const queried = await runShot(['--query', 'theme=aurora']);
+  assert.match(queried.meta.url, /\?capture&theme=aurora$/, '--query still reaches the deck, alongside it');
+  const keyed = await runShot(['--keys', 't']);
+  assert.doesNotMatch(keyed.meta.url, /capture/, 'a shot of a feature in use is a live load');
+});
+
 test('a deck outside the current directory is refused, not served', async () => {
   const outside = mkdtempSync(path.join(tmpdir(), 'decklight-shot-outside-'));
   writeFileSync(path.join(outside, 'far.html'), '<!doctype html><html></html>');

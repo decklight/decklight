@@ -33,14 +33,18 @@ import {
  * slide finder's embedded previews, must not tell you to press V under
  * `?voiceover` (which starts on the first gesture anyway), must not land on
  * top of the captions bar — same corner — and must never nag a viewer who has
- * already used the voice on this deck. Testing that as a function beats
+ * already used the voice on this deck. Nor may it be photographed into a
+ * render (`?capture` — every frame of a `decklight video` is a fresh load that
+ * has never used the voice, #548), nor greet a load the URL sent past the
+ * first build of the first slide, which is a talk in progress, not a first
+ * view — the rule onboarding already keeps. Testing that as a function beats
  * booting six headless decks to watch nothing happen five times.
  */
 export function hintApplies({
-  hasTracks, used, printMode, embedded, voiceover, captionsOn, narrating,
+  hasTracks, used, printMode, embedded, capture, openedMidTalk, voiceover, captionsOn, narrating,
 } = {}) {
-  return !!hasTracks && !used && !printMode && !embedded && !voiceover
-    && !captionsOn && !narrating;
+  return !!hasTracks && !used && !printMode && !embedded && !capture && !openedMidTalk
+    && !voiceover && !captionsOn && !narrating;
 }
 
 /**
@@ -399,7 +403,7 @@ export function micWhy(e) {
 
 export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
-  rangePicker = null, chapters = () => [],
+  openedMidTalk = false, rangePicker = null, chapters = () => [],
   syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
   authorReady = () => Promise.resolve(),
 }) {
@@ -1626,6 +1630,8 @@ export function createNarration({
     used: narrUsed,
     printMode,
     embedded: !!params?.has('embedded'),
+    capture: !!params?.has('capture'),
+    openedMidTalk,
     voiceover: !!params?.has('voiceover'),
     captionsOn,
   })) {

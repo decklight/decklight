@@ -23,7 +23,7 @@
 // reasoning as `decklight-custom-themes`.
 //
 // Nothing here may ever appear over a live audience: no card and no tip in
-// `?print` or `?embedded`, none when the URL deep-links past the first build of
+// `?print`, `?embedded` or `?capture`, none when the URL deep-links past the first build of
 // the first slide (a link into the middle of a talk is not a first run), and
 // the first advance — key, click, swipe, chevron or a programmatic next() —
 // retires the card for good.
@@ -75,7 +75,8 @@ const write = (key, value) => { writePref(key, value); };
  */
 export function createOnboarding({ root, printMode, params, toast, debugLog, overlays, deck }) {
   const embedded = params.has('embedded');
-  const quiet = printMode || embedded;   // a preview and a printout teach nobody
+  // a preview, a printout and a render (`?capture`, #548) teach nobody
+  const quiet = printMode || embedded || params.has('capture');
 
   // ----- the first-run welcome ---------------------------------------------
   let cardEl = null;

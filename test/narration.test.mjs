@@ -45,6 +45,12 @@ test('the hint never appears where it would be wrong', () => {
   assert.equal(hintApplies({ ...showing, captionsOn: true }), false, 'captions up');
   // and never over a voice that is already speaking
   assert.equal(hintApplies({ ...showing, narrating: true }), false, 'already narrating');
+  // a render: every frame of a `decklight video` is a fresh load that has
+  // never used the voice, and the pill was burned into all of them (#548)
+  assert.equal(hintApplies({ ...showing, capture: true }), false, '?capture');
+  // a URL that lands past the first build of the first slide is a talk in
+  // progress, not a first view — onboarding's rule, and a video frame's shape
+  assert.equal(hintApplies({ ...showing, openedMidTalk: true }), false, 'opened mid-talk');
 });
 
 test('once the voice has been used on a deck, the hint is done there', () => {
