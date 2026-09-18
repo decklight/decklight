@@ -37,8 +37,11 @@ const terminalRegistrar = () =>
 /**
  * The deck's configuration block (SPEC DECK_ANATOMY): one
  * `<script type="application/json" data-decklight-config>` holding what
- * `init` takes, as data. `decklight` (the version the deck was written for)
- * and `theme` (what the server links) are the file's keys, not options.
+ * `init` takes, as data. `decklight` (the version the deck was written for) is
+ * the file's key, not an option. `theme` is both: the server links it into a
+ * deck that has no theme of its own, and the runtime opens on it — among a
+ * deck's inline theme blocks, it is the one selected when nothing else (a
+ * `?theme=`, a saved pick) says otherwise (#547).
  * Null when the deck has no block; a block that is not JSON is reported and
  * treated as empty rather than silently booting nothing.
  */
@@ -46,8 +49,8 @@ export function deckConfig() {
   const el = document.querySelector('script[type="application/json"][data-decklight-config]');
   if (!el) return null;
   try {
-    const { decklight: _version, theme: _theme, ...config } = JSON.parse(el.textContent);
-    return config;
+    const { decklight: _version, theme, ...config } = JSON.parse(el.textContent);
+    return typeof theme === 'string' && /^[\w-]+$/.test(theme) ? { ...config, theme } : config;
   } catch (err) {
     console.error('Decklight: the data-decklight-config block is not valid JSON — booting with defaults', err);
     return {};

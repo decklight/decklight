@@ -101,9 +101,12 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
   if (!total) { log('decklight pptx: the deck has no <section> slides'); return 1; }
   if (!count) { log('decklight pptx: every slide in this deck is hidden — there is nothing to hand over'); return 1; }
 
-  // served, not file://, so every relative asset the deck names still resolves
-  const inject = (text, file) => (file === src && theme ? text.replace(/(<\/head>)/i, `<link rel="stylesheet" href="themes/${theme}.css">$1`) : text);
-  const server = await serveForRender(root, { html: inject });
+  // served, not file://, so every relative asset the deck names still resolves.
+  // --theme rides the URL (`?theme=`), which the runtime applies to any kind
+  // of theme the deck holds — a <link> to themes/<name>.css reached only file
+  // themes, and missed a deck whose themes are inline blocks (#547).
+  const renderQuery = `?capture${theme ? `&theme=${encodeURIComponent(theme)}` : ''}`;
+  const server = await serveForRender(root);
   const scratch = mkdtempSync(join(tmpdir(), 'decklight-pptx-'));
   const slides = [];
   try {
@@ -127,7 +130,7 @@ export async function pptxMain(args = [], { render = chromeShot, log = console.e
       // picture (#548)
       await render(bin, chromeArgs(
         '--hide-scrollbars', '--window-size=1280,720', `--virtual-time-budget=${wait}`,
-        `--screenshot=${png}`, `${server.origin}${deckPath}?capture#/${n}/999`,
+        `--screenshot=${png}`, `${server.origin}${deckPath}${renderQuery}#/${n}/999`,
       ), { n, png });
       if (!existsSync(png) || statSync(png).size === 0) { log(`decklight pptx: slide ${n} did not render — try a longer --wait`); return 1; }
       slides.push({ png: readFileSync(png), notes: notes[n - 1] });

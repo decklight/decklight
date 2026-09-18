@@ -50,6 +50,11 @@
     // CSS, marked, inert. The deck is put in LINK mode alongside it because
     // that is the combination that could go wrong — a deck whose themes come
     // from a <link> must not lose them the moment it gains an added block.
+    // The exports are told the theme on screen (#547), so they run on a deck
+    // that HAS one — linked, the way a data-only deck is served.
+    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx') {
+      document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="../themes/aurora.css">');
+    }
     if (HARNESS_MODE === 'added') {
       document.head.insertAdjacentHTML('beforeend',
         '<link rel="stylesheet" href="../themes/aurora.css">'
@@ -681,6 +686,8 @@
       if (mode === 'exportvideo') {
         const Q = '.decklight-palette', ROW = '.pal-row';
         await settle();
+        // a pick the render cannot see on its own — a fresh browser (#547)
+        deck.theme('eclipse');
         press('/');
         for (const ch of 'mp4') press(ch);
         r.rowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Export a video/.test(n.textContent));
@@ -741,13 +748,14 @@
           && sent.synthesize?.engine === 'piper' && sent.synthesize.model === 'en_US-ryan-high'
           && sent.synthesize.voice === 'en_US-ryan-high' && sent.synthesize.dir === 'voices/en-us-ryan-high'
           && sent.format === 'mov' && sent.quality === 'standard' && sent.subtitles === 'embed';
+        r.toldTheTheme = sent?.theme === 'eclipse';
         r.remembersTheFormat = /"format":"mov"/.test(localStorage.getItem('decklight:video-export') ?? '');
         r.answered = said().some((t) => /wrote deck\.slides-2-3\.mp4/.test(t) && /its voice is in voices\/en-us-ryan-high\//.test(t));
         r.PASS = r.rowIsThere && r.asksWhichSlides && r.offersRanges && r.staleTrackMarked
           && r.startsOnTheRecordedTrack && r.ownTakeNotOffered && r.defaultsAreMp4Standard && r.arrowsLeaveRangesAlone
           && r.arrowsTurnTheSettings && r.remembersTheFormat && r.saysTheRenderPhase
           && r.typingFillsTheBox && r.badRangeStaysOpen && r.nothingPostedYet && r.closesOnPick
-          && r.saysWhatItRenders && r.saysWhereItIs && r.postsTheRange && r.answered;
+          && r.saysWhatItRenders && r.saysWhereItIs && r.postsTheRange && r.toldTheTheme && r.answered;
       }
 
       if (mode === 'exportpptx' || mode === 'exportfail') {
@@ -783,9 +791,32 @@
         r.pdfRowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent)
           .some((t) => /Export a PDF handout/.test(t));
         press('Escape');
+        // told the theme on screen (#547) — aurora, the linked one
+        r.toldTheTheme = CALLS.post.find((c) => c.u.includes('/edit/export'))?.body.theme === 'aurora';
+
+        let themedOk = true;
+        if (mode === 'exportpptx') {
+          // A theme that lives only in this browser — a roll nobody saved —
+          // cannot be named to a fresh render. Nothing is sent that it would
+          // not recognise, and the row says the file will be in the deck's own.
+          if (document.querySelector(Q)) press('Escape');  // the first Esc above cleared the query
+          press('t', { ctrlKey: true });   // ⌃T rolls a generated theme
+          await settle();
+          const posts = CALLS.post.filter((c) => c.u.includes('/edit/export')).length;
+          press('/');
+          for (const ch of 'powerpoint') press(ch);
+          press('Enter');
+          await settle();
+          await settle();
+          const second = CALLS.post.filter((c) => c.u.includes('/edit/export'));
+          r.localThemeNotSent = second.length === posts + 1 && !('theme' in second.at(-1).body);
+          // the row is rewritten by the answer; the log keeps what it said first
+          r.localThemeSaidSo = deck.messages().some((m) => /in the deck's own theme: gen-[\w-]+ is only in this browser/.test(m.text));
+          themedOk = r.toldTheTheme && r.localThemeNotSent && r.localThemeSaidSo;
+        }
 
         r.PASS = r.rowIsThere && r.closesOnRun && r.saysItStarted && r.saysWhereItIs
-          && r.oneRowNotMany && r.posted && r.answered && r.pdfRowIsThere;
+          && r.oneRowNotMany && r.posted && r.answered && r.pdfRowIsThere && themedOk;
       }
 
       // PRESENTING: publishing from inside the deck. Everything else the

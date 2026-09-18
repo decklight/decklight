@@ -73,12 +73,15 @@ test('every served response carries the present CSP header', async () => {
   assert.equal(seen.csp, CSP, 'the deck is served under the same policy present enforces');
 });
 
-test('--drive and --theme are injected into the deck response in memory', async () => {
+test('--drive is injected into the deck response in memory; --theme rides the URL', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-shot-drive-'));
   writeFileSync(path.join(dir, 'run.mjs'), 'window.__DROVE__ = 1;');
-  const seen = await runShot(['--theme', 'aurora', '--drive', path.join(dir, 'run.mjs')]);
+  const seen = await runShot(['--theme', 'eclipse', '--drive', path.join(dir, 'run.mjs')]);
   assert.match(seen.body, /window\.__DROVE__ = 1;/, 'the driver snippet is in the served deck');
-  assert.match(seen.body, /themes\/aurora\.css/, 'the --theme link is injected');
+  // ?theme= reaches an inline block, an added one or a file alike; a <link> to
+  // themes/<name>.css reached only a file (#547)
+  assert.match(seen.meta.url, /\/deck\.html\?theme=eclipse$/, 'the theme is asked for on the URL');
+  assert.doesNotMatch(seen.body, /themes\/eclipse\.css/, 'and no link to a file is injected');
   assert.match(seen.body, /window\.__deck/, 'the boot shim (press/sleep/__deck) is present');
   rmTemp(dir);
 });

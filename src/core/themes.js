@@ -137,8 +137,14 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // link-mode theme swaps load a stylesheet asynchronously — re-read then
   themeLink?.addEventListener('load', updateCanvas);
 
-  function applyTheme(name, silent = false) {
-    if (!name || !/^[\w-]+$/.test(name)) return;
+  /**
+   * Switch to `name`. True when it took, false for a name this deck cannot
+   * show. `persist: false` applies without remembering — the deck's configured
+   * default is where it opens, not a pick somebody made, and saving it would
+   * freeze today's default in over tomorrow's.
+   */
+  function applyTheme(name, silent = false, { persist = true } = {}) {
+    if (!name || !/^[\w-]+$/.test(name)) return false;
     let unsavedGen = false;
     if (genTheme && genStyle && name === genTheme.name) {
       genStyle.media = 'all';
@@ -153,24 +159,26 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       el.media = 'all';
       deactivateTokenStyles(el);
     } else {
-      if (!hasThemes) return;
+      if (!hasThemes) return false;
+      if (inlineThemes && !themeStyles.some((s) => s.dataset.theme === name)) return false; // not embedded in this bundle
       deactivateTokenStyles(null); // stock theme takes over
       if (inlineThemes) {
         const target = themeStyles.find((s) => s.dataset.theme === name);
-        if (!target) return; // not embedded in this bundle
         themeStyles.forEach((s) => { s.media = s === target ? 'all' : 'not all'; });
       } else {
         themeLink.href = themeLink.href.replace(/themes\/[\w-]+\.css(\?.*)?$/, `themes/${name}.css`);
       }
     }
-    // Embedded instances (e.g. picker preview iframes) must not persist; nor
-    // can an unsaved generated autoname (it wouldn't resolve after reload).
-    if (!params.has('embedded') && !unsavedGen) {
+    // Embedded instances (e.g. picker preview iframes) must not persist, nor a
+    // render (`?capture`), nor the configured default (above); nor can an
+    // unsaved generated autoname (it wouldn't resolve after reload).
+    if (persist && !params.has('embedded') && !params.has('capture') && !unsavedGen) {
       writePref(themeKey, name);
     }
     if (!silent) toast(name);
     debugLog('theme', name);
     updateCanvas(); // inline/generated swaps take effect synchronously
+    return true;
   }
   // ── theme packs (SPEC PRESENTING) — baked from themes/packs.json at build time ────
   const PACKS = typeof __DECKLIGHT_PACKS__ !== 'undefined' ? __DECKLIGHT_PACKS__ : null;
@@ -356,8 +364,17 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   /**
    * The theme this deck opens on. ?gen=<base64url {name, tokens}> applies a
    * generated theme statelessly — the picker's preview mechanism for themes
-   * that have no file. Otherwise ?theme=/the saved choice as usual (saved may
-   * name a custom theme, which applyTheme materializes from localStorage).
+   * that have no file. Otherwise the first of these this deck can show:
+   * `?theme=`, the saved choice (which may name a custom theme, materialized
+   * from localStorage), then the deck's configured `theme` — and failing all
+   * three, whatever the markup already selects (the first inline block).
+   *
+   * The configured theme used to be missing from this chain (#547): a deck
+   * whose themes are inline blocks — every `upgrade --link` deck — is never
+   * given a theme link, so `"theme": "confluent"` in its config block did
+   * nothing and the deck opened on its first block. In link mode it is skipped
+   * for a stock theme: the server already linked it, and the link is the
+   * deck's own statement of the same thing.
    */
   function restoreSaved() {
     const genParam = params.get('gen');
@@ -370,10 +387,12 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         }
       } catch { /* malformed param — fall through to normal theme resolution */ }
     }
-    let saved = null;
-    saved = readPref(themeKey);
-    const requested = params.get('theme') || saved;
-    if (requested) applyTheme(requested, true);
+    const requested = params.get('theme');
+    if (requested && applyTheme(requested, true)) return;
+    const saved = readPref(themeKey);
+    if (saved && applyTheme(saved, true)) return;
+    const configured = config.theme;
+    if (configured && (inlineThemes || addedThemes.has(configured))) applyTheme(configured, true, { persist: false });
   }
 
   // ----- theme picker: list + live minified preview of the current slide ----
@@ -739,6 +758,18 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   return {
     applyTheme,
     currentTheme,
+    /**
+     * The theme on screen, as an export should ask for it (#547): `{ theme }`
+     * when a fresh load of this deck can show it — one of its own blocks, an
+     * added one, a file — and `{ local }` for one that lives only in this
+     * browser (a saved custom theme, an unsaved roll), which a render on a
+     * clean profile cannot see.
+     */
+    renderTheme() {
+      const name = currentTheme();
+      if (!name) return {};
+      return customThemes[name] || (genTheme && name === genTheme.name) ? { local: name } : { theme: name };
+    },
     themeList,
     cycleTheme,
     cancelCyclePending,
