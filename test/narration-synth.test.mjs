@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import {
   synthesizeSlides, trackFormat, voiceDrift, readTrack, TRACK_FORMATS, readWav, joinWav,
 } from '../tools/narration-synth.mjs';
-import { recorderManifest, slideTexts, staleSlides } from '../tools/narration-manifest.mjs';
+import { recorderManifest, slideTexts, priorSlideTexts, manifestHash, staleSlides } from '../tools/narration-manifest.mjs';
 import { createTtsCache } from '../tools/tts-cache.mjs';
 import { createEngine } from '../tools/tts-engines.mjs';
 import { tmp, writeFakePiper } from './helpers.mjs';
@@ -130,6 +130,29 @@ test('a track the deck\'s recorder made is refreshed as that track — kept, and
   assert.deepEqual(manifest.slides.map((s) => s.file), ['slide-01.wav', 'slide-02.wav', 'slide-03.wav']);
 });
 
+test('a deck-recorded slide stamped over the old reading of an entity is kept and re-stamped; a synthesized one is re-voiced', async (t) => {
+  const html = deck(['One &mdash; two.', 'Plain.']);
+  const header = { engine: 'fake', model: 'm1', voice: 'v1', style: 'warm' };
+  const old = priorSlideTexts(html);
+  const track = (dir, extra) => {
+    const m = { ...header, ...extra, slides: old.map((t2, i) => ({ file: `slide-0${i + 1}.wav`, hash: manifestHash(header, t2) })) };
+    mkdirSync(dir, { recursive: true });
+    for (const s of m.slides) writeFileSync(path.join(dir, s.file), 'a take');
+    writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(m));
+    return m;
+  };
+
+  const recDir = tmp('synth-entity-rec', t);
+  const rec = await run({ html, dir: recDir, tts: fakeTts(), format: 'wav', prev: track(recDir, { recorder: 'deck' }) });
+  assert.equal(rec.skipped, 2, 'the recorder voiced the decoded words all along');
+  assert.deepEqual(staleSlides(rec.manifest, slideTexts(html)).stale, [], 're-stamped: current by the new reading alone');
+
+  const coreDir = tmp('synth-entity-core', t);
+  const tts = fakeTts();
+  await run({ html, dir: coreDir, tts, format: 'wav', prev: track(coreDir, {}) });
+  assert.deepEqual(tts.said, ['One — two.'], 'the core spoke the entity\'s name: that slide is voiced again, decoded');
+});
+
 test('a ranged run in another voice is refused before anything is written', async (t) => {
   const dir = tmp('synth-drift', t);
   await run({ html: THREE, dir, tts: fakeTts(), format: 'wav' });
@@ -180,6 +203,28 @@ test('a ⟨PAUSE⟩ is never spoken: the words either side are voiced apart and 
   const again = fakeTts();
   assert.equal((await run({ html, dir, tts: again, format: 'wav', prev: readTrack(dir) })).skipped, 2);
   assert.equal(again.said.length, 0, 'a rerun is free');
+});
+
+test('a ⟨SLOW⟩ stretch is its own clip, said at the deck\'s slow rate — and the marker never reaches the engine', async (t) => {
+  const dir = tmp('synth-slow', t);
+  const calls = [];
+  const tts = fakeTts();
+  const inner = tts.synth;
+  tts.synth = Object.assign(async (text, opts) => { calls.push([text, opts?.rate ?? 1]); return inner(text, opts); }, inner);
+  const cfg = '<script type="application/json" data-decklight-config>{"narration":{"slowRate":0.7}}</script>';
+  const html = deck(['We filter [slow]before we sort[/slow], because it saves work.', 'Plain.']).replace('</body>', `${cfg}</body>`);
+  const { manifest } = await run({ html, dir, tts, format: 'wav' });
+  assert.deepEqual(calls, [['We filter', 1], ['before we sort,', 0.7], ['because it saves work.', 1], ['Plain.', 1]]);
+  assert.equal(readFileSync(path.join(dir, 'slide-01.txt'), 'utf8'), 'We filter ⟨SLOW⟩before we sort⟨/SLOW⟩, because it saves work.',
+    'the script beside the audio keeps the stretch — it is part of what was recorded');
+  assert.equal(readWav(readFileSync(path.join(dir, manifest.slides[0].file))).data.length, 3 * 64, 'three clips, joined with no gap');
+  assert.deepEqual(staleSlides(manifest, slideTexts(html)).stale, []);
+
+  // the stretch is part of the take: marking a slide slow re-voices it
+  const plain = deck(['We filter before we sort, because it saves work.', 'Plain.']);
+  assert.deepEqual(staleSlides(manifest, slideTexts(plain)).stale, [1]);
+  const again = fakeTts();
+  assert.equal((await run({ html, dir, tts: again, format: 'wav', prev: readTrack(dir) })).skipped, 2);
 });
 
 test('adding a ⟨PAUSE⟩ to a voiced slide re-voices it — the old take has no silence in it', async (t) => {

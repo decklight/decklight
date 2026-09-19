@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { clipKey } from '../tools/tts-cache.mjs';
 import { createEngine } from '../tools/tts-engines.mjs';
-import { manifestKey, manifestHash, legacyHash, entryMatches, staleSlides, slideTexts, recorderManifest, markerPauses, BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
+import { manifestKey, manifestHash, legacyHash, entryMatches, staleSlides, slideTexts, priorSlideTexts, recorderManifest, markerPauses, BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 
 const DECK = `<div class="decklight">
 <section><h1>One</h1><aside class="notes"><p>Hello there.</p><p>⟨CLICK⟩</p><p>Second beat.</p></aside></section>
@@ -104,6 +104,33 @@ test('a ⟨PAUSE⟩ stays in the hashed text: a recording bakes it, so adding or
   const fresh = { ...header, slides: [{ file: 'slide-01.wav', hash: manifestHash(header, added[0]) }] };
   assert.deepEqual(staleSlides(fresh, moved).stale, [1], 'the hold moved, so the audio did');
   assert.deepEqual(staleSlides(fresh, added).stale, [], 'and a take made with it is fresh');
+});
+
+// ── entities decode as the browser reads them ─────────────────────────────
+
+test('a deck-recorded slide stamped over the old, undecoded reading stays fresh; a synthesized one is stale', () => {
+  const header = { engine: 'piper', model: 'en_US-ryan-high', voice: 'en_US-ryan-high', style: '' };
+  const html = '<section><h1>A</h1><aside class="notes"><p>One &mdash; two.</p><p>&#10216;CLICK&#10217;</p><p>Three.</p></aside></section>'
+    + '<section><h1>B</h1><aside class="notes"><p>Plain.</p></aside></section>';
+  const texts = slideTexts(html);
+  const prior = priorSlideTexts(html);
+  assert.deepEqual(texts, ['One — two. Three.', 'Plain.'], 'decoded, the marker a marker');
+  assert.deepEqual(prior, ['One &mdash; two. &#10216;CLICK&#10217; Three.', 'Plain.'], 'what the file used to read');
+  const slides = prior.map((t, i) => ({ file: `slide-0${i + 1}.wav`, hash: manifestHash(header, t) }));
+
+  // the deck's recorder voiced the browser's reading all along: only its stamp is old
+  const deckTrack = { ...header, recorder: 'deck', slides };
+  assert.deepEqual(staleSlides(deckTrack, texts, null, prior).stale, []);
+  assert.deepEqual(staleSlides(deckTrack, texts).stale, [1], 'without the old reading it would be flagged');
+  // the synthesis core SPOKE the entity's name — flagging it is the fix
+  assert.deepEqual(staleSlides({ ...header, slides }, texts, null, prior).stale, [1]);
+});
+
+test('a deck written only in the canonical markers hashes as it did; a [pause] that used to be spoken now holds', () => {
+  const deck = (notes) => `<section><h1>A</h1><aside class="notes">${notes}</aside></section>`;
+  assert.deepEqual(slideTexts(deck('<p>One. ⟨PAUSE⟩ Two.</p><p>⟨CLICK⟩</p><p>Three.</p>')), ['One. ⟨PAUSE⟩ Two. Three.']);
+  assert.deepEqual(slideTexts(deck('<p>One. [pause] Two.</p><p>[click]</p><p>Three.</p>')), ['One. ⟨PAUSE⟩ Two. Three.'],
+    'the same take: the spelling is not the audio');
 });
 
 test('markerPauses: two beat pauses — the slide\'s attribute, else the deck\'s narration.beatPause, else the default', () => {

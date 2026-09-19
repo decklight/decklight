@@ -12,13 +12,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
-import { pauseRuns, stripPauses, PAUSE_MARK } from '../tools/sentences.mjs';
+import { speechRuns, closeSlow, slowSentence, slowRateOf, SLOW_RATE, stripPauses, PAUSE_MARK, canonMarks, markTags, notesMarks, spoken } from '../tools/sentences.mjs';
+
+// speechRuns as the ⟨PAUSE⟩ tests read it: words and holds, nothing slow here
+const pauseRuns = (t) => { const { lead, runs } = speechRuns(t); return { lead, runs: runs.map(({ text, pause }) => ({ text, pause })) }; };
 import { BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 
 import {
   hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack, parseVoiceQuery, voiceMatches,
-  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, stepPlan,
+  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, notesPlain, stepPlan,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -464,8 +467,18 @@ test('micWhy names the fix for each way a microphone refuses, and escapes the re
 // it was the last time. The memo is validated by the notes' own text, so
 // nothing has to remember to invalidate it.
 
+// A stand-in `aside.notes`: what notesSegsOf reads — its markup, to validate
+// the memo, and its child nodes, to walk. Text only; element children are
+// built by hand where a test needs one.
+const asideOf = (text) => ({
+  set text(t) { this.innerHTML = t; this.childNodes = [{ nodeType: 3, data: t }]; },
+  innerHTML: text, childNodes: [{ nodeType: 3, data: text }],
+});
+const el = (localName, ...childNodes) => ({ nodeType: 1, localName, childNodes });
+const txt = (data) => ({ nodeType: 3, data });
+
 test('the same notes are segmented once and handed back as the same list', () => {
-  const aside = { textContent: 'One. ⟨CLICK⟩ Two.' };
+  const aside = asideOf('One. ⟨CLICK⟩ Two.');
   const first = notesSegsOf(aside);
   assert.deepEqual(first, ['One.', 'Two.']);
   assert.equal(notesSegsOf(aside), first, 'notes that had not changed were split a second time');
@@ -473,11 +486,11 @@ test('the same notes are segmented once and handed back as the same list', () =>
 
 test('notes rewritten under a live deck re-segment, with nobody telling the cache', () => {
   // The author server re-renders a slide in place, so the aside a running deck
-  // holds can be handed new words at any moment. The text IS the validity
+  // holds can be handed new words at any moment. The markup IS the validity
   // check, which is exactly why the editor needs to know nothing about this.
-  const aside = { textContent: 'One.' };
+  const aside = asideOf('One.');
   assert.deepEqual(notesSegsOf(aside), ['One.']);
-  aside.textContent = 'One. ⟨CLICK⟩ Two.';
+  aside.text = 'One. ⟨CLICK⟩ Two.';
   const after = notesSegsOf(aside);
   assert.deepEqual(after, ['One.', 'Two.'], 'the deck would go on speaking the old notes');
   assert.equal(notesSegsOf(aside), after, 'and the new ones are memoized in their turn');
@@ -486,10 +499,67 @@ test('notes rewritten under a live deck re-segment, with nobody telling the cach
 test('every part of the split is kept, and a slide with no notes is still one segment', () => {
   // Segment k narrates build step k, so an empty ⟨CLICK⟩ part is a silent
   // beat, not a nothing to drop — the difference from notesSegments in tools/.
-  assert.deepEqual(notesSegsOf({ textContent: ' ⟨CLICK⟩ A ⟨CLICK⟩ B ' }), ['', 'A', 'B']);
-  assert.deepEqual(notesSegsOf({ textContent: 'A\n\n  B' }), ['A B'], 'whitespace collapses');
+  assert.deepEqual(notesSegsOf(asideOf(' ⟨CLICK⟩ A ⟨CLICK⟩ B ')), ['', 'A', 'B']);
+  assert.deepEqual(notesSegsOf(asideOf('A\n\n  B')), ['A B'], 'whitespace collapses');
   assert.deepEqual(notesSegsOf(null), [''], 'a slide with no aside still has a step 0');
   assert.deepEqual(notesSegsOf(undefined), ['']);
+});
+
+// ── every spelling of a marker is the marker ──────────────────────────────
+
+test('canonMarks: every spelling of pause, click and slow — any case, either bracket — is the canonical marker', () => {
+  for (const w of ['[pause]', '[Pause]', '[PAUSE]', '<pause>', '<Pause>', '<PAUSE>', '&lt;pause&gt;', '⟨pause⟩', '[ pause ]', '<pause/>']) {
+    assert.equal(canonMarks(`A. ${w} B.`), 'A. ⟨PAUSE⟩ B.', w);
+  }
+  for (const w of ['[click]', '[Click]', '[CLICK]', '<click>', '<Click>', '<CLICK>', '&lt;CLICK&gt;']) {
+    assert.equal(canonMarks(`A. ${w} B.`), 'A. ⟨CLICK⟩ B.', w);
+  }
+  assert.equal(canonMarks('[slow]A[/slow] <SLOW>B</Slow> &lt;slow&gt;C&lt;/slow&gt;'), '⟨SLOW⟩A⟨/SLOW⟩ ⟨SLOW⟩B⟨/SLOW⟩ ⟨SLOW⟩C⟨/SLOW⟩');
+  assert.equal(canonMarks('A [/pause] [/click] B'), 'A   B', 'a pause or a click has nothing to close');
+});
+
+test('canonMarks leaves everything else in brackets alone, and the canonical forms as they are', () => {
+  const prose = 'See [1], the [ ] box, [data-mouth], <script>, [pauses] and [click here].';
+  assert.equal(canonMarks(prose), prose);
+  assert.equal(canonMarks('[pause>'), '[pause>', 'the brackets must pair');
+  const canonical = 'One. ⟨PAUSE⟩ Two. ⟨CLICK⟩ Three.';
+  assert.equal(canonMarks(canonical), canonical, 'a deck using only these reads — and hashes — as before');
+});
+
+test('markTags: marker elements in markup, as the parser sees them', () => {
+  assert.equal(markTags('<p>One. <pause> Two. <click>Three.</click></p>'), '<p>One. ⟨PAUSE⟩ Two. ⟨CLICK⟩Three.</p>');
+  assert.equal(markTags('<p>A <PAUSE></PAUSE> B <Click class="x">C</p>'), '<p>A ⟨PAUSE⟩ B ⟨CLICK⟩C</p>', 'any case, attributes and all');
+  assert.equal(markTags('<p>A <slow>b c</slow> d.</p>'), '<p>A ⟨SLOW⟩b c⟨/SLOW⟩ d.</p>');
+  assert.equal(markTags('<p>A <slow>b. C.</p><p>D.</p>'), '<p>A ⟨SLOW⟩b. C.⟨/SLOW⟩</p><p>D.</p>',
+    'an unclosed <slow> ends where the parser ends it: its paragraph');
+  assert.equal(markTags('<p>A <slow>b<p>C.'), '<p>A ⟨SLOW⟩b⟨/SLOW⟩<p>C.', 'a new paragraph closes the old one');
+  assert.equal(markTags('A <slow>b'), 'A ⟨SLOW⟩b⟨/SLOW⟩', 'or the end of the notes');
+  assert.equal(markTags('A </slow> <slow>b <slow>c</slow> d'), 'A  ⟨SLOW⟩b c⟨/SLOW⟩ d', 'a stray close and a nested opener are nothing');
+  assert.equal(notesMarks('<p>A [pause] <click>B</p>'), '<p>A ⟨PAUSE⟩ ⟨CLICK⟩B</p>');
+});
+
+test('spoken: what is left of a text once the markers are gone', () => {
+  assert.equal(spoken(' A ⟨PAUSE⟩ ⟨SLOW⟩b⟨/SLOW⟩  c '), 'A b c');
+  assert.equal(spoken('⟨PAUSE⟩ ⟨SLOW⟩ ⟨/SLOW⟩'), '');
+});
+
+test('a person\'s spelling of a marker cuts, holds and slows like the canonical one', () => {
+  assert.deepEqual(notesSegsOf(asideOf('One. [click] Two. [CLICK] Three. <Click> Four.')), ['One.', 'Two.', 'Three.', 'Four.']);
+  assert.deepEqual(notesSegsOf(asideOf('Look. [pause] Now [Slow]slowly[/SLOW].')), ['Look. ⟨PAUSE⟩ Now ⟨SLOW⟩slowly⟨/SLOW⟩.'],
+    'the editor reads these segments back: a ⟨SLOW⟩ it did not see would be deleted by the next save');
+});
+
+test('notesPlain reads a marker ELEMENT as its marker — textContent sees nothing there', () => {
+  // `<p>One. <click>Two.</click></p>` as the parser builds it: an unclosed
+  // <click> wraps the words after it, which stay words
+  const aside = el('aside', el('p', txt('One. '), el('click', txt('Two. '), el('pause'), txt(' Three '), el('slow', txt('slowly')), txt('.'))));
+  assert.equal(notesPlain(aside), 'One. ⟨CLICK⟩Two. ⟨PAUSE⟩ Three ⟨SLOW⟩slowly⟨/SLOW⟩.');
+  assert.deepEqual(notesSegsOf(Object.assign(aside, { innerHTML: 'x' })), ['One.', 'Two. ⟨PAUSE⟩ Three ⟨SLOW⟩slowly⟨/SLOW⟩.']);
+  assert.equal(notesPlain(el('aside', { nodeType: 8, data: 'a comment' }, txt('Said.'))), 'Said.', 'comments are not text, as in textContent');
+});
+
+test('a segment of nothing but markers has no take: it is not a file, and the recorder skips it', () => {
+  assert.deepEqual(segmentFileIndex(['One.', '⟨SLOW⟩ ⟨/SLOW⟩', 'Two.']), [1, null, 2]);
 });
 
 // ── the live clip key carries the sentence (#537) ─────────────────────────
@@ -513,6 +583,27 @@ test('⟨PAUSE⟩ belongs to the words before it — between sentences, attached
   assert.deepEqual(pauseRuns('One.⟨PAUSE⟩ Two.'), between);   // attached to the end of a sentence
   assert.deepEqual(pauseRuns('One. ⟨PAUSE⟩Two.'), between);   // or to the start of the next
   assert.deepEqual(pauseRuns('One.\n\n⟨PAUSE⟩\n\nTwo.'), between);   // or a paragraph of its own
+});
+
+// ── ⟨SLOW⟩: a stretch said slowly ────────────────────────────────────────
+
+test('an unclosed ⟨SLOW⟩ lasts to the end of its sentence; a close ends it where it stands', () => {
+  assert.equal(closeSlow('⟨SLOW⟩The rule of thumb. Then more.'), '⟨SLOW⟩The rule of thumb.⟨/SLOW⟩ Then more.');
+  assert.equal(closeSlow('Now ⟨SLOW⟩this part⟨/SLOW⟩ and on.'), 'Now ⟨SLOW⟩this part⟨/SLOW⟩ and on.');
+  assert.equal(closeSlow('A ⟨SLOW⟩b ⟨SLOW⟩c⟨/SLOW⟩ d ⟨/SLOW⟩ e.'), 'A ⟨SLOW⟩b c⟨/SLOW⟩ d  e.', 'a nested opener and a stray close are nothing');
+  assert.equal(closeSlow('⟨SLOW⟩no full stop'), '⟨SLOW⟩no full stop⟨/SLOW⟩', 'or the end of the beat');
+  assert.equal(closeSlow('⟨SLOW⟩“Quoted.” Next.'), '⟨SLOW⟩“Quoted.”⟨/SLOW⟩ Next.', 'closing quotes stay on the sentence');
+});
+
+test('speechRuns cuts at slow edges: the rate, the glue, and punctuation kept on the stretch it ends', () => {
+  const r = (t) => speechRuns(t).runs.map(({ text, slow, glue, pause }) => [text, slow, glue, pause]);
+  assert.deepEqual(r('We filter ⟨SLOW⟩before we sort⟨/SLOW⟩, because it saves work.'), [
+    ['We filter', false, true, 0], ['before we sort,', true, true, 0], ['because it saves work.', false, false, 0]]);
+  assert.deepEqual(r('⟨SLOW⟩The rule. Then more.'), [['The rule.', true, false, 0], ['Then more.', false, false, 0]],
+    'a whole sentence, cut at its full stop: no glue, the breath is taken');
+  assert.deepEqual(r('A ⟨SLOW⟩b ⟨PAUSE⟩ c⟨/SLOW⟩ d.'), [['A', false, true, 0], ['b', true, false, 1], ['c', true, true, 0], ['d.', false, false, 0]],
+    'a hold inside a stretch holds; the stretch goes on after it');
+  assert.deepEqual(r('No marker at all.'), [['No marker at all.', false, false, 0]]);
 });
 
 test('⟨PAUSE⟩ repeated holds that many times; one before any word holds first; one mid-sentence cuts it', () => {
@@ -549,11 +640,27 @@ test('a hold before or after the ⟨CLICK⟩ lands on its own side of the build'
 });
 
 test('a beat of nothing but ⟨PAUSE⟩ is a bare hold — or, folded behind words, holds after them', () => {
-  assert.deepEqual(stepPlan(['⟨PAUSE⟩']), { sentences: [], segStarts: new Set(), segRuns: [], before: [], after: [], bare: 1 });
+  assert.deepEqual(stepPlan(['⟨PAUSE⟩']), { sentences: [], segStarts: new Set(), segRuns: [], before: [], after: [], glue: [], bare: 1 });
   // the last step folds every remaining segment: the lone marker follows "A."
   const folded = stepPlan(['A.', '⟨PAUSE⟩']);
   assert.deepEqual(folded.after, [1]);
   assert.equal(folded.bare, 0);
+});
+
+test('stepPlan: a slow sentence is carried with ⟨SLOW⟩ at its head, and no breath is taken at a mid-sentence edge', () => {
+  const plan = stepPlan(['We filter ⟨SLOW⟩before we sort⟨/SLOW⟩, because it saves work. [slow]Filter first.'.replace('[slow]', '⟨SLOW⟩')]);
+  assert.deepEqual(plan.sentences, ['We filter', '⟨SLOW⟩before we sort,', 'because it saves work.', '⟨SLOW⟩Filter first.']);
+  assert.deepEqual(plan.glue, [true, true, false, false]);
+  assert.deepEqual(plan.sentences.map((t) => slowSentence(t)), [
+    { text: 'We filter', slow: false }, { text: 'before we sort,', slow: true },
+    { text: 'because it saves work.', slow: false }, { text: 'Filter first.', slow: true }]);
+});
+
+test('slowRateOf: the deck\'s narration.slowRate between 0.5 and 1, else 0.85', () => {
+  assert.equal(SLOW_RATE, 0.85);
+  assert.equal(slowRateOf(undefined), 0.85);
+  assert.equal(slowRateOf(0.7), 0.7);
+  for (const bad of [0.3, 1.2, '0.7', NaN, null]) assert.equal(slowRateOf(bad), 0.85, String(bad));
 });
 
 test('a notes text with no marker plans exactly as it did before markers existed', () => {
@@ -567,7 +674,7 @@ test('a beat of nothing but ⟨PAUSE⟩ has no take — no file number, no recor
   const notes = 'A. ⟨CLICK⟩ ⟨PAUSE⟩ ⟨CLICK⟩ B.';
   const segs = notes.split('⟨CLICK⟩');
   assert.deepEqual(segmentFileIndex(segs), [1, null, 2]);
-  assert.deepEqual(notesSegments(notes, { pauses: true }), ['A.', 'B.']);
+  assert.deepEqual(notesSegments(notes, { marks: true }), ['A.', 'B.']);
   assert.deepEqual(recordPlan(segs, 2).map((b) => b.file), [1, 2]);
   // a reader is shown the marker — it is their cue to hold
   assert.equal(recordPlan(['A. ⟨PAUSE⟩ B.', 'C.'], 1)[0].text, 'A. ⟨PAUSE⟩ B.');

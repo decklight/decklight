@@ -19,22 +19,25 @@
 import { createHash } from 'node:crypto';
 import { cacheKey } from './tts-cache.mjs';
 import { V3_MODEL as ELEVENLABS_V3_MODEL } from './elevenlabs-tts.mjs';
-import { sectionBodies, NOTES_ASIDE, cleanNotes, isHiddenSection } from './deck-html.mjs';
+import { sectionBodies, NOTES_ASIDE, cleanNotes, readNotes, isHiddenSection } from './deck-html.mjs';
 import { deckConfig } from '../cli/runtime-link.mjs';
+import { PAUSE_MARK, slowRateOf } from './sentences.mjs';
 
 /**
  * Each slide's notes as WRITTEN — the notes aside's markup, or a markdown
  * Note: block, ⟨CLICK⟩ markers and all; '' for a hidden slide (no file, and
  * the numbering stays) or one with no notes. Index i is slide i+1. The raw
- * form is what the ⟨CLICK⟩ beats are cut from (tools/narration-synth.mjs).
+ * form is what the ⟨CLICK⟩ beats are cut from (tools/narration-synth.mjs), so
+ * every marker comes back in its canonical form (`readNotes`): entity
+ * brackets, `[click]`, `<pause>` and the rest, the way the runtime reads them.
  */
 export function slideNotes(html) {
   return sectionBodies(html).map((sec) => {
     if (isHiddenSection(sec)) return '';
     const aside = sec.match(NOTES_ASIDE);
-    if (aside) return aside[1];
+    if (aside) return readNotes(aside[1]);
     const md = sec.match(/^Note:\s*$([\s\S]*?)(?=^Rehearse:\s*$|<\/script>)/m);
-    return md ? md[1] : '';
+    return md ? readNotes(md[1]) : '';
   });
 }
 
@@ -49,7 +52,26 @@ export function slideNotes(html) {
  * any more, and this is the text the hash is taken over. A slide with no
  * marker reads exactly as it did before markers existed: no track churns.
  */
-export const slideTexts = (html) => slideNotes(html).map((raw) => (raw ? cleanNotes(raw, { pauses: true }) : ''));
+export const slideTexts = (html) => slideNotes(html).map((raw) => (raw ? cleanNotes(raw, { marks: true }) : ''));
+
+/**
+ * Each slide's narration text as this file read it before it decoded entities
+ * beyond `&lt; &gt; &amp;` — `&mdash;` was the letters of its name, and a
+ * marker written with entity brackets was not a marker.
+ *
+ * Only the DECK's recorder (`recorder: 'deck'`) needs it: it voiced the
+ * browser's reading, which always decoded, but was stamped over this one, so a
+ * slide of it whose stamp matches this text is still these words — not stale
+ * because the reader got better. A track the synthesis core voiced from this
+ * text spoke the entity's name, and being flagged is the fix.
+ */
+export const priorSlideTexts = (html) => sectionBodies(html).map((sec) => {
+  if (isHiddenSection(sec)) return '';
+  const raw = sec.match(NOTES_ASIDE)?.[1] ?? sec.match(/^Note:\s*$([\s\S]*?)(?=^Rehearse:\s*$|<\/script>)/m)?.[1];
+  return raw ? raw.replace(/⟨CLICK⟩/g, ' ').replace(/⟨PAUSE⟩/g, ` ${PAUSE_MARK} `).replace(/<[^>]+>/g, ' ')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ').trim() : '';
+});
 
 /**
  * The built-in beat pause, mirrored from the runtime (src/core/narration.js
@@ -76,6 +98,13 @@ export function markerPauses(html) {
     return 2 * (Number.isFinite(n) && n >= 0 ? n : deck);
   });
 }
+
+/**
+ * The rate a ⟨SLOW⟩ stretch is said at in this deck: its configuration block's
+ * `narration.slowRate`, bounded the way the runtime bounds it — the same
+ * function (tools/sentences.mjs `slowRateOf`), so the two cannot disagree.
+ */
+export const slowRateIn = (html) => slowRateOf(deckConfig(html)?.narration?.slowRate);
 
 /**
  * The key fields for a manifest header, the way `clipKey` derives them from
@@ -128,9 +157,10 @@ export function entryMatches(header, entry, text) {
  * The slides of `manifest` whose audio was voiced from other notes than
  * `texts` — 1-based, within `range` (default: every slide the manifest has).
  * `hashless` counts the entries with no hash at all, which are exempt and
- * worth one line rather than a verdict.
+ * worth one line rather than a verdict. `prior` (`priorSlideTexts`) lets a
+ * deck-recorded slide stamped under the old reading of the file stand.
  */
-export function staleSlides(manifest, texts, range = null) {
+export function staleSlides(manifest, texts, range = null, prior = null) {
   const out = { stale: [], hashless: 0 };
   const slides = manifest?.slides ?? [];
   for (let i = 0; i < slides.length; i++) {
@@ -139,7 +169,9 @@ export function staleSlides(manifest, texts, range = null) {
     const entry = slides[i];
     if (!entry) continue;
     if (!entry.hash) { out.hashless++; continue; }
-    if (!entryMatches(manifest, entry, texts[i] ?? '')) out.stale.push(n);
+    if (entryMatches(manifest, entry, texts[i] ?? '')) continue;
+    if (manifest.recorder === 'deck' && prior?.[i] && entryMatches(manifest, entry, prior[i])) continue;
+    out.stale.push(n);
   }
   return out;
 }

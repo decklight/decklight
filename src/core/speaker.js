@@ -6,9 +6,8 @@
 // file:// too — no server needed). Thumbnails are iframes of the same deck
 // in ?embedded mode, driven by src hash.
 
-const CLICK_MARK = /⟨CLICK⟩|&lt;CLICK&gt;|<click(?:\s[^>]*)?>(?:<\/click>)?/gi;
-
 import { readJson, writeJson } from './prefs.js';
+import { notesMarks, CLICK_MARK, PAUSE_MARK, SLOW_OPEN, SLOW_CLOSE } from '../../tools/sentences.mjs';
 
 /** Where a deck's rehearsal lives when no author server can write it into the file. */
 // `location` exists in the deck; the unit tests build speakerState without one
@@ -36,8 +35,19 @@ export function paceLine({ slide, spent, planned, total, plannedTotal }) {
   return { text: `${here}${verdict} · ${sum}`, over: !!planned && delta > 5 };
 }
 
+/**
+ * Notes markup cut into its ⟨CLICK⟩ segments, every marker spelling read the
+ * way narration reads it (`notesMarks`, tools/sentences.mjs) — `[click]`,
+ * `<click>`, `&lt;CLICK&gt;` all cut — so the segment the view lights is the
+ * one the voice is on. A hold shows as a cue beside CLICK's; a slow stretch
+ * is set in italics. The popup re-balances each segment's markup, which also
+ * closes a slow stretch the split cut through.
+ */
 export function notesSegments(notesHtml) {
-  return (notesHtml || '').split(CLICK_MARK);
+  return notesMarks(notesHtml || '').split(CLICK_MARK).map((seg) => seg
+    .replaceAll(PAUSE_MARK, '<span class="cue">PAUSE</span>')
+    .replaceAll(SLOW_OPEN, '<em class="slow">')
+    .replaceAll(SLOW_CLOSE, '</em>'));
 }
 
 export function openSpeakerView(instance) {

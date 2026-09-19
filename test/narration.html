@@ -399,7 +399,7 @@
       localStorage.setItem('decklight-onboarded', '1');
       localStorage.setItem('decklight-tips-off', '1');
       const capKey = 'decklight-captions:' + location.pathname;
-      if (mode === 'captions' || mode === 'pausemark') localStorage.setItem(capKey, '1');
+      if (mode === 'captions' || mode === 'pausemark' || mode === 'aliases' || mode === 'slowmark') localStorage.setItem(capKey, '1');
       else localStorage.removeItem(capKey);
     } catch { /* ignore */ }
 
@@ -1607,6 +1607,70 @@
           r.captions = [...shown];
           r.neverCaptioned = r.captions.length > 0 && r.captions.every((t) => !t.includes('⟨'));
           r.PASS = r.heldTheMark && r.saidBoth && r.neverSpoken && r.neverCaptioned;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'aliases') {
+          // A person's spellings, as markup a deck file really holds: <PAUSE>
+          // and <slow> as ELEMENTS (textContent reads nothing there — an unread
+          // one would halve the hold), [click] as text, &lt;pause&gt; escaped.
+          // Each is its marker: two holds, never a word spoken or captioned.
+          const sec = deck._sections[0];
+          sec.querySelector('aside.notes').innerHTML = '<p>First sentence here. <PAUSE></PAUSE> Second <slow>sentence</slow> here.</p>'
+            + '<p>[click]</p><p>Third &lt;pause&gt; sentence here.</p>';
+          sec.dataset.narrationBeatPause = '0.3';
+          sec.dataset.narrationSentencePause = '0';
+          const seen = [];
+          deck.on('slide', () => seen.push({ n: deck.state.slide, at: Date.now() }));
+          const shown = new Set();
+          const watch = setInterval(() => {
+            const t = document.querySelector('.decklight-captions')?.textContent;
+            if (t) shown.add(t);
+          }, 20);
+          const t0 = Date.now();
+          deck.toggleNarration();                                // V
+          await new Promise((ok) => setTimeout(ok, 3000));
+          clearInterval(watch);
+          const left1 = seen.find((x) => x.n === 2);
+          r.took = left1 ? left1.at - t0 : null;
+          r.heldBoth = r.took !== null && r.took >= 1150 && r.took < 2300;
+          r.said = bodies.map((b) => b.text);
+          // the <slow> element is a stretch: its words are a clip of their own
+          r.saidAll = ['First sentence here.', 'Second', 'sentence', 'here.', 'Third', 'sentence here.'].every((t) => r.said.includes(t));
+          const marky = (t) => /[⟨[<]/.test(String(t ?? ''));
+          r.neverSpoken = bodies.every((b) => !marky(b.text));
+          r.captions = [...shown];
+          r.neverCaptioned = r.captions.length > 0 && r.captions.every((t) => !marky(t));
+          r.PASS = r.heldBoth && r.saidAll && r.neverSpoken && r.neverCaptioned;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'slowmark') {
+          // ⟨SLOW⟩: a stretch mid-sentence, and a whole sentence opened and
+          // never closed. The bridge must be asked for exactly those at the
+          // deck's slow rate, the rest at the usual pace, and no marker said.
+          const sec = deck._sections[0];
+          sec.querySelector('aside.notes').innerHTML = '<p>We filter <slow>before we sort</slow>, because it saves work. [slow]Filter first. Then sort.</p>';
+          sec.dataset.narrationSentencePause = '0';
+          const shown = new Set();
+          const watch = setInterval(() => {
+            const t = document.querySelector('.decklight-captions')?.textContent;
+            if (t) shown.add(t);
+          }, 20);
+          deck.toggleNarration();                                // V
+          await new Promise((ok) => setTimeout(ok, 1500));
+          clearInterval(watch);
+          const mine = bodies.filter((b) => /filter|sort|saves/i.test(b.text ?? ''));
+          r.asked = mine.map((b) => [b.text, b.rate ?? 1]);
+          const want = [['We filter', 1], ['before we sort,', 0.85], ['because it saves work.', 1], ['Filter first.', 0.85], ['Then sort.', 1]];
+          r.slowExactly = want.every(([t, rate]) => mine.some((b) => b.text === t && (b.rate ?? 1) === rate))
+            && mine.every((b) => want.some(([t]) => t === b.text));
+          r.neverSpoken = bodies.every((b) => !/[⟨[<]/.test(String(b.text ?? '')));
+          r.captions = [...shown];
+          r.neverCaptioned = r.captions.length > 0 && r.captions.every((t) => !/[⟨[<]/.test(t));
+          r.PASS = r.slowExactly && r.neverSpoken && r.neverCaptioned;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

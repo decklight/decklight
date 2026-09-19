@@ -36,7 +36,7 @@ import { sectionBodies, NOTES_ASIDE, cleanNotes } from './deck-html.mjs';
 function notesPerSlide(html) {
   return sectionBodies(html).map((body) => {
     const m = body.match(NOTES_ASIDE);
-    return m ? cleanNotes(m[1], { pauses: true }) : '';
+    return m ? cleanNotes(m[1], { marks: true }) : '';
   });
 }
 

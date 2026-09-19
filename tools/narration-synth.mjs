@@ -31,8 +31,8 @@ import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
-import { slideNotes, manifestHash, markerPauses } from './narration-manifest.mjs';
-import { PAUSE_MARK, pauseRuns, stripPauses } from './sentences.mjs';
+import { slideNotes, priorSlideTexts, manifestHash, markerPauses, slowRateIn } from './narration-manifest.mjs';
+import { PAUSE_MARK, speechRuns, hasSlow, spoken, canonMarks } from './sentences.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -165,10 +165,12 @@ export async function synthesizeSlides({
 }) {
   if (!TRACK_FORMATS.includes(format)) throw new Error(`a track is ${TRACK_FORMATS.join(', ')} — not ${format}`);
   const raw = slideNotes(html);
-  // ⟨PAUSE⟩ markers kept (#560): they are baked into the audio, so they are
-  // part of the text a slide is hashed over and the script written beside it
-  const slides = raw.map((r) => (r ? cleanNotes(r, { pauses: true }) : ''));
+  // ⟨PAUSE⟩ and ⟨SLOW⟩ markers kept (#560): they are baked into the audio, so
+  // they are part of the text a slide is hashed over and the script written
+  // beside it
+  const slides = raw.map((r) => (r ? cleanNotes(r, { marks: true }) : ''));
   const holds = markerPauses(html);
+  const slowRate = slowRateIn(html);
   const span = range ?? { from: 1, to: slides.length };
   if (range && prev) {
     const drift = voiceDrift(prev, { engine: tts.name, model: tts.model ?? null, voice }, { modelIsVoice: !tts.modelIsDefaultVoice });
@@ -187,11 +189,11 @@ export async function synthesizeSlides({
     throw new Error(`no encoder for a ${format} track — install ffmpeg (apt install ffmpeg / brew install ffmpeg)`);
   }
   if (format === 'mp3' && enc !== 'ffmpeg') throw new Error('an mp3 track needs ffmpeg — install it (brew install ffmpeg)');
-  // A hold is baked by joining WAVs; an engine that speaks anything else has
-  // its clips decoded first, and only ffmpeg decodes.
+  // A hold, or a slow stretch's edge, is baked by joining WAVs; an engine that
+  // speaks anything else has its clips decoded first, and only ffmpeg decodes.
   if (synthExt !== 'wav' && enc !== 'ffmpeg'
-    && slides.some((t, i) => t.includes(PAUSE_MARK) && i + 1 >= span.from && i + 1 <= span.to)) {
-    throw new Error(`⟨PAUSE⟩ in the notes needs ffmpeg with an engine that speaks ${synthExt} — install it (brew install ffmpeg)`);
+    && slides.some((t, i) => (t.includes(PAUSE_MARK) || hasSlow(t)) && i + 1 >= span.from && i + 1 <= span.to)) {
+    throw new Error(`⟨PAUSE⟩ or ⟨SLOW⟩ in the notes needs ffmpeg with an engine that speaks ${synthExt} — install it (brew install ffmpeg)`);
   }
   const canSegment = enc === 'ffmpeg';
   if (!canSegment && raw.some((r) => notesSegments(r))) {
@@ -222,26 +224,27 @@ export async function synthesizeSlides({
     try { keyVoice = (await tts.listVoices())[0]?.name; } catch { /* keep it undefined */ }
   }
   /** `tts.synth`, but a sentence anyone has already paid for is free. */
-  const synth = async (text) => {
-    const key = clipKey(tts, { voice: keyVoice, style, text });
+  const synth = async (text, rate = 1) => {
+    const key = clipKey(tts, { voice: keyVoice, style, text, rate });
     const hit = cache.read(key, synthExt);
     if (hit) return { wav: hit, usage: { chars: 0, cost: 0 }, cached: true };
-    const out = await tts.synth(text, { voice, style });
+    const out = await tts.synth(text, { voice, style, ...(rate !== 1 ? { rate } : {}) });
     cache.write(key, out.wav, synthExt);
     return { ...out, cached: false };
   };
   /**
    * A stretch of notes voiced, its ⟨PAUSE⟩ holds (`hold` seconds each) baked
-   * in as silence (#560). Without a marker it is exactly `synth`, so a note
-   * with none costs and caches as it always has; with one, each run of words
-   * between markers is its own clip — the marker never reaches the engine —
-   * and the clips are joined as WAV. `ext` is the format `wav` is in.
+   * in as silence (#560) and its ⟨SLOW⟩ stretches said at the deck's slow
+   * rate. Without a marker it is exactly `synth`, so a note with none costs
+   * and caches as it always has; with one, each run of words between markers
+   * is its own clip — no marker ever reaches the engine — and the clips are
+   * joined as WAV. `ext` is the format `wav` is in.
    */
   const voiceText = async (text, hold) => {
-    if (!text.includes(PAUSE_MARK)) return { ...(await synth(text)), ext: synthExt };
-    const { lead, runs } = pauseRuns(text);
+    if (!text.includes(PAUSE_MARK) && !hasSlow(text)) return { ...(await synth(text)), ext: synthExt };
+    const { lead, runs } = speechRuns(text);
     const outs = [];
-    for (const r of runs) outs.push(await synth(r.text));
+    for (const r of runs) outs.push(await synth(r.text, r.slow ? slowRate : 1));
     let clips = outs.map((o) => o.wav);
     if (synthExt !== 'wav') {
       clips = clips.map((clip, j) => {
@@ -255,7 +258,7 @@ export async function synthesizeSlides({
       });
     }
     const wav = joinWav(clips, runs.map((r) => r.pause * hold), lead * hold);
-    if (!wav) throw new Error(`${tts.name} spoke the runs of one note in different sample formats — cannot hold a ⟨PAUSE⟩ between them`);
+    if (!wav) throw new Error(`${tts.name} spoke the runs of one note in different sample formats — cannot join them`);
     return {
       wav, ext: 'wav', cached: outs.every((o) => o.cached),
       usage: { cost: outs.reduce((sum, o) => sum + (o.usage?.cost ?? 0), 0) },
@@ -295,6 +298,10 @@ export async function synthesizeSlides({
     .update(`${header.engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
   const preDatesModel = prev && prev.model === undefined
     && prev.engine === header.engine && prev.voice === voice && prev.style === style;
+  // A slide the DECK's recorder voiced was stamped over the file's old reading
+  // of the notes, before entities were decoded; it spoke the decoded words all
+  // along, so a stamp matching that reading still vouches for them.
+  const oldReading = prev?.recorder === 'deck' ? priorSlideTexts(html) : [];
 
   // Whatever else the header carried (the recorder's `recorder: 'deck'`) is
   // the track's, and a refresh of it keeps it.
@@ -313,12 +320,12 @@ export async function synthesizeSlides({
     // makes, and the video rendered from this folder still finds the rest.
     if (i + 1 < span.from || i + 1 > span.to) { entries.push(prev?.slides?.[i] ?? null); continue; }
     // no words — or nothing but ⟨PAUSE⟩, a hold with nothing to hold between
-    if (!stripPauses(slides[i]).trim()) { entries.push(null); continue; }
+    if (!spoken(slides[i])) { entries.push(null); continue; }
     const txt = join(dir, `slide-${n}.txt`);
     // reused text: a second take (another engine or voice) narrates the SAME
     // words, not a re-roll
     const prior = reuseTextFrom.map((d) => join(d, `slide-${n}.txt`)).find((f) => existsSync(f));
-    const text = prior ? readFileSync(prior, 'utf8').trim() : slides[i];
+    const text = prior ? canonMarks(readFileSync(prior, 'utf8')).replace(/\s+/g, ' ').trim() : slides[i];
     const file = `slide-${n}.${format}`;
     writeFileSync(txt, text);
     const hash = slideHash(text);
@@ -331,7 +338,8 @@ export async function synthesizeSlides({
     // asked for another (`--format`) is converting it.
     const was = prev?.slides?.[i];
     if (was?.file && extname(was.file) === `.${format}`
-      && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text)))
+      && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text))
+        || (oldReading[i] && was.hash === slideHash(oldReading[i])))
       && existsSync(join(dir, was.file))) {
       entries[i] = { ...was, hash };
       // Carry the segments across only while they are still on disk — the
@@ -345,7 +353,7 @@ export async function synthesizeSlides({
     // A segmented slide is synthesized beat by beat and the slide's file is
     // CONCATENATED from the beats — one synthesis, both shapes; TTS is billed
     // per character. Reused text is one script, so it goes whole.
-    const segs = prior || !canSegment ? null : notesSegments(raw[i], { pauses: true });
+    const segs = prior || !canSegment ? null : notesSegments(raw[i], { marks: true });
     let slideCost = 0;
     let cachedBeats = 0;
     if (segs) {

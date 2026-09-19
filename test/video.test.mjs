@@ -243,6 +243,17 @@ test('subtitleCues: a ⟨PAUSE⟩ in the script is uncaptioned silence, and the 
   assert.deepEqual(subtitleCues(plan, () => 'Look at this. Now more.', () => 1).map((c) => c.start), [0, 2.955]);
 });
 
+test('subtitleCues: a slow stretch holds its cue longer, and one that cut a sentence is captioned with the rest of it', () => {
+  const plan = [{ slide: 1, step: 999, audio: 'slide-01.m4a', duration: 3, pad: 0 }];
+  const cues = subtitleCues(plan, () => 'Say ⟨SLOW⟩this⟨/SLOW⟩. Then go.', () => 0, 0.5);
+  assert.deepEqual(cues.map((c) => c.text), ['Say this.', 'Then go.'], 'one line, not "Say" then "this."');
+  // "Say" is 3, "this." at half pace counts 10, "Then go." 8: 13 of 21
+  assert.equal(cues[0].end, 1.857);
+  assert.equal(cues[1].end, 3);
+  assert.equal(subtitleCues(plan, () => 'Say this. Then go.')[0].end, 1.588, 'at the usual pace: 9 of 17');
+  assert.ok(!toVtt(cues).includes('⟨'), 'the marker is never subtitled');
+});
+
 test('subtitleCues: a long sentence becomes cues of two short lines, never a wall', () => {
   const long = 'This sentence is deliberately long enough that no player could show it on one line, or even two of them.';
   const cues = subtitleCues([{ slide: 1, step: 999, audio: 'a.m4a', duration: 4, pad: 0 }], () => long);

@@ -20,7 +20,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  GEMINI_VOICES, authHeaders, styledPrompt, validProjectId, wavFromPcm,
+  GEMINI_VOICES, authHeaders, styledPrompt, validProjectId, wavFromPcm, SLOW_DIRECTION,
 } from '../tools/gemini-tts.mjs';
 
 // ── validProjectId ─────────────────────────────────────────────────────────
@@ -219,4 +219,9 @@ test('the default voice createSynth uses is in the roster', () => {
   // when somebody records without passing --voice.
   assert.ok(GEMINI_VOICES.some(([n]) => n === 'Alnilam'),
     'the default has to be one of the prebuilt voices');
+});
+
+test('a slow stretch reaches Gemini as direction, beside the style it already reads', () => {
+  assert.equal(styledPrompt(SLOW_DIRECTION, 'Filter first.'), 'Say slowly and deliberately: Filter first.');
+  assert.match(styledPrompt(['warm', SLOW_DIRECTION].join('; '), 'x'), /^Say this in the following style — warm; Say slowly and deliberately: x$/);
 });
