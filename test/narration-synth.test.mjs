@@ -76,10 +76,12 @@ test('a wav track is written directly — no encoder, one file per slide, the ma
   const tts = fakeTts();
   const { manifest } = await run({ html: THREE, dir, tts, format: 'wav' });
   assert.deepEqual(manifest.slides.map((s) => s.file), ['slide-01.wav', 'slide-02.wav', 'slide-03.wav']);
-  assert.deepEqual({ ...manifest, slides: undefined }, { engine: 'fake', model: 'm1', voice: 'v1', style: 'warm', slides: undefined });
+  // every field the stamp is taken over, written down (#557)
+  assert.deepEqual({ ...manifest, slides: undefined }, { engine: 'fake', model: 'm1', voice: 'v1', style: 'warm', format: 'wav', slides: undefined });
   for (const s of manifest.slides) assert.ok(existsSync(path.join(dir, s.file)));
   assert.deepEqual(readTrack(dir), manifest, 'what it returns is what it wrote');
   assert.equal(tts.said.length, 3);
+  assert.deepEqual(staleSlides(manifest, slideTexts(THREE)).stale, [], 'a fresh track is fresh to the checker');
 
   // a rerun is free: every slide's hash still matches and its file is there
   const again = fakeTts();
@@ -277,4 +279,64 @@ test('revoice: an engine this machine cannot run is named, with the missing cred
   });
   assert.equal(r.ok, false);
   assert.match(r.why, /voiced by elevenlabs, which needs \$ELEVENLABS_API_KEY — export it/);
+});
+
+// ── #557: the stamp is the checker's hash, over the header written ─────────
+import { entryMatches } from '../tools/narration-manifest.mjs';
+
+/**
+ * An engine shaped like ElevenLabs where it matters to the hash: no voice
+ * given means "the first of yours" (listVoices), and it speaks mp3.
+ */
+function elevenLike() {
+  const said = [];
+  const synth = Object.assign(async (text) => { said.push(text); return { wav: Buffer.from(`mp3:${text}`), usage: { cost: 0 } }; },
+    { mimeType: 'audio/mpeg' });
+  return { name: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false, synth, said, listVoices: async () => [{ name: 'Rachel' }] };
+}
+const fakeEncoder = { encoder: 'ffmpeg', run: (bin, args) => writeFileSync(args[args.length - 1], `${bin}-out`) };
+
+test('#557: a default-voice ElevenLabs track is fresh to the checker the moment it is written', async (t) => {
+  // voiceover on ElevenLabs without --voice: stamped under the resolved voice
+  // and the engine's mp3, with a header that named neither — so `video`
+  // called every slide stale on first contact
+  const dir = tmp('synth-557-fresh', t);
+  const tts = elevenLike();
+  const { manifest } = await run({ html: THREE, dir, tts, voice: undefined, style: '', format: 'm4a', ...fakeEncoder });
+  assert.equal(manifest.voice, 'Rachel', 'the header names the voice that spoke');
+  assert.equal(manifest.format, 'mp3', 'and the format the stamp was taken over');
+  assert.deepEqual(staleSlides(readTrack(dir), slideTexts(THREE)).stale, []);
+});
+
+test('#557: re-voicing a stale slide of a recorder track (voice: null) makes it fresh, and leaves the rest fresh', async (t) => {
+  // the reported track: the deck recorder's, ElevenLabs, the first of your
+  // voices (voice null), wav files, no format in the header
+  const dir = tmp('synth-557-revoice', t);
+  const header = { engine: 'elevenlabs', model: 'eleven_multilingual_v2', voice: null, style: '' };
+  const recorded = recorderManifest({ prev: null, header, texts: slideTexts(THREE), range: { from: 1, to: 3 }, recorded: { 1: {}, 2: {}, 3: {} } });
+  mkdirSync(dir, { recursive: true });
+  for (const sl of recorded.slides) writeFileSync(path.join(dir, sl.file), 'a take');
+  writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(recorded));
+
+  const edited = deck(['One says this.', 'Two has moved on.', 'Three says the rest.']);
+  const narration = { ...readTrack(dir), dir };
+  const { stale } = staleSlides(narration, slideTexts(edited));
+  assert.deepEqual(stale, [2]);
+
+  const tts = elevenLike();
+  const r = await revoiceStale({
+    html: edited, narration, stale, log: quiet, cache: noCache(), status: ready, create: () => tts, synthOpts: fakeEncoder,
+  });
+  assert.equal(r.ok, true, r.why);
+  assert.deepEqual(tts.said, ['Two has moved on.']);
+  const now = readTrack(dir);
+  // the check the feature relies on, run against what it wrote
+  assert.deepEqual(staleSlides(now, slideTexts(edited)).stale, [], 'the re-voiced slide is fresh — the render proceeds');
+  const texts = slideTexts(edited);
+  for (const i of [0, 1, 2]) assert.ok(entryMatches(now, now.slides[i], texts[i]), `slide ${i + 1} matches under the header on disk`);
+  assert.ok('voice' in now && now.voice === null, 'voice is kept as "the default", not dropped and not renamed');
+  assert.equal(now.format, 'wav', 'the format the others were stamped under, now written down');
+  assert.equal(now.recorder, 'deck');
+  assert.deepEqual([now.slides[0], now.slides[2]], [recorded.slides[0], recorded.slides[2]], 'the rest untouched');
+  assert.equal(now.slides[1].file, 'slide-02.wav');
 });

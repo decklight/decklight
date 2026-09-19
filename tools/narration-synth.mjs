@@ -27,11 +27,10 @@
  */
 
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
-import { slideNotes } from './narration-manifest.mjs';
+import { slideNotes, manifestHash, legacyHash } from './narration-manifest.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -41,7 +40,7 @@ export const TRACK_FORMATS = ['wav', 'm4a', 'mp3'];
 export const DEFAULT_FORMAT = 'm4a';
 
 /** The manifest header's own keys — everything else in a header is carried. */
-const HEADER_KEYS = ['engine', 'model', 'voice', 'style', 'slides'];
+const HEADER_KEYS = ['engine', 'model', 'voice', 'style', 'format', 'slides'];
 
 /**
  * The format an existing track is in: the extension its slide files carry,
@@ -118,9 +117,8 @@ export async function synthesizeSlides({
   const raw = slideNotes(html);
   const slides = raw.map((r) => (r ? cleanNotes(r) : ''));
   const span = range ?? { from: 1, to: slides.length };
-  const header = { engine: tts.name, model: tts.model ?? null, voice, style };
   if (range && prev) {
-    const drift = voiceDrift(prev, header, { modelIsVoice: !tts.modelIsDefaultVoice });
+    const drift = voiceDrift(prev, { engine: tts.name, model: tts.model ?? null, voice }, { modelIsVoice: !tts.modelIsDefaultVoice });
     if (drift) {
       throw new Error(`${dir} is voiced in ${drift} — voicing slides ${span.from}–${span.to} in another would leave the `
         + 'track in two voices; voice the whole track, or give the other voice its own folder (-o)');
@@ -157,9 +155,9 @@ export async function synthesizeSlides({
 
   // `--voice` omitted on ElevenLabs means "the first of your voices", and the
   // deck's picker offers that roster in that order — so the name is resolved
-  // HERE, for the key. Left undefined it would hash differently from the
-  // identical sentence the bridge just synthesized, and the cross-process
-  // reuse the cache exists for would silently never hit.
+  // HERE, for the clip cache's key. Left undefined it would key differently
+  // from the identical sentence the bridge just synthesized, and the
+  // cross-process reuse the cache exists for would silently never hit.
   let keyVoice = voice;
   if (!keyVoice && tts.listVoices) {
     try { keyVoice = (await tts.listVoices())[0]?.name; } catch { /* keep it undefined */ }
@@ -173,17 +171,39 @@ export async function synthesizeSlides({
     cache.write(key, out.wav, synthExt);
     return { ...out, cached: false };
   };
-  // The manifest hash is the CLIP KEY, shortened: one definition of "the same
-  // audio", so the folder-level skip and the content-level cache can never
-  // disagree about whether a slide changed.
-  const slideHash = (text) => clipKey(tts, { voice: keyVoice, style, text }).slice(0, 16);
+
+  // THE HEADER IS WHAT THE STAMP IS TAKEN OVER — every field of it, and
+  // nothing that is not in it (#557). A slide's hash is `manifestHash(header,
+  // text)`, the very function `decklight video` checks freshness with, over
+  // the very header written to disk; so whatever a later check recomputes from
+  // the file is what was stamped. The first cut stamped with the clip cache's
+  // key — the resolved voice and the engine's native format — while writing a
+  // header that named neither, and the check could never agree with it: a
+  // re-voiced slide was still stale, forever.
+  //
+  //   voice   the voice that spoke. A fresh track records the one resolved
+  //           above, so a default-voice ElevenLabs run names who it was. A
+  //           refresh of a track whose header says "the default" (voice null
+  //           — the deck recorder's, for the first of your voices) keeps
+  //           saying so: its other slides were stamped under that header,
+  //           and naming a voice now would turn every one of them stale.
+  //   format  the key's format axis. A refresh keeps the track's own — a
+  //           header without one is wav, as the checker has always read it;
+  //           a fresh track records what the engine spoke.
+  const sameTrack = prev && prev.engine === tts.name;
+  const header = {
+    engine: tts.name,
+    model: tts.model ?? null,
+    voice: voice ?? (sameTrack && prev.voice == null ? null : keyVoice ?? null),
+    style,
+    format: prev ? (prev.format ?? 'wav') : synthExt,
+  };
+  const slideHash = (text) => manifestHash(header, text);
   // ONE-TIME MIGRATION. The hash gained `model` and lost the style no engine
   // reads, so a folder recorded before that hashes differently — and would be
   // re-synthesized in full, handing an ElevenLabs user a bill for clips already
   // on disk. A slide matching the OLD formula is accepted once and re-stamped;
   // only a header without `model` can claim it, so it cannot be claimed twice.
-  const legacyHash = (text) => createHash('sha256')
-    .update(`${header.engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
   const preDatesModel = prev && prev.model === undefined
     && prev.engine === header.engine && prev.voice === voice && prev.style === style;
 
@@ -221,7 +241,7 @@ export async function synthesizeSlides({
     // asked for another (`--format`) is converting it.
     const was = prev?.slides?.[i];
     if (was?.file && extname(was.file) === `.${format}`
-      && (was.hash === hash || (preDatesModel && was.hash === legacyHash(text)))
+      && (was.hash === hash || (preDatesModel && was.hash === legacyHash(prev, text)))
       && existsSync(join(dir, was.file))) {
       entries[i] = { ...was, hash };
       // Carry the segments across only while they are still on disk — the

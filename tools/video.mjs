@@ -559,6 +559,7 @@ export function resolveNarration(deckPath, narrationDir) {
 export async function revoiceStale({
   html, narration, stale, log = console.log, env = process.env,
   create = createEngine, status = engineStatus, cache = createTtsCache(),
+  synthOpts = {},   // the core's encoder seams (`encoder`, `run`), for a test with no ffmpeg
 }) {
   const { dir, engine } = narration;
   if (!engine || !ENGINES.includes(engine)) {
@@ -597,7 +598,7 @@ export async function revoiceStale({
       const prev = readTrack(dir);
       await synthesizeSlides({
         html, dir, tts, voice, style: narration.style ?? undefined,
-        format: trackFormat(prev) ?? 'wav', range: { from: n, to: n }, prev, cache, log,
+        format: trackFormat(prev) ?? 'wav', range: { from: n, to: n }, prev, cache, log, ...synthOpts,
       });
     }
     return { ok: true };
