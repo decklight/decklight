@@ -31,7 +31,7 @@ import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
-import { slideNotes } from './narration-manifest.mjs';
+import { slideNotes, manifestHash } from './narration-manifest.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -41,7 +41,7 @@ export const TRACK_FORMATS = ['wav', 'm4a', 'mp3'];
 export const DEFAULT_FORMAT = 'm4a';
 
 /** The manifest header's own keys — everything else in a header is carried. */
-const HEADER_KEYS = ['engine', 'model', 'voice', 'style', 'slides'];
+const HEADER_KEYS = ['engine', 'model', 'voice', 'style', 'format', 'slides'];
 
 /**
  * The format an existing track is in: the extension its slide files carry,
@@ -118,9 +118,8 @@ export async function synthesizeSlides({
   const raw = slideNotes(html);
   const slides = raw.map((r) => (r ? cleanNotes(r) : ''));
   const span = range ?? { from: 1, to: slides.length };
-  const header = { engine: tts.name, model: tts.model ?? null, voice, style };
   if (range && prev) {
-    const drift = voiceDrift(prev, header, { modelIsVoice: !tts.modelIsDefaultVoice });
+    const drift = voiceDrift(prev, { engine: tts.name, model: tts.model ?? null, voice }, { modelIsVoice: !tts.modelIsDefaultVoice });
     if (drift) {
       throw new Error(`${dir} is voiced in ${drift} — voicing slides ${span.from}–${span.to} in another would leave the `
         + 'track in two voices; voice the whole track, or give the other voice its own folder (-o)');
@@ -173,10 +172,31 @@ export async function synthesizeSlides({
     cache.write(key, out.wav, synthExt);
     return { ...out, cached: false };
   };
-  // The manifest hash is the CLIP KEY, shortened: one definition of "the same
-  // audio", so the folder-level skip and the content-level cache can never
-  // disagree about whether a slide changed.
-  const slideHash = (text) => clipKey(tts, { voice: keyVoice, style, text }).slice(0, 16);
+  // The header names every input the slide hash is taken over, and the hash
+  // is taken FROM it — `manifestHash`, the function `decklight video` checks
+  // with (#557). Stamped from the engine instead, a default-voice ElevenLabs
+  // track hashed under the resolved voice beside a header with none, and the
+  // check could never reproduce it: a re-voiced slide stayed stale forever.
+  //
+  // A track that already has audio keeps its own terms. Its `voice: null` is
+  // the default voice, which is what an unasked-for voice resolves to, and its
+  // format (absent: wav) is what its other slides were stamped under —
+  // resolving either would turn every slide outside a range stale against a
+  // header they were never checked under. A fresh track, or one whose header
+  // never named a voice, gets the resolved one; with it, the hash is the clip
+  // key shortened, as before.
+  const inherits = prev?.slides?.some(Boolean) && prev.engine === tts.name;
+  const headerVoice = voice ?? (inherits && prev.voice === null ? null : keyVoice) ?? null;
+  const headerFormat = inherits ? prev.format : synthExt === 'wav' ? undefined : synthExt;
+  const header = {
+    engine: tts.name, model: tts.model ?? null, voice: headerVoice, style,
+    ...(headerFormat ? { format: headerFormat } : {}),
+  };
+  const slideHash = (text) => manifestHash(header, text);
+  // What this core stamped before #557 — the clip key, under a header that
+  // did not always name its voice or format. Still these words in this voice,
+  // so a slide carrying it is kept and re-stamped rather than paid for again.
+  const clipHash = (text) => clipKey(tts, { voice: keyVoice, style, text }).slice(0, 16);
   // ONE-TIME MIGRATION. The hash gained `model` and lost the style no engine
   // reads, so a folder recorded before that hashes differently — and would be
   // re-synthesized in full, handing an ElevenLabs user a bill for clips already
@@ -221,7 +241,7 @@ export async function synthesizeSlides({
     // asked for another (`--format`) is converting it.
     const was = prev?.slides?.[i];
     if (was?.file && extname(was.file) === `.${format}`
-      && (was.hash === hash || (preDatesModel && was.hash === legacyHash(text)))
+      && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text)))
       && existsSync(join(dir, was.file))) {
       entries[i] = { ...was, hash };
       // Carry the segments across only while they are still on disk — the
