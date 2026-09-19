@@ -20,6 +20,7 @@ import {
   TAIL_SECONDS, LAST_STEP, SLIDE_PAUSE_DEFAULT, parseSize, parseSlideRange, extractHolds, extractPauses, planTimeline,
   segmentArgs, concatList, concatArgs, ffprobeArgs, resolveNarration, parseBuildSteps, voiceoverArgs,
   videoOut, videoProgress, voiceoverProgress, ENCODINGS, videoOptions, subtitleCues, toSrt, toVtt, subtitlesOut,
+  pauseMarks,
 } from '../tools/video.mjs';
 import { SLIDE_PAUSE_S } from '../src/core/narration.js';
 
@@ -71,6 +72,23 @@ test('a pause on a SILENT slide changes nothing — --hold is that slide\'s knob
   // One knob per job: a slide with no narration has no narration to pause after.
   const plan = planTimeline(manifest, durations, [5, 8, 5], null, { pauses: [0, 3, 0] });
   assert.deepEqual(plan[1], { slide: 2, step: LAST_STEP, audio: null, duration: 8 });
+});
+
+test('a SILENT frame holds its step\'s ⟨PAUSE⟩ markers itself; a narrated one has them in its audio (#560)', () => {
+  const html = `<div class="decklight">
+<section><h1>A</h1><aside class="notes">Arrive. ⟨PAUSE⟩ ⟨CLICK⟩ First. ⟨CLICK⟩ ⟨PAUSE⟩ Second. ⟨PAUSE⟩</aside></section>
+<section data-narration-beat-pause="0.25"><h1>B</h1><aside class="notes">One. ⟨CLICK⟩ Two. ⟨PAUSE⟩ ⟨CLICK⟩ Surplus. ⟨PAUSE⟩</aside></section>
+<section><h1>C</h1></section>
+</div>`;
+  // slide 1: two builds, one marker per step (the last step's two fold together)
+  // slide 2: no builds — every segment folds onto its one step, held at 2×0.25s
+  const marks = pauseMarks(html, [2, 0, 0]);
+  assert.deepEqual(marks, [[1, 0, 2], [1], [0]]);
+  const plan = planTimeline(null, {}, [4, 4, 4], null, { steps: [2, 0, 0], buildHold: 2, marks });
+  assert.deepEqual(plan.map((p) => p.duration), [3, 2, 6, 5, 4]);
+  // with audio, the hold is in the ffprobed duration already — never counted twice
+  const voiced = planTimeline([{ file: 'slide-01.m4a' }], { 'slide-01.m4a': 6 }, [4], null, { marks: [[3]] });
+  assert.equal(voiced[0].duration, 6 + TAIL_SECONDS);
 });
 
 test('only the FINISHED frame of a segmented slide gets the pause, never a build', () => {
@@ -209,6 +227,20 @@ test('subtitleCues: sentences share their beat by length, from where the speech 
   assert.equal(cues[1].end, 8, 'a beat\'s last sentence ends with its audio');
   assert.equal(cues[2].start, 8);
   assert.equal(cues[2].end, 10, 'the breath after the slide carries no caption');
+});
+
+test('subtitleCues: a ⟨PAUSE⟩ in the script is uncaptioned silence, and the words share what is left (#560)', () => {
+  const plan = [{ slide: 1, step: 999, audio: 'slide-01.m4a', duration: 5.4, pad: 0.4 }];
+  // 3s of speech in a 5s clip: 1s held before the first words, 1s between the two sentences
+  const cues = subtitleCues(plan, () => '⟨PAUSE⟩ Look at this. ⟨PAUSE⟩ Now more.', () => 1);
+  assert.deepEqual(cues.map((c) => c.text), ['Look at this.', 'Now more.']);
+  assert.equal(cues[0].start, 1, 'the leading hold carries no caption');
+  assert.equal(cues[0].end, 2.773, 'thirteen of the 22 spoken characters, of 3s');
+  assert.equal(cues[1].start, 3.773, 'the hold between them is a gap, not a caption');
+  assert.equal(cues[1].end, 5);
+  assert.ok(!toVtt(cues).includes('⟨') && !toSrt(cues).includes('⟨'), 'the marker is never subtitled');
+  // a script without markers times exactly as it did
+  assert.deepEqual(subtitleCues(plan, () => 'Look at this. Now more.', () => 1).map((c) => c.start), [0, 2.955]);
 });
 
 test('subtitleCues: a long sentence becomes cues of two short lines, never a wall', () => {

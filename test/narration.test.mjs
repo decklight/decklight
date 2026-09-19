@@ -12,11 +12,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
+import { pauseRuns, stripPauses, PAUSE_MARK } from '../tools/sentences.mjs';
+import { BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 
 import {
   hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack, parseVoiceQuery, voiceMatches,
-  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf,
+  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, stepPlan,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -500,4 +502,77 @@ test('liveClipKey: the text decides the hit — an edited sentence misses, its n
   assert.notEqual(k('Hello there.'), liveClipKey(3, 1, 0, 'Hello there.', 'Puck', 'warm'), 'and so is a changed voice');
   assert.match(k('Hello there.'), /^3\|s1\|n0\|Kore\|warm\|t[0-9a-f]{8}$/, 'the position stays readable in a log');
   assert.equal(textHash(''), textHash(null), 'no text hashes the same way whatever it is called');
+});
+
+
+// ── ⟨PAUSE⟩: a let-it-sink-in hold inside a beat (#560) ─────────────────────
+
+test('⟨PAUSE⟩ belongs to the words before it — between sentences, attached, or on its own', () => {
+  const between = { lead: 0, runs: [{ text: 'One.', pause: 1 }, { text: 'Two.', pause: 0 }] };
+  assert.deepEqual(pauseRuns('One. ⟨PAUSE⟩ Two.'), between);
+  assert.deepEqual(pauseRuns('One.⟨PAUSE⟩ Two.'), between);   // attached to the end of a sentence
+  assert.deepEqual(pauseRuns('One. ⟨PAUSE⟩Two.'), between);   // or to the start of the next
+  assert.deepEqual(pauseRuns('One.\n\n⟨PAUSE⟩\n\nTwo.'), between);   // or a paragraph of its own
+});
+
+test('⟨PAUSE⟩ repeated holds that many times; one before any word holds first; one mid-sentence cuts it', () => {
+  assert.deepEqual(pauseRuns('One. ⟨PAUSE⟩ ⟨PAUSE⟩ Two.').runs[0].pause, 2);
+  assert.deepEqual(pauseRuns('⟨PAUSE⟩ One.'), { lead: 1, runs: [{ text: 'One.', pause: 0 }] });
+  assert.deepEqual(pauseRuns('One. ⟨PAUSE⟩'), { lead: 0, runs: [{ text: 'One.', pause: 1 }] });
+  assert.deepEqual(pauseRuns('It was ⟨PAUSE⟩ enormous.').runs.map((r) => r.text), ['It was', 'enormous.']);
+  assert.deepEqual(pauseRuns('⟨PAUSE⟩'), { lead: 1, runs: [] });
+  assert.deepEqual(pauseRuns('No marker at all.'), { lead: 0, runs: [{ text: 'No marker at all.', pause: 0 }] });
+});
+
+test('⟨PAUSE⟩ is never a word: stripped, it leaves only the text around it', () => {
+  assert.equal(stripPauses(`Wait. ${PAUSE_MARK} Now.`).replace(/\s+/g, ' '), 'Wait. Now.');
+  assert.equal(stripPauses(null), '');
+});
+
+test('a step says its sentences and counts its holds — no sentence ever contains the marker', () => {
+  const p = stepPlan(['Hello there. ⟨PAUSE⟩ It is big.⟨PAUSE⟩⟨PAUSE⟩', '⟨PAUSE⟩ Next one.']);
+  assert.deepEqual(p.sentences, ['Hello there.', 'It is big.', 'Next one.']);
+  assert.ok(p.sentences.every((s) => !s.includes('⟨')));
+  assert.deepEqual(p.after, [1, 2, 0]);
+  // leading the second segment: held AFTER that build lands, before its words
+  assert.deepEqual(p.before, [0, 0, 1]);
+  assert.deepEqual([...p.segStarts], [0, 2]);
+  assert.deepEqual(p.segRuns, [{ seg: 0, from: 0, count: 2 }, { seg: 1, from: 2, count: 1 }]);
+  assert.equal(p.bare, 0);
+});
+
+test('a hold before or after the ⟨CLICK⟩ lands on its own side of the build', () => {
+  // A. ⟨PAUSE⟩ ⟨CLICK⟩ B. — hold, then reveal: the pause ends beat 0
+  assert.deepEqual(stepPlan(['A. ⟨PAUSE⟩ ']).after, [1]);
+  // A. ⟨CLICK⟩ ⟨PAUSE⟩ B. — reveal, then hold: the pause opens beat 1
+  assert.deepEqual(stepPlan([' ⟨PAUSE⟩ B.']).before, [1]);
+});
+
+test('a beat of nothing but ⟨PAUSE⟩ is a bare hold — or, folded behind words, holds after them', () => {
+  assert.deepEqual(stepPlan(['⟨PAUSE⟩']), { sentences: [], segStarts: new Set(), segRuns: [], before: [], after: [], bare: 1 });
+  // the last step folds every remaining segment: the lone marker follows "A."
+  const folded = stepPlan(['A.', '⟨PAUSE⟩']);
+  assert.deepEqual(folded.after, [1]);
+  assert.equal(folded.bare, 0);
+});
+
+test('a notes text with no marker plans exactly as it did before markers existed', () => {
+  const p = stepPlan(['One. Two.', '', 'Three.']);
+  assert.deepEqual(p.sentences, ['One.', 'Two.', 'Three.']);
+  assert.deepEqual([...p.before, ...p.after], [0, 0, 0, 0, 0, 0]);
+  assert.deepEqual([...p.segStarts], [0, 2]);
+});
+
+test('a beat of nothing but ⟨PAUSE⟩ has no take — no file number, no recording, on either side', () => {
+  const notes = 'A. ⟨CLICK⟩ ⟨PAUSE⟩ ⟨CLICK⟩ B.';
+  const segs = notes.split('⟨CLICK⟩');
+  assert.deepEqual(segmentFileIndex(segs), [1, null, 2]);
+  assert.deepEqual(notesSegments(notes, { pauses: true }), ['A.', 'B.']);
+  assert.deepEqual(recordPlan(segs, 2).map((b) => b.file), [1, 2]);
+  // a reader is shown the marker — it is their cue to hold
+  assert.equal(recordPlan(['A. ⟨PAUSE⟩ B.', 'C.'], 1)[0].text, 'A. ⟨PAUSE⟩ B.');
+});
+
+test('the CLI\'s beat pause is the runtime\'s — a hold that drifted would pace a render off the deck', () => {
+  assert.equal(BEAT_PAUSE_DEFAULT, BEAT_PAUSE_S);
 });

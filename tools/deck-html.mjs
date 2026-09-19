@@ -9,6 +9,7 @@
 // and the dependency only ever flows cli/ → tools/.
 
 import { escapeHtml } from './escape.mjs';
+import { PAUSE_MARK, stripPauses } from './sentences.mjs';
 
 /**
  * A section's `<aside class="notes">`. Capture group [1] is the inner HTML (what
@@ -109,9 +110,16 @@ export const slideHeading = (sectionBody, i) => {
  * The runtime gets this for free from `textContent`; a tool reading the FILE
  * has to do it, and has to do it the same way or the two disagree about what a
  * segment says.
+ *
+ * ⟨PAUSE⟩ (#560) goes too, by default — this is the text that is SPOKEN and
+ * SHOWN. `{ pauses: true }` keeps each marker, spaced as a word of its own,
+ * for the callers to whom a hold is part of the take: the hash that decides a
+ * slide is stale (a moved pause is a re-record, since a recording bakes it),
+ * the synthesis core, and the `.txt` script written beside the audio.
  */
-export const cleanNotes = (s) => String(s ?? '')
+export const cleanNotes = (s, { pauses = false } = {}) => String(s ?? '')
   .replace(/⟨CLICK⟩/g, ' ')
+  .replace(/⟨PAUSE⟩/g, pauses ? ` ${PAUSE_MARK} ` : ' ')
   .replace(/<[^>]+>/g, ' ')
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
   .replace(/\s+/g, ' ')
@@ -130,10 +138,13 @@ export const cleanNotes = (s) => String(s ?? '')
  * every filename by one.
  *
  * An empty segment is dropped rather than recorded as silence — a ⟨CLICK⟩ at
- * the very start or end of a note is punctuation, not a beat.
+ * the very start or end of a note is punctuation, not a beat. So is one that
+ * is nothing but ⟨PAUSE⟩: a hold with no words has no take to be baked into.
  */
-export const notesSegments = (notes) => {
-  const parts = String(notes ?? '').split('⟨CLICK⟩').map(cleanNotes).filter(Boolean);
+export const notesSegments = (notes, { pauses = false } = {}) => {
+  const parts = String(notes ?? '').split('⟨CLICK⟩')
+    .map((part) => cleanNotes(part, { pauses }))
+    .filter((part) => stripPauses(part).trim());
   return parts.length > 1 ? parts : null;
 };
 

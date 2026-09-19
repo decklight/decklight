@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { clipKey } from '../tools/tts-cache.mjs';
 import { createEngine } from '../tools/tts-engines.mjs';
-import { manifestKey, manifestHash, legacyHash, entryMatches, staleSlides, slideTexts, recorderManifest } from '../tools/narration-manifest.mjs';
+import { manifestKey, manifestHash, legacyHash, entryMatches, staleSlides, slideTexts, recorderManifest, markerPauses, BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 
 const DECK = `<div class="decklight">
 <section><h1>One</h1><aside class="notes"><p>Hello there.</p><p>⟨CLICK⟩</p><p>Second beat.</p></aside></section>
@@ -84,4 +84,37 @@ test('recorderManifest: the recorded slides hashed from the deck, beats named, t
   // …and a partial take (aborted after slide 1) is a valid manifest of one slide
   const partial = recorderManifest({ prev: null, header, texts, range: { from: 1, to: 4 }, recorded: { 1: { segments: [] } } });
   assert.deepEqual(partial.slides.map((s) => !!s), [true, false, false, false]);
+});
+
+
+// ── ⟨PAUSE⟩ is part of the take (#560) ─────────────────────────────────────
+
+test('a ⟨PAUSE⟩ stays in the hashed text: a recording bakes it, so adding or moving one stales the slide', () => {
+  const header = { engine: 'piper', model: 'en_US-ryan-high', voice: 'en_US-ryan-high', style: '' };
+  const deck = (notes) => `<section><h1>A</h1><aside class="notes">${notes}</aside></section>`;
+  const before = slideTexts(deck('<p>Look at this.</p><p>Now the rest.</p>'));
+  assert.deepEqual(before, ['Look at this. Now the rest.'], 'no marker: the text every existing track was hashed over');
+  const track = { ...header, slides: [{ file: 'slide-01.wav', hash: manifestHash(header, before[0]) }] };
+
+  const added = slideTexts(deck('<p>Look at this.</p><p>⟨PAUSE⟩</p><p>Now the rest.</p>'));
+  assert.deepEqual(added, ['Look at this. ⟨PAUSE⟩ Now the rest.']);
+  assert.deepEqual(staleSlides(track, added).stale, [1], 'a take without the hold is not the deck\'s take');
+
+  const moved = slideTexts(deck('<p>Look at ⟨PAUSE⟩ this.</p><p>Now the rest.</p>'));
+  const fresh = { ...header, slides: [{ file: 'slide-01.wav', hash: manifestHash(header, added[0]) }] };
+  assert.deepEqual(staleSlides(fresh, moved).stale, [1], 'the hold moved, so the audio did');
+  assert.deepEqual(staleSlides(fresh, added).stale, [], 'and a take made with it is fresh');
+});
+
+test('markerPauses: two beat pauses — the slide\'s attribute, else the deck\'s narration.beatPause, else the default', () => {
+  const cfg = (c) => `<script type="application/json" data-decklight-config>${JSON.stringify(c)}</script>`;
+  const deck = (...sections) => sections.map((a) => `<section${a}><h1>x</h1></section>`).join('\n');
+  assert.deepEqual(markerPauses(deck('', '')), [2 * BEAT_PAUSE_DEFAULT, 2 * BEAT_PAUSE_DEFAULT]);
+  assert.deepEqual(markerPauses(deck(' data-narration-beat-pause="0.2"', ' data-narration-beat-pause="0"')), [0.4, 0],
+    '"0" on a slide is no hold, as it is no beat pause');
+  assert.deepEqual(markerPauses(deck('', ' data-narration-beat-pause="soon"') + cfg({ narration: { beatPause: 0.75 } })), [1.5, 1.5],
+    'a typo falls through to the deck\'s value, never to silence');
+  assert.deepEqual(markerPauses(deck('') + cfg({ narration: { beatPause: -1 } })), [2 * BEAT_PAUSE_DEFAULT]);
+  // the attribute in a slide's CONTENT is not the slide's
+  assert.deepEqual(markerPauses('<section><div data-narration-beat-pause="3"></div></section>'), [2 * BEAT_PAUSE_DEFAULT]);
 });

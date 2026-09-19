@@ -43,10 +43,10 @@ import { argReader, isMain } from './args.mjs';
 import { renderThemeParams } from './render-theme.mjs';
 import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './video-options.mjs';
-import { splitSentences } from './sentences.mjs';
+import { splitSentences, pauseRuns, PAUSE_MARK } from './sentences.mjs';
 import { serveForRender } from '../cli/present.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
-import { staleSlides, slideTexts, slideNotes } from './narration-manifest.mjs';
+import { staleSlides, slideTexts, slideNotes, markerPauses } from './narration-manifest.mjs';
 import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';
 import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
 import { loadTtsConfig } from './tts-setup.mjs';
@@ -228,6 +228,26 @@ export function extractHolds(html, defaultHold) {
 export const SLIDE_PAUSE_DEFAULT = 1;
 
 /**
+ * Seconds of ⟨PAUSE⟩ hold each build step of each slide asks for (#560): the
+ * markers in the ⟨CLICK⟩ segments that step narrates, each two beat pauses
+ * (`markerPauses`). `steps[i]` is slide i+1's build count; the array for a
+ * slide has one entry per frame, the finished slide last. Segments fold the
+ * way the runtime's `stepAudio` folds them — empty ones kept, so segment k is
+ * step k, and every surplus segment on the last step.
+ *
+ * A render with narration has the holds IN its audio — the deck's recorder and
+ * the synthesis core both bake them — so only a SILENT frame reads this.
+ */
+export function pauseMarks(html, steps = null) {
+  const holds = markerPauses(html);
+  return slideNotes(html).map((notes, i) => {
+    const segs = notes.split('⟨CLICK⟩').map((t) => t.split(PAUSE_MARK).length - 1);
+    const builds = steps?.[i] ?? 0;
+    return Array.from({ length: builds + 1 }, (_, k) => (k < builds ? segs[k] ?? 0 : segs.slice(k).reduce((a, b) => a + b, 0)) * holds[i]);
+  });
+}
+
+/**
  * Per-slide narration beat: data-narration-pause="2" on the section, else
  * the built-in default above.
  *
@@ -291,11 +311,13 @@ const round = (s) => Math.round(s * 1000) / 1000;
  *                                frame per slide); buildHold: seconds per
  *                                build-up frame (null ⇒ the slide's own hold);
  *                                pauses: per-slide data-narration-pause seconds
- *                                added to a NARRATED slide's finished frame
+ *                                added to a NARRATED slide's finished frame;
+ *                                marks: pauseMarks — ⟨PAUSE⟩ seconds per frame
+ *                                added to a SILENT one (narrated audio has them)
  * @returns {Array<{slide, step, audio, duration, pad}>}  audio null ⇒ silent hold;
  *                                `pad` is the silence ffmpeg appends to the audio
  */
-export function planTimeline(manifest, durations, holds, range = null, { steps = null, buildHold = null, pauses = null, onWarn = null } = {}) {
+export function planTimeline(manifest, durations, holds, range = null, { steps = null, buildHold = null, pauses = null, marks = null, onWarn = null } = {}) {
   const from = range?.from ?? 1;
   const to = range?.to ?? holds.length;
   const plan = [];
@@ -346,11 +368,14 @@ export function planTimeline(manifest, durations, holds, range = null, { steps =
       plan.push({ slide: n, step: LAST_STEP, audio: file, duration: round(dur + tail), pad: tail });
       continue;
     }
+    // No audio to carry them, so a silent frame holds its ⟨PAUSE⟩ markers
+    // itself — the same seconds a narrated one has baked into its file.
     const hold = holds[n - 1];
-    if (!builds) { plan.push({ slide: n, step: LAST_STEP, audio: null, duration: hold }); continue; }
+    const mark = (k) => marks?.[n - 1]?.[k] ?? 0;
+    if (!builds) { plan.push({ slide: n, step: LAST_STEP, audio: null, duration: round(hold + mark(0)) }); continue; }
     const each = buildHold ?? hold;
-    for (let k = 0; k < builds; k++) plan.push({ slide: n, step: k, audio: null, duration: each });
-    plan.push({ slide: n, step: LAST_STEP, audio: null, duration: hold });
+    for (let k = 0; k < builds; k++) plan.push({ slide: n, step: k, audio: null, duration: round(each + mark(k)) });
+    plan.push({ slide: n, step: LAST_STEP, audio: null, duration: round(hold + mark(builds)) });
   }
   return plan;
 }
@@ -458,27 +483,35 @@ function wrapCue(text, line = CUE_MAX_CHARS / 2) {
  * where a sentence starts inside it is not known — it is shared out by length,
  * which lands close for speech and is exact at every beat boundary. The breath
  * after a slide (`pad`) carries no caption, and a silent frame none at all.
+ * Nor does a ⟨PAUSE⟩ (#560): the script beside a clip keeps its markers, and
+ * each one is `holdOf(frame)` seconds of the clip's silence — taken out of the
+ * time shared among the words, and left uncaptioned where it falls.
  *
  * @param plan    planTimeline's frames, in order
- * @param textOf  frame → the words its audio speaks
+ * @param textOf  frame → the words its audio speaks, ⟨PAUSE⟩ markers and all
+ * @param holdOf  frame → seconds one ⟨PAUSE⟩ holds on its slide
  * @returns {Array<{start, end, text}>} seconds from the start of the video
  */
-export function subtitleCues(plan, textOf) {
+export function subtitleCues(plan, textOf, holdOf = () => 0) {
   const cues = [];
   let t = 0;
   for (const p of plan) {
     const speech = p.audio ? Math.max(0, p.duration - (p.pad ?? 0)) : 0;
-    const text = speech ? String(textOf(p) ?? '').replace(/\s+/g, ' ').trim() : '';
-    if (text) {
-      const pieces = splitSentences(text).flatMap((s) => chunkCue(s, CUE_MAX_CHARS));
-      const chars = pieces.reduce((n, s) => n + s.length, 0);
-      let at = t;
-      for (const piece of pieces) {
-        const len = speech * (piece.length / chars);
+    const { lead, runs } = pauseRuns(speech ? String(textOf(p) ?? '') : '');
+    const hold = runs.length ? holdOf(p) : 0;
+    const held = hold * (lead + runs.reduce((n, r) => n + r.pause, 0));
+    const spoken = Math.max(0, speech - held);
+    const cut = runs.map((r) => splitSentences(r.text).flatMap((s) => chunkCue(s, CUE_MAX_CHARS)));
+    const chars = cut.flat().reduce((n, s) => n + s.length, 0);
+    let at = t + lead * hold;
+    runs.forEach((r, j) => {
+      for (const piece of cut[j]) {
+        const len = spoken * (piece.length / chars);
         cues.push({ start: round(at), end: round(at + len), text: wrapCue(piece) });
         at += len;
       }
-    }
+      at += r.pause * hold;
+    });
     t += p.duration;
   }
   return cues;
@@ -826,7 +859,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
       if (!steps) console.warn('  builds: the deck did not report its build steps — one still per slide');
 
       plan = planTimeline(narration?.slides ?? null, durations, holds, range,
-        { steps, buildHold, pauses, onWarn: (w) => console.warn(`  ${w}`) });
+        { steps, buildHold, pauses, marks: pauseMarks(html, steps), onWarn: (w) => console.warn(`  ${w}`) });
       const slideCount = new Set(plan.map((p) => p.slide)).size;
       log(`${basename(deck)}: ${slideCount} slide${slideCount === 1 ? '' : 's'}, `
         + `${plan.filter((p) => p.audio).length} narrated`
@@ -872,9 +905,10 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
           if (existsSync(script)) return readFileSync(script, 'utf8');
           const notes = sections[p.slide - 1]?.match(NOTES_ASIDE)?.[1] ?? '';
           const k = narration.slides?.[p.slide - 1]?.segments?.findIndex((sg) => sg.file === p.audio) ?? -1;
-          return k >= 0 ? (notesSegments(notes)?.[k] ?? '') : cleanNotes(notes);
+          return k >= 0 ? (notesSegments(notes, { pauses: true })?.[k] ?? '') : cleanNotes(notes, { pauses: true });
         };
-        const cues = narration ? subtitleCues(plan, textOf) : [];
+        const markHolds = markerPauses(html);
+        const cues = narration ? subtitleCues(plan, textOf, (p) => markHolds[p.slide - 1] ?? 0) : [];
         const enc = ENCODINGS[format];
         if (!cues.length) {
           console.warn('  subtitles: nothing is spoken in this render — none written');
