@@ -31,7 +31,7 @@ import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
-import { slideNotes, manifestHash, markerPauses } from './narration-manifest.mjs';
+import { slideNotes, priorSlideTexts, manifestHash, markerPauses } from './narration-manifest.mjs';
 import { PAUSE_MARK, pauseRuns, stripPauses } from './sentences.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
@@ -295,6 +295,10 @@ export async function synthesizeSlides({
     .update(`${header.engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
   const preDatesModel = prev && prev.model === undefined
     && prev.engine === header.engine && prev.voice === voice && prev.style === style;
+  // A slide the DECK's recorder voiced was stamped over the file's old reading
+  // of the notes, before entities were decoded; it spoke the decoded words all
+  // along, so a stamp matching that reading still vouches for them.
+  const oldReading = prev?.recorder === 'deck' ? priorSlideTexts(html) : [];
 
   // Whatever else the header carried (the recorder's `recorder: 'deck'`) is
   // the track's, and a refresh of it keeps it.
@@ -331,7 +335,8 @@ export async function synthesizeSlides({
     // asked for another (`--format`) is converting it.
     const was = prev?.slides?.[i];
     if (was?.file && extname(was.file) === `.${format}`
-      && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text)))
+      && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text))
+        || (oldReading[i] && was.hash === slideHash(oldReading[i])))
       && existsSync(join(dir, was.file))) {
       entries[i] = { ...was, hash };
       // Carry the segments across only while they are still on disk — the

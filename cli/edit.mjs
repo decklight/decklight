@@ -91,7 +91,7 @@ import { runMain } from './util.mjs';
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { configBlock, hasEmbeddedRuntime } from './runtime-link.mjs';
-import { slideTexts, staleSlides } from '../tools/narration-manifest.mjs';
+import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
 // pure transforms — is a deliberate static cycle and not a dynamic one: this
@@ -2280,7 +2280,9 @@ export async function editMain(args, { onListen = null } = {}) {
   function tracksRoute({ json }) {
     const root2 = resolve(deckPath, '..');
     const seen = [];
-    const texts = slideTexts(readDeck());
+    const deck = readDeck();
+    const texts = slideTexts(deck);
+    const prior = priorSlideTexts(deck);
     const look = (rel) => {
       let entries;
       try { entries = readdirSync(resolve(root2, rel), { withFileTypes: true }); } catch { return; }
@@ -2292,7 +2294,7 @@ export async function editMain(args, { onListen = null } = {}) {
           engine = m.engine ?? null; voice = m.voice ?? null; manifest = true;
           // how many of its slides were voiced from other notes than the deck
           // has now — the export card marks the track with it (#536)
-          if (Array.isArray(m.slides)) stale = staleSlides(m, texts).stale.length;
+          if (Array.isArray(m.slides)) stale = staleSlides(m, texts, null, prior).stale.length;
         } catch { /* a folder recorded by hand has no manifest, and needs none */ }
         seen.push({
           dir: rel.split(sep).join('/'),
