@@ -135,7 +135,7 @@ let slowest = 0;
 // assertion used to cost the whole suite — which is how a mode gets added
 // without ever being watched fail.
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
+const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'realsay'];
@@ -233,6 +233,13 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
     if (!ok) console.error('   ', JSON.stringify(r));
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ⟨PAUSE⟩ held ${r.took}ms between the sentences (≈600=${r.heldTheMark})`
       + ` · both said=${r.saidBoth} · never spoken=${r.neverSpoken} · never captioned=${r.neverCaptioned}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'aliases') {
+    if (!ok) console.error('   ', JSON.stringify(r));
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} a <PAUSE> element and an escaped &lt;pause&gt; held ${r.took}ms (≈1200=${r.heldBoth}) · all said=${r.saidAll}`
+      + ` · never spoken=${r.neverSpoken} · never captioned=${r.neverCaptioned}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

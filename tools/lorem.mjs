@@ -49,6 +49,7 @@ function like(token, word) {
 export function loremRun(text, rnd = Math.random) {
   return String(text).replace(/\S+/g, (token) => {
     if (/[\u27E8\u27E9]/.test(token)) return token;        // a build beat
+    if (/^\[\/?(?:pause|click|slow)\][.,;:!?]*$/i.test(token)) return token;   // a marker, a person's spelling
     if (/^&[#\w]+;$/.test(token)) return token;             // an entity
     if (!/\p{L}/u.test(token)) return token;                // numbers, arrows, punctuation
     return like(token, WORDS[Math.floor(rnd() * WORDS.length)]);

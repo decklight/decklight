@@ -19,7 +19,7 @@
 import { createHash } from 'node:crypto';
 import { cacheKey } from './tts-cache.mjs';
 import { V3_MODEL as ELEVENLABS_V3_MODEL } from './elevenlabs-tts.mjs';
-import { sectionBodies, NOTES_ASIDE, cleanNotes, markBrackets, isHiddenSection } from './deck-html.mjs';
+import { sectionBodies, NOTES_ASIDE, cleanNotes, readNotes, isHiddenSection } from './deck-html.mjs';
 import { deckConfig } from '../cli/runtime-link.mjs';
 import { PAUSE_MARK } from './sentences.mjs';
 
@@ -28,16 +28,16 @@ import { PAUSE_MARK } from './sentences.mjs';
  * Note: block, ⟨CLICK⟩ markers and all; '' for a hidden slide (no file, and
  * the numbering stays) or one with no notes. Index i is slide i+1. The raw
  * form is what the ⟨CLICK⟩ beats are cut from (tools/narration-synth.mjs), so
- * a marker whose brackets are written as entities (`&#10216;CLICK&#10217;`) is
- * handed over with the brackets themselves, the way the browser reads it.
+ * every marker comes back in its canonical form (`readNotes`): entity
+ * brackets, `[click]`, `<pause>` and the rest, the way the runtime reads them.
  */
 export function slideNotes(html) {
   return sectionBodies(html).map((sec) => {
     if (isHiddenSection(sec)) return '';
     const aside = sec.match(NOTES_ASIDE);
-    if (aside) return markBrackets(aside[1]);
+    if (aside) return readNotes(aside[1]);
     const md = sec.match(/^Note:\s*$([\s\S]*?)(?=^Rehearse:\s*$|<\/script>)/m);
-    return md ? markBrackets(md[1]) : '';
+    return md ? readNotes(md[1]) : '';
   });
 }
 
