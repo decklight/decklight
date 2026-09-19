@@ -195,6 +195,14 @@ test('clickSegments follows the runtime rule: every part kept, empties included'
   assert.equal(clickSegments(null), 0);
 });
 
+test('clickSegments counts every spelling of a click — the runtime cuts on each', () => {
+  assert.equal(clickSegments('<p>one</p><p>[click]</p><p>two</p><click></click><p>three</p><p>&lt;CLICK&gt;</p><p>four</p>'), 4);
+});
+
+test('clickSegments counts a ⟨CLICK⟩ whose brackets are written as entities, as the browser does', () => {
+  assert.equal(clickSegments('<p>one</p><p>&#10216;CLICK&#10217;</p><p>two</p><p>&lang;CLICK&rang;</p><p>three</p>'), 3);
+});
+
 test('a data-markdown slide is an error — the feature was removed and the slide comes up empty', () => {
   const html = deck(`  <section><h2>Fine</h2></section>
   <section data-markdown><script type="text/template"># Hello</script></section>`);

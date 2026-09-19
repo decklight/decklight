@@ -16,7 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  readAttrs, writeAttrs, splitOpenTag, injectBeforeBodyEnd, cleanNotes, NOTES_ASIDE,
+  readAttrs, writeAttrs, splitOpenTag, injectBeforeBodyEnd, cleanNotes, markBrackets, readNotes, notesSegments, NOTES_ASIDE,
   sectionBodies, slideHeading, slideRange,
   insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage,
 } from '../tools/deck-html.mjs';
@@ -179,11 +179,31 @@ test('the three entities a note can actually contain are decoded', () => {
     'ampersand last: one level of decoding, exactly like a parser');
 });
 
-test('entities beyond those three are left as written', () => {
-  // Pinned as it behaves. The set matches what the deck writer emits
-  // (escapeHtml writes &amp; &lt; &gt;), so anything else in a note was typed
-  // by hand and is not this tool's to guess at.
-  assert.equal(cleanNotes('&quot;hi&quot; &#39;x&#39; &nbsp;'), '&quot;hi&quot; &#39;x&#39; &nbsp;');
+test('numeric and common named entities decode the way the browser reads them', () => {
+  // The runtime narrates `textContent`, which decodes everything; a tool that
+  // did not spoke — and hashed — `&mdash;` as the letters of its name.
+  assert.equal(cleanNotes('&quot;hi&quot; &#39;x&#39; &#x2014; &mdash; &rsquo;'), '"hi" \'x\' — — ’');
+  assert.equal(cleanNotes('a&nbsp;b'), 'a b', 'a no-break space is whitespace like any other');
+  assert.equal(cleanNotes('&amp;mdash;'), '&mdash;', 'one pass: an escaped entity stays escaped once');
+  assert.equal(cleanNotes('&bogus; &#0; &#xffffffff;'), '&bogus; &#0; &#xffffffff;',
+    'an entity it does not know, or no code point at all, is left as written');
+});
+
+test('a marker written with entity brackets is a marker', () => {
+  // demo/features.html writes its beats this way; the browser segments on them
+  assert.equal(markBrackets('&#10216;CLICK&#10217; &lang;PAUSE&rang; &#x27E8;CLICK&#x27e9;'), '⟨CLICK⟩ ⟨PAUSE⟩ ⟨CLICK⟩');
+  assert.equal(cleanNotes('<p>One.</p><p>&#10216;CLICK&#10217;</p><p>Two &mdash; three.</p>'), 'One. Two — three.');
+  assert.equal(cleanNotes('Look. &#10216;PAUSE&#10217; Now.', { pauses: true }), 'Look. ⟨PAUSE⟩ Now.');
+  assert.deepEqual(notesSegments('<p>One.</p><p>&#10216;CLICK&#10217;</p><p>Two.</p>'), ['One.', 'Two.']);
+});
+
+test('every spelling of a marker reads as the marker, element or text — never spoken', () => {
+  assert.equal(cleanNotes('<p>One. [pause] Two <pause>three.</p><p>[CLICK]</p><p>Four &lt;click&gt; five [slow]six[/slow].</p>'),
+    'One. Two three. Four five six.');
+  assert.equal(cleanNotes('<p>One. [Pause] Two <PAUSE>three.</p>', { pauses: true }), 'One. ⟨PAUSE⟩ Two ⟨PAUSE⟩ three.');
+  assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>Two.</p><click></click><p>Three.</p>'), ['One.', 'Two.', 'Three.']);
+  assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>[slow][/slow]</p>'), null, 'a beat of nothing but markers is no file');
+  assert.equal(readNotes('<p>[1] and [ ] stay</p>'), '<p>[1] and [ ] stay</p>');
 });
 
 test('nothing at all cleans to the empty string', () => {

@@ -24,8 +24,80 @@ export function splitSentences(text) {
  */
 export const PAUSE_MARK = '⟨PAUSE⟩';
 
+/** The beat marker: segment k of a slide's notes narrates build step k. */
+export const CLICK_MARK = '⟨CLICK⟩';
+
+/**
+ * A stretch said slowly: `⟨SLOW⟩ … ⟨/SLOW⟩`, or `⟨SLOW⟩` alone for the rest
+ * of its sentence.
+ */
+export const SLOW_OPEN = '⟨SLOW⟩';
+export const SLOW_CLOSE = '⟨/SLOW⟩';
+
+const MARK_OF = { pause: PAUSE_MARK, click: CLICK_MARK, slow: SLOW_OPEN };
+const markFor = (close, word) => {
+  const w = word.toLowerCase();
+  if (w === 'slow') return close ? SLOW_CLOSE : SLOW_OPEN;
+  return close ? '' : MARK_OF[w];   // a pause or a click has nothing to close
+};
+
+// `[pause]`, `<Click>`, `&lt;SLOW&gt;`, `[/slow]`, `⟨pause⟩` — any case, spaces
+// inside allowed, the brackets a matched pair. Only the three words: `[1]`,
+// `[data-mouth]` and `<script>` in a note are somebody's prose.
+const TEXT_MARK = /\[\s*(\/?)\s*(pause|click|slow)\s*\]|<\s*(\/?)\s*(pause|click|slow)\s*\/?\s*>|&lt;\s*(\/?)\s*(pause|click|slow)\s*\/?\s*&gt;|⟨\s*(\/?)\s*(pause|click|slow)\s*⟩/gi;
+
+/**
+ * Every spelling of a marker written as TEXT, in its one canonical form —
+ * `[pause]` and `<PAUSE>` are `⟨PAUSE⟩`, `[click]` is `⟨CLICK⟩`, `[slow]` and
+ * `[/slow]` are `⟨SLOW⟩` and `⟨/SLOW⟩`. A script written for a person to
+ * record says `[pause]`; the deck should do what it says, not read it out.
+ * The canonical forms map to themselves, so a deck using only those reads —
+ * and hashes — exactly as before.
+ */
+export const canonMarks = (text) => String(text ?? '').replace(TEXT_MARK,
+  (m, c1, w1, c2, w2, c3, w3, c4, w4) => markFor(c1 || c2 || c3 || c4, w1 || w2 || w3 || w4));
+
+// Where the browser closes a <slow> element the source left open: the end of
+// its paragraph, list item or block — or the start of the next one, which
+// closes the paragraph it sits in.
+const BLOCK_EDGE = '<\\/?(?:p|li|div|ul|ol|blockquote|h[1-6]|table|tr|td|th)\\b[^>]*>';
+const MARK_TAG = new RegExp(`<(\\/?)\\s*(pause|click|slow)\\b[^>]*>|(${BLOCK_EDGE})`, 'gi');
+
+/**
+ * Marker ELEMENTS in notes markup as their canonical text: `<pause>` and
+ * `<click>` (their closing tags dropped — an unclosed one only wraps the words
+ * after it, which stay words), `<slow>…</slow>` as `⟨SLOW⟩…⟨/SLOW⟩`. Written
+ * in a deck's HTML they ARE elements, which `textContent` reads as nothing,
+ * so a tool reading the file has to see them the way the runtime's walk does
+ * (`notesPlain` in src/core/narration.js) — including where the parser closes
+ * a `<slow>` nobody closed.
+ */
+export function markTags(html) {
+  let open = false;
+  const out = String(html ?? '').replace(MARK_TAG, (m, close, word, edge) => {
+    if (edge) { if (!open) return m; open = false; return SLOW_CLOSE + m; }
+    if (word.toLowerCase() !== 'slow') return markFor(close, word);
+    if (!close === open) return '';          // a second opener, or a stray close
+    open = !close;
+    return close ? SLOW_CLOSE : SLOW_OPEN;
+  });
+  return open ? out + SLOW_CLOSE : out;
+}
+
+/** Notes MARKUP, every marker spelling — element or text — in canonical form. */
+export const notesMarks = (html) => canonMarks(markTags(html));
+
+/**
+ * The text with every ⟨SLOW⟩ and ⟨/SLOW⟩ gone — without a space in their
+ * place: they wrap words like emphasis does, so `⟨SLOW⟩six⟨/SLOW⟩.` is `six.`
+ */
+export const stripSlow = (text) => String(text ?? '').replaceAll(SLOW_OPEN, '').replaceAll(SLOW_CLOSE, '');
+
 /** The text with every ⟨PAUSE⟩ gone — what is spoken, captioned, subtitled. */
 export const stripPauses = (text) => String(text ?? '').replaceAll(PAUSE_MARK, ' ');
+
+/** What of a text is words: every ⟨PAUSE⟩, ⟨SLOW⟩ and ⟨/SLOW⟩ gone, whitespace flat. */
+export const spoken = (text) => stripSlow(stripPauses(text)).replace(/\s+/g, ' ').trim();
 
 /**
  * A text cut at its ⟨PAUSE⟩ markers: `runs` are the stretches of words, each

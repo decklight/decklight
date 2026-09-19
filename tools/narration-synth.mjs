@@ -31,8 +31,8 @@ import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
-import { slideNotes, manifestHash, markerPauses } from './narration-manifest.mjs';
-import { PAUSE_MARK, pauseRuns, stripPauses } from './sentences.mjs';
+import { slideNotes, priorSlideTexts, manifestHash, markerPauses } from './narration-manifest.mjs';
+import { PAUSE_MARK, pauseRuns, stripPauses, stripSlow, spoken, canonMarks } from './sentences.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -295,6 +295,10 @@ export async function synthesizeSlides({
     .update(`${header.engine}|${voice}|${style}|${text}`).digest('hex').slice(0, 16);
   const preDatesModel = prev && prev.model === undefined
     && prev.engine === header.engine && prev.voice === voice && prev.style === style;
+  // A slide the DECK's recorder voiced was stamped over the file's old reading
+  // of the notes, before entities were decoded; it spoke the decoded words all
+  // along, so a stamp matching that reading still vouches for them.
+  const oldReading = prev?.recorder === 'deck' ? priorSlideTexts(html) : [];
 
   // Whatever else the header carried (the recorder's `recorder: 'deck'`) is
   // the track's, and a refresh of it keeps it.
@@ -313,12 +317,12 @@ export async function synthesizeSlides({
     // makes, and the video rendered from this folder still finds the rest.
     if (i + 1 < span.from || i + 1 > span.to) { entries.push(prev?.slides?.[i] ?? null); continue; }
     // no words — or nothing but ⟨PAUSE⟩, a hold with nothing to hold between
-    if (!stripPauses(slides[i]).trim()) { entries.push(null); continue; }
+    if (!spoken(slides[i])) { entries.push(null); continue; }
     const txt = join(dir, `slide-${n}.txt`);
     // reused text: a second take (another engine or voice) narrates the SAME
     // words, not a re-roll
     const prior = reuseTextFrom.map((d) => join(d, `slide-${n}.txt`)).find((f) => existsSync(f));
-    const text = prior ? readFileSync(prior, 'utf8').trim() : slides[i];
+    const text = prior ? stripSlow(canonMarks(readFileSync(prior, 'utf8'))).replace(/\s+/g, ' ').trim() : slides[i];
     const file = `slide-${n}.${format}`;
     writeFileSync(txt, text);
     const hash = slideHash(text);
@@ -331,7 +335,8 @@ export async function synthesizeSlides({
     // asked for another (`--format`) is converting it.
     const was = prev?.slides?.[i];
     if (was?.file && extname(was.file) === `.${format}`
-      && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text)))
+      && (was.hash === hash || was.hash === clipHash(text) || (preDatesModel && was.hash === legacyHash(text))
+        || (oldReading[i] && was.hash === slideHash(oldReading[i])))
       && existsSync(join(dir, was.file))) {
       entries[i] = { ...was, hash };
       // Carry the segments across only while they are still on disk — the

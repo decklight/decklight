@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import {
   synthesizeSlides, trackFormat, voiceDrift, readTrack, TRACK_FORMATS, readWav, joinWav,
 } from '../tools/narration-synth.mjs';
-import { recorderManifest, slideTexts, staleSlides } from '../tools/narration-manifest.mjs';
+import { recorderManifest, slideTexts, priorSlideTexts, manifestHash, staleSlides } from '../tools/narration-manifest.mjs';
 import { createTtsCache } from '../tools/tts-cache.mjs';
 import { createEngine } from '../tools/tts-engines.mjs';
 import { tmp, writeFakePiper } from './helpers.mjs';
@@ -128,6 +128,29 @@ test('a track the deck\'s recorder made is refreshed as that track — kept, and
   assert.equal(skipped, 3);
   assert.equal(manifest.recorder, 'deck', 'a header field the core does not own is carried');
   assert.deepEqual(manifest.slides.map((s) => s.file), ['slide-01.wav', 'slide-02.wav', 'slide-03.wav']);
+});
+
+test('a deck-recorded slide stamped over the old reading of an entity is kept and re-stamped; a synthesized one is re-voiced', async (t) => {
+  const html = deck(['One &mdash; two.', 'Plain.']);
+  const header = { engine: 'fake', model: 'm1', voice: 'v1', style: 'warm' };
+  const old = priorSlideTexts(html);
+  const track = (dir, extra) => {
+    const m = { ...header, ...extra, slides: old.map((t2, i) => ({ file: `slide-0${i + 1}.wav`, hash: manifestHash(header, t2) })) };
+    mkdirSync(dir, { recursive: true });
+    for (const s of m.slides) writeFileSync(path.join(dir, s.file), 'a take');
+    writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(m));
+    return m;
+  };
+
+  const recDir = tmp('synth-entity-rec', t);
+  const rec = await run({ html, dir: recDir, tts: fakeTts(), format: 'wav', prev: track(recDir, { recorder: 'deck' }) });
+  assert.equal(rec.skipped, 2, 'the recorder voiced the decoded words all along');
+  assert.deepEqual(staleSlides(rec.manifest, slideTexts(html)).stale, [], 're-stamped: current by the new reading alone');
+
+  const coreDir = tmp('synth-entity-core', t);
+  const tts = fakeTts();
+  await run({ html, dir: coreDir, tts, format: 'wav', prev: track(coreDir, {}) });
+  assert.deepEqual(tts.said, ['One — two.'], 'the core spoke the entity\'s name: that slide is voiced again, decoded');
 });
 
 test('a ranged run in another voice is refused before anything is written', async (t) => {
