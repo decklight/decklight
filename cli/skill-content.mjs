@@ -141,7 +141,8 @@ stay in sync (PRESENTING in the reference). Where an idea needs a moment to
 land, put \`⟨PAUSE⟩\` there: the voice holds two beat pauses (1s by default)
 and never says it. Use it sparingly — at the few moments that earn it.
 A script written the way people write for a recording works as it is:
-\`[click]\`, \`[pause]\` and \`<pause>\` (any case) are the same markers.
+\`[click]\`, \`[pause]\` and \`<pause>\` (any case) are the same markers, and
+\`[slow]\` before a sentence (or \`[slow]…[/slow]\` around a phrase) says it slower.
 
 **Commit your own changes when an authoring server is running.** \`decklight
 author\` auto-commits the deck, but on a timer and under a generic \`autosave\`

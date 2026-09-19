@@ -43,11 +43,12 @@
 // registered reaches its own voice exactly as it always did.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { createSynth as createGemini, GEMINI_VOICES, gcloudToken, validProjectId, authHeaders } from './gemini-tts.mjs';
 import { run, PROBE_MS, NETWORK_MS } from './exec.mjs';
+import { extFor } from './tts-cache.mjs';
 import {
   createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
   DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
@@ -127,7 +128,7 @@ function createChirp({ project, lang = 'en-US' }) {
   if (!validProjectId(project)) throw new Error(`not a GCP project id: ${JSON.stringify(project)}`);
   let token = null;
 
-  async function call(text, voice) {
+  async function call(text, voice, rate) {
     const res = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
       method: 'POST',
       headers: authHeaders(token, project),
@@ -135,7 +136,7 @@ function createChirp({ project, lang = 'en-US' }) {
       body: JSON.stringify({
         input: { text },
         voice: { languageCode: lang, name: chirpVoice(voice, lang) },
-        audioConfig: { audioEncoding: 'LINEAR16', sampleRateHertz: 24000 },
+        audioConfig: { audioEncoding: 'LINEAR16', sampleRateHertz: 24000, ...(rate !== 1 ? { speakingRate: rate } : {}) },
       }),
     });
     if (!res.ok) { const e = new Error(`${res.status} ${(await res.text()).slice(0, 200)}`); e.status = res.status; throw e; }
@@ -145,13 +146,13 @@ function createChirp({ project, lang = 'en-US' }) {
     return Buffer.from(audioContent, 'base64');
   }
 
-  return async function synth(text, { voice = 'Alnilam' } = {}) {
+  return async function synth(text, { voice = 'Alnilam', rate = 1 } = {}) {
     token ??= gcloudToken();
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return {
-          wav: await call(text, voice),
+          wav: await call(text, voice, rate),
           usage: {
             model: 'chirp3-hd',
             chars: text.length,
@@ -374,7 +375,7 @@ function createNative({
    * whichever one you picked, and all 184 played the same one — the failure was
    * invisible in the logs because the log line quotes the REQUEST.
    */
-  return async (text, { voice: asked } = {}) => {
+  return async (text, { voice: asked, rate = 1 } = {}) => {
     const pick = asked || voice;
     // A name this machine cannot say is an ERROR, not a shrug. `say -v Zephyr`
     // exits 0 and quietly produces the SYSTEM DEFAULT voice — so a typo, a
@@ -394,7 +395,7 @@ function createNative({
     try {
       // SIGKILL, not the default SIGTERM: a wedged synthesizer is blocked in a
       // syscall and a polite signal is exactly what it is not answering.
-      execFileSync(bin, build(line, pick, file), {
+      execFileSync(bin, build(line, pick, file, rate), {
         stdio: ['ignore', 'ignore', 'pipe'], timeout: timeoutMs, killSignal: 'SIGKILL',
       });
       const wav = readFileSync(file);
@@ -427,7 +428,60 @@ function createNative({
   };
 }
 
-export function createEngine({
+export function createEngine(opts = {}) {
+  return withRates(buildEngine(opts));
+}
+
+/**
+ * An engine that can be asked for a pace — `synth(text, { rate })`, where a
+ * ⟨SLOW⟩ stretch passes 0.85 — whether or not it has a pace of its own.
+ *
+ * One that does (`rates: true`: say and SAPI, ElevenLabs, Chirp, Gemini)
+ * slows itself, the way that engine slows best. One that does not — piper,
+ * whose pace is fixed when its process starts, and any engine a unit installs
+ * — is asked for the words at its own pace and the clip is stretched by
+ * ffmpeg's `atempo`, pitch kept. With no ffmpeg the words are said at their
+ * usual pace, and that is said once.
+ */
+export function withRates(engine, { stretch = stretchClip } = {}) {
+  if (!engine?.synth || engine.rates) return engine;
+  const inner = engine.synth;
+  const ext = extFor(inner.mimeType ?? 'audio/wav');
+  const synth = Object.assign(async (text, { rate = 1, ...opts } = {}) => {
+    const out = await inner(text, opts);
+    if (rate === 1) return out;
+    const wav = stretch(out.wav, rate, ext);
+    return wav ? { ...out, wav } : out;
+  }, inner);
+  return { ...engine, synth };
+}
+
+let warnedStretch = false;
+/**
+ * `audio` (in `ext`) said at `rate` × its pace, pitch kept — or null when this
+ * machine has no ffmpeg to do it with.
+ */
+export function stretchClip(audio, rate, ext, { run = execFileSync } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'decklight-slow-'));
+  const src = join(dir, `in.${ext}`);
+  const dst = join(dir, `out.${ext}`);
+  try {
+    writeFileSync(src, audio);
+    run('ffmpeg', ['-y', '-loglevel', 'error', '-i', src, '-filter:a', `atempo=${rate}`, dst], { stdio: 'ignore', timeout: NATIVE_TIMEOUT_MS });
+    return readFileSync(dst);
+  } catch (e) {
+    if (!warnedStretch) {
+      warnedStretch = true;
+      console.warn(`  ⟨SLOW⟩: this engine has no pace of its own and ${e.code === 'ENOENT' ? 'ffmpeg is not installed' : 'ffmpeg failed'}`
+        + ' — the stretch is said at the usual pace (brew install ffmpeg)');
+    }
+    return null;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function buildEngine({
   engine = 'gemini', project, model, location, voice, dataDir, lang, format, stability, env = process.env,
   // Injected like every other probe in this file, so a native engine can be
   // built — and its voice handling asserted — on a machine that is not the one
@@ -473,7 +527,7 @@ export function createEngine({
       : (v.locale || '').toLowerCase().startsWith(want) ? TIER_LABEL[v.tier]
         : 'other languages');
     return {
-      name: engine, model: pick, needsProject: false, stylable: false,
+      name: engine, model: pick, needsProject: false, stylable: false, rates: true,
       // `model` here is the voice this process BOOTED with, not a model — and
       // createNative honours a different voice per sentence, so the boot voice
       // says nothing about how a given clip sounds. The cache keys on the
@@ -518,7 +572,7 @@ export function createEngine({
       // v3 alone reads audio tags as direction — every other ElevenLabs model
       // would read a tag's brackets aloud as words, so the tone step is v3-only,
       // decided here from the model rather than the picker guessing by name.
-      stylable: isV3,
+      stylable: isV3, rates: true,
       cost: 'metered in characters against your plan',
       // Stated once, at startup, where the presenter is still choosing —
       // v3 trades latency and consistency for expressiveness, and ElevenLabs'
@@ -537,7 +591,7 @@ export function createEngine({
   }
   if (engine === 'chirp') {
     return {
-      name: 'chirp', model: 'chirp3-hd', needsProject: true, stylable: false,
+      name: 'chirp', model: 'chirp3-hd', needsProject: true, stylable: false, rates: true,
       cost: 'first 1M chars/month free',
       voices: GEMINI_VOICES,
       synth: createChirp({ project, lang: lang ?? 'en-US' }),
@@ -545,7 +599,7 @@ export function createEngine({
   }
   const m = model ?? 'gemini-2.5-pro-tts';
   return {
-    name: 'gemini', model: m, needsProject: true, stylable: true,
+    name: 'gemini', model: m, needsProject: true, stylable: true, rates: true,
     cost: 'billed per call — no free tier',
     voices: GEMINI_VOICES,
     synth: createGemini({ project, ttsModel: m, location }),
@@ -720,5 +774,5 @@ export async function resolveEngine(opts = {}) {
   const name = opts.engine ?? 'gemini';
   if (ENGINES.includes(name)) return createEngine(opts);
   const { loadEngine } = await import('../cli/loader.mjs');
-  return loadEngine(name, opts);
+  return withRates(await loadEngine(name, opts));
 }

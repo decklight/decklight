@@ -43,10 +43,10 @@ import { argReader, isMain } from './args.mjs';
 import { renderThemeParams } from './render-theme.mjs';
 import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './video-options.mjs';
-import { splitSentences, pauseRuns, PAUSE_MARK, CLICK_MARK, canonMarks, stripSlow } from './sentences.mjs';
+import { splitSentences, speechRuns, PAUSE_MARK, CLICK_MARK, canonMarks, SLOW_RATE } from './sentences.mjs';
 import { serveForRender } from '../cli/present.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
-import { staleSlides, slideTexts, priorSlideTexts, slideNotes, markerPauses } from './narration-manifest.mjs';
+import { staleSlides, slideTexts, priorSlideTexts, slideNotes, markerPauses, slowRateIn } from './narration-manifest.mjs';
 import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';
 import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
 import { loadTtsConfig } from './tts-setup.mjs';
@@ -485,33 +485,49 @@ function wrapCue(text, line = CUE_MAX_CHARS / 2) {
  * after a slide (`pad`) carries no caption, and a silent frame none at all.
  * Nor does a ⟨PAUSE⟩ (#560): the script beside a clip keeps its markers, and
  * each one is `holdOf(frame)` seconds of the clip's silence — taken out of the
- * time shared among the words, and left uncaptioned where it falls.
+ * time shared among the words, and left uncaptioned where it falls. A ⟨SLOW⟩
+ * stretch was said at `slowRate` × the pace, so its words count for that much
+ * more of the share; a stretch that cut a sentence is captioned with the rest
+ * of it, as one line.
  *
  * @param plan    planTimeline's frames, in order
  * @param textOf  frame → the words its audio speaks, ⟨PAUSE⟩ markers and all
  * @param holdOf  frame → seconds one ⟨PAUSE⟩ holds on its slide
+ * @param slowRate  the deck's ⟨SLOW⟩ rate (`slowRateIn`)
  * @returns {Array<{start, end, text}>} seconds from the start of the video
  */
-export function subtitleCues(plan, textOf, holdOf = () => 0) {
+export function subtitleCues(plan, textOf, holdOf = () => 0, slowRate = SLOW_RATE) {
   const cues = [];
   let t = 0;
   for (const p of plan) {
     const speech = p.audio ? Math.max(0, p.duration - (p.pad ?? 0)) : 0;
-    const { lead, runs } = pauseRuns(speech ? String(textOf(p) ?? '') : '');
+    const { lead, runs } = speechRuns(speech ? String(textOf(p) ?? '') : '');
     const hold = runs.length ? holdOf(p) : 0;
     const held = hold * (lead + runs.reduce((n, r) => n + r.pause, 0));
     const spoken = Math.max(0, speech - held);
-    const cut = runs.map((r) => splitSentences(r.text).flatMap((s) => chunkCue(s, CUE_MAX_CHARS)));
-    const chars = cut.flat().reduce((n, s) => n + s.length, 0);
+    // pieces of { text, weight }, each run's then its hold; a run glued to the
+    // next (a slow edge mid-sentence) lends its last piece to the next one's first
+    const cut = [];
+    let carry = null;
+    for (const r of runs) {
+      const pieces = splitSentences(r.text).flatMap((s) => chunkCue(s, CUE_MAX_CHARS))
+        .map((text) => ({ text, weight: text.length / (r.slow ? slowRate : 1) }));
+      if (carry && pieces.length) pieces[0] = { text: `${carry.text} ${pieces[0].text}`, weight: carry.weight + pieces[0].weight };
+      else if (carry) pieces.unshift(carry);
+      carry = r.glue && pieces.length ? pieces.pop() : null;
+      cut.push({ pieces, pause: r.pause });
+    }
+    if (carry) cut[cut.length - 1].pieces.push(carry);
+    const total = cut.reduce((n, c) => n + c.pieces.reduce((m, x) => m + x.weight, 0), 0);
     let at = t + lead * hold;
-    runs.forEach((r, j) => {
-      for (const piece of cut[j]) {
-        const len = spoken * (piece.length / chars);
-        cues.push({ start: round(at), end: round(at + len), text: wrapCue(piece) });
+    for (const c of cut) {
+      for (const piece of c.pieces) {
+        const len = spoken * (piece.weight / total);
+        cues.push({ start: round(at), end: round(at + len), text: wrapCue(piece.text) });
         at += len;
       }
-      at += r.pause * hold;
-    });
+      at += c.pause * hold;
+    }
     t += p.duration;
   }
   return cues;
@@ -903,13 +919,13 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
         const textOf = (p) => {
           const script = join(narration.dir, p.audio.replace(/\.[^.]+$/, '.txt'));
           // an edited script may spell its markers the way a person does — `[pause]`
-          if (existsSync(script)) return stripSlow(canonMarks(readFileSync(script, 'utf8')));
+          if (existsSync(script)) return canonMarks(readFileSync(script, 'utf8'));
           const notes = sections[p.slide - 1]?.match(NOTES_ASIDE)?.[1] ?? '';
           const k = narration.slides?.[p.slide - 1]?.segments?.findIndex((sg) => sg.file === p.audio) ?? -1;
-          return k >= 0 ? (notesSegments(notes, { pauses: true })?.[k] ?? '') : cleanNotes(notes, { pauses: true });
+          return k >= 0 ? (notesSegments(notes, { marks: true })?.[k] ?? '') : cleanNotes(notes, { marks: true });
         };
         const markHolds = markerPauses(html);
-        const cues = narration ? subtitleCues(plan, textOf, (p) => markHolds[p.slide - 1] ?? 0) : [];
+        const cues = narration ? subtitleCues(plan, textOf, (p) => markHolds[p.slide - 1] ?? 0, slowRateIn(html)) : [];
         const enc = ENCODINGS[format];
         if (!cues.length) {
           console.warn('  subtitles: nothing is spoken in this render — none written');

@@ -208,6 +208,23 @@ test('unasked, no voice_settings is sent at all — the account setting is left 
   assert.equal(JSON.parse(post.init.body).voice_settings, undefined);
 });
 
+test('a slow stretch sends speed — only on its own clips, beside any stability, never under ElevenLabs\' 0.7 floor', async () => {
+  const fetchImpl = fakeFetch();
+  const { synth } = createSynth({ key: 'k', model: V3_MODEL, stability: 'natural', fetchImpl });
+  await synth('slow', { voice: 'Gilles', rate: 0.85 });
+  await synth('usual', { voice: 'Gilles' });
+  await synth('crawl', { voice: 'Gilles', rate: 0.5 });
+  const bodies = fetchImpl.calls.filter((c) => c.init.method === 'POST').map((c) => JSON.parse(c.init.body).voice_settings);
+  assert.deepEqual(bodies, [{ stability: 0.5, speed: 0.85 }, { stability: 0.5 }, { stability: 0.5, speed: 0.7 }]);
+
+  const plain = fakeFetch();
+  const { synth: s2 } = createSynth({ key: 'k', fetchImpl: plain });
+  await s2('usual', { voice: 'Gilles' });
+  await s2('slow', { voice: 'Gilles', rate: 0.85 });
+  const b2 = plain.calls.filter((c) => c.init.method === 'POST').map((c) => JSON.parse(c.init.body).voice_settings);
+  assert.deepEqual(b2, [undefined, { speed: 0.85 }], 'a usual clip still leaves the account\'s settings alone');
+});
+
 test('a stability preset asked of a model with no such slider is refused up front', () => {
   assert.throws(
     () => createSynth({ key: 'k', model: DEFAULT_MODEL, stability: 'creative' }),

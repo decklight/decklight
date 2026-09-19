@@ -34,6 +34,16 @@ export const CLICK_MARK = '⟨CLICK⟩';
 export const SLOW_OPEN = '⟨SLOW⟩';
 export const SLOW_CLOSE = '⟨/SLOW⟩';
 
+/**
+ * How much slower a ⟨SLOW⟩ stretch is said: 0.85× unless the deck's
+ * `narration.slowRate` says otherwise. Bounded to 0.5–1 — slower than half
+ * speed stops being emphasis and starts being a malfunction, and "slow" at
+ * more than 1× is a typo — and a value out of bounds costs the default, never
+ * the feature. One definition for the live voice and the synthesis core.
+ */
+export const SLOW_RATE = 0.85;
+export const slowRateOf = (cfg) => (typeof cfg === 'number' && Number.isFinite(cfg) && cfg >= 0.5 && cfg <= 1 ? cfg : SLOW_RATE);
+
 const MARK_OF = { pause: PAUSE_MARK, click: CLICK_MARK, slow: SLOW_OPEN };
 const markFor = (close, word) => {
   const w = word.toLowerCase();
@@ -99,28 +109,84 @@ export const stripPauses = (text) => String(text ?? '').replaceAll(PAUSE_MARK, '
 /** What of a text is words: every ⟨PAUSE⟩, ⟨SLOW⟩ and ⟨/SLOW⟩ gone, whitespace flat. */
 export const spoken = (text) => stripSlow(stripPauses(text)).replace(/\s+/g, ' ').trim();
 
+// splitSentences' sentence end: terminal punctuation, closing quotes kept on it
+const SENTENCE_END = /[.!?…]+[”’"')\]]*/;
+const ENDS_SENTENCE = /[.!?…][”’"')\]]*$/;
+// punctuation that belongs to the words BEFORE it, even across a marker:
+// `⟨SLOW⟩slowly⟨/SLOW⟩.` is `slowly.`, said slowly
+const LEADING_PUNCT = /^[.,;:!?…”’"')\]]+/;
+
 /**
- * A text cut at its ⟨PAUSE⟩ markers: `runs` are the stretches of words, each
- * with the number of markers that FOLLOW it, and `lead` counts the markers
- * before any word at all.
+ * Every ⟨SLOW⟩ closed: one the text never closes lasts to the end of the
+ * sentence it starts — `[slow] The rule of thumb.` slows that sentence, the
+ * way a script marks the line that carries the step. A second opener inside
+ * a stretch and a close with nothing open are dropped.
+ */
+export function closeSlow(text) {
+  const parts = String(text ?? '').split(/(⟨SLOW⟩|⟨\/SLOW⟩)/);
+  const out = [];
+  let open = false, scoped = false;
+  parts.forEach((p, j) => {
+    if (p === SLOW_OPEN) {
+      if (open) return;
+      open = true;
+      scoped = !parts.slice(j + 1).includes(SLOW_CLOSE);
+      out.push(p);
+      return;
+    }
+    if (p === SLOW_CLOSE) {
+      if (!open) return;
+      open = scoped = false;
+      out.push(p);
+      return;
+    }
+    const end = open && scoped ? SENTENCE_END.exec(p) : null;
+    if (!end) { out.push(p); return; }
+    const at = end.index + end[0].length;
+    out.push(p.slice(0, at), SLOW_CLOSE, p.slice(at));
+    open = scoped = false;
+  });
+  if (open) out.push(SLOW_CLOSE);
+  return out.join('');
+}
+
+/**
+ * A text cut at its ⟨PAUSE⟩ markers and its ⟨SLOW⟩ edges: `runs` are the
+ * stretches of words, each with the number of markers that FOLLOW it, whether
+ * it is said slowly, and whether it `glue`s to the next run — ends mid-
+ * sentence at a slow edge, so no breath is taken there. `lead` counts the
+ * markers before any word at all.
  *
- * Every marker belongs to the words before it — between two sentences,
+ * Every ⟨PAUSE⟩ belongs to the words before it — between two sentences,
  * attached to one, or standing on its own line — except the ones before the
  * first word, which hold before it. That difference is what keeps
  * `A. ⟨PAUSE⟩ ⟨CLICK⟩ B.` (hold, then reveal) apart from
  * `A. ⟨CLICK⟩ ⟨PAUSE⟩ B.` (reveal, then hold). A marker mid-sentence cuts the
  * sentence there: the author put the silence exactly where they wanted it.
+ * A slow edge mid-sentence cuts it too — a clip is said at one rate — and
+ * punctuation right after a stretch stays on it.
  */
-export function pauseRuns(text) {
-  const parts = String(text ?? '').split(PAUSE_MARK);
+export function speechRuns(text) {
   const runs = [];
-  let lead = 0;
-  parts.forEach((part, j) => {
-    const words = part.replace(/\s+/g, ' ').trim();
-    if (words) runs.push({ text: words, pause: 0 });
-    if (j === parts.length - 1) return;
-    if (runs.length) runs[runs.length - 1].pause++;
-    else lead++;
-  });
+  let lead = 0, slow = false;
+  for (const p of closeSlow(text).split(/(⟨PAUSE⟩|⟨SLOW⟩|⟨\/SLOW⟩)/)) {
+    if (p === PAUSE_MARK) { if (runs.length) runs[runs.length - 1].pause++; else lead++; continue; }
+    if (p === SLOW_OPEN || p === SLOW_CLOSE) { slow = p === SLOW_OPEN; continue; }
+    let words = p.replace(/\s+/g, ' ').trim();
+    const last = runs[runs.length - 1];
+    const punct = last && !last.pause ? LEADING_PUNCT.exec(words) : null;
+    if (punct) { last.text += punct[0]; words = words.slice(punct[0].length).trim(); }
+    if (!words) continue;
+    if (last && !last.pause && last.slow === slow) last.text += ` ${words}`;
+    else runs.push({ text: words, pause: 0, slow });
+  }
+  runs.forEach((r, j) => { r.glue = j < runs.length - 1 && !r.pause && !ENDS_SENTENCE.test(r.text); });
   return { lead, runs };
 }
+
+/** A sentence as the live voice carries it: a slow one leads with ⟨SLOW⟩. */
+export const slowSentence = (s) => (String(s ?? '').startsWith(SLOW_OPEN)
+  ? { text: s.slice(SLOW_OPEN.length), slow: true } : { text: String(s ?? ''), slow: false });
+
+/** Is any stretch of this text said slowly? */
+export const hasSlow = (text) => String(text ?? '').includes(SLOW_OPEN);

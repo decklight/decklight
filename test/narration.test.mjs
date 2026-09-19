@@ -12,7 +12,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
-import { pauseRuns, stripPauses, PAUSE_MARK, canonMarks, markTags, notesMarks, spoken } from '../tools/sentences.mjs';
+import { speechRuns, closeSlow, slowSentence, slowRateOf, SLOW_RATE, stripPauses, PAUSE_MARK, canonMarks, markTags, notesMarks, spoken } from '../tools/sentences.mjs';
+
+// speechRuns as the ⟨PAUSE⟩ tests read it: words and holds, nothing slow here
+const pauseRuns = (t) => { const { lead, runs } = speechRuns(t); return { lead, runs: runs.map(({ text, pause }) => ({ text, pause })) }; };
 import { BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 
 import {
@@ -582,6 +585,27 @@ test('⟨PAUSE⟩ belongs to the words before it — between sentences, attached
   assert.deepEqual(pauseRuns('One.\n\n⟨PAUSE⟩\n\nTwo.'), between);   // or a paragraph of its own
 });
 
+// ── ⟨SLOW⟩: a stretch said slowly ────────────────────────────────────────
+
+test('an unclosed ⟨SLOW⟩ lasts to the end of its sentence; a close ends it where it stands', () => {
+  assert.equal(closeSlow('⟨SLOW⟩The rule of thumb. Then more.'), '⟨SLOW⟩The rule of thumb.⟨/SLOW⟩ Then more.');
+  assert.equal(closeSlow('Now ⟨SLOW⟩this part⟨/SLOW⟩ and on.'), 'Now ⟨SLOW⟩this part⟨/SLOW⟩ and on.');
+  assert.equal(closeSlow('A ⟨SLOW⟩b ⟨SLOW⟩c⟨/SLOW⟩ d ⟨/SLOW⟩ e.'), 'A ⟨SLOW⟩b c⟨/SLOW⟩ d  e.', 'a nested opener and a stray close are nothing');
+  assert.equal(closeSlow('⟨SLOW⟩no full stop'), '⟨SLOW⟩no full stop⟨/SLOW⟩', 'or the end of the beat');
+  assert.equal(closeSlow('⟨SLOW⟩“Quoted.” Next.'), '⟨SLOW⟩“Quoted.”⟨/SLOW⟩ Next.', 'closing quotes stay on the sentence');
+});
+
+test('speechRuns cuts at slow edges: the rate, the glue, and punctuation kept on the stretch it ends', () => {
+  const r = (t) => speechRuns(t).runs.map(({ text, slow, glue, pause }) => [text, slow, glue, pause]);
+  assert.deepEqual(r('We filter ⟨SLOW⟩before we sort⟨/SLOW⟩, because it saves work.'), [
+    ['We filter', false, true, 0], ['before we sort,', true, true, 0], ['because it saves work.', false, false, 0]]);
+  assert.deepEqual(r('⟨SLOW⟩The rule. Then more.'), [['The rule.', true, false, 0], ['Then more.', false, false, 0]],
+    'a whole sentence, cut at its full stop: no glue, the breath is taken');
+  assert.deepEqual(r('A ⟨SLOW⟩b ⟨PAUSE⟩ c⟨/SLOW⟩ d.'), [['A', false, true, 0], ['b', true, false, 1], ['c', true, true, 0], ['d.', false, false, 0]],
+    'a hold inside a stretch holds; the stretch goes on after it');
+  assert.deepEqual(r('No marker at all.'), [['No marker at all.', false, false, 0]]);
+});
+
 test('⟨PAUSE⟩ repeated holds that many times; one before any word holds first; one mid-sentence cuts it', () => {
   assert.deepEqual(pauseRuns('One. ⟨PAUSE⟩ ⟨PAUSE⟩ Two.').runs[0].pause, 2);
   assert.deepEqual(pauseRuns('⟨PAUSE⟩ One.'), { lead: 1, runs: [{ text: 'One.', pause: 0 }] });
@@ -616,11 +640,27 @@ test('a hold before or after the ⟨CLICK⟩ lands on its own side of the build'
 });
 
 test('a beat of nothing but ⟨PAUSE⟩ is a bare hold — or, folded behind words, holds after them', () => {
-  assert.deepEqual(stepPlan(['⟨PAUSE⟩']), { sentences: [], segStarts: new Set(), segRuns: [], before: [], after: [], bare: 1 });
+  assert.deepEqual(stepPlan(['⟨PAUSE⟩']), { sentences: [], segStarts: new Set(), segRuns: [], before: [], after: [], glue: [], bare: 1 });
   // the last step folds every remaining segment: the lone marker follows "A."
   const folded = stepPlan(['A.', '⟨PAUSE⟩']);
   assert.deepEqual(folded.after, [1]);
   assert.equal(folded.bare, 0);
+});
+
+test('stepPlan: a slow sentence is carried with ⟨SLOW⟩ at its head, and no breath is taken at a mid-sentence edge', () => {
+  const plan = stepPlan(['We filter ⟨SLOW⟩before we sort⟨/SLOW⟩, because it saves work. [slow]Filter first.'.replace('[slow]', '⟨SLOW⟩')]);
+  assert.deepEqual(plan.sentences, ['We filter', '⟨SLOW⟩before we sort,', 'because it saves work.', '⟨SLOW⟩Filter first.']);
+  assert.deepEqual(plan.glue, [true, true, false, false]);
+  assert.deepEqual(plan.sentences.map((t) => slowSentence(t)), [
+    { text: 'We filter', slow: false }, { text: 'before we sort,', slow: true },
+    { text: 'because it saves work.', slow: false }, { text: 'Filter first.', slow: true }]);
+});
+
+test('slowRateOf: the deck\'s narration.slowRate between 0.5 and 1, else 0.85', () => {
+  assert.equal(SLOW_RATE, 0.85);
+  assert.equal(slowRateOf(undefined), 0.85);
+  assert.equal(slowRateOf(0.7), 0.7);
+  for (const bad of [0.3, 1.2, '0.7', NaN, null]) assert.equal(slowRateOf(bad), 0.85, String(bad));
 });
 
 test('a notes text with no marker plans exactly as it did before markers existed', () => {
@@ -634,7 +674,7 @@ test('a beat of nothing but ⟨PAUSE⟩ has no take — no file number, no recor
   const notes = 'A. ⟨CLICK⟩ ⟨PAUSE⟩ ⟨CLICK⟩ B.';
   const segs = notes.split('⟨CLICK⟩');
   assert.deepEqual(segmentFileIndex(segs), [1, null, 2]);
-  assert.deepEqual(notesSegments(notes, { pauses: true }), ['A.', 'B.']);
+  assert.deepEqual(notesSegments(notes, { marks: true }), ['A.', 'B.']);
   assert.deepEqual(recordPlan(segs, 2).map((b) => b.file), [1, 2]);
   // a reader is shown the marker — it is their cue to hold
   assert.equal(recordPlan(['A. ⟨PAUSE⟩ B.', 'C.'], 1)[0].text, 'A. ⟨PAUSE⟩ B.');
