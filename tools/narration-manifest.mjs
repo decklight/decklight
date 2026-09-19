@@ -21,7 +21,7 @@ import { cacheKey } from './tts-cache.mjs';
 import { V3_MODEL as ELEVENLABS_V3_MODEL } from './elevenlabs-tts.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, readNotes, isHiddenSection } from './deck-html.mjs';
 import { deckConfig } from '../cli/runtime-link.mjs';
-import { PAUSE_MARK } from './sentences.mjs';
+import { PAUSE_MARK, slowRateOf } from './sentences.mjs';
 
 /**
  * Each slide's notes as WRITTEN — the notes aside's markup, or a markdown
@@ -52,7 +52,7 @@ export function slideNotes(html) {
  * any more, and this is the text the hash is taken over. A slide with no
  * marker reads exactly as it did before markers existed: no track churns.
  */
-export const slideTexts = (html) => slideNotes(html).map((raw) => (raw ? cleanNotes(raw, { pauses: true }) : ''));
+export const slideTexts = (html) => slideNotes(html).map((raw) => (raw ? cleanNotes(raw, { marks: true }) : ''));
 
 /**
  * Each slide's narration text as this file read it before it decoded entities
@@ -98,6 +98,13 @@ export function markerPauses(html) {
     return 2 * (Number.isFinite(n) && n >= 0 ? n : deck);
   });
 }
+
+/**
+ * The rate a ⟨SLOW⟩ stretch is said at in this deck: its configuration block's
+ * `narration.slowRate`, bounded the way the runtime bounds it — the same
+ * function (tools/sentences.mjs `slowRateOf`), so the two cannot disagree.
+ */
+export const slowRateIn = (html) => slowRateOf(deckConfig(html)?.narration?.slowRate);
 
 /**
  * The key fields for a manifest header, the way `clipKey` derives them from

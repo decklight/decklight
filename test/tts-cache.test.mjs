@@ -127,6 +127,15 @@ test('an absent field is not the empty string wearing a hat', () => {
   );
 });
 
+test('a slow clip is another clip, and a clip at the usual pace keeps the name it always had', () => {
+  const base = { engine: 'say', format: 'wav', voice: 'Samantha', text: 'Filter first.' };
+  assert.equal(cacheKey({ ...base, rate: 1 }), cacheKey(base), 'every clip filed before rates existed still hits');
+  assert.equal(cacheKey({ ...base, rate: undefined }), cacheKey(base));
+  assert.notEqual(cacheKey({ ...base, rate: 0.85 }), cacheKey(base));
+  const eng = { name: 'say', model: 'Samantha', modelIsDefaultVoice: true, synth: { mimeType: 'audio/wav' } };
+  assert.notEqual(clipKey(eng, { text: 'x', rate: 0.85 }), clipKey(eng, { text: 'x' }));
+});
+
 test('mp3 and wav are filed under different names', () => {
   assert.equal(extFor('audio/mpeg'), 'mp3');
   assert.equal(extFor('audio/wav'), 'wav');

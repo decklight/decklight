@@ -168,8 +168,8 @@ test('the ⟨CLICK⟩ marker is punctuation, not something to read aloud', () =>
 test('⟨PAUSE⟩ is not read aloud either — unless the caller keeps it as the hold it is (#560)', () => {
   assert.equal(cleanNotes('<p>Look.</p><p>⟨PAUSE⟩</p><p>Now.</p>'), 'Look. Now.');
   // kept, it is spaced as a word of its own however it was written
-  assert.equal(cleanNotes('<p>Look.⟨PAUSE⟩</p><p>Now.</p>', { pauses: true }), 'Look. ⟨PAUSE⟩ Now.');
-  assert.equal(cleanNotes('Look.⟨PAUSE⟩Now.', { pauses: true }), 'Look. ⟨PAUSE⟩ Now.');
+  assert.equal(cleanNotes('<p>Look.⟨PAUSE⟩</p><p>Now.</p>', { marks: true }), 'Look. ⟨PAUSE⟩ Now.');
+  assert.equal(cleanNotes('Look.⟨PAUSE⟩Now.', { marks: true }), 'Look. ⟨PAUSE⟩ Now.');
 });
 
 test('the three entities a note can actually contain are decoded', () => {
@@ -193,14 +193,14 @@ test('a marker written with entity brackets is a marker', () => {
   // demo/features.html writes its beats this way; the browser segments on them
   assert.equal(markBrackets('&#10216;CLICK&#10217; &lang;PAUSE&rang; &#x27E8;CLICK&#x27e9;'), '⟨CLICK⟩ ⟨PAUSE⟩ ⟨CLICK⟩');
   assert.equal(cleanNotes('<p>One.</p><p>&#10216;CLICK&#10217;</p><p>Two &mdash; three.</p>'), 'One. Two — three.');
-  assert.equal(cleanNotes('Look. &#10216;PAUSE&#10217; Now.', { pauses: true }), 'Look. ⟨PAUSE⟩ Now.');
+  assert.equal(cleanNotes('Look. &#10216;PAUSE&#10217; Now.', { marks: true }), 'Look. ⟨PAUSE⟩ Now.');
   assert.deepEqual(notesSegments('<p>One.</p><p>&#10216;CLICK&#10217;</p><p>Two.</p>'), ['One.', 'Two.']);
 });
 
 test('every spelling of a marker reads as the marker, element or text — never spoken', () => {
   assert.equal(cleanNotes('<p>One. [pause] Two <pause>three.</p><p>[CLICK]</p><p>Four &lt;click&gt; five [slow]six[/slow].</p>'),
     'One. Two three. Four five six.');
-  assert.equal(cleanNotes('<p>One. [Pause] Two <PAUSE>three.</p>', { pauses: true }), 'One. ⟨PAUSE⟩ Two ⟨PAUSE⟩ three.');
+  assert.equal(cleanNotes('<p>One. [Pause] Two <PAUSE>three.</p>', { marks: true }), 'One. ⟨PAUSE⟩ Two ⟨PAUSE⟩ three.');
   assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>Two.</p><click></click><p>Three.</p>'), ['One.', 'Two.', 'Three.']);
   assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>[slow][/slow]</p>'), null, 'a beat of nothing but markers is no file');
   assert.equal(readNotes('<p>[1] and [ ] stay</p>'), '<p>[1] and [ ] stay</p>');

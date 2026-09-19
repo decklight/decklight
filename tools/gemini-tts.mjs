@@ -80,6 +80,9 @@ export function wavFromPcm(pcm, rate) {
   return Buffer.concat([h, pcm]);
 }
 
+/** What a ⟨SLOW⟩ stretch asks Gemini for: its pace is a direction, not a number. */
+export const SLOW_DIRECTION = 'Say slowly and deliberately';
+
 /**
  * Compose the steering prompt in the DOCUMENTED shape: one directive
  * clause ending in a colon, fused to the content ("Say cheerfully: …").
@@ -152,9 +155,11 @@ export function createSynth({ project, ttsModel, location } = {}) {
     };
   }
 
-  return async function synth(text, { voice = 'Alnilam', style = '' } = {}) {
+  return async function synth(text, { voice = 'Alnilam', style = '', rate = 1 } = {}) {
     token ??= gcloudToken();
-    const prompt = styledPrompt(style, text);
+    // Gemini has no pace knob — it has direction, which is how a ⟨SLOW⟩
+    // stretch reaches it: one more clause in the style it already reads
+    const prompt = styledPrompt(rate < 1 ? [style, SLOW_DIRECTION].filter(Boolean).join('; ') : style, text);
     // An explicit --tts-model is a price ceiling: try only that model (both
     // locations), never fall through to a different, costlier one. The
     // pro/pro-preview pair is a fallback only when NO model was requested.
