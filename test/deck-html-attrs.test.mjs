@@ -165,6 +165,13 @@ test('the ⟨CLICK⟩ marker is punctuation, not something to read aloud', () =>
   assert.equal(cleanNotes('first beat ⟨CLICK⟩ second beat'), 'first beat second beat');
 });
 
+test('⟨PAUSE⟩ is not read aloud either — unless the caller keeps it as the hold it is (#560)', () => {
+  assert.equal(cleanNotes('<p>Look.</p><p>⟨PAUSE⟩</p><p>Now.</p>'), 'Look. Now.');
+  // kept, it is spaced as a word of its own however it was written
+  assert.equal(cleanNotes('<p>Look.⟨PAUSE⟩</p><p>Now.</p>', { pauses: true }), 'Look. ⟨PAUSE⟩ Now.');
+  assert.equal(cleanNotes('Look.⟨PAUSE⟩Now.', { pauses: true }), 'Look. ⟨PAUSE⟩ Now.');
+});
+
 test('the three entities a note can actually contain are decoded', () => {
   assert.equal(cleanNotes('a &lt;b&gt; and &amp; too'), 'a <b> and & too',
     'tags are stripped before entities are decoded, so escaped markup survives as text');

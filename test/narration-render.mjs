@@ -135,10 +135,10 @@ let slowest = 0;
 // assertion used to cost the whole suite — which is how a mode gets added
 // without ever being watched fail.
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const MODES = ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
+const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
-  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record', 'realsay'];
+  'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
   const [m, extra] = mode.split('&');
   let bridge = null;
@@ -226,6 +226,21 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
   if (mode === 'pausedefaults') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} a deck that says nothing holds 1s before the slide turns=${r.slideHeldOneSecond}`
       + ` (${r.slideTurnTook}ms)`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'pausemark') {
+    if (!ok) console.error('   ', JSON.stringify(r));
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ⟨PAUSE⟩ held ${r.took}ms between the sentences (≈600=${r.heldTheMark})`
+      + ` · both said=${r.saidBoth} · never spoken=${r.neverSpoken} · never captioned=${r.neverCaptioned}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'recordseg&pause') {
+    if (!ok) console.error('   ', JSON.stringify(r));
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} ⇧V baked ⟨PAUSE⟩ into the beats that hold it=${r.bakedThePause}`
+      + ` (beats ${(r.beatBytes ?? []).join('/')} B, slide ${r.slideBytes} B) · never spoken=${r.neverSpokeTheMarker}`
+      + ` · visemes silent there too=${r.lipSyncedToThePause} (${(r.lipDurations ?? []).join('/')}s)`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { cacheKey } from './tts-cache.mjs';
 import { V3_MODEL as ELEVENLABS_V3_MODEL } from './elevenlabs-tts.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, isHiddenSection } from './deck-html.mjs';
+import { deckConfig } from '../cli/runtime-link.mjs';
 
 /**
  * Each slide's notes as WRITTEN — the notes aside's markup, or a markdown
@@ -42,8 +43,39 @@ export function slideNotes(html) {
  * synthesis core voices (tools/narration-synth.mjs): the notes, ⟨CLICK⟩
  * markers removed, whitespace collapsed; '' for a hidden slide or one with no
  * notes. Index i is slide i+1.
+ *
+ * ⟨PAUSE⟩ markers STAY (#560). A recording bakes the hold into its audio, so
+ * a take made before a marker was added — or moved — is not the deck's take
+ * any more, and this is the text the hash is taken over. A slide with no
+ * marker reads exactly as it did before markers existed: no track churns.
  */
-export const slideTexts = (html) => slideNotes(html).map((raw) => (raw ? cleanNotes(raw) : ''));
+export const slideTexts = (html) => slideNotes(html).map((raw) => (raw ? cleanNotes(raw, { pauses: true }) : ''));
+
+/**
+ * The built-in beat pause, mirrored from the runtime (src/core/narration.js
+ * `BEAT_PAUSE_S`), which the CLI may not import; test/narration-manifest
+ * pins the two together, the way test/video pins the slide pause.
+ */
+export const BEAT_PAUSE_DEFAULT = 0.5;
+
+/**
+ * Seconds one ⟨PAUSE⟩ holds on each slide: two beat pauses (#560), resolved
+ * the way the runtime's `pauseFor` resolves every narration pause — the
+ * section's `data-narration-beat-pause`, else the configuration block's
+ * `narration.beatPause`, else the default; a value that is not a finite
+ * number ≥ 0 falls through to the next tier. Read off the section's OPEN tag,
+ * so the attribute in a slide's content is never mistaken for the slide's.
+ * Index i is slide i+1.
+ */
+export function markerPauses(html) {
+  const cfg = deckConfig(html)?.narration?.beatPause;
+  const deck = typeof cfg === 'number' && Number.isFinite(cfg) && cfg >= 0 ? cfg : BEAT_PAUSE_DEFAULT;
+  return sectionBodies(html).map((sec) => {
+    const raw = sec.slice(0, sec.indexOf('>')).match(/\sdata-narration-beat-pause="([^"]*)"/)?.[1];
+    const n = raw != null && raw.trim() !== '' ? Number(raw) : NaN;
+    return 2 * (Number.isFinite(n) && n >= 0 ? n : deck);
+  });
+}
 
 /**
  * The key fields for a manifest header, the way `clipKey` derives them from

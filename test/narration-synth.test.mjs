@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  synthesizeSlides, trackFormat, voiceDrift, readTrack, TRACK_FORMATS,
+  synthesizeSlides, trackFormat, voiceDrift, readTrack, TRACK_FORMATS, readWav, joinWav,
 } from '../tools/narration-synth.mjs';
 import { recorderManifest, slideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 import { createTtsCache } from '../tools/tts-cache.mjs';
@@ -156,6 +156,82 @@ test('an m4a track is encoded, ⟨CLICK⟩ beats and all — one synthesis per b
   assert.ok(calls.some((c) => c.includes('concat')), 'the slide was stitched from its beats');
   assert.ok(calls.some((c) => c.includes('aac')), 'and encoded to AAC');
   assert.ok(!existsSync(path.join(dir, 'slide-02.wav')), 'no intermediate is left without --keep-wav');
+});
+
+// ── ⟨PAUSE⟩ is baked into the take (#560) ──────────────────────────────────
+
+test('a ⟨PAUSE⟩ is never spoken: the words either side are voiced apart and joined by its silence', async (t) => {
+  const dir = tmp('synth-pause', t);
+  const tts = fakeTts();
+  const html = deck(['<p>Look at this.</p><p>⟨PAUSE⟩</p><p>Now the rest.</p>', 'No hold here.']);
+  const { manifest } = await run({ html, dir, tts, format: 'wav' });
+  assert.deepEqual(tts.said, ['Look at this.', 'Now the rest.', 'No hold here.']);
+  assert.ok(tts.said.every((w) => !w.includes('⟨')), 'the marker never reaches the engine');
+  // two 64-byte clips and, between them, two default beat pauses of 24 kHz 16-bit silence
+  const wav = readWav(readFileSync(path.join(dir, manifest.slides[0].file)));
+  assert.equal(wav.data.length, 64 + 2 * 0.5 * 24000 * 2 + 64);
+  assert.equal(wav.data.subarray(64, 64 + 48000).every((b) => b === 0), true, 'the hold is silence');
+  assert.equal(readWav(readFileSync(path.join(dir, 'slide-02.wav'))).data.length, 64, 'a slide without one is untouched');
+  // the script beside the audio keeps the hold — it is part of what was recorded
+  assert.equal(readFileSync(path.join(dir, 'slide-01.txt'), 'utf8'), 'Look at this. ⟨PAUSE⟩ Now the rest.');
+  // and the deck's own freshness check agrees the take is the deck's
+  assert.deepEqual(staleSlides(manifest, slideTexts(html)).stale, []);
+
+  const again = fakeTts();
+  assert.equal((await run({ html, dir, tts: again, format: 'wav', prev: readTrack(dir) })).skipped, 2);
+  assert.equal(again.said.length, 0, 'a rerun is free');
+});
+
+test('adding a ⟨PAUSE⟩ to a voiced slide re-voices it — the old take has no silence in it', async (t) => {
+  const dir = tmp('synth-pause-added', t);
+  const plain = deck(['Look at this. Now the rest.']);
+  await run({ html: plain, dir, tts: fakeTts(), format: 'wav' });
+  const held = deck(['Look at this. ⟨PAUSE⟩ Now the rest.']);
+  assert.deepEqual(staleSlides(readTrack(dir), slideTexts(held)).stale, [1]);
+  const tts = fakeTts();
+  const { manifest } = await run({ html: held, dir, tts, format: 'wav', prev: readTrack(dir) });
+  assert.deepEqual(tts.said, ['Look at this.', 'Now the rest.']);
+  assert.deepEqual(staleSlides(manifest, slideTexts(held)).stale, []);
+});
+
+test('the hold is the slide\'s: twice its data-narration-beat-pause, inside a ⟨CLICK⟩ beat or leading one', async (t) => {
+  const dir = tmp('synth-pause-beats', t);
+  const calls = [];
+  const fakeRun = (bin, args) => { calls.push([bin, ...args]); writeFileSync(args[args.length - 1], `${bin}-out`); };
+  const tts = fakeTts();
+  const html = `<div class="decklight"><section data-narration-beat-pause="0.1"><h2>S1</h2>`
+    + '<aside class="notes">A. ⟨PAUSE⟩ B. ⟨CLICK⟩ ⟨PAUSE⟩ C.</aside></section></div>';
+  const { manifest } = await run({ html, dir, tts, format: 'wav', encoder: 'ffmpeg', run: fakeRun });
+  assert.deepEqual(tts.said, ['A.', 'B.', 'C.']);
+  assert.deepEqual(manifest.slides[0].segments, [{ file: 'slide-01-01.wav' }, { file: 'slide-01-02.wav' }]);
+  const beat = (k) => readWav(readFileSync(path.join(dir, `slide-01-0${k}.wav`))).data;
+  assert.equal(beat(1).length, 64 + 0.2 * 24000 * 2 + 64, 'between the two sentences of beat one');
+  assert.equal(beat(2).length, 0.2 * 24000 * 2 + 64, 'before the words of beat two — after its build lands');
+  assert.equal(beat(2).subarray(0, 9600).every((b) => b === 0), true);
+  assert.equal(readFileSync(path.join(dir, 'slide-01-02.txt'), 'utf8'), '⟨PAUSE⟩ C.');
+});
+
+test('a ⟨PAUSE⟩ with an engine that speaks mp3 needs ffmpeg to decode — said before anything is voiced', async (t) => {
+  const dir = tmp('synth-pause-mp3', t);
+  const tts = fakeTts();
+  tts.synth.mimeType = 'audio/mpeg';
+  await assert.rejects(run({ html: deck(['A. ⟨PAUSE⟩ B.']), dir, tts, format: 'mp3', encoder: null }), /ffmpeg/);
+  assert.equal(tts.said.length, 0);
+});
+
+test('joinWav walks the chunks, keeps the format, and puts the silence where it is asked', () => {
+  const clip = wavOf('x');
+  // an engine that writes a LIST chunk before `data` — its metadata must not become audio
+  const list = Buffer.from('LIST\x04\x00\x00\x00INFO', 'latin1');
+  const listed = Buffer.concat([clip.subarray(0, 36), list, clip.subarray(36)]);
+  assert.deepEqual(readWav(listed).data, readWav(clip).data);
+  const joined = readWav(joinWav([clip, listed], [0.001, 0], 0.002));
+  assert.equal(joined.rate, 24000);
+  assert.equal(joined.data.length, 96 + 64 + 48 + 64);
+  assert.equal(readWav(Buffer.from('not a wav')), null);
+  // a 48 kHz clip beside a 24 kHz one cannot share a silence
+  const other = Buffer.from(clip); other.writeUInt32LE(48000, 24);
+  assert.equal(joinWav([clip, other]), null);
 });
 
 // ── the command line, for real, against a stand-in piper ──────────────────

@@ -32,6 +32,7 @@ import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader } from './args.mjs';
 import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
 import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
+import { stripPauses } from './sentences.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -157,7 +158,9 @@ for (const stem of stems) {
       if (job === 'visemes') {
         const tmpOut = join(dir, `${stem}.tmp.visemes.json`);
         let dialogFile;
-        if (text) { dialogFile = join(dir, `${stem}.tmp.txt`); writeFileSync(dialogFile, text); }
+        // the script keeps its ⟨PAUSE⟩ holds (#560); Rhubarb is told the words
+        const words = stripPauses(text).replace(/\s+/g, ' ').trim();
+        if (words) { dialogFile = join(dir, `${stem}.tmp.txt`); writeFileSync(dialogFile, words); }
         const tl = await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut });
         writeFileSync(outFile, JSON.stringify(tl));
         rmSync(tmpOut, { force: true });

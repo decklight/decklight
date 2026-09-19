@@ -204,10 +204,12 @@
         if (u.includes('/edit/record')) {
           const q = new URL(u).searchParams;
           // a blob (audio, a sidecar) or a string (the take's manifest, #535)
-          const bytes = typeof opts.body === 'string' ? opts.body.length : (await opts.body.arrayBuffer()).byteLength;
+          const buf = typeof opts.body === 'string' ? null : await opts.body.arrayBuffer();
+          const bytes = buf ? buf.byteLength : opts.body.length;
           window.__recorded.push({
-            dir: q.get('dir'), slide: q.get('slide'), kind: q.get('kind'),
-            seg: q.get('seg'), bytes, json: typeof opts.body === 'string' ? JSON.parse(opts.body) : null,
+            dir: q.get('dir'), slide: q.get('slide'), kind: q.get('kind'), seg: q.get('seg'), bytes,
+            json: typeof opts.body === 'string' ? JSON.parse(opts.body)
+              : q.get('kind') === 'visemes' ? JSON.parse(new TextDecoder().decode(buf)) : null,
           });
           return new Response(JSON.stringify({ ok: true, dir: q.get('dir') }),
             { status: 200, headers: { 'content-type': 'application/json' } });
@@ -215,6 +217,12 @@
         return new Response('', { status: 404 });
       }
       if (!u.startsWith(BRIDGE)) return realFetch(url, opts);
+      // the lip-sync bridge `recordseg&pause` points the character at: every
+      // sentence is 10ms of one mouth shape
+      if (u.includes('/lip/viseme')) {
+        return new Response(JSON.stringify({ v: 1, kind: 'visemes', duration: 0.01, source: 'mock', cues: [{ t: 0, v: 'B' }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/voices/install')) {
         window.__installPosted = (window.__installPosted || 0) + 1;
         return new Response(JSON.stringify({ ok: true }),
@@ -320,12 +328,16 @@
     //       other slides are segmented. It must still advance itself.
     //   7 — no notes: nothing was ever recorded, and that is not a failure.
     if (segmentDeck || plainDeck || segManifest || mode === 'recordseg' || mode === 'micwarn') {
-      const beats = 'Beat one. ⟨CLICK⟩ Beat two. ⟨CLICK⟩ Beat three.';
+      // `recordseg&pause` (#560): a hold ending beat one, and one opening beat
+      // three — the recorder must bake each into its own beat's file
+      const beats = mode === 'recordseg' && params.has('pause')
+        ? 'Beat one. ⟨PAUSE⟩ ⟨CLICK⟩ Beat two. ⟨CLICK⟩ ⟨PAUSE⟩ Beat three.'
+        : 'Beat one. ⟨CLICK⟩ Beat two. ⟨CLICK⟩ Beat three.';
       const builds = mode === 'segfold'
         ? '<p data-build>Only one build here.</p>'
         : '<ul data-build><li>First</li><li>Second</li></ul>';
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
-        <section><h2>Five</h2>${builds}<aside class="notes">${beats}</aside></section>
+        <section${params.has('pause') ? ' data-narration-beat-pause="0.5"' : ''}><h2>Five</h2>${builds}<aside class="notes">${beats}</aside></section>
         ${mode === 'segmiss'
           // segmiss needs a SECOND segmented slide: the two halves of the
           // fallback rule cannot both be proved on one slide, because the first
@@ -368,6 +380,9 @@
     // one rather than seeding a second. The persisted LIVE voice still wins as
     // the source, which is what ⇧V needs to run at all.
     if (recording && params.has('dir')) cfg.narration.files = 'voices';
+    // `recordseg&pause` lip-syncs the take too: the sidecars must be silent
+    // exactly where the WAVs are, or the mouth drifts off the baked hold
+    if (recording && params.has('pause')) cfg.narration.character = { mode: 'viseme', bridgeUrl: `${BRIDGE}/lip` };
     if (mode === 'modules') {
       cfg.playlist = {
         index: 0,
@@ -384,7 +399,7 @@
       localStorage.setItem('decklight-onboarded', '1');
       localStorage.setItem('decklight-tips-off', '1');
       const capKey = 'decklight-captions:' + location.pathname;
-      if (mode === 'captions') localStorage.setItem(capKey, '1');
+      if (mode === 'captions' || mode === 'pausemark') localStorage.setItem(capKey, '1');
       else localStorage.removeItem(capKey);
     } catch { /* ignore */ }
 
@@ -1063,13 +1078,29 @@
             // the files on disk say nothing about which one made them. A
             // SYNTHESIZED track gains build-pacing for free here — until now
             // only a track recorded by mouth could have it.
-            r.beats = r.posted.filter((p) => p.seg != null)
+            r.beats = r.posted.filter((p) => p.seg != null && p.kind === 'wav')
               .map((p) => `${p.slide}-${p.seg}`);
             r.wroteABeatPerClick = r.beats.join(' ') === '5-1 5-2 5-3';
             // …and only where the tool would have segmented: slide 6 is one
             // breath, and one beat is not a segmented slide
             r.noBeatsForAOneBreathSlide = !r.beats.some((b) => b.startsWith('6-'));
-            r.beatsCarriedAudio = r.posted.filter((p) => p.seg != null).every((p) => p.bytes > 44);
+            r.beatsCarriedAudio = r.posted.filter((p) => p.seg != null && p.kind === 'wav').every((p) => p.bytes > 44);
+            // ⟨PAUSE⟩ is BAKED (#560): one second (2 × the slide's 0.5s beat
+            // pause) of 24 kHz 16-bit silence is 48000 bytes, in the beat that
+            // holds it and in the whole-slide take — and in no other beat
+            const HOLD = 48000;
+            const wavOf = (seg) => r.posted.find((p) => p.slide === '5' && p.kind === 'wav' && p.seg === seg)?.bytes ?? 0;
+            r.beatBytes = ['1', '2', '3'].map(wavOf);
+            r.slideBytes = wavOf(null);
+            r.bakedThePause = !params.has('pause') || (r.beatBytes[0] > HOLD && r.beatBytes[1] < HOLD
+              && r.beatBytes[2] > HOLD && r.slideBytes > 2 * HOLD);
+            r.neverSpokeTheMarker = bodies.every((b) => !String(b.text ?? '').includes('⟨'));
+            // …and the sidecars hold the same silences, sentence by sentence:
+            // 10ms a sentence, 1s a hold, 0.35s between beats in the slide's
+            const lipOf = (seg) => r.posted.find((p) => p.slide === '5' && p.kind === 'visemes' && p.seg === seg)?.json?.duration;
+            r.lipDurations = ['1', '2', '3', null].map(lipOf);
+            r.lipSyncedToThePause = !params.has('pause')
+              || JSON.stringify(r.lipDurations) === JSON.stringify([1.01, 0.01, 1.01, 2.73]);
             // the card prints the flag without which the beats do nothing
             r.namedSegments = text.includes(`files: '${r.dir}', ext: 'wav', segments: true`);
             // …and the button writes exactly the line the card printed
@@ -1083,6 +1114,7 @@
             r.PASS = r.dialogOpens && r.finished && r.wentToDisk && r.everySlideHasNotes && r.manifestPerSlide && r.manifestNamesTheVoice && r.manifestListsTheSlides && r.manifestCarriesBeats
               && r.carriedAudio && r.dirIsRight && r.saidWhere && r.wroteABeatPerClick
               && r.noBeatsForAOneBreathSlide && r.beatsCarriedAudio && r.namedSegments
+              && r.bakedThePause && r.neverSpokeTheMarker && r.lipSyncedToThePause
               && r.offeredToUseIt && r.hintSaysEnterUsesIt && r.enterDidNotClose
               && (params.has('badconfig')
                 ? r.explainedTheRefusal && !r.wroteTheConfig.length
@@ -1542,6 +1574,39 @@
           r.slideTurnTook = left1 ? left1.at - t0 : null;
           r.slideHeldOneSecond = r.slideTurnTook !== null && r.slideTurnTook >= 1200 && r.slideTurnTook < 2500;
           r.PASS = r.slideHeldOneSecond;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'pausemark') {
+          // ⟨PAUSE⟩ (#560): a hold of two beat pauses between the sentences,
+          // live — never spoken, never captioned. Slide 1 has no builds and
+          // the harness zeroes the slide pause, and its sentence pause is
+          // zeroed here, so the marker is the only thing on the clock.
+          const sec = deck._sections[0];
+          sec.querySelector('aside.notes').textContent = 'First sentence here. ⟨PAUSE⟩ Second sentence here.';
+          sec.dataset.narrationBeatPause = '0.3';
+          sec.dataset.narrationSentencePause = '0';
+          const seen = [];
+          deck.on('slide', () => seen.push({ n: deck.state.slide, at: Date.now() }));
+          const shown = new Set();
+          const watch = setInterval(() => {
+            const t = document.querySelector('.decklight-captions')?.textContent;
+            if (t) shown.add(t);
+          }, 20);
+          const t0 = Date.now();
+          deck.toggleNarration();                                // V
+          await new Promise((ok) => setTimeout(ok, 2000));
+          clearInterval(watch);
+          const left1 = seen.find((x) => x.n === 2);
+          r.took = left1 ? left1.at - t0 : null;
+          r.heldTheMark = r.took !== null && r.took >= 550 && r.took < 1400;
+          r.said = bodies.map((b) => b.text).filter((t) => /sentence here/.test(t ?? ''));
+          r.saidBoth = r.said.includes('First sentence here.') && r.said.includes('Second sentence here.');
+          r.neverSpoken = bodies.every((b) => !String(b.text ?? '').includes('⟨'));
+          r.captions = [...shown];
+          r.neverCaptioned = r.captions.length > 0 && r.captions.every((t) => !t.includes('⟨'));
+          r.PASS = r.heldTheMark && r.saidBoth && r.neverSpoken && r.neverCaptioned;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

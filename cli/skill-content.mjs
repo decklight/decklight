@@ -137,7 +137,9 @@ both.
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
 multi-beat notes with a bare \`⟨CLICK⟩\` line so narration and build steps
-stay in sync (PRESENTING in the reference).
+stay in sync (PRESENTING in the reference). Where an idea needs a moment to
+land, put \`⟨PAUSE⟩\` there: the voice holds two beat pauses (1s by default)
+and never says it. Use it sparingly — at the few moments that earn it.
 
 **Commit your own changes when an authoring server is running.** \`decklight
 author\` auto-commits the deck, but on a timer and under a generic \`autosave\`

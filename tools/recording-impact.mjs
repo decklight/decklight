@@ -28,11 +28,15 @@
 
 import { sectionBodies, NOTES_ASIDE, cleanNotes } from './deck-html.mjs';
 
-/** Each slide's notes as plain compared text, index-aligned to the deck. */
+/**
+ * Each slide's notes as plain compared text, index-aligned to the deck —
+ * ⟨PAUSE⟩ markers kept, since a recording bakes them in (#560) and adding or
+ * moving one stales the take as surely as a changed word.
+ */
 function notesPerSlide(html) {
   return sectionBodies(html).map((body) => {
     const m = body.match(NOTES_ASIDE);
-    return m ? cleanNotes(m[1]) : '';
+    return m ? cleanNotes(m[1], { pauses: true }) : '';
   });
 }
 

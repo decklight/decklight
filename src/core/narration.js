@@ -15,7 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
-import { splitSentences } from '../../tools/sentences.mjs';
+import { splitSentences, pauseRuns, stripPauses } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
@@ -152,7 +152,8 @@ export const sentencePauseFor = (attr, cfg) => pauseFor(attr, cfg, SENTENCE_PAUS
  * Pure, and the single place either side may compute this.
  */
 export function segmentFileIndex(segs) {
-  const parts = (segs ?? []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim());
+  // a segment of nothing but ⟨PAUSE⟩ has no words to record, so no file
+  const parts = (segs ?? []).map((t) => stripPauses(t).replace(/\s+/g, ' ').trim());
   // the tool's own `parts.length > 1 ? parts : null` — one segment is not a
   // segmented slide, it is a slide
   if (parts.filter(Boolean).length < 2) return null;
@@ -222,12 +223,15 @@ export function voiceMatches(name, locale, query) {
 export function recordPlan(segs, steps = 0) {
   const parts = (segs ?? []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim());
   const index = segmentFileIndex(parts);
+  // ⟨PAUSE⟩ stays in the text a reader is shown — it is their cue to hold —
+  // but a beat of nothing else is not a take
+  const hasWords = (t) => stripPauses(t).trim() !== '';
   if (!index) {
     const text = parts.filter(Boolean).join(' ');
-    return text ? [{ seg: 0, step: 0, file: null, text }] : [];
+    return hasWords(text) ? [{ seg: 0, step: 0, file: null, text }] : [];
   }
   return parts
-    .map((text, k) => (text ? { seg: k, step: Math.min(k, steps), file: index[k], text } : null))
+    .map((text, k) => (hasWords(text) ? { seg: k, step: Math.min(k, steps), file: index[k], text } : null))
     .filter(Boolean);
 }
 
@@ -304,6 +308,54 @@ export function narrationTracks(narration) {
 
 // splitSentences lives in tools/sentences.mjs, shared with a video's subtitles.
 export { splitSentences };
+
+/**
+ * What one build step SAYS, and where it holds (#560): the step's ⟨CLICK⟩
+ * segments flattened into sentences, with the ⟨PAUSE⟩ markers counted around
+ * them instead of spoken.
+ *
+ * `before[i]` / `after[i]` count the markers held before and after sentence
+ * i; `bare` counts markers in a segment with no words to hang them on (a beat
+ * that is nothing but a hold). `segStarts` marks the sentences that begin a
+ * segment, as it always has; `segRuns` says which segment (an index into
+ * `texts`) each run of sentences came from, so the recorder can cut beat files
+ * without re-splitting the text a second, possibly different, way — on the
+ * LAST step the list is every remaining segment (#350), and the flattening has
+ * to be undone to write one file per segment. A segment with no sentences has
+ * no run, which is exactly how `segmentFileIndex` numbers them: skipped, never
+ * numbered.
+ *
+ * Markers are placed by `pauseRuns` (tools/sentences.mjs); the ones a segment
+ * leads with hold before its first sentence — after the build it narrates is
+ * revealed, which is why they are `before` and not the previous segment's
+ * `after`.
+ */
+export function stepPlan(texts) {
+  const sentences = [], before = [], after = [], segStarts = new Set(), segRuns = [];
+  let bare = 0;
+  texts.forEach((t, k) => {
+    const { lead, runs } = pauseRuns(t ?? '');
+    const from = sentences.length;
+    let pending = lead;   // markers waiting for this segment's next sentence
+    for (const run of runs) {
+      const part = splitSentences(run.text);
+      if (!part.length) { pending += run.pause; continue; }  // a run of bare punctuation
+      for (const s of part) { sentences.push(s); before.push(0); after.push(0); }
+      before[sentences.length - part.length] += pending;
+      pending = 0;
+      after[sentences.length - 1] += run.pause;
+    }
+    if (sentences.length > from) {
+      segStarts.add(from);
+      segRuns.push({ seg: k, from, count: sentences.length - from });
+    }
+    // markers with no sentence of their own segment to hold around: after the
+    // step's words so far, or — with none — a hold of their own
+    if (pending && sentences.length) after[sentences.length - 1] += pending;
+    else bare += pending;
+  });
+  return { sentences, segStarts, segRuns, before, after, bare };
+}
 
 /**
  * The in-memory key for one live sentence — voice, style and the TEXT (#537).
@@ -631,7 +683,7 @@ export function createNarration({
   const liveCache = new Map();
   function notesText(sl) {
     const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
-    return t.replace(/⟨CLICK⟩/g, ' ').replace(/\s+/g, ' ').trim();
+    return stripPauses(t.replace(/⟨CLICK⟩/g, ' ')).replace(/\s+/g, ' ').trim();
   }
   // Build-synced narration: the ⟨CLICK⟩ markers that already segment the
   // notes for the speaker view segment the AUDIO too — segment k narrates
@@ -696,19 +748,12 @@ export function createNarration({
    *
    * `segStarts` marks which sentences begin a folded segment, so the synthesized recorder
    * stitcher can put a segment-sized silence there rather than a sentence one —
-   * a recorded take breathes exactly where the live one does.
+   * a recorded take breathes exactly where the live one does. The ⟨PAUSE⟩
+   * holds ride along as counts (stepPlan) — the sentences never contain one.
    */
   function stepAudio(sl, step) {
     const segs = notesSegs(sl);
-    const texts = step < buildSteps(sl) ? [segs[step]] : segs.slice(step);
-    const sentences = [];
-    const segStarts = new Set();
-    for (const t of texts) {
-      const part = splitSentences(t);
-      if (part.length) segStarts.add(sentences.length);
-      sentences.push(...part);
-    }
-    return { sentences, segStarts };
+    return stepPlan(step < buildSteps(sl) ? [segs[step]] : segs.slice(step));
   }
   const stepSentences = (sl, step) => stepAudio(sl, step).sentences;
 
@@ -774,6 +819,11 @@ export function createNarration({
   // the breath between two sentences of one beat. See sentencePauseFor.
   const sentencePause = (sl) => sentencePauseFor(
     instance._sections[sl - 1]?.dataset.narrationSentencePause, config.narration?.sentencePause);
+  // ⟨PAUSE⟩ in the notes (#560): a let-it-sink-in hold of TWO beats, so it
+  // scales with the deck's own rhythm and a slide that says beat-pause "0"
+  // says no holds either. Unlike the beat pause it sits INSIDE a beat, so a
+  // recording bakes it (stitchSlideWav) while the live voice holds it here.
+  const markerPause = (sl) => 2 * beatPause(sl);
   /**
    * Hold `seconds`, the way every narration pause holds: P stops the clock
    * rather than eating the wait (paused time is not spent time), and a stale
@@ -947,16 +997,24 @@ export function createNarration({
       return;
     }
     warnSegOverflow(sl);
-    const sentences = stepSentences(sl, step);
+    const { sentences, before, after, bare } = stepAudio(sl, step);
+    const stale = () => gen !== segGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
     if (!sentences.length) {
-      // a build beat with no words — reveal the next step after a pause
-      setTimeout(() => { if (gen === segGen) advanceFrom(sl, step); }, 600);
+      // a build beat with no words — reveal the next step after a pause, or
+      // after the hold its ⟨PAUSE⟩ markers ask for
+      if (!bare) { setTimeout(() => { if (gen === segGen) advanceFrom(sl, step); }, 600); return; }
+      chainGen = gen;
+      chainActive = true;
+      try {
+        if (await holdFor(bare * markerPause(sl), stale)) await advanceFrom(sl, step);
+      } finally {
+        if (chainGen === gen) chainActive = false;
+      }
       return;
     }
     // speak the segment SENTENCE BY SENTENCE: each sentence is one cached
     // clip (short time-to-first-audio), the caption follows the spoken
     // sentence, and the build advances only after the segment's last one
-    const stale = () => gen !== segGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
     chainGen = gen;
     chainActive = true;
     let spoke = 0;
@@ -967,6 +1025,8 @@ export function createNarration({
           await new Promise((r) => setTimeout(r, 150));
         }
         if (stale()) return;
+        // ⟨PAUSE⟩ at the head of the beat: the build has landed, let it sit
+        if (before[i] && !(await holdFor(before[i] * markerPause(sl), stale))) return;
         let clip;
         try {
           clip = await fetchLiveSentence(sl, step, i, sentences[i]);
@@ -1016,7 +1076,10 @@ export function createNarration({
         // The breath at the full stop. Between sentences only — the beat and
         // slide pauses own what comes after the last one — and gated exactly
         // like them, so P holds it and a keypress mid-breath wins.
-        if (i < sentences.length - 1 && !(await holdFor(sentencePause(sl), stale))) return;
+        // A ⟨PAUSE⟩ after this sentence holds on top of it — and after the
+        // LAST one too, before the beat pause, which is the author's to spend.
+        const hold = (i < sentences.length - 1 ? sentencePause(sl) : 0) + after[i] * markerPause(sl);
+        if ((i < sentences.length - 1 || hold > 0) && !(await holdFor(hold, stale))) return;
       }
       if (stale()) return;
       // Nothing spoken, but words to speak: the audio never played, so the deck
@@ -2464,32 +2527,6 @@ export function createNarration({
   // fixed: it stands in for the ⟨CLICK⟩ a presenter would have taken.
   const SEG_GAP_S = 0.35;
   /**
-   * Which ⟨CLICK⟩ segment each run of a step's sentences came from.
-   *
-   * `stepAudio` flattens a step's segments into one sentence list, and on the
-   * LAST step that list is every remaining segment (#350) — so the flattening
-   * has to be undone to write one file per segment. `segStarts` marks where the
-   * runs begin but not WHICH segment each is; this pairs them up.
-   *
-   * Empty segments contribute no sentences and so no run, which is exactly how
-   * `segmentFileIndex` numbers them: skipped, never numbered.
-   */
-  function stepSegmentRuns(sl, step) {
-    const segs = notesSegs(sl);
-    const texts = step < buildSteps(sl)
-      ? [[step, segs[step]]]
-      : segs.slice(step).map((t, i) => [step + i, t]);
-    const runs = [];
-    let at = 0;
-    for (const [k, t] of texts) {
-      const part = splitSentences(t ?? '');
-      if (part.length) runs.push({ seg: k, from: at, count: part.length });
-      at += part.length;
-    }
-    return runs;
-  }
-
-  /**
    * Stitch one slide, and every beat within it.
    *
    * Returns BOTH shapes, because they are read by different things and always
@@ -2508,40 +2545,51 @@ export function createNarration({
   async function stitchSlideWav(sl, run) {
     const max = buildSteps(sl);
     const index = segmentFileIndex(notesSegs(sl));
+    const hold = markerPause(sl);
+    // PCM, or a NUMBER — seconds of silence, sized once the first clip has
+    // told us the rate. A ⟨PAUSE⟩ can come before any audio at all.
     const chunks = [];
-    const beats = new Map();   // file number → its own chunk list
-    let rate = 24000;
+    const beats = new Map();   // file number → its own chunk list, the same shape
+    const voiced = (list) => list.some((c) => typeof c !== 'number');
+    let rate = 0;
     for (let step = 0; step <= max; step++) {
-      const { sentences, segStarts } = stepAudio(sl, step);
-      const runs = stepSegmentRuns(sl, step);
+      const { sentences, segStarts, segRuns, before, after, bare } = stepAudio(sl, step);
+      // a beat with nothing but ⟨PAUSE⟩ has no file of its own to hold in —
+      // the whole-slide take still holds it, as the live voice does
+      if (bare) chunks.push(bare * hold);
       for (let i = 0; i < sentences.length; i++) {
         const clip = await fetchLiveSentence(sl, step, i, sentences[i]); // cache-first
         if (run !== recRun) return null;
         if (!clip) continue;
         const buf = await clip.blob.arrayBuffer();
-        if (chunks.length === 0) rate = new DataView(buf).getUint32(24, true) || 24000;
+        rate ||= new DataView(buf).getUint32(24, true) || 24000;
         // a folded segment still gets a SEGMENT-sized breath, not a sentence one
-        else chunks.push(silencePcm(rate, i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl)));
+        if (voiced(chunks)) chunks.push(i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl));
         const pcm = new Uint8Array(buf.slice(44));
-        chunks.push(pcm);
+        // ⟨PAUSE⟩ is BAKED (#560): it sits inside a beat, where playback has
+        // no seam to hold it at — so it is silence in both shapes of the take
+        chunks.push(before[i] * hold, pcm, after[i] * hold);
         // …and the same audio again, into the beat it belongs to
-        const run_ = runs.find((r) => i >= r.from && i < r.from + r.count);
-        const file = run_ && index ? index[run_.seg] : null;
+        const run_ = segRuns.find((r) => i >= r.from && i < r.from + r.count);
+        const file = run_ && index ? index[step + run_.seg] : null;
         if (file == null) continue;
         let list = beats.get(file);
         if (!list) beats.set(file, list = []);
-        if (list.length) list.push(silencePcm(rate, sentencePause(sl)));
-        list.push(pcm);
+        if (voiced(list)) list.push(sentencePause(sl));
+        list.push(before[i] * hold, pcm, after[i] * hold);
       }
     }
+    rate ||= 24000;
+    const pcmOf = (list) => list.map((c) => (typeof c === 'number' ? silencePcm(rate, c) : c)).filter((c) => c.length);
     // NO trailing slide pause in the file. advanceFrom holds it at play time
     // for recorded tracks exactly as for live ones, so baking it here as well
     // held every slide twice — a latent double-hold that surfaced the moment
     // the pause gained a non-zero default. The same rule the beat files
-    // already followed, now for the whole-slide file too.
+    // already followed, now for the whole-slide file too. (A ⟨PAUSE⟩ after the
+    // last sentence IS in the file: that one is the author's, not the deck's.)
     return {
-      wav: chunks.length ? stitchWav(chunks, rate) : null,
-      segments: [...beats].map(([file, list]) => ({ file, wav: stitchWav(list, rate) })),
+      wav: voiced(chunks) ? stitchWav(pcmOf(chunks), rate) : null,
+      segments: [...beats].map(([file, list]) => ({ file, wav: stitchWav(pcmOf(list), rate) })),
     };
   }
   // Viseme counterpart of stitchSlideWav: the SAME sentences, the SAME
@@ -2553,41 +2601,52 @@ export function createNarration({
     if (character.mode !== 'viseme') return null;
     const max = buildSteps(sl);
     const index = segmentFileIndex(notesSegs(sl));
+    const hold = markerPause(sl);
     const parts = [];
-    const beats = new Map();   // file number → its own parts, cut like its WAV
+    const beats = new Map();   // file number → { parts, carry }, cut like its WAV
+    // `carry` is ⟨PAUSE⟩ silence owed since the last timeline — it becomes
+    // part of the next one's gap, or a closing part of its own, so the mouth
+    // is shut for exactly as long as the WAV is silent
+    let carry = 0;
     try {
       for (let step = 0; step <= max; step++) {
-        const { sentences, segStarts } = stepAudio(sl, step);
-        const runs = stepSegmentRuns(sl, step);
+        const { sentences, segStarts, segRuns, before, after, bare } = stepAudio(sl, step);
+        carry += bare * hold;
         for (let i = 0; i < sentences.length; i++) {
           const tl = await character.ensureTimeline(
             sentenceKey(sl, step, i, sentences[i]), fetchLiveSentence(sl, step, i, sentences[i]), sentences[i]);
           if (run !== recRun) return null;
           if (!tl) continue;
-          parts.push({ timeline: tl, gap: parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl)) : 0 });
+          const gap = parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl)) : 0;
+          parts.push({ timeline: tl, gap: gap + carry + before[i] * hold });
+          carry = after[i] * hold;
           // …and into the beat's own timeline, gapped exactly as its WAV is:
           // sentence gaps inside a beat, and never the segment gap that
           // separates beats. A sidecar cut differently from the audio it is
           // played against is a sidecar that drifts.
-          const own = runs.find((r) => i >= r.from && i < r.from + r.count);
-          const file = own && index ? index[own.seg] : null;
+          const own = segRuns.find((r) => i >= r.from && i < r.from + r.count);
+          const file = own && index ? index[step + own.seg] : null;
           if (file == null) continue;
-          let list = beats.get(file);
-          if (!list) beats.set(file, list = []);
-          list.push({ timeline: tl, gap: list.length ? sentencePause(sl) : 0 });
+          let beat = beats.get(file);
+          if (!beat) beats.set(file, beat = { parts: [], carry: 0 });
+          beat.parts.push({ timeline: tl, gap: (beat.parts.length ? sentencePause(sl) : 0) + beat.carry + before[i] * hold });
+          beat.carry = after[i] * hold;
         }
       }
     } catch {
       debugLog('lipsync', `slide ${sl}: viseme sidecar skipped (bridge unreachable)`);
       return null;
     }
+    // A ⟨PAUSE⟩ after the last sentence is silence at the END of the WAV: a
+    // closing part with no timeline keeps the sidecar's duration equal to it.
+    const closed = (list, owed) => (owed > 0 ? [...list, { timeline: null, gap: owed }] : list);
     // No trailing pause on the timeline either: the WAV carries none (see
     // stitchSlideWav), and the sidecar must agree with the WAV on every
     // silence or the lip-sync drifts. The hold happens at play time, when the
     // audio has already ended and the mouth is already closed.
     return {
-      slide: parts.length ? concatTimelines(parts) : null,
-      segments: [...beats].map(([file, list]) => ({ file, timeline: concatTimelines(list) })),
+      slide: parts.length ? concatTimelines(closed(parts, carry)) : null,
+      segments: [...beats].map(([file, b]) => ({ file, timeline: concatTimelines(closed(b.parts, b.carry)) })),
     };
   }
   // WHERE A RECORDING LANDS. A finished set of slide-NN.wav is only useful

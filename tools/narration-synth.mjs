@@ -31,7 +31,8 @@ import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
-import { slideNotes, manifestHash } from './narration-manifest.mjs';
+import { slideNotes, manifestHash, markerPauses } from './narration-manifest.mjs';
+import { PAUSE_MARK, pauseRuns, stripPauses } from './sentences.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -85,6 +86,54 @@ export function voiceDrift(prev, { engine, model, voice }, { modelIsVoice = true
   return was.length ? was.join(', ') : null;
 }
 
+/**
+ * A WAV's sample format and its PCM, or null for anything that is not one.
+ * The chunks are WALKED rather than a 44-byte header assumed: an engine that
+ * writes a LIST chunk before `data` would otherwise have its metadata spliced
+ * into the audio as a click.
+ */
+export function readWav(buf) {
+  const b = Buffer.from(buf);
+  if (b.length < 12 || b.toString('ascii', 0, 4) !== 'RIFF' || b.toString('ascii', 8, 12) !== 'WAVE') return null;
+  let fmt = null;
+  for (let at = 12; at + 8 <= b.length;) {
+    const id = b.toString('ascii', at, at + 4);
+    const body = at + 8;
+    let size = b.readUInt32LE(at + 4);
+    if (id === 'fmt ' && size >= 16) {
+      fmt = { format: b.readUInt16LE(body), channels: b.readUInt16LE(body + 2), rate: b.readUInt32LE(body + 4), bits: b.readUInt16LE(body + 14) };
+    }
+    if (id === 'data') {
+      // a streamed WAV says 0 or 0xFFFFFFFF: its data runs to the end
+      if (!size || body + size > b.length) size = b.length - body;
+      return fmt ? { ...fmt, data: b.subarray(body, body + size) } : null;
+    }
+    at = body + size + (size & 1);
+  }
+  return null;
+}
+
+/**
+ * WAV clips joined into one, `lead` seconds of silence before the first and
+ * `gaps[j]` after clip j — how a ⟨PAUSE⟩ is baked into a take (#560). Null
+ * when the clips do not share one sample format, which one engine never does.
+ */
+export function joinWav(clips, gaps = [], lead = 0) {
+  const wavs = clips.map(readWav);
+  const f = wavs[0];
+  const same = (w) => w && w.format === f.format && w.channels === f.channels && w.rate === f.rate && w.bits === f.bits;
+  if (!f || !wavs.every(same)) return null;
+  const align = f.channels * (f.bits / 8);
+  const silence = (s) => Buffer.alloc(align * Math.round(f.rate * Math.max(0, s || 0)));
+  const data = Buffer.concat([silence(lead), ...wavs.flatMap((w, j) => [w.data, silence(gaps[j])])]);
+  const h = Buffer.alloc(44);
+  h.write('RIFF', 0, 'ascii'); h.writeUInt32LE(36 + data.length, 4); h.write('WAVE', 8, 'ascii');
+  h.write('fmt ', 12, 'ascii'); h.writeUInt32LE(16, 16); h.writeUInt16LE(f.format, 20); h.writeUInt16LE(f.channels, 22);
+  h.writeUInt32LE(f.rate, 24); h.writeUInt32LE(f.rate * align, 28); h.writeUInt16LE(align, 32); h.writeUInt16LE(f.bits, 34);
+  h.write('data', 36, 'ascii'); h.writeUInt32LE(data.length, 40);
+  return Buffer.concat([h, data]);
+}
+
 /** Which encoder is on this machine: ffmpeg first, then Core Audio's afconvert. */
 export function findEncoder(run = runBounded) {
   const have = (bin) => {
@@ -116,7 +165,10 @@ export async function synthesizeSlides({
 }) {
   if (!TRACK_FORMATS.includes(format)) throw new Error(`a track is ${TRACK_FORMATS.join(', ')} — not ${format}`);
   const raw = slideNotes(html);
-  const slides = raw.map((r) => (r ? cleanNotes(r) : ''));
+  // ⟨PAUSE⟩ markers kept (#560): they are baked into the audio, so they are
+  // part of the text a slide is hashed over and the script written beside it
+  const slides = raw.map((r) => (r ? cleanNotes(r, { pauses: true }) : ''));
+  const holds = markerPauses(html);
   const span = range ?? { from: 1, to: slides.length };
   if (range && prev) {
     const drift = voiceDrift(prev, { engine: tts.name, model: tts.model ?? null, voice }, { modelIsVoice: !tts.modelIsDefaultVoice });
@@ -135,14 +187,20 @@ export async function synthesizeSlides({
     throw new Error(`no encoder for a ${format} track — install ffmpeg (apt install ffmpeg / brew install ffmpeg)`);
   }
   if (format === 'mp3' && enc !== 'ffmpeg') throw new Error('an mp3 track needs ffmpeg — install it (brew install ffmpeg)');
+  // A hold is baked by joining WAVs; an engine that speaks anything else has
+  // its clips decoded first, and only ffmpeg decodes.
+  if (synthExt !== 'wav' && enc !== 'ffmpeg'
+    && slides.some((t, i) => t.includes(PAUSE_MARK) && i + 1 >= span.from && i + 1 <= span.to)) {
+    throw new Error(`⟨PAUSE⟩ in the notes needs ffmpeg with an engine that speaks ${synthExt} — install it (brew install ffmpeg)`);
+  }
   const canSegment = enc === 'ffmpeg';
   if (!canSegment && raw.some((r) => notesSegments(r))) {
     log('  note: ⟨CLICK⟩ segments need ffmpeg to concatenate — narrating each slide whole');
   }
-  /** `src` (in the synthesis format) into `dst` in the track's, or a plain write. */
-  const encode = (audio, dst) => {
-    if (format === synthExt) { writeFileSync(dst, audio); return; }
-    const src = `${dst}.${synthExt}`;
+  /** `audio` (in `from`, the synthesis format by default) into `dst` in the track's, or a plain write. */
+  const encode = (audio, dst, from = synthExt) => {
+    if (format === from) { writeFileSync(dst, audio); return; }
+    const src = `${dst}.${from}`;
     writeFileSync(src, audio);
     const args = format === 'm4a'
       ? (enc === 'ffmpeg' ? ['-y', '-i', src, '-c:a', 'aac', '-b:a', '128k', dst] : ['-f', 'm4af', '-d', 'aac', src, dst])
@@ -150,7 +208,7 @@ export async function synthesizeSlides({
         : ['-y', '-i', src, dst];
     run(enc, args, { stdio: 'ignore', timeout: CODEC_MS, why: 'the encoder is stuck on this file — check it plays, then retry' });
     // keep the lossless intermediate beside it, named as it always was
-    if (keepWav && synthExt === 'wav') writeFileSync(dst.replace(/\.\w+$/, '.wav'), audio);
+    if (keepWav && from === 'wav') writeFileSync(dst.replace(/\.\w+$/, '.wav'), audio);
     rmSync(src, { force: true });
   };
 
@@ -171,6 +229,37 @@ export async function synthesizeSlides({
     const out = await tts.synth(text, { voice, style });
     cache.write(key, out.wav, synthExt);
     return { ...out, cached: false };
+  };
+  /**
+   * A stretch of notes voiced, its ⟨PAUSE⟩ holds (`hold` seconds each) baked
+   * in as silence (#560). Without a marker it is exactly `synth`, so a note
+   * with none costs and caches as it always has; with one, each run of words
+   * between markers is its own clip — the marker never reaches the engine —
+   * and the clips are joined as WAV. `ext` is the format `wav` is in.
+   */
+  const voiceText = async (text, hold) => {
+    if (!text.includes(PAUSE_MARK)) return { ...(await synth(text)), ext: synthExt };
+    const { lead, runs } = pauseRuns(text);
+    const outs = [];
+    for (const r of runs) outs.push(await synth(r.text));
+    let clips = outs.map((o) => o.wav);
+    if (synthExt !== 'wav') {
+      clips = clips.map((clip, j) => {
+        const src = join(dir, `.pause-${j}.${synthExt}`);
+        const dst = join(dir, `.pause-${j}.wav`);
+        writeFileSync(src, clip);
+        try {
+          run('ffmpeg', ['-y', '-i', src, dst], { stdio: 'ignore', timeout: CODEC_MS, why: 'the decoder is stuck on this clip — retry' });
+          return readFileSync(dst);
+        } finally { rmSync(src, { force: true }); rmSync(dst, { force: true }); }
+      });
+    }
+    const wav = joinWav(clips, runs.map((r) => r.pause * hold), lead * hold);
+    if (!wav) throw new Error(`${tts.name} spoke the runs of one note in different sample formats — cannot hold a ⟨PAUSE⟩ between them`);
+    return {
+      wav, ext: 'wav', cached: outs.every((o) => o.cached),
+      usage: { cost: outs.reduce((sum, o) => sum + (o.usage?.cost ?? 0), 0) },
+    };
   };
   // The header names every input the slide hash is taken over, and the hash
   // is taken FROM it — `manifestHash`, the function `decklight video` checks
@@ -223,7 +312,8 @@ export async function synthesizeSlides({
     // ranged run is a surgical redo, the promise `decklight record --slides`
     // makes, and the video rendered from this folder still finds the rest.
     if (i + 1 < span.from || i + 1 > span.to) { entries.push(prev?.slides?.[i] ?? null); continue; }
-    if (!slides[i]) { entries.push(null); continue; }
+    // no words — or nothing but ⟨PAUSE⟩, a hold with nothing to hold between
+    if (!stripPauses(slides[i]).trim()) { entries.push(null); continue; }
     const txt = join(dir, `slide-${n}.txt`);
     // reused text: a second take (another engine or voice) narrates the SAME
     // words, not a re-roll
@@ -255,7 +345,7 @@ export async function synthesizeSlides({
     // A segmented slide is synthesized beat by beat and the slide's file is
     // CONCATENATED from the beats — one synthesis, both shapes; TTS is billed
     // per character. Reused text is one script, so it goes whole.
-    const segs = prior || !canSegment ? null : notesSegments(raw[i]);
+    const segs = prior || !canSegment ? null : notesSegments(raw[i], { pauses: true });
     let slideCost = 0;
     let cachedBeats = 0;
     if (segs) {
@@ -263,13 +353,13 @@ export async function synthesizeSlides({
       for (let k = 0; k < segs.length; k++) {
         const kk = String(k + 1).padStart(2, '0');
         const beat = `slide-${n}-${kk}.${format}`;
-        const out = await synth(segs[k]);
+        const out = await voiceText(segs[k], holds[i]);
         if (out.cached) cachedBeats++;
         // the beat's own words beside its audio — tools/lipsync.mjs hands this
         // to Rhubarb as the dialog hint for that beat
         writeFileSync(join(dir, `slide-${n}-${kk}.txt`), segs[k]);
         slideCost += out.usage?.cost ?? 0;
-        encode(out.wav, join(dir, beat));
+        encode(out.wav, join(dir, beat), out.ext);
         parts.push(beat);
       }
       const list = join(dir, `slide-${n}.concat`);
@@ -278,10 +368,10 @@ export async function synthesizeSlides({
       rmSync(list, { force: true });
       entries[i].segments = parts.map((p) => ({ file: p }));
     } else {
-      const out = await synth(text);
+      const out = await voiceText(text, holds[i]);
       if (out.cached) cachedBeats++;
       slideCost = out.usage?.cost ?? 0;
-      encode(out.wav, join(dir, file));
+      encode(out.wav, join(dir, file), out.ext);
     }
     cost += slideCost;
     // "cached" is worth a word: on a paid engine it is the difference between
