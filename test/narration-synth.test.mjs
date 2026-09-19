@@ -278,3 +278,66 @@ test('revoice: an engine this machine cannot run is named, with the missing cred
   assert.equal(r.ok, false);
   assert.match(r.why, /voiced by elevenlabs, which needs \$ELEVENLABS_API_KEY — export it/);
 });
+
+// ── #557: the stamp is what the render's check computes ───────────────────
+import { clipKey } from '../tools/tts-cache.mjs';
+
+/** A stand-in ElevenLabs: no --voice means the first of the account's voices. */
+const elevenTts = (mimeType = 'audio/wav') => {
+  const tts = fakeTts({ name: 'elevenlabs', model: 'eleven_multilingual_v2', listVoices: async () => [{ name: 'Aria' }, { name: 'Chris' }] });
+  tts.synth.mimeType = mimeType;
+  return tts;
+};
+
+test('revoice: a default-voice track the recorder made is current after its stale slide is re-voiced (#557)', async (t) => {
+  const dir = tmp('revoice-default-voice', t);
+  const header = { engine: 'elevenlabs', model: 'eleven_multilingual_v2', voice: null, style: '' };
+  const recorded = recorderManifest({ prev: null, header, texts: slideTexts(THREE), range: { from: 1, to: 3 }, recorded: { 1: {}, 2: {}, 3: {} } });
+  mkdirSync(dir, { recursive: true });
+  for (const s of recorded.slides) writeFileSync(path.join(dir, s.file), 'a take');
+  writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(recorded));
+
+  const edited = deck(['One says this.', 'Two has moved on.', 'Three says the rest.']);
+  const narration = { ...readTrack(dir), dir };
+  const { stale } = staleSlides(narration, slideTexts(edited));
+  assert.deepEqual(stale, [2]);
+
+  const tts = elevenTts();
+  const r = await revoiceStale({ html: edited, narration, stale, log: quiet, cache: noCache(), status: ready, create: () => tts });
+  assert.equal(r.ok, true, r.why);
+  assert.deepEqual(tts.said, ['Two has moved on.']);
+  const now = readTrack(dir);
+  assert.deepEqual(staleSlides(now, slideTexts(edited)).stale, [], 'the check reproduces the stamp it wrote');
+  assert.equal(now.voice, null, 'the header still says "the default voice" — not dropped, not resolved under the other slides');
+  assert.ok(!('format' in now), 'nor given a format the other slides were not stamped under');
+  assert.deepEqual([now.slides[0], now.slides[2]], [recorded.slides[0], recorded.slides[2]]);
+});
+
+test('a fresh track voiced without --voice names the voice and format its hashes were taken under (#557)', async (t) => {
+  const dir = tmp('synth-resolved-voice', t);
+  const fakeRun = (bin, args) => writeFileSync(args[args.length - 1], `${bin}-out`);
+  const tts = elevenTts('audio/mpeg');
+  const { manifest } = await run({ html: THREE, dir, tts, voice: undefined, style: '', format: 'wav', encoder: 'ffmpeg', run: fakeRun });
+  assert.deepEqual([manifest.voice, manifest.format], ['Aria', 'mp3']);
+  assert.deepEqual(staleSlides(readTrack(dir), slideTexts(THREE)).stale, []);
+  assert.equal(manifest.slides[0].hash, clipKey(tts, { voice: 'Aria', style: '', text: 'One says this.' }).slice(0, 16),
+    'and the hash is still the clip key, shortened');
+});
+
+test('a track stamped before #557 is kept and re-stamped — current again, nothing paid for twice', async (t) => {
+  const dir = tmp('synth-pre557', t);
+  const tts = elevenTts();
+  // what the core wrote then: hashed under the resolved voice, a header naming none
+  const texts = slideTexts(THREE);
+  const slides = texts.map((text, i) => ({ file: `slide-0${i + 1}.wav`, hash: clipKey(tts, { voice: 'Aria', style: '', text }).slice(0, 16) }));
+  mkdirSync(dir, { recursive: true });
+  for (const s of slides) writeFileSync(path.join(dir, s.file), 'audio');
+  const prev = { engine: 'elevenlabs', model: 'eleven_multilingual_v2', style: '', slides };
+  writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(prev));
+  assert.deepEqual(staleSlides(prev, texts).stale, [1, 2, 3], 'the render refused it');
+
+  const { skipped } = await run({ html: THREE, dir, tts, voice: undefined, style: '', format: 'wav', prev });
+  assert.equal(tts.said.length, 0);
+  assert.equal(skipped, 3);
+  assert.deepEqual(staleSlides(readTrack(dir), texts).stale, []);
+});
