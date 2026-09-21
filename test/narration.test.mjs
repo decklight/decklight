@@ -19,7 +19,7 @@ const pauseRuns = (t) => { const { lead, runs } = speechRuns(t); return { lead, 
 import { BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 
 import {
-  hintApplies, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
+  hintApplies, clipTallyLine, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack, parseVoiceQuery, voiceMatches,
   splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, notesPlain, stepPlan,
 } from '../src/core/narration.js';
@@ -560,6 +560,25 @@ test('notesPlain reads a marker ELEMENT as its marker — textContent sees nothi
 
 test('a segment of nothing but markers has no take: it is not a file, and the recorder skips it', () => {
   assert.deepEqual(segmentFileIndex(['One.', '⟨SLOW⟩ ⟨/SLOW⟩', 'Two.']), [1, null, 2]);
+});
+
+// ── what a synthesized recording cost (#565) ──────────────────────────────
+
+test('clipTallyLine: reused and sent reconcile to the clips voiced, and the engine is named', () => {
+  assert.equal(clipTallyLine({ reused: 121, sent: 7, cost: 0.0431 }, 'elevenlabs'),
+    '128 clips · 121 reused · 7 sent to elevenlabs · ~$0.043');
+  assert.equal(clipTallyLine({ reused: 12, sent: 0, cost: 0 }, 'say'), '12 clips · 12 reused · 0 sent to say · $0',
+    'a free or offline engine reads $0, never a blank');
+  assert.equal(clipTallyLine({ reused: 0, sent: 1, cost: 0.0004 }, 'gemini'), '1 clip · 0 reused · 1 sent to gemini · ~$0.0004',
+    'a spend under a cent keeps four places, or it reads as free');
+  assert.equal(clipTallyLine({ reused: 3, sent: 1 }), '4 clips · 3 reused · 1 sent to the engine · $0',
+    'an engine that priced nothing is still named something');
+});
+
+test('clipTallyLine: nothing voiced is no line at all — the mic recorder has no clips', () => {
+  assert.equal(clipTallyLine({ reused: 0, sent: 0, cost: 0 }, 'elevenlabs'), '');
+  assert.equal(clipTallyLine(), '');
+  assert.equal(clipTallyLine(undefined, 'say'), '');
 });
 
 // ── the live clip key carries the sentence (#537) ─────────────────────────
