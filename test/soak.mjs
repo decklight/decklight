@@ -622,9 +622,15 @@ try {
     const html = deck();
     must(html.includes('<title>Soak Deck</title>'), 'the title argument did not reach the deck');
     must(sectionBodies(html).length === 2, `expected 2 slides, got ${sectionBodies(html).length}`);
-    must(html.includes('<style data-theme="aurora"'), 'aurora was not inlined');
-    must(html.includes('<style data-theme="midnight"'), 'midnight was not inlined');
-    must(/data-decklight-runtime="js"/.test(html), 'the runtime is not marked');
+    // #521 changed what this scaffolds: slides plus a configuration block,
+    // with no runtime and no theme inlined — `--themes` names the deck's theme
+    // rather than embedding one, and `bundle` (or a server) supplies the rest.
+    // The assertions here still described the old self-contained scaffold, so
+    // the gate has refused to run since — which is how a release gate fails:
+    // not by finding a bug, by never being reached.
+    must(/"theme": "aurora"/.test(html), 'the configuration block does not name the theme init was given');
+    must(!/<style data-theme=/.test(html), 'a theme was inlined into a deck that is supposed to be data');
+    must(!/<script src=|Decklight\.init/.test(html), 'the scaffold carries a runtime or a boot call');
   });
 
   await step('the repo tracks the deck and not node_modules', () => {
