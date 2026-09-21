@@ -53,11 +53,11 @@ const env = { ...process.env, DECKLIGHT_HOME: HOME };
  * tools/test-impact.mjs and anyone's muscle memory keep working.
  */
 const NARRATION_GROUPS = {
-  live: ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'xss', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited'],
+  live: ['healthy', 'pause', 'sentpause', 'pausedefaults', 'pausenav', 'pausemark', 'aliases', 'slowmark', 'flaky', 'dead', 'keys', 'modules', 'xss', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited'],
   picker: ['roster', 'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'off', 'realsay'],
   recorded: ['recorded', 'manifest', 'expired', 'plainrec', 'segmanifest', 'segsigned'],
   segments: ['segoverflow', 'segments', 'segfold', 'segmiss', 'segnav', 'beatpause'],
-  record: ['record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'micwarn&record'],
+  record: ['record', 'record&dir', 'record&nosrv', 'reccount', 'recordseg', 'recordseg&pause', 'recordseg&badconfig', 'micwarn&record'],
 };
 const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-render:${g}`);
 
