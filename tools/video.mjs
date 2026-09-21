@@ -46,7 +46,7 @@ import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './vid
 import { splitSentences, pauseRuns, PAUSE_MARK } from './sentences.mjs';
 import { serveForRender } from '../cli/present.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
-import { staleSlides, slideTexts, slideNotes, markerPauses } from './narration-manifest.mjs';
+import { staleSlides, slideTexts, priorSlideTexts, slideNotes, markerPauses } from './narration-manifest.mjs';
 import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';
 import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
 import { loadTtsConfig } from './tts-setup.mjs';
@@ -771,7 +771,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
     // would speak against its own captions, so it is named and, unless asked
     // for by name, refused (#536). Only the slides being rendered are checked.
     if (narration) {
-      let { stale, hashless } = staleSlides(narration, slideTexts(html), range);
+      let { stale, hashless } = staleSlides(narration, slideTexts(html), range, priorSlideTexts(html));
       if (hashless) log(`  narration: ${hashless} slide${hashless === 1 ? '' : 's'} in ${basename(narration.dir)}/ carr${hashless === 1 ? 'ies' : 'y'} no notes hash (recorded by hand) — not checked`);
       for (const n of stale) console.warn(`  slide ${n}: narration was recorded from different notes`);
       // A machine-voiced track fixes itself: its stale slides are voiced again
@@ -781,7 +781,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
         const r = await revoiceStale({ html, narration, stale, log });
         if (r.ok) {
           narration = resolveNarration(deck, narration.dir);
-          ({ stale } = staleSlides(narration, slideTexts(html), range));
+          ({ stale } = staleSlides(narration, slideTexts(html), range, priorSlideTexts(html)));
         } else {
           unrevoiced = r.why;
           console.warn(`  not re-voiced: ${r.why}`);

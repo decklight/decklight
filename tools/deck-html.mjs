@@ -109,7 +109,8 @@ export const slideHeading = (sectionBody, i) => {
  *
  * The runtime gets this for free from `textContent`; a tool reading the FILE
  * has to do it, and has to do it the same way or the two disagree about what a
- * segment says.
+ * segment says — an `&mdash;` the deck shows as a dash was once spoken, and
+ * hashed, as the letters of its name.
  *
  * ⟨PAUSE⟩ (#560) goes too, by default — this is the text that is SPOKEN and
  * SHOWN. `{ pauses: true }` keeps each marker, spaced as a word of its own,
@@ -117,13 +118,44 @@ export const slideHeading = (sectionBody, i) => {
  * slide is stale (a moved pause is a re-record, since a recording bakes it),
  * the synthesis core, and the `.txt` script written beside the audio.
  */
-export const cleanNotes = (s, { pauses = false } = {}) => String(s ?? '')
+export const cleanNotes = (s, { pauses = false } = {}) => decodeNoteEntities(markBrackets(s)
   .replace(/⟨CLICK⟩/g, ' ')
   .replace(/⟨PAUSE⟩/g, pauses ? ` ${PAUSE_MARK} ` : ' ')
-  .replace(/<[^>]+>/g, ' ')
-  .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')
+  .replace(/<[^>]+>/g, ' '))
   .replace(/\s+/g, ' ')
   .trim();
+
+/**
+ * A marker's angle brackets written as entities — `&#10216;CLICK&#10217;`,
+ * `&lang;PAUSE&rang;` — as the brackets themselves. The browser reads them that
+ * way (`textContent` decodes), so a tool splitting the raw FILE on ⟨CLICK⟩ has
+ * to as well, before it splits, or the two count different beats.
+ */
+export const markBrackets = (s) => String(s ?? '')
+  .replace(/&(?:#10216|#x27e8|lang);/gi, '⟨')
+  .replace(/&(?:#10217|#x27e9|rang);/gi, '⟩');
+
+// The named entities prose in a note actually uses. A browser knows ~2,000;
+// these are the ones an author (or an agent writing HTML) reaches for, and one
+// not listed is left as written rather than guessed at.
+const NAMED = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0',
+  mdash: '—', ndash: '–', hellip: '…', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
+  laquo: '«', raquo: '»', lang: '⟨', rang: '⟩', larr: '←', rarr: '→', uarr: '↑',
+  darr: '↓', harr: '↔', crarr: '↵', times: '×', middot: '·', bull: '•', deg: '°',
+  copy: '©', reg: '®', trade: '™', eacute: 'é', egrave: 'è', agrave: 'à', ccedil: 'ç',
+};
+
+/**
+ * Entities in note text decoded as a browser decodes them: numeric refs and
+ * the named set above, in ONE pass — so `&amp;lt;` is `&lt;`, exactly like a
+ * parser. Runs after tags are stripped, so escaped markup survives as text.
+ */
+export const decodeNoteEntities = (s) => String(s ?? '').replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, body) => {
+  if (body[0] !== '#') return NAMED[body] ?? m;
+  const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+  return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+});
 
 /**
  * A slide's notes split into the ⟨CLICK⟩ segments that become FILES, or null
@@ -142,7 +174,7 @@ export const cleanNotes = (s, { pauses = false } = {}) => String(s ?? '')
  * is nothing but ⟨PAUSE⟩: a hold with no words has no take to be baked into.
  */
 export const notesSegments = (notes, { pauses = false } = {}) => {
-  const parts = String(notes ?? '').split('⟨CLICK⟩')
+  const parts = markBrackets(notes).split('⟨CLICK⟩')
     .map((part) => cleanNotes(part, { pauses }))
     .filter((part) => stripPauses(part).trim());
   return parts.length > 1 ? parts : null;

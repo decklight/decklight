@@ -43,7 +43,7 @@ import { computeGroups, orderItem } from '../tools/build-groups.mjs';
 import { findChrome, chromeArgs } from '../tools/chrome.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import {
-  NOTES_ASIDE, cleanNotes, indexOfCI, readAttrs, sectionBodies, sectionCloseIndex,
+  NOTES_ASIDE, cleanNotes, markBrackets, indexOfCI, readAttrs, sectionBodies, sectionCloseIndex,
   sectionInner, slideHeading, splitOpenTag,
 } from '../tools/deck-html.mjs';
 import { auditDeck } from './audit.mjs';
@@ -351,7 +351,7 @@ const hasProvider = (node) => [...descendants(node)].some((n) => {
  * read as one fewer beat than the deck will actually play.
  */
 export function clickSegments(notesHtml) {
-  const text = String(notesHtml ?? '');
+  const text = markBrackets(notesHtml);
   if (!cleanNotes(text)) return 0;    // no notes at all is not a disagreement
   return text.split('⟨CLICK⟩').length;
 }
