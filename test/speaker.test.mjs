@@ -30,6 +30,12 @@ test('notesSegments splits on the CLICK marker', () => {
   assert.match(two[1], /two/);
 });
 
+test('notesSegments cuts where narration cuts, on every spelling, and shows a hold and a slow stretch', () => {
+  assert.equal(notesSegments('<p>one</p>[click]<p>two</p><click></click><p>three</p>&lt;CLICK&gt;<p>four</p>').length, 4);
+  const [seg] = notesSegments('<p>Look. [pause] Now <slow>slowly</slow>.</p>');
+  assert.match(seg, /Look\. <span class="cue">PAUSE<\/span> Now <em class="slow">slowly<\/em>\./);
+});
+
 test('the QR is offered only when a remote is actually running', () => {
   // no dev server, or a dev server started without --remote
   assert.equal(speakerState(fakeDeck(), 'deck.html').qr, null);

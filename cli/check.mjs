@@ -43,9 +43,10 @@ import { computeGroups, orderItem } from '../tools/build-groups.mjs';
 import { findChrome, chromeArgs } from '../tools/chrome.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import {
-  NOTES_ASIDE, cleanNotes, markBrackets, indexOfCI, readAttrs, sectionBodies, sectionCloseIndex,
+  NOTES_ASIDE, cleanNotes, readNotes, indexOfCI, readAttrs, sectionBodies, sectionCloseIndex,
   sectionInner, slideHeading, splitOpenTag,
 } from '../tools/deck-html.mjs';
+import { CLICK_MARK } from '../tools/sentences.mjs';
 import { auditDeck } from './audit.mjs';
 import { printUrl } from './pdf.mjs';
 import { runMain } from './util.mjs';
@@ -351,9 +352,9 @@ const hasProvider = (node) => [...descendants(node)].some((n) => {
  * read as one fewer beat than the deck will actually play.
  */
 export function clickSegments(notesHtml) {
-  const text = markBrackets(notesHtml);
+  const text = readNotes(notesHtml);
   if (!cleanNotes(text)) return 0;    // no notes at all is not a disagreement
-  return text.split('⟨CLICK⟩').length;
+  return text.split(CLICK_MARK).length;
 }
 
 // ── A. the static half ───────────────────────────────────────────────────────

@@ -126,6 +126,13 @@ test('a deck-recorded slide stamped over the old, undecoded reading stays fresh;
   assert.deepEqual(staleSlides({ ...header, slides }, texts, null, prior).stale, [1]);
 });
 
+test('a deck written only in the canonical markers hashes as it did; a [pause] that used to be spoken now holds', () => {
+  const deck = (notes) => `<section><h1>A</h1><aside class="notes">${notes}</aside></section>`;
+  assert.deepEqual(slideTexts(deck('<p>One. ⟨PAUSE⟩ Two.</p><p>⟨CLICK⟩</p><p>Three.</p>')), ['One. ⟨PAUSE⟩ Two. Three.']);
+  assert.deepEqual(slideTexts(deck('<p>One. [pause] Two.</p><p>[click]</p><p>Three.</p>')), ['One. ⟨PAUSE⟩ Two. Three.'],
+    'the same take: the spelling is not the audio');
+});
+
 test('markerPauses: two beat pauses — the slide\'s attribute, else the deck\'s narration.beatPause, else the default', () => {
   const cfg = (c) => `<script type="application/json" data-decklight-config>${JSON.stringify(c)}</script>`;
   const deck = (...sections) => sections.map((a) => `<section${a}><h1>x</h1></section>`).join('\n');

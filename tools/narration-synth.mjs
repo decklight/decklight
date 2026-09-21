@@ -32,7 +32,7 @@ import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
 import { slideNotes, priorSlideTexts, manifestHash, markerPauses } from './narration-manifest.mjs';
-import { PAUSE_MARK, pauseRuns, stripPauses } from './sentences.mjs';
+import { PAUSE_MARK, pauseRuns, stripPauses, stripSlow, spoken, canonMarks } from './sentences.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -317,12 +317,12 @@ export async function synthesizeSlides({
     // makes, and the video rendered from this folder still finds the rest.
     if (i + 1 < span.from || i + 1 > span.to) { entries.push(prev?.slides?.[i] ?? null); continue; }
     // no words — or nothing but ⟨PAUSE⟩, a hold with nothing to hold between
-    if (!stripPauses(slides[i]).trim()) { entries.push(null); continue; }
+    if (!spoken(slides[i])) { entries.push(null); continue; }
     const txt = join(dir, `slide-${n}.txt`);
     // reused text: a second take (another engine or voice) narrates the SAME
     // words, not a re-roll
     const prior = reuseTextFrom.map((d) => join(d, `slide-${n}.txt`)).find((f) => existsSync(f));
-    const text = prior ? readFileSync(prior, 'utf8').trim() : slides[i];
+    const text = prior ? stripSlow(canonMarks(readFileSync(prior, 'utf8'))).replace(/\s+/g, ' ').trim() : slides[i];
     const file = `slide-${n}.${format}`;
     writeFileSync(txt, text);
     const hash = slideHash(text);

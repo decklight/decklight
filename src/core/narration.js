@@ -15,7 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
-import { splitSentences, pauseRuns, stripPauses } from '../../tools/sentences.mjs';
+import { splitSentences, pauseRuns, stripPauses, stripSlow, spoken, canonMarks, CLICK_MARK, PAUSE_MARK, SLOW_OPEN, SLOW_CLOSE } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
@@ -153,7 +153,7 @@ export const sentencePauseFor = (attr, cfg) => pauseFor(attr, cfg, SENTENCE_PAUS
  */
 export function segmentFileIndex(segs) {
   // a segment of nothing but ⟨PAUSE⟩ has no words to record, so no file
-  const parts = (segs ?? []).map((t) => stripPauses(t).replace(/\s+/g, ' ').trim());
+  const parts = (segs ?? []).map(spoken);
   // the tool's own `parts.length > 1 ? parts : null` — one segment is not a
   // segmented slide, it is a slide
   if (parts.filter(Boolean).length < 2) return null;
@@ -225,7 +225,7 @@ export function recordPlan(segs, steps = 0) {
   const index = segmentFileIndex(parts);
   // ⟨PAUSE⟩ stays in the text a reader is shown — it is their cue to hold —
   // but a beat of nothing else is not a take
-  const hasWords = (t) => stripPauses(t).trim() !== '';
+  const hasWords = (t) => spoken(t) !== '';
   if (!index) {
     const text = parts.filter(Boolean).join(' ');
     return hasWords(text) ? [{ seg: 0, step: 0, file: null, text }] : [];
@@ -334,7 +334,7 @@ export function stepPlan(texts) {
   const sentences = [], before = [], after = [], segStarts = new Set(), segRuns = [];
   let bare = 0;
   texts.forEach((t, k) => {
-    const { lead, runs } = pauseRuns(t ?? '');
+    const { lead, runs } = pauseRuns(stripSlow(t ?? ''));
     const from = sentences.length;
     let pending = lead;   // markers waiting for this segment's next sentence
     for (const run of runs) {
@@ -393,8 +393,10 @@ const notesCache = new WeakMap();
 /**
  * The ⟨CLICK⟩ segments of one `aside.notes`, memoized on the element.
  *
- * Validated by the notes' own text rather than invalidated by whoever wrote
- * them: a compare of one string is cheaper than the split it saves, and the
+ * Validated by the notes' own markup rather than invalidated by whoever wrote
+ * them — markup, not text, since a `<pause>` element changes what the notes
+ * say without changing their text. A compare of one string is cheaper than
+ * the walk and split it saves, and the
  * author server rewrites notes under a LIVE deck (dev mode re-renders a slide
  * in place), so a cache that had to be told would be a cache that goes stale
  * exactly when someone is watching.
@@ -404,12 +406,42 @@ const notesCache = new WeakMap();
  * files; that difference is the contract asserted in test/narration.test.mjs.
  */
 export function notesSegsOf(aside) {
-  const text = aside?.textContent ?? '';
+  const html = aside?.innerHTML ?? '';
   const hit = aside && notesCache.get(aside);
-  if (hit && hit.text === text) return hit.segs;
-  const segs = text.split('⟨CLICK⟩').map((s) => s.replace(/\s+/g, ' ').trim());
-  if (aside) notesCache.set(aside, { text, segs });
+  if (hit && hit.html === html) return hit.segs;
+  const segs = notesPlain(aside).split(CLICK_MARK).map((s) => s.replace(/\s+/g, ' ').trim());
+  if (aside) notesCache.set(aside, { html, segs });
   return segs;
+}
+
+/**
+ * A notes element's text with every marker in its canonical form — what
+ * `textContent` would say, if `textContent` could see a marker ELEMENT.
+ *
+ * A `<pause>`, `<click>` or `<slow>` written in a deck's HTML is an element
+ * with no text of its own (an unclosed one wraps the words after it, which
+ * stay words), so it is read here as the marker it names; a `<slow>` spans
+ * exactly what the parser put inside it. Text spellings — `[pause]`,
+ * `[/slow]`, an escaped `<click>` — are canonical after `canonMarks`. The
+ * file-reading twin is `readNotes` in tools/deck-html.mjs, and the two must
+ * agree or the deck and its recording disagree about where a beat is.
+ */
+export function notesPlain(node) {
+  let out = '';
+  const walk = (el) => {
+    for (const c of el.childNodes) {
+      if (c.nodeType === 3 || c.nodeType === 4) { out += c.data; continue; }
+      if (c.nodeType !== 1) continue;
+      const tag = c.localName;
+      if (tag === 'pause') out += PAUSE_MARK;
+      else if (tag === 'click') out += CLICK_MARK;
+      if (tag === 'slow') out += SLOW_OPEN;
+      walk(c);
+      if (tag === 'slow') out += SLOW_CLOSE;
+    }
+  };
+  if (node) walk(node);
+  return canonMarks(out);
 }
 
 /** `47s`, `1m05s` — how the recorder's progress line says how long it has been. */
@@ -682,8 +714,8 @@ export function createNarration({
   // sentence is a miss and its untouched neighbours stay hits (#537).
   const liveCache = new Map();
   function notesText(sl) {
-    const t = instance._sections?.[sl - 1]?.querySelector('aside.notes')?.textContent ?? '';
-    return stripPauses(t.replace(/⟨CLICK⟩/g, ' ')).replace(/\s+/g, ' ').trim();
+    const t = notesPlain(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
+    return spoken(t.replaceAll(CLICK_MARK, ' '));
   }
   // Build-synced narration: the ⟨CLICK⟩ markers that already segment the
   // notes for the speaker view segment the AUDIO too — segment k narrates

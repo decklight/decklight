@@ -9,7 +9,7 @@
 // and the dependency only ever flows cli/ → tools/.
 
 import { escapeHtml } from './escape.mjs';
-import { PAUSE_MARK, stripPauses } from './sentences.mjs';
+import { PAUSE_MARK, CLICK_MARK, spoken, stripSlow, notesMarks } from './sentences.mjs';
 
 /**
  * A section's `<aside class="notes">`. Capture group [1] is the inner HTML (what
@@ -118,12 +118,21 @@ export const slideHeading = (sectionBody, i) => {
  * slide is stale (a moved pause is a re-record, since a recording bakes it),
  * the synthesis core, and the `.txt` script written beside the audio.
  */
-export const cleanNotes = (s, { pauses = false } = {}) => decodeNoteEntities(markBrackets(s)
-  .replace(/⟨CLICK⟩/g, ' ')
-  .replace(/⟨PAUSE⟩/g, pauses ? ` ${PAUSE_MARK} ` : ' ')
+export const cleanNotes = (s, { pauses = false } = {}) => decodeNoteEntities(stripSlow(readNotes(s))
+  .replaceAll(CLICK_MARK, ' ')
+  .replaceAll(PAUSE_MARK, pauses ? ` ${PAUSE_MARK} ` : ' ')
   .replace(/<[^>]+>/g, ' '))
   .replace(/\s+/g, ' ')
   .trim();
+
+/**
+ * A slide's notes markup with every marker in its one canonical form, the way
+ * the runtime reads them: brackets written as entities are brackets, and
+ * `[pause]`, `<click>`, `<slow>…</slow>` and the rest are `⟨PAUSE⟩`,
+ * `⟨CLICK⟩`, `⟨SLOW⟩…⟨/SLOW⟩` (tools/sentences.mjs `notesMarks`). Everything
+ * that splits the raw file on a marker reads it through this first.
+ */
+export const readNotes = (s) => notesMarks(markBrackets(s));
 
 /**
  * A marker's angle brackets written as entities — `&#10216;CLICK&#10217;`,
@@ -174,9 +183,9 @@ export const decodeNoteEntities = (s) => String(s ?? '').replace(/&(#x[0-9a-f]+|
  * is nothing but ⟨PAUSE⟩: a hold with no words has no take to be baked into.
  */
 export const notesSegments = (notes, { pauses = false } = {}) => {
-  const parts = markBrackets(notes).split('⟨CLICK⟩')
+  const parts = readNotes(notes).split(CLICK_MARK)
     .map((part) => cleanNotes(part, { pauses }))
-    .filter((part) => stripPauses(part).trim());
+    .filter((part) => spoken(part));
   return parts.length > 1 ? parts : null;
 };
 

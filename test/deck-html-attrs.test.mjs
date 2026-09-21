@@ -16,7 +16,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  readAttrs, writeAttrs, splitOpenTag, injectBeforeBodyEnd, cleanNotes, markBrackets, notesSegments, NOTES_ASIDE,
+  readAttrs, writeAttrs, splitOpenTag, injectBeforeBodyEnd, cleanNotes, markBrackets, readNotes, notesSegments, NOTES_ASIDE,
   sectionBodies, slideHeading, slideRange,
   insertBlankSlide, duplicateSlide, deleteSlide, swapSlides, insertImage,
 } from '../tools/deck-html.mjs';
@@ -195,6 +195,15 @@ test('a marker written with entity brackets is a marker', () => {
   assert.equal(cleanNotes('<p>One.</p><p>&#10216;CLICK&#10217;</p><p>Two &mdash; three.</p>'), 'One. Two — three.');
   assert.equal(cleanNotes('Look. &#10216;PAUSE&#10217; Now.', { pauses: true }), 'Look. ⟨PAUSE⟩ Now.');
   assert.deepEqual(notesSegments('<p>One.</p><p>&#10216;CLICK&#10217;</p><p>Two.</p>'), ['One.', 'Two.']);
+});
+
+test('every spelling of a marker reads as the marker, element or text — never spoken', () => {
+  assert.equal(cleanNotes('<p>One. [pause] Two <pause>three.</p><p>[CLICK]</p><p>Four &lt;click&gt; five [slow]six[/slow].</p>'),
+    'One. Two three. Four five six.');
+  assert.equal(cleanNotes('<p>One. [Pause] Two <PAUSE>three.</p>', { pauses: true }), 'One. ⟨PAUSE⟩ Two ⟨PAUSE⟩ three.');
+  assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>Two.</p><click></click><p>Three.</p>'), ['One.', 'Two.', 'Three.']);
+  assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>[slow][/slow]</p>'), null, 'a beat of nothing but markers is no file');
+  assert.equal(readNotes('<p>[1] and [ ] stay</p>'), '<p>[1] and [ ] stay</p>');
 });
 
 test('nothing at all cleans to the empty string', () => {
