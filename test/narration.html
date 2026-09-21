@@ -149,11 +149,12 @@
     // on the mode: every OTHER mode must keep failing that probe, or a fetch
     // left pending would freeze Chrome's virtual clock and hang the page.
     const AUTHOR = 'http://127.0.0.1:8788';
-    const recording = mode === 'record' || mode === 'recordseg';
+    const recording = mode === 'record' || mode === 'recordseg' || mode === 'reccount';
     // ?nosrv — no author server answers, which is a `file://` deck or one served
     // read-only by `decklight present`: nothing here may write to disk, so the
     // browser's download folder is the honest fallback and must still work
     const authored = recording && !params.has('nosrv');
+    const ttsSeen = new Set();   // sentences the mock bridge has synthesized once
     window.__recorded = [];   // every /edit/record the deck posted
     window.__narrationWritten = [];   // …and every config it wrote back
     window.__downloaded = []; // …and every file it handed the browser instead
@@ -284,6 +285,18 @@
       if (u.endsWith('/tts')) {
         calls++;
         try { bodies.push(JSON.parse(opts?.body ?? '{}')); } catch { /* not json */ }
+        // A bridge with a disk cache (#565): the first ask for a sentence is
+        // synthesized and priced, every later one is served from the cache
+        // and free — which is what the recorder's tally must tell apart.
+        if (mode === 'reccount') {
+          const said = bodies[bodies.length - 1]?.text ?? '';
+          const known = ttsSeen.has(said);
+          ttsSeen.add(said);
+          return new Response(new Blob([new Uint8Array(64)], { type: 'audio/wav' }), {
+            status: 200,
+            headers: { 'x-tts-cached': known ? '1' : '0', 'x-tts-cost': known ? '0' : '0.002' },
+          });
+        }
         // `&dead` on another mode: the bridge dies PARTWAY — slide three's words never arrive
         const diesOnThree = params.has('dead') && /three/i.test(bodies[bodies.length - 1]?.text ?? '');
         const fail = mode === 'dead' || diesOnThree || (mode === 'flaky' && calls === 1);
@@ -994,6 +1007,37 @@
             await new Promise((ok) => setTimeout(ok, 50));
           }
           r.finished = /recording done/.test(card?.textContent ?? '');
+          if (mode === 'reccount') {
+            // What this take cost (#565): first run synthesizes everything,
+            // and a second run over the same notes pays for nothing.
+            const clipLine = (t) => /(\d+) clips? · (\d+) reused · (\d+) sent to (\w+) · (.+?)$/m.exec(t ?? '');
+            r.first = clipLine(card.textContent)?.slice(1) ?? null;
+            // Esc, not a DOM removal: the deck owns the dialog, and a second
+            // take has to go through the same door a person uses.
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            await new Promise((ok) => setTimeout(ok, 200));
+            deck.narration.openPicker('record');
+            await new Promise((ok) => setTimeout(ok, 100));
+            [...document.querySelectorAll('.decklight-narr .narr-row')]
+              .find((n) => /synthesized voice/.test(n.textContent))?.click();
+            await until(() => document.querySelector('.decklight-record .rec-dir'), 3000);
+            document.querySelector('.decklight-record .narr-card .narr-row')?.click();
+            const card2 = document.querySelector('.decklight-record .narr-card');
+            for (let i = 0; i < 1200 && !/recording done/.test(card2?.textContent ?? ''); i++) {
+              await new Promise((ok) => setTimeout(ok, 50));
+            }
+            r.second = clipLine(card2?.textContent)?.slice(1) ?? null;
+            const [n1, reused1, sent1, engine1, spend1] = r.first ?? [];
+            const [n2, reused2, sent2, , spend2] = r.second ?? [];
+            r.reconciles = !!r.first && Number(reused1) + Number(sent1) === Number(n1)
+              && !!r.second && Number(reused2) + Number(sent2) === Number(n2) && n2 === n1;
+            r.firstRunPaid = reused1 === '0' && sent1 === n1 && /^~\$/.test(spend1 ?? '');
+            r.secondRunFree = reused2 === n2 && sent2 === '0' && spend2 === '$0';
+            r.namedTheEngine = engine1 === 'mock';
+            r.PASS = r.finished && r.reconciles && r.firstRunPaid && r.secondRunFree && r.namedTheEngine;
+            sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+            return;
+          }
           r.posted = window.__recorded.slice();
           r.downloaded = window.__downloaded.slice();
           r.authored = authored;

@@ -381,6 +381,24 @@ export function stepPlan(texts) {
 export function liveClipKey(sl, step, i, text, voice, style) {
   return `${sl}|s${step}|n${i}|${voice}|${style}|t${textHash(text)}`;
 }
+/**
+ * What a synthesized recording actually cost, in one line: how many of its
+ * clips came back from a cache and how many the engine was asked for (#565).
+ *
+ * The number people want before they do it again. A clip is REUSED whether it
+ * was already in this window (the lookahead warmed it, or the deck played it)
+ * or the bridge served it from its own disk cache — either way nothing was
+ * billed. SENT is what reached the engine, and the spend is what the bridge
+ * priced those at: `$0` on a free or offline engine (say, piper), never blank.
+ * '' when nothing was voiced at all, which is the mic recorder's whole case.
+ */
+export function clipTallyLine({ reused = 0, sent = 0, cost = 0 } = {}, engine = null) {
+  const clips = reused + sent;
+  if (!clips) return '';
+  const spend = cost > 0 ? `~$${cost.toFixed(cost < 0.01 ? 4 : 3)}` : '$0';
+  return `${clips} clip${clips === 1 ? '' : 's'} · ${reused} reused · ${sent} sent to ${engine ?? 'the engine'} · ${spend}`;
+}
+
 /** FNV-1a over the normalized sentence — short, stable, no crypto needed. */
 export function textHash(text) {
   const s = String(text ?? '').replace(/\s+/g, ' ').trim();
@@ -501,6 +519,11 @@ export function createNarration({
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
   let ttsSpend = 0;
+  // The CURRENT synthesized recording's tally (#565), or null between runs:
+  // `seen` is the clip keys this run has already counted, so a sentence the
+  // viseme pass asks for again is not counted twice. Per run, never the
+  // session's cumulative `ttsSpend` — the question is what THIS take cost.
+  let recTally = null;
   // ── narration (V) + picker (N) — SPEC PRESENTING ────────────────────────────────
   // Two sources, one V toggle. RECORDED: pre-rendered per-slide audio
   // (tools/voiceover.mjs, or the synthesized recorder below; config.narration.files = '<dir>' or
@@ -735,6 +758,12 @@ export function createNarration({
   // needs the raw bytes — one cache serves both
   function synthLive(text, key, label) {
     if (!text) return Promise.resolve(null);
+    // Counted once per clip, for the recording this call belongs to: a hit
+    // here never reaches the bridge, so it is reuse; a miss is classified
+    // when the bridge answers, by the header it sends.
+    const tally = recTally;
+    const counts = tally && !tally.seen.has(key);
+    if (counts) tally.seen.add(key);
     if (!liveCache.has(key)) {
       const p = (async () => {
         const t0 = Date.now();
@@ -751,6 +780,12 @@ export function createNarration({
           const blob = await res.blob();
           const cost = parseFloat(res.headers?.get?.('x-tts-cost') ?? '') || 0;
           if (cost) ttsSpend += cost;
+          // The bridge says which clips it synthesized and which it replayed
+          // from its own disk cache (`x-tts-cached`, tools/voiceover-server.mjs)
+          if (counts) {
+            if (res.headers?.get?.('x-tts-cached') === '1') tally.reused++;
+            else { tally.sent++; tally.cost += cost; }
+          }
           debugLog('tts', `${label} · ${liveCfg.voice} · ${text.length} chars → ${((Date.now() - t0) / 1000).toFixed(1)}s`
             + (cost ? ` · ~$${cost.toFixed(4)}` : ''));
           return { url: URL.createObjectURL(blob), blob };
@@ -759,8 +794,13 @@ export function createNarration({
           throw e;
         }
       })();
-      p.catch(() => { if (liveCache.get(key) === p) liveCache.delete(key); });
+      p.catch(() => {
+        if (liveCache.get(key) === p) liveCache.delete(key);
+        if (counts) tally.seen.delete(key);   // it was never voiced: a retry counts it
+      });
       liveCache.set(key, p);
+    } else if (counts) {
+      tally.reused++;
     }
     return liveCache.get(key);
   }
@@ -2546,6 +2586,7 @@ export function createNarration({
         <div class="rec-hint">Esc to cancel</div>`;
     } else {
       const { saved, total, cancelled, dir } = data;
+      const clips = clipTallyLine(data.clips, data.engine);
       // Where they landed is the whole point of the line: "your downloads" was
       // true and useless — the next command you run reads the deck's folder.
       const names = data.segmented ? 'slide-NN.wav + one slide-NN-KK.wav per ⟨CLICK⟩' : 'slide-NN.wav';
@@ -2559,6 +2600,7 @@ export function createNarration({
         : `Move them next to the deck and point <code>narration.files</code> at that folder with <code>ext: 'wav'${seg}</code> to play them back without the bridge.`;
       card.innerHTML = `<div class="narr-head">${cancelled ? 'recording cancelled' : 'recording done'}</div>
         <div class="rec-line">${saved} / ${total} slide${total === 1 ? '' : 's'} ${where}</div>
+        ${clips ? `<div class="rec-line">${escapeHtml(clips)}</div>` : ''}
         <div class="rec-line">${next}</div>
         ${useTrackRow(dir)}
         ${doneHint(dir)}`;
@@ -2972,6 +3014,8 @@ export function createNarration({
     const run = ++recRun;
     const t0 = Date.now();
     let done = 0, saved = 0, toDisk = 0, segmented = false;
+    // A fresh tally per take (#565): what THIS run reused and what it paid for
+    const tally = recTally = { seen: new Set(), reused: 0, sent: 0, cost: 0 };
     // Awaited, not sampled: authorBase() is null both for "no server" and for
     // "the probe has not answered yet", and reading it early is how a whole
     // take ends up in the download folder for no reason at all.
@@ -3048,7 +3092,11 @@ export function createNarration({
       if (run === recRun) renderRecordCard('progress', { done, total: list.length, elapsedMs: Date.now() - t0 });
     }
     if (run === recRun) {
-      renderRecordCard('done', { saved, total: list.length, dir: toDisk ? dir.name : null, segmented, label: target.label });
+      recTally = null;
+      renderRecordCard('done', {
+        saved, total: list.length, dir: toDisk ? dir.name : null, segmented, label: target.label,
+        clips: tally, engine: liveEngine,
+      });
     }
   }
   function openRecordDialog() {
@@ -3071,6 +3119,7 @@ export function createNarration({
   }
   function closeRecordDialog() {
     recRun++; // invalidate any in-flight recording loop
+    recTally = null;   // …and its tally: a cancelled take has nothing to report
     recEl?.remove();
     recEl = null;
   }
