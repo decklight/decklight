@@ -205,6 +205,28 @@ test('a ⟨PAUSE⟩ is never spoken: the words either side are voiced apart and 
   assert.equal(again.said.length, 0, 'a rerun is free');
 });
 
+test('a ⟨SLOW⟩ stretch is its own clip, said at the deck\'s slow rate — and the marker never reaches the engine', async (t) => {
+  const dir = tmp('synth-slow', t);
+  const calls = [];
+  const tts = fakeTts();
+  const inner = tts.synth;
+  tts.synth = Object.assign(async (text, opts) => { calls.push([text, opts?.rate ?? 1]); return inner(text, opts); }, inner);
+  const cfg = '<script type="application/json" data-decklight-config>{"narration":{"slowRate":0.7}}</script>';
+  const html = deck(['We filter [slow]before we sort[/slow], because it saves work.', 'Plain.']).replace('</body>', `${cfg}</body>`);
+  const { manifest } = await run({ html, dir, tts, format: 'wav' });
+  assert.deepEqual(calls, [['We filter', 1], ['before we sort,', 0.7], ['because it saves work.', 1], ['Plain.', 1]]);
+  assert.equal(readFileSync(path.join(dir, 'slide-01.txt'), 'utf8'), 'We filter ⟨SLOW⟩before we sort⟨/SLOW⟩, because it saves work.',
+    'the script beside the audio keeps the stretch — it is part of what was recorded');
+  assert.equal(readWav(readFileSync(path.join(dir, manifest.slides[0].file))).data.length, 3 * 64, 'three clips, joined with no gap');
+  assert.deepEqual(staleSlides(manifest, slideTexts(html)).stale, []);
+
+  // the stretch is part of the take: marking a slide slow re-voices it
+  const plain = deck(['We filter before we sort, because it saves work.', 'Plain.']);
+  assert.deepEqual(staleSlides(manifest, slideTexts(plain)).stale, [1]);
+  const again = fakeTts();
+  assert.equal((await run({ html, dir, tts: again, format: 'wav', prev: readTrack(dir) })).skipped, 2);
+});
+
 test('adding a ⟨PAUSE⟩ to a voiced slide re-voices it — the old take has no silence in it', async (t) => {
   const dir = tmp('synth-pause-added', t);
   const plain = deck(['Look at this. Now the rest.']);

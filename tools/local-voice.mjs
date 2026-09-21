@@ -284,7 +284,7 @@ export function parseWinrtVoices(stdout, { lang } = {}) {
  * machine does not have THROWS rather than falling back to the default
  * voice, the same rule `say` needed enforcing by hand.
  */
-export function winrtArgs(text, voice, file) {
+export function winrtArgs(text, voice, file, rate = 1) {
   const q = (s) => `'${String(s).replace(/'/g, "''")}'`;   // PowerShell escaping
   return ['-NoProfile', '-NonInteractive', '-Command',
     '$null = [Windows.Media.SpeechSynthesis.SpeechSynthesizer, Windows.Media.SpeechSynthesis, ContentType=WindowsRuntime]; '
@@ -297,6 +297,7 @@ export function winrtArgs(text, voice, file) {
       ? `$v = [Windows.Media.SpeechSynthesis.SpeechSynthesizer]::AllVoices | Where-Object { $_.DisplayName -eq ${q(voice)} } | Select-Object -First 1; `
         + `if (-not $v) { throw ('no voice named ' + ${q(voice)}) }; $s.Voice = $v; `
       : '')
+    + (rate !== 1 ? `$s.Options.SpeakingRate = ${rate}; ` : '')
     + `$op = $s.SynthesizeTextToStreamAsync(${q(text)}); `
     + '$task = $asTask.MakeGenericMethod([Windows.Media.SpeechSynthesis.SpeechSynthesisStream]).Invoke($null, @($op)); '
     + '$task.Wait(); $stream = $task.Result; '
@@ -316,21 +317,36 @@ export function parseSapiVoices(stdout) {
     .sort((a, b) => a.tier - b.tier || a.name.localeCompare(b.name));
 }
 
-/** The argv that makes macOS speak a line into a WAV file. */
-export const sayArgs = (text, voice, file) => [
+/**
+ * `say`'s own pace, in words per minute: every voice speaks at 175 unless told
+ * otherwise (measured — `-r 175` and no `-r` are the same clip, byte for
+ * byte), so a rate is `-r` of it.
+ */
+export const SAY_WPM = 175;
+
+/** The argv that makes macOS speak a line into a WAV file, `rate` × its usual pace. */
+export const sayArgs = (text, voice, file, rate = 1) => [
   ...(voice ? ['-v', voice] : []),
+  ...(rate !== 1 ? ['-r', String(Math.round(SAY_WPM * rate))] : []),
   // LEI16@24000 is little-endian 16-bit PCM at 24 kHz — the same shape every
   // other engine hands the bridge, so nothing downstream has to care
   '--data-format=LEI16@24000', '-o', file, '--', text,
 ];
 
+/**
+ * System.Speech's `Rate` for a pace: an integer step from -10 to 10, each one
+ * about a tenth faster or slower than the last — so 0.85× is -2.
+ */
+export const sapiRate = (rate) => Math.max(-10, Math.min(10, Math.round(Math.log(rate) / Math.log(1.1))));
+
 /** The PowerShell that makes Windows speak a line into a WAV file. */
-export function sapiArgs(text, voice, file) {
+export function sapiArgs(text, voice, file, rate = 1) {
   const q = (s) => `'${String(s).replace(/'/g, "''")}'`;   // PowerShell escaping
   return ['-NoProfile', '-NonInteractive', '-Command',
     'Add-Type -AssemblyName System.Speech; '
     + '$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; '
     + (voice ? `$s.SelectVoice(${q(voice)}); ` : '')
+    + (rate !== 1 ? `$s.Rate = ${sapiRate(rate)}; ` : '')
     + `$s.SetOutputToWaveFile(${q(file)}); `
     + `$s.Speak(${q(text)}); $s.Dispose()`];
 }

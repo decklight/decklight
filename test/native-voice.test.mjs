@@ -18,8 +18,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createEngine } from '../tools/tts-engines.mjs';
-import { sayArgs, sapiArgs } from '../tools/local-voice.mjs';
+import { createEngine, withRates, stretchClip } from '../tools/tts-engines.mjs';
+import { sayArgs, sapiArgs, winrtArgs, sapiRate } from '../tools/local-voice.mjs';
 
 const ROSTER = [
   { name: 'Albert', locale: 'en_US', tier: 4 },
@@ -31,6 +31,16 @@ const detect = () => ({ engine: 'say', voices: ROSTER, label: 'macOS built-in: A
 
 /** A `say` engine built against a fixed roster rather than this machine's. */
 const sayEngine = ({ lang, voice } = {}) => createEngine({ engine: 'say', lang, voice, detect });
+
+test('a pace reaches each native voice its own way — say -r of 175 wpm, a SAPI step, a WinRT factor', () => {
+  assert.deepEqual(sayArgs('hi', 'Samantha', '/tmp/o.wav', 0.85).slice(0, 4), ['-v', 'Samantha', '-r', '149']);
+  assert.ok(!sayArgs('hi', 'Samantha', '/tmp/o.wav').includes('-r'), 'the usual pace is no flag at all');
+  assert.equal(sapiRate(0.85), -2);
+  assert.equal(sapiRate(0.5), -7);
+  assert.match(sapiArgs('hi', null, 'o.wav', 0.85)[3], /\$s\.Rate = -2; /);
+  assert.doesNotMatch(sapiArgs('hi', null, 'o.wav')[3], /Rate/);
+  assert.match(winrtArgs('hi', null, 'o.wav', 0.85)[3], /SpeakingRate = 0\.85; /);
+});
 
 test('sayArgs puts the voice on the command line, and only when there is one', () => {
   assert.deepEqual(sayArgs('hello', 'Samantha', '/tmp/o.wav'),
@@ -186,4 +196,23 @@ test('the install route\'s one exec is a frozen argv, opening a Settings pane an
   assert.equal(WINDOWS_VOICE_SETTINGS_URI, 'ms-settings:easeofaccess-narrator');
   // the URI the caveat prints and the one the route opens must be the same door
   assert.equal(VOICE_SETTINGS_URI, 'x-apple.systempreferences:com.apple.preference.universalaccess');
+});
+
+test('an engine with no pace of its own is asked for the words, and the clip is stretched', async () => {
+  const asked = [];
+  const inner = Object.assign(async (text, opts) => { asked.push(opts); return { wav: Buffer.from(text), usage: {} }; }, { mimeType: 'audio/wav' });
+  const stretched = [];
+  const eng = withRates({ name: 'piper', synth: inner }, { stretch: (wav, rate, ext) => { stretched.push([String(wav), rate, ext]); return Buffer.from('slow'); } });
+  assert.equal(eng.synth.mimeType, 'audio/wav', 'what the engine says it speaks survives the wrap');
+  assert.equal(String((await eng.synth('a', { voice: 'v', rate: 0.85 })).wav), 'slow');
+  assert.equal(String((await eng.synth('b', { voice: 'v' })).wav), 'b', 'the usual pace is the engine, untouched');
+  assert.deepEqual(asked, [{ voice: 'v' }, { voice: 'v' }], 'the engine never sees a rate it cannot use');
+  assert.deepEqual(stretched, [['a', 0.85, 'wav']]);
+  const own = { name: 'say', rates: true, synth: inner };
+  assert.equal(withRates(own), own, 'one with a pace of its own slows itself');
+});
+
+test('no ffmpeg: the stretch is said at the usual pace, not lost', () => {
+  const missing = () => { const e = new Error('spawn ffmpeg ENOENT'); e.code = 'ENOENT'; throw e; };
+  assert.equal(stretchClip(Buffer.from('x'), 0.85, 'wav', { run: missing }), null);
 });

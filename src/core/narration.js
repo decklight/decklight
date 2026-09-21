@@ -15,7 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
-import { splitSentences, pauseRuns, stripPauses, stripSlow, spoken, canonMarks, CLICK_MARK, PAUSE_MARK, SLOW_OPEN, SLOW_CLOSE } from '../../tools/sentences.mjs';
+import { splitSentences, speechRuns, slowSentence, slowRateOf, stripPauses, stripSlow, spoken, canonMarks, CLICK_MARK, PAUSE_MARK, SLOW_OPEN, SLOW_CLOSE } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
@@ -325,25 +325,32 @@ export { splitSentences };
  * no run, which is exactly how `segmentFileIndex` numbers them: skipped, never
  * numbered.
  *
- * Markers are placed by `pauseRuns` (tools/sentences.mjs); the ones a segment
+ * Markers are placed by `speechRuns` (tools/sentences.mjs); the ones a segment
  * leads with hold before its first sentence — after the build it narrates is
  * revealed, which is why they are `before` and not the previous segment's
  * `after`.
+ *
+ * A sentence said slowly (a ⟨SLOW⟩ stretch) is carried with ⟨SLOW⟩ at its head
+ * — `slowSentence` reads it back — so it is its own clip and cache entry by
+ * its text alone, and every loop that already passes sentences around passes
+ * the rate with them. `glue[i]` is true where sentence i ends mid-sentence at
+ * a slow edge: the voice goes straight on, with no breath there.
  */
 export function stepPlan(texts) {
-  const sentences = [], before = [], after = [], segStarts = new Set(), segRuns = [];
+  const sentences = [], before = [], after = [], glue = [], segStarts = new Set(), segRuns = [];
   let bare = 0;
   texts.forEach((t, k) => {
-    const { lead, runs } = pauseRuns(stripSlow(t ?? ''));
+    const { lead, runs } = speechRuns(t ?? '');
     const from = sentences.length;
     let pending = lead;   // markers waiting for this segment's next sentence
     for (const run of runs) {
       const part = splitSentences(run.text);
       if (!part.length) { pending += run.pause; continue; }  // a run of bare punctuation
-      for (const s of part) { sentences.push(s); before.push(0); after.push(0); }
+      for (const s of part) { sentences.push(run.slow ? SLOW_OPEN + s : s); before.push(0); after.push(0); glue.push(false); }
       before[sentences.length - part.length] += pending;
       pending = 0;
       after[sentences.length - 1] += run.pause;
+      glue[sentences.length - 1] = run.glue;
     }
     if (sentences.length > from) {
       segStarts.add(from);
@@ -354,7 +361,7 @@ export function stepPlan(texts) {
     if (pending && sentences.length) after[sentences.length - 1] += pending;
     else bare += pending;
   });
-  return { sentences, segStarts, segRuns, before, after, bare };
+  return { sentences, segStarts, segRuns, before, after, glue, bare };
 }
 
 /**
@@ -732,10 +739,13 @@ export function createNarration({
       const p = (async () => {
         const t0 = Date.now();
         try {
+          // a slow sentence travels with ⟨SLOW⟩ at its head: the bridge gets the
+          // words and a rate, and the engine says them slower in its own way
+          const { text: said, slow } = slowSentence(text);
           const res = await fetch(LIVE_URL, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text, voice: liveCfg.voice, style: liveCfg.style }),
+            body: JSON.stringify({ text: said, voice: liveCfg.voice, style: liveCfg.style, ...(slow ? { rate: slowRate() } : {}) }),
           });
           if (!res.ok) throw new Error(String(res.status));
           const blob = await res.blob();
@@ -856,6 +866,10 @@ export function createNarration({
   // says no holds either. Unlike the beat pause it sits INSIDE a beat, so a
   // recording bakes it (stitchSlideWav) while the live voice holds it here.
   const markerPause = (sl) => 2 * beatPause(sl);
+  // How much slower a ⟨SLOW⟩ stretch is said: the deck's narration.slowRate,
+  // else the default. A deck setting, not a slide one — a stretch is a
+  // stretch — and bounded, so a typo cannot make the voice crawl or race.
+  const slowRate = () => slowRateOf(config.narration?.slowRate);
   /**
    * Hold `seconds`, the way every narration pause holds: P stops the clock
    * rather than eating the wait (paused time is not spent time), and a stale
@@ -1029,7 +1043,7 @@ export function createNarration({
       return;
     }
     warnSegOverflow(sl);
-    const { sentences, before, after, bare } = stepAudio(sl, step);
+    const { sentences, before, after, glue, bare } = stepAudio(sl, step);
     const stale = () => gen !== segGen || !narrating || instance.state.slide !== sl || instance.state.step !== step;
     if (!sentences.length) {
       // a build beat with no words — reveal the next step after a pause, or
@@ -1073,7 +1087,8 @@ export function createNarration({
         }
         if (stale()) return;
         if (!clip) continue;
-        setCaption(sentences[i]); // captions follow the voice, not the notes
+        const said = slowSentence(sentences[i]).text;
+        setCaption(said); // captions follow the voice, not the notes
         narrAudio ??= new Audio();
         // character is strictly opt-in: with mode 'off' narration runs with
         // zero lip-sync footprint. When on, begin* is fire-and-forget —
@@ -1081,7 +1096,7 @@ export function createNarration({
         // and the fallback animates until it does.
         if (character.mode !== 'off') {
           character.attachAudio(narrAudio);
-          character.beginSentence(sentenceKey(sl, step, i, sentences[i]), clip, sentences[i]);
+          character.beginSentence(sentenceKey(sl, step, i, sentences[i]), clip, said);
         }
         // Both handlers cleared BEFORE the src moves: narrAudio is one shared
         // element across live and recorded playback, and a handler left behind
@@ -1110,7 +1125,8 @@ export function createNarration({
         // like them, so P holds it and a keypress mid-breath wins.
         // A ⟨PAUSE⟩ after this sentence holds on top of it — and after the
         // LAST one too, before the beat pause, which is the author's to spend.
-        const hold = (i < sentences.length - 1 ? sentencePause(sl) : 0) + after[i] * markerPause(sl);
+        // A slow edge mid-sentence is no full stop: the voice goes straight on.
+        const hold = (i < sentences.length - 1 && !glue[i] ? sentencePause(sl) : 0) + after[i] * markerPause(sl);
         if ((i < sentences.length - 1 || hold > 0) && !(await holdFor(hold, stale))) return;
       }
       if (stale()) return;
@@ -1641,7 +1657,7 @@ export function createNarration({
     // stepSentences, not the raw segment: on the last step this is every
     // segment the slide has no build for, and a caption that showed only the
     // first would go quiet exactly where the voice does not (#350).
-    setCaption(stepSentences(instance.state.slide, instance.state.step).join(' '));
+    setCaption(stepSentences(instance.state.slide, instance.state.step).map((t) => slowSentence(t).text).join(' '));
   }
   function showCaptions() {
     captionEl = document.createElement('div');
@@ -2585,7 +2601,7 @@ export function createNarration({
     const voiced = (list) => list.some((c) => typeof c !== 'number');
     let rate = 0;
     for (let step = 0; step <= max; step++) {
-      const { sentences, segStarts, segRuns, before, after, bare } = stepAudio(sl, step);
+      const { sentences, segStarts, segRuns, before, after, glue, bare } = stepAudio(sl, step);
       // a beat with nothing but ⟨PAUSE⟩ has no file of its own to hold in —
       // the whole-slide take still holds it, as the live voice does
       if (bare) chunks.push(bare * hold);
@@ -2596,7 +2612,9 @@ export function createNarration({
         const buf = await clip.blob.arrayBuffer();
         rate ||= new DataView(buf).getUint32(24, true) || 24000;
         // a folded segment still gets a SEGMENT-sized breath, not a sentence one
-        if (voiced(chunks)) chunks.push(i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl));
+        // …and no breath at all where a slow stretch cut the sentence before it
+        const breath = i > 0 && glue[i - 1] ? 0 : sentencePause(sl);
+        if (voiced(chunks)) chunks.push(i === 0 || segStarts.has(i) ? SEG_GAP_S : breath);
         const pcm = new Uint8Array(buf.slice(44));
         // ⟨PAUSE⟩ is BAKED (#560): it sits inside a beat, where playback has
         // no seam to hold it at — so it is silence in both shapes of the take
@@ -2607,7 +2625,7 @@ export function createNarration({
         if (file == null) continue;
         let list = beats.get(file);
         if (!list) beats.set(file, list = []);
-        if (voiced(list)) list.push(sentencePause(sl));
+        if (voiced(list)) list.push(breath);
         list.push(before[i] * hold, pcm, after[i] * hold);
       }
     }
@@ -2642,14 +2660,15 @@ export function createNarration({
     let carry = 0;
     try {
       for (let step = 0; step <= max; step++) {
-        const { sentences, segStarts, segRuns, before, after, bare } = stepAudio(sl, step);
+        const { sentences, segStarts, segRuns, before, after, glue, bare } = stepAudio(sl, step);
         carry += bare * hold;
         for (let i = 0; i < sentences.length; i++) {
           const tl = await character.ensureTimeline(
-            sentenceKey(sl, step, i, sentences[i]), fetchLiveSentence(sl, step, i, sentences[i]), sentences[i]);
+            sentenceKey(sl, step, i, sentences[i]), fetchLiveSentence(sl, step, i, sentences[i]), slowSentence(sentences[i]).text);
           if (run !== recRun) return null;
           if (!tl) continue;
-          const gap = parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : sentencePause(sl)) : 0;
+          const breath = i > 0 && glue[i - 1] ? 0 : sentencePause(sl);
+          const gap = parts.length ? (i === 0 || segStarts.has(i) ? SEG_GAP_S : breath) : 0;
           parts.push({ timeline: tl, gap: gap + carry + before[i] * hold });
           carry = after[i] * hold;
           // …and into the beat's own timeline, gapped exactly as its WAV is:
@@ -2661,7 +2680,7 @@ export function createNarration({
           if (file == null) continue;
           let beat = beats.get(file);
           if (!beat) beats.set(file, beat = { parts: [], carry: 0 });
-          beat.parts.push({ timeline: tl, gap: (beat.parts.length ? sentencePause(sl) : 0) + beat.carry + before[i] * hold });
+          beat.parts.push({ timeline: tl, gap: (beat.parts.length ? breath : 0) + beat.carry + before[i] * hold });
           beat.carry = after[i] * hold;
         }
       }
