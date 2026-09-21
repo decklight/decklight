@@ -78,6 +78,17 @@ import {
   cliCommand, npmCommand, gitFileUrl, narrator, narrateArgs, unverifiedPlatform,
 } from './soak-platform.mjs';
 
+/**
+ * The ingredients label's claim about the runtime, in EITHER shape a deck can
+ * take since #521: a self-contained deck carries one and the label says it is
+ * `identical to this install`; a deck that is data carries none and the label
+ * says the runtime is the one this install serves. The bug both wordings guard
+ * against is the 0.3.0 one — a deck whose runtime DIFFERS from the install that
+ * just wrote it, which renders perfectly and hashes differently.
+ */
+const vouchesForRuntime = (all) => /identical to this install|the runtime is the one this install serves/.test(all)
+  && !/DIFFERS from this install/.test(all);
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
 /**
@@ -622,9 +633,15 @@ try {
     const html = deck();
     must(html.includes('<title>Soak Deck</title>'), 'the title argument did not reach the deck');
     must(sectionBodies(html).length === 2, `expected 2 slides, got ${sectionBodies(html).length}`);
-    must(html.includes('<style data-theme="aurora"'), 'aurora was not inlined');
-    must(html.includes('<style data-theme="midnight"'), 'midnight was not inlined');
-    must(/data-decklight-runtime="js"/.test(html), 'the runtime is not marked');
+    // #521 changed what this scaffolds: slides plus a configuration block,
+    // with no runtime and no theme inlined — `--themes` names the deck's theme
+    // rather than embedding one, and `bundle` (or a server) supplies the rest.
+    // The assertions here still described the old self-contained scaffold, so
+    // the gate has refused to run since — which is how a release gate fails:
+    // not by finding a bug, by never being reached.
+    must(/"theme": "aurora"/.test(html), 'the configuration block does not name the theme init was given');
+    must(!/<style data-theme=/.test(html), 'a theme was inlined into a deck that is supposed to be data');
+    must(!/<script src=|Decklight\.init/.test(html), 'the scaffold carries a runtime or a boot call');
   });
 
   await step('the repo tracks the deck and not node_modules', () => {
@@ -665,8 +682,7 @@ try {
 
   await step('the ingredients label vouches for the runtime', () => {
     const r = dl(['present', 'deck.html', '--check']);
-    must(r.all.includes('identical to this install'),
-      'the label does not say the runtime is identical to this install (the 0.3.0 near-miss)');
+    must(vouchesForRuntime(r.all), `the label does not vouch for the runtime (the 0.3.0 near-miss): ${r.all}`);
     must(/0 unaccounted script blocks/.test(r.all), 'the deck carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the deck carries inline handlers');
   });
@@ -702,15 +718,21 @@ try {
     // but not `<!--`, so every imported deck rendered perfectly and hashed
     // differently. Only the label can see that.
     const r = dl(['present', 'q3-review.html', '--check']);
-    must(r.all.includes('identical to this install'),
-      'an imported deck reports a runtime that is not this install — the 0.3.0 bug, exactly');
+    must(vouchesForRuntime(r.all),
+      `an imported deck reports a runtime that is not this install — the 0.3.0 bug, exactly: ${r.all}`);
     must(/0 unaccounted script blocks/.test(r.all), 'the imported deck carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the imported deck carries inline handlers');
   });
 
   await step('the imported deck renders', () => {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
-    const dom = dumpIsolated(join(PROJECT, 'q3-review.html'),
+    // An imported deck is data too (#521): it has no runtime of its own, so
+    // the file that gets double-clicked is the BUNDLE. Bundling first is what
+    // a user hands over anyway, and it keeps this step's claim — a deck with
+    // no server behind it puts its slides on screen — true of the artifact
+    // that is supposed to make it.
+    dl(['bundle', 'q3-review.html', '-o', 'q3-review sent.html']);
+    const dom = dumpIsolated(join(PROJECT, 'q3-review sent.html'),
       { budget: 8000, quietStderr: true, who: 'soak', timeout: 60000 });
     // five slides, one hidden — the fixture's SmartArt and its drawn boxes
     // both come across as inline SVG, which is markup the runtime has to mount
@@ -1094,7 +1116,7 @@ try {
     presentSrv = await startServer(['present', 'deck.html', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
       { timeoutMs: 15000 });
     await until('the ingredients label', () => /ingredients/.test(presentSrv.log()), { ms: 5000 });
-    must(presentSrv.log().includes('identical to this install'), 'the label does not vouch for the runtime');
+    must(vouchesForRuntime(presentSrv.log()), `the label does not vouch for the runtime: ${presentSrv.log()}`);
     must(!presentSrv.log().includes('serving strict'),
       'present went strict on a deck decklight itself wrote');
 
@@ -1102,7 +1124,14 @@ try {
     const res = await get(presentSrv.base, '/');
     must(res.headers.get('content-security-policy')?.includes("default-src 'none'"),
       'the CSP header is missing from a present response');
-    must((await res.text()) === deck(), 'the served bytes differ from the file on disk');
+    // A deck that is data is SERVED with the runtime this install carries
+    // (#518, #521) — so the bytes on the wire are the deck's own plus the
+    // runtime, and the file on disk is the one thing that must not move
+    // (asserted either side of this response).
+    const served = await res.text();
+    must(served.includes('<title>Soak Deck</title>'), 'the served page is not this deck');
+    must(sectionBodies(served).length === sectionBodies(deck()).length, 'present served a different set of slides');
+    must(/Decklight\.init|decklight\.js/.test(served), 'present served a deck with no runtime to play it');
     must((await get(presentSrv.base, '/edit/ping')).status >= 400, '/edit/ping answered under present');
     must((await post(presentSrv.base, '/edit/notes', { slide: 1, text: 'x' })).status >= 400,
       'present accepted an edit');
@@ -1127,7 +1156,13 @@ try {
     //
     // No probe splice either — present strips unaccounted script, so a spliced
     // probe would be removed and report nothing. Assert on the dumped DOM.
-    const dom = dumpIsolated(deckPath(),
+    //
+    // What is dumped is the BUNDLE of the deck, not the deck: since #521 the
+    // authored file is data and has no runtime to mount on its own, so the
+    // file that answers "double-click it and it presents" is the one `bundle`
+    // writes — which is also the file a user sends.
+    dl(['bundle', 'deck.html', '-o', 'double-clickable.html']);
+    const dom = dumpIsolated(join(PROJECT, 'double-clickable.html'),
       { budget: 8000, quietStderr: true, who: 'soak', timeout: 60000 });
     mounted(dom, 3);
     must(dom.includes('Soak slide'), 'the slide added during the session is not in the rendered deck');
@@ -1166,37 +1201,38 @@ try {
   });
 
   await step('a stale deck is spotted, then upgraded', () => {
-    // Make the deck stale the way a decklight update does: leave the marked
+    // Make a deck stale the way a decklight update does: leave the marked
     // runtime block in place but change its bytes. This is the 0.3.0 bug's
     // exact shape — a deck that renders perfectly and whose runtime is not the
     // one installed — so it exercises the label's NEGATIVE case, which every
     // other step only ever sees pass.
-    const stale = deck().replace(/(<script data-decklight-runtime="js">)[\s\S]*?(<\/script>)/,
+    //
+    // It runs on a BUNDLE of the deck, because that is the only shape that has
+    // a runtime to go stale: since #521 the authored file is data, and a deck
+    // with no runtime of its own can never differ from the install serving it.
+    dl(['bundle', 'deck.html', '-o', 'aged.html']);
+    const aged = join(PROJECT, 'aged.html');
+    const read = () => readFileSync(aged, 'utf8');
+    const stale = read().replace(/(<script data-decklight-runtime="js">)[\s\S]*?(<\/script>)/,
       '$1/* an older build */$2');
-    must(stale !== deck(), 'the runtime block marker was not found — has it been renamed?');
-    writeFileSync(deckPath(), stale);
+    must(stale !== read(), 'the runtime block marker was not found — has it been renamed?');
+    writeFileSync(aged, stale);
 
-    const before = dl(['present', 'deck.html', '--check'], { allowFail: true });
+    const before = dl(['present', 'aged.html', '--check'], { allowFail: true });
     must(/DIFFERS from this install/.test(before.all),
       'the label did not notice a runtime that is not this install — the 0.3.0 near-miss, undetected');
 
-    dl(['upgrade', 'deck.html', '--dry-run']);
-    must(!existsSync(`${deckPath()}.bak`), '--dry-run wrote a backup');
-    dl(['upgrade', 'deck.html']);
-    must(existsSync(`${deckPath()}.bak`), 'upgrade did not write a backup');
+    dl(['upgrade', 'aged.html', '--dry-run']);
+    must(!existsSync(`${aged}.bak`), '--dry-run wrote a backup');
+    dl(['upgrade', 'aged.html']);
+    must(existsSync(`${aged}.bak`), 'upgrade did not write a backup');
 
-    const after = dl(['present', 'deck.html', '--check']);
+    const after = dl(['present', 'aged.html', '--check']);
     must(after.all.includes('identical to this install'), 'the upgraded runtime still is not this install');
-    locateSlide(deck(), 3);   // throws if the added slide did not survive
-    must(deck().includes('edited by the soak'), 'the element edit did not survive the upgrade');
-    // NOT asserted any more: 'typed just before quitting'. That line was never
-    // committed — quitting stopped committing what you did not commit — and the
-    // step before this one deliberately restored the deck to an earlier commit,
-    // so it is correctly absent from the file. It is not lost: it lives in the
-    // restore's own commit and on refs/decklight/wip, both checked where they
-    // belong (steps 27 and 28). What THIS step is about is that an upgrade
-    // rewrites the runtime and leaves the content alone, which the two
-    // assertions above say.
+    locateSlide(read(), 3);   // throws if the added slide did not survive
+    must(read().includes('edited by the soak'), 'the element edit did not survive the upgrade');
+    // What THIS step is about is that an upgrade rewrites the runtime and
+    // leaves the content alone, which the two assertions above say.
   });
 
   await step('a deck from an older decklight upgrades', () => {
@@ -1404,7 +1440,10 @@ try {
     const headBefore = git(['rev-parse', 'HEAD']).trim();
     const statusBefore = git(['status', '--porcelain']);
 
-    const r = dl(['publish', 'deck.html', '--remote', 'pages', '--no-sign', '--no-bundle']);
+    // Bundled, not --no-bundle: since #521 the deck is data, so what gets
+    // published has to be the self-contained file — a site serving the data
+    // deck would put a page with no runtime on the web.
+    const r = dl(['publish', 'deck.html', '--remote', 'pages', '--no-sign']);
     must(/pushed \w+ → pages refs\/heads\/gh-pages/.test(r.all), `publish said: ${r.all}`);
     // A remote that is not GitHub must not have a Pages URL invented for it.
     must(/remote is not GitHub/.test(r.all), 'publish guessed a Pages URL for a remote that has none');
@@ -1424,19 +1463,23 @@ try {
     // ENGINES), so it is the one the soak can run end to end — and the answer
     // to "send me a link" for everybody whose host is an rsync or a share.
     const site = join(SPACE, 'site out');
-    // --no-bundle and --no-sign for the same reasons the gh-pages step passes
-    // them: this deck is init-scaffolded, so it is already self-contained and
-    // the bundler rightly refuses it, and signing wants a sigstore client the
-    // soak's empty project has no business installing.
-    const r = dl(['publish', 'deck.html', '--target', 'folder', '--no-bundle', '--no-sign',
+    // --no-sign for the reason the gh-pages step passes it: signing wants a
+    // sigstore client the soak's empty project has no business installing.
+    // The bundle is left ON — the deck is data, and a published site has to
+    // carry the runtime with it.
+    const r = dl(['publish', 'deck.html', '--target', 'folder', '--no-sign',
       '--out', site, '--url', 'https://example.test/talks/']);
     must(existsSync(join(site, 'index.html')), `nothing landed in ${site} — publish said: ${r.all}`);
     must(/https:\/\/example\.test\/talks\//.test(r.all), `the folder target did not print the link: ${r.all}`);
     const page = readFileSync(join(site, 'index.html'), 'utf8');
-    must(/Decklight\.init/.test(page) && !/<script src=/.test(page), 'the folder got something other than the deck');
+    // Self-contained: the runtime is IN the page (it boots itself — a bundle
+    // carries no explicit init call) and nothing is fetched from elsewhere.
+    must(/<script data-decklight-runtime="js">/.test(page), 'the published page carries no runtime');
+    must(!/<script src=/.test(page), 'the published page fetches a script from somewhere else');
+    must(/<style data-theme=/.test(page), 'the published page carries no theme');
     // --branch and --remote name git, and a folder is not git: refused rather
     // than quietly ignored, which is the promise that keeps a flag honest.
-    const wrong = dl(['publish', 'deck.html', '--target', 'folder', '--no-bundle', '--no-sign', '--out', site, '--branch', 'x'], { allowFail: true });
+    const wrong = dl(['publish', 'deck.html', '--target', 'folder', '--no-sign', '--out', site, '--branch', 'x'], { allowFail: true });
     must(wrong.code !== 0, 'a gh-pages flag was accepted against the folder target');
   });
 
@@ -1790,7 +1833,12 @@ try {
     must(spoken > 1, `the narration is only ${spoken}s — too short to tell anything from`);
 
     const out = join(PROJECT, 'narrated talk.mp4');
-    const r = dl(['video', 'film.html', '-o', 'narrated talk.mp4', '--hold', '1', '--fps', '10'],
+    // --allow-stale: the manifest above is hand-written with `hash: 'soak'`,
+    // which is exactly what #540 now refuses — audio recorded from other notes
+    // than the deck has. The refusal is right and is covered in test/video;
+    // here the fixture IS deliberately unhashed, and what this step measures
+    // is what video does with audio it accepts.
+    const r = dl(['video', 'film.html', '-o', 'narrated talk.mp4', '--hold', '1', '--fps', '10', '--allow-stale'],
       { timeout: 300000 });
     must(/1 narrated/.test(r.all), `video did not report the narration it found: ${r.all}`);
 
