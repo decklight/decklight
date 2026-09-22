@@ -87,11 +87,17 @@ itself — `<script src="decklight/dist/decklight.js">` and a
 
 - **Editing in the browser.** In author mode, double-click any text — or a
   code block, edited as plain source — to change it, drop a picture onto a
-  slide to add it, and add, duplicate, move or delete slides from the palette
-  or the right-click menu. Every edit lands in the file
-  and `Z` takes it back. `decklight check` reports what an author or an agent
-  would otherwise only see by looking: clipped slides, missing images, notes
-  whose ⟨CLICK⟩ count disagrees with the builds.
+  slide to add it, recolour a shape from the element menu, and add, duplicate,
+  move or delete slides from the palette or the right-click menu. The notes
+  editor and the agent ask dock beside the slide, wherever you left them.
+  Every edit lands in the file and `Z` takes it back. `decklight check`
+  reports what an author or an agent would otherwise only see by looking:
+  clipped slides, missing images, notes whose ⟨CLICK⟩ count disagrees with
+  the builds.
+- **Take slides from another deck.** `/` → *Insert from a template…* lists the
+  decks you have installed, renders each slide in *your* theme, and takes one
+  — or applies just its look to a slide you already wrote — with the CSS it
+  depends on. `data-module` marks chapters, and `G` shows the outline.
 - **Builds.** `data-build` on a container makes each child a step. The layout
   never jumps.
 - **Diagrams.** Inline SVG written with `var(--d-*)` tokens recolours with every
@@ -108,12 +114,22 @@ itself — `<script src="decklight/dist/decklight.js">` and a
   replays it, typing and streaming. Never a video.
 - **Narration.** Text-to-speech reads your notes in sync with the builds, or you
   record your own voice one beat at a time. Captions and auto-advance come with
-  it.
+  it. The notes are the script, and a script's own markers work as written:
+  `[pause]` holds a beat, `[slow]…[/slow]` says a line slower, `[click]` cuts a
+  beat — in any spelling. A synthesized recording tells you what it cost:
+  clips reused against clips sent to the engine.
+- **Video.** `decklight video` renders the deck to mp4, mov or webm, narrated
+  by its track with subtitles in the file or beside it, and re-voices a slide
+  whose notes moved. The same export is a palette row, which can voice the
+  range with the live voice first.
 - **Review.** Reviewers comment on slides, the review travels as a git branch,
-  and a comment finds its slide again after the deck has moved.
+  and a comment finds its slide again after the deck has moved. The author
+  answers from inside the deck, and `I` shows what a slide is standing on —
+  its sources, written from inside the deck too.
 - **In and out.** PowerPoint, Keynote and Google Slides come in, with charts as
-  data and SmartArt as diagrams. PDF and PowerPoint go out for whoever still
-  asks.
+  data, SmartArt as diagrams, and what somebody drew — shapes, lines, groups,
+  rotation — as the drawing it was. PDF and PowerPoint go out for whoever
+  still asks, in the theme on screen.
 - **Safe to receive.** `decklight present` plays a deck you didn't write
   read-only under a CSP and prints what the file will execute. `publish` signs
   what it ships.
@@ -153,7 +169,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `comments deck.html` | what reviewers said, resolved against the deck as it is now |
 | `history deck.html` | what decklight committed and what is only on this machine |
 | `restore deck.html` | put the deck back to any commit that touched it |
-| `upgrade deck.html` | bring a bundled deck's inlined runtime up to this version |
+| `upgrade deck.html` | bring a bundled deck's inlined runtime up to this version (`--link` un-embeds it, so the deck is data again) |
 
 | Bringing things in | |
 |---|---|

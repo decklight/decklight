@@ -153,11 +153,19 @@
     <section class="traits" aria-label="Top characteristics">
       <div class="trait">
         <h3>One file, zero build</h3>
-        <p>Author a single HTML file, double-click it, present.</p>
+        <p>Author a single HTML file that is nothing but your slides &mdash; <code>author</code> and <code>present</code> add the runtime as they serve it, and <code>bundle</code> embeds it into the one file you send.</p>
       </div>
       <div class="trait">
         <h3>Agent-native authoring</h3>
-        <p>Describe a slide in plain English to your favorite agent, boom, done.</p>
+        <p>Describe a slide in plain English to your favorite agent, boom, done. The agent ask docks beside the slide, and every edit it makes is a commit you can read back.</p>
+      </div>
+      <div class="trait">
+        <h3>Or edit it yourself</h3>
+        <p>In author mode, double-click text to change it, a code block to edit its source, drop a picture onto a slide, recolour a shape from its menu, and drag slides around from the palette. Every edit lands in the file and <kbd>Z</kbd> takes it back.</p>
+      </div>
+      <div class="trait">
+        <h3>Take slides from another deck</h3>
+        <p><code>/</code> &rarr; Insert from a template&hellip; renders another deck&rsquo;s slides in <em>your</em> theme and takes one &mdash; or applies just its look to a slide you already wrote &mdash; with the CSS it depends on. <code>data-module</code> marks chapters, and <kbd>G</kbd> shows the outline.</p>
       </div>
       <div class="trait">
         <h3>Diagrams &amp; graphics</h3>
@@ -177,19 +185,23 @@
       </div>
       <div class="trait">
         <h3>Live narration</h3>
-        <p>Live text-to-speech, on the fly or cached, presents the deck by itself, perfectly in sync. Captions and pop quiz included. Or record it in your own voice, one beat at a time, and your voice steps the builds the same way.</p>
+        <p>Live text-to-speech, on the fly or cached, presents the deck by itself, perfectly in sync. Captions and pop quiz included. Or record it in your own voice, one beat at a time, and your voice steps the builds the same way. The notes are the script: <code>[pause]</code> holds a beat, <code>[slow]&hellip;[/slow]</code> says a line slower, <code>[click]</code> cuts a beat &mdash; written any way a script writes them.</p>
+      </div>
+      <div class="trait">
+        <h3>A film of the talk</h3>
+        <p><code>decklight video</code> renders the deck to mp4, mov or webm, narrated by its track with subtitles in the file or beside it &mdash; and re-voices a slide whose notes moved since it was recorded. Also a palette row, which can voice it with the live voice first.</p>
       </div>
       <div class="trait">
         <h3>Reviewed like code</h3>
-        <p>Reviewers comment on slides and git carries it back — no accounts, no service. A comment remembers which slide it was on, so it still finds it after you insert three above. Submitting pushes the review as a branch of its own &mdash; one file, never the reviewer&rsquo;s commits &mdash; and the author is told a review is waiting.</p>
+        <p>Reviewers comment on slides and git carries it back — no accounts, no service. A comment remembers which slide it was on, so it still finds it after you insert three above. Submitting pushes the review as a branch of its own &mdash; one file, never the reviewer&rsquo;s commits &mdash; and the author is told a review is waiting, and answers from inside the deck. <kbd>I</kbd> shows what a slide is standing on: its sources, written from inside the deck too.</p>
       </div>
       <div class="trait">
         <h3>Bring your old deck</h3>
-        <p><code>decklight import talk.pptx</code> brings a PowerPoint, Keynote or Google Slides deck across &mdash; bullets, tables, images, speaker notes, <strong>charts as data</strong> because the numbers were in the file all along, and <strong>diagrams as diagrams</strong>: SmartArt and the boxes-and-arrows somebody dragged onto a slide both arrive as themed SVG. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts.</p>
+        <p><code>decklight import talk.pptx</code> brings a PowerPoint, Keynote or Google Slides deck across &mdash; bullets, tables, images, speaker notes, <strong>charts as data</strong> because the numbers were in the file all along, and <strong>diagrams as diagrams</strong>: SmartArt, the boxes-and-arrows somebody dragged onto a slide, and what they drew by hand &mdash; shapes, loose lines, groups, rotation &mdash; all arrive as themed SVG. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts.</p>
       </div>
       <div class="trait">
         <h3>&hellip; and hand a file back</h3>
-        <p>For the people around you who still ask for &ldquo;the file&rdquo;: <code>decklight pptx</code> writes a PowerPoint &mdash; every slide a picture, the notes real notes, your hidden slides not in it &mdash; and <code>decklight pdf</code> prints the presenter&rsquo;s copy (<code>--notes</code>) or a three-a-page handout with ruled lines (<code>--handout</code>). All four are palette rows too, so you never leave the deck to produce one.</p>
+        <p>For the people around you who still ask for &ldquo;the file&rdquo;: <code>decklight pptx</code> writes a PowerPoint &mdash; every slide a picture, the notes real notes, your hidden slides not in it &mdash; and <code>decklight pdf</code> prints the presenter&rsquo;s copy (<code>--notes</code>) or a three-a-page handout with ruled lines (<code>--handout</code>). Every one of them is a palette row too, so you never leave the deck to produce a file &mdash; and each renders in the theme on screen, a generated one included.</p>
       </div>
       <div class="trait">
         <h3>Backup slides, and a stopwatch</h3>
@@ -227,7 +239,7 @@
 
     <section class="start" aria-label="Create a deck">
       <h2>Create a deck</h2>
-      <p>No install needed: <code>npx</code> runs the CLI straight from npm. <code>init</code> scaffolds a self-contained deck plus an agent skill, so Claude Code knows the authoring contract. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
+      <p>No install needed: <code>npx</code> runs the CLI straight from npm. <code>init</code> scaffolds a deck &mdash; your slides plus a two-line configuration block, nothing else &mdash; and an agent skill, so Claude Code knows the authoring contract. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-init" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="8" data-title="create a deck"></div>
       </div>
@@ -266,7 +278,7 @@
 
     <section class="start after-deck" aria-label="Getting the full experience">
       <h2>Getting the full experience</h2>
-      <p>The same CLI does the rest: serve the deck live with in-browser note editing, record truthful terminal casts, bridge live narration or capture your own, take comments from a reviewer, then flatten everything into one self-contained file.</p>
+      <p>The same CLI does the rest: serve the deck live with in-browser editing, record truthful terminal casts, bridge live narration or capture your own, render the talk as a video, take comments from a reviewer, then flatten everything into one self-contained file.</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-cli" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="12" data-title="the full cli"></div>
       </div>
