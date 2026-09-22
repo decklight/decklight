@@ -5,6 +5,175 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.9.0
+
+Eighty-four commits since 0.8.1, and the release has a shape: a deck is now
+something you **edit with the mouse**, **take slides into**, **import real
+PowerPoint drawings into**, **export as video**, and **narrate in a voice you
+can pace**. The runtime it plays with is a link, not a copy.
+
+### Edit the deck in front of you (SPEC `DECK_ANATOMY`)
+
+`decklight author` grew an editor you drive with the mouse: pick an element,
+change it, and the file on disk changes with it (#488). Double-click a code
+block to edit it as plain source (#494). `Colors…` in the element menu recolors
+a shape and the text on it — the theme's named palette by reference, or a
+custom RGB/HSB color on its own tab (#543). `Z` waits for an edit still in
+flight, so a double-click save can be undone (#493), and the content editor
+fails within 8 seconds instead of hanging on "loading…" (#498).
+
+The panels became **docks**: the agent ask and the notes editor sit beside the
+slide — float, left, right or bottom, remembered per deck — and docked notes
+follow the slide until they hold a draft (#545, #534). The sources panel docks
+the way the comments panel does (#482).
+
+`decklight` itself reads the room: the file is the command, a bare `decklight`
+looks at the directory, and `init` hands off to `author` (#487). The CLI is
+table-driven, the README is shorter, and 120 unit tests and seven fixed bugs
+came with that pass (#485, #486).
+
+### A deck is data, and the runtime is a link (SPEC `DECK_ANATOMY`)
+
+A deck you author is now **slides plus a JSON config block** — the servers add
+the runtime, `bundle` embeds it (#521). It **references** the runtime rather
+than carrying a copy: `init` and `import` link it, `upgrade --link` un-embeds
+an old one, and `present --check` names the version a deck was written for
+(#519). Every server and every render plays a linked deck from the installed
+package (#518), and `upgrade` takes a merged bundle as the deck it is (#484).
+
+### Templates: take a slide from a deck you admire (SPEC `DECK_ANATOMY`)
+
+Point at another deck, see its slides rendered **in your deck's theme**, and
+take one (#464, #466, #474). What you take brings the rules that shape it
+(#467) and can be applied as a *look* to a slide you already wrote (#468). Two
+verbs on the row under the cursor, no selection to build first (#471), two
+commands in place of the old modes (#475, #472), and a slide that teaches
+markup is no longer flagged for the markup it teaches (#465).
+
+### Sources: what a slide is standing on (SPEC `SLIDE_SOURCES`)
+
+An `<aside class="sources">` records where a slide's claims come from, `I`
+opens it (#476), and you can now write sources from inside the deck rather than
+only read them (#477). The agent skeleton mentions them, so an agent writing
+slides records them (#478).
+
+### Review: comments you can answer (SPEC `REVIEW`)
+
+The Comments panel writes as well as reads — a composer at its foot, pinned
+while the list scrolls, for the slide on screen, following the deck when docked
+(#550).
+
+### Import: what PowerPoint actually drew (SPEC `DECK_IMPORT`)
+
+`--shapes auto` is the default, and it draws a free-form arrangement: drawn
+shapes, loose lines, rotation, outlines, and boxes that keep every word (#512,
+#515). Hand-drawn geometry crosses as the path it is, pictures come through
+inside a drawing, and a line attached to a shape lands where it was attached
+(#513, #516). A grouped shape is placed through its group's frame, so a moved
+or resized group lands where the slide shows it (#511). Boxes and arrows
+somebody drew cross as a diagram rather than loose text (#460), and SmartArt
+crosses — its words always, its shape when we can draw it (#458).
+
+### Video: render the deck, with its voice (SPEC `PRESENTING`)
+
+`decklight video` chooses mp4, mov or webm, a quality, and subtitles embedded
+or beside the file — on the command line and from the export card (#507).
+`Export a video…` can voice the range with the live voice first, or render it
+silent (#506), and any range of slides can be exported from the palette (#502,
+#501). A render now shows **only the deck**: frames load with `?capture`, so
+the voice-over hint, toasts, the welcome card and the chevrons are never burned
+in (#549). A narration recorded from older notes is named slide by slide and
+refused unless `--allow-stale`, and the export card marks it (#540).
+
+### Narration: a voice you can pace (SPEC `PRESENTING`)
+
+Speaker notes carry **timing markers** that are never spoken. `⟨PAUSE⟩` holds a
+let-it-sink-in beat where it stands — two beat pauses, the same live, in a
+recording and in a render (#561). `⟨SLOW⟩ … ⟨/SLOW⟩` says a stretch slowly, at
+0.85× by default (`narration.slowRate`), each engine slowing the way it slows
+best and ffmpeg stretching the clip for engines with no pace of their own
+(#564). **Every spelling a person writes is the marker they mean**: `[pause]`,
+`[Pause]`, `<PAUSE>`, `[click]`, `<click>`, `[slow]…[/slow]` — as text, escaped,
+or as elements in the HTML — so a script written for a human to read aloud goes
+into the notes as written (#563). Notes read from the file decode entities the
+way the browser does, which is what makes `&#10216;CLICK&#10217;` a beat and
+`&mdash;` a dash rather than words (#562).
+
+**One synthesis core** now produces every machine-voiced track, so a video
+re-voices a track's stale slides in its own voice instead of refusing (#556),
+and a re-voiced slide is stamped under the header it is written with, so it
+passes the render's own check (#558). The deck's synthesized recorder writes
+its `manifest.json`, which makes the folder a track that `video`, the export
+card and the picker can all use — and re-recording refreshes it instead of
+minting a second one (#539). Its done card says what the take cost: clips
+reused, clips sent to the engine, and the spend for this run (#566).
+
+The live voice is remembered **with its engine**, so the next session asks the
+bridge for that engine rather than losing the voice to the default roster
+(#546). The clip cache is keyed by the sentence's text, so a window that did
+not reload speaks an edited note (#538). Captions mean shown: when the voice
+stops or fails, the bar goes back to the step's text rather than keeping the
+last sentence or sitting empty (#544), and a finder or theme-picker preview
+shows no caption bar at all (#525). macOS 27's `say` roster offers each voice
+once, drops the plain twin of an Enhanced one, and still answers to a bare name
+(#554). `voiceover` stopped running a local model on the notes — the notes are
+the script (#495) — and refuses an option it does not take by name (#500).
+
+### Themes travel with the export (SPEC `THEMING`)
+
+A deck opens on the theme its configuration names, and every export renders in
+the theme on screen (#551). A custom or generated theme travels as `?gen=`,
+since a fresh render has no `localStorage` to find it in (#552).
+
+### Diagrams, drawing and charts (SPEC `SVG_DIAGRAMS`, `CHARTS`)
+
+Line Draw behaves like Keynote's: the arrowhead rides the tip, `data-draw-stops`
+grows one stroke across several builds (#523), the head is revealed to the
+drawn length instead of popping onto the origin (#533), a staged stroke takes
+`data-build-order` (#532), and a stroke with stops is paced by length — 300 px
+a second — where a flat duration read as a swoosh (#528). A filled shape inside
+a filled shape takes its panel's nested tone, and the theme gate checks fill on
+fill (#542). An arrowhead is sized in strokes, so the shipped marker no longer
+dwarfs its line (#499). Charts gained **scatter**, the one whose x is a
+measurement rather than a category (#462).
+
+### Hand-over: every file the deck can become (SPEC `PRESENTING`)
+
+Export to PowerPoint from inside the deck (#455), and the file you hand over
+holds the talk, not the backup slides (#456). Every file the deck can hand over
+now comes from one door in the palette, and it says where the file went (#459).
+Publish the deck from inside it — asked first, then done (#461).
+
+### Smaller things
+
+A merged deck's chapters lead the finder's list and fold their slides, so `G`
+shows the outline (#480, #491). A deck over 1 MB previews and restores again,
+and a preview that fails says why (#509). The captions bar follows the stage
+scale down, so a preview is not buried under it (#492). `check` counts the
+clicks a slide takes rather than its raw build steps (#531). The messages panel
+names its key as a keycap (#510). `bundle --all` produces a multi-module deck,
+which is what it was always called in the docs (#504).
+
+### Verification
+
+`engine-render` and `narration-render` run as one harness per concern — seven
+and five — so a failure names the concern rather than a file (#481). `verify`
+is **33 harnesses**. Five narration modes that had been written into no group
+were running nowhere; they are wired in, and a unit test now fails the moment a
+mode is written into no group (#567). The release gate itself had not passed
+since decks became data: `npm run soak` stopped at step 4 of 55, so the 51
+steps behind it had not run through a release — every leg that still described
+the old self-contained scaffold was brought to what this release ships, and it
+is green end to end again (#567). The soak runs the three commands 0.8.0
+shipped and nothing exercised (#457), `extension check` stops timing the
+browser's startup in its kill budget (#470), and the build's dead terminal
+fallback is gone — a warning there is now a failure (#469).
+
+### Documentation
+
+The README, the features deck and the site were brought back in line with what
+ships, twice over the release (#463, #473).
+
 ## 0.8.1
 
 Two commits since 0.8.0. A patch release for one command that did not work.
