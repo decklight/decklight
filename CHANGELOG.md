@@ -7,7 +7,7 @@ carrying the same notes in prose.
 
 ## 0.9.0
 
-Eighty-four commits since 0.8.1, and the release has a shape: a deck is now
+Eighty-six commits since 0.8.1, and the release has a shape: a deck is now
 something you **edit with the mouse**, **take slides into**, **import real
 PowerPoint drawings into**, **export as video**, and **narrate in a voice you
 can pace**. The runtime it plays with is a link, not a copy.
@@ -30,7 +30,8 @@ the way the comments panel does (#482).
 `decklight` itself reads the room: the file is the command, a bare `decklight`
 looks at the directory, and `init` hands off to `author` (#487). The CLI is
 table-driven, the README is shorter, and 120 unit tests and seven fixed bugs
-came with that pass (#485, #486).
+came with that pass (#485, #486). Hand `author` a git URL and it clones the
+repository and opens the deck inside the clone (#514).
 
 ### A deck is data, and the runtime is a link (SPEC `DECK_ANATOMY`)
 
@@ -172,7 +173,11 @@ fallback is gone — a warning there is now a failure (#469).
 ### Documentation
 
 The README, the features deck and the site were brought back in line with what
-ships, twice over the release (#463, #473).
+ships three times over the release (#463, #473, #570); the last pass covers
+editing with the mouse, slides taken from another deck, a data deck, the notes
+markers, video and sources. The features deck gained a chapter on pacing the
+voice — `⟨PAUSE⟩`, `⟨SLOW⟩` and every spelling of them, in notes you can hear
+(#569).
 
 ## 0.8.1
 
