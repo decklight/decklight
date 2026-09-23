@@ -36,7 +36,7 @@
     </section>
 
     <!-- ══ 2 · anatomy ══ -->
-    <section>
+    <section data-module="The format">
       <h2>The Whole Format</h2>
       <p>A deck is an HTML file. A slide is a <code>&lt;section&gt;</code>. There is no third concept.</p>
       <pre data-lines="2-3|6|7-8" data-lines-numbers><code class="language-html">&lt;head&gt;
@@ -107,7 +107,7 @@
     </section>
 
     <!-- ══ 5 · svg diagrams ══ -->
-    <section>
+    <section data-module="Diagrams & charts">
       <h2>Theme-Aware SVG Diagrams</h2>
       <p>Authored once with tokens — recolored by all 46 themes</p>
       <svg viewBox="0 0 800 260" width="800" data-build="draw" aria-label="Decklight architecture">
@@ -227,7 +227,7 @@
     </section>
 
     <!-- ══ 9 · auto-animate (a) ══ -->
-    <section data-auto-animate>
+    <section data-module="Motion" data-auto-animate>
       <h2>Auto-Animate</h2>
       <p>Magic Move between adjacent slides — matching <code>data-id</code>s morph</p>
       <div style="display:flex; justify-content:center; gap:44px; margin-top:0.5em;">
@@ -290,7 +290,7 @@
     </section>
 
     <!-- ══ 12 · code ══ -->
-    <section>
+    <section data-module="Code, math, terminal">
       <h2>Code, Stepped Line by Line</h2>
       <p>This snippet is the source of the builds slide you saw earlier</p>
       <pre data-lines="1|2-4|6" data-lines-numbers><code class="language-html">&lt;ul data-build="fade-up"&gt;
@@ -345,7 +345,7 @@
     </section>
 
     <!-- ══ 15 · agent authoring ══ -->
-    <section>
+    <section data-module="Authoring & themes">
       <h2>Slides From a Prompt</h2>
       <p>Describe the slide — an agent writes the Decklight</p>
       <div class="terminal" data-cast-inline="#cast-ai-prompt" data-mode="step" data-rows="13"></div>
@@ -478,7 +478,7 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
     </section>
 
     <!-- ══ 21 · presenting ══ -->
-    <section data-transition="scale">
+    <section data-module="Presenting" data-transition="scale">
       <h2>Presenting</h2>
       <p>Everything a stage needs — from a double-clicked file, no server</p>
       <ul data-build>
@@ -569,8 +569,86 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
       </aside>
     </section>
 
-    <!-- ══ 25 · background image ══ -->
-    <section data-background-image="assets/sunrise.svg" data-background-dim="0.55">
+    <!-- ══ 25 · a hold in the notes ══ -->
+    <section>
+      <h2>The Voice Holds a Beat</h2>
+      <p><code>⟨PAUSE⟩</code> in the notes &mdash; two beat pauses of silence, never spoken</p>
+      <ul data-build>
+        <li><strong>Where you write it is where it holds</strong> &mdash; between sentences, mid-sentence, or on a line of its own</li>
+        <li>Leading a ⟨CLICK⟩ beat: reveal, <em>then</em> hold. Before the click: hold, <em>then</em> reveal</li>
+        <li>The same second everywhere: held live, <strong>baked into a recording</strong>, a gap in the subtitles</li>
+      </ul>
+      <aside class="notes">
+        <p>A pause marker in the notes holds the voice where it stands.</p><p>⟨PAUSE⟩</p><p>That was one. About a second of nothing, and the deck said no word for it.</p>
+        <p>⟨CLICK⟩</p>
+        <p>Put it wherever the silence belongs. Between two sentences. ⟨PAUSE⟩ Mid-sentence, where it cuts the line ⟨PAUSE⟩ exactly there. Or on a line of its own.</p>
+        <p>⟨CLICK⟩</p>
+        <p>⟨PAUSE⟩ That hold came after this line appeared, because the marker led its beat. Write it before the click marker instead, and the deck holds first and reveals second.</p>
+        <p>⟨CLICK⟩</p>
+        <p>And it is the same second everywhere. Held live, baked into a recording as silence, and left as a gap in a video's subtitles rather than captioned as nothing.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>⟨PAUSE⟩ = two beat pauses, unspoken</p>
+        <p>⟨CLICK⟩</p><p>Between · mid-sentence · own line</p>
+        <p>⟨CLICK⟩</p><p>Leads a beat → reveal, then hold</p>
+        <p>⟨CLICK⟩</p><p>Live · baked · subtitle gap</p>
+      </aside>
+    </section>
+
+    <!-- ══ 26 · a slow stretch ══ -->
+    <section>
+      <h2>&hellip;And Says the Line Slowly</h2>
+      <p><code>⟨SLOW⟩ &hellip; ⟨/SLOW⟩</code> &mdash; 0.85&times; by default, <code>narration.slowRate</code> to taste</p>
+      <ul data-build>
+        <li><strong>Before a sentence</strong>: that sentence, slower &mdash; to the full stop</li>
+        <li><strong>Around a phrase</strong>: just the phrase, with the rest of the line at pace</li>
+        <li>Each engine slows its own way &mdash; <code>say</code> a rate, ElevenLabs a speed, Gemini a word of direction; ffmpeg stretches the rest</li>
+      </ul>
+      <aside class="notes">
+        <p>⟨SLOW⟩A slow marker before a sentence says that whole sentence slower.⟨/SLOW⟩ Emphasis in speech is a change of pace, not a change of volume.</p>
+        <p>⟨CLICK⟩</p>
+        <p>Open one before a sentence and it lasts to the full stop. ⟨SLOW⟩The line that carries the point, said the way you would say it.⟨/SLOW⟩</p>
+        <p>⟨CLICK⟩</p>
+        <p>Close it, and only the phrase inside slows down, ⟨SLOW⟩like this one⟨/SLOW⟩, while the rest of the line runs at its usual pace.</p>
+        <p>⟨CLICK⟩</p>
+        <p>Every engine slows the way it slows best. The Mac's own voice takes a rate, ElevenLabs a speed, Gemini a word of direction. And an engine with no pace of its own is stretched by ffmpeg, pitch kept.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>⟨SLOW⟩ = 0.85×, narration.slowRate</p>
+        <p>⟨CLICK⟩</p><p>Before a sentence → to the full stop</p>
+        <p>⟨CLICK⟩</p><p>Closed → just the phrase</p>
+        <p>⟨CLICK⟩</p><p>Native rate per engine; ffmpeg fallback</p>
+      </aside>
+    </section>
+
+    <!-- ══ 27 · any spelling ══ -->
+    <section>
+      <h2>Write It the Way You&rsquo;d Say It</h2>
+      <p><code>[pause]</code> · <code>[click]</code> · <code>[slow]&hellip;[/slow]</code> &mdash; any case, square or angle brackets</p>
+      <ul data-build>
+        <li><strong>A voiceover script goes in as written</strong> &mdash; the deck does what it says instead of reading it out</li>
+        <li>Every spelling is one marker: <code>[pause]</code>, <code>&lt;PAUSE&gt;</code>, <code>⟨PAUSE⟩</code>, even <code>&amp;lt;pause&amp;gt;</code></li>
+        <li>A marker is part of the take: move one, and <strong>only that slide</strong> is voiced again</li>
+      </ul>
+      <aside class="notes">
+        <p>These notes are written the way a voiceover script is written. [pause] That was a pause in square brackets, lower case, and the deck held it rather than reading the brackets aloud.</p>
+        <p>[click]</p>
+        <p>So a script that already exists goes straight into the notes, [slow]and the deck does what it says.[/slow]</p>
+        <p>[click]</p>
+        <p>Square brackets, angle brackets, upper case, lower case, even the escaped form an editor leaves behind: one marker, however it is spelled.</p>
+        <p>[click]</p>
+        <p>And a marker is part of the take. A recording bakes the hold and the pace into its audio, so moving one makes that slide stale, and only that slide is voiced again.</p>
+      </aside>
+      <aside class="rehearse">
+        <p>[pause] [click] [slow] — as written</p>
+        <p>⟨CLICK⟩</p><p>A script goes in as it is</p>
+        <p>⟨CLICK⟩</p><p>One marker, every spelling</p>
+        <p>⟨CLICK⟩</p><p>Move one → only that slide re-voiced</p>
+      </aside>
+    </section>
+
+    <!-- ══ 28 · background image ══ -->
+    <section data-module="Backgrounds" data-background-image="assets/sunrise.svg" data-background-dim="0.55">
       <h2>Full-Bleed Backgrounds</h2>
       <p>One attribute on the section — the deck does the rest</p>
       <ul data-build>
@@ -589,7 +667,7 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
       </aside>
     </section>
 
-    <!-- ══ 26 · background video ══ -->
+    <!-- ══ 29 · background video ══ -->
     <section data-background-video="assets/clip.mp4" data-background-poster="assets/clip-poster.jpg" data-background-dim="0.35">
       <h2>Background Video</h2>
       <p>Muted, looping — and honest about print</p>
@@ -609,8 +687,8 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
       </aside>
     </section>
 
-    <!-- ══ 27 · import ══ -->
-    <section>
+    <!-- ══ 30 · import ══ -->
+    <section data-module="Import, ship, trust">
       <h2>Bring the Deck You Already Have</h2>
       <p><code>decklight import</code> — PowerPoint, Keynote, or a Google Slides link</p>
       <ul data-build>
@@ -631,7 +709,7 @@ decklight theme add sunset.css deck.html  # validates, then installs</code></pre
       </aside>
     </section>
 
-    <!-- ══ 28 · the CLI ══ -->
+    <!-- ══ 31 · the CLI ══ -->
     <section data-transition="flip">
       <h2>One File to Ship</h2>
       <p>The CLI records, refreshes, renders — and flattens</p>
@@ -655,7 +733,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
-    <!-- ══ 29 · present ══ -->
+    <!-- ══ 32 · present ══ -->
     <section>
       <h2>The Deck Remembers</h2>
       <p>decklight commits as you write &mdash; and <strong>H</strong> is where you read it back</p>
@@ -679,7 +757,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
-    <!-- ══ 30 · review comments ══ -->
+    <!-- ══ 33 · review comments ══ -->
     <section>
       <h2>Somebody Else&rsquo;s Two Cents</h2>
       <p><strong>M</strong> leaves a comment on a slide &mdash; git carries it back to you</p>
@@ -725,7 +803,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
-    <!-- ══ 31 · container + plugins ══ -->
+    <!-- ══ 34 · container + plugins ══ -->
     <section data-layout="split">
       <h2>Two More Safety Rails</h2>
       <p>For the file that travels, and the chrome that doesn't</p>
@@ -754,7 +832,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
-    <!-- ══ 32 · verification ══ -->
+    <!-- ══ 35 · verification ══ -->
     <section>
       <h2>Verified by Construction</h2>
       <p>Built for authors who don't have eyeballs</p>
@@ -776,7 +854,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
     </section>
 
-    <!-- ══ 33 · close ══ -->
+    <!-- ══ 36 · close ══ -->
     <section data-logo="96">
       <h2>One HTML File. No Build Step.</h2>
       <p>Two stylesheets, one script — view source on this deck to start yours</p>
