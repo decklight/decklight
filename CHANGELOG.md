@@ -7,10 +7,11 @@ carrying the same notes in prose.
 
 ## 0.9.0
 
-Eighty-six commits since 0.8.1, and the release has a shape: a deck is now
+Eighty-nine commits since 0.8.1, and the release has a shape: a deck is now
 something you **edit with the mouse**, **take slides into**, **import real
 PowerPoint drawings into**, **export as video**, and **narrate in a voice you
-can pace**. The runtime it plays with is a link, not a copy.
+can pace**. The runtime it plays with is a link, not a copy — and so is a
+theme from a marketplace.
 
 ### Edit the deck in front of you (SPEC `DECK_ANATOMY`)
 
@@ -120,6 +121,26 @@ once, drops the plain twin of an Enhanced one, and still answers to a bare name
 (#554). `voiceover` stopped running a local model on the notes — the notes are
 the script (#495) — and refuses an option it does not take by name (#500).
 
+### A marketplace theme is a reference, not a copy (SPEC `THEME_DISTRIBUTION`)
+
+`theme add` and Browse used to paste a whole theme into the deck. Now a deck
+**marks** a theme: its config block gains `"addedThemes": ["acme@acme-themes"]`
+and, once per marketplace, `"themeSources"` — where that catalog comes from,
+so the reference means the same catalog on any machine whatever it is called
+there, and one that only shares the name is refused rather than linked (#572).
+Every server links a marked theme from the marketplace's files on this
+machine, never the network, and re-checks it against the theme contract each
+time; a theme this machine cannot show is named, with the
+`decklight marketplace add …` that brings it. While authoring, every
+registered marketplace is a pack under `T` — any theme previews and applies,
+and **Space** marks it; a presented deck lists only what it marks. `bundle`
+and `publish` inline every marked theme, `--theme` picks the one the file
+opens on, and an export in an unmarked theme asks to mark it first. A file or
+a URL goes into a personal marketplace, `~/.decklight/local`, and is marked
+from there; `theme remove` unmarks (#572). A data deck still carrying a theme
+0.8 pasted in is served and bundled with its own base theme again, instead of
+with the pasted one as its only theme (#573).
+
 ### Themes travel with the export (SPEC `THEMING`)
 
 A deck opens on the theme its configuration names, and every export renders in
@@ -165,7 +186,9 @@ mode is written into no group (#567). The release gate itself had not passed
 since decks became data: `npm run soak` stopped at step 4 of 55, so the 51
 steps behind it had not run through a release — every leg that still described
 the old self-contained scaffold was brought to what this release ships, and it
-is green end to end again (#567). The soak runs the three commands 0.8.0
+is green end to end again (#567). `narration-render:record`'s occasional
+"no results marker" was a budget, not a flake: the mode that records the deck
+twice ran on a budget for none, and now has one for two takes (#574). The soak runs the three commands 0.8.0
 shipped and nothing exercised (#457), `extension check` stops timing the
 browser's startup in its kill budget (#470), and the build's dead terminal
 fallback is gone — a warning there is now a failure (#469).
