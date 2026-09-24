@@ -55,7 +55,8 @@ A PR that adds or edits a theme must keep the validator green.
 **Light (16):** porcelain · paper · meadow · glacier · citrus · dune · orchid · harvest · coastal · linen · berry · slate · latte · peony · mint · sepia
 Plus the Classics pack (`packs.json` is the authoritative roster). The novelty and homage packs —
 Old Machines, TV Series, Movies — moved to the marketplace (`decklight marketplace add
-decklight/decklight-plugins-official`, MARKETPLACE.md `THEME_BROWSE#SPLIT`).
+decklight/decklight-plugins-official`, MARKETPLACE.md `THEME_BROWSE#SPLIT`). While authoring they
+are packs under `T` like any other; Space marks one for the deck to carry (SPEC `THEME_DISTRIBUTION`).
 
 Serif-headed: moss, velvet, porcelain, dune, peony, sepia. Gradient canvases:
 aurora, cosmos, synthwave, storm, coastal. Webfont-enhanced (all with offline fallbacks): carbon,

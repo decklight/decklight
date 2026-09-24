@@ -256,9 +256,9 @@ Commands:
            EXAMPLE: decklight pptx deck.html   (for the people around you who still ask for the file)
   import   convert an existing PowerPoint, Keynote or Google Slides deck into a decklight deck
            EXAMPLE: decklight import "Q3 Review.pptx"   (also .key on macOS, or a Slides URL)
-  theme    validate a theme file against the token contract, or install one into a deck
+  theme    validate a theme file against the token contract, or mark one for a deck to carry
            EXAMPLE: decklight theme check nord-deep.css
-           EXAMPLE: decklight theme add https://gist.../nord-deep.css talk.html
+           EXAMPLE: decklight theme add nord-deep@acme-themes talk.html
   publish  bundle a deck and push it to GitHub Pages — deck to shareable URL in one command
            EXAMPLE: decklight publish deck.html   (prints https://owner.github.io/repo/)
   marketplace  register catalogs (git repos with .decklight/marketplace.json) — registered, not fetched

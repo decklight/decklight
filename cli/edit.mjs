@@ -1245,7 +1245,6 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     return { themes, stale };
   };
-  const browsableThemes = () => browsableUnits('theme');
   /**
    * Every entry a registered marketplace declares a wizard for, qualified.
    * Advertised in /edit/ping beside the agents: the palette's Configure rows
@@ -1828,67 +1827,105 @@ export async function editMain(args, { onListen = null } = {}) {
     return json(200, { ok: true });
   }
 
-  // ── theme Browse (THEME_BROWSE#UI) ─────────────────────────────────
-  // What the picker's Browse entry lists. Cache-only by construction: this
-  // reads the catalogs `marketplace update` already fetched and never
-  // fetches one itself, so a deck on a plane lists what it has and says so
-  // rather than hanging on a network that is not there.
+  // ── marketplace themes, and marking (THEME_BROWSE#UI) ─────────────────
+  // What the overlay lists while authoring: every theme of every registered
+  // marketplace, each saying whether this deck marks it. Cache-only by
+  // construction — the catalogs `marketplace update` already fetched — so a
+  // deck on a plane lists what it has and names what it could not read.
   async function themeBrowseRoute({ json }) {
-    const { themes, stale } = await browsableThemes();
-    return json(200, { ok: true, themes, stale, cacheOnly: true });
+    const { marketplaceThemes, markedRefs, markedSources, resolveThemeRef } = await import('./theme-refs.mjs');
+    const { themes, stale } = marketplaceThemes();
+    // what the deck marks, as THIS machine names it — the deck may call the
+    // same catalog something else (its recorded source says which it means)
+    const html = readDeck();
+    const sources = markedSources(html);
+    const marked = new Set(markedRefs(html).map((r) => {
+      const hit = resolveThemeRef(r, undefined, { source: sources[r.marketplace] ?? null });
+      return `${r.name}@${hit.local ?? r.marketplace}`;
+    }));
+    const out = themes.map((t) => ({
+      ...t, marked: marked.has(t.qualified),
+      ...(resolveThemeRef(t.qualified).remote ? { remote: true } : {}),
+    }));
+    return json(200, { ok: true, themes: out, stale, cacheOnly: true });
   }
 
-  // Installing goes through `theme add`'s own functions — validation, the
-  // WCAG gates, the block shape — so a theme refused on the command line is
-  // refused here, by the same code, for the same reason.
-  async function themeAddRoute({ body, json }) {
-    const { ref, name: asName } = JSON.parse(body || '{}');
-    if (typeof ref !== 'string' || !ref.trim()) return json(400, { ok: false, error: 'which theme?' });
-    const { resolveEntry, MarketplaceError } = await import('./marketplace.mjs');
-    const { fetchTheme, installTheme, resolveSource } = await import('./theme.mjs');
-    const { validateTheme, themeNameFrom, validThemeName } = await import('../tools/theme-check.mjs');
-
-    let hit;
-    try { hit = resolveEntry(ref.trim(), await catalogMap()); }
-    catch (e) {
-      if (e instanceof MarketplaceError) return json(404, { ok: false, error: e.message });
-      throw e;
+  /**
+   * Mark a theme for this deck, or unmark it (SPEC THEME_DISTRIBUTION). The
+   * deck gains or loses one reference in its config block — never CSS — as
+   * one undo entry; the watcher's reload brings every browser back with the
+   * list as the file now says it is.
+   *
+   * Marking runs the theme through `theme add`'s own validator first, so a
+   * theme refused on the command line is refused here, by the same code, and
+   * a deck cannot be made to carry what the shipped set could not contain.
+   * An entry whose bytes live at a URL is read now — this is the explicit act
+   * — and kept, so no server ever has to reach for it again.
+   */
+  async function themeMarkRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const ref = typeof req.ref === 'string' ? req.ref.trim() : '';
+    const on = req.marked !== false;
+    const { parseRef, resolveThemeRef, setMarked, cacheThemeCss, refForDeck } = await import('./theme-refs.mjs');
+    const { MarketplaceError, configHome } = await import('./marketplace.mjs');
+    if (!parseRef(ref)) return json(400, { ok: false, error: 'which theme? — name@marketplace' });
+    const before = readDeck();
+    let deckRef = ref, source = null;
+    if (on) {
+      const r = resolveThemeRef(ref);
+      let css;
+      if (r.file) css = readFileSync(r.file, 'utf8');
+      else if (r.remote) {
+        const { fetchTheme } = await import('./theme.mjs');
+        try { css = await fetchTheme(r.remote); }
+        catch (e) { return json(502, { ok: false, error: `could not read ${r.remote}: ${oneline(e)}` }); }
+      } else {
+        // An entry this machine knows but whose files are not here is a state
+        // `marketplace update` fixes (409); one it has never heard of is 404.
+        const status = r.entry && r.entry.type !== 'theme' ? 400 : r.entry ? 409 : 404;
+        return json(status, { ok: false, error: r.missing });
+      }
+      const { validateTheme } = await import('../tools/theme-check.mjs');
+      const check = validateTheme(css);
+      if (!check.ok) {
+        // The deck is left byte-for-byte unchanged.
+        return json(400, { ok: false, error: `${r.name} fails the theme contract`, problems: check.errors ?? [] });
+      }
+      if (r.remote) cacheThemeCss(configHome(), r.marketplace, r.name, css);
+      source = r.source ?? null;
+      deckRef = refForDeck(before, r.name, r.local, source);
     }
-    if (hit.entry.type !== 'theme') {
-      return json(400, { ok: false, error: `"${hit.qualified}" is a ${hit.entry.type}, not a theme` });
-    }
-    const name = asName || hit.entry.name;
-    if (!validThemeName(name)) return json(400, { ok: false, error: `not a usable theme name: "${name}"` });
-
-    // A manifest's `source` is relative to its MARKETPLACE, not to whoever
-    // is installing — resolveSource is where that is worked out, and it lives
-    // in theme.mjs because fetching an artifact and fetching a catalog are
-    // different permissions on this path.
-    const { loadRegistry } = await import('./marketplace.mjs');
-    const market = loadRegistry().marketplaces?.[hit.marketplace];
-    let src;
-    try { src = resolveSource(hit.entry.source, { name: hit.marketplace, source: market?.source }); }
+    let out;
+    try { out = setMarked(before, deckRef, on, { source }); }
     catch (e) {
       if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
       throw e;
     }
-    let css;
-    try { css = await fetchTheme(src); }
-    catch (e) { return json(502, { ok: false, error: `could not read ${src}: ${oneline(e)}` }); }
-
-    const check = validateTheme(css);
-    if (!check.ok) {
-      // The deck is left byte-for-byte unchanged: a picker that could leave
-      // a deck carrying a broken theme would be worse than no picker.
-      return json(400, { ok: false, error: `${name} fails the theme contract`, problems: check.errors ?? [] });
+    if (out.changed) {
+      history.record(before);   // Z takes a mark back like any other edit
+      writeFileAtomic(deckPath, out.html);
+      console.log(`  theme: ${on ? 'marked' : 'unmarked'} ${deckRef}`);
     }
-    const before = readDeck();
-    const out = installTheme(before, name, css);
-    if (!out.html) return json(500, { ok: false, error: 'the deck has no </head> to install into' });
-    history.record(before);   // Z takes an install back like any other edit
-    writeFileAtomic(deckPath, out.html);
-    console.log(`  theme: ${out.replaced ? 'replaced' : 'installed'} ${name} from ${hit.qualified}`);
-    return json(200, { ok: true, name, from: hit.qualified, replaced: out.replaced, ...history.counts() });
+    return json(200, { ok: true, ref: deckRef, marked: on, changed: out.changed, ...history.counts() });
+  }
+  // `/edit/theme/add` was 0.9.0's name for installing from Browse. A deck that
+  // carries its OWN copy of the runtime still asks for it; it means "mark".
+  const themeAddRoute = ({ body, json }) =>
+    themeMarkRoute({ body: JSON.stringify({ ref: JSON.parse(body || '{}').ref, marked: true }), json });
+
+  /**
+   * The marketplace theme on screen that this deck does not mark, as a
+   * reference — or null. An export or a publish of an unmarked theme would
+   * come out in a theme the deck does not carry; the card asks first
+   * (`409 { unmarked }`), and marking is one more press.
+   */
+  async function unmarkedOnScreen(theme) {
+    if (!theme) return null;
+    const html = readDeck();
+    const { markedRefs, marketplaceThemes, shippedThemes } = await import('./theme-refs.mjs');
+    if (shippedThemes().includes(theme) || markedRefs(html).some((r) => r.name === theme)) return null;
+    if (new RegExp(`<style\\b[^>]*\\bdata-theme\\s*=\\s*["']${theme}["']`, 'i').test(html)) return null;
+    return marketplaceThemes().themes.find((t) => t.name === theme)?.qualified ?? null;
   }
 
   // ── the engine wizard (ENGINES#WIZARD) ─────────────────────────────
@@ -2376,6 +2413,8 @@ export async function editMain(args, { onListen = null } = {}) {
       return json(400, { ok: false, error: 'the generated theme is base64url, at most 16 KB' });
     }
     if (req.theme != null && req.gen != null) return json(400, { ok: false, error: 'one theme — a name or a generated one' });
+    const unmarked = await unmarkedOnScreen(req.theme);
+    if (unmarked) return json(409, { ok: false, unmarked, error: `${unmarked} is not marked for this deck` });
     const themed = req.theme ? ['--theme', req.theme] : req.gen ? ['--gen', req.gen] : [];
     if (kind === 'video') {
       const bad = videoExportProblem(req, dirname(deckPath));
@@ -2561,9 +2600,17 @@ export async function editMain(args, { onListen = null } = {}) {
     });
   }
 
-  async function publishRoute({ json }) {
+  async function publishRoute({ body, json }) {
     if (!gitOn) return json(409, { ok: false, error: 'git is off for this session — there is nothing to publish from' });
     if (publishing) return json(409, { ok: false, error: 'a publish is already running' });
+    // The theme on screen is the one the page opens on (SPEC THEME_DISTRIBUTION)
+    // — the same question the export card answers, asked the same way.
+    const { theme = null } = JSON.parse(body || '{}');
+    if (theme != null && !(typeof theme === 'string' && THEME_NAME.test(theme))) {
+      return json(400, { ok: false, error: 'the theme is a theme name' });
+    }
+    const unmarked = await unmarkedOnScreen(theme);
+    if (unmarked) return json(409, { ok: false, unmarked, error: `${unmarked} is not marked for this deck` });
     publishing = true;
     const before = process.env.GIT_TERMINAL_PROMPT;
     process.env.GIT_TERMINAL_PROMPT = '0';
@@ -2575,7 +2622,8 @@ export async function editMain(args, { onListen = null } = {}) {
       // publish` has, decided here rather than made the presenter's
       // problem. Everything else is the command's own default, signature
       // included.
-      const args = [deckPath, ...(alreadyOneFile(readDeck()) ? ['--no-bundle'] : [])];
+      const oneFile = alreadyOneFile(readDeck());
+      const args = [deckPath, ...(oneFile ? ['--no-bundle'] : theme ? ['--theme', theme] : [])];
       const r = await publishMain(args);
       console.log(`  publish: ${r.url ?? `${r.remote} ${r.branch}`}`);
       return json(200, { ok: true, url: r.url ?? null, branch: r.branch, remote: r.remote, commit: r.commit });
@@ -2651,6 +2699,7 @@ export async function editMain(args, { onListen = null } = {}) {
 
     'GET /edit/theme/browse': themeBrowseRoute,
     'POST /edit/theme/add': themeAddRoute,
+    'POST /edit/theme/mark': themeMarkRoute,
     'GET /edit/wizard': wizardSchemaRoute,
     'POST /edit/wizard': wizardConfigureRoute,
     'POST /edit/wizard/forget': wizardForgetRoute,

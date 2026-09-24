@@ -18,6 +18,7 @@ import { createInterface } from 'node:readline/promises';
 import { resolvePortConflict } from './port-conflict.mjs';
 import { packageAsset } from './pkg.mjs';
 import { linkRuntime } from './runtime-link.mjs';
+import { linkAddedThemes, themeRefAsset } from './theme-refs.mjs';
 
 // ── remote access: the security seam for the phone remote (#39) ────────────
 // --remote widens the LISTENER, never the editing surface: off-loopback,
@@ -218,8 +219,11 @@ function rangeOf(header, size) {
  * (`../dist/decklight.js`, the shape every source deck in this repository
  * uses): the deck gets decklight's own file, never anything of the caller's.
  * A copy that IS on disk beside the deck wins, so an author pinning their
- * own build is honoured. Nothing else escapes root or answers for a
- * missing path — a probe still learns nothing from a 404.
+ * own build is honoured. The themes a deck MARKS from a marketplace
+ * (`addedThemes`, SPEC THEME_DISTRIBUTION) are answered the same way, at
+ * `decklight-theme/<marketplace>/<name>.css`, from the marketplace's files on
+ * this machine and never the network. Nothing else escapes root or answers
+ * for a missing path — a probe still learns nothing from a 404.
  */
 export function staticFiles(root, { index = '/index.html', html: rewriteHtml = null, knownTypesOnly = false } = {}) {
   return (req, res, url) => {
@@ -230,7 +234,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     const dotted = rel.split('/').some((s) => s.startsWith('.'));
     const escapes = !file.startsWith(root + sep) && file !== root;
     if (escapes || !existsSync(file)) {
-      const asset = !dotted && packageAsset(rel);
+      const asset = !dotted && (packageAsset(rel) ?? themeRefAsset(rel));
       if (asset) { file = asset.file; type = asset.type; }
       else if (escapes) { res.writeHead(403); res.end('forbidden'); return true; }
     }
@@ -265,7 +269,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     // is a page; everything else streams below.
     if (type === MIME['.html']) {
       const text = readFileSync(file).toString('utf8');
-      const body = Buffer.from(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text), 'utf8');
+      const body = Buffer.from(linkAddedThemes(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text)), 'utf8');
       const want = rangeOf(req.headers.range, body.length);
       if (want && !want.satisfiable) {
         res.writeHead(416, { 'content-range': `bytes */${body.length}` });

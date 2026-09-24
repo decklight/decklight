@@ -46,10 +46,12 @@
       { hash: 'bbbbbbb', when: '1 hour ago', subject: 'add the pros/cons split' },
       { hash: 'ccccccc', when: '3 days ago', subject: 'first draft' },
     ];
-    // `decklight theme add` writes exactly this into a deck: the theme's own
-    // CSS, marked, inert. The deck is put in LINK mode alongside it because
-    // that is the combination that could go wrong — a deck whose themes come
-    // from a <link> must not lose them the moment it gains an added block.
+    // The two shapes an added theme reaches a page in. A theme the deck MARKS
+    // is linked by the server — inert, under its marketplace — and an older
+    // `theme add` pasted a block into the deck, which still has to work. The
+    // deck is put in LINK mode alongside them because that is the combination
+    // that could go wrong — a deck whose themes come from a <link> must not
+    // lose them the moment it gains an added one.
     // The exports are told the theme on screen (#547), so they run on a deck
     // that HAS one — linked, the way a data-only deck is served.
     if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx') {
@@ -59,19 +61,23 @@
       document.head.insertAdjacentHTML('beforeend',
         '<link rel="stylesheet" href="../themes/aurora.css">'
         + '<style data-theme="nord-deep" data-theme-added media="not all">'
-        + '.decklight { --bg: #101018; --fg: #eeeeee; }</style>');
+        + '.decklight { --bg: #101018; --fg: #eeeeee; }</style>'
+        + '<link rel="stylesheet" href="data:text/css,.decklight%7B--bg:%23203040;--fg:%23eeeeee%7D"'
+        + ' data-theme="acme-blue" data-theme-added data-theme-marketplace="acme" data-theme-source="Acme"'
+        + ' media="not all">');
     }
-    // Browse (MARKETPLACE.md THEME_BROWSE#UI) needs an author server to exist
-    // at all, so `browse` stands one up in miniature — enough of /edit/ping,
-    // /edit/theme/browse and /edit/theme/add to drive the whole pane. `nobrowse`
-    // is the same deck with NO server, which is where the entry must be absent.
+    // Marketplace themes in the overlay (MARKETPLACE.md THEME_BROWSE#UI) need
+    // an author server to exist at all, so `browse` stands one up in
+    // miniature — enough of /edit/ping, /edit/theme/browse and /edit/theme/mark
+    // to drive them. `nobrowse` is the same deck with NO server, which is where
+    // they must be absent.
     const FAKE_BROWSE = {
       ok: true,
       cacheOnly: true,
       stale: ['decklight'],
       themes: [
-        { name: 'nord-deep', marketplace: 'nord-pack', qualified: 'nord-deep@nord-pack', description: 'deep blues' },
-        { name: 'broken', marketplace: 'nord-pack', qualified: 'broken@nord-pack' },
+        { name: 'nord-deep', marketplace: 'nord-pack', qualified: 'nord-deep@nord-pack', title: 'Nord Pack', description: 'deep blues', marked: false },
+        { name: 'broken', marketplace: 'nord-pack', qualified: 'broken@nord-pack', title: 'Nord Pack', marked: false },
       ],
     };
     // The wizard (MARKETPLACE.md ENGINES#WIZARD) also needs an author server to
@@ -211,13 +217,13 @@
       if (HARNESS_MODE === 'browse') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/theme/browse')) return json(FAKE_BROWSE);
-        if (u.includes('/edit/theme/add')) {
-          const ref = JSON.parse(init?.body ?? '{}').ref;
+        if (u.includes('/edit/theme/mark')) {
+          const { ref, marked } = JSON.parse(init?.body ?? '{}');
           // The refusal is `theme add`'s own, verbatim — the picker is not
           // allowed to have a laxer opinion than the command line.
           return ref === 'broken@nord-pack'
             ? json({ error: 'broken fails the theme contract', problems: ['--fg is not defined'] }, 400)
-            : json({ ok: true, name: 'nord-deep', from: ref, replaced: false, undo: 1 });
+            : json({ ok: true, ref, marked, changed: true, undo: 1 });
         }
       }
       // Element edit mode (E, then right-click a slide element — #112) needs
@@ -443,14 +449,18 @@
     else (async () => {
     try {
       if (mode === 'added') {
-        // `decklight theme add` put a third-party theme into a LINK-mode deck.
-        // The deck must keep every theme it had, gain the new one in a pack of
-        // its own, and actually apply it when picked.
+        // A LINK-mode deck carrying an added theme in both shapes: a block an
+        // older `theme add` pasted in, and a link the server wrote for a theme
+        // the deck marks. The deck must keep every theme it had, list each new
+        // one under its heading, and actually apply it when picked.
         const P = '.decklight-theme-picker', ROW = '.tp-row';
         const rows = () => [...document.querySelectorAll(`${P} ${ROW}`)];
         const el = document.querySelector('style[data-theme="nord-deep"]');
+        const link = document.querySelector('link[data-theme="acme-blue"]');
+        const bg = () => getComputedStyle(document.querySelector('.decklight')).backgroundColor;
 
-        r.inertOnLoad = el.media === 'not all';   // adding a theme changes nothing until picked
+        r.inertOnLoad = el.media === 'not all' && link.media === 'not all';   // nothing changes until picked
+        r.baseLinkKept = /aurora\.css$/.test(document.querySelector('link[href*="themes/"]:not([data-theme-added])')?.href ?? '');
 
         press('t');
         const packs = rows().map((x) => x.textContent);
@@ -460,6 +470,7 @@
         const addedRow = rows().find((x) => /▸ Added/.test(x.textContent));
         r.addedPackListed = !!addedRow;
         r.addedPackCount = addedRow?.querySelector('.tp-tag')?.textContent;
+        r.marketplacePackListed = rows().some((x) => /▸ Acme/.test(x.textContent));
 
         addedRow?.click();                        // drill into the pack
         const inPack = rows().map((x) => x.textContent);
@@ -467,19 +478,25 @@
 
         rows().find((x) => /nord-deep/.test(x.textContent))?.click();   // commit
         r.applied = el.media === 'all';
-        r.picked = getComputedStyle(document.querySelector('.decklight'))
-          .backgroundColor === 'rgb(16, 16, 24)';   // --bg: #101018, the added theme's
+        r.picked = bg() === 'rgb(16, 16, 24)';   // --bg: #101018, the added theme's
 
-        r.PASS = r.inertOnLoad && r.pickerOpens && r.keptItsOwnPacks && r.addedPackListed
-          && r.addedPackCount === '1' && r.listedInPack && r.applied && r.picked;
+        // the marked one, picked by name the way ,/. and ?theme= reach it
+        r.linkAccepted = deck.theme('acme-blue') === true;
+        for (let n = 0; n < 40 && bg() !== 'rgb(32, 48, 64)'; n++) await settle();
+        r.linkApplied = link.media === 'all' && el.media === 'not all';
+        r.linkPicked = bg() === 'rgb(32, 48, 64)';   // --bg: #203040, the marked theme's
+
+        r.PASS = r.inertOnLoad && r.baseLinkKept && r.pickerOpens && r.keptItsOwnPacks && r.addedPackListed
+          && r.addedPackCount === '1' && r.marketplacePackListed && r.listedInPack && r.applied && r.picked
+          && r.linkAccepted && r.linkApplied && r.linkPicked;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
 
       if (mode === 'browse' || mode === 'nobrowse') {
-        // Browse in the theme picker (MARKETPLACE.md THEME_BROWSE#UI). Both
-        // modes run the same deck; the only difference is whether an author
-        // server answered the ping.
+        // Marketplace themes in the overlay (MARKETPLACE.md THEME_BROWSE#UI).
+        // Both modes run the same deck; the only difference is whether an
+        // author server answered the ping.
         const P = '.decklight-theme-picker', ROW = '.tp-row';
         const rows = () => [...document.querySelectorAll(`${P} ${ROW}`)];
         const find = (re) => rows().find((x) => re.test(x.textContent));
@@ -487,9 +504,9 @@
         const caption = () => document.querySelector(`${P} .tp-caption`)?.textContent ?? '';
         await settle();                       // let /edit/ping settle either way
 
-        // the palette's contextual route to the same view
+        // the palette's contextual route to the same list
         const palRow = () => [...document.querySelectorAll('.decklight-palette .pal-row')]
-          .find((x) => /Browse marketplace/.test(x.textContent));
+          .find((x) => /Marketplace themes/.test(x.textContent));
         press('/');
         r.paletteRow = !!palRow();
 
@@ -504,67 +521,73 @@
           await deck.wizard('elevenlabs');
           r.wizardRefusesWithoutServer = !document.querySelector('.decklight-editor');
           press('t');
+          await settle();
           r.pickerOpens = rows().length > 0;
-          // ABSENT, not disabled: there is no server to install through, and a
-          // presented deck must not reach the network for a theme at all.
-          r.absentInPacks = !find(/Browse/);
-          find(/all themes/)?.click();        // …and absent from the flat view too
-          r.absentInAll = !find(/Browse/);
+          // ABSENT: a presented deck lists what it marks and nothing else, and
+          // never reaches for a catalog to find out what else there is.
+          r.noMarketplacePack = !find(/Nord Pack/);
+          r.neverAskedForCatalogs = !CALLS.get.some((u) => u.includes('/edit/theme/browse'));
+          find(/all themes/)?.click();
+          r.absentInAll = !find(/nord-deep/);
           r.stillHasThemes = rows().length > 2;
-          r.PASS = r.pickerOpens && !r.paletteRow && r.absentInPacks && r.absentInAll && r.stillHasThemes
-            && r.noConfigureRow && r.wizardRefusesWithoutServer;
+          r.PASS = r.pickerOpens && !r.paletteRow && r.noMarketplacePack && r.neverAskedForCatalogs
+            && r.absentInAll && r.stillHasThemes && r.noConfigureRow && r.wizardRefusesWithoutServer;
           sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
           return;
         }
 
-        // Browse is a VIEW of the picker, so the palette route must land in the
-        // picker rather than opening a dialog of its own.
+        // The palette row lands in the picker, where the marketplaces are packs.
         palRow().click();
         await settle();
-        r.paletteRouteOpensThePicker = !!document.querySelector(P)
-          && rows().some((x) => /nord-deep/.test(x.textContent));
-        escapeUntilClosed(P);
-
-        press('t');
-        r.pickerOpens = rows().length > 0;
-        const browseRow = find(/Browse/);
-        r.browseListed = !!browseRow;
-        browseRow.click();
-        await settle();                       // let /edit/theme/browse settle
-        const listed = rows().map((x) => x.textContent);
-        r.listsMarketplaceThemes = listed.some((t) => /nord-deep/.test(t)) && listed.some((t) => /broken/.test(t));
-        r.tagsTheMarketplace = !!find(/nord-deep/).querySelector('.tp-tag');
-        // offline honesty: an empty-looking list must never hide a catalog that
-        // could not be read, and listing itself never went to the network
-        r.namesUnfetchedCatalogs = /never fetched: decklight/.test(note());
-        r.saysItIsCached = /cache/.test(note());
+        r.paletteRouteOpensThePicker = !!document.querySelector(P);
+        // the marketplace is a pack like any other, under its catalog's title
+        const pack = find(/▸ Nord Pack/);
+        r.marketplaceIsAPack = !!pack && pack.querySelector('.tp-tag')?.textContent === '2';
+        // offline honesty: a list short of a marketplace must never hide one
+        // that could not be read, and listing itself never went to the network
+        r.namesUnfetchedCatalogs = /not listed: decklight/.test(note());
         r.listingWasAGet = CALLS.get.some((u) => u.includes('/edit/theme/browse'))
           && !CALLS.post.some((c) => c.u.includes('/edit/theme/browse'));
-        find(/nord-deep/).dispatchEvent(new MouseEvent('mouseenter'));
-        r.captionDescribes = /deep blues/.test(caption());
+
+        pack.click();
+        const nord = find(/nord-deep/);
+        r.listsMarketplaceThemes = !!nord && !!find(/broken/);
+        r.saysUnmarked = nord?.classList.contains('tp-unmarked') && /○/.test(nord.querySelector('.tp-tag')?.textContent ?? '');
+        nord.dispatchEvent(new MouseEvent('mouseenter'));
+        r.captionDescribes = /deep blues/.test(caption()) && /Space marks/.test(caption());
 
         // a theme the command line would refuse is refused here, and the picker
         // stays up saying why rather than closing on a failure
-        find(/broken/).click();
+        find(/broken/).dispatchEvent(new MouseEvent('mouseenter'));
+        press(' ');
         await settle();
         r.refusalKeepsPickerOpen = !!document.querySelector(P);
         r.refusalNamesProblems = /--fg is not defined/.test(caption());
 
-        // and the install that works goes out as `theme add`'s own qualified ref
-        find(/nord-deep/).click();
+        // marking goes out as a qualified ref — the server writes the deck
+        find(/nord-deep/).dispatchEvent(new MouseEvent('mouseenter'));
+        press(' ');
         await settle();
-        const add = CALLS.post.filter((c) => c.u.includes('/edit/theme/add'));
-        r.installsByQualifiedRef = add.length === 2 && add[1].body.ref === 'nord-deep@nord-pack';
-        r.closesOnInstall = !document.querySelector(P);
-        // nothing in the player fetched the stylesheet itself: the install is a
-        // write on the SERVER, and the watcher's reload is what brings it back
+        const marks = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark'));
+        r.marksByQualifiedRef = marks.length === 2 && marks[1].body.ref === 'nord-deep@nord-pack'
+          && marks[1].body.marked === true;
+        r.markKeepsPickerOpen = !!document.querySelector(P);
+
+        // and an unmarked theme can still be LOOKED AT: applied, it is linked
+        // from the same relative path a marked one is served at
+        find(/nord-deep/).click();
+        const onDemand = document.querySelector('link[data-theme="nord-deep"][data-theme-added]');
+        r.appliesUnmarked = !!onDemand && onDemand.media === 'all'
+          && /decklight-theme\/nord-pack\/nord-deep\.css$/.test(onDemand.href);
+        r.closesOnApply = !document.querySelector(P);
+        // nothing in the player fetched a stylesheet itself
         r.playerNeverFetchedCss = !CALLS.get.some((u) => /\.css/.test(u));
 
-        r.PASS = r.pickerOpens && r.paletteRow && r.paletteRouteOpensThePicker
-          && r.browseListed && r.listsMarketplaceThemes && r.tagsTheMarketplace
-          && r.namesUnfetchedCatalogs && r.saysItIsCached && r.listingWasAGet && r.captionDescribes
-          && r.refusalKeepsPickerOpen && r.refusalNamesProblems
-          && r.installsByQualifiedRef && r.closesOnInstall && r.playerNeverFetchedCss;
+        r.PASS = r.paletteRow && r.paletteRouteOpensThePicker && r.marketplaceIsAPack
+          && r.namesUnfetchedCatalogs && r.listingWasAGet && r.listsMarketplaceThemes && r.saysUnmarked
+          && r.captionDescribes && r.refusalKeepsPickerOpen && r.refusalNamesProblems
+          && r.marksByQualifiedRef && r.markKeepsPickerOpen && r.appliesUnmarked && r.closesOnApply
+          && r.playerNeverFetchedCss;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

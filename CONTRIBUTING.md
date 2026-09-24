@@ -90,10 +90,12 @@ and that a transform calling `fetch()` is refused by name. A **presenter
 plugin** proves the boundary that has no package-level test anywhere else: it
 installs into `~/.decklight/plugins/`, `present` layers it onto what it SERVES
 while the file on disk keeps its mtime, and a bundle made a moment later carries
-no byte of it. A **theme** is installed through the author server's Browse route
-(`POST /edit/theme/add`) — the one marketplace consumer the rest of the journey
-skips — and then taken back off with `Z`, which is both the route's own claim
-and how the leg leaves the deck as the twenty steps after it expect it.
+no byte of it. A **theme** is marked for the deck through the author server
+(`POST /edit/theme/mark`) — the one marketplace consumer the rest of the journey
+skips — which writes a reference into the config block and never CSS; the leg
+checks the served page links it from the marketplace and that `bundle --theme`
+carries it, then takes the mark back with `Z`, which is both the route's own
+claim and how the leg leaves the deck as the twenty steps after it expect it.
 **`restore`** finally uses the history the author leg spent six steps building:
 back to what `init` wrote, then forward again, asserting the old commit is still
 there, since restoring writes a new commit rather than rewriting. And the

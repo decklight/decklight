@@ -413,6 +413,10 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
     // wizard makes; what it must never grow is a catalog fetch, and this is
     // where that is held.
     'cli/present.mjs', 'cli/wizard.mjs', 'cli/plugin.mjs',
+    // Every server resolves a deck's marked themes (SPEC THEME_DISTRIBUTION)
+    // through these two — from the catalog cache and the checkouts, never a
+    // catalog fetch.
+    'cli/theme-refs.mjs', 'cli/runtime-link.mjs',
   ];
   assert.ok(files.length > 10, 'the sweep found the runtime');
   for (const f of files) {
