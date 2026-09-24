@@ -808,10 +808,10 @@ export function init(userConfig = {}) {
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
       { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
       themes.hasGenerated() && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
-      // Contextual, like the save row above: without an author server there is
-      // nothing to install through, so the row is absent rather than a promise
-      // the deck cannot keep (THEME_BROWSE#UI).
-      editmode.available() && { label: 'Browse marketplace themes…', alias: 'marketplace install add third-party download catalog', run: themes.browse },
+      // Contextual, like the save row above: marketplace themes are listed only
+      // while authoring, so without an author server the row is absent rather
+      // than a promise the deck cannot keep (THEME_BROWSE#UI).
+      editmode.available() && { label: 'Marketplace themes…', alias: 'browse marketplace install add mark third-party catalog', run: themes.browse },
       // Contextual for the same reason as Browse: each engine a registered
       // marketplace declares a wizard for gets its own row (ENGINES#WIZARD).
       // Without an author server the list is empty — there is nowhere to post
@@ -1054,6 +1054,7 @@ export function init(userConfig = {}) {
     fontPickEl = null;
   }
   themes.restoreSaved();
+  themes.reportMissing();
 
   // ----- font cycling ([ / ]) — SPEC PRESENTING -------------------------------------
   // Curated system stacks (offline-safe, same rule as theme fonts THEMING), applied

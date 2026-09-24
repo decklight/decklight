@@ -76,10 +76,20 @@ const hasRuntimeCss = (html) =>
   /<link\b[^>]*\bhref\s*=\s*["'][^"']*decklight(?:\.min)?\.css(?:[?#][^"']*)?["']/i.test(html)
   || /<style\b[^>]*\bdata-decklight-runtime\s*=\s*["']css["']/i.test(html);
 
-/** Does the document carry a theme — a `themes/<name>.css` link or a `<style data-theme>` block? */
-const hasTheme = (html) =>
-  /<link\b[^>]*\bhref\s*=\s*["'][^"']*themes\/[\w-]+\.css(?:[?#][^"']*)?["']/i.test(html)
-  || /<style\b[^>]*\bdata-theme\b/i.test(html);
+/**
+ * Does the document carry a theme of its OWN — a `themes/<name>.css` link or a
+ * `<style data-theme>` block? An added theme (`data-theme-added`, inline or
+ * linked) is not one: it is an extra the picker offers over the deck's base
+ * theme, and a deck carrying only extras still needs that base linked.
+ */
+function hasTheme(html) {
+  for (const [, tag, attrs] of html.matchAll(/<(link|style)\b([^>]*)>/gi)) {
+    if (/\bdata-theme-added\b/i.test(attrs)) continue;
+    if (tag.toLowerCase() === 'style' ? /\bdata-theme\b/i.test(attrs)
+      : /\bhref\s*=\s*["'][^"']*themes\/[\w-]+\.css(?:[?#][^"']*)?["']/i.test(attrs)) return true;
+  }
+  return false;
+}
 
 /**
  * The configuration block, with its offsets: `start`/`end` span the whole
@@ -122,6 +132,19 @@ export function configVersion(html) {
 export function configTheme(html) {
   const t = deckConfig(html)?.theme;
   return typeof t === 'string' && /^[\w-]+$/.test(t) ? t : DEFAULT_THEME;
+}
+
+/**
+ * The theme a server LINKS as the deck's base: the configured one, unless it
+ * names a theme the deck marks from a marketplace (`addedThemes`, SPEC
+ * THEME_DISTRIBUTION). That one is not a file in `themes/`; it arrives as an
+ * added theme and the runtime applies it over the default linked here.
+ */
+export function baseTheme(html) {
+  const t = configTheme(html);
+  const marked = deckConfig(html)?.addedThemes;
+  const names = Array.isArray(marked) ? marked.map((r) => String(r).split('@')[0]) : [];
+  return names.includes(t) ? DEFAULT_THEME : t;
 }
 
 /**
@@ -186,7 +209,7 @@ export function linkRuntime(html, { theme = null } = {}) {
   if (!isDeck(html) || hasRuntime(html)) return html;
   const head = [];
   if (!hasRuntimeCss(html)) head.push('<link rel="stylesheet" href="decklight.css" data-decklight-runtime="css">');
-  if (!hasTheme(html)) head.push(`<link rel="stylesheet" href="themes/${theme ?? configTheme(html)}.css">`);
+  if (!hasTheme(html)) head.push(`<link rel="stylesheet" href="themes/${theme ?? baseTheme(html)}.css">`);
   let out = html;
   if (head.length) {
     const masked = maskComments(out);

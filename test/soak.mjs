@@ -59,7 +59,7 @@ import {
   appendFileSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { dumpDom } from './harness.mjs';
@@ -965,37 +965,50 @@ try {
     must(deck().includes('data-build="zoom"'), 'redo did not step forward again');
   });
 
-  await step('a theme installs into the deck through the author server', async () => {
-    // The Browse path (`POST /edit/theme/add`) — the one marketplace consumer
-    // the rest of this journey skips, and exactly what #289 rewrote when it
-    // moved entry resolution into a checkout. A theme is the only kind that
-    // installs into the DECK rather than into the library.
+  await step('a marketplace theme is marked for the deck, served from the marketplace, and bundled', async () => {
+    // The marking path (`POST /edit/theme/mark`) — the one marketplace
+    // consumer the rest of this journey skips. A theme is the one kind a DECK
+    // refers to rather than the library holding it: marking writes a reference
+    // into the config block, never CSS, and the hand-over carries the CSS
+    // (SPEC THEME_DISTRIBUTION).
     const before = deck();
-    const wrong = await postJson(authorSrv.base, '/edit/theme/add', { ref: 'soak-pitch@soak-market' });
+    const wrong = await postJson(authorSrv.base, '/edit/theme/mark', { ref: 'soak-pitch@soak-market' });
     must(wrong.status === 400, `a template was accepted as a theme (${wrong.status})`);
     must(/not a theme/.test(wrong.body?.error ?? ''), `the refusal says: ${wrong.body?.error}`);
-    must(deck() === before, 'a refused theme install touched the deck');
+    must(deck() === before, 'a refused mark touched the deck');
 
-    const ok = await postJson(authorSrv.base, '/edit/theme/add', { ref: 'soak-theme@soak-market' });
-    must(ok.status === 200, `theme add returned ${ok.status}: ${JSON.stringify(ok.body)}`);
-    must(ok.body?.name === 'soak-theme' && ok.body?.from === 'soak-theme@soak-market',
-      `the response says ${JSON.stringify(ok.body)}`);
-    must(/<style data-theme="soak-theme"/.test(deck()), 'the theme did not land in the deck');
+    const ok = await postJson(authorSrv.base, '/edit/theme/mark', { ref: 'soak-theme@soak-market' });
+    must(ok.status === 200, `marking returned ${ok.status}: ${JSON.stringify(ok.body)}`);
+    must(/"addedThemes": \["soak-theme@soak-market"\]/.test(deck()), 'the reference did not land in the config block');
+    must(!/<style[^>]*data-theme="soak-theme"/.test(deck()), 'the theme\'s CSS went into the deck');
     // POLLED, not read once. The route logs BEFORE it responds, but the log
     // reaches this process over a pipe — so a response can arrive before the
-    // parent's `data` event has fired, and reading the buffer immediately is a
-    // race this step lost on its third run. Every other server assertion here
-    // already waits; this one was written as if stdout were synchronous.
-    await until('the server to say where the theme came from',
-      () => /theme: installed soak-theme from soak-theme@soak-market/.test(authorSrv.log()),
+    // parent's `data` event has fired.
+    await until('the server to say what it marked',
+      () => /theme: marked soak-theme@soak-market/.test(authorSrv.log()),
       { ms: 5000 });
 
-    // And back out again: an install goes on the same undo stack as any other
+    // Served from the marketplace's files, installed from a tarball into a
+    // project whose path has a space in it.
+    const page = await (await fetch(`${authorSrv.base}/${basename(deckPath())}`)).text();
+    const href = page.match(/<link[^>]*href="([^"]*decklight-theme\/soak-market\/soak-theme\.css)"/)?.[1];
+    must(href, 'the served page does not link the marked theme');
+    const css = await fetch(`${authorSrv.base}/${href}`);
+    must(css.status === 200 && /--d-fill-1/.test(await css.text()), `the marked theme's CSS is not served (${css.status})`);
+
+    // And the hand-over carries it, opening on it.
+    const r = dl(['bundle', basename(deckPath()), '-o', 'marked theme.html', '--theme', 'soak-theme']);
+    must(/marked theme inlined: soak-theme@soak-market/.test(r.all), `bundle did not say it inlined the marked theme: ${r.all}`);
+    const sent = readFileSync(join(PROJECT, 'marked theme.html'), 'utf8');
+    must(/<style data-theme="soak-theme" data-theme-added data-theme-marketplace="soak-market"/.test(sent), 'the bundle does not carry the marked theme');
+    must(!/<link[^>]*decklight-theme\//.test(sent), 'the bundle links a marketplace this file will never see');
+
+    // And back out again: a mark goes on the same undo stack as any other
     // edit, which is both the claim in the route and how this step leaves the
     // deck exactly as the twenty steps after it expect to find it.
     const undo = await postJson(authorSrv.base, '/edit/undo', {});
     must(undo.status === 200, `undo returned ${undo.status}`);
-    must(deck() === before, 'Z did not take the theme install back');
+    must(deck() === before, 'Z did not take the mark back');
   });
 
   await step('an explicit commit lands, and repeats as a no-op', async () => {

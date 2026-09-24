@@ -16,6 +16,9 @@
  *   - themes       : the theme <link> is replaced by <style data-theme="name">
  *                    blocks (inactive ones carry media="not all"; the engine's
  *                    inline-theme mode toggles them — picker/?theme= work).
+ *                    Every theme the deck MARKS from a marketplace
+ *                    ("addedThemes") is inlined too, from this machine's
+ *                    copy of that marketplace (SPEC THEME_DISTRIBUTION).
  *   - terminals    : data-cast="url" casts are embedded and switched to
  *                    data-cast-inline (fetch is blocked on file://).
  *   - images       : <img src>, data-background-image and data-background-poster
@@ -32,7 +35,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
-import { hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
+import { configBlock, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
+import { addedThemeStyle, markedRefs, markedSources, resolveThemeRef, stillValid } from './theme-refs.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
@@ -217,22 +221,27 @@ Options:
   --transform <name>  run an installed build-time transform (decklight transform
                    add <name>) on the deck's own source before anything else
                    is inlined — repeatable, applied in the order given
-  --themes <sel>   which themes to embed:
+  --themes <sel>   which shipped themes to embed:
                      current       just the deck's linked theme (default)
                      all           every theme in the deck's themes/ directory
                      name,name,…   an explicit list (the deck's linked theme
                                    stays active when included, else the first)
+                   every theme the deck MARKS ("addedThemes") is embedded as
+                   well, whichever you choose
+  --theme <name>   the theme the bundle opens on — a shipped theme (embedded
+                   alongside the others) or one the deck marks
 `);
   return 0;
 }
 
 const inputs = [];
-let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false, deckFile = false;
+let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false, deckFile = false, openOn = null;
 const transformNames = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '-o') outPath = argv[++i];
   else if (a === '--themes') themesSel = argv[++i];
+  else if (a === '--theme') openOn = argv[++i];
   else if (a === '--all') all = true;
   else if (a === '--transform') transformNames.push(argv[++i]);
   else if (a === '--sign') sign = true;
@@ -379,9 +388,26 @@ if (ownTheme) {
 } else {
   themeNames = themesSel.split(',').map((s) => s.trim()).filter(Boolean);
 }
+// The themes the deck MARKS travel with it: resolved from this machine's
+// marketplaces now, inlined below, and never linked — a reference to a
+// marketplace means nothing to whoever opens the file (SPEC THEME_DISTRIBUTION).
+// A marked name is not a file in themes/, so it leaves the shipped list here.
+const markedFrom = markedSources(sourceHtml);
+const marked = markedRefs(sourceHtml).map((r) => {
+  const hit = resolveThemeRef(r, undefined, { source: markedFrom[r.marketplace] ?? null });
+  if (!hit.file) fail(`the deck marks ${r.ref}, and this machine cannot read it — ${hit.missing}`);
+  const valid = stillValid(hit.file);
+  if (!valid.ok) fail(`the deck marks ${r.ref}, and ${valid.why}`);
+  return hit;
+});
+const markedNames = marked.map((r) => r.name);
+if (openOn !== null && !/^[\w-]+$/.test(openOn)) fail(`--theme ${JSON.stringify(openOn)} is not a theme name`);
+if (openOn && !ownTheme && !markedNames.includes(openOn) && !themeNames.includes(openOn)) themeNames.push(openOn);
+themeNames = themeNames.filter((n) => !markedNames.includes(n));
 if (!themeNames.length) fail('no themes selected');
-const activeTheme = themeNames.includes(linkedTheme) ? linkedTheme : themeNames[0];
-if (!ownTheme && activeTheme !== linkedTheme) {
+const activeTheme = openOn && themeNames.includes(openOn) ? openOn
+  : themeNames.includes(linkedTheme) ? linkedTheme : themeNames[0];
+if (!ownTheme && activeTheme !== linkedTheme && !openOn) {
   notices.push(`linked theme "${linkedTheme}" not in --themes list; "${activeTheme}" is active`);
 }
 
@@ -394,6 +420,27 @@ const themeBlocks = ownTheme ? null : themeNames.map((name) => {
   return `<style data-theme="${name}"${media}>\n${css}\n</style>`;
 }).join('\n');
 if (themeBlocks !== null) html = html.replace(themeLinkTag, themeBlocks);
+if (marked.length) {
+  const blocks = marked.map((r) => addedThemeStyle(r, fs.readFileSync(r.file, 'utf8'))).join('\n');
+  const headEnd = html.search(/<\/head>/i);
+  html = headEnd === -1 ? `${blocks}\n${html}` : `${html.slice(0, headEnd)}${blocks}\n${html.slice(headEnd)}`;
+  notices.push(`marked theme${marked.length === 1 ? '' : 's'} inlined: ${marked.map((r) => r.ref).join(', ')}`);
+}
+// The theme the bundle opens on is the configured one, and the runtime reads
+// it from the configuration block — so `--theme` is written THERE, which is
+// what makes a marked theme (an added block, not an inline one) the one a
+// double-clicked file opens on.
+if (openOn) {
+  const block = configBlock(html);
+  if (block?.config) {
+    const inner = /"theme"\s*:\s*"[^"]*"/.test(block.inner)
+      ? block.inner.replace(/"theme"\s*:\s*"[^"]*"/, `"theme": ${JSON.stringify(openOn)}`)
+      : block.inner.replace('{', `{ "theme": ${JSON.stringify(openOn)},`);
+    html = html.slice(0, block.innerStart) + inner + html.slice(block.innerEnd);
+  } else if (markedNames.includes(openOn)) {
+    fail(`--theme ${openOn}: the deck has no configuration block to open it from`);
+  }
+}
 
 // ------------------------------------------------- structure stylesheet(s)
 

@@ -61,7 +61,7 @@ export const NAME_RE = /^[A-Za-z0-9_-]+$/;
  * "typo" must not look alike.
  */
 export const INSTALL_HINT = {
-  theme: 'decklight theme add <source> <deck>',
+  theme: 'decklight theme add <name@marketplace> <deck>',
   plugin: 'decklight plugin add <name>',
   template: 'decklight template add <name>',
   skill: 'decklight skills add <name>',
@@ -912,7 +912,7 @@ async function addMain(args, home) {
   }
 }
 
-function writeCache(home, name, raw) {
+export function writeCache(home, name, raw) {
   mkdirSync(join(home, 'marketplaces'), { recursive: true });
   writeFileSync(cachePath(home, name), raw);
   // mtime has a resolution, and an update that lands in the same millisecond

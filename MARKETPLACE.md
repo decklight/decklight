@@ -582,18 +582,28 @@ the graded and compat sets (`default`/`classics`, 46 themes) stay (`OPEN` 4).
 const DYNAMIC_LABELS = { added: 'Added', custom: 'Custom', generated: 'Generated' };
 ```
 
-**Browse** is a fourth affordance beside three that exist. Anything installed
-through it lands in **Added** — the group `decklight theme add` already
-populates with `<style data-theme="…" data-theme-added>` — so installed
-marketplace themes inherit `,`/`.` cycling, `?theme=`, and `bundle` carriage for
-free.
+**Marketplace themes are packs in the picker, while authoring.** Browse began
+as a fourth row that drilled into the marketplaces and installed a theme by
+pasting it into the deck as a `<style data-theme-added>` block. That made a
+source deck carry kilobytes of somebody else's CSS, which a deck that is data
+(SPEC `DECK_ANATOMY`) should not. **Superseded:** the deck now *refers* to a
+theme — `"addedThemes": ["acme@acme-themes"]` in its config block — and a
+theme in that list is **marked**: it travels with the deck. While authoring,
+the picker lists every registered marketplace's themes as packs; any of them
+previews and applies, and Space marks one. A presented deck lists only what it
+marks. Every server links a marked theme from this machine's copy of its
+marketplace; `bundle` inlines it, because a bundled deck opened on a machine
+with no registry has nothing to resolve a reference against. The added-theme
+shape (`data-theme-added`) is unchanged, so marked themes inherit `,`/`.`
+cycling and `?theme=` for free (SPEC `THEME_DISTRIBUTION`).
 
-**Provenance travels with the theme** (#340). A theme installed from a catalog
-carries `data-theme-marketplace="<kebab-id>"` always, and `data-theme-source`
-only when the manifest supplied a non-empty `title` — identity is inlined
-because a bundled deck opened on a machine with no registry has nothing to
-resolve a reference against, and the pretty name is inlined as a *preference*
-for a stable heading rather than a necessity (the id is a legible fallback).
+**Provenance travels with the theme** (#340). A marked theme's link, and its
+bundled block, carry `data-theme-marketplace="<kebab-id>"` always, and
+`data-theme-source` only when the manifest supplied a non-empty `title` —
+identity is written into the bundle because a bundled deck opened on a machine
+with no registry has nothing to resolve a reference against, and the pretty
+name as a *preference* for a stable heading rather than a necessity (the id is
+a legible fallback).
 The picker groups by `source` → `marketplace` → **Added**, so a deck whose
 catalog is not registered on the reader's machine still shows the right
 heading; a theme from a raw URL or a local file writes neither attribute and
@@ -602,16 +612,16 @@ implies: the catalog's name is readable in the deck's own bytes by anyone the
 deck is sent to — a catalog that must not be named simply omits `title`.
 
 - **Invariant for SPEC:** *a presented deck never touches the network for a
-  theme.* Shipped themes are compiled in, bundled ones are inline, and the only
-  network call in the subsystem is the explicit Browse action. Headlessly
-  testable.
-- **Browse fails instantly offline** — no spinner, no hang. A cached catalog
-  lets it *list* offline and fail only at fetch time.
-- **Browse is authoring-only** (present under `dev`, absent otherwise):
-  persistence needs the edit server's write path, a deck should not reach the
-  network mid-talk, and a presented deck then behaves identically for everyone
-  who opens it. The palette already supports contextual commands, so this is the
-  established pattern.
+  theme.* Shipped themes are compiled in, marked ones are served from the
+  marketplace's files on this machine, bundled ones are inline, and the only
+  network read in the subsystem is marking an entry whose source is a URL — an
+  explicit act, whose bytes are kept. Headlessly testable.
+- **Listing fails instantly offline** — no spinner, no hang. A cached catalog
+  lets it list offline, and names the marketplaces it could not read.
+- **Listing and marking are authoring-only** (absent otherwise): marking needs
+  the edit server's write path, a deck should not reach for a catalog
+  mid-talk, and a presented deck then behaves identically for everyone who
+  opens it.
 
 ### SETTLED — Unchanged from the interview
 
@@ -668,11 +678,11 @@ to play someone else's deck is a single command.
 
 **Themes**
 
-- [ ] `T` shows Shipped / Added / Custom / Generated exactly as today, plus a
-      **Browse** entry present only under `dev`
-- [ ] Browse previews a marketplace theme live and installs on Enter through the
-      existing `theme add` path, landing in **Added**
-- [ ] An installed theme behaves like a shipped one: `,`/`.`, `?theme=`, and
+- [ ] `T` shows Shipped / Added / Custom / Generated exactly as today, plus
+      every registered marketplace as a pack, present only while authoring
+- [ ] A marketplace theme previews and applies live; Space marks it through
+      `theme add`'s validator, writing a reference — never CSS — into the deck
+- [ ] A marked theme behaves like a shipped one: `,`/`.`, `?theme=`, and
       carried by `bundle`
 - [ ] A presented deck makes **no network request** for a theme, ever —
       asserted headlessly

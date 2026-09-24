@@ -419,16 +419,12 @@
   margin-bottom: 6px;
   padding-bottom: 9px;
 }
-/* Browse, and the marketplace rows it lists. Qualified refs and theme names
-   from someone else's catalog are shown as written — no capitalization. */
-.decklight-theme-picker .tp-row.tp-browse {
-  text-transform: none;
-  color: #b9bec8;
-  border-top: 1px solid rgba(255, 255, 255, .08);
-  margin-top: 6px;
-  padding-top: 9px;
-}
-.decklight-theme-picker .tp-row.tp-mkt { text-transform: none; }
+/* Marketplace themes: names from someone else's catalog are shown as written
+   — no capitalization. While authoring, one the deck does not mark is dimmed:
+   it can be looked at and applied, but it does not travel with the deck. */
+.decklight-theme-picker .tp-row.tp-marked,
+.decklight-theme-picker .tp-row.tp-unmarked { text-transform: none; }
+.decklight-theme-picker .tp-row.tp-unmarked { color: #b9bec8; }
 .decklight-theme-picker .tp-row {
   padding: 7px 12px;
   border-radius: 8px;
@@ -477,6 +473,7 @@
 .decklight-finder .tp-side { flex-basis: 300px; }
 .decklight-finder .tp-row,
 .decklight-finder .tp-caption { text-transform: none; }
+.decklight-theme-picker .tp-caption.tp-plain { text-transform: none; }
 .decklight-finder .tp-row {
   white-space: nowrap;
   overflow: hidden;

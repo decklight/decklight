@@ -492,22 +492,22 @@
       <h2>A Theme Is Just a File</h2>
       <p>No registry, no version number — the unit you share is one CSS file</p>
       <pre data-lines="1|2"><code class="language-bash">decklight theme check sunset.css          # contract-complete? WCAG gates?
-decklight theme add sunset.css deck.html  # validates, then installs</code></pre>
+decklight theme add sunset.css deck.html  # validates, then marks it for the deck</code></pre>
       <ul data-build>
-        <li>Added themes join the picker under an <strong>Added</strong> pack — they cycle, resolve from <code>?theme=</code>, and bundle like any other</li>
+        <li>The deck records a <strong>reference</strong> — <code>"addedThemes": ["sunset@local"]</code> — never the CSS; <code>bundle</code> carries it</li>
         <li>A file that fails leaves the deck <strong>byte-for-byte unchanged</strong> — no deck ever carries a broken theme</li>
-        <li>Re-adding the same name replaces it in place: <em>add</em> is the update path</li>
+        <li>While authoring, every marketplace's themes are in the picker — <kbd>Space</kbd> marks one</li>
       </ul>
       <aside class="notes">
-        <p>So you've pressed Control-T, rolled a theme you love, and saved it. How do you give it to someone? A theme is one CSS file, and that's the whole distribution story — no registry to publish to, no version number to bump. Compatibility with a runtime just is passing that runtime's check.</p><p>⟨CLICK⟩</p><p>Theme check runs the token contract and the contrast gates on any file — the exact same function that grades the sixty-two themes we ship, so the two can never drift. A theme author outside this repo can prove their file is complete before sharing it.</p><p>⟨CLICK⟩</p><p>Theme add validates and then installs into a deck, refusing anything the shipped set wouldn't be allowed to contain.</p><p>⟨CLICK⟩</p><p>An added theme shows up in the picker under its own Added pack, and behaves like every other theme from there — cycling, the theme query parameter, bundling.</p><p>⟨CLICK⟩</p><p>And when a file fails? Your deck is byte-for-byte what it was. Nothing half-installed, nothing to clean up.</p><p>⟨CLICK⟩</p><p>Fixed a bug in your theme? Run add again with the same name. It replaces the block in place — adding is the update path.</p>
+        <p>So you rolled a theme you love. How do you give it to someone? A theme is one CSS file, and that's the whole distribution story — no registry to publish to, no version number to bump. Compatibility with a runtime just is passing that runtime's check.</p><p>⟨CLICK⟩</p><p>Theme check runs the token contract and the contrast gates on any file — the same function that grades the themes we ship, so the two can never drift.</p><p>⟨CLICK⟩</p><p>Theme add validates, then marks the theme for your deck, refusing anything the shipped set wouldn't be allowed to contain. A loose file goes into your own local marketplace first.</p><p>⟨CLICK⟩</p><p>What lands in the deck is one line: a reference to the theme. The CSS stays where it lives, and bundle inlines it when you hand the deck over.</p><p>⟨CLICK⟩</p><p>If a file fails, your deck is byte for byte what it was. Nothing half-added.</p><p>⟨CLICK⟩</p><p>And while you author, the picker lists every theme in the marketplaces you've added. Try any of them; press space on the one you want the deck to carry.</p>
       </aside>
       <aside class="rehearse">
         <p>One CSS file, no registry</p>
         <p>⟨CLICK⟩</p><p>check = contract + WCAG</p>
-        <p>⟨CLICK⟩</p><p>add = validate, then install</p>
-        <p>⟨CLICK⟩</p><p>Added pack in the picker</p>
+        <p>⟨CLICK⟩</p><p>add = validate, then mark</p>
+        <p>⟨CLICK⟩</p><p>A reference, not the CSS</p>
         <p>⟨CLICK⟩</p><p>Fails → deck unchanged</p>
-        <p>⟨CLICK⟩</p><p>Re-add = update</p>
+        <p>⟨CLICK⟩</p><p>Space marks in the picker</p>
       </aside>
     </section>
 

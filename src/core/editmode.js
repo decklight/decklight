@@ -351,6 +351,7 @@ export function createEditMode({
           debugLog('edit', `live reload connected${base ? ` (${base})` : ''}`
             + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
           probeSettled();
+          resumeHandover();
           return;
         } catch { /* not served by the edit server */ }
       }
@@ -1716,6 +1717,59 @@ export function createEditMode({
   const videoVoice = (voice) => (voice?.kind === 'recorded' ? { narration: voice.dir }
     : voice?.kind === 'live' ? { synthesize: { engine: voice.engine, model: voice.model, voice: voice.voice, style: voice.style, dir: voice.dir } }
       : voice?.kind === 'silent' ? { silent: true } : {});
+  // ── an unmarked marketplace theme on screen at hand-over ─────────────────
+  //
+  // A file handed over in a theme the deck does not mark would be a file the
+  // deck itself cannot reproduce (SPEC THEME_DISTRIBUTION), so the server
+  // refuses with `{ unmarked }` and the row ARMS, the way publishing does:
+  // choosing it again marks the theme and carries on. Nothing is written to
+  // the deck without that second press. Marking rewrites the deck, and the
+  // watcher reloads the page — so what was asked for is handed across the
+  // reload in sessionStorage and resumed once the page is back.
+  const RESUME_KEY = 'decklight-resume-handover:' + location.pathname;
+  let markArmed = null; // { ref, theme, at }
+  function armMark(ref, theme, run) {
+    markArmed = { ref, theme, at: Date.now() };
+    run.done(`${ref} is not marked for this deck — choose this again to mark it and carry on`, 9000);
+    debugLog('export', `${ref} unmarked — armed`);
+  }
+  /** True when this press is the confirmation: the mark is sent and the hand-over resumes after the reload. */
+  function markConfirmed(theme, resume) {
+    const armed = markArmed;
+    if (!armed || armed.theme !== theme || Date.now() - armed.at > PUBLISH_ARM_MS) {
+      markArmed = null;
+      return false;
+    }
+    markArmed = null;
+    (async () => {
+      try { sessionStorage.setItem(RESUME_KEY, JSON.stringify({ ...resume, at: Date.now() })); } catch { /* no storage: marks, does not resume */ }
+      try {
+        const r = await fetch(editBase + '/edit/theme/mark', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ref: armed.ref, marked: true }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+        toast(`${armed.ref} marked — carrying on once the deck reloads`, 4000);
+      } catch (e) {
+        try { sessionStorage.removeItem(RESUME_KEY); } catch { /* nothing to clear */ }
+        toast(`could not mark ${armed.ref} — ${e.message}`, 5200);
+      }
+    })();
+    return true;
+  }
+  /** After the reload a mark caused: pick the hand-over up where it stopped. */
+  function resumeHandover() {
+    let job = null;
+    try {
+      job = JSON.parse(sessionStorage.getItem(RESUME_KEY) || 'null');
+      sessionStorage.removeItem(RESUME_KEY);
+    } catch { return; }
+    if (!job || Date.now() - job.at > 60000) return;
+    if (job.publish) publishNow();
+    else if (job.kind) exportDeck(job.kind, job.opts ?? {});
+  }
+
   async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
@@ -1736,6 +1790,7 @@ export function createEditMode({
     // deck knows goes by name; one that lives only in this browser (a saved
     // custom theme, an unsaved roll) goes as its tokens.
     const { theme, gen } = renderTheme() ?? {};
+    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles } })) return;
     const doing = kind === 'video'
       ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
       : `exporting to ${what}`;
@@ -1751,6 +1806,10 @@ export function createEditMode({
         }),
       });
       const j = await r.json().catch(() => ({}));
+      if (j.unmarked) {
+        armMark(j.unmarked, theme, run);
+        return;
+      }
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       run.done(`wrote ${j.file}${j.seconds ? ` (${j.seconds}s)` : ''}${j.subtitles ? ` · subtitles in ${j.subtitles}` : ''}`
         + `${j.voiced ? ` — its voice is in ${j.voiced}/` : ''}`);
@@ -1774,25 +1833,40 @@ export function createEditMode({
   const PUBLISH_ARM_MS = 20000;
   let publishArmed = 0;
   let publishPlan = null;
+  // The confirmed half, on its own: a publish resumed after marking its theme
+  // has been confirmed already, and does not ask twice.
+  async function publishNow() {
+    const { theme } = renderTheme() ?? {};
+    if (markConfirmed(theme, { publish: true })) return;
+    // The plan already said whether this deck still needs flattening, so the
+    // line describes what is actually about to happen rather than the longer
+    // of the two things it might be.
+    const run = progress(publishPlan?.bundled === false
+      ? 'publishing — pushing the deck…'
+      : 'publishing — bundling the deck and pushing it…');
+    try {
+      const r = await fetch(editBase + '/edit/publish', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        // the theme on screen is the one the published page opens on
+        body: JSON.stringify(theme ? { theme } : {}),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j.unmarked) { armMark(j.unmarked, theme, run); return; }
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      run.done(j.url ? `published — ${j.url}` : `published — pushed to ${j.remote} ${j.branch}`, 9000);
+      debugLog('publish', j.url ?? `${j.remote} ${j.branch}`);
+    } catch (e) {
+      run.done(`could not publish — ${e.message}`, 6000);
+      debugLog('publish', `failed: ${e.message}`);
+    }
+  }
   async function publishDeck() {
-    if (publishArmed && Date.now() - publishArmed < PUBLISH_ARM_MS) {
+    // Confirmed already, and stopped only to ask about an unmarked theme: this
+    // press answers that question, not the "publish?" one again.
+    const markPending = markArmed?.ref && Date.now() - markArmed.at < PUBLISH_ARM_MS;
+    if (markPending || (publishArmed && Date.now() - publishArmed < PUBLISH_ARM_MS)) {
       publishArmed = 0;
-      // The plan already said whether this deck still needs flattening, so the
-      // line describes what is actually about to happen rather than the longer
-      // of the two things it might be.
-      const run = progress(publishPlan?.bundled
-        ? 'publishing — bundling the deck and pushing it…'
-        : 'publishing — pushing the deck…');
-      try {
-        const r = await fetch(editBase + '/edit/publish', { method: 'POST' });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
-        run.done(j.url ? `published — ${j.url}` : `published — pushed to ${j.remote} ${j.branch}`, 9000);
-        debugLog('publish', j.url ?? `${j.remote} ${j.branch}`);
-      } catch (e) {
-        run.done(`could not publish — ${e.message}`, 6000);
-        debugLog('publish', `failed: ${e.message}`);
-      }
+      await publishNow();
       return;
     }
     try {

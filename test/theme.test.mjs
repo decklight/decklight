@@ -2,24 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // `decklight theme` — the gates a third-party theme has to clear, and what
-// installing one does to a deck.
+// MARKING one does to a deck (SPEC THEME_DISTRIBUTION).
 //
-// The gates themselves are the ones the 62 shipped themes already pass
+// The gates themselves are the ones the shipped themes already pass
 // (test/contrast.mjs runs the same function over themes/), so what is worth
 // pinning here is the other direction: that a BROKEN file is refused, that it
-// is refused with the reason, and that refusing it leaves the deck alone.
+// is refused with the reason, and that refusing it leaves the deck alone. And
+// that marking a good one puts a reference in the deck — never its CSS.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { rmTemp } from './helpers.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools/theme-check.mjs';
-import { themeStyleBlock, findThemeBlock, installTheme, reportLines } from '../cli/theme.mjs';
+import { reportLines } from '../cli/theme.mjs';
+import { addedThemeLink, addedThemeStyle, setMarked, markedRefs, parseRef } from '../cli/theme-refs.mjs';
+import { MarketplaceError } from '../cli/marketplace.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -88,50 +91,68 @@ test('a name the runtime would silently ignore is refused instead', () => {
   assert.equal(validThemeName(''), false);
 });
 
-test('an installed theme is inert until it is picked', () => {
-  const block = themeStyleBlock('nord-deep', '.decklight { --bg: #101; }');
-  assert.match(block, /data-theme="nord-deep"/);
-  assert.match(block, /data-theme-added/, 'marked, so the picker can group it under Added');
-  assert.match(block, /media="not all"/, 'and inert — adding a theme must not change the deck');
+// ── the reference, and the elements it becomes ───────────────────────────
+
+const DATA_DECK = (cfg = '{ "decklight": "0.9.0", "theme": "aurora" }') => '<!doctype html><html><head><title>T</title>\n'
+  + `  <script type="application/json" data-decklight-config>\n  ${cfg}\n  </script>\n`
+  + '</head><body><div class="decklight"><section>a</section></div></body></html>';
+const cfgOf = (html) => JSON.parse(html.match(/data-decklight-config>([\s\S]*?)<\/script>/)[1]);
+
+test('a reference is name@marketplace, and nothing else passes for one', () => {
+  assert.deepEqual(parseRef('nord-deep@acme-themes'), { name: 'nord-deep', marketplace: 'acme-themes', ref: 'nord-deep@acme-themes' });
+  for (const bad of ['nord-deep', '@acme', 'a@b@c', '../x@m', 'x@../m', 'a b@m', '']) {
+    assert.equal(parseRef(bad), null, bad);
+  }
 });
 
-test('a theme cannot close its own style block', () => {
+test('marking edits only the list, in the block\'s own layout', () => {
+  const one = setMarked(DATA_DECK(), 'nord@acme', true);
+  assert.equal(one.changed, true);
+  assert.match(one.html, /\{ "decklight": "0\.9\.0", "theme": "aurora", "addedThemes": \["nord@acme"\] \}/,
+    'a one-line block stays on one line');
+  const two = setMarked(one.html, 'dusk@acme', true);
+  assert.deepEqual(cfgOf(two.html).addedThemes, ['nord@acme', 'dusk@acme']);
+  assert.equal(setMarked(two.html, 'dusk@acme', true).changed, false, 'marked already');
+
+  const pretty = DATA_DECK('{\n    "decklight": "0.9.0",\n    "theme": "aurora"\n  }');
+  const p = setMarked(pretty, 'nord@acme', true).html;
+  assert.match(p, /"theme": "aurora",\n {4}"addedThemes": \["nord@acme"\]\n/, 'a pretty one gets a line of its own');
+
+  const off = setMarked(setMarked(two.html, 'nord@acme', false).html, 'dusk@acme', false).html;
+  assert.equal(cfgOf(off).addedThemes, undefined, 'unmarking the last leaves no empty key behind');
+  assert.equal(off, DATA_DECK(), 'and the deck is what it was');
+});
+
+test('the marks that would make the list ambiguous are refused', () => {
+  const refused = (fn, re) => assert.throws(fn, (e) => e instanceof MarketplaceError && re.test(e.message));
+  refused(() => setMarked(DATA_DECK(), 'aurora@acme', true), /a theme decklight ships/);
+  const marked = setMarked(DATA_DECK(), 'nord@acme', true).html;
+  refused(() => setMarked(marked, 'nord@other', true), /already marks nord@acme/);
+  const opensOnIt = setMarked(DATA_DECK('{ "decklight": "0.9.0", "theme": "nord" }'), 'nord@acme', true).html;
+  refused(() => setMarked(opensOnIt, 'nord@acme', false), /the theme the deck opens on/);
+  refused(() => setMarked('<html><head></head><body><div class="decklight"></div></body></html>', 'nord@acme', true),
+    /upgrade --link/);
+});
+
+test('markedRefs drops what is not a reference rather than guessing at it', () => {
+  const html = DATA_DECK('{ "decklight": "0.9.0", "addedThemes": ["nord@acme", "loose", 7, "x@../y"] }');
+  assert.deepEqual(markedRefs(html).map((r) => r.ref), ['nord@acme']);
+});
+
+test('a marked theme is linked inert, under its marketplace', () => {
+  const link = addedThemeLink({ name: 'nord-deep', marketplace: 'acme-themes', title: 'Acme' });
+  assert.match(link, /^<link rel="stylesheet" href="decklight-theme\/acme-themes\/nord-deep\.css"/);
+  assert.match(link, /data-theme="nord-deep" data-theme-added/, 'an added theme, so the picker groups it');
+  assert.match(link, /data-theme-marketplace="acme-themes" data-theme-source="Acme"/);
+  assert.match(link, /media="not all">$/, 'and inert — marking a theme must not change what is on screen');
+});
+
+test('a bundle carries a marked theme as a block that cannot close itself', () => {
   // a downloaded file is somebody else's, which is exactly when to check
-  const block = themeStyleBlock('x', '/* </style><script>alert(1)</script> */ .decklight { --bg: #000; }');
+  const block = addedThemeStyle({ name: 'x', marketplace: 'm' }, '/* </style><script>alert(1)</script> */ .decklight { --bg: #000; }');
   assert.equal(/<\/style>/i.test(block.slice(0, -'</style>'.length)), false);
   assert.match(block, /<\\\/style>/);
-});
-
-test('install puts the theme last in <head>, where it can win the cascade', () => {
-  const deck = '<!doctype html><html><head><link rel="stylesheet" href="themes/eclipse.css">'
-    + '</head><body><div class="decklight"></div></body></html>';
-  const { html, replaced } = installTheme(deck, 'nord-deep', '.decklight { --bg: #101; }');
-  assert.equal(replaced, false);
-  assert.ok(html.indexOf('data-theme="nord-deep"') > html.indexOf('themes/eclipse.css'),
-    'after the deck’s own theme, or it could never override it');
-  assert.ok(html.indexOf('data-theme="nord-deep"') < html.indexOf('</head>'));
-});
-
-test('re-adding a theme replaces it — that IS the update path', () => {
-  // there is no auto-update and no version number; you re-run add
-  const deck = '<!doctype html><html><head></head><body></body></html>';
-  const once = installTheme(deck, 'nord-deep', '.decklight { --bg: #101; }').html;
-  const { html: twice, replaced } = installTheme(once, 'nord-deep', '.decklight { --bg: #202; }');
-  assert.equal(replaced, true);
-  assert.equal((twice.match(/data-theme="nord-deep"/g) ?? []).length, 1, 'one block, not two');
-  assert.match(twice, /--bg: #202/);
-  assert.doesNotMatch(twice, /--bg: #101/);
-});
-
-test('a deck with no </head> is reported, not corrupted', () => {
-  assert.equal(installTheme('<div class="decklight"></div>', 'x', '.decklight{}').html, null);
-});
-
-test('findThemeBlock ignores a different theme with a similar name', () => {
-  const html = themeStyleBlock('nord', '.decklight{--bg:#1;}') + themeStyleBlock('nord-deep', '.decklight{--bg:#2;}');
-  const hit = findThemeBlock(html, 'nord-deep');
-  assert.ok(hit);
-  assert.match(hit.text, /--bg:#2/);
+  assert.match(block, /^<style data-theme="x" data-theme-added data-theme-marketplace="m" media="not all">/);
 });
 
 test('theme check passes a shipped theme and fails a broken one', () => {
@@ -151,45 +172,103 @@ test('theme check passes a shipped theme and fails a broken one', () => {
   } finally { rmTemp(dir); }
 });
 
-test('a theme that fails the gates is not installed, and the deck is untouched', () => {
+/** A decklight home with one local marketplace, `acme`, holding a passing theme and a broken one. */
+function sandbox() {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-theme-'));
-  try {
-    const deckPath = path.join(dir, 'talk.html');
-    const original = '<!doctype html><html><head></head><body><div class="decklight"><section>a</section></div></body></html>';
-    writeFileSync(deckPath, original);
-    const broken = path.join(dir, 'broken.css');
-    writeFileSync(broken, '.decklight { --bg: #ffffff; --fg: #fefefe; }');
+  const home = path.join(dir, 'home');
+  const repo = path.join(dir, 'acme');
+  mkdirSync(path.join(repo, '.decklight'), { recursive: true });
+  mkdirSync(path.join(repo, 'themes'), { recursive: true });
+  writeFileSync(path.join(repo, 'themes/nord.css'), good());
+  writeFileSync(path.join(repo, 'themes/broken.css'), '.decklight { --bg: #ffffff; --fg: #fefefe; }');
+  writeFileSync(path.join(repo, '.decklight/marketplace.json'), JSON.stringify({
+    name: 'acme', title: 'Acme', entries: [
+      { name: 'nord', type: 'theme', source: 'themes/nord.css' },
+      { name: 'broken', type: 'theme', source: 'themes/broken.css' },
+    ],
+  }));
+  const env = { ...process.env, DECKLIGHT_HOME: home };
+  execFileSync('node', [CLI, 'marketplace', 'add', repo], { env, stdio: 'ignore' });
+  const deckPath = path.join(dir, 'talk.html');
+  writeFileSync(deckPath, DATA_DECK());
+  const run = (...args) => spawnSync('node', [CLI, 'theme', ...args], { encoding: 'utf8', env, cwd: dir });
+  return { dir, home, deckPath, run };
+}
 
-    const r = spawnSync('node', [CLI, 'theme', 'add', broken, deckPath], { encoding: 'utf8' });
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /was NOT installed/);
-    assert.equal(readFileSync(deckPath, 'utf8'), original, 'the deck is byte-for-byte what it was');
+test('a theme that fails the gates is not marked, and the deck is untouched', () => {
+  const { dir, deckPath, run } = sandbox();
+  try {
+    for (const src of ['broken@acme', (writeFileSync(path.join(dir, 'b.css'), '.decklight { --bg: #fff; }'), path.join(dir, 'b.css'))]) {
+      const r = run('add', src, deckPath);
+      assert.equal(r.status, 1, src);
+      assert.match(r.stderr, /was NOT marked/);
+      assert.equal(readFileSync(deckPath, 'utf8'), DATA_DECK(), 'the deck is byte-for-byte what it was');
+    }
   } finally { rmTemp(dir); }
 });
 
-test('theme add installs a good theme, and --dry-run installs nothing', () => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-theme-'));
+test('theme add marks a marketplace theme — a reference, never its CSS', () => {
+  const { dir, deckPath, run } = sandbox();
   try {
-    const deckPath = path.join(dir, 'talk.html');
-    const original = '<!doctype html><html><head></head><body><div class="decklight"><section>a</section></div></body></html>';
-    writeFileSync(deckPath, original);
-
-    const dry = spawnSync('node', [CLI, 'theme', 'add', AURORA, deckPath, '--dry-run'], { encoding: 'utf8' });
+    const dry = run('add', 'nord@acme', deckPath, '--dry-run');
     assert.equal(dry.status, 0, dry.stderr);
-    assert.match(dry.stdout, /would install aurora/);
-    assert.equal(readFileSync(deckPath, 'utf8'), original);
+    assert.match(dry.stdout, /would mark nord@acme/);
+    assert.equal(readFileSync(deckPath, 'utf8'), DATA_DECK());
 
-    const add = spawnSync('node', [CLI, 'theme', 'add', AURORA, deckPath], { encoding: 'utf8' });
+    const add = run('add', 'nord', deckPath); // a bare name one marketplace alone has
     assert.equal(add.status, 0, add.stderr);
-    assert.match(add.stdout, /installed aurora/);
+    assert.match(add.stdout, /marked nord@acme in .* look under "Acme"/);
     const after = readFileSync(deckPath, 'utf8');
-    assert.match(after, /<style data-theme="aurora" data-theme-added media="not all">/);
-    assert.match(after, /--bg: linear-gradient/, 'the theme’s own CSS came along');
+    assert.deepEqual(cfgOf(after).addedThemes, ['nord@acme']);
+    assert.doesNotMatch(after, /<style|--bg/, 'the theme stayed in its marketplace');
 
-    // --name renames on the way in
-    const named = spawnSync('node', [CLI, 'theme', 'add', AURORA, deckPath, '--name', 'house-style'], { encoding: 'utf8' });
-    assert.equal(named.status, 0, named.stderr);
-    assert.match(readFileSync(deckPath, 'utf8'), /data-theme="house-style"/);
+    assert.match(run('add', 'nord@acme', deckPath).stdout, /already marked/);
+    const named = run('add', 'nord@acme', deckPath, '--name', 'x');
+    assert.equal(named.status, 1, 'a marketplace theme is marked under its own name');
+  } finally { rmTemp(dir); }
+});
+
+test('a file is copied into the personal marketplace, registered once, and marked there', () => {
+  const { dir, home, deckPath, run } = sandbox();
+  try {
+    const shipped = run('add', AURORA, deckPath);
+    assert.equal(shipped.status, 1, 'aurora would sit beside the shipped aurora');
+    assert.match(shipped.stderr, /a theme decklight ships.*--name/);
+    assert.ok(!existsSync(path.join(home, 'local')), 'and a refusal copies nothing');
+
+    const add = run('add', AURORA, deckPath, '--name', 'house');
+    assert.equal(add.status, 0, add.stderr);
+    assert.match(add.stdout, /registered your personal marketplace "local"/);
+    assert.equal(readFileSync(path.join(home, 'local/themes/house.css'), 'utf8'), good());
+    assert.deepEqual(cfgOf(readFileSync(deckPath, 'utf8')).addedThemes, ['house@local']);
+
+    const again = run('add', AURORA, deckPath, '--name', 'house');
+    assert.doesNotMatch(again.stdout, /registered/, 'once');
+    assert.match(again.stdout, /replaced house/, 're-adding a file IS its update path');
+    const reg = JSON.parse(readFileSync(path.join(home, 'marketplaces.json'), 'utf8'));
+    assert.equal(reg.marketplaces.local.source, path.join(home, 'local'));
+    assert.ok(!path.join(home, 'local').startsWith(path.join(home, 'marketplaces')),
+      'outside the clones, so `marketplace remove local` cannot delete your themes');
+  } finally { rmTemp(dir); }
+});
+
+test('theme remove unmarks, and will not take the theme the deck opens on', () => {
+  const { dir, deckPath, run } = sandbox();
+  try {
+    run('add', 'nord@acme', deckPath);
+    const missing = run('remove', 'dusk', deckPath);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stderr, /not marked .* it marks nord@acme/);
+
+    writeFileSync(deckPath, readFileSync(deckPath, 'utf8').replace('"theme": "aurora"', '"theme": "nord"'));
+    const opens = run('remove', 'nord', deckPath);
+    assert.equal(opens.status, 1);
+    assert.match(opens.stderr, /the theme the deck opens on/);
+
+    writeFileSync(deckPath, readFileSync(deckPath, 'utf8').replace('"theme": "nord"', '"theme": "aurora"'));
+    const off = run('remove', 'nord@acme', deckPath);
+    assert.equal(off.status, 0, off.stderr);
+    assert.equal(readFileSync(deckPath, 'utf8'), DATA_DECK(), 'back to what it was');
   } finally { rmTemp(dir); }
 });
 
@@ -201,70 +280,58 @@ test('theme is routed and documented by the dispatcher', () => {
   assert.match(own, /decklight theme check/);
   assert.match(own, /decklight theme add/);
 
-  const unknown = spawnSync('node', [CLI, 'theme', 'remove'], { encoding: 'utf8' });
+  assert.match(own, /decklight theme remove/);
+
+  const unknown = spawnSync('node', [CLI, 'theme', 'install'], { encoding: 'utf8' });
   assert.equal(unknown.status, 1);
-  assert.match(unknown.stderr, /unknown subcommand "remove"/);
+  assert.match(unknown.stderr, /unknown subcommand "install"/);
 
   const noArgs = spawnSync('node', [CLI, 'theme', 'check'], { encoding: 'utf8' });
   assert.equal(noArgs.status, 1);
   assert.match(noArgs.stderr, /needs a theme file or url/);
 });
 
-// ── provenance: where an installed theme came from (#339) ─────────────────
+// ── provenance: where a marked theme came from (#339) ─────────────────────
 //
 // The picker used to group every runtime install under one "Added" bucket,
-// whatever catalog it came from. The fix has to survive the deck TRAVELLING: a
-// bundled deck opened on another machine has no ~/.decklight/marketplaces.json
-// to look a catalog up in, so whatever the picker shows is written into the
-// block at install time or is not available at all.
-
-test('a theme from nowhere in particular writes exactly what it always did', () => {
-  // The compatibility floor: a raw URL or a local file must produce a block
-  // byte-identical to the one shipped before this feature existed.
-  const plain = themeStyleBlock('nord', 'body{color:red}');
-  assert.match(plain, /^<style data-theme="nord" data-theme-added media="not all">/);
-  assert.ok(!plain.includes('data-theme-marketplace'));
-  assert.ok(!plain.includes('data-theme-source'));
-});
+// whatever catalog it came from. The heading has to survive the deck
+// TRAVELLING: a bundled deck opened on another machine has no
+// ~/.decklight/marketplaces.json to look a catalog up in, so it is written onto
+// the link a server serves and the block a bundle carries, or it is not
+// available at all.
 
 test('a theme from a catalog carries its identity AND its label', () => {
   // Two attributes because they are two different things: the kebab name is
   // what a later dedup or upgrade keys on, the title is what a human reads.
-  const block = themeStyleBlock('confluent', 'body{}', {
-    marketplace: 'decklight-confluent', title: 'Confluent',
-  });
-  assert.match(block, /data-theme-marketplace="decklight-confluent"/);
-  assert.match(block, /data-theme-source="Confluent"/);
-  assert.match(block, /data-theme-added/, 'and it is still an added theme');
+  for (const el of [
+    addedThemeLink({ name: 'confluent', marketplace: 'decklight-confluent', title: 'Confluent' }),
+    addedThemeStyle({ name: 'confluent', marketplace: 'decklight-confluent', title: 'Confluent' }, 'body{}'),
+  ]) {
+    assert.match(el, /data-theme-marketplace="decklight-confluent"/);
+    assert.match(el, /data-theme-source="Confluent"/);
+    assert.match(el, /data-theme-added/, 'and it is still an added theme');
+  }
 });
 
 test('a catalog with no title carries only its name — nothing is invented', () => {
   // Deriving "Acme" from "acme-themes" breaks on `confluent-decklight` and puts
   // decklight in the business of naming other people's catalogs.
-  const block = themeStyleBlock('x', 'body{}', { marketplace: 'acme-themes' });
-  assert.match(block, /data-theme-marketplace="acme-themes"/);
-  assert.ok(!block.includes('data-theme-source'), 'no label rather than a guessed one');
+  for (const el of [addedThemeLink({ name: 'x', marketplace: 'acme-themes' }),
+    addedThemeStyle({ name: 'x', marketplace: 'acme-themes' }, 'body{}')]) {
+    assert.match(el, /data-theme-marketplace="acme-themes"/);
+    assert.ok(!el.includes('data-theme-source'), 'no label rather than a guessed one');
+  }
 });
 
 test('a hostile title cannot escape its attribute', () => {
   // The title is free text out of a manifest somebody else wrote, and it lands
-  // in a double-quoted attribute in somebody's deck.
-  const block = themeStyleBlock('x', 'body{}', {
-    marketplace: 'm', title: '"><script>alert(1)</script>',
-  });
-  assert.ok(!block.includes('<script>'), 'the tag did not survive');
-  assert.ok(!/data-theme-source="[^"]*"[^ >]/.test(block), 'the attribute did not break out');
-  assert.match(block, /&quot;&gt;&lt;script&gt;/);
-});
-
-test('installTheme carries provenance into the deck, and replacing keeps it', () => {
-  const deck = '<html><head></head><body></body></html>';
-  const first = installTheme(deck, 'c', 'body{}', { marketplace: 'm', title: 'M' });
-  assert.match(first.html, /data-theme-marketplace="m"/);
-  // Re-adding IS the update path, so the second install's provenance is the one
-  // that survives — a theme moved between catalogs must not keep the old name.
-  const second = installTheme(first.html, 'c', 'body{}', { marketplace: 'n', title: 'N' });
-  assert.equal(second.replaced, true);
-  assert.match(second.html, /data-theme-marketplace="n"/);
-  assert.ok(!second.html.includes('data-theme-marketplace="m"'));
+  // in a double-quoted attribute in a served page and in a bundle.
+  for (const el of [
+    addedThemeLink({ name: 'x', marketplace: 'm', title: '"><script>alert(1)</script>' }),
+    addedThemeStyle({ name: 'x', marketplace: 'm', title: '"><script>alert(1)</script>' }, 'body{}'),
+  ]) {
+    assert.ok(!el.includes('<script>'), 'the tag did not survive');
+    assert.ok(!/data-theme-source="[^"]*"[^ >]/.test(el), 'the attribute did not break out');
+    assert.match(el, /&quot;&gt;&lt;script&gt;/);
+  }
 });
