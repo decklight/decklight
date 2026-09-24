@@ -76,10 +76,20 @@ const hasRuntimeCss = (html) =>
   /<link\b[^>]*\bhref\s*=\s*["'][^"']*decklight(?:\.min)?\.css(?:[?#][^"']*)?["']/i.test(html)
   || /<style\b[^>]*\bdata-decklight-runtime\s*=\s*["']css["']/i.test(html);
 
-/** Does the document carry a theme — a `themes/<name>.css` link or a `<style data-theme>` block? */
-const hasTheme = (html) =>
-  /<link\b[^>]*\bhref\s*=\s*["'][^"']*themes\/[\w-]+\.css(?:[?#][^"']*)?["']/i.test(html)
-  || /<style\b[^>]*\bdata-theme\b/i.test(html);
+/**
+ * Does the document carry a theme of its OWN — a `themes/<name>.css` link or a
+ * `<style data-theme>` block? An added theme (`data-theme-added`, inline or
+ * linked) is not one: it is an extra the picker offers over the deck's base
+ * theme, and a deck carrying only extras still needs that base linked.
+ */
+function hasTheme(html) {
+  for (const [, tag, attrs] of html.matchAll(/<(link|style)\b([^>]*)>/gi)) {
+    if (/\bdata-theme-added\b/i.test(attrs)) continue;
+    if (tag.toLowerCase() === 'style' ? /\bdata-theme\b/i.test(attrs)
+      : /\bhref\s*=\s*["'][^"']*themes\/[\w-]+\.css(?:[?#][^"']*)?["']/i.test(attrs)) return true;
+  }
+  return false;
+}
 
 /**
  * The configuration block, with its offsets: `start`/`end` span the whole
