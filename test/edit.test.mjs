@@ -1089,6 +1089,12 @@ test('/edit/at previews a version — with a base href so its assets resolve', a
   assert.doesNotMatch(html, /Second/);
   // served from /edit/, so relative ../dist paths need a root base to resolve
   assert.match(html, /<base href="\/">/);
+  // a deck that is data carries no runtime: the preview must be given one, or
+  // the frame shows bare markup — dark text on a dark panel, a black box
+  assert.match(html, /<script src="decklight\.js" data-decklight-runtime="js"><\/script>/);
+  assert.match(html, /<link rel="stylesheet" href="decklight\.css" data-decklight-runtime="css">/);
+  assert.match(html, /<link rel="stylesheet" href="themes\/aurora\.css">/);
+  assert.ok(html.indexOf('<base href="/">') < html.indexOf('decklight.css'), 'and they resolve from the root');
 
   assert.equal((await fetch(base + '/edit/at?ref=nosuchref')).status, 404);
 });
@@ -1891,6 +1897,8 @@ test('/edit/template/preview shows the very words the insert will write', async 
   const shown = await (await fetch(
     base + '/edit/template/preview?embedded&name=startup-pitch&slide=2&to=1&mode=insert')).text();
   const heading = /<h2>(\w+)<\/h2>/.exec(shown.slice(shown.indexOf('Alpha')));
+  assert.match(shown, /<script src="decklight\.js" data-decklight-runtime="js"><\/script>/,
+    'a preview of a deck that is data is given the runtime, like any page served');
   await post(base, '/edit/template/insert', { name: 'startup-pitch', slides: [2], after: 1 });
   const landed = readFileSync(deck, 'utf8');
   assert.ok(heading, 'the preview has a loremised heading');
