@@ -47,7 +47,15 @@ const page = path.join(here, 'narration.html');
 // it passed four runs out of five, which is the worst way for a test to be
 // wrong: a real ceiling reported as a flake. Any mode that records the deck
 // needs the recording budget, whatever else its name says.
-const BUDGET = (m) => (m.startsWith('record') ? 120_000 : 30_000);
+//
+// And `reccount` then did it again (#566): it records the deck TWICE — a
+// first take and a second one over the same notes, up to 60s of virtual time
+// each — and its name does not start with `record`, so it ran on 30s. It
+// failed as "no results marker found" once a day or so, in CI and locally,
+// and passed alone. A mode that records more than once is named here, not
+// left to what its name happens to start with.
+// Two takes, twice the recording budget.
+const BUDGET = (m) => (m === 'reccount' ? 240_000 : m.startsWith('record') ? 120_000 : 30_000);
 
 /** How long ONE mode may take on the wall clock before it is treated as stuck. */
 const MODE_WALL_MS = Number(process.env.NARRATION_MODE_TIMEOUT_MS ?? 90_000);
