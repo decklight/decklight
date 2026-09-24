@@ -122,3 +122,28 @@ test('a deck that carries no runtime is served with the engine, its stylesheet a
   fs.writeFileSync(path.join(dir, 'deck.html'), linked);
   assert.equal(await (await fetch(`${base}/`)).text(), linked.replace('</body>', '<script>window.probe = 1</script></body>').replace('<script>window.probe = 1</script>\n<script>window.probe = 1</script>', '<script>window.probe = 1</script>'), 'idempotent: a linked deck passes through');
 });
+
+test('a data deck carrying a theme `theme add` pasted in keeps its own theme — served and bundled', async () => {
+  // Before 0.9.0, `theme add` pasted a theme into the deck as a
+  // <style data-theme-added> block. That block is an EXTRA over the deck's
+  // base theme, never the base itself: taken for one, a served data deck got
+  // no theme link at all, and a bundle carried somebody else's theme as its
+  // only one.
+  const { linkRuntime } = await import('../cli/runtime-link.mjs');
+  const { execFileSync } = await import('node:child_process');
+  const deck = '<!doctype html><html><head><title>T</title>\n'
+    + '<script type="application/json" data-decklight-config>{ "decklight": "0.9.0", "theme": "ember" }</script>\n'
+    + '<style data-theme="nord-deep" data-theme-added media="not all">.decklight { --bg: #101018; }</style>\n'
+    + '</head><body><div class="decklight"><section>a</section></div></body></html>';
+  assert.match(linkRuntime(deck), /<link rel="stylesheet" href="themes\/ember\.css">/, 'served with its own theme linked');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-added-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'deck.html'), deck);
+    execFileSync(process.execPath, [path.join(PKG_ROOT, 'cli/decklight.mjs'), 'bundle', 'deck.html', '-o', 'out.html'],
+      { cwd: dir, stdio: 'pipe' });
+    const out = fs.readFileSync(path.join(dir, 'out.html'), 'utf8');
+    assert.match(out, /<style data-theme="ember">/, 'bundled with its own theme, active');
+    assert.match(out, /<style data-theme="nord-deep" data-theme-added media="not all">/, 'and the added one still an extra');
+  } finally { rmTemp(dir); }
+});

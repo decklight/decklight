@@ -349,15 +349,19 @@ const themeLinkRe = /<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']*them
 const themeLinkM = html.match(themeLinkRe);
 // An imported deck whose theme was derived from the file's own palette embeds
 // that one theme and nothing else (DECK_IMPORT): it has no link to flatten and
-// no runtime yet, and the theme it has is the theme it keeps.
-const ownTheme = !themeLinkM && linked && /<style\b[^>]*\bdata-theme\b/i.test(html);
+// no runtime yet, and the theme it has is the theme it keeps. An ADDED theme
+// (`data-theme-added`, what `theme add` pasted in before 0.9.0) is not the
+// deck's own: it is an extra over the base theme, and taking it for the base
+// bundled a deck whose only theme was somebody else's.
+const OWN_THEME_STYLE = /<style\b(?![^>]*\bdata-theme-added\b)[^>]*\bdata-theme\b/i;
+const ownTheme = !themeLinkM && linked && OWN_THEME_STYLE.test(html);
 if (!themeLinkM && !ownTheme) {
   // A deck with its themes already INLINE is the common way to arrive here —
   // `decklight init` scaffolds one, and the README's own quick start goes
   // straight from init to bundle. Blaming a missing <link> sends that reader
   // looking for markup they were never supposed to have, when the honest
   // answer is that there is nothing left to flatten.
-  const inlined = /<style\b[^>]*\bdata-theme\b/i.test(html);
+  const inlined = OWN_THEME_STYLE.test(html);
   fail(inlined
     ? 'this deck is already self-contained — its themes are inline <style data-theme> blocks.\n'
       + '  bundle is for a deck that REFERENCES dist/ and themes/ by URL; there is nothing here to flatten.\n'
@@ -378,7 +382,7 @@ const themeFile = (name) => {
 
 let themeNames;
 if (ownTheme) {
-  themeNames = [html.match(/<style\b[^>]*\bdata-theme\s*=\s*["']([\w-]+)["']/i)?.[1] ?? 'own'];
+  themeNames = [html.match(/<style\b(?![^>]*\bdata-theme-added\b)[^>]*\bdata-theme\s*=\s*["']([\w-]+)["']/i)?.[1] ?? 'own'];
   if (themesSel !== 'all' && themesSel !== 'current') notices.push('--themes ignored: the deck embeds a theme of its own, and that is the one it keeps');
 } else if (themesSel === 'current') {
   themeNames = [linkedTheme];
