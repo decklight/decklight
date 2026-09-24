@@ -90,7 +90,8 @@ import { runMain } from './util.mjs';
 // "agent". (`decklight author` builds this argv itself and was never affected.)
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
-import { configBlock, hasEmbeddedRuntime } from './runtime-link.mjs';
+import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
+import { linkAddedThemes } from './theme-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
@@ -1608,13 +1609,24 @@ export async function editMain(args, { onListen = null } = {}) {
     } catch (e) { return json(500, { ok: false, error: oneline(e) }); }
   }
 
+  /**
+   * A page this server writes ITSELF — an old version of the deck, a template
+   * preview — goes out the way `staticFiles` sends every other page: a deck
+   * that is data (#520) gets the runtime, its stylesheet, its theme and the
+   * themes it marks referenced. Without it the frame drew the deck's bare
+   * markup, dark text on the panel's dark ground — a black rectangle. The
+   * `<base>` comes first, so those references resolve from the root, where
+   * `staticFiles` answers them, not from under /edit/.
+   */
+  const asServed = (html) => linkAddedThemes(linkRuntime(withBaseHref(html)));
+
   function deckAtRoute({ res, url, json, CORS }) {
     if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
     try {
       // <base href="/"> because this is served from /edit/, not the root:
       // without it every relative ../dist and ./casts path in the deck
       // would resolve one directory too deep and the preview would be bare.
-      const html = withBaseHref(deckAt(deckPath, url.searchParams.get('ref') || '', root));
+      const html = asServed(deckAt(deckPath, url.searchParams.get('ref') || '', root));
       res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
       return res.end(html);
     } catch (e) {
@@ -2108,7 +2120,7 @@ export async function editMain(args, { onListen = null } = {}) {
     );
     const out = style.css ? mergeHeadStyle(base, name, style.css) : base;
     res.writeHead(200, { ...CORS, 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
-    return res.end(withBaseHref(out));
+    return res.end(asServed(out));
   }
 
   // Not a new slide: a slide you already wrote, wearing a template slide's
