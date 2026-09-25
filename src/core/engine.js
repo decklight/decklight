@@ -36,6 +36,18 @@ import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { readPref, writePref } from './prefs.js';
 
+/**
+ * ⌘Z on a Mac, Ctrl+Z everywhere else — and ⇧ with it for redo: the undo
+ * every editor has trained, beside the bare Z. One platform's chord only, so
+ * Ctrl+Z on a Mac stays whatever the Mac makes it, as ⌘Z on Windows does.
+ */
+const IS_MAC = typeof navigator !== 'undefined'
+  && /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
+const UNDO_CHORD = IS_MAC ? '⌘Z' : 'Ctrl+Z';
+const isUndoChord = (e) => (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)
+  && !e.altKey && (e.key === 'z' || e.key === 'Z');
+
+
 const DEFAULTS = {
   transition: 'fade',
   hash: true,
@@ -830,7 +842,7 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Move slide up (dev)', alias: 'reorder earlier before swap', run: () => editmode.slideOp('up') },
       editmode.available() && { label: 'Move slide down (dev)', alias: 'reorder later after swap', run: () => editmode.slideOp('down') },
       editmode.available() && { label: 'Delete this slide (dev)', alias: 'remove slide drop', run: () => editmode.slideOp('delete') },
-      { label: 'Undo deck edit (dev)', hint: 'Z', alias: 'revert back history', run: () => deckHistory('undo') },
+      { label: 'Undo deck edit (dev)', hint: `Z · ${UNDO_CHORD}`, alias: 'revert back history', run: () => deckHistory('undo') },
       { label: 'Redo deck edit (dev)', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') },
       { label: 'Ask agent… (dev)', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk },
       { label: 'Messages', hint: '`', alias: 'log toast notifications warnings why voice stopped history', run: toggleMessages },
@@ -1813,7 +1825,7 @@ export function init(userConfig = {}) {
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
       <tr><td>L / ⇧L</td><td>slide layout — writes the file (author mode)</td></tr>
-      <tr><td>Z / ⇧Z</td><td>undo / redo deck edits (author mode)</td></tr>
+      <tr><td>Z / ⇧Z · ${UNDO_CHORD} / ${IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z'}</td><td>undo / redo deck edits (author mode)</td></tr>
       <tr><td>A</td><td>ask an AI agent to edit the deck (author mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
@@ -1941,13 +1953,18 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // The undo chord is the one modifier combination that goes on: BELOW the
+    // typing guard on purpose, so in a text box the browser's own undo is the
+    // one you get, and past the overlays below, so an open dialog still owns it.
+    const undoChord = isUndoChord(e);
+    if (!undoChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
     // An overlay that is up owns the keyboard — whether or not it wants this
     // particular key. Registration order (see `overlays.register` calls) is the
     // priority order the long if-chain here used to encode.
     const top = overlays.active();
     if (top) {
-      if (top.keydown(e)) { e.preventDefault(); return; }
+      // never offered to an overlay as a `z` — a filter would type it
+      if (!undoChord && top.keydown(e)) { e.preventDefault(); return; }
       // A modal overlay swallows even the keys it did not want — that is what
       // stops `o` opening the overview behind an open dialog. A NON-modal one
       // lets the rest fall through to the deck, so you can arrow through slides
@@ -1956,6 +1973,11 @@ export function init(userConfig = {}) {
       // while your last click was on the deck.
       const modal = typeof top.modal === 'function' ? top.modal() : top.modal;
       if (modal !== false) return;
+    }
+    if (undoChord) {
+      deckHistory(e.shiftKey ? 'redo' : 'undo');
+      e.preventDefault();   // ⌘Z / Ctrl+Z has no page default worth keeping here
+      return;
     }
     // positional, so it cannot be a `case` in a switch over e.key
     if (isMsgKey(e)) { toggleMessages(); e.preventDefault(); return; }

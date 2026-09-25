@@ -251,6 +251,7 @@
           return json({ ok: true, slide: b.op === 'delete' ? b.slide : b.slide + 1, total: 5, undo: 1, redo: 0 });
         }
         if (u.includes('/edit/undo')) return json({ ok: true, undo: 0, redo: 1 });
+        if (u.includes('/edit/redo')) return json({ ok: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'editor') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1268,7 +1269,40 @@
         r.undoWaitsForTheSlideOp = undos() === undosBeforeOp + 1
           && posts().findLastIndex((u) => u.includes('/edit/undo')) > posts().lastIndexOf('LANDED slide op');
 
-        r.PASS = r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
+        // ⌘Z on a Mac, Ctrl+Z elsewhere — the undo every editor trained —
+        // does what Z does, and ⇧ with it redoes. The OTHER platform's chord is
+        // not taken, and inside text being edited the browser's own undo wins.
+        const mac = /Mac|iPhone|iPad/.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
+        const chord = (shiftKey = false, on = document.body) => on.dispatchEvent(new KeyboardEvent('keydown',
+          { key: 'z', bubbles: true, cancelable: true, shiftKey, ...(mac ? { metaKey: true } : { ctrlKey: true }) }));
+        const redos = () => posts().filter((u) => u.includes('/edit/redo')).length;
+        const u0 = undos();
+        chord();
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.chordUndoes = undos() === u0 + 1;
+        const u1 = undos();
+        press('z', mac ? { ctrlKey: true } : { metaKey: true });
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.otherPlatformsChordLeftAlone = undos() === u1;
+        const r0 = redos();
+        chord(true);
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.shiftChordRedoes = redos() === r0 + 1;
+        deck.goto(1, 0);
+        await settle();
+        const h1c = document.querySelector('.decklight-stage > section.active h1');
+        dbl(h1c);
+        const u2 = undos();
+        chord(false, h1c);
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.chordInTextIsTheBrowsers = undos() === u2;
+        h1c.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        const help = (() => { press('?'); const t = document.querySelector('.help-card')?.textContent ?? ''; press('?'); return t; })();
+        r.helpNamesTheChord = help.includes(mac ? '⌘Z' : 'Ctrl+Z');
+
+        r.PASS = r.chordUndoes && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes
+          && r.chordInTextIsTheBrowsers && r.helpNamesTheChord
+          && r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
           && r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
           && r.editableReleased && r.escapeReverts && r.escapeWroteNothing && r.unchangedWritesNothing
           && r.paletteRunsASlideOp && r.landsOnTheNewSlide && r.saysWhatItDid
