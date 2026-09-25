@@ -673,15 +673,15 @@ unless --no-skill is given. The deck file is only touched with --force.
   const plan = planGit({ args: argv, tty, inRepo: inGitRepo(root) });
   let { action } = plan;
   if (action === 'ask') {
-    action = (await askYes('  create a git repository so your edits are auto-committed? [Y/n] '))
+    action = (await askYes('  create a git repository so every version of the deck is kept? [Y/n] '))
       ? 'create' : 'skip';
   }
   if (action === 'create') {
     note(initRepo(root));
     // Stated, not asked: the mode is already the default, so a fifth prompt
     // would only offer what is on. The line names the flag that turns it off.
-    note("  commits land one per agent edit, with the agent's own message"
-      + ' (--git-mode timer for a plain cadence)');
+    note('  your edits are snapshotted as you go and committed when you press K;'
+      + " an agent's edit commits itself, with its own message (--git-mode timer for a plain cadence)");
     // …and the OTHER half of what those commits say. Asked here, once, because
     // this is the moment the commits it governs start existing — and asked at
     // all, rather than defaulted silently, because the answer sends the deck's
@@ -699,7 +699,7 @@ unless --no-skill is given. The deck file is only touched with --force.
         : '  commit subjects stay generic (--commit-messages turns it on)');
     }
   }
-  else if (action === 'hint') note('  git: no repository here — pass --git to create one and auto-commit the deck');
+  else if (action === 'hint') note('  git: no repository here — pass --git to create one and keep every version of the deck');
 
   // ── the remote offer — the deck exists nowhere else until this happens ───
   // ONLY for a repository decklight just created. A repo that was already here

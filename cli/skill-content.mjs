@@ -145,9 +145,10 @@ A script written the way people write for a recording works as it is:
 \`[slow]\` before a sentence (or \`[slow]…[/slow]\` around a phrase) says it slower.
 
 **Commit your own changes when an authoring server is running.** \`decklight
-author\` auto-commits the deck, but on a timer and under a generic \`autosave\`
-message — it cannot tell your edits from anyone else's, because it did not
-start you. When you finish one logical change, say so:
+author\` does not commit edits for anyone: it snapshots the deck silently on
+\`decklight/wip\` and commits when told to — the person presses K; only an
+agent it started itself (A) commits on its own — and it did not start you. So
+when you finish one logical change, say so:
 
 \`\`\`sh
 curl -sf -X POST localhost:8788/edit/commit \\

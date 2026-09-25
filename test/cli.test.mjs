@@ -519,7 +519,7 @@ test('init --git never clobbers an existing .gitignore', () => {
 test('init headless without a flag prints the authoring hint and touches no git', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
   const out = execFileSync('node', [CLI, 'init', '--dir', dir], { encoding: 'utf8' });
-  assert.match(out, /git: no repository here — pass --git to create one and auto-commit the deck/);
+  assert.match(out, /git: no repository here — pass --git to create one and keep every version of the deck/);
   assert.equal(fs.existsSync(path.join(dir, '.git')), false);
   // the epilogue is present, plain — piped output carries zero escape codes
   assert.ok(out.includes(pathToFileURL(path.join(dir, 'deck.html')).href));
@@ -565,7 +565,7 @@ test('init on a real TTY asks the git question; Y creates the repo and commits',
     ['-qec', `node "${CLI}" init "Repo Talk" --dir "${dir}" --no-skill`, '/dev/null'],
     { encoding: 'utf8', input: 'y\n', env: gitIdEnv });
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /create a git repository so your edits are auto-committed\? \[Y\/n\]/);
+  assert.match(r.stdout, /create a git repository so every version of the deck is kept\? \[Y\/n\]/);
   // init prints the command instead of asking, or starting anything
   assert.doesNotMatch(r.stdout, /start editing now\?/);
   assert.match(r.stdout, /decklight author /, 'the command that starts editing is printed');
@@ -1388,7 +1388,7 @@ test('init states the commit policy when it creates a repository', (t) => {
   const res = spawnSync(process.execPath, [CLI, 'init', 'My Deck', '--git', '--no-skill'],
     { cwd: dir, encoding: 'utf8' });
   assert.equal(res.status ?? 0, 0, res.stderr);
-  assert.match(res.stdout, /commits land one per agent edit/);
+  assert.match(res.stdout, /committed when you press K; an agent.s edit commits itself/);
   assert.match(res.stdout, /--git-mode timer/, 'names the way out');
 
   // and says nothing about it when it did not create a repo
@@ -1396,7 +1396,7 @@ test('init states the commit policy when it creates a repository', (t) => {
   t.after(() => rmTemp(plain));
   const noGit = spawnSync(process.execPath, [CLI, 'init', 'My Deck', '--no-git', '--no-skill'],
     { cwd: plain, encoding: 'utf8' });
-  assert.doesNotMatch(noGit.stdout, /commits land one per agent edit/);
+  assert.doesNotMatch(noGit.stdout, /committed when you press K; an agent.s edit commits itself/);
 });
 
 test('no command resolves a filesystem path through a URL pathname', () => {
