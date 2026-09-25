@@ -88,7 +88,7 @@ export function identifyStranger(port, { exec = null } = {}) {
   }
 }
 
-/** Ask it to stop — it auto-commits and exits, same as its own Ctrl-C. Resolves once the port is free. */
+/** Ask it to stop — it saves (a snapshot, or a commit under --git-mode timer) and exits, same as its own Ctrl-C. Resolves once the port is free. */
 export async function shutdownEditServer(port, host = '127.0.0.1') {
   try {
     await fetch(`http://${host}:${port}/edit/shutdown`, { method: 'POST', signal: AbortSignal.timeout(800) });

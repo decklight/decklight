@@ -382,7 +382,7 @@ export async function devMain(args) {
   if (!args.includes('--git') && !args.includes('--no-git') && !inGitRepo(process.cwd())) {
     if (process.stdin.isTTY && process.stdout.isTTY) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
-      const answer = await rl.question('  no git repository here — create one and auto-commit the deck as you edit? [Y/n] ');
+      const answer = await rl.question('  no git repository here — create one so every version of the deck is kept? [Y/n] ');
       const yes = !/^n/i.test(answer.trim());
       args = [...args, yes ? '--git' : '--no-git'];
       // Only while we are ALREADY setting git up, and only when an agent could
@@ -412,7 +412,7 @@ export async function devMain(args) {
       rl.close();
       plan = planServices({ args, saved: loadTtsConfig() });
     } else {
-      console.log('  git: no repository here — pass --git to create one and auto-commit the deck');
+      console.log('  git: no repository here — pass --git to create one and keep every version of the deck');
     }
   }
   // piper is installed and chosen, but its voice model is not on disk. The
