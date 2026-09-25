@@ -49,9 +49,10 @@
 // agent's edit back exactly like the player's own.
 //
 // Git: with --git (or when the deck already sits in a repository and
-// --no-git wasn't passed) the server auto-commits the deck on a regular
-// basis — every --commit-every seconds when it actually changed, plus a
-// final commit on Ctrl-C. --git also creates the repository when none
+// --no-git wasn't passed) the server snapshots the deck silently on
+// refs/decklight/wip and commits it when you say so (K) — an agent's own
+// edit commits itself; --git-mode timer keeps the old commit-every-N-seconds
+// cadence with a final commit on Ctrl-C. --git also creates the repository when none
 // exists — seeded with a starter .gitignore (createRepo, below).
 // `decklight author` asks interactively before passing --git down.
 

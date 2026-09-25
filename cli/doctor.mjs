@@ -47,7 +47,7 @@ export function diagnose({
   const ffmpeg = bin('ffmpeg'), ffprobe = bin('ffprobe');
   row('ffmpeg', ffmpeg && ffprobe ? ffmpeg : null, 'video (a narrated mp4 of the deck)',
     installLine('ffmpeg', platform));
-  row('git', bin('git'), 'auto-commits in author mode · history · restore · publish · review submit',
+  row('git', bin('git'), 'snapshots and commits in author mode · history · restore · publish · review submit',
     installLine('git', platform));
   row('gh', bin('gh'), "init's GitHub remote offer · review submit --pr",
     installLine('gh', platform));
