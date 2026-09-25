@@ -34,8 +34,9 @@ block, nothing else — plus a
 `.claude/skills/decklight/` skill and an `AGENTS.md`, so Claude Code (or any
 agent that reads `AGENTS.md`) has the real authoring contract on hand instead of
 guessing from Reveal.js memory. Then it asks whether to open the deck in author
-mode: live reload, edits from the browser, an AI agent on `A`, and every edit
-auto-committed. Say yes. (`npx decklight@latest init "My Talk"` does the same
+mode: live reload, edits from the browser, an AI agent on `A`, and git
+underneath — your work snapshotted as you go, committed when you press `K`.
+Say yes. (`npx decklight@latest init "My Talk"` does the same
 in the current directory.)
 
 After that you rarely need a command name:
