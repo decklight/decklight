@@ -122,6 +122,11 @@
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
             commit: { dirty: true, lines: 7, sinceMs: 0, nag: false, canWrite: true, messages: false } });
         }
+        // The agent's draft, held for a second so the wait can be watched.
+        if (u.includes('/edit/commit/subject')) {
+          await new Promise((ok) => setTimeout(ok, 1000));
+          return json({ ok: true, subject: 'split the crowded video slides' });
+        }
         if (u.includes('/edit/commit') && (init?.method ?? 'GET') === 'GET') {
           return json({ ok: true, dirty: true, lines: 7, sinceMs: 0, nag: false,
             canWrite: true, messages: false, deck: 'engine.html' });
@@ -1943,8 +1948,35 @@
         r.cmdEnterCommits = window.__committed === 'tighten the closing slide';
         r.closesAfterCommitting = !document.querySelector(O);
 
+        // Asking for a subject shows it is thinking — ASCII only, moving, in
+        // the box where the subject will land and on the button — and stops,
+        // leaving the subject, once it arrives.
+        press('k');
+        await settle();
+        const write = document.querySelector('.cm-write');
+        const box2 = document.querySelector('.cm-input');
+        const idle = box2.placeholder;
+        write.click();
+        await new Promise((ok) => setTimeout(ok, 60));
+        const a = write.textContent;
+        const aBox = box2.placeholder;          // read together: it is one frame
+        await new Promise((ok) => setTimeout(ok, 300));
+        const b = write.textContent;
+        r.saysItIsThinking = /^thinking [|/\\-]$/.test(a) && aBox === a;
+        r.itMoves = a !== b && /^thinking [|/\\-]$/.test(b);
+        r.asciiOnly = /^[\x20-\x7e]+$/.test(a + b);
+        await new Promise((ok) => setTimeout(ok, 1000));
+        r.subjectLands = box2.value === 'split the crowded video slides';
+        r.stopsThinking = write.textContent === 'write another' && box2.placeholder === idle
+          && !write.classList.contains('cm-thinking');
+        const later = write.textContent;
+        await new Promise((ok) => setTimeout(ok, 300));
+        r.staysStopped = write.textContent === later;
+        escapeUntilClosed(O);
+
         r.PASS = r.bareKopens && r.bareKtoggles && r.metaKopens && r.metaKclosesFromTheBox
-          && r.ctrlKopens && r.cmdEnterCommits && r.closesAfterCommitting;
+          && r.ctrlKopens && r.cmdEnterCommits && r.closesAfterCommitting
+          && r.saysItIsThinking && r.itMoves && r.asciiOnly && r.subjectLands && r.stopsThinking && r.staysStopped;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

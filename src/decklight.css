@@ -1176,6 +1176,9 @@
 .decklight-commit .cm-go:hover { background: rgba(122, 214, 163, .26); }
 .decklight-commit .cm-write { background: rgba(255, 255, 255, .08); }
 .decklight-commit .cm-write:hover { background: rgba(255, 255, 255, .16); }
+/* the thinking mark changes every frame: a fixed-width face keeps the button
+   from jittering as | / - \ swap and the seconds join */
+.decklight-commit .cm-write.cm-thinking { font-family: var(--font-mono, ui-monospace, monospace); }
 
 .decklight-agent-chip {
   position: absolute;
