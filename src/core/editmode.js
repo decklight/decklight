@@ -23,6 +23,7 @@ import { agentChipText, boundedFetch, commitChipText, needsDevMode, pushToastTex
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { createDock } from './dock.js';
+import { thinking } from './thinking.js';
 import { hljs } from '../code/code.js';
 
 /** Wire the dev-server features to a deck. */
@@ -167,7 +168,7 @@ export function createEditMode({
     write.className = 'narr-row narr-sel cm-write';
     write.setAttribute('role', 'button');
     write.tabIndex = 0;
-    write.textContent = state.messages ? 'writing one…' : 'write one for me';
+    write.textContent = 'write one for me';
     const go = document.createElement('div');
     go.className = 'narr-row narr-sel cm-go';
     go.setAttribute('role', 'button');
@@ -181,11 +182,18 @@ export function createEditMode({
     setTimeout(() => input.focus(), 0);
 
     // The agent's draft. Never overwrites what you have already typed: it is a
-    // proposal, and a proposal that eats your sentence is not one.
+    // proposal, and a proposal that eats your sentence is not one. While it is
+    // being written the box says so where the subject will land, and the
+    // button with it — moving, so a slow agent never reads as a stuck window.
+    const placeholder = input.placeholder;
     const ask = async () => {
       if (commitAsking) return;
       commitAsking = true;
-      write.textContent = 'writing one…';
+      write.classList.add('cm-thinking');
+      const stop = thinking((text) => {
+        write.textContent = text;
+        input.placeholder = text;
+      });
       try {
         const r = await fetch(editBase + '/edit/commit/subject', { method: 'POST' });
         const j = await r.json();
@@ -195,7 +203,12 @@ export function createEditMode({
         write.textContent = j.subject ? 'write another' : 'nothing to say about it';
       } catch (e) {
         if (commitEl) write.textContent = `couldn't — ${String(e.message || e).slice(0, 40)}`;
-      } finally { commitAsking = false; }
+      } finally {
+        stop();
+        write.classList.remove('cm-thinking');
+        input.placeholder = placeholder;
+        commitAsking = false;
+      }
     };
     write.addEventListener('click', ask);
     if (state.messages) ask();     // pre-generated when the option is on
