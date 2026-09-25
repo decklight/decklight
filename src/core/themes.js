@@ -260,7 +260,9 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     }
     const extras = [...addedThemes, ...offered.keys(), ...Object.keys(customThemes)];
     if (genTheme && !customThemes[genTheme.name]) extras.push(genTheme.name);
-    list = [...list, ...extras.filter((n) => !list.includes(n))];
+    // one row per name: a marketplace theme the author has applied but not
+    // marked is BOTH linked on the page and offered by its marketplace
+    list = [...new Set([...list, ...extras])];
     if (PACKS) {
       // cycling and the picker walk pack by pack: order by pack, then by the
       // pack's own order; customs/generated keep their relative order at the end
@@ -580,7 +582,9 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         : customThemes[name] ? { name, tokens: customThemes[name] } : genTheme;
       return location.pathname + '?embedded&gen=' + b64uEncode(cand) + hash;
     }
-    const o = !addedThemes.has(name) && offered.get(name);
+    // an unmarked theme is not in the preview's page even after this page
+    // linked it on demand, so the preview is told where to find it
+    const o = !marked.has(name) && offered.get(name);
     return location.pathname + '?embedded&theme=' + encodeURIComponent(name)
       + (o ? '&from=' + encodeURIComponent(o.marketplace) : '') + hash;
   }
@@ -776,7 +780,9 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         : customThemes[name] ? { name, tokens: customThemes[name] } : genTheme;
       return { gen: cand };
     }
-    const o = !addedThemes.has(name) && offered.get(name);
+    // an unmarked theme is not in the preview's page even after this page
+    // linked it on demand, so the preview is told where to find it
+    const o = !marked.has(name) && offered.get(name);
     return o ? { theme: name, from: o.marketplace } : { theme: name };
   }
   // one document per picker session: the first row loads it, every row after

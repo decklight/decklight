@@ -580,6 +580,15 @@
         r.appliesUnmarked = !!onDemand && onDemand.media === 'all'
           && /decklight-theme\/nord-pack\/nord-deep\.css$/.test(onDemand.href);
         r.closesOnApply = !document.querySelector(P);
+        // …and applied, it is still ONE theme: linked on the page and offered
+        // by its marketplace is one name, not two rows — and the preview of it
+        // is still told where it lives, since the preview's page never had it
+        press('t');
+        await settle();
+        find(/▸ Nord Pack/)?.click();
+        r.listedOnceAfterApply = rows().filter((x) => /^nord-deep/.test(x.textContent)).length === 1;
+        r.previewToldWhere = /[?&]from=nord-pack/.test(document.querySelector(`${P} iframe`)?.getAttribute('src') ?? '');
+        escapeUntilClosed(P);
         // nothing in the player fetched a stylesheet itself
         r.playerNeverFetchedCss = !CALLS.get.some((u) => /\.css/.test(u));
 
@@ -587,6 +596,7 @@
           && r.namesUnfetchedCatalogs && r.listingWasAGet && r.listsMarketplaceThemes && r.saysUnmarked
           && r.captionDescribes && r.refusalKeepsPickerOpen && r.refusalNamesProblems
           && r.marksByQualifiedRef && r.markKeepsPickerOpen && r.appliesUnmarked && r.closesOnApply
+          && r.listedOnceAfterApply && r.previewToldWhere
           && r.playerNeverFetchedCss;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
