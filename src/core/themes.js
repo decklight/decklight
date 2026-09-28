@@ -535,8 +535,10 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   /**
    * Space on a marketplace theme's row: mark it for the deck, or unmark it.
    * The write is the author server's — one line in the config block, one undo
-   * entry — and the watcher's reload brings the deck back with the list as
-   * the file now says it is.
+   * entry. It is asked for QUIETLY: the picker is still open, the author is
+   * still choosing, and a reload would close it under them — so the row turns
+   * ● or ○ in place and the selection stays where it was. Marking changes what
+   * the deck carries, not what is on screen, so nothing else needs the reload.
    */
   function toggleMark(name) {
     if (!authoring() || !refOf(name)) return false;
@@ -558,7 +560,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       const r = await fetch(authorBase() + '/edit/theme/mark', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ref, marked: on }),
+        body: JSON.stringify({ ref, marked: on, quiet: true }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) {
@@ -566,6 +568,12 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         if (caption) caption.textContent = why || `the author server said ${r.status}`;
         toast(`${ref}: ${j.error || 'refused'}`, 3600);
         return;
+      }
+      if (on) marked.add(name); else marked.delete(name);
+      if (pickerEl) {
+        const at = pickerSel;
+        renderPickerList();
+        selectPickerRow(at, true);
       }
       toast(on ? `${name} marked — it travels with the deck · Z takes it back` : `${name} unmarked`, 2800);
       debugLog('theme', `${ref} ${on ? 'marked' : 'unmarked'}`);
@@ -582,9 +590,10 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         : customThemes[name] ? { name, tokens: customThemes[name] } : genTheme;
       return location.pathname + '?embedded&gen=' + b64uEncode(cand) + hash;
     }
-    // an unmarked theme is not in the preview's page even after this page
-    // linked it on demand, so the preview is told where to find it
-    const o = !marked.has(name) && offered.get(name);
+    // a theme the picker offered from a marketplace is not in the preview's
+    // page — not even once marked here, since the page was served before the
+    // mark — so the preview is told where to find it (it links it only if absent)
+    const o = offered.get(name);
     return location.pathname + '?embedded&theme=' + encodeURIComponent(name)
       + (o ? '&from=' + encodeURIComponent(o.marketplace) : '') + hash;
   }
@@ -780,9 +789,9 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         : customThemes[name] ? { name, tokens: customThemes[name] } : genTheme;
       return { gen: cand };
     }
-    // an unmarked theme is not in the preview's page even after this page
-    // linked it on demand, so the preview is told where to find it
-    const o = !marked.has(name) && offered.get(name);
+    // the same rule as previewSrc: an offered theme may be missing from the
+    // preview's page, marked here or not
+    const o = offered.get(name);
     return o ? { theme: name, from: o.marketplace } : { theme: name };
   }
   // one document per picker session: the first row loads it, every row after

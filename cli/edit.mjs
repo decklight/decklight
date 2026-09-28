@@ -1326,6 +1326,7 @@ export async function editMain(args, { onListen = null } = {}) {
   };
 
   let pending = null;
+  let quietWrite = null; // the bytes of a write that updates the page itself (themeMarkRoute)
   // The DIRECTORY, not the file. A path watch follows the inode, and an
   // atomic write — temp file + rename, which is how an agent's editor and
   // most careful tools save — replaces the inode: the watcher then sits deaf
@@ -1337,6 +1338,18 @@ export async function editMain(args, { onListen = null } = {}) {
     if (filename && filename !== basename(deckPath)) return;
     clearTimeout(pending);
     pending = setTimeout(() => {
+      // A QUIET write — a theme marked from the open picker, which updates
+      // itself in place — is the one change that must not reload: a reload
+      // closes the picker the author is still choosing in. Skipped only when
+      // the file is still exactly what that write put there; any other change
+      // since (an editor save, an undo) reloads as it always has.
+      const quiet = quietWrite;
+      quietWrite = null;
+      if (quiet !== null) {
+        let now = null;
+        try { now = readFileSync(deckPath, 'utf8'); } catch { /* gone — reload says so */ }
+        if (now === quiet) { console.log('  changed → theme marks, updated in place'); return; }
+      }
       clients.raw('data: reload\n\n');
       console.log(`  changed → reload × ${clients.size}`);
     }, 150);
@@ -1916,6 +1929,10 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     if (out.changed) {
       history.record(before);   // Z takes a mark back like any other edit
+      // The picker asks for `quiet`: it shows the new mark itself and stays
+      // open. Everyone else — the export card's "mark and carry on", which
+      // resumes across the reload — gets the reload.
+      if (req.quiet === true) quietWrite = out.html;
       writeFileAtomic(deckPath, out.html);
       console.log(`  theme: ${on ? 'marked' : 'unmarked'} ${deckRef}`);
     }

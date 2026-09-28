@@ -158,6 +158,54 @@ const mark = (base, ref, marked = true) => fetch(`${base}/edit/theme/mark`, {
 });
 const config = (html) => JSON.parse(html.match(/data-decklight-config>([\s\S]*?)<\/script>/)[1]);
 
+/** Did the live-reload stream say `reload` within `ms`? */
+async function reloadWithin(base, ms, during) {
+  const ctrl = new AbortController();
+  const res = await fetch(`${base}/edit/events`, { signal: ctrl.signal });
+  const reader = res.body.getReader();
+  let seen = '';
+  const reading = (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        seen += new TextDecoder().decode(value);
+      }
+    } catch { /* aborted */ }
+  })();
+  await during();
+  await new Promise((ok) => setTimeout(ok, ms));
+  ctrl.abort();
+  await reading;
+  return /^data: reload$/m.test(seen);
+}
+
+test('a mark from the open picker updates it in place — the page is not reloaded under it', async (t) => {
+  // Marking writes the deck, and every write the watcher sees reloads the
+  // page — which closed the picker the author was still choosing in. The
+  // picker asks for `quiet` and paints the mark itself; anything else still
+  // reloads, the export card's "mark and carry on" included (it resumes
+  // across that reload).
+  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const post = (body) => fetch(`${base}/edit/theme/mark`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const quiet = await reloadWithin(base, 800, () => post({ ref: 'nord-deep@nord-pack', marked: true, quiet: true }));
+  assert.equal(quiet, false, 'a quiet mark sends no reload');
+  assert.deepEqual(config(readFileSync(deck, 'utf8')).addedThemes, ['nord-deep@nord-pack'], 'and it was written');
+
+  const loud = await reloadWithin(base, 800, () => post({ ref: 'nord-deep@nord-pack', marked: false }));
+  assert.equal(loud, true, 'an ordinary mark still reloads');
+
+  // a quiet mark followed by some OTHER change before the watcher settles is
+  // not quiet any more: the file is not what the mark wrote
+  const mixed = await reloadWithin(base, 800, async () => {
+    await post({ ref: 'nord-deep@nord-pack', marked: true, quiet: true });
+    writeFileSync(deck, readFileSync(deck, 'utf8').replace('<h2>A</h2>', '<h2>B</h2>'));
+  });
+  assert.equal(mixed, true, 'a change on top of it reloads');
+});
+
 test('marking records a reference in the config block — never the CSS — as one undo entry', async (t) => {
   const { base, deck } = await startAuthor(t, home(marketplace()));
   const before = readFileSync(deck, 'utf8');

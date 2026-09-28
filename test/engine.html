@@ -577,7 +577,16 @@
         const marks = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark'));
         r.marksByQualifiedRef = marks.length === 2 && marks[1].body.ref === 'nord-deep@nord-pack'
           && marks[1].body.marked === true;
+        // …and QUIETLY: the author is still choosing, so the server must not
+        // reload the page under the open picker — the row turns ● in place,
+        // and the selection stays on it
+        r.marksQuietly = marks[1]?.body.quiet === true;
         r.markKeepsPickerOpen = !!document.querySelector(P);
+        const nordNow = find(/nord-deep/);
+        r.rowTurnsMarked = !!nordNow && nordNow.classList.contains('tp-marked')
+          && /●/.test(nordNow.querySelector('.tp-tag')?.textContent ?? '');
+        r.selectionStays = nordNow?.classList.contains('tp-selected') === true;
+        r.captionSaysMarked = /marked — travels with the deck/.test(caption());
 
         // and an unmarked theme can still be LOOKED AT: applied, it is linked
         // from the same relative path a marked one is served at
@@ -601,7 +610,8 @@
         r.PASS = r.paletteRow && r.paletteRouteOpensThePicker && r.marketplaceIsAPack
           && r.namesUnfetchedCatalogs && r.listingWasAGet && r.listsMarketplaceThemes && r.saysUnmarked
           && r.captionDescribes && r.refusalKeepsPickerOpen && r.refusalNamesProblems
-          && r.marksByQualifiedRef && r.markKeepsPickerOpen && r.appliesUnmarked && r.closesOnApply
+          && r.marksByQualifiedRef && r.marksQuietly && r.markKeepsPickerOpen
+          && r.rowTurnsMarked && r.selectionStays && r.captionSaysMarked && r.appliesUnmarked && r.closesOnApply
           && r.listedOnceAfterApply && r.previewToldWhere
           && r.playerNeverFetchedCss;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
