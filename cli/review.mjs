@@ -43,6 +43,7 @@ import { basename, dirname, resolve, relative, sep } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
+import { deckFromUrl } from './clone-deck.mjs';
 import { runMain } from './util.mjs';
 import { staticFiles, allowEditRequest, listenTakingOverIfNeeded } from './serve.mjs';
 import { inGitRepo, gitAutocommit, gitAvailable, commitSubject, oneline } from './git.mjs';
@@ -50,8 +51,14 @@ import { reviewPathFor, parseReview, serializeRecord, newId } from './review-sto
 import { openUrl } from './open-browser.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
-const USAGE = `usage: decklight review <deck.html> [--port 8790] [--no-open] [--no-git]
+const USAGE = `usage: decklight review <deck.html|repository url> [--port 8790] [--no-open] [--no-git]
+                       [--branch <ref>] [--into <dir>]
   open somebody's deck and leave comments on it, anchored to slides
+
+  a repository URL (https://github.com/them/talk, git@…, …/talk.git; #path picks
+  a deck inside) is cloned to ./<repo> — or the clone already there, whichever
+  command made it, is opened — and your comments go back to it as a branch
+  with: decklight review submit <deck.html>
 
   ⇧M in the deck leaves a comment (M reads them all, or / → "Leave a comment…"); the
   comment is attached to the slide you are looking at, and remembers enough
@@ -59,6 +66,8 @@ const USAGE = `usage: decklight review <deck.html> [--port 8790] [--no-open] [--
 
   --port N    port to serve on (taken? moves to the next free one)     [8790]
   --no-open   don't launch a browser — print the URL and wait
+  --branch R  the branch or tag to clone (a repository URL)
+  --into D    where to clone it (default: ./<repo name>)
   --no-git    write the file and never commit it (each comment still records
               WHICH COMMIT the deck was on — that is provenance, not bookkeeping)
 
@@ -186,9 +195,15 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
     return 0;
   }
   const { opt } = argReader(args);
-  const deckArg = firstPositional(args, ['--port']);
-  const root = process.cwd();
-  const deckPath = resolve(root, deckArg);
+  const deckArg = firstPositional(args, ['--port', '--branch', '--into']);
+  // A repository URL: the deck somebody asked you to read, cloned — or the
+  // clone already here — which is also what `review submit` wants, since the
+  // review goes back as a branch pushed to that clone's origin.
+  let fromUrl = null;
+  try { fromUrl = deckFromUrl(deckArg, { branch: opt('--branch'), into: opt('--into') }); }
+  catch (e) { process.stderr.write(`decklight review: ${e.message}\n`); return 1; }
+  const root = fromUrl ? fromUrl.dir : process.cwd();
+  const deckPath = fromUrl ? fromUrl.deckPath : resolve(root, deckArg);
   if (!existsSync(deckPath)) { process.stderr.write(`decklight review: no such deck: ${deckArg}\n`); return 1; }
   if (!deckPath.startsWith(root + sep) && dirname(deckPath) !== root) {
     process.stderr.write('decklight review: the deck must live under the current directory\n');

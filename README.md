@@ -157,7 +157,7 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Sharing | |
 |---|---|
-| `present deck.html` | play a deck you didn't write: read-only, under a CSP, with an ingredients label |
+| `present deck.html` | play a deck you didn't write: read-only, under a CSP, with an ingredients label (a repository URL clones it first, into the same clone `author` and `review` use) |
 | `bundle deck.html` | one self-contained HTML file (`--all` merges a playlist, `--sign`, `--deck`) |
 | `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
@@ -167,7 +167,7 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Keeping track | |
 |---|---|
-| `review deck.html` | comment on somebody's deck; `review submit` sends it back as a branch |
+| `review deck.html` | comment on somebody's deck; `review submit` sends it back as a branch (a repository URL clones it first) |
 | `comments deck.html` | what reviewers said, resolved against the deck as it is now |
 | `history deck.html` | what decklight committed and what is only on this machine |
 | `restore deck.html` | put the deck back to any commit that touched it |

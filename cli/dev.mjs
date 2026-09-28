@@ -38,7 +38,7 @@ import { loadTtsConfig, runSetupWizard } from '../tools/tts-setup.mjs';
 import { detectLocalVoice } from '../tools/local-voice.mjs';
 import { relative } from 'node:path';
 import { argReader, firstPositional, isMain } from '../tools/args.mjs';
-import { parseDeckSource, cloneDeck, findDeck } from './clone-deck.mjs';
+import { deckFromUrl } from './clone-deck.mjs';
 import { runMain } from './util.mjs';
 import { openUrl } from './open-browser.mjs';
 import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
@@ -337,34 +337,19 @@ export async function devMain(args) {
   // it, and carry on as `decklight author <that path>` — in a repository, so
   // `--git` is a fact rather than a question.
   const { opt } = argReader(args);
-  let source = null;
-  try { source = parseDeckSource(deck, { branch: opt('--branch') }); } catch (e) {
+  let got = null;
+  try { got = deckFromUrl(deck, { branch: opt('--branch'), into: opt('--into') }); } catch (e) {
     console.error(`decklight author: ${e.message}`);
     process.exitCode = 1;
     return;
   }
-  if (source) {
-    let local;
-    try {
-      const { dir, reused } = cloneDeck(source, { into: opt('--into') });
-      // Said BEFORE the deck is looked for: a clone that happened is a fact
-      // worth knowing even when the pick fails — it is where the next try
-      // opens. stderr, like every line author says about itself; stdout is
-      // the URL's.
-      const at = relative(process.cwd(), dir) || dir;
-      console.error(reused ? `  already cloned — opening ${at}` : `  cloned ${source.url}${source.ref ? ` (${source.ref})` : ''} → ${at}`);
-      local = findDeck(dir, source.deck);
-      // The clone becomes the working directory. The edit server keeps its
-      // git in `process.cwd()` — so does every bridge it starts — and without
-      // this, `--git` created a fresh repository in the directory author was
-      // run from, with the clone nested inside it.
-      process.chdir(dir);
-      local = relative(dir, local);
-    } catch (e) {
-      console.error(`decklight author: ${e.message}`);
-      process.exitCode = 1;
-      return;
-    }
+  if (got) {
+    // The clone becomes the working directory. The edit server keeps its
+    // git in `process.cwd()` — so does every bridge it starts — and without
+    // this, `--git` created a fresh repository in the directory author was
+    // run from, with the clone nested inside it.
+    process.chdir(got.dir);
+    const local = relative(got.dir, got.deckPath);
     args = args.map((a) => (a === deck ? local : a)).filter((a, i, all) => !(a === '--branch' || a === '--into' || all[i - 1] === '--branch' || all[i - 1] === '--into'));
     if (!args.includes('--no-git') && !args.includes('--git')) args.push('--git');
     deck = local;

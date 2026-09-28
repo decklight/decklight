@@ -32,6 +32,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve, sep, basename, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
+import { deckFromUrl } from './clone-deck.mjs';
 import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded, withHeaders, isOwnOrigin } from './serve.mjs';
 import { createRemoteRelay } from './remote.mjs';
 import { corsHeaders, readBody } from '../tools/bridge.mjs';
@@ -143,9 +144,9 @@ export async function serveForRender(root, { html = null } = {}) {
   };
 }
 
-const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790] [--strict]
+const USAGE = `usage: decklight present <deck.html|deck.decklight|repository url> [--port 8790] [--strict]
                         [--root <dir>] [--remote] [--host <addr>] [--check]
-                        [--no-plugins]
+                        [--no-plugins] [--branch <ref>] [--into <dir>]
 
   plays a deck read-only over localhost — the safe way to open one you did not
   author. Serves ONLY GET, only under the deck's own directory — refusing
@@ -161,6 +162,13 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight> [--port 8790]
   one skim away from a verified identity. It stays in the manifest for tooling
   to read.
 
+  A repository URL (https://github.com/you/talk, git@…, …/talk.git; #path
+  picks a deck inside) is cloned to ./<repo> — or the clone already there,
+  whichever command made it, is opened — and the deck in it played. The
+  clone's upstream is what H checks for the author's newer pushes.
+
+  --branch R the branch or tag to clone (a repository URL)
+  --into D   where to clone it (default: ./<repo name>)
   --port N   port to bind; a taken port offers to take over that session
              (on a TTY) or moves on to the next free one            [8790]
   --strict   serve with every script block that is not the runtime removed,
@@ -269,7 +277,7 @@ const fail = (msg) => { console.error(`decklight present: ${msg}`); return 1; };
 // The flags that take a value, so the deck can be found past them:
 // `present --port 8790 talk.html` used to read "8790" as the deck and refuse a
 // file nobody named (the case tools/args.mjs firstPositional exists for).
-const VALUE_FLAGS = ['--port', '--host', '--root'];
+const VALUE_FLAGS = ['--port', '--host', '--root', '--branch', '--into'];
 
 export async function presentMain(args, { client } = {}) {
   const deckArg = firstPositional(args, VALUE_FLAGS);
@@ -292,7 +300,14 @@ export async function presentMain(args, { client } = {}) {
   const host = remote ? opt('--host', '0.0.0.0') : '127.0.0.1';
   const token = remote ? randomBytes(16).toString('base64url') : null;
 
-  const deckPath = resolve(process.cwd(), deckArg);
+  // A repository URL is a deck to play, like a file (#514): cloned — or the
+  // clone already here, whichever command made it — and the deck inside found.
+  // The clone is the command's doing, before any server exists; the server it
+  // then starts writes nothing, as ever.
+  let fromUrl = null;
+  try { fromUrl = deckFromUrl(deckArg, { branch: opt('--branch'), into: opt('--into') }); }
+  catch (e) { return fail(e.message); }
+  const deckPath = fromUrl ? fromUrl.deckPath : resolve(process.cwd(), deckArg);
   if (!existsSync(deckPath)) return fail(`deck not found: ${deckPath}`);
   // A .decklight is the same deck with its signature and manifest stapled on
   // (DECK_FILE), so it is unwrapped here and everything below treats it exactly

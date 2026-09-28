@@ -17,7 +17,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { refProblem } from './marketplace.mjs';
 import { oneline } from './git.mjs';
 import { isDeck } from './runtime-link.mjs';
@@ -60,6 +60,12 @@ const sameRemote = (a, b) => a.replace(/\.git$/, '').replace(/\/+$/, '') === b.r
  * Clone `source` into `into` (default: `./<repo name>`), or open it if it is
  * already there. Returns { dir, reused, ref }.
  *
+ * ONE CLONE PER REPOSITORY, whichever command asked: `author`, `present` and
+ * `review` all clone to the same `./<repo name>` and reuse it after. And a
+ * command run from INSIDE that clone — `cd talk && decklight present <url>` —
+ * means this clone, not `talk/talk`: the working directory is used when it is
+ * already a clone of the same remote.
+ *
  * A directory that already exists is opened only when it is a clone of THIS
  * remote — anything else is refused rather than written into: "talk" being
  * taken by an unrelated folder is a fact to report, not a reason to pick
@@ -73,6 +79,11 @@ export function cloneDeck(source, { into = null, cwd = process.cwd(), exec = exe
     // never a password prompt: an unreachable private repo is an answer, not a hang
     env: { ...env, GIT_TERMINAL_PROMPT: '0' }, ...opts,
   })).trim();
+  if (!into) {
+    let top = null, here = null;
+    try { top = git(['rev-parse', '--show-toplevel']); here = git(['remote', 'get-url', 'origin']); } catch { /* not in a clone */ }
+    if (top && here && sameRemote(here, source.url)) return { dir: top, reused: true, ref: null };
+  }
   if (existsSync(dir)) {
     let origin = null;
     try { origin = git(['remote', 'get-url', 'origin'], { cwd: dir }); } catch { /* not a repo, or no origin */ }
@@ -99,6 +110,34 @@ export function cloneDeck(source, { into = null, cwd = process.cwd(), exec = exe
       + (branches.length ? `: ${branches.join(', ')}` : ' <name>'));
   }
   return { dir, reused: false, ref: source.ref };
+}
+
+/**
+ * A deck argument that is a repository URL, as the deck on disk — cloned, or
+ * the clone already here — for every command that opens a deck: `author`,
+ * `present`, `review`. Null when `spec` is not a git URL (a path: the caller
+ * carries on as it always did). Throws with a sentence for anything that went
+ * wrong; the caller prefixes its own name.
+ *
+ * It says which happened — a clone is a fact worth knowing even when the deck
+ * pick fails after it, because it is where the next try opens — and when a
+ * reused clone is on another branch than the link asked for, it says that too
+ * and names the command, rather than switching somebody's working tree for
+ * them.
+ */
+export function deckFromUrl(spec, { branch = null, into = null, cwd = process.cwd(),
+  say = (line) => process.stderr.write(`${line}\n`), exec = execFileSync, env = process.env } = {}) {
+  const source = parseDeckSource(spec, { branch });
+  if (!source) return null;
+  const { dir, reused } = cloneDeck(source, { into, cwd, exec, env });
+  const at = relative(cwd, dir) || '.';
+  say(reused ? `  already cloned — opening ${at}` : `  cloned ${source.url}${source.ref ? ` (${source.ref})` : ''} → ${at}`);
+  if (reused && source.ref) {
+    let on = null;
+    try { on = String(exec('git', ['branch', '--show-current'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })).trim(); } catch { /* detached, or not git */ }
+    if (on && on !== source.ref) say(`  note: ${at} is on ${on}, not ${source.ref} — git -C ${at} switch ${source.ref}`);
+  }
+  return { source, dir, reused, deckPath: findDeck(dir, source.deck) };
 }
 
 const SKIP = new Set(['node_modules', '.git', 'dist', 'voiceover', 'voices']);

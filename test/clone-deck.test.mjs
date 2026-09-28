@@ -14,7 +14,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rmTemp, stop } from './helpers.mjs';
 import { spawn } from 'node:child_process';
-import { parseDeckSource, cloneDeck, findDeck } from '../cli/clone-deck.mjs';
+import { parseDeckSource, cloneDeck, findDeck, deckFromUrl } from '../cli/clone-deck.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -173,4 +173,75 @@ test('decklight author <url>: the clone IS the working directory — git runs th
   assert.equal(ping.git, true, 'git is on — a clone is a repository, not a question');
   assert.equal(ping.remote?.url, url, "the edit server's git is the clone's, with its origin");
   assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'the only thing author left behind is the clone');
+});
+
+// ── one clone per repository, whichever command asked ──────────────────────
+
+/** Start a serving command on a URL and wait for it to say where it is. */
+async function serveFrom(t, args, cwd) {
+  const child = spawn(process.execPath, [CLI, ...args, '--port', '0'],
+    { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => stop(child));
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  await new Promise((resolve, reject) => {
+    const scan = setInterval(() => { if (/http:\/\/127\.0\.0\.1:\d+/.test(out)) { clearInterval(scan); resolve(); } }, 50);
+    child.on('exit', () => { clearInterval(scan); reject(new Error(`${args[0]} exited early:\n${out}`)); });
+    setTimeout(() => { clearInterval(scan); reject(new Error(`no URL in 20s:\n${out}`)); }, 20_000);
+  });
+  await stop(child);
+  return out;
+}
+
+test('present and review open a repository URL — into the one clone author made, never a second', async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-url-once-'));
+  t.after(() => rmTemp(root));
+  const { url } = bareRepo(root, { 'deck.html': DECK });
+  const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
+
+  const first = await serveFrom(t, ['present', url], cwd);
+  assert.match(first, /cloned file:.*talk\.git → talk/);
+  assert.match(first, /decklight present on http:\/\/127\.0\.0\.1:\d+\/deck\.html/, 'and plays the deck inside');
+
+  const second = await serveFrom(t, ['review', url, '--no-open', '--no-git'], cwd);
+  assert.match(second, /already cloned — opening talk/);
+  assert.doesNotMatch(second, /cloned file:/, 'no second clone');
+  assert.match(second, /decklight review on http:\/\/127\.0\.0\.1:\d+\/deck\.html\?review/);
+
+  // from INSIDE the clone, the clone is this directory — not talk/talk
+  const third = await serveFrom(t, ['present', url], path.join(cwd, 'talk'));
+  assert.match(third, /already cloned — opening \./);
+  assert.ok(!fs.existsSync(path.join(cwd, 'talk', 'talk')), 'nothing nested');
+  assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'one clone, all three times');
+});
+
+test('present --check works on a repository URL, and a URL that is no repository is a sentence', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-url-check-'));
+  t.after(() => rmTemp(root));
+  const { url } = bareRepo(root, { 'deck.html': DECK });
+  const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
+  const ok = spawnSync(process.execPath, [CLI, 'present', url, '--check'], { cwd, encoding: 'utf8', timeout: 60_000 });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stderr, /cloned file:.*talk\.git → talk/);
+  for (const cmd of ['present', 'review']) {
+    const bad = spawnSync(process.execPath, [CLI, cmd, `file://${root}/nowhere.git`], { cwd, encoding: 'utf8', timeout: 60_000 });
+    assert.notEqual(bad.status, 0, cmd);
+    assert.match(bad.stderr, new RegExp(`decklight ${cmd}: git clone file:.*nowhere\\.git failed`), cmd);
+    assert.doesNotMatch(bad.stderr, /file:\/[^/]/, `${cmd}: no URL mangled into a path`);
+  }
+});
+
+test('a reused clone on another branch than the link asked for is named, not switched', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-url-branch-'));
+  t.after(() => rmTemp(root));
+  const { url, work } = bareRepo(root, { 'deck.html': DECK });
+  g(['checkout', '-q', '-b', 'draft'], work); g(['push', '-q', 'origin', 'draft'], work);
+  const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
+  const said = [];
+  deckFromUrl(url, { cwd, say: (l) => said.push(l) });
+  const again = deckFromUrl(`${url.replace(/\.git$/, '')}.git`, { cwd, branch: 'draft', say: (l) => said.push(l) });
+  assert.equal(again.reused, true, 'reused, not cloned again for the branch');
+  assert.match(said.join('\n'), /note: talk is on main, not draft — git -C talk switch draft/);
+  assert.equal(g(['branch', '--show-current'], again.dir), 'main', "and somebody's working tree was left where it was");
 });
