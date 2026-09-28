@@ -548,8 +548,11 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   async function markRequest(name) {
     const ref = refOf(name);
     // A theme an older `theme add` pasted into the deck is carried in the
-    // file itself; there is no reference to add or take away.
-    if (addedThemes.has(name) && !marked.has(name) && !offered.has(name)) {
+    // file itself; there is no reference to add or take away. That is a
+    // <style> block and only that: a <link> is a theme served from its
+    // marketplace — marked, or unmarked a moment ago — and marks like any other.
+    const el = addedStyles.find((s) => s.dataset.theme === name);
+    if (el?.tagName === 'STYLE' && !marked.has(name)) {
       toast(`${name} is carried inside the deck — decklight theme add ${ref} to mark it instead`, 4200);
       return;
     }
@@ -569,7 +572,17 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         toast(`${ref}: ${j.error || 'refused'}`, 3600);
         return;
       }
-      if (on) marked.add(name); else marked.delete(name);
+      if (on) marked.add(name);
+      else {
+        marked.delete(name);
+        // Unmarked, it is a theme its marketplace offers — which is what lets
+        // the next Space mark it again, and the preview (whose page the
+        // server no longer links it into) still find it.
+        const pack = themeSource.get(name);
+        if (!offered.has(name) && pack?.pack.startsWith('mkt:')) {
+          offered.set(name, { name, marketplace: pack.pack.slice(4), title: pack.label, qualified: ref });
+        }
+      }
       if (pickerEl) {
         const at = pickerSel;
         renderPickerList();

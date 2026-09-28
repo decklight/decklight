@@ -71,6 +71,13 @@
     // miniature — enough of /edit/ping, /edit/theme/browse and /edit/theme/mark
     // to drive them. `nobrowse` is the same deck with NO server, which is where
     // they must be absent.
+    // …and a theme the deck already MARKS, linked by the server the way
+    // linkAddedThemes writes it, so unmarking and re-marking one is covered
+    if (HARNESS_MODE === 'browse') {
+      document.head.insertAdjacentHTML('beforeend',
+        '<link rel="stylesheet" href="data:text/css,.decklight%7B--bg:%23102030%7D" data-theme="dusk" data-theme-added'
+        + ' data-theme-marketplace="nord-pack" data-theme-source="Nord Pack" media="not all">');
+    }
     const FAKE_BROWSE = {
       ok: true,
       cacheOnly: true,
@@ -78,6 +85,7 @@
       themes: [
         { name: 'nord-deep', marketplace: 'nord-pack', qualified: 'nord-deep@nord-pack', title: 'Nord Pack', description: 'deep blues', marked: false },
         { name: 'broken', marketplace: 'nord-pack', qualified: 'broken@nord-pack', title: 'Nord Pack', marked: false },
+        { name: 'dusk', marketplace: 'nord-pack', qualified: 'dusk@nord-pack', title: 'Nord Pack', marked: true },
       ],
     };
     // The wizard (MARKETPLACE.md ENGINES#WIZARD) also needs an author server to
@@ -548,7 +556,7 @@
         r.paletteRouteOpensThePicker = !!document.querySelector(P);
         // the marketplace is a pack like any other, under its catalog's title
         const pack = find(/▸ Nord Pack/);
-        r.marketplaceIsAPack = !!pack && pack.querySelector('.tp-tag')?.textContent === '2';
+        r.marketplaceIsAPack = !!pack && pack.querySelector('.tp-tag')?.textContent === '3';
         // offline honesty: a list short of a marketplace must never hide one
         // that could not be read, and listing itself never went to the network
         r.namesUnfetchedCatalogs = /not listed: decklight/.test(note());
@@ -588,6 +596,25 @@
         r.selectionStays = nordNow?.classList.contains('tp-selected') === true;
         r.captionSaysMarked = /marked — travels with the deck/.test(caption());
 
+        // A theme the deck marked when the page loaded — linked by the server —
+        // unmarked with Space and then marked again with Space: both presses
+        // are real marks, never "carried inside the deck", which is only ever
+        // said of a <style> block an older `theme add` pasted in.
+        find(/^dusk/).dispatchEvent(new MouseEvent('mouseenter'));
+        press(' ');
+        await settle();
+        const duskRow = () => find(/^dusk/);
+        r.unmarksALinkedTheme = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark')).at(-1)?.body.marked === false
+          && duskRow()?.classList.contains('tp-unmarked');
+        duskRow().dispatchEvent(new MouseEvent('mouseenter'));
+        press(' ');
+        await settle();
+        const last = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark')).at(-1)?.body;
+        r.marksItAgain = last?.ref === 'dusk@nord-pack' && last?.marked === true && duskRow()?.classList.contains('tp-marked');
+        r.neverSaysCarried = ![...document.querySelectorAll('.decklight-toast')]
+          .some((t) => /carried inside the deck/.test(t.textContent));
+        find(/nord-deep/).dispatchEvent(new MouseEvent('mouseenter'));
+
         // and an unmarked theme can still be LOOKED AT: applied, it is linked
         // from the same relative path a marked one is served at
         find(/nord-deep/).click();
@@ -611,7 +638,8 @@
           && r.namesUnfetchedCatalogs && r.listingWasAGet && r.listsMarketplaceThemes && r.saysUnmarked
           && r.captionDescribes && r.refusalKeepsPickerOpen && r.refusalNamesProblems
           && r.marksByQualifiedRef && r.marksQuietly && r.markKeepsPickerOpen
-          && r.rowTurnsMarked && r.selectionStays && r.captionSaysMarked && r.appliesUnmarked && r.closesOnApply
+          && r.rowTurnsMarked && r.selectionStays && r.captionSaysMarked
+          && r.unmarksALinkedTheme && r.marksItAgain && r.neverSaysCarried && r.appliesUnmarked && r.closesOnApply
           && r.listedOnceAfterApply && r.previewToldWhere
           && r.playerNeverFetchedCss;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
