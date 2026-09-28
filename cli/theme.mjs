@@ -15,7 +15,7 @@
 // theme is missing.
 //
 // `add` never puts CSS in the deck (SPEC THEME_DISTRIBUTION). It MARKS a theme:
-// the deck's configuration block gains a reference, `"addedThemes":
+// the deck's configuration block gains a reference, `"markedThemes":
 // ["acme@acme-themes"]`, the servers link it from the marketplace on this
 // machine, and `bundle` inlines it at hand-over. A file or a URL has no
 // marketplace to be referenced in, so it is copied into the personal one —
@@ -27,7 +27,7 @@ import path, { resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools/theme-check.mjs';
 import { checkoutPath, classifySource, configHome, MarketplaceError, loadRegistry, loadCatalog, resolveEntry } from './marketplace.mjs';
-import { setMarked, addToLocalMarketplace, resolveThemeRef, cacheThemeCss, markedRefs, parseRef, refForDeck } from './theme-refs.mjs';
+import { setMarked, addToLocalMarketplace, resolveThemeRef, cacheThemeCss, markedEntries, parseRef, parseShipped, refForDeck } from './theme-refs.mjs';
 
 const USAGE = `usage: decklight theme <check|add|remove> …
 
@@ -35,12 +35,14 @@ const USAGE = `usage: decklight theme <check|add|remove> …
     run the SPEC THEMING token contract and the WCAG contrast gates on a theme file
     EXAMPLE: decklight theme check nord-deep.css
 
-  decklight theme add <name@marketplace|file|url> <deck.html> [--name <name>] [--dry-run]
+  decklight theme add <name|name@marketplace|file|url> <deck.html> [--name <name>] [--dry-run]
     validate a theme, then MARK it for the deck: its configuration block gains
-    a reference ("addedThemes"), never the CSS. A marked theme is listed by T
+    a reference ("markedThemes"), never the CSS. A marked theme is listed by T
     under its marketplace, reachable by , / . and ?theme=, and inlined by
     decklight bundle. A file or url is first copied into your personal
-    marketplace (~/.decklight/local) and marked as <name>@local
+    marketplace (~/.decklight/local) and marked as <name>@local. A theme
+    decklight ships is marked by its name, so the bundle carries it too
+    EXAMPLE: decklight theme add ember talk.html
     EXAMPLE: decklight theme add nord-deep@acme-themes talk.html
     EXAMPLE: decklight theme add https://gist.../nord-deep.css talk.html
 
@@ -153,6 +155,19 @@ async function addMain(args) {
   const home = configHome();
   const fail = (msg) => { console.error(`decklight theme add: ${msg}`); return 1; };
 
+  // A theme decklight ships is marked by name: nothing to fetch or check, and
+  // it is what makes a bundle carry it beside the one the deck opens on.
+  if (parseShipped(source) && !existsSync(resolve(source))) {
+    const html = readFileSync(deckPath, 'utf8');
+    let next;
+    try { next = setMarked(html, source, true); }
+    catch (e) { if (e instanceof MarketplaceError) return fail(e.message); throw e; }
+    if (args.includes('--dry-run')) { console.log(`would ${next.changed ? 'mark' : 'keep'} ${source} in ${deck}`); return 0; }
+    if (next.changed) writeFileAtomic(deckPath, next.html);
+    console.log(next.changed ? `marked ${source} in ${deck} — decklight bundle carries it` : `${source} is already marked in ${deck}`);
+    return 0;
+  }
+
   // A marketplace ref (`confluent@decklight-confluent`, or a bare entry name
   // one marketplace alone has) is marked where it is; a file or a URL has no
   // marketplace to be referenced in, so it is copied into the personal one.
@@ -238,7 +253,7 @@ function removeMain(args) {
   const deckPath = resolve(deck);
   if (!existsSync(deckPath)) { console.error(`decklight theme remove: no such deck: ${deck}`); return 1; }
   const html = readFileSync(deckPath, 'utf8');
-  const marked = markedRefs(html);
+  const marked = markedEntries(html);
   const hit = parseRef(what) ? marked.find((r) => r.ref === what) : marked.find((r) => r.name === what);
   if (!hit) {
     console.error(`decklight theme remove: ${what} is not marked in ${deck}`

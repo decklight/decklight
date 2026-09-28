@@ -136,14 +136,15 @@ export function configTheme(html) {
 
 /**
  * The theme a server LINKS as the deck's base: the configured one, unless it
- * names a theme the deck marks from a marketplace (`addedThemes`, SPEC
+ * names a theme the deck marks from a marketplace (`markedThemes`, SPEC
  * THEME_DISTRIBUTION). That one is not a file in `themes/`; it arrives as an
  * added theme and the runtime applies it over the default linked here.
  */
 export function baseTheme(html) {
   const t = configTheme(html);
-  const marked = deckConfig(html)?.addedThemes;
-  const names = Array.isArray(marked) ? marked.map((r) => String(r).split('@')[0]) : [];
+  const marked = deckConfig(html)?.markedThemes;
+  // marketplace references only: a marked SHIPPED theme is a file in themes/
+  const names = Array.isArray(marked) ? marked.filter((r) => String(r).includes('@')).map((r) => String(r).split('@')[0]) : [];
   return names.includes(t) ? DEFAULT_THEME : t;
 }
 

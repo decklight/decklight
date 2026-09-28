@@ -9,7 +9,7 @@
 // somebody else's CSS in the file an author diffs and reviews. Now the deck
 // records WHICH theme it uses, and nothing else:
 //
-//   { "theme": "acme", "addedThemes": ["acme@acme-themes"] }
+//   { "theme": "acme", "markedThemes": ["acme@acme-themes"] }
 //
 // A theme in that list is MARKED: it travels with the deck. The servers link it
 // from the marketplace already on this machine, `present` lists it, and
@@ -40,7 +40,7 @@ import {
 import { resolveSource } from './theme.mjs';
 
 /** The config key a deck lists its marked themes under. */
-export const MARKED_KEY = 'addedThemes';
+export const MARKED_KEY = 'markedThemes';
 
 /** The config key a deck records where each of its marketplaces comes from. */
 export const SOURCES_KEY = 'themeSources';
@@ -55,11 +55,27 @@ export function parseRef(ref) {
   return { name: m[1], marketplace: m[2], ref: `${m[1]}@${m[2]}` };
 }
 
-/** The deck's marked references, parsed — malformed entries are dropped, not guessed at. */
-export function markedRefs(html) {
-  const list = configBlock(html)?.config?.[MARKED_KEY];
-  return Array.isArray(list) ? list.map(parseRef).filter(Boolean) : [];
+/**
+ * A theme decklight SHIPS, marked by its bare name — `"ember"` — or null. It
+ * needs no reference: every install has it. Marking one says the deck carries
+ * it when it travels, since a bundle holds only the themes put in it.
+ */
+export function parseShipped(entry) {
+  if (typeof entry !== 'string' || !NAME_RE.test(entry) || !shippedThemes().includes(entry)) return null;
+  return { name: entry, marketplace: null, ref: entry, shipped: true };
 }
+
+/** Every theme the deck marks — shipped names and marketplace references — parsed; anything else dropped, not guessed at. */
+export function markedEntries(html) {
+  const list = configBlock(html)?.config?.[MARKED_KEY];
+  return Array.isArray(list) ? list.map((e) => parseRef(e) ?? parseShipped(e)).filter(Boolean) : [];
+}
+
+/** The deck's marked MARKETPLACE references — what is resolved, linked and cached. */
+export const markedRefs = (html) => markedEntries(html).filter((r) => !r.shipped);
+
+/** The shipped themes the deck marks, by name. */
+export const markedShipped = (html) => markedEntries(html).filter((r) => r.shipped).map((r) => r.name);
 
 /**
  * A marketplace's source as a deck records it — the form `marketplace add`
@@ -314,7 +330,7 @@ export function linkAddedThemes(html, home = configHome(), { log = null } = {}) 
 
 /**
  * Mark (`on`) or unmark a reference in the deck's configuration block, editing
- * only the `addedThemes` value so the author's own formatting of the rest
+ * only the `markedThemes` value so the author's own formatting of the rest
  * survives. Returns `{ html, changed }`, or throws a MarketplaceError a
  * command prints as-is.
  *
@@ -324,26 +340,31 @@ export function linkAddedThemes(html, home = configHome(), { log = null } = {}) 
  * and the theme the deck OPENS on cannot be unmarked out from under it.
  */
 export function setMarked(html, ref, on, { source = null } = {}) {
-  const parsed = parseRef(ref);
-  if (!parsed) throw new MarketplaceError(`"${ref}" is not a theme reference — name@marketplace`);
+  const parsed = parseShipped(ref) ?? parseRef(ref);
+  if (!parsed) {
+    throw new MarketplaceError(`"${ref}" is neither a theme decklight ships nor a marketplace theme (name@marketplace)`);
+  }
   const block = configBlock(html);
   if (!block) {
     throw new MarketplaceError('the deck has no configuration block to record its themes in'
       + ' — decklight upgrade --link <deck.html> gives it one');
   }
   if (block.error) throw new MarketplaceError(block.error);
-  const current = markedRefs(html);
+  const current = markedEntries(html);
   const has = current.some((r) => r.ref === parsed.ref);
   if (on) {
     if (has) return { html, changed: false };
-    if (shippedThemes().includes(parsed.name)) {
+    if (!parsed.shipped && shippedThemes().includes(parsed.name)) {
       throw new MarketplaceError(`"${parsed.name}" is the name of a theme decklight ships — ${parsed.ref} cannot sit beside it`);
     }
     const clash = current.find((r) => r.name === parsed.name);
     if (clash) throw new MarketplaceError(`the deck already marks ${clash.ref} — two themes called "${parsed.name}" cannot both be listed`);
   } else {
     if (!has) return { html, changed: false };
-    if (block.config.theme === parsed.name) {
+    // A marketplace theme the deck opens on would leave it opening on nothing.
+    // A shipped one is never missing — every bundle carries the theme it opens
+    // on — so unmarking it only stops it travelling as an extra.
+    if (!parsed.shipped && block.config.theme === parsed.name) {
       throw new MarketplaceError(`${parsed.ref} is the theme the deck opens on — set another "theme" first`);
     }
   }

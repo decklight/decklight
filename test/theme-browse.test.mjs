@@ -192,7 +192,7 @@ test('a mark from the open picker updates it in place — the page is not reload
   });
   const quiet = await reloadWithin(base, 800, () => post({ ref: 'nord-deep@nord-pack', marked: true, quiet: true }));
   assert.equal(quiet, false, 'a quiet mark sends no reload');
-  assert.deepEqual(config(readFileSync(deck, 'utf8')).addedThemes, ['nord-deep@nord-pack'], 'and it was written');
+  assert.deepEqual(config(readFileSync(deck, 'utf8')).markedThemes, ['nord-deep@nord-pack'], 'and it was written');
 
   const loud = await reloadWithin(base, 800, () => post({ ref: 'nord-deep@nord-pack', marked: false }));
   assert.equal(loud, true, 'an ordinary mark still reloads');
@@ -217,7 +217,7 @@ test('marking records a reference in the config block — never the CSS — as o
   assert.ok(j.undo >= 1, 'Z takes it back like any other edit');
 
   const after = readFileSync(deck, 'utf8');
-  assert.deepEqual(config(after).addedThemes, ['nord-deep@nord-pack']);
+  assert.deepEqual(config(after).markedThemes, ['nord-deep@nord-pack']);
   assert.doesNotMatch(after, /<style|--bg|--d-fill/, 'no stylesheet went into the deck');
   assert.equal(after.replace(/data-decklight-config>[\s\S]*?<\/script>/, ''),
     before.replace(/data-decklight-config>[\s\S]*?<\/script>/, ''), 'and nothing but the block changed');
@@ -266,6 +266,17 @@ test('marking from the overlay records where the marketplace comes from', async 
   assert.equal(config(readFileSync(deck, 'utf8')).themeSources, undefined, 'and it leaves with the last theme');
 });
 
+test('a shipped theme is marked by name through the route — no resolving, no source', async (t) => {
+  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const r = await mark(base, 'ember');
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  const cfg = config(readFileSync(deck, 'utf8'));
+  assert.deepEqual(cfg.markedThemes, ['ember']);
+  assert.equal(cfg.themeSources, undefined);
+  const nope = await mark(base, 'no-such-theme');
+  assert.equal(nope.status, 400, 'a bare name nothing ships is not a theme');
+});
+
 test('a theme the command line would refuse is refused here too, deck untouched', async (t) => {
   // Same validator, same gates. A picker that could leave a deck carrying a
   // broken theme would be worse than no picker.
@@ -304,7 +315,7 @@ test('marking twice is one reference; unmarking takes it out; the theme the deck
   await mark(base, 'nord-deep@nord-pack');
   const again = await (await mark(base, 'nord-deep@nord-pack')).json();
   assert.equal(again.changed, false, 'marked already — nothing to write');
-  assert.deepEqual(config(readFileSync(deck, 'utf8')).addedThemes, ['nord-deep@nord-pack']);
+  assert.deepEqual(config(readFileSync(deck, 'utf8')).markedThemes, ['nord-deep@nord-pack']);
 
   // the deck opens on it: unmarking would leave it opening on nothing
   writeFileSync(deck, readFileSync(deck, 'utf8').replace('"theme": "aurora"', '"theme": "nord-deep"'));
@@ -315,7 +326,7 @@ test('marking twice is one reference; unmarking takes it out; the theme the deck
   writeFileSync(deck, readFileSync(deck, 'utf8').replace('"theme": "nord-deep"', '"theme": "aurora"'));
   const off = await mark(base, 'nord-deep@nord-pack', false);
   assert.equal(off.status, 200);
-  assert.equal(config(readFileSync(deck, 'utf8')).addedThemes, undefined, 'an empty list leaves no key behind');
+  assert.equal(config(readFileSync(deck, 'utf8')).markedThemes, undefined, 'an empty list leaves no key behind');
 });
 
 test('a hand-written deck with no configuration block is told how to get one', async (t) => {

@@ -979,7 +979,7 @@ try {
 
     const ok = await postJson(authorSrv.base, '/edit/theme/mark', { ref: 'soak-theme@soak-market' });
     must(ok.status === 200, `marking returned ${ok.status}: ${JSON.stringify(ok.body)}`);
-    must(/"addedThemes": \["soak-theme@soak-market"\]/.test(deck()), 'the reference did not land in the config block');
+    must(/"markedThemes": \["soak-theme@soak-market"\]/.test(deck()), 'the reference did not land in the config block');
     must(!/<style[^>]*data-theme="soak-theme"/.test(deck()), 'the theme\'s CSS went into the deck');
     // POLLED, not read once. The route logs BEFORE it responds, but the log
     // reaches this process over a pipe — so a response can arrive before the

@@ -220,7 +220,7 @@ function rangeOf(header, size) {
  * uses): the deck gets decklight's own file, never anything of the caller's.
  * A copy that IS on disk beside the deck wins, so an author pinning their
  * own build is honoured. The themes a deck MARKS from a marketplace
- * (`addedThemes`, SPEC THEME_DISTRIBUTION) are answered the same way, at
+ * (`markedThemes`, SPEC THEME_DISTRIBUTION) are answered the same way, at
  * `decklight-theme/<marketplace>/<name>.css`, from the marketplace's files on
  * this machine and never the network. Nothing else escapes root or answers
  * for a missing path — a probe still learns nothing from a 404.

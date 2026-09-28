@@ -17,7 +17,7 @@
  *                    blocks (inactive ones carry media="not all"; the engine's
  *                    inline-theme mode toggles them — picker/?theme= work).
  *                    Every theme the deck MARKS from a marketplace
- *                    ("addedThemes") is inlined too, from this machine's
+ *                    ("markedThemes") is inlined too, from this machine's
  *                    copy of that marketplace (SPEC THEME_DISTRIBUTION).
  *   - terminals    : data-cast="url" casts are embedded and switched to
  *                    data-cast-inline (fetch is blocked on file://).
@@ -36,7 +36,7 @@ import path from 'node:path';
 import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
 import { configBlock, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
-import { addedThemeStyle, markedRefs, markedSources, resolveThemeRef, stillValid } from './theme-refs.mjs';
+import { addedThemeStyle, markedRefs, markedShipped, markedSources, resolveThemeRef, stillValid } from './theme-refs.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
@@ -226,7 +226,7 @@ Options:
                      all           every theme in the deck's themes/ directory
                      name,name,…   an explicit list (the deck's linked theme
                                    stays active when included, else the first)
-                   every theme the deck MARKS ("addedThemes") is embedded as
+                   every theme the deck MARKS ("markedThemes") is embedded as
                    well, whichever you choose
   --theme <name>   the theme the bundle opens on — a shipped theme (embedded
                    alongside the others) or one the deck marks
@@ -408,6 +408,11 @@ const markedNames = marked.map((r) => r.name);
 if (openOn !== null && !/^[\w-]+$/.test(openOn)) fail(`--theme ${JSON.stringify(openOn)} is not a theme name`);
 if (openOn && !ownTheme && !markedNames.includes(openOn) && !themeNames.includes(openOn)) themeNames.push(openOn);
 themeNames = themeNames.filter((n) => !markedNames.includes(n));
+// A marked SHIPPED theme travels too: embedded beside the one the file opens
+// on, whatever --themes chose, because marking it is how the author said so.
+const markedShippedNames = markedShipped(sourceHtml).filter((n) => !themeNames.includes(n));
+if (!ownTheme) themeNames.push(...markedShippedNames);
+if (markedShippedNames.length) notices.push(`marked shipped theme${markedShippedNames.length === 1 ? '' : 's'} embedded: ${markedShippedNames.join(', ')}`);
 if (!themeNames.length) fail('no themes selected');
 const activeTheme = openOn && themeNames.includes(openOn) ? openOn
   : themeNames.includes(linkedTheme) ? linkedTheme : themeNames[0];
@@ -424,6 +429,17 @@ const themeBlocks = ownTheme ? null : themeNames.map((name) => {
   return `<style data-theme="${name}"${media}>\n${css}\n</style>`;
 }).join('\n');
 if (themeBlocks !== null) html = html.replace(themeLinkTag, themeBlocks);
+// A deck that keeps a theme of its own (DECK_IMPORT) carries marked shipped
+// themes as further inline blocks, off until picked.
+if (ownTheme && markedShippedNames.length) {
+  const extra = markedShippedNames.map((name) => {
+    const cssPath = themeFile(name);
+    if (!cssPath) fail(`theme not found: ${name}`);
+    return `<style data-theme="${name}" media="not all">\n${fs.readFileSync(cssPath, 'utf8')}\n</style>`;
+  }).join('\n');
+  const headEnd = html.search(/<\/head>/i);
+  html = headEnd === -1 ? `${extra}\n${html}` : `${html.slice(0, headEnd)}${extra}\n${html.slice(headEnd)}`;
+}
 if (marked.length) {
   const blocks = marked.map((r) => addedThemeStyle(r, fs.readFileSync(r.file, 'utf8'))).join('\n');
   const headEnd = html.search(/<\/head>/i);

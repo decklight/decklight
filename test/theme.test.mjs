@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools/theme-check.mjs';
 import { reportLines } from '../cli/theme.mjs';
-import { addedThemeLink, addedThemeStyle, setMarked, markedRefs, parseRef } from '../cli/theme-refs.mjs';
+import { addedThemeLink, addedThemeStyle, setMarked, markedRefs, markedEntries, parseRef } from '../cli/theme-refs.mjs';
 import { MarketplaceError } from '../cli/marketplace.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -108,18 +108,18 @@ test('a reference is name@marketplace, and nothing else passes for one', () => {
 test('marking edits only the list, in the block\'s own layout', () => {
   const one = setMarked(DATA_DECK(), 'nord@acme', true);
   assert.equal(one.changed, true);
-  assert.match(one.html, /\{ "decklight": "0\.9\.0", "theme": "aurora", "addedThemes": \["nord@acme"\] \}/,
+  assert.match(one.html, /\{ "decklight": "0\.9\.0", "theme": "aurora", "markedThemes": \["nord@acme"\] \}/,
     'a one-line block stays on one line');
   const two = setMarked(one.html, 'dusk@acme', true);
-  assert.deepEqual(cfgOf(two.html).addedThemes, ['nord@acme', 'dusk@acme']);
+  assert.deepEqual(cfgOf(two.html).markedThemes, ['nord@acme', 'dusk@acme']);
   assert.equal(setMarked(two.html, 'dusk@acme', true).changed, false, 'marked already');
 
   const pretty = DATA_DECK('{\n    "decklight": "0.9.0",\n    "theme": "aurora"\n  }');
   const p = setMarked(pretty, 'nord@acme', true).html;
-  assert.match(p, /"theme": "aurora",\n {4}"addedThemes": \["nord@acme"\]\n/, 'a pretty one gets a line of its own');
+  assert.match(p, /"theme": "aurora",\n {4}"markedThemes": \["nord@acme"\]\n/, 'a pretty one gets a line of its own');
 
   const off = setMarked(setMarked(two.html, 'nord@acme', false).html, 'dusk@acme', false).html;
-  assert.equal(cfgOf(off).addedThemes, undefined, 'unmarking the last leaves no empty key behind');
+  assert.equal(cfgOf(off).markedThemes, undefined, 'unmarking the last leaves no empty key behind');
   assert.equal(off, DATA_DECK(), 'and the deck is what it was');
 });
 
@@ -134,9 +134,26 @@ test('the marks that would make the list ambiguous are refused', () => {
     /upgrade --link/);
 });
 
+test('a shipped theme is marked by its name — so a bundle carries it — and unmarks freely', () => {
+  const one = setMarked(DATA_DECK(), 'ember', true);
+  assert.equal(one.changed, true);
+  assert.deepEqual(cfgOf(one.html).markedThemes, ['ember']);
+  const both = setMarked(one.html, 'nord@acme', true, { source: 'acme/themes' }).html;
+  assert.deepEqual(cfgOf(both).markedThemes, ['ember', 'nord@acme'], 'beside marketplace themes, in one list');
+  assert.deepEqual(cfgOf(both).themeSources, { acme: 'acme/themes' }, 'and a shipped one records no source');
+  // the theme the deck opens on can be unmarked when it is shipped: every
+  // bundle carries the theme it opens on, so nothing is left missing
+  const opensOnIt = setMarked(DATA_DECK('{ "decklight": "0.9.0", "theme": "ember" }'), 'ember', true).html;
+  assert.equal(setMarked(opensOnIt, 'ember', false).changed, true);
+  assert.throws(() => setMarked(DATA_DECK(), 'not-a-shipped-theme', true),
+    (e) => e instanceof MarketplaceError && /neither a theme decklight ships nor a marketplace theme/.test(e.message));
+});
+
 test('markedRefs drops what is not a reference rather than guessing at it', () => {
-  const html = DATA_DECK('{ "decklight": "0.9.0", "addedThemes": ["nord@acme", "loose", 7, "x@../y"] }');
+  const html = DATA_DECK('{ "decklight": "0.9.0", "markedThemes": ["nord@acme", "loose", 7, "x@../y"] }');
   assert.deepEqual(markedRefs(html).map((r) => r.ref), ['nord@acme']);
+  assert.deepEqual(markedEntries(DATA_DECK('{ "decklight": "0.9.0", "markedThemes": ["ember", "nord@acme", "nope"] }')).map((r) => r.ref),
+    ['ember', 'nord@acme'], 'a shipped name is kept, a name nothing ships is not');
 });
 
 test('a marked theme is linked inert, under its marketplace', () => {
@@ -219,7 +236,7 @@ test('theme add marks a marketplace theme — a reference, never its CSS', () =>
     assert.equal(add.status, 0, add.stderr);
     assert.match(add.stdout, /marked nord@acme in .* look under "Acme"/);
     const after = readFileSync(deckPath, 'utf8');
-    assert.deepEqual(cfgOf(after).addedThemes, ['nord@acme']);
+    assert.deepEqual(cfgOf(after).markedThemes, ['nord@acme']);
     assert.doesNotMatch(after, /<style|--bg/, 'the theme stayed in its marketplace');
 
     assert.match(run('add', 'nord@acme', deckPath).stdout, /already marked/);
@@ -240,7 +257,7 @@ test('a file is copied into the personal marketplace, registered once, and marke
     assert.equal(add.status, 0, add.stderr);
     assert.match(add.stdout, /registered your personal marketplace "local"/);
     assert.equal(readFileSync(path.join(home, 'local/themes/house.css'), 'utf8'), good());
-    assert.deepEqual(cfgOf(readFileSync(deckPath, 'utf8')).addedThemes, ['house@local']);
+    assert.deepEqual(cfgOf(readFileSync(deckPath, 'utf8')).markedThemes, ['house@local']);
 
     const again = run('add', AURORA, deckPath, '--name', 'house');
     assert.doesNotMatch(again.stdout, /registered/, 'once');
@@ -249,6 +266,19 @@ test('a file is copied into the personal marketplace, registered once, and marke
     assert.equal(reg.marketplaces.local.source, path.join(home, 'local'));
     assert.ok(!path.join(home, 'local').startsWith(path.join(home, 'marketplaces')),
       'outside the clones, so `marketplace remove local` cannot delete your themes');
+  } finally { rmTemp(dir); }
+});
+
+test('theme add marks a shipped theme by name, and theme remove takes it off', () => {
+  const { dir, deckPath, run } = sandbox();
+  try {
+    const add = run('add', 'ember', deckPath);
+    assert.equal(add.status, 0, add.stderr);
+    assert.match(add.stdout, /marked ember in .* decklight bundle carries it/);
+    assert.deepEqual(cfgOf(readFileSync(deckPath, 'utf8')).markedThemes, ['ember']);
+    const off = run('remove', 'ember', deckPath);
+    assert.equal(off.status, 0, off.stderr);
+    assert.equal(readFileSync(deckPath, 'utf8'), DATA_DECK(), 'back to what it was');
   } finally { rmTemp(dir); }
 });
 

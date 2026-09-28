@@ -1892,12 +1892,16 @@ export async function editMain(args, { onListen = null } = {}) {
     const req = JSON.parse(body || '{}');
     const ref = typeof req.ref === 'string' ? req.ref.trim() : '';
     const on = req.marked !== false;
-    const { parseRef, resolveThemeRef, setMarked, cacheThemeCss, refForDeck } = await import('./theme-refs.mjs');
+    const { parseRef, parseShipped, resolveThemeRef, setMarked, cacheThemeCss, refForDeck } = await import('./theme-refs.mjs');
     const { MarketplaceError, configHome } = await import('./marketplace.mjs');
-    if (!parseRef(ref)) return json(400, { ok: false, error: 'which theme? — name@marketplace' });
+    const shipped = parseShipped(ref);
+    if (!shipped && !parseRef(ref)) return json(400, { ok: false, error: 'which theme? — a shipped name, or name@marketplace' });
     const before = readDeck();
     let deckRef = ref, source = null;
-    if (on) {
+    // A shipped theme needs no resolving and no check — it is decklight's own,
+    // and passed the contract when it shipped. Marking it says only that the
+    // deck carries it when it travels.
+    if (on && !shipped) {
       const r = resolveThemeRef(ref);
       let css;
       if (r.file) css = readFileSync(r.file, 'utf8');

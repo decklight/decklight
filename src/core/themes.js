@@ -50,6 +50,13 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // The themes this deck MARKS — linked by the server because the deck's
   // config lists them. The one set the mark toggle reads.
   const marked = new Set(addedStyles.filter((el) => el.tagName === 'LINK').map((el) => el.dataset.theme));
+  // …and the SHIPPED themes it marks, by bare name, straight from its config:
+  // nothing to link (every install has them), only a promise that a bundle
+  // carries them
+  const SHIPPED = typeof __DECKLIGHT_THEMES__ !== 'undefined' ? __DECKLIGHT_THEMES__ : [];
+  for (const n of Array.isArray(config.markedThemes) ? config.markedThemes : []) {
+    if (typeof n === 'string' && SHIPPED.includes(n)) marked.add(n);
+  }
   // Where each installed theme came from, read off the deck's own blocks —
   // never looked up. A bundled deck opened on another machine has no registry
   // to consult, so provenance either travelled in the file or is not available
@@ -527,10 +534,15 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     if (pickerEl) setPickerView(pickerView);
   }
 
-  /** `name@marketplace` for a theme row that came from a marketplace, else null. */
+  /**
+   * What marks a row: `name@marketplace` for a marketplace theme, the bare
+   * name for one decklight ships, null for anything else (a custom or
+   * generated theme lives in this browser; a pasted-in block is in the file).
+   */
+  const isMarketTheme = (name) => themeSource.get(name)?.pack?.startsWith('mkt:') === true;
   function refOf(name) {
-    const pack = themeSource.get(name)?.pack;
-    return pack?.startsWith('mkt:') ? `${name}@${pack.slice(4)}` : null;
+    if (isMarketTheme(name)) return `${name}@${themeSource.get(name).pack.slice(4)}`;
+    return SHIPPED.includes(name) && !customThemes[name] ? name : null;
   }
   /**
    * Space on a marketplace theme's row: mark it for the deck, or unmark it.
@@ -665,15 +677,20 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         row.className = 'tp-row' + (name === cur ? ' tp-current' : '');
         row.textContent = name;
         // While authoring, a marketplace theme's tag says whether the deck
-        // carries it: ● marked (it travels), ○ not (it is only on screen).
-        const mark = authoring() && refOf(name) ? (marked.has(name) ? '● ' : '○ ') : '';
-        if (mark) row.classList.add(marked.has(name) ? 'tp-marked' : 'tp-unmarked');
+        // carries it: ● marked (it travels), ○ not (it is only on screen). A
+        // shipped theme is tagged only when marked — ○ on every one of them
+        // would be forty rows of noise; the caption says Space marks it.
+        const market = isMarketTheme(name);
+        const mark = !authoring() || !refOf(name) ? ''
+          : marked.has(name) ? '●' : market ? '○' : '';
+        if (market && mark) row.classList.add(marked.has(name) ? 'tp-marked' : 'tp-unmarked');
         const extra = customThemes[name] ? 'custom'
           : (genTheme && name === genTheme.name) ? 'generated'
-          : themeSource.has(name) ? mark + themeSource.get(name).label
+          : themeSource.has(name) ? themeSource.get(name).label
           : addedThemes.has(name) ? 'added'
           : pickerFilter && PACKS ? packLabel(packOf(name)) : null;
-        if (extra) tag(row, extra);
+        const text = [mark, extra].filter(Boolean).join(' ');
+        if (text) tag(row, text);
       }
       row.addEventListener('mouseenter', () => selectPickerRow(i, false));
       row.addEventListener('click', () => { selectPickerRow(i, true); commitPicker(); });
@@ -785,10 +802,12 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   }
   function markCaption(name) {
     const o = offered.get(name);
-    return [refOf(name), o?.description,
+    const market = isMarketTheme(name);
+    return [market ? refOf(name) : `${packLabel(packOf(name))} · ${name}`, o?.description,
       marked.has(name) ? 'marked — travels with the deck · Space unmarks'
         : o?.remote ? 'lives at a URL — Space marks it, which reads it once'
-        : 'not marked — Space marks it so the deck carries it',
+        : market ? 'not marked — Space marks it so the deck carries it'
+        : 'Space marks it so a bundle carries it too',
     ].filter(Boolean).join(' · ');
   }
   // Lazy preview: the embedded deck loads ONCE per picker session; theme

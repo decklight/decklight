@@ -613,6 +613,19 @@
         r.marksItAgain = last?.ref === 'dusk@nord-pack' && last?.marked === true && duskRow()?.classList.contains('tp-marked');
         r.neverSaysCarried = ![...document.querySelectorAll('.decklight-toast')]
           .some((t) => /carried inside the deck/.test(t.textContent));
+
+        // A theme decklight SHIPS is marked the same way — by its bare name —
+        // so a bundle carries it beside the one the file opens on.
+        for (const ch of 'ember') press(ch);
+        find(/^ember/)?.dispatchEvent(new MouseEvent('mouseenter'));
+        r.shippedCaptionSaysSpace = /Space marks it so a bundle carries it too/.test(caption());
+        press(' ');
+        await settle();
+        const shippedMark = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark')).at(-1)?.body;
+        r.marksAShippedTheme = shippedMark?.ref === 'ember' && shippedMark?.marked === true && shippedMark?.quiet === true;
+        r.shippedRowSaysMarked = /●/.test(find(/^ember/)?.querySelector('.tp-tag')?.textContent ?? '')
+          && /marked — travels with the deck/.test(caption());
+        for (let n = 0; n < 5; n++) press('Backspace');
         find(/nord-deep/).dispatchEvent(new MouseEvent('mouseenter'));
 
         // and an unmarked theme can still be LOOKED AT: applied, it is linked
@@ -639,7 +652,8 @@
           && r.captionDescribes && r.refusalKeepsPickerOpen && r.refusalNamesProblems
           && r.marksByQualifiedRef && r.marksQuietly && r.markKeepsPickerOpen
           && r.rowTurnsMarked && r.selectionStays && r.captionSaysMarked
-          && r.unmarksALinkedTheme && r.marksItAgain && r.neverSaysCarried && r.appliesUnmarked && r.closesOnApply
+          && r.unmarksALinkedTheme && r.marksItAgain && r.neverSaysCarried
+          && r.shippedCaptionSaysSpace && r.marksAShippedTheme && r.shippedRowSaysMarked && r.appliesUnmarked && r.closesOnApply
           && r.listedOnceAfterApply && r.previewToldWhere
           && r.playerNeverFetchedCss;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

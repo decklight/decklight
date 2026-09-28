@@ -494,7 +494,7 @@
       <pre data-lines="1|2"><code class="language-bash">decklight theme check sunset.css          # contract-complete? WCAG gates?
 decklight theme add sunset.css deck.html  # validates, then marks it for the deck</code></pre>
       <ul data-build>
-        <li>The deck records a <strong>reference</strong> — <code>"addedThemes": ["sunset@local"]</code> — never the CSS; <code>bundle</code> carries it</li>
+        <li>The deck records a <strong>reference</strong> — <code>"markedThemes": ["sunset@local"]</code> — never the CSS; <code>bundle</code> carries it</li>
         <li>A file that fails leaves the deck <strong>byte-for-byte unchanged</strong> — no deck ever carries a broken theme</li>
         <li>While authoring, every marketplace's themes are in the picker — <kbd>Space</kbd> marks one</li>
       </ul>

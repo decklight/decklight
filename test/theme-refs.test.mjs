@@ -85,7 +85,7 @@ test('the listing is every theme of every marketplace, and nothing else', (t) =>
 
 test('every server links the marked themes, after the base theme it always linked', (t) => {
   const { home: h } = home(t);
-  const out = linkAddedThemes(linkRuntime(deck({ decklight: '0.9.0', theme: 'aurora', addedThemes: ['nord@acme'] })), h);
+  const out = linkAddedThemes(linkRuntime(deck({ decklight: '0.9.0', theme: 'aurora', markedThemes: ['nord@acme'] })), h);
   assert.match(out, /<link rel="stylesheet" href="themes\/aurora\.css">/);
   assert.match(out, /<link rel="stylesheet" href="decklight-theme\/acme\/nord\.css" data-theme="nord" data-theme-added data-theme-marketplace="acme" data-theme-source="Acme" media="not all">/);
   assert.ok(out.indexOf('decklight-theme/acme/nord.css') < out.indexOf('</head>'));
@@ -94,7 +94,7 @@ test('every server links the marked themes, after the base theme it always linke
 test('a deck that opens on a marked theme still gets a base theme linked', (t) => {
   // `themes/nord.css` is not a file anywhere; the default is linked under it,
   // and the runtime applies the marked one over it from the config block.
-  const html = linkRuntime(deck({ decklight: '0.9.0', theme: 'nord', addedThemes: ['nord@acme'] }));
+  const html = linkRuntime(deck({ decklight: '0.9.0', theme: 'nord', markedThemes: ['nord@acme'] }));
   assert.match(html, /href="themes\/aurora\.css"/);
   assert.doesNotMatch(html, /href="themes\/nord\.css"/);
 });
@@ -114,7 +114,7 @@ test('an added theme is never mistaken for the deck\'s own', () => {
 test('a theme this machine cannot show is named in the page, not silently dropped', (t) => {
   const { home: h } = home(t);
   const logged = [];
-  const out = linkAddedThemes(deck({ addedThemes: ['nord@acme', 'dusk@elsewhere'] }), h, { log: (m) => logged.push(m) });
+  const out = linkAddedThemes(deck({ markedThemes: ['nord@acme', 'dusk@elsewhere'] }), h, { log: (m) => logged.push(m) });
   assert.match(out, /data-theme="nord"/);
   assert.doesNotMatch(out, /data-theme="dusk"/);
   assert.match(out, /<meta name="decklight-theme-missing" content="dusk@elsewhere — marketplace &quot;elsewhere&quot; is not registered on this machine — it was local to whoever marked it, or never recorded where it came from">/,
@@ -124,7 +124,7 @@ test('a theme this machine cannot show is named in the page, not silently droppe
 
 test('a bundle\'s own copy of a marked theme is left to it — no second link', (t) => {
   const { home: h } = home(t);
-  const bundled = deck({ addedThemes: ['nord@acme'] })
+  const bundled = deck({ markedThemes: ['nord@acme'] })
     .replace('</head>', '<style data-theme="nord" data-theme-added media="not all">.decklight{}</style></head>');
   assert.equal(linkAddedThemes(bundled, h), bundled);
 });
@@ -148,7 +148,7 @@ test('the asset route answers a marketplace theme, and nothing it was not asked 
 test('bundle inlines every marked theme and opens on the one --theme names', (t) => {
   const { dir, home: h } = home(t);
   const deckPath = path.join(dir, 'talk.html');
-  writeFileSync(deckPath, deck({ decklight: '0.9.0', theme: 'aurora', addedThemes: ['nord@acme'] }));
+  writeFileSync(deckPath, deck({ decklight: '0.9.0', theme: 'aurora', markedThemes: ['nord@acme'] }));
   const env = { ...process.env, DECKLIGHT_HOME: h };
   const bundle = (...args) => spawnSync(process.execPath, [CLI, 'bundle', deckPath, ...args], { encoding: 'utf8', env });
 
@@ -162,7 +162,7 @@ test('bundle inlines every marked theme and opens on the one --theme names', (t)
   assert.match(html, /"theme":"nord"|"theme": "nord"/, 'and it opens on it');
   assert.match(html, /<style data-theme="aurora">/, 'with the base theme it was playing with');
 
-  writeFileSync(deckPath, deck({ decklight: '0.9.0', theme: 'aurora', addedThemes: ['nord@acme', 'dusk@elsewhere'] }));
+  writeFileSync(deckPath, deck({ decklight: '0.9.0', theme: 'aurora', markedThemes: ['nord@acme', 'dusk@elsewhere'] }));
   const refused = bundle('-o', path.join(dir, 'out2.html'));
   assert.notEqual(refused.status, 0, 'a hand-over must not quietly lose a theme the deck marks');
   assert.match(refused.stderr, /dusk@elsewhere/);
@@ -173,7 +173,7 @@ test('a marked theme that stops passing the contract stops being served — and 
   // its bytes after it was marked and checked. The deck must never show, nor a
   // bundle carry, what the shipped set could not contain.
   const { dir, home: h, repo } = home(t);
-  const html = deck({ decklight: '0.9.0', theme: 'aurora', addedThemes: ['nord@acme'] });
+  const html = deck({ decklight: '0.9.0', theme: 'aurora', markedThemes: ['nord@acme'] });
   assert.match(linkAddedThemes(html, h), /data-theme="nord"/, 'passing, it is linked');
 
   writeFileSync(path.join(repo, 'themes/nord.css'), '.decklight { --bg: #fff; --fg: #fefefe; }');
@@ -243,7 +243,7 @@ test('marking records where its marketplace comes from, once, and unmarking the 
 test('the source decides: the same catalog under another name here is the one the deck means', (t) => {
   const { home: h, repo } = home(t);
   asRemote(h, repo, { name: 'acme-here' });
-  const html = deck({ decklight: '0.9.0', addedThemes: ['nord@acme'], themeSources: { acme: 'acme/decklight-themes' } });
+  const html = deck({ decklight: '0.9.0', markedThemes: ['nord@acme'], themeSources: { acme: 'acme/decklight-themes' } });
   const out = linkAddedThemes(html, h);
   const link = out.match(/<link[^>]*data-theme="nord"[^>]*>/)?.[0];
   assert.ok(link, out);
@@ -256,7 +256,7 @@ test('the source decides: the same catalog under another name here is the one th
 test('a marketplace that only shares the name is not the one the deck means', (t) => {
   const { home: h, repo } = home(t);
   asRemote(h, repo, { source: 'someone-else/themes' });
-  const html = deck({ decklight: '0.9.0', addedThemes: ['nord@acme'], themeSources: { acme: 'acme/decklight-themes' } });
+  const html = deck({ decklight: '0.9.0', markedThemes: ['nord@acme'], themeSources: { acme: 'acme/decklight-themes' } });
   const out = linkAddedThemes(html, h);
   assert.doesNotMatch(out, /<link[^>]*data-theme="nord"/, 'never linked silently');
   assert.match(out, /nord@acme — &quot;acme&quot; here is a different catalog \(someone-else\/themes\) — the deck's comes from acme\/decklight-themes/);
@@ -264,7 +264,7 @@ test('a marketplace that only shares the name is not the one the deck means', (t
 
 test('a marketplace this machine lacks is named with the command that brings it', (t) => {
   const { home: h } = home(t);
-  const html = deck({ decklight: '0.9.0', addedThemes: ['nord@other'], themeSources: { other: 'acme/other-themes' } });
+  const html = deck({ decklight: '0.9.0', markedThemes: ['nord@other'], themeSources: { other: 'acme/other-themes' } });
   assert.match(linkAddedThemes(html, h), /nord@other — its marketplace is not registered on this machine — decklight marketplace add acme\/other-themes/);
 });
 
@@ -277,6 +277,34 @@ test('marking from the command line records the source it resolved', (t) => {
     { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: h } });
   assert.equal(r.status, 0, r.stderr);
   const cfg = JSON.parse(readFileSync(deckPath, 'utf8').match(/data-decklight-config>([\s\S]*?)<\/script>/)[1]);
-  assert.deepEqual(cfg.addedThemes, ['nord@acme']);
+  assert.deepEqual(cfg.markedThemes, ['nord@acme']);
   assert.deepEqual(cfg.themeSources, { acme: 'acme/decklight-themes' });
+});
+
+// ── marked shipped themes ─────────────────────────────────────────────────
+
+test('a marked shipped theme needs no link — and a deck opening on one links it as its base', (t) => {
+  const { home: h } = home(t);
+  const html = deck({ decklight: '0.9.0', theme: 'ember', markedThemes: ['ember', 'nord@acme'] });
+  const out = linkAddedThemes(linkRuntime(html), h);
+  assert.match(out, /<link rel="stylesheet" href="themes\/ember\.css">/, 'the base is the shipped theme it names, not the default');
+  assert.doesNotMatch(out, /decklight-theme\/[^"]*ember/, 'a shipped theme is never served as a marketplace one');
+  assert.doesNotMatch(out, /decklight-theme-missing/, 'and is never missing');
+  assert.match(out, /data-theme="nord"/);
+});
+
+test('bundle carries every marked shipped theme beside the one the file opens on', (t) => {
+  const { dir, home: h } = home(t);
+  const deckPath = path.join(dir, 'talk.html');
+  writeFileSync(deckPath, deck({ decklight: '0.9.0', theme: 'aurora', markedThemes: ['ember', 'fjord', 'nord@acme'] }));
+  const out = path.join(dir, 'out.html');
+  const r = spawnSync(process.execPath, [CLI, 'bundle', deckPath, '-o', out], { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: h } });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr + r.stdout, /marked shipped themes embedded: ember, fjord/);
+  const html = readFileSync(out, 'utf8');
+  assert.match(html, /<style data-theme="aurora">/, 'the one it opens on, active');
+  assert.match(html, /<style data-theme="ember" media="not all">/, 'a marked shipped theme, off until picked');
+  assert.match(html, /<style data-theme="fjord" media="not all">/);
+  assert.match(html, /<style data-theme="nord" data-theme-added/, 'and the marketplace one, as before');
+  assert.doesNotMatch(html, /<style data-theme="(?:midnight|citrus)"/, 'and nothing it did not mark');
 });

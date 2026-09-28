@@ -124,7 +124,7 @@ the script (#495) — and refuses an option it does not take by name (#500).
 ### A marketplace theme is a reference, not a copy (SPEC `THEME_DISTRIBUTION`)
 
 `theme add` and Browse used to paste a whole theme into the deck. Now a deck
-**marks** a theme: its config block gains `"addedThemes": ["acme@acme-themes"]`
+**marks** a theme: its config block gains `"markedThemes": ["acme@acme-themes"]`
 and, once per marketplace, `"themeSources"` — where that catalog comes from,
 so the reference means the same catalog on any machine whatever it is called
 there, and one that only shares the name is refused rather than linked (#572).
