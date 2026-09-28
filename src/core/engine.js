@@ -2266,6 +2266,8 @@ export function init(userConfig = {}) {
     notesSegs,
     // what an export renders in — the theme on screen, not the deck's default (#547)
     renderTheme: () => themes.renderTheme(),
+    // what a preview frame looks like — the history's included — the same
+    previewQuery: () => themes.previewQuery(),
   });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
 

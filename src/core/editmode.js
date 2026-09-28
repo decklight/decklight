@@ -29,7 +29,7 @@ import { hljs } from '../code/code.js';
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
   root, config, params, printMode, toast, progress, debugLog, overlays, instance,
-  notesSegs, renderTheme = () => ({}),
+  notesSegs, renderTheme = () => ({}), previewQuery = () => '?embedded',
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
   // Served by the edit server: the deck subscribes to /edit/events and
@@ -1203,7 +1203,9 @@ export function createEditMode({
   let previewDoc = null; // the commit the preview frame is showing, by hash
   const preview = createPreview({
     docOf: (t) => t.doc,
-    srcFor: (t) => `${editBase}/edit/at?ref=${encodeURIComponent(t.doc)}&embedded`,
+    // in the theme on screen: an old version opens on ITS configured theme,
+    // and the history is for seeing what changed, not the theme it had then
+    srcFor: (t) => `${editBase}/edit/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}`,
     messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, 0] } }),
   });
   // Armed, not fired. `⏎` on a row used to restore it on the spot, and a CLICK

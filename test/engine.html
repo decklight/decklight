@@ -54,7 +54,7 @@
     // lose them the moment it gains an added one.
     // The exports are told the theme on screen (#547), so they run on a deck
     // that HAS one — linked, the way a data-only deck is served.
-    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx') {
+    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'restore') {
       document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="../themes/aurora.css">');
     }
     if (HARNESS_MODE === 'added') {
@@ -2074,9 +2074,14 @@
       if (mode === 'restore') {
         const O = '.decklight-restore', ROW = '.tp-row', SEL = 'tp-selected';
         await settle();                       // let /edit/ping resolve
+        // the theme on screen is not the old version's: the preview must be
+        // told it, or every commit opens on the theme it had configured then
+        r.themeApplied = deck.theme('ember') === true;
         press('r');
         await settle();                       // let /edit/history resolve
         r.opens = !!document.querySelector(O);
+        const frameSrc = document.querySelector(`${O} iframe`)?.getAttribute('src') ?? '';
+        r.previewInTheThemeOnScreen = /\/edit\/at\?ref=[^&]+&embedded&theme=ember(?:&|$)/.test(frameSrc);
         const a = selectedIndex(O, ROW, SEL);
         r.listsEveryCommit = a.count === 3;
         r.hasSelection = a.i === 0;           // newest first, newest selected
@@ -2119,7 +2124,7 @@
         r.hasApi = typeof deck?.restore?.open === 'function'
           && typeof deck?.restore?.list === 'function';
 
-        r.PASS = r.opens && r.listsEveryCommit && r.hasSelection && r.rowShowsSubject
+        r.PASS = r.themeApplied && r.previewInTheThemeOnScreen && r.opens && r.listsEveryCommit && r.hasSelection && r.rowShowsSubject
           && r.downMoves && r.wrapsAround && r.escapeCloses && r.reopens
           && r.backdropCloses && r.paletteUp && r.restoreUp && r.paletteGone
           && r.hasApi && r.apiLists && r.apiCloses;

@@ -414,7 +414,18 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const cand = customThemes[name] ? { name, tokens: customThemes[name] }
       : (genTheme && name === genTheme.name) ? genTheme : null;
     if (cand) return '?embedded&gen=' + b64uEncode(cand);
-    return name ? '?embedded&theme=' + encodeURIComponent(name) : '?embedded';
+    if (!name) return '?embedded';
+    // A marketplace theme is only in the preview's page if THAT page marks it —
+    // and an old version, a template preview or a finder frame may not. Where
+    // it is served from rides along; the preview links it only if absent.
+    const from = marketOf(name);
+    return '?embedded&theme=' + encodeURIComponent(name) + (from ? '&from=' + encodeURIComponent(from) : '');
+  }
+  /** The marketplace a theme is served from HERE — its link's own path, else the catalog's name. */
+  function marketOf(name) {
+    const link = addedStyles.find((el) => el.tagName === 'LINK' && el.dataset.theme === name);
+    const m = link && /decklight-theme\/([\w-]+)\//.exec(link.getAttribute('href') ?? '');
+    return m?.[1] ?? offered.get(name)?.marketplace ?? null;
   }
 
   /**
