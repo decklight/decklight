@@ -142,13 +142,31 @@ ${rows.join('\n')}
  * answer to the most natural thing to type. A deck opens in author mode, a
  * `.decklight` container is somebody else's deck and plays read-only, an
  * Office file or a Slides URL is something to import, a YAML script is a
- * terminal cast to record. Unknown kinds return null and stay unknown
- * commands; a file that does not exist still routes, so the refusal names the
- * file ("no such deck: talk.html") instead of the word.
+ * terminal cast to record. A REPOSITORY is a deck to open too: `author`
+ * clones it and opens the deck inside (#514), so `decklight <repo url>` is the
+ * whole command. Unknown kinds return null and stay unknown commands; a file
+ * that does not exist still routes, so the refusal names the file ("no such
+ * deck: talk.html") instead of the word.
  */
+/**
+ * Does this name a git repository? Only the shapes that cannot be anything
+ * else: the git transports (`git@host:…`, `ssh://`, `git://`), a URL ending in
+ * `.git`, and a repository — or a branch or file in one — on the three hosts
+ * whose URLs say so (`github.com/owner/repo`, `…/tree/<branch>`,
+ * `…/blob/<branch>/<path>`). A web page is not a repository, so an arbitrary
+ * https URL stays an unknown command rather than a clone attempt.
+ */
+export function isRepoUrl(arg) {
+  const a = String(arg ?? '').replace(/#.*$/, '');
+  if (/^(git@[\w.-]+:|ssh:\/\/|git:\/\/)/i.test(a)) return true;
+  if (/^(https?|file):\/\/.+\.git\/?$/i.test(a)) return true;
+  return /^https:\/\/(github\.com|gitlab\.com|bitbucket\.org)\/[\w.-]+\/[\w.-]+(\/(tree|blob|-\/tree|-\/blob|src)\/.*)?\/?$/i.test(a);
+}
+
 export function routeForPath(arg) {
   const a = String(arg ?? '');
   if (/^https?:\/\/docs\.google\.com\/presentation\//i.test(a)) return 'import';
+  if (isRepoUrl(a)) return 'author';
   if (a.startsWith('-')) return null;
   const ext = /\.([a-z0-9]+)$/i.exec(a)?.[1]?.toLowerCase();
   if (!ext) return null;

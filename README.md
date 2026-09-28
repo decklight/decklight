@@ -44,6 +44,7 @@ After that you rarely need a command name:
 ```sh
 decklight                 # in a folder: start a deck, or pick one to open
 decklight talk.html       # open a deck in author mode
+decklight https://github.com/you/talk  # clone a deck's repository and open it
 decklight talk.pptx       # bring a PowerPoint, Keynote or Slides deck across
 decklight talk.decklight  # play somebody else's deck, read-only
 decklight bundle talk.html  # one self-contained file to send — the runtime embedded

@@ -82,6 +82,17 @@ test('a file as the first argument implies its verb', () => {
   assert.equal(routeForPath('slides/Talk.HTM'), 'author');
   assert.equal(routeForPath('talk.decklight'), 'present', 'a container is somebody else\u2019s deck: read-only');
   assert.equal(routeForPath('Q3 Review.pptx'), 'import');
+  // a repository is a deck to open: author clones it (#514)
+  for (const repo of [
+    'https://github.com/owner/talk', 'https://github.com/owner/talk/', 'https://github.com/owner/talk.git',
+    'https://github.com/owner/talk/tree/draft', 'https://github.com/owner/talk#slides/deck.html',
+    'https://gitlab.com/team/talk', 'git@github.com:owner/talk.git', 'ssh://git@git.example.com/team/talk.git',
+    'https://git.example.com/team/talk.git', 'file:///srv/mirror/talk.git',
+  ]) assert.equal(routeForPath(repo), 'author', repo);
+  // …and a web page is not one: no clone attempt against somebody's site
+  for (const page of ['https://example.com/', 'https://example.com/about', 'https://github.com/owner']) {
+    assert.equal(routeForPath(page), null, page);
+  }
   assert.equal(routeForPath('talk.key'), 'import');
   assert.equal(routeForPath('https://docs.google.com/presentation/d/abc/edit'), 'import');
   assert.equal(routeForPath('demo.term.yaml'), 'cast');
