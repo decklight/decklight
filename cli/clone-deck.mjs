@@ -20,6 +20,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs
 import { basename, join, resolve } from 'node:path';
 import { refProblem } from './marketplace.mjs';
 import { oneline } from './git.mjs';
+import { isDeck } from './runtime-link.mjs';
 
 const GIT_URL = /^(git@|ssh:\/\/|git:\/\/|file:\/\/|https?:\/\/)/;
 
@@ -103,9 +104,14 @@ export function cloneDeck(source, { into = null, cwd = process.cwd(), exec = exe
 const SKIP = new Set(['node_modules', '.git', 'dist', 'voiceover', 'voices']);
 
 /**
- * The deck inside a clone: the one named, else the ONE file that boots
- * decklight. Two candidates are a question for the person, not a guess —
- * the error names them so the answer is a `#path` away.
+ * The deck inside a clone: the one named, else the ONE file that is a deck.
+ * Two candidates are a question for the person, not a guess — the error names
+ * them so the answer is a `#path` away.
+ *
+ * "Is a deck" is `isDeck` — a `class="decklight"` element, the one marker
+ * every other command goes by. It used to be "calls Decklight.init", which a
+ * deck that is DATA (#520, every deck `init` writes since) never does: a
+ * repository of 0.9.0 decks cloned fine and then had "no decklight deck" in it.
  */
 export function findDeck(dir, named = null, { depth = 3 } = {}) {
   if (named) {
@@ -123,12 +129,12 @@ export function findDeck(dir, named = null, { depth = 3 } = {}) {
       if (!/\.html?$/i.test(e.name)) continue;
       let text = '';
       try { text = readFileSync(join(d, e.name), 'utf8'); } catch { continue; }
-      if (/Decklight\.init\s*\(/.test(text)) found.push(join(d, e.name));
+      if (isDeck(text)) found.push(join(d, e.name));
     }
   };
   walk(dir, 0);
   if (found.length === 1) return found[0];
   const rel = (p) => p.slice(dir.length + 1).split('\\').join('/');
-  if (!found.length) throw new Error(`no decklight deck in ${dir} — nothing there calls Decklight.init`);
+  if (!found.length) throw new Error(`no decklight deck in ${dir} — no .html file there has a class="decklight" element`);
   throw new Error(`${found.length} decks in ${dir} — name one: append #<path> to the URL\n  ${found.map(rel).join('\n  ')}`);
 }

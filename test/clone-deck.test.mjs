@@ -19,6 +19,9 @@ import { parseDeckSource, cloneDeck, findDeck } from '../cli/clone-deck.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 const DECK = '<!doctype html><div class="decklight"><section><h1>x</h1></section></div>\n<script>Decklight.init({})</script>\n';
+// the shape `init` has written since #520: slides and a configuration block, no boot call
+const DATA_DECK = '<!doctype html><html><head>\n<script type="application/json" data-decklight-config>{ "decklight": "0.9.0", "theme": "aurora" }</script>\n'
+  + '</head><body><div class="decklight"><section><h1>x</h1></section></div></body></html>\n';
 
 test('parseDeckSource: only an explicit git URL counts, and a GitHub file link names branch and deck', () => {
   assert.equal(parseDeckSource('deck.html'), null);
@@ -114,11 +117,12 @@ test('findDeck: the one deck, the named deck, and a refusal that lists the candi
   put('README.md', '# talk');
   put('node_modules/x/index.html', DECK);                 // never looked at
   put('dist/decklight.html', DECK);                       // nor generated output
-  assert.throws(() => findDeck(root), /no decklight deck in .* nothing there calls Decklight\.init/);
-  put('slides/q3.html', DECK);
-  assert.equal(findDeck(root), path.join(root, 'slides', 'q3.html'), 'one deck, found below the top level');
+  assert.throws(() => findDeck(root), /no decklight deck in .* no \.html file there has a class="decklight" element/);
+  put('slides/q3.html', DATA_DECK);
+  assert.equal(findDeck(root), path.join(root, 'slides', 'q3.html'),
+    'one deck, found below the top level — a deck that is data, with no Decklight.init to find');
   put('index.html', '<p>a page that is not a deck</p>');
-  assert.equal(findDeck(root), path.join(root, 'slides', 'q3.html'), 'a page without Decklight.init is not a candidate');
+  assert.equal(findDeck(root), path.join(root, 'slides', 'q3.html'), 'a page that is not a deck is not a candidate');
   put('slides/q4.html', DECK);
   assert.throws(() => findDeck(root), /2 decks in .* name one: append #<path> to the URL\n  slides\/q3\.html\n  slides\/q4\.html/);
   assert.equal(findDeck(root, 'slides/q4.html'), path.join(root, 'slides', 'q4.html'));
