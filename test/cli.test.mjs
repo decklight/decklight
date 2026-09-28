@@ -1903,10 +1903,11 @@ test('bundle: a deck that links the runtime and ships none of it inlines the ins
     + '<script src="decklight.js"></script>\n<script>Decklight.init({})</script>\n</body></html>\n');
   const r = spawnSync('node', [CLI, 'bundle', 'deck.html', '-o', 'out.html'], { cwd: dir, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  const said = r.stdout + r.stderr;   // bundle's notes go to stdout
-  for (const what of ['decklight.js', 'decklight.css', 'theme midnight']) {
-    assert.match(said, new RegExp(`${what.replace('.', '\\.')}: inlined from the installed decklight`), `${what} came from the package, and the note says so`);
-  }
+  const said = r.stdout + r.stderr;   // bundle's summary goes to stdout
+  assert.match(said, /^ {2}runtime {2}decklight \S+ — embedded from this install \(the source deck links it\)$/m,
+    'the runtime came from the package, and the summary says where');
+  assert.match(said, /^ {2}themes {3}midnight \(opens on\)$/m, 'and the theme it opens on');
+  assert.doesNotMatch(said, /^note: .*inlined from the installed/m, 'one summary, not a note per file');
   const out = fs.readFileSync(path.join(dir, 'out.html'), 'utf8');
   assert.match(out, /<style data-theme="midnight"/);
   assert.ok(!/<script src="decklight\.js">/.test(out), 'no external reference left');
@@ -1921,5 +1922,5 @@ test('bundle: a deck that links the runtime and ships none of it inlines the ins
   const own = spawnSync('node', [CLI, 'bundle', 'deck.html', '-o', 'own.html'], { cwd: dir, encoding: 'utf8' });
   assert.equal(own.status, 0, own.stderr);
   assert.match(fs.readFileSync(path.join(dir, 'own.html'), 'utf8'), /--mine:1/);
-  assert.doesNotMatch(own.stdout + own.stderr, /theme midnight: inlined from the installed/);
+  assert.match(own.stdout, /^ {2}themes {3}midnight \(opens on, own file\)$/m, 'a themes/ file beside the deck is named as the deck\'s own');
 });

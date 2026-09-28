@@ -998,7 +998,7 @@ try {
 
     // And the hand-over carries it, opening on it.
     const r = dl(['bundle', basename(deckPath()), '-o', 'marked theme.html', '--theme', 'soak-theme']);
-    must(/marked theme inlined: soak-theme@soak-market/.test(r.all), `bundle did not say it inlined the marked theme: ${r.all}`);
+    must(/themes .*soak-theme \((?:opens on|marked, from soak-market)/.test(r.all), `bundle did not say it carries the marked theme: ${r.all}`);
     const sent = readFileSync(join(PROJECT, 'marked theme.html'), 'utf8');
     must(/<style data-theme="soak-theme" data-theme-added data-theme-marketplace="soak-market"/.test(sent), 'the bundle does not carry the marked theme');
     must(!/<link[^>]*decklight-theme\//.test(sent), 'the bundle links a marketplace this file will never see');
@@ -1199,7 +1199,7 @@ try {
     const before = deck();
     must(!/<script src=|Decklight\.init/.test(before), 'the scaffold carries a runtime or a boot call');
     const r = dl(['bundle', 'deck.html', '-o', 'sent.html']);
-    must(r.all.includes('the deck carries no runtime — the installed decklight'), 'the bundle did not say where the runtime came from');
+    must(r.all.includes('embedded from this install (the source deck carries no runtime)'), 'the bundle did not say where the runtime came from');
     must(deck() === before, 'bundling touched the deck');
     const sent = readFileSync(join(PROJECT, 'sent.html'), 'utf8');
     must(!/<script src="decklight\.js"/.test(sent) && /\/\*!\s*Decklight v/.test(sent) && /data-decklight-config/.test(sent), 'sent.html is not self-contained');

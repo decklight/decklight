@@ -294,6 +294,9 @@ if (jobs) {
     path.join(deckDir, path.basename(firstPath, '.html') + '-standalone.html'));
 }
 
+// What went into the file and where each piece came from, said once at the end
+// as two lines — the runtime and the themes — rather than a note per file.
+const fromInstall = new Set();   // decklight.js / decklight.css read from the installed package
 const read = (rel) => {
   const p = path.resolve(deckDir, rel);
   if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8');
@@ -301,7 +304,7 @@ const read = (rel) => {
   // servers answer it from the installed package, and so does this (#517) —
   // what a bundle carries is what the deck was playing with.
   const asset = packageAsset(rel);
-  if (asset) { notices.push(`${rel}: inlined from the installed decklight ${PKG.version}`); return fs.readFileSync(asset.file, 'utf8'); }
+  if (asset) { fromInstall.add(path.basename(rel)); return fs.readFileSync(asset.file, 'utf8'); }
   fail(`referenced file not found: ${rel} (${p})`);
 };
 
@@ -342,7 +345,7 @@ const sourceHtml = html;
 const linked = !hasRuntime(html);
 if (linked) {
   html = linkRuntime(html);
-  notices.push(`the deck carries no runtime — the installed decklight ${PKG.version} is embedded`);
+  // said in the summary: the source deck carries no runtime of its own
 }
 
 const themeLinkRe = /<link\b[^>]*rel=["']stylesheet["'][^>]*href=["']([^"']*themes\/([\w-]+)\.css)["'][^>]*>/i;
@@ -412,7 +415,6 @@ themeNames = themeNames.filter((n) => !markedNames.includes(n));
 // on, whatever --themes chose, because marking it is how the author said so.
 const markedShippedNames = markedShipped(sourceHtml).filter((n) => !themeNames.includes(n));
 if (!ownTheme) themeNames.push(...markedShippedNames);
-if (markedShippedNames.length) notices.push(`marked shipped theme${markedShippedNames.length === 1 ? '' : 's'} embedded: ${markedShippedNames.join(', ')}`);
 if (!themeNames.length) fail('no themes selected');
 const activeTheme = openOn && themeNames.includes(openOn) ? openOn
   : themeNames.includes(linkedTheme) ? linkedTheme : themeNames[0];
@@ -420,10 +422,11 @@ if (!ownTheme && activeTheme !== linkedTheme && !openOn) {
   notices.push(`linked theme "${linkedTheme}" not in --themes list; "${activeTheme}" is active`);
 }
 
+const ownThemeFiles = new Set();   // themes read from a themes/ folder beside the deck
 const themeBlocks = ownTheme ? null : themeNames.map((name) => {
   const cssPath = themeFile(name);
   if (!cssPath) fail(`theme not found: ${name} (${path.join(themesDir, `${name}.css`)}, and not shipped)`);
-  if (!cssPath.startsWith(themesDir)) notices.push(`theme ${name}: inlined from the installed decklight ${PKG.version}`);
+  if (cssPath.startsWith(themesDir)) ownThemeFiles.add(name);
   const css = fs.readFileSync(cssPath, 'utf8');
   const media = name === activeTheme ? '' : ' media="not all"';
   return `<style data-theme="${name}"${media}>\n${css}\n</style>`;
@@ -444,7 +447,6 @@ if (marked.length) {
   const blocks = marked.map((r) => addedThemeStyle(r, fs.readFileSync(r.file, 'utf8'))).join('\n');
   const headEnd = html.search(/<\/head>/i);
   html = headEnd === -1 ? `${blocks}\n${html}` : `${html.slice(0, headEnd)}${blocks}\n${html.slice(headEnd)}`;
-  notices.push(`marked theme${marked.length === 1 ? '' : 's'} inlined: ${marked.map((r) => r.ref).join(', ')}`);
 }
 // The theme the bundle opens on is the configured one, and the runtime reads
 // it from the configuration block — so `--theme` is written THERE, which is
@@ -640,7 +642,36 @@ if (sign) {
 fs.writeFileSync(outPath, html);
 const kb = (fs.statSync(outPath).size / 1024).toFixed(1);
 const what = jobs ? `${jobs.length} modules` : path.basename(firstPath);
-process.stdout.write(`bundled ${what} → ${outPath} (${kb} KB, themes: ${themeNames.join(', ')}; active: ${activeTheme})\n`);
+process.stdout.write(`bundled ${what} → ${outPath} (${kb} KB)\n`);
+// The runtime: where the copy in the file came from. A deck that is data (#520)
+// carries none — which reads like a warning unless it says it is the SOURCE deck
+// that carried none, and the file that has one.
+const runtimeFrom = linked ? 'embedded from this install (the source deck carries no runtime)'
+  : fromInstall.has('decklight.js') ? 'embedded from this install (the source deck links it)'
+    : "embedded from the source deck's own copy";
+process.stdout.write(`  runtime  decklight ${PKG.version} — ${runtimeFrom}\n`);
+// The themes: the one it opens on, the others it can switch to, and why each
+// is there — marked, or asked for with --themes — and where one came from when
+// it was not this install (a themes/ folder beside the deck, a marketplace).
+{
+  const opening = openOn ?? (ownTheme ? themeNames[0] : activeTheme);
+  const tagged = (n, ...why) => {
+    const bits = [...why, ownThemeFiles.has(n) ? 'own file' : null].filter(Boolean);
+    return bits.length ? `${n} (${bits.join(', ')})` : n;
+  };
+  const parts = [tagged(opening, 'opens on', ownTheme ? 'its own' : null)];
+  const chosen = themeNames.filter((n) => n !== opening && !markedShippedNames.includes(n));
+  if (chosen.length) parts.push(chosen.map((n) => tagged(n)).join(', '));
+  const shippedMarked = markedShippedNames.filter((n) => n !== opening);
+  if (shippedMarked.length) parts.push(`${shippedMarked.join(', ')} (marked)`);
+  const byMarket = new Map();
+  for (const r of marked) {
+    const m = r.ref.split('@')[1];
+    byMarket.set(m, [...(byMarket.get(m) ?? []), r.name]);
+  }
+  for (const [m, names] of byMarket) parts.push(`${names.join(', ')} (marked, from ${m})`);
+  process.stdout.write(`  themes   ${parts.join(' · ')}\n`);
+}
 if (bundleSig) {
   const { writeSidecar, verifyBytes, formatSignature } = await import('./sign.mjs');
   const sidecar = writeSidecar(outPath, bundleSig);

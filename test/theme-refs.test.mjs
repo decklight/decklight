@@ -300,7 +300,7 @@ test('bundle carries every marked shipped theme beside the one the file opens on
   const out = path.join(dir, 'out.html');
   const r = spawnSync(process.execPath, [CLI, 'bundle', deckPath, '-o', out], { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: h } });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr + r.stdout, /marked shipped themes embedded: ember, fjord/);
+  assert.match(r.stdout, /^ {2}themes {3}aurora \(opens on\) · ember, fjord \(marked\) · nord \(marked, from acme\)$/m);
   const html = readFileSync(out, 'utf8');
   assert.match(html, /<style data-theme="aurora">/, 'the one it opens on, active');
   assert.match(html, /<style data-theme="ember" media="not all">/, 'a marked shipped theme, off until picked');
