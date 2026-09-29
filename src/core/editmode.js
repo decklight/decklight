@@ -168,7 +168,11 @@ export function createEditMode({
     write.className = 'narr-row narr-sel cm-write';
     write.setAttribute('role', 'button');
     write.tabIndex = 0;
-    write.textContent = 'write one for me';
+    // Off unless this session was started with it: the button says so rather
+    // than offering what the server can only refuse (and the reason, which
+    // does not fit on a button, goes on the hint line when it is pressed).
+    write.textContent = state.messages ? 'write one for me' : 'write one for me — off';
+    if (!state.messages) write.classList.add('cm-off');
     const go = document.createElement('div');
     go.className = 'narr-row narr-sel cm-go';
     go.setAttribute('role', 'button');
@@ -186,8 +190,21 @@ export function createEditMode({
     // being written the box says so where the subject will land, and the
     // button with it — moving, so a slow agent never reads as a stuck window.
     const placeholder = input.placeholder;
+    const HINT = hint.textContent;
+    // the commands in it are set as unbreakable runs: a flag split at its
+    // hyphen across two lines is a command nobody can copy
+    const explainOff = () => {
+      hint.textContent = '';
+      const cmd = (t) => { const c = document.createElement('span'); c.className = 'cm-cmd'; c.textContent = t; return c; };
+      hint.append('an agent writes commit subjects only when asked to, because it reads the deck\'s changes — restart with ',
+        cmd('decklight author --commit-messages'), ' (or ', cmd('git config decklight.commit-messages true'), ')');
+      hint.classList.add('cm-why');
+    };
     const ask = async () => {
+      if (!state.messages) { explainOff(); return; }
       if (commitAsking) return;
+      hint.textContent = HINT;
+      hint.classList.remove('cm-why');
       commitAsking = true;
       write.classList.add('cm-thinking');
       const stop = thinking((text) => {
@@ -202,7 +219,13 @@ export function createEditMode({
         if (j.subject && !input.value.trim()) input.value = j.subject;
         write.textContent = j.subject ? 'write another' : 'nothing to say about it';
       } catch (e) {
-        if (commitEl) write.textContent = `couldn't — ${String(e.message || e).slice(0, 40)}`;
+        // the whole sentence, where there is room for it — a reason cut at forty
+        // characters on a button is a reason nobody can act on
+        if (commitEl) {
+          write.textContent = "couldn't write one";
+          hint.textContent = String(e.message || e);
+          hint.classList.add('cm-why');
+        }
       } finally {
         stop();
         write.classList.remove('cm-thinking');

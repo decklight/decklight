@@ -1578,7 +1578,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // the machine: no `--commit-messages`, no ask.
   async function commitSubjectRoute({ json }) {
     if (!wantMessages) {
-      return json(403, { ok: false, error: 'commit subjects are not enabled — decklight author --commit-messages' });
+      return json(403, { ok: false, error: 'commit subjects are off in this session — restart with: decklight author --commit-messages (or git config decklight.commit-messages true)' });
     }
     const subject = await describeWorking({
       cwd: root, deckPath, deckRel, agent: agentPref,

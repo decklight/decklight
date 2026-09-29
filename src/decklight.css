@@ -1178,6 +1178,11 @@
 .decklight-commit .cm-write:hover { background: rgba(255, 255, 255, .16); }
 /* the thinking mark changes every frame: a fixed-width face keeps the button
    from jittering as | / - \ swap and the seconds join */
+/* subjects are off in this session: the button stays (it is how the option is
+   found) but reads as not-now, and the reason lands on the hint line below */
+.decklight-commit .cm-write.cm-off { opacity: .55; }
+.decklight-commit .rec-hint.cm-why { opacity: .9; }
+.decklight-commit .cm-cmd { white-space: nowrap; font-family: var(--font-mono, ui-monospace, monospace); font-size: .95em; }
 .decklight-commit .cm-write.cm-thinking { font-family: var(--font-mono, ui-monospace, monospace); }
 
 .decklight-agent-chip {

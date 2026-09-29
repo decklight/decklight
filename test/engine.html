@@ -137,7 +137,7 @@
         }
         if (u.includes('/edit/commit') && (init?.method ?? 'GET') === 'GET') {
           return json({ ok: true, dirty: true, lines: 7, sinceMs: 0, nag: false,
-            canWrite: true, messages: false, deck: 'engine.html' });
+            canWrite: true, messages: window.__commitMessages === true, deck: 'engine.html' });
         }
         if (u.includes('/edit/commit')) {
           window.__committed = JSON.parse(init?.body ?? '{}').message;
@@ -2136,14 +2136,31 @@
         r.cmdEnterCommits = window.__committed === 'tighten the closing slide';
         r.closesAfterCommitting = !document.querySelector(O);
 
+        // With subjects OFF in this session the button says so, and pressing it
+        // explains — in full, on the hint line — rather than asking the server
+        // for something it can only refuse.
+        press('k');
+        await settle();
+        const offBtn = document.querySelector('.cm-write');
+        r.offSaysOff = /write one for me — off/.test(offBtn?.textContent ?? '');
+        const subjectAsks = () => CALLS.post.filter((c) => c.u.includes('/edit/commit/subject')).length;
+        const asksBefore = subjectAsks();
+        offBtn?.click();
+        await settle();
+        const why = document.querySelector('.decklight-commit .rec-hint')?.textContent ?? '';
+        r.offExplainsInFull = /decklight author --commit-messages/.test(why) && /git config decklight\.commit-messages true/.test(why);
+        r.offAsksNothing = subjectAsks() === asksBefore;
+        escapeUntilClosed(O);
+
         // Asking for a subject shows it is thinking — ASCII only, moving, in
         // the box where the subject will land and on the button — and stops,
-        // leaving the subject, once it arrives.
+        // leaving the subject, once it arrives. (Subjects ON for this part.)
+        window.__commitMessages = true;
         press('k');
         await settle();
         const write = document.querySelector('.cm-write');
         const box2 = document.querySelector('.cm-input');
-        const idle = box2.placeholder;
+        const idle = 'what changed, in one line…';   // the box's own placeholder (with subjects on it is already thinking at open)
         write.click();
         await new Promise((ok) => setTimeout(ok, 60));
         const a = write.textContent;
@@ -2168,6 +2185,7 @@
 
         r.PASS = r.bareKopens && r.bareKtoggles && r.metaKopens && r.metaKclosesFromTheBox
           && r.ctrlKopens && r.cmdEnterCommits && r.closesAfterCommitting
+          && r.offSaysOff && r.offExplainsInFull && r.offAsksNothing
           && r.saysItIsThinking && r.itMoves && r.asciiOnly && r.subjectLands && r.stopsThinking && r.staysStopped;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
