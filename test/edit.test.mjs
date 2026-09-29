@@ -607,6 +607,40 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
   assert.equal(missing.status, 400);
 });
 
+test('the asks of a session are kept on the server — slide, prompt and outcome — so a reload still shows them', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  writeFakeBin(bin, 'claude',
+    "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- x -->');\nconsole.log(JSON.stringify({ type: 'result', result: 'Moved the diagram left.' }));\n");
+  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+  assert.deepEqual((await (await fetch(base + '/edit/ping')).json()).agentAsks, [], 'none yet');
+
+  await post(base, '/edit/agent', { prompt: 'move the diagram left', slide: 3 });
+  let p;
+  for (let i = 0; i < 200; i++) {
+    p = await (await fetch(base + '/edit/ping')).json();
+    if (p.agentAsks?.[0]?.state === 'done') break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  const [ask] = p.agentAsks;
+  assert.equal(ask.prompt, 'move the diagram left');
+  assert.equal(ask.slide, 3, 'the slide on screen when it was asked');
+  assert.equal(ask.agent, 'claude');
+  assert.equal(ask.ok, true);
+  assert.equal(ask.changed, true);
+  assert.match(ask.tail ?? '', /Moved the diagram left\./, "the agent's own output");
+
+  await post(base, '/edit/agent', { prompt: 'no slide given', slide: 'x' });
+  for (let i = 0; i < 200; i++) {
+    p = await (await fetch(base + '/edit/ping')).json();
+    if (p.agentAsks.length === 2 && p.agentAsks[1].state === 'done') break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  assert.equal(p.agentAsks[1].slide, undefined, 'a slide that is not a slide number is left out');
+});
+
 // ── the author server is loopback-only, and has no remote (PRESENT#REMOTE) ─
 
 test('--remote and --host are refused out loud, naming where the remote went', () => {

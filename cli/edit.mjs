@@ -37,7 +37,7 @@
 //   POST /edit/element/effect  → { slide, index, effect }  write data-build (null strips it)
 //   POST /edit/undo            → step the deck file back through the edit history
 //   POST /edit/redo            → step it forward again
-//   POST /edit/agent           → { prompt, agent? }        one-shot AI agent edit
+//   POST /edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
 //   POST /edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
 //                                port conflict can take over an old session cleanly
 //
@@ -967,6 +967,12 @@ export async function editMain(args, { onListen = null } = {}) {
   // Declared before the git block below, which reads it to hold the cadence
   // back while a job is in flight.
   let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
+  // The asks of this session, oldest first, with what came of each — what the
+  // docked agent panel shows. An agent's edit reloads every browser, so the
+  // log lives HERE, not in the page, and rides /edit/ping across the reload.
+  const agentAsks = [];
+  const ASKS_KEPT = 20;
+  let askSeq = 0;
   let exporting = false; // an export in flight — one browser, one output path, any kind
   let publishing = false; // a publish in flight — one push at a time
 
@@ -1375,9 +1381,17 @@ export async function editMain(args, { onListen = null } = {}) {
     }, 150);
   });
 
-  function runAgent(prompt, name, message) {
+  function runAgent(prompt, name, message, slide) {
     const cmd = agentCommand(name || agentPref, prompt, deckRel);
     if (!cmd) return null;
+    const ask = {
+      id: ++askSeq, agent: cmd.name, label: cmd.label, prompt,
+      ...(Number.isInteger(slide) && slide > 0 ? { slide } : {}),
+      startedAt: Date.now(), state: 'running',
+    };
+    agentAsks.push(ask);
+    if (agentAsks.length > ASKS_KEPT) agentAsks.shift();
+    const finish = (d) => Object.assign(ask, { state: 'done', finishedAt: Date.now() }, d);
     // Anything uncommitted at this moment is the PLAYER's work, not the
     // agent's. Sweeping it into its own commit first is what keeps the agent's
     // commit honest: otherwise a hand edit made just before pressing A lands
@@ -1388,7 +1402,7 @@ export async function editMain(args, { onListen = null } = {}) {
       console.log('  git: committed your outstanding changes first');
     }
     const before = readDeck();
-    agentJob = { agent: cmd.name, label: cmd.label, prompt, startedAt: Date.now() };
+    agentJob = { agent: cmd.name, label: cmd.label, prompt, startedAt: ask.startedAt, id: ask.id, slide: ask.slide };
     broadcast('agent', { state: 'start', ...agentJob });
     console.log(`  agent: ${cmd.name} ← "${prompt.slice(0, 80)}"`);
     const child = spawn(cmd.bin, cmd.args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -1434,7 +1448,8 @@ export async function editMain(args, { onListen = null } = {}) {
     child.on('error', (e) => {
       clearTimeout(timeout);
       agentJob = null;
-      broadcast('agent', { state: 'done', agent: cmd.name, ok: false, changed: false, error: String(e.message || e) });
+      finish({ ok: false, changed: false, error: String(e.message || e) });
+      broadcast('agent', { state: 'done', id: ask.id, agent: cmd.name, ok: false, changed: false, error: String(e.message || e) });
     });
     child.on('exit', (code) => {
       clearTimeout(timeout);
@@ -1468,11 +1483,12 @@ export async function editMain(args, { onListen = null } = {}) {
         } catch { recordingWarning = null; }   // a warning that throws is worse than none
       }
       agentJob = null;
+      // the agent's own words when the stream carried them — raw stream-json
+      // stdout is a wall of JSON nobody should be shown
+      const said = (resultText ?? tail.trim().split('\n').slice(-6).join('\n')).slice(-600);
+      finish({ ok: code === 0, changed, code, tail: said });
       broadcast('agent', {
-        state: 'done', agent: cmd.name, ok: code === 0, changed, code,
-        // the agent's own words when the stream carried them — raw stream-json
-        // stdout is a wall of JSON nobody should be shown
-        tail: (resultText ?? tail.trim().split('\n').slice(-6).join('\n')).slice(-600),
+        state: 'done', id: ask.id, agent: cmd.name, ok: code === 0, changed, code, tail: said,
         ...(recordingWarning ? { recordingWarning } : {}),
       });
       console.log(`  agent: ${cmd.name} exited (${code}) — deck ${changed ? 'changed' : 'unchanged'}`);
@@ -1526,7 +1542,8 @@ export async function editMain(args, { onListen = null } = {}) {
       // which one A reaches for, so the picker opens on it rather than
       // defaulting to the first detected agent every session (#125)
       preferredAgent: agentPref ?? null,
-      agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt },
+      agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt, id: agentJob.id },
+      agentAsks,
       wizards: await configurableEngines(),
       // What is uncommitted, so a deck that loads mid-session shows the
       // chip without waiting for the next tick to broadcast one.
@@ -2740,10 +2757,10 @@ export async function editMain(args, { onListen = null } = {}) {
   }
 
   function agentRoute({ body, json }) {
-    const { prompt, agent, message } = JSON.parse(body);
+    const { prompt, agent, message, slide } = JSON.parse(body);
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
     if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is already running` });
-    const cmd = runAgent(prompt.trim(), agent, message);
+    const cmd = runAgent(prompt.trim(), agent, message, slide);
     if (!cmd) return json(400, { ok: false, error: agentUnavailable(agent ?? agentPref, agents) });
     return json(200, { ok: true, agent: cmd.name, label: cmd.label });
   }

@@ -50,6 +50,11 @@ export function createEditMode({
   let preferredAgent = null; // the one A reaches for, remembered server-side (#125)
   let editWizards = [];  // [{name, qualified, title}] engines a marketplace declares a wizard for
   let agentBusy = null;  // {agent, prompt, startedAt} while a one-shot runs
+  // This session's asks, oldest first, each with the slide it was asked from
+  // and what came of it — kept by the author server (an agent's edit reloads
+  // the page), mirrored here from /edit/ping and the 'agent' events.
+  let agentAsks = [];
+  let paintAsks = null;  // set while the agent card is open
   let pushToastShown = false;  // at most one push nudge per session, by construction
 
   // The chip that says an agent is STILL working. A toast cannot: it expires,
@@ -346,10 +351,12 @@ export function createEditMode({
           // shows the chip immediately instead of waiting for the next tick.
           if (j.commit) { commitNow = j.commit; paintCommitChip(); }
           agentBusy = j.agentBusy || null; // an agent may already be mid-run across a reload
+          agentAsks = Array.isArray(j.agentAsks) ? j.agentAsks : [];
           if (agentBusy) toast(`${agentBusy.agent} is editing the deck…`, 2000);
           // The chip is restored too, with the SERVER's startedAt — a reload
           // mid-run is exactly when "is it still going?" is hardest to answer.
           paintAgentChip();
+          reopenAgentAsk();   // a docked agent card open before the reload is open after it
           const es = new EventSource(base + '/edit/events');
           es.onmessage = () => location.reload();
           es.addEventListener('commit', (ev) => {
@@ -362,16 +369,20 @@ export function createEditMode({
           es.addEventListener('agent', (ev) => {
             try {
               const d = JSON.parse(ev.data);
+              const ask = agentAsks.find((a) => a.id != null && a.id === (d.id ?? agentBusy?.id));
               if (d.state === 'activity') {
                 if (agentBusy) { agentBusy.activity = d.text; paintAgentChip(); }
+                if (ask) ask.activity = d.text;
                 debugLog('agent', `activity: ${d.text}`);
               } else if (d.state === 'start') {
                 agentBusy = d;
+                if (!ask) agentAsks.push({ ...d, state: 'running' });
                 paintAgentChip();
                 toast(`🤖 ${d.agent} is editing the deck…`, 2200);
                 debugLog('agent', `${d.agent} start: ${(d.prompt || '').slice(0, 80)}`);
               } else if (d.state === 'done') {
                 agentBusy = null;
+                if (ask) Object.assign(ask, d, { finishedAt: Date.now() });
                 paintAgentChip();
                 const status = d.ok ? '' : d.error ? ` — ${d.error}` : ` (exit ${d.code})`;
                 toast(d.changed ? `🤖 ${d.agent} edited the deck — Z undoes${status}`
@@ -385,6 +396,7 @@ export function createEditMode({
                   debugLog('agent', d.recordingWarning);
                 }
               }
+              paintAsks?.();
             } catch { /* malformed event */ }
           });
           // Progress for a long export — the row that started it is still on
@@ -650,8 +662,51 @@ export function createEditMode({
     getEl: () => agentEl,
     closeLabel: 'close (esc)',
   });
+  // A DOCKED card stays open across the reload an agent's edit causes: the
+  // author asked from beside the slide and is waiting beside it for the
+  // answer. Per tab, like the dock itself is per deck.
+  const AGENT_OPEN_KEY = 'decklight-agent-open:' + location.pathname;
+  const rememberAgentOpen = (open) => {
+    try { if (open) sessionStorage.setItem(AGENT_OPEN_KEY, '1'); else sessionStorage.removeItem(AGENT_OPEN_KEY); } catch { /* no storage: it just closes */ }
+  };
+  function reopenAgentAsk() {
+    let open = false;
+    try { open = sessionStorage.getItem(AGENT_OPEN_KEY) === '1'; } catch { /* no storage */ }
+    if (open && !agentEl && !agentDock.isFloat() && editAgents.length) toggleAgentAsk();
+  }
+  /** One past ask, as the card lists it: where it was asked, what, and what came of it. */
+  function askRow(a) {
+    const row = document.createElement('div');
+    row.className = `agent-ask agent-ask-${a.state === 'running' ? 'running' : a.ok ? 'ok' : 'failed'}`;
+    const meta = document.createElement('div');
+    meta.className = 'agent-ask-meta';
+    const at = new Date(a.startedAt || Date.now());
+    meta.textContent = [a.slide ? `slide ${a.slide}` : null, a.agent,
+      `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`].filter(Boolean).join(' · ');
+    if (a.slide) {
+      // the slide it was asked about is one click away
+      meta.classList.add('agent-ask-link');
+      meta.title = `go to slide ${a.slide}`;
+      meta.addEventListener('click', () => instance.goto(a.slide, 0));
+    }
+    const said = document.createElement('div');
+    said.className = 'agent-ask-prompt';
+    said.textContent = a.prompt;   // textContent: the user's words are not markup
+    const out = document.createElement('div');
+    out.className = 'agent-ask-out';
+    out.textContent = a.state === 'running'
+      ? `working…${a.activity ? ` ${a.activity}` : ''}`
+      : [a.error ? `failed — ${a.error}` : !a.ok ? `failed (exit ${a.code ?? '?'})` : a.changed ? 'edited the deck' : 'no changes',
+        (a.tail || '').trim()].filter(Boolean).join('\n');
+    row.append(meta, said, out);
+    return row;
+  }
   function toggleAgentAsk() {
-    if (agentEl) { unmountAgent(); agentEl = null; unmountAgent = null; return; }
+    if (agentEl) {
+      unmountAgent(); agentEl = null; unmountAgent = null; paintAsks = null;
+      rememberAgentOpen(false);
+      return;
+    }
     if (!editAvailable) {
       toast(needsDevMode('asking an agent', location), 3200);
       return;
@@ -660,13 +715,13 @@ export function createEditMode({
       toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600);
       return;
     }
-    if (agentBusy) {
-      toast(`${agentBusy.agent} is still working on the last ask`, 2200);
-      return;
-    }
     const { el, card } = typingCard('agent', agentDock,
       'ask an agent — edits the deck file · ⌘⏎ sends', toggleAgentAsk);
     agentEl = el;
+    // what was asked this session and what came of it — newest at the bottom,
+    // right above where the next one is typed
+    const log = document.createElement('div');
+    log.className = 'agent-log';
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
     ta.placeholder = `e.g. "make slide ${instance.state.slide} a split layout with the diagram on the left"`;
@@ -708,16 +763,20 @@ export function createEditMode({
     const send = async () => {
       const prompt = ta.value.trim();
       if (!prompt) return;
+      if (agentBusy) { toast(`${agentBusy.agent} is still working on the last ask`, 2200); return; }
       try {
         const res = await fetch(editBase + '/edit/agent', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ prompt, agent: pickedAgent }),
+          body: JSON.stringify({ prompt, agent: pickedAgent, slide: instance.state.slide }),
         });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(j.error || res.status);
-        toggleAgentAsk();
-        // progress lands as SSE 'agent' events → toasts; the reload follows the save
+        // Docked, the card stays: the ask joins its log and the answer lands
+        // under it. Floating, it is a modal in the way of the slide — it goes.
+        if (agentDock.isFloat()) toggleAgentAsk();
+        else { ta.value = ''; rememberAgentOpen(true); }
+        // progress lands as SSE 'agent' events → toasts and the log; the reload follows the save
       } catch (e) {
         toast(`ask failed: ${String(e.message || e).slice(0, 60)}`, 2200);
       }
@@ -733,8 +792,16 @@ export function createEditMode({
     btn.textContent = '🤖 send to agent';
     btn.addEventListener('click', send);
     actions.appendChild(btn);
-    card.append(ta, actions);
+    paintAsks = () => {
+      log.replaceChildren(...agentAsks.map(askRow));
+      log.hidden = !agentAsks.length;
+      btn.disabled = !!agentBusy;
+      log.scrollTop = log.scrollHeight;
+    };
+    paintAsks();
+    card.append(log, ta, actions);
     unmountAgent = mountTypingCard(el, agentDock);
+    if (!agentDock.isFloat()) rememberAgentOpen(true);
     setTimeout(() => ta.focus(), 0);
   }
 

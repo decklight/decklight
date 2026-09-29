@@ -176,6 +176,16 @@
               ...(kind === 'video' ? { voiced: 'voices/en-us-ryan-high' } : {}) });
         }
       }
+      // The agent card's log (A, docked): the server keeps the session's asks
+      // and /edit/ping hands them back, so a reload still shows them.
+      if (HARNESS_MODE === 'agentlog') {
+        if (u.includes('/edit/ping')) {
+          return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }],
+            agentAsks: [{ id: 1, agent: 'claude', prompt: 'make the title shorter', slide: 1, startedAt: Date.now() - 60000,
+              state: 'done', ok: true, changed: true, tail: 'Shortened the title.' }] });
+        }
+        if (u.includes('/edit/agent')) return json({ ok: true, agent: 'claude', label: 'Claude Code' });
+      }
       // The Publish row (PRESENTING) is the one that reaches off the machine,
       // so it is two presses: the plan, shown, then the push. Both routes are
       // stood up here — and the plan is a GET on purpose, which is half of
@@ -350,6 +360,9 @@
     try {
       localStorage.setItem('decklight-onboarded', '1');
       localStorage.setItem('decklight-tips-off', '1');
+      // agentlog: the agent card docked right, as the author left it
+      if (mode === 'agentlog') localStorage.setItem('decklight-agent-dock:' + location.pathname, JSON.stringify({ mode: 'right' }));
+      sessionStorage.clear();
     } catch { /* ignore */ }
 
     // The `narration` mode needs a deck that HAS a voice — that is the whole
@@ -2095,6 +2108,51 @@
           && r.blockedRowKeptThePanel && r.escapeGoesBack
           && r.recordAsksWhichSlides && r.rangePickerOnTop && r.rangeKeptThePanel && r.rangeRowSaysSlide
           && r.vCloses && r.nDoesNothing;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'agentlog') {
+        // Docked, the agent card is a conversation beside the slide: it lists
+        // this session's asks (with the slide each came from and what the
+        // agent said), stays open after ⌘⏎, and marks itself open so the
+        // reload an edit causes brings it back.
+        const A = '.decklight-agent';
+        await settle();
+        deck.goto(2, 0);
+        press('a');
+        await settle();
+        r.docked = document.querySelector(A)?.dataset.dock === 'right';
+        r.pastAsk = [...document.querySelectorAll(`${A} .agent-ask`)].map((e) => e.textContent);
+        r.pastAskShown = r.pastAsk.length === 1 && /slide 1/.test(r.pastAsk[0]) && /Shortened the title\./.test(r.pastAsk[0]);
+        const ta = document.querySelector(`${A} textarea`);
+        ta.value = '<img src=x onerror="window.__xss=1"> split this slide';
+        ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle();
+        const sent = CALLS.post.filter((c) => c.u.includes('/edit/agent')).pop()?.body;
+        r.sentSlide = sent?.slide;
+        r.stayedOpen = !!document.querySelector(A);
+        r.cleared = document.querySelector(`${A} textarea`)?.value === '';
+        r.remembered = sessionStorage.getItem('decklight-agent-open:' + location.pathname) === '1';
+        window.__es.emit('agent', { state: 'start', id: 2, agent: 'claude', prompt: sent?.prompt, slide: 2, startedAt: Date.now() });
+        window.__es.emit('agent', { state: 'activity', id: 2, agent: 'claude', text: 'Reading deck.html' });
+        await settle();
+        r.running = document.querySelector(`${A} .agent-ask-running`)?.textContent ?? '';
+        r.sendLocked = document.querySelector(`${A} .tr-actions button`)?.disabled === true;
+        window.__es.emit('agent', { state: 'done', id: 2, agent: 'claude', ok: true, changed: false, tail: 'Nothing to change.' });
+        await settle();
+        const rows = [...document.querySelectorAll(`${A} .agent-ask`)];
+        r.last = rows.at(-1)?.textContent ?? '';
+        r.noMarkup = !document.querySelector(`${A} .agent-log img`) && !window.__xss;
+        r.sendFree = document.querySelector(`${A} .tr-actions button`)?.disabled === false;
+        press('Escape');
+        await settle();
+        r.closeForgets = !document.querySelector(A)
+          && sessionStorage.getItem('decklight-agent-open:' + location.pathname) === null;
+        r.PASS = r.docked && r.pastAskShown && r.sentSlide === 2 && r.stayedOpen && r.cleared && r.remembered
+          && /Reading deck\.html/.test(r.running) && r.sendLocked
+          && rows.length === 2 && /slide 2/.test(r.last) && /no changes/.test(r.last) && /Nothing to change\./.test(r.last)
+          && r.noMarkup && r.sendFree;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
