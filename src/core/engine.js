@@ -927,6 +927,12 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Export a PDF handout… (dev)',
         alias: 'pdf handout three per page audience note-taking export file send print',
         run: () => editmode.exportDeck('pdf-handout') },
+      // The file most often sent: the deck and everything it needs in one
+      // HTML file that opens from disk. It carries every marked theme and opens
+      // on the one on screen — asking first when that one is not marked.
+      editmode.available() && { label: 'Bundle into one file… (dev)',
+        alias: 'bundle standalone single file offline html send share email attach hand over export',
+        run: () => editmode.exportDeck('bundle') },
       // Minutes rather than seconds, and usually of PART of the deck — the
       // chapter you just re-recorded — so it asks which slides before it starts.
       editmode.available() && { label: 'Export a video… (dev)',

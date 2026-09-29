@@ -375,6 +375,13 @@ test('exporting in an unmarked marketplace theme asks first, naming it', async (
   });
   assert.equal(r.status, 409);
   assert.equal((await r.json()).unmarked, 'nord-deep@nord-pack');
+  // the bundle row asks the same question, and carries the answer
+  const bundle = await fetch(`${base}/edit/export`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ kind: 'bundle', theme: 'nord-deep' }),
+  });
+  assert.equal(bundle.status, 409);
+  assert.equal((await bundle.json()).unmarked, 'nord-deep@nord-pack');
   assert.equal(readFileSync(deck, 'utf8'), before, 'asking writes nothing');
 });
 

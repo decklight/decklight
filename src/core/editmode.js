@@ -1724,6 +1724,7 @@ export function createEditMode({
     'pdf-notes': 'PDF with notes',
     'pdf-handout': 'PDF handout',
     video: 'video',
+    bundle: 'one file',
   };
   let exportRun = null;
   // The voice picked on the export card, as the route spells it. No choice at

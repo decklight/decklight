@@ -1410,6 +1410,87 @@ test('an export that fails says so and leaves the author server serving', async 
   assert.equal((await (await fetch(base + '/edit/ping')).json()).ok, true);
 });
 
+// ── the bundle row: the file most often sent ─────────────────────────────
+
+const DATA_DECK = (cfg) => '<!doctype html><html><head><title>T</title>\n'
+  + `<script type="application/json" data-decklight-config>${JSON.stringify(cfg)}</script>\n`
+  + '</head><body><div class="decklight"><section><h1>One</h1></section><section><h1>Two</h1></section></div></body></html>\n';
+const cfgIn = (html) => JSON.parse(html.match(/data-decklight-config>([\s\S]*?)<\/script>/)[1]);
+
+test('/edit/export bundles the deck into one file — every marked theme in it, opening on the one on screen, no browser launched', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const source = DATA_DECK({ decklight: '0.9.0', theme: 'aurora', markedThemes: ['ember', 'fjord'] });
+  writeFileSync(deck, source);
+  // a Chrome that logs every launch: bundling must never start one
+  const launches = path.join(dir, 'launches.log');
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  const { base, log } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome, FAKE_CHROME_LOG: launches } });
+
+  const r = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'fjord' })).json();
+  assert.equal(r.ok, true, `bundle refused: ${r.error}`);
+  assert.equal(r.file, 'deck-standalone.html', "the CLI's own name for it, beside the deck");
+  assert.equal(r.what, 'one file');
+  const out = readFileSync(path.join(dir, 'deck-standalone.html'), 'utf8');
+  assert.equal(cfgIn(out).theme, 'fjord', 'it opens on the theme on screen');
+  for (const n of ['aurora', 'ember', 'fjord']) assert.match(out, new RegExp(`<style data-theme="${n}"`), `${n} is in it`);
+  assert.match(out, /\/\*!\s*Decklight v/, 'with the runtime embedded');
+  assert.ok(!existsSync(launches) || readFileSync(launches, 'utf8') === '', 'no browser was launched to bundle');
+  assert.match(log(), /export: deck\.html → one file/);
+  assert.equal(readFileSync(deck, 'utf8'), source, 'the deck itself is untouched');
+
+  // the theme the deck opens on needs no mark — every bundle carries it
+  const configured = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora' })).json();
+  assert.equal(configured.ok, true, configured.error);
+});
+
+test('the bundle row asks first when the theme on screen is not marked — a shipped one included — and a render does not', async (t) => {
+  if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const source = DATA_DECK({ decklight: '0.9.0', theme: 'aurora', markedThemes: ['ember'] });
+  writeFileSync(deck, source);
+  const chrome = writeFakeBin(dir, 'fake-chrome', FAKE_CHROME);
+  const { base } = await startEdit(t, dir, { env: { PATH: dir, DECKLIGHT_CHROME: chrome } });
+
+  const asked = await post(base, '/edit/export', { kind: 'bundle', theme: 'midnight' });
+  assert.equal(asked.status, 409);
+  assert.equal((await asked.json()).unmarked, 'midnight', 'the shipped theme on screen, by name — what the mark route takes');
+  assert.ok(!existsSync(path.join(dir, 'deck-standalone.html')), 'nothing written before the answer');
+  assert.equal(readFileSync(deck, 'utf8'), source, 'and the deck untouched');
+
+  // a PDF renders the theme and carries nothing: no question there
+  const pdf = await post(base, '/edit/export', { kind: 'pdf', theme: 'midnight' });
+  assert.notEqual(pdf.status, 409);
+
+  // the second press marks it, and the bundle then carries both marks
+  assert.equal((await post(base, '/edit/theme/mark', { ref: 'midnight', marked: true })).status, 200);
+  const r = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'midnight' })).json();
+  assert.equal(r.ok, true, r.error);
+  const out = readFileSync(path.join(dir, 'deck-standalone.html'), 'utf8');
+  assert.equal(cfgIn(out).theme, 'midnight');
+  for (const n of ['ember', 'midnight']) assert.match(out, new RegExp(`<style data-theme="${n}"`));
+});
+
+test('the bundle row refuses what it cannot bundle, with a sentence', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
+  const { base } = await startEdit(t, dir);
+  // a generated theme is tokens in a browser, with no file to embed
+  const gen = await post(base, '/edit/export', { kind: 'bundle', gen: 'eyJuYW1lIjoiZ2VuLXgifQ' });
+  assert.equal(gen.status, 400);
+  assert.match((await gen.json()).error, /a generated theme lives only in this browser — save it/);
+  // a deck that already IS one file has nothing to bundle
+  const { execFileSync: run } = await import('node:child_process');
+  run(process.execPath, [path.resolve(here, '../cli/decklight.mjs'), 'bundle', 'deck.html', '-o', 'one.html'], { cwd: dir, stdio: 'ignore' });
+  writeFileSync(deck, readFileSync(path.join(dir, 'one.html')));
+  const one = await post(base, '/edit/export', { kind: 'bundle' });
+  assert.equal(one.status, 409);
+  assert.match((await one.json()).error, /already one file — send it as it is/);
+});
+
 test('/edit/export writes each of the PDFs `decklight pdf` writes, under its own name', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);

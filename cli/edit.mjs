@@ -62,7 +62,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, wa
 // author server rewrites the whole file on every small edit, and a truncate
 // that is interrupted leaves a prefix of a talk where the talk was.
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
-import { resolve, relative, dirname, sep, basename } from 'node:path';
+import { resolve, relative, dirname, sep, basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
@@ -91,7 +91,7 @@ import { runMain } from './util.mjs';
 // "agent". (`decklight author` builds this argv itself and was never affected.)
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
-import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
+import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkAddedThemes } from './theme-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
@@ -238,6 +238,9 @@ export const EXPORT_KINDS = {
   'pdf-notes': { what: 'PDF with notes', variant: 'notes' },
   'pdf-handout': { what: 'PDF handout', variant: 'handout' },
   video: { what: 'video', variant: null },
+  // the self-contained file `decklight bundle` writes — every marked theme in
+  // it, opening on the theme on screen
+  bundle: { what: 'one file', variant: null },
 };
 
 /**
@@ -1953,11 +1956,19 @@ export async function editMain(args, { onListen = null } = {}) {
    * come out in a theme the deck does not carry; the card asks first
    * (`409 { unmarked }`), and marking is one more press.
    */
-  async function unmarkedOnScreen(theme) {
+  async function unmarkedOnScreen(theme, { carried = false } = {}) {
     if (!theme) return null;
     const html = readDeck();
-    const { markedRefs, marketplaceThemes, shippedThemes } = await import('./theme-refs.mjs');
-    if (shippedThemes().includes(theme) || markedRefs(html).some((r) => r.name === theme)) return null;
+    const { markedRefs, markedShipped, marketplaceThemes, shippedThemes } = await import('./theme-refs.mjs');
+    if (shippedThemes().includes(theme)) {
+      // A render shows a shipped theme without carrying it — every install has
+      // it. A BUNDLE carries only what the deck marks, plus the theme it opens
+      // on: one it opens on in some other theme is a question first (Gilles'
+      // rule), so the file never leaves carrying a theme nobody chose to send.
+      if (!carried) return null;
+      return markedShipped(html).includes(theme) || theme === configTheme(html) ? null : theme;
+    }
+    if (markedRefs(html).some((r) => r.name === theme)) return null;
     if (new RegExp(`<style\\b[^>]*\\bdata-theme\\s*=\\s*["']${theme}["']`, 'i').test(html)) return null;
     return marketplaceThemes().themes.find((t) => t.name === theme)?.qualified ?? null;
   }
@@ -2447,7 +2458,18 @@ export async function editMain(args, { onListen = null } = {}) {
       return json(400, { ok: false, error: 'the generated theme is base64url, at most 16 KB' });
     }
     if (req.theme != null && req.gen != null) return json(400, { ok: false, error: 'one theme — a name or a generated one' });
-    const unmarked = await unmarkedOnScreen(req.theme);
+    if (kind === 'bundle') {
+      // A bundle EMBEDS its themes, and a generated one is tokens in this
+      // browser with no file to embed. Bundling in the configured theme
+      // instead would hand over a file that does not look like the screen.
+      if (req.gen != null) {
+        return json(400, { ok: false, error: 'a generated theme lives only in this browser — save it (⌃⇧T) and add it with decklight theme add to bundle it' });
+      }
+      if (alreadyOneFile(readDeck())) {
+        return json(409, { ok: false, error: 'this deck is already one file — send it as it is' });
+      }
+    }
+    const unmarked = await unmarkedOnScreen(req.theme, { carried: kind === 'bundle' });
     if (unmarked) return json(409, { ok: false, unmarked, error: `${unmarked} is not marked for this deck` });
     const themed = req.theme ? ['--theme', req.theme] : req.gen ? ['--gen', req.gen] : [];
     if (kind === 'video') {
@@ -2456,7 +2478,8 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     if (exporting) return json(409, { ok: false, error: 'an export is already running' });
     const { findChrome } = await import('../tools/chrome.mjs');
-    if (!findChrome()) {
+    // every file but the bundle is a render; the bundle launches no browser
+    if (kind !== 'bundle' && !findChrome()) {
       return json(503, { ok: false, error: 'no Chrome found — install one, or point $CHROME at it' });
     }
     exporting = true;
@@ -2489,6 +2512,13 @@ export async function editMain(args, { onListen = null } = {}) {
             ...(req.allowStale === true ? ['--allow-stale'] : [])],
           videoProgress((n, of) => broadcast('export', { state: 'slide', kind, phase: 'render', n, of }))));
         }
+      } else if (kind === 'bundle') {
+        // The CLI's own name for the file, beside the deck, so the row and
+        // `decklight bundle` write the same one. bundleMain returns nothing on
+        // success and throws a sentence on a refusal — the catch below says it.
+        const { bundleMain } = await import('./bundle.mjs');
+        out = join(dirname(deckPath), `${basename(deckPath).replace(/\.html?$/i, '')}-standalone.html`);
+        code = (await bundleMain([deckPath, '-o', out, ...(req.theme ? ['--theme', req.theme] : [])])) ?? 0;
       } else if (kind === 'pptx') {
         const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
         out = pptxOut(deckPath);

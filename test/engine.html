@@ -169,7 +169,8 @@
           const kind = JSON.parse(init?.body ?? '{}').kind;
           return HARNESS_MODE === 'exportfail'
             ? json({ ok: false, error: 'no Chrome found — install one, or point $CHROME at it' }, 503)
-            : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : kind === 'video' ? 'deck.slides-2-3.mp4' : 'deck.handout.pdf', seconds: 6.2,
+            : json({ ok: true, kind, file: kind === 'pptx' ? 'deck.pptx' : kind === 'video' ? 'deck.slides-2-3.mp4'
+              : kind === 'bundle' ? 'deck-standalone.html' : 'deck.handout.pdf', seconds: 6.2,
               ...(kind === 'video' ? { voiced: 'voices/en-us-ryan-high' } : {}) });
         }
       }
@@ -749,7 +750,8 @@
         // …and none of the hand-over rows either: it is the author server that
         // runs `decklight pptx` and `decklight pdf`, so on a deck opened from a
         // file there is nothing behind any of them.
-        r.paletteNoExportRowWithoutServer = !labels('export').some((t) => /Export (to|a) (PowerPoint|PDF)/.test(t));
+        r.paletteNoExportRowWithoutServer = !labels('export').some((t) => /Export (to|a) (PowerPoint|PDF)/.test(t))
+          && !labels('bundle').some((t) => /Bundle into one file/.test(t));
         const tipRows = labels('tips');
         r.paletteTogglesTips = tipRows.some((t) => /Tips on/.test(t));
         r.paletteHidesEmptyReset = !tipRows.some((t) => /Reset tips/.test(t));
@@ -888,6 +890,21 @@
 
         let themedOk = true;
         if (mode === 'exportpptx') {
+          // The bundle is a hand-over row like the others: found by what people
+          // call it, posted with the theme on screen, and the file named.
+          if (document.querySelector(Q)) press('Escape');
+          press('/');
+          for (const ch of 'standalone') press(ch);
+          r.bundleRowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Bundle into one file/.test(n.textContent));
+          press('Enter');
+          await settle();
+          await settle();
+          const bundled = CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
+          r.bundlePostsTheThemeOnScreen = bundled.kind === 'bundle' && bundled.theme === 'aurora';
+          r.bundleSaysWhereTheFileIs = said().some((t) => /wrote deck-standalone\.html/.test(t));
+          themedOk = r.bundleRowIsThere && r.bundlePostsTheThemeOnScreen && r.bundleSaysWhereTheFileIs;
+        }
+        if (mode === 'exportpptx') {
           // A theme that lives only in this browser — a roll nobody saved — has
           // no name a fresh render would know, so it goes as its TOKENS, in the
           // `?gen=` form the picker's previews already load: the file comes out
@@ -907,7 +924,7 @@
           try { rolled = JSON.parse(decodeURIComponent(escape(atob(body.gen.replace(/-/g, '+').replace(/_/g, '/'))))); } catch { /* reported below */ }
           r.localThemeSentAsTokens = second.length === posts + 1 && !('theme' in body)
             && /^gen-/.test(rolled?.name ?? '') && typeof rolled?.tokens?.['--bg'] === 'string';
-          themedOk = r.toldTheTheme && r.localThemeSentAsTokens;
+          themedOk = themedOk && r.toldTheTheme && r.localThemeSentAsTokens;
         }
 
         r.PASS = r.rowIsThere && r.closesOnRun && r.saysItStarted && r.saysWhereItIs
