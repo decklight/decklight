@@ -43,7 +43,7 @@ export const TIPS = [
   { id: 'goto', text: 'press G to jump to any slide by name' },
   { id: 'theme', text: 'press T to browse themes — the deck restyles live' },
   { id: 'overview', text: 'press O for the slide overview grid' },
-  { id: 'speaker', text: 'press ⌥⏎ (Alt+Enter) for the speaker view — notes, next slide and a timer; S edits this slide\'s notes' },
+  { id: 'speaker', text: 'press ⌥⏎ (Alt+Enter) for the speaker view — notes, next slide and a timer; S shows this slide\'s notes (editable when authoring)' },
   { id: 'narrate', text: 'press V to have the deck narrate itself from its speaker notes' },
   { id: 'messages', text: 'press ` (left of 1) for the message log — every message the deck has shown' },
   { id: 'fullscreen', text: 'press F for fullscreen, B to black out the screen mid-talk' },

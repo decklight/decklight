@@ -2249,8 +2249,18 @@
         await settle();
         const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
         if (nosrv) {
-          r.noEditorWithoutAServer = !document.querySelector(E);
-          r.saysItNeedsAuthor = /decklight author/.test(said());
+          // present / review / a file: the same card, read-only
+          const box = document.querySelector(`${E} textarea`);
+          r.opensReadOnly = !!box && box.readOnly === true;
+          r.showsTheNotes = /First item\. \[pause\] Held\./.test(box?.value ?? '');
+          r.headingSaysReadOnly = /read-only/.test(document.querySelector(`${E} .ed-heading`)?.textContent ?? '');
+          r.nothingToSave = !document.querySelector(`${E} .tr-actions`);
+          box?.focus();
+          // the caret in the box still lets the deck move on
+          box?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+          await settle();
+          r.deckStillMoves = deck.state.step === 1;
+          r.escCloses = (document.querySelector(`${E} textarea`)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })), await settle(), !document.querySelector(E));
         } else {
           r.sOpensTheEditor = !!document.querySelector(E);
           r.onThisSlide = /slide 3/.test(document.querySelector(`${E} .ed-heading`)?.textContent ?? '');
@@ -2264,7 +2274,7 @@
         await settle();
         r.altEnterOpensSpeakerView = opened.length === 1;
         r.PASS = nosrv
-          ? r.noEditorWithoutAServer && r.saysItNeedsAuthor && r.altEnterOpensSpeakerView
+          ? r.opensReadOnly && r.showsTheNotes && r.headingSaysReadOnly && r.nothingToSave && r.deckStillMoves && r.escCloses && r.altEnterOpensSpeakerView
           : r.sOpensTheEditor && r.onThisSlide && r.showsTheNotes && r.noSpeakerWindow && r.escCloses && r.altEnterOpensSpeakerView;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

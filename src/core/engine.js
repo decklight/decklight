@@ -874,7 +874,7 @@ export function init(userConfig = {}) {
       // of nothing once a second recorder existed.
       { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
-      { label: 'Edit speaker notes…', hint: 'S', alias: 'edit mode notes write script right-click background', run: toggleEditor },
+      { label: editmode.available() ? 'Edit speaker notes…' : 'Speaker notes (read-only)…', hint: 'S', alias: 'edit mode notes write script read right-click background', run: toggleEditor },
       { label: 'Speaker view — second window', hint: '⌥⏎', alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
       { label: 'Overview', hint: 'O', run: toggleOverview },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
@@ -1921,7 +1921,7 @@ export function init(userConfig = {}) {
       <tr><td>← / PageUp</td><td>previous</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
-      <tr><td>S</td><td>edit this slide's speaker notes (author mode)</td></tr>
+      <tr><td>S</td><td>this slide's speaker notes — editable under decklight author, read-only elsewhere</td></tr>
       <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view — a second window with notes, next slide, timer (again: rehearse mode)</td></tr>
       <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
       <tr><td>I</td><td>information — where this slide got what it says: named facts, and links to read</td></tr>
@@ -2076,7 +2076,8 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
-    if (/^(input|textarea|select)$/i.test(e.target.tagName) || e.target.isContentEditable || authoring.editing()) return;
+    // a READ-ONLY box is not typing — the notes card under present/review lets → move the deck
+    if ((/^(input|textarea|select)$/i.test(e.target.tagName) && !e.target.readOnly) || e.target.isContentEditable || authoring.editing()) return;
     // ⌃T generates, ⌃⇧T saves — both must precede the modifier early-return
     // (macOS tab shortcuts are ⌘-based, so Ctrl reaches the page; on
     // Windows/Linux the browser owns Ctrl+T and these can't be intercepted).

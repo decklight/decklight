@@ -2047,6 +2047,9 @@
 .decklight-agent .agent-ask-out { white-space: pre-wrap; opacity: .8; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11.5px; }
 .decklight-agent .agent-ask-running .agent-ask-out { opacity: .6; font-style: italic; }
 .decklight-agent .agent-ask-failed .agent-ask-out { color: #f3a3a3; }
+/* the notes card with no author server behind it (S under present/review):
+   the same box, read-only, and it looks it */
+.decklight-editor .edit-notes.edit-notes-readonly { cursor: default; opacity: .9; border-style: dashed; }
 .decklight-editor .edit-notes {
   min-height: 240px;
   resize: vertical;

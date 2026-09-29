@@ -815,6 +815,7 @@ export function createEditMode({
   let editEl = null;
   let unmountEditor = null;
   let notesFollow = null;   // re-points a clean notes card at the slide on screen
+  let notesReadOnly = false; // the card opened with no author server behind it
   const notesDock = createDock({
     root,
     reflow: () => instance._reflow?.(),
@@ -828,12 +829,14 @@ export function createEditMode({
   instance.on('slide', () => notesFollow?.());
   function toggleEditor() {
     if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; return; }
-    if (!editAvailable) {
-      toast(needsDevMode('editing notes', location), 3200);
-      return;
-    }
+    // With no author server behind the deck — `present`, `review`, a file —
+    // the same card opens READ-ONLY: the notes to read, following the slide,
+    // and nothing that could look like it saves. `decklight author` edits them.
+    const readOnly = notesReadOnly = !editAvailable;
     let sl = instance.state.slide;
-    const heading = () => `edit notes — slide ${sl} · ⌘⏎ saves`;
+    const heading = () => (readOnly
+      ? `notes — slide ${sl} · read-only (decklight author edits them)`
+      : `edit notes — slide ${sl} · ⌘⏎ saves`);
     const { el, card, title } = typingCard('notes', notesDock, heading(), toggleEditor);
     editEl = el;
     const ta = document.createElement('textarea');
@@ -843,6 +846,8 @@ export function createEditMode({
     const notesText = () => writtenMarks(notesDraft(sl));
     let loaded = ta.value = notesText();
     ta.spellcheck = false;
+    ta.readOnly = readOnly;
+    if (readOnly) ta.classList.add('edit-notes-readonly');
     notesFollow = () => {
       if (ta.value !== loaded || instance.state.slide === sl) return;
       sl = instance.state.slide;
@@ -865,10 +870,17 @@ export function createEditMode({
       }
     };
     ta.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { save(); e.preventDefault(); }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { if (!readOnly) save(); e.preventDefault(); }
       else if (e.key === 'Escape') { toggleEditor(); e.preventDefault(); }
-      e.stopPropagation();
+      // read-only, a box with the caret in it must not eat the deck's keys:
+      // → still advances, and the notes follow the slide
+      if (!readOnly) e.stopPropagation();
     });
+    if (readOnly) {
+      card.append(ta);
+      unmountEditor = mountTypingCard(el, notesDock);
+      return;
+    }
     const actions = document.createElement('div');
     actions.className = 'tr-actions';
     const btn = document.createElement('button');
@@ -1670,7 +1682,9 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!editEl,
     close: toggleEditor,
-    modal: () => notesDock.isFloat(),
+    // read-only (no author server) it is never modal: nothing in it is being
+    // written, so → and the rest go on to the deck, floating or docked
+    modal: () => !notesReadOnly && notesDock.isFloat(),
     keydown: (e) => e.key === 'Escape' && (toggleEditor(), true),
   });
   overlays.register({
