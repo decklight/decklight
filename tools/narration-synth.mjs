@@ -31,8 +31,8 @@ import { createHash } from 'node:crypto';
 import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
-import { slideNotes, priorSlideTexts, manifestHash, markerPauses, slowRateIn } from './narration-manifest.mjs';
-import { PAUSE_MARK, speechRuns, hasSlow, hasWords, canonMarks, writtenMarks, forEngine } from './sentences.mjs';
+import { slideNotes, priorSlideTexts, manifestHash, markerPauses } from './narration-manifest.mjs';
+import { PAUSE_MARK, speechRuns, hasWords, canonMarks, writtenMarks, forEngine } from './sentences.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -165,12 +165,11 @@ export async function synthesizeSlides({
 }) {
   if (!TRACK_FORMATS.includes(format)) throw new Error(`a track is ${TRACK_FORMATS.join(', ')} — not ${format}`);
   const raw = slideNotes(html);
-  // ⟨PAUSE⟩ and ⟨SLOW⟩ markers kept (#560): they are baked into the audio, so
+  // ⟨PAUSE⟩ markers kept (#560): they are baked into the audio, so
   // they are part of the text a slide is hashed over and the script written
   // beside it
   const slides = raw.map((r) => (r ? cleanNotes(r, { marks: true }) : ''));
   const holds = markerPauses(html);
-  const slowRate = slowRateIn(html);
   const span = range ?? { from: 1, to: slides.length };
   if (range && prev) {
     const drift = voiceDrift(prev, { engine: tts.name, model: tts.model ?? null, voice }, { modelIsVoice: !tts.modelIsDefaultVoice });
@@ -189,11 +188,11 @@ export async function synthesizeSlides({
     throw new Error(`no encoder for a ${format} track — install ffmpeg (apt install ffmpeg / brew install ffmpeg)`);
   }
   if (format === 'mp3' && enc !== 'ffmpeg') throw new Error('an mp3 track needs ffmpeg — install it (brew install ffmpeg)');
-  // A hold, or a slow stretch's edge, is baked by joining WAVs; an engine that
+  // A hold is baked by joining WAVs; an engine that
   // speaks anything else has its clips decoded first, and only ffmpeg decodes.
   if (synthExt !== 'wav' && enc !== 'ffmpeg'
-    && slides.some((t, i) => (t.includes(PAUSE_MARK) || hasSlow(t)) && i + 1 >= span.from && i + 1 <= span.to)) {
-    throw new Error(`[pause] or [slow] in the notes needs ffmpeg with an engine that speaks ${synthExt} — install it (brew install ffmpeg)`);
+    && slides.some((t, i) => t.includes(PAUSE_MARK) && i + 1 >= span.from && i + 1 <= span.to)) {
+    throw new Error(`[pause] in the notes needs ffmpeg with an engine that speaks ${synthExt} — install it (brew install ffmpeg)`);
   }
   const canSegment = enc === 'ffmpeg';
   if (!canSegment && raw.some((r) => notesSegments(r))) {
@@ -224,18 +223,17 @@ export async function synthesizeSlides({
     try { keyVoice = (await tts.listVoices())[0]?.name; } catch { /* keep it undefined */ }
   }
   /** `tts.synth`, but a sentence anyone has already paid for is free. */
-  const synth = async (text, rate = 1) => {
-    const key = clipKey(tts, { voice: keyVoice, style, text, rate });
+  const synth = async (text) => {
+    const key = clipKey(tts, { voice: keyVoice, style, text });
     const hit = cache.read(key, synthExt);
     if (hit) return { wav: hit, usage: { chars: 0, cost: 0 }, cached: true };
-    const out = await tts.synth(text, { voice, style, ...(rate !== 1 ? { rate } : {}) });
+    const out = await tts.synth(text, { voice, style });
     cache.write(key, out.wav, synthExt);
     return { ...out, cached: false };
   };
   /**
    * A stretch of notes voiced, its ⟨PAUSE⟩ holds (`hold` seconds each) baked
-   * in as silence (#560) and its ⟨SLOW⟩ stretches said at the deck's slow
-   * rate. Without a marker it is exactly `synth`, so a note with none costs
+   * in as silence (#560). Without a marker it is exactly `synth`, so a note with none costs
    * and caches as it always has; with one, each run of words between markers
    * is its own clip — no marker ever reaches the engine — and the clips are
    * joined as WAV. `ext` is the format `wav` is in.
@@ -246,7 +244,7 @@ export async function synthesizeSlides({
    */
   const voiceText = async (text, hold) => {
     text = forEngine(tts, text);
-    if (!text.includes(PAUSE_MARK) && !hasSlow(text)) return { ...(await synth(text)), ext: synthExt };
+    if (!text.includes(PAUSE_MARK)) return { ...(await synth(text)), ext: synthExt };
     const { lead: bare, runs: all } = speechRuns(text);
     let lead = bare;
     const runs = [];
@@ -256,7 +254,7 @@ export async function synthesizeSlides({
       else lead += r.pause;
     }
     const outs = [];
-    for (const r of runs) outs.push(await synth(r.text, r.slow ? slowRate : 1));
+    for (const r of runs) outs.push(await synth(r.text));
     let clips = outs.map((o) => o.wav);
     if (synthExt !== 'wav') {
       clips = clips.map((clip, j) => {

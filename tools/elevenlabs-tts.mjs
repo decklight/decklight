@@ -189,17 +189,11 @@ export function createSynth({
     return roster;
   }
 
-  async function call(text, voice, rate) {
+  async function call(text, voice) {
     const payload = { text, model_id: model };
     // Unasked, the account's own voice settings are left alone — sending a
-    // voice_settings object at all overrides them, even to "no opinion". So a
-    // ⟨SLOW⟩ stretch is the only other thing that sends one, and only on the
-    // clips it slows. `speed` goes no lower than 0.7, ElevenLabs' floor.
-    const settings = {
-      ...(stabilityValue != null ? { stability: stabilityValue } : {}),
-      ...(rate !== 1 ? { speed: Math.max(0.7, rate) } : {}),
-    };
-    if (Object.keys(settings).length) payload.voice_settings = settings;
+    // voice_settings object at all overrides them, even to "no opinion".
+    if (stabilityValue != null) payload.voice_settings = { stability: stabilityValue };
     const res = await fetchImpl(
       `${API}/text-to-speech/${encodeURIComponent(voice.id)}?output_format=${OUTPUT[format]}`,
       {
@@ -218,7 +212,7 @@ export function createSynth({
     return format === 'pcm' ? wavFromPcm(body, PCM_RATE) : body;
   }
 
-  async function synth(text, { voice, style, rate = 1 } = {}) {
+  async function synth(text, { voice, style } = {}) {
     const list = await listVoices();
     const picked = pickVoice(list, voice);
     if (!picked) {
@@ -234,7 +228,7 @@ export function createSynth({
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         return {
-          wav: await call(sent, picked, rate),
+          wav: await call(sent, picked),
           usage: {
             model,
             // Billed on what actually went out — the tag rides inside the same

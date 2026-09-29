@@ -30,10 +30,11 @@ test('notesSegments splits on the CLICK marker', () => {
   assert.match(two[1], /two/);
 });
 
-test('notesSegments cuts where narration cuts, on every spelling, and shows a hold and a slow stretch', () => {
+test('notesSegments cuts where narration cuts, on every spelling, and shows a hold as a cue', () => {
   assert.equal(notesSegments('<p>one</p>[click]<p>two</p><click></click><p>three</p>&lt;CLICK&gt;<p>four</p>').length, 4);
   const [seg] = notesSegments('<p>Look. [pause] Now <slow>slowly</slow>.</p>');
-  assert.match(seg, /Look\. <span class="cue">PAUSE<\/span> Now <em class="slow">slowly<\/em>\./);
+  assert.match(seg, /Look\. <span class="cue">PAUSE<\/span> Now <span class="cue tag">slow<\/span>slowly\./,
+    'an old <slow> is the [slow] tag, shown like any other');
 });
 
 test('an audio tag shows as a cue — direction to read, not words to say — and [1] stays prose', () => {

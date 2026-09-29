@@ -378,20 +378,17 @@ export async function ttsMain(args) {
     }
     if (req.method === 'POST' && req.url === '/tts') {
       try {
-        const { text: said, voice: picked, style, rate: asked } = JSON.parse((await readBody(req)).toString());
+        const { text: said, voice: picked, style } = JSON.parse((await readBody(req)).toString());
         // an audio tag is direction for a voice that can act on it and is
         // never read aloud by one that cannot (SPEC `PRESENTING`)
         const text = forEngine(engine, said);
         if (!text?.trim()) { res.writeHead(400, CORS); return res.end('no text'); }
-        // a ⟨SLOW⟩ sentence asks for a pace; anything outside what the deck
-        // itself allows (tools/sentences.mjs `slowRateOf`) is the usual one
-        const rate = typeof asked === 'number' && asked >= 0.5 && asked < 1 ? asked : 1;
         const voice = refIds.get(picked) ?? picked;
         // The key is the SAME function `decklight voiceover` hashes with, and
         // that is the point: a sentence previewed here and then batch-recorded
         // is one synthesis, not two identical bills (SPEC `NARRATION`).
         const ext = extFor(engine.synth.mimeType ?? 'audio/wav');
-        const key = clipKey(engine, { voice, style, text, rate });
+        const key = clipKey(engine, { voice, style, text });
         let fresh = !cache.has(key);
         if (fresh) {
           const bytes = disk.read(key, ext);
@@ -404,7 +401,7 @@ export async function ttsMain(args) {
         if (fresh) {
           process.stdout.write(`  ${engine.name} ${picked}: ${text.length} chars … `);
           const t0 = Date.now();
-          cache.set(key, await engine.synth(text, { voice, style, ...(rate !== 1 ? { rate } : {}) }));
+          cache.set(key, await engine.synth(text, { voice, style }));
           disk.write(key, cache.get(key).wav, ext);
           const u = cache.get(key).usage;
           // `cost` is OPTIONAL, and an installed engine is why (SPEC

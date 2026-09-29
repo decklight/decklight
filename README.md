@@ -117,8 +117,8 @@ itself — `<script src="decklight/dist/decklight.js">` and a
 - **Narration.** Text-to-speech reads your notes in sync with the builds, or you
   record your own voice one beat at a time. Captions and auto-advance come with
   it. The notes are the script, and a script's own markers work as written:
-  `[pause]` holds a beat, `[slow]…[/slow]` says a line slower, `[click]` cuts a
-  beat — in any spelling. ElevenLabs v4 (the default model) acts on audio tags
+  `[pause]` holds a beat, `[long pause]` two, `[click]` cuts a beat — in any
+  spelling. ElevenLabs v4 (the default model) acts on audio tags
   like `[whispers]` or `[laughs]`; any other voice leaves them out. A synthesized recording tells you what it cost:
   clips reused against clips sent to the engine.
 - **Video.** `decklight video` renders the deck to mp4, mov or webm, narrated

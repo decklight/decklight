@@ -143,7 +143,7 @@ let slowest = 0;
 // assertion used to cost the whole suite — which is how a mode gets added
 // without ever being watched fail.
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiotags', 'audiotagsv4', 'slowmark', 'reccount', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
+const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiotags', 'audiotagsv4', 'reccount', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss',
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'realsay'];
@@ -263,13 +263,6 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} the done card counts this take: first run ${(r.first ?? []).slice(0, 3).join('/')}`
       + ` paid=${r.firstRunPaid}, second ${(r.second ?? []).slice(0, 3).join('/')} free=${r.secondRunFree}`
       + ` · reconciles=${r.reconciles} · engine named=${r.namedTheEngine}`
-      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
-    continue;
-  }
-  if (mode === 'slowmark') {
-    if (!ok) console.error('   ', JSON.stringify(r));
-    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ⟨SLOW⟩ asked the bridge for 0.85× on exactly the slow stretches=${r.slowExactly}`
-      + ` · never spoken=${r.neverSpoken} · never captioned=${r.neverCaptioned}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

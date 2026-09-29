@@ -142,8 +142,7 @@ land, put \`[pause]\` there: the voice holds two beat pauses (1s by default)
 and never says it (\`[long pause]\` holds twice that). Use it sparingly — at
 the few moments that earn it. Write the markers in square brackets; the older
 \`<pause>\` and \`⟨PAUSE⟩\` spellings still read the same.
-\`[slow]\` before a sentence (or \`[slow]…[/slow]\` around a phrase) says it slower.
-Any other bracketed words — \`[whispers]\`, \`[laughs]\`, \`[excited]\` — are
+Any other bracketed words — \`[whispers]\`, \`[laughs]\`, \`[slow]\` — are
 audio tags for ElevenLabs v4 (the default ElevenLabs model) and v3; every
 other voice leaves them out, and captions never show them. Use them rarely.
 

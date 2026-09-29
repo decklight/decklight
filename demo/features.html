@@ -595,36 +595,36 @@ decklight theme add sunset.css deck.html  # validates, then marks it for the dec
       </aside>
     </section>
 
-    <!-- ══ 26 · a slow stretch ══ -->
+    <!-- ══ 26 · audio tags ══ -->
     <section>
-      <h2>&hellip;And Says the Line Slowly</h2>
-      <p><code>[slow] &hellip; [/slow]</code> &mdash; 0.85&times; by default, <code>narration.slowRate</code> to taste</p>
+      <h2>&hellip;And Tells the Voice How</h2>
+      <p><code>[whispers]</code> · <code>[laughs]</code> · <code>[excited]</code> &mdash; direction, in square brackets</p>
       <ul data-build>
-        <li><strong>Before a sentence</strong>: that sentence, slower &mdash; to the full stop</li>
-        <li><strong>Around a phrase</strong>: just the phrase, with the rest of the line at pace</li>
-        <li>Each engine slows its own way &mdash; <code>say</code> a rate, ElevenLabs a speed, Gemini a word of direction; ffmpeg stretches the rest</li>
+        <li><strong>ElevenLabs v4</strong> (the default model) and v3 perform them as written</li>
+        <li><strong>Every other voice</strong> leaves them out &mdash; never read aloud</li>
+        <li>Never a caption or a subtitle; a cue in the speaker view</li>
       </ul>
       <aside class="notes">
-        <p>[slow]A slow marker before a sentence says that whole sentence slower.[/slow] Emphasis in speech is a change of pace, not a change of volume.</p>
+        <p>A script can direct the voice as well as pace it. [warm] Any other word in square brackets is an audio tag.</p>
         <p>[click]</p>
-        <p>Open one before a sentence and it lasts to the full stop. [slow]The line that carries the point, said the way you would say it.[/slow]</p>
+        <p>[excited] A voice that can act on one, like ElevenLabs v4, performs it. [whispers] Even this.</p>
         <p>[click]</p>
-        <p>Close it, and only the phrase inside slows down, [slow]like this one[/slow], while the rest of the line runs at its usual pace.</p>
+        <p>Any other voice simply leaves the tag out, so the same notes work with every engine.</p>
         <p>[click]</p>
-        <p>Every engine slows the way it slows best. The Mac's own voice takes a rate, ElevenLabs a speed, Gemini a word of direction. And an engine with no pace of its own is stretched by ffmpeg, pitch kept.</p>
+        <p>And a tag is direction, not words: the captions never show it, and the speaker view marks it as a cue.</p>
       </aside>
       <aside class="rehearse">
-        <p>[slow] = 0.85×, narration.slowRate</p>
-        <p>[click]</p><p>Before a sentence → to the full stop</p>
-        <p>[click]</p><p>Closed → just the phrase</p>
-        <p>[click]</p><p>Native rate per engine; ffmpeg fallback</p>
+        <p>[warm] [excited] [whispers] = audio tags</p>
+        <p>[click]</p><p>v4 / v3 perform them</p>
+        <p>[click]</p><p>Other voices drop them</p>
+        <p>[click]</p><p>Never captioned; a cue in S</p>
       </aside>
     </section>
 
     <!-- ══ 27 · any spelling ══ -->
     <section>
       <h2>Write It the Way You&rsquo;d Say It</h2>
-      <p><code>[pause]</code> · <code>[click]</code> · <code>[slow]&hellip;[/slow]</code> &mdash; any case, square or angle brackets</p>
+      <p><code>[pause]</code> · <code>[long pause]</code> · <code>[click]</code> &mdash; any case, square or angle brackets</p>
       <ul data-build>
         <li><strong>A voiceover script goes in as written</strong> &mdash; the deck does what it says instead of reading it out</li>
         <li>Every spelling is one marker: <code>[pause]</code>, <code>&lt;PAUSE&gt;</code>, <code>[pause]</code>, even <code>&amp;lt;pause&amp;gt;</code></li>
@@ -633,14 +633,14 @@ decklight theme add sunset.css deck.html  # validates, then marks it for the dec
       <aside class="notes">
         <p>These notes are written the way a voiceover script is written. [pause] That was a pause in square brackets, lower case, and the deck held it rather than reading the brackets aloud.</p>
         <p>[click]</p>
-        <p>So a script that already exists goes straight into the notes, [slow]and the deck does what it says.[/slow]</p>
+        <p>So a script that already exists goes straight into the notes, [long pause] and the deck does what it says.</p>
         <p>[click]</p>
         <p>Square brackets, angle brackets, upper case, lower case, even the escaped form an editor leaves behind: one marker, however it is spelled.</p>
         <p>[click]</p>
-        <p>And a marker is part of the take. A recording bakes the hold and the pace into its audio, so moving one makes that slide stale, and only that slide is voiced again.</p>
+        <p>And a marker is part of the take. A recording bakes the hold into its audio, so moving one makes that slide stale, and only that slide is voiced again.</p>
       </aside>
       <aside class="rehearse">
-        <p>[pause] [click] [slow] — as written</p>
+        <p>[pause] [long pause] [click] — as written</p>
         <p>[click]</p><p>A script goes in as it is</p>
         <p>[click]</p><p>One marker, every spelling</p>
         <p>[click]</p><p>Move one → only that slide re-voiced</p>

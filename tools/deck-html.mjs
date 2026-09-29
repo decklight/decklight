@@ -9,7 +9,7 @@
 // and the dependency only ever flows cli/ → tools/.
 
 import { escapeHtml } from './escape.mjs';
-import { PAUSE_MARK, CLICK_MARK, hasWords, stripSlow, notesMarks } from './sentences.mjs';
+import { PAUSE_MARK, CLICK_MARK, hasWords, notesMarks } from './sentences.mjs';
 
 /**
  * A section's `<aside class="notes">`. Capture group [1] is the inner HTML (what
@@ -112,15 +112,13 @@ export const slideHeading = (sectionBody, i) => {
  * segment says — an `&mdash;` the deck shows as a dash was once spoken, and
  * hashed, as the letters of its name.
  *
- * ⟨PAUSE⟩ (#560) and ⟨SLOW⟩…⟨/SLOW⟩ go too, by default — this is the text
- * that is SPOKEN and SHOWN. `{ marks: true }` keeps them — each ⟨PAUSE⟩
- * spaced as a word of its own, a slow stretch's edges where they stand — for
- * the callers to whom they are part of the take: the hash that decides a
- * slide is stale (a moved pause or stretch is a re-record, since a recording
- * bakes both), the synthesis core, and the `.txt` script written beside the
- * audio.
+ * ⟨PAUSE⟩ (#560) goes too, by default — this is the text that is SPOKEN and
+ * SHOWN. `{ marks: true }` keeps it, spaced as a word of its own, for the
+ * callers to whom it is part of the take: the hash that decides a slide is
+ * stale (a moved pause is a re-record, since a recording bakes it), the
+ * synthesis core, and the `.txt` script written beside the audio.
  */
-export const cleanNotes = (s, { marks = false } = {}) => decodeNoteEntities((marks ? readNotes(s) : stripSlow(readNotes(s)))
+export const cleanNotes = (s, { marks = false } = {}) => decodeNoteEntities(readNotes(s)
   .replaceAll(CLICK_MARK, ' ')
   .replaceAll(PAUSE_MARK, marks ? ` ${PAUSE_MARK} ` : ' ')
   .replace(/<[^>]+>/g, ' '))

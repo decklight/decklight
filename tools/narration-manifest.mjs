@@ -21,7 +21,7 @@ import { cacheKey } from './tts-cache.mjs';
 import { readsAudioTags } from './elevenlabs-tts.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, readNotes, isHiddenSection } from './deck-html.mjs';
 import { deckConfig } from '../cli/runtime-link.mjs';
-import { PAUSE_MARK, slowRateOf } from './sentences.mjs';
+import { PAUSE_MARK } from './sentences.mjs';
 
 /**
  * Each slide's notes as WRITTEN — the notes aside's markup, or a markdown
@@ -99,12 +99,6 @@ export function markerPauses(html) {
   });
 }
 
-/**
- * The rate a ⟨SLOW⟩ stretch is said at in this deck: its configuration block's
- * `narration.slowRate`, bounded the way the runtime bounds it — the same
- * function (tools/sentences.mjs `slowRateOf`), so the two cannot disagree.
- */
-export const slowRateIn = (html) => slowRateOf(deckConfig(html)?.narration?.slowRate);
 
 /**
  * The key fields for a manifest header, the way `clipKey` derives them from

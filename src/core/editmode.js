@@ -764,7 +764,7 @@ export function createEditMode({
     editEl = el;
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
-    // the markers as the author writes them — [click], [pause], [slow] — never ⟨…⟩
+    // the markers as the author writes them — [click], [pause] — never ⟨…⟩
     const notesText = () => writtenMarks(notesSegs(sl).filter((s, i, a) => s || i < a.length).join('\n\n⟨CLICK⟩\n\n'));
     let loaded = ta.value = notesText();
     ta.spellcheck = false;

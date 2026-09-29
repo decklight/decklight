@@ -74,11 +74,8 @@ export const CACHE_EXTS = ['.wav', '.mp3'];
  * written as an ESCAPE, not a raw byte: git calls any file with a NUL in its
  * first 8 KB binary, and this file would silently become undiffable.
  */
-export function cacheKey({ engine, model, format, voice, style, text, rate } = {}) {
-  // A pace other than the usual (a ⟨SLOW⟩ stretch) is another clip of the same
-  // words — and a field appended only then, so every clip ever filed at the
-  // usual pace keeps the name it was filed under.
-  const fields = [engine, model, format, voice, style, text, ...(rate != null && rate !== 1 ? [rate] : [])];
+export function cacheKey({ engine, model, format, voice, style, text } = {}) {
+  const fields = [engine, model, format, voice, style, text];
   return createHash('sha256')
     .update(fields.map((f) => f ?? '').join('\u0000'))
     .digest('hex');
@@ -116,7 +113,7 @@ export function cacheKey({ engine, model, format, voice, style, text, rate } = {
  * own answer to "can this change the sound", and only then does it change the
  * name.
  */
-export function clipKey(engine, { voice, style, text, rate } = {}) {
+export function clipKey(engine, { voice, style, text } = {}) {
   // The voice that will SPEAK this sentence, and the model that will speak it
   // — never the same axis twice, and never an axis the engine does not have.
   const voiceId = engine?.voiceIsFixed ? engine?.model
@@ -130,7 +127,6 @@ export function clipKey(engine, { voice, style, text, rate } = {}) {
     voice: voiceId,
     style: engine?.stylable ? style : undefined,
     text,
-    rate,
   });
 }
 

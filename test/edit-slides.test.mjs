@@ -120,7 +120,7 @@ test('POST /edit/notes reads every marker spelling and writes each one in bracke
   const aside = /<aside class="notes">([\s\S]*?)<\/aside>/.exec(readDeck())[1];
   assert.match(aside, /<p>one \[pause\] two \[long pause\] \[whispers\] three<\/p>/, 'an audio tag is kept as written');
   assert.equal(aside.match(/<p>\[click\]<\/p>/g)?.length, 2, 'each click spelling is one [click]');
-  assert.match(aside, /<p>four \[slow\]slowly\[\/slow\]<\/p>/);
+  assert.match(aside, /<p>four \[slow\]slowly<\/p>/, 'an old slow stretch is the [slow] tag, its close gone');
   assert.doesNotMatch(aside, /⟨|&lt;/, 'no angle-bracket form survives the save');
 });
 

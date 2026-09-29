@@ -38,23 +38,6 @@ export const PAUSE_MARK = '⟨PAUSE⟩';
 export const CLICK_MARK = '⟨CLICK⟩';
 
 /**
- * A stretch said slowly: `⟨SLOW⟩ … ⟨/SLOW⟩`, or `⟨SLOW⟩` alone for the rest
- * of its sentence.
- */
-export const SLOW_OPEN = '⟨SLOW⟩';
-export const SLOW_CLOSE = '⟨/SLOW⟩';
-
-/**
- * How much slower a ⟨SLOW⟩ stretch is said: 0.85× unless the deck's
- * `narration.slowRate` says otherwise. Bounded to 0.5–1 — slower than half
- * speed stops being emphasis and starts being a malfunction, and "slow" at
- * more than 1× is a typo — and a value out of bounds costs the default, never
- * the feature. One definition for the live voice and the synthesis core.
- */
-export const SLOW_RATE = 0.85;
-export const slowRateOf = (cfg) => (typeof cfg === 'number' && Number.isFinite(cfg) && cfg >= 0.5 && cfg <= 1 ? cfg : SLOW_RATE);
-
-/**
  * A long hold — ElevenLabs v4's own `[long pause]` — is two pauses: held by
  * decklight the same on every engine, the way `[pause]` is, so a script
  * written for v4 paces the same in piper's voice. As two marks it needs no
@@ -62,70 +45,59 @@ export const slowRateOf = (cfg) => (typeof cfg === 'number' && Number.isFinite(c
  */
 export const LONG_PAUSE = PAUSE_MARK + PAUSE_MARK;
 
-const MARK_OF = { pause: PAUSE_MARK, click: CLICK_MARK, slow: SLOW_OPEN, 'long pause': LONG_PAUSE };
-const markFor = (close, word) => {
-  const w = word.toLowerCase().replace(/\s+/g, ' ');
-  if (w === 'slow') return close ? SLOW_CLOSE : SLOW_OPEN;
-  return close ? '' : MARK_OF[w];   // a pause or a click has nothing to close
-};
+/**
+ * `[slow]` WAS a marker — decklight said the stretch slower itself — and is
+ * now what any other bracketed word is, an audio tag (below): direction a
+ * voice that can act on it performs, and any other never hears. Its old
+ * spellings (`<slow>`, `⟨SLOW⟩`, `&lt;slow&gt;`) read as that tag, and a
+ * closing one (`[/slow]`) as nothing — never read aloud as words.
+ */
+const SLOW_TAG = '[slow]';
 
-// `[pause]`, `<Click>`, `&lt;SLOW&gt;`, `[/slow]`, `⟨pause⟩` — any case, spaces
-// inside allowed, the brackets a matched pair. Only the three words: `[1]`,
+const MARK_OF = { pause: PAUSE_MARK, click: CLICK_MARK, slow: SLOW_TAG, 'long pause': LONG_PAUSE };
+const markFor = (close, word) => (close ? '' : MARK_OF[word.toLowerCase().replace(/\s+/g, ' ')]);   // nothing has a close
+
+// `[pause]`, `<Click>`, `&lt;pause&gt;`, `[/slow]`, `⟨pause⟩` — any case, spaces
+// inside allowed, the brackets a matched pair. Only these words: `[1]`,
 // `[data-mouth]` and `<script>` in a note are somebody's prose.
 const TEXT_MARK = /\[\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\]|<\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\/?\s*>|&lt;\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\/?\s*&gt;|⟨\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*⟩/gi;
 
 /**
  * Every spelling of a marker written as TEXT, in its one canonical form —
- * `[pause]` and `<PAUSE>` are `⟨PAUSE⟩`, `[click]` is `⟨CLICK⟩`, `[slow]` and
- * `[/slow]` are `⟨SLOW⟩` and `⟨/SLOW⟩`. A script written for a person to
- * record says `[pause]`; the deck should do what it says, not read it out.
+ * `[pause]` and `<PAUSE>` are `⟨PAUSE⟩`, `[click]` is `⟨CLICK⟩` — and any
+ * `slow` spelling is the `[slow]` tag, a closing one nothing. A script written
+ * for a person to record says `[pause]`; the deck should do what it says, not read it out.
  * The canonical forms map to themselves, so a deck using only those reads —
  * and hashes — exactly as before.
  */
 export const canonMarks = (text) => String(text ?? '').replace(TEXT_MARK,
   (m, c1, w1, c2, w2, c3, w3, c4, w4) => markFor(c1 || c2 || c3 || c4, w1 || w2 || w3 || w4));
 
-// Where the browser closes a <slow> element the source left open: the end of
-// its paragraph, list item or block — or the start of the next one, which
-// closes the paragraph it sits in.
-const BLOCK_EDGE = '<\\/?(?:p|li|div|ul|ol|blockquote|h[1-6]|table|tr|td|th)\\b[^>]*>';
-const MARK_TAG = new RegExp(`<(\\/?)\\s*(pause|click|slow)\\b[^>]*>|(${BLOCK_EDGE})`, 'gi');
+const MARK_TAG = /<(\/?)\s*(pause|click|slow)\b[^>]*>/gi;
 
 /**
  * Marker ELEMENTS in notes markup as their canonical text: `<pause>` and
  * `<click>` (their closing tags dropped — an unclosed one only wraps the words
- * after it, which stay words), `<slow>…</slow>` as `⟨SLOW⟩…⟨/SLOW⟩`. Written
- * in a deck's HTML they ARE elements, which `textContent` reads as nothing,
- * so a tool reading the file has to see them the way the runtime's walk does
- * (`notesPlain` in src/core/narration.js) — including where the parser closes
- * a `<slow>` nobody closed.
+ * after it, which stay words), and an old `<slow>` as the `[slow]` tag.
+ * Written in a deck's HTML they ARE elements, which `textContent` reads as
+ * nothing, so a tool reading the file has to see them the way the runtime's
+ * walk does (`notesPlain` in src/core/narration.js).
  */
-export function markTags(html) {
-  let open = false;
-  const out = String(html ?? '').replace(MARK_TAG, (m, close, word, edge) => {
-    if (edge) { if (!open) return m; open = false; return SLOW_CLOSE + m; }
-    if (word.toLowerCase() !== 'slow') return markFor(close, word);
-    if (!close === open) return '';          // a second opener, or a stray close
-    open = !close;
-    return close ? SLOW_CLOSE : SLOW_OPEN;
-  });
-  return open ? out + SLOW_CLOSE : out;
-}
+export const markTags = (html) => String(html ?? '').replace(MARK_TAG, (m, close, word) => markFor(close, word));
 
 /** Notes MARKUP, every marker spelling — element or text — in canonical form. */
 export const notesMarks = (html) => canonMarks(markTags(html));
 
 /**
- * The markers as decklight WRITES them: `[click]`, `[pause]`, `[long pause]`,
- * `[slow]` and `[/slow]` — the square brackets a script for a voice is
+ * The markers as decklight WRITES them: `[click]`, `[pause]` and
+ * `[long pause]` — the square brackets a script for a voice is
  * written with (and ElevenLabs v4 reads). Every spelling is still READ
  * (`canonMarks`); this is only what the notes editor shows, what a scaffold
  * and a saved script are written in. Internally the forms stay ⟨…⟩ — that is
  * what recordings were hashed against — so writing brackets re-voices nothing.
  */
 export const writtenMarks = (text) => String(text ?? '')
-  .replaceAll(LONG_PAUSE, '[long pause]').replaceAll(PAUSE_MARK, '[pause]').replaceAll(CLICK_MARK, '[click]')
-  .replaceAll(SLOW_CLOSE, '[/slow]').replaceAll(SLOW_OPEN, '[slow]');
+  .replaceAll(LONG_PAUSE, '[long pause]').replaceAll(PAUSE_MARK, '[pause]').replaceAll(CLICK_MARK, '[click]');
 
 /**
  * An AUDIO TAG: direction for a voice that can act on it — ElevenLabs v3 and
@@ -147,17 +119,11 @@ export const markAudioTags = (text, fn) => String(text ?? '').replace(AUDIO_TAG,
 /** What an engine is sent: tags kept for one that acts on them (`audioTags`), taken out for any other. */
 export const forEngine = (engine, text) => (engine?.audioTags ? String(text ?? '') : stripAudioTags(text));
 
-/**
- * The text with every ⟨SLOW⟩ and ⟨/SLOW⟩ gone — without a space in their
- * place: they wrap words like emphasis does, so `⟨SLOW⟩six⟨/SLOW⟩.` is `six.`
- */
-export const stripSlow = (text) => String(text ?? '').replaceAll(SLOW_OPEN, '').replaceAll(SLOW_CLOSE, '');
-
 /** The text with every ⟨PAUSE⟩ gone — what is spoken, captioned, subtitled. */
 export const stripPauses = (text) => String(text ?? '').replaceAll(PAUSE_MARK, ' ');
 
-/** What of a text is words: every ⟨PAUSE⟩, ⟨SLOW⟩ and ⟨/SLOW⟩ gone, whitespace flat. */
-export const spoken = (text) => stripSlow(stripPauses(text)).replace(/\s+/g, ' ').trim();
+/** What of a text is words: every ⟨PAUSE⟩ gone, whitespace flat. */
+export const spoken = (text) => stripPauses(text).replace(/\s+/g, ' ').trim();
 
 /** What of a text is SAID, for a caption or a subtitle: `spoken`, and no audio tag — tags are direction, not words. */
 export const captioned = (text) => stripAudioTags(spoken(text));
@@ -171,53 +137,10 @@ export const captioned = (text) => stripAudioTags(spoken(text));
  */
 export const hasWords = (text) => captioned(text) !== '';
 
-// splitSentences' sentence end: terminal punctuation, closing quotes kept on it
-const SENTENCE_END = /[.!?…]+[”’"')\]]*/;
-const ENDS_SENTENCE = /[.!?…][”’"')\]]*$/;
-// punctuation that belongs to the words BEFORE it, even across a marker:
-// `⟨SLOW⟩slowly⟨/SLOW⟩.` is `slowly.`, said slowly
-const LEADING_PUNCT = /^[.,;:!?…”’"')\]]+/;
-
 /**
- * Every ⟨SLOW⟩ closed: one the text never closes lasts to the end of the
- * sentence it starts — `[slow] The rule of thumb.` slows that sentence, the
- * way a script marks the line that carries the step. A second opener inside
- * a stretch and a close with nothing open are dropped.
- */
-export function closeSlow(text) {
-  const parts = String(text ?? '').split(/(⟨SLOW⟩|⟨\/SLOW⟩)/);
-  const out = [];
-  let open = false, scoped = false;
-  parts.forEach((p, j) => {
-    if (p === SLOW_OPEN) {
-      if (open) return;
-      open = true;
-      scoped = !parts.slice(j + 1).includes(SLOW_CLOSE);
-      out.push(p);
-      return;
-    }
-    if (p === SLOW_CLOSE) {
-      if (!open) return;
-      open = scoped = false;
-      out.push(p);
-      return;
-    }
-    const end = open && scoped ? SENTENCE_END.exec(p) : null;
-    if (!end) { out.push(p); return; }
-    const at = end.index + end[0].length;
-    out.push(p.slice(0, at), SLOW_CLOSE, p.slice(at));
-    open = scoped = false;
-  });
-  if (open) out.push(SLOW_CLOSE);
-  return out.join('');
-}
-
-/**
- * A text cut at its ⟨PAUSE⟩ markers and its ⟨SLOW⟩ edges: `runs` are the
- * stretches of words, each with the number of markers that FOLLOW it, whether
- * it is said slowly, and whether it `glue`s to the next run — ends mid-
- * sentence at a slow edge, so no breath is taken there. `lead` counts the
- * markers before any word at all.
+ * A text cut at its ⟨PAUSE⟩ markers: `runs` are the stretches of words, each
+ * with the number of markers that FOLLOW it; `lead` counts the markers before
+ * any word at all.
  *
  * Every ⟨PAUSE⟩ belongs to the words before it — between two sentences,
  * attached to one, or standing on its own line — except the ones before the
@@ -225,30 +148,14 @@ export function closeSlow(text) {
  * `A. ⟨PAUSE⟩ ⟨CLICK⟩ B.` (hold, then reveal) apart from
  * `A. ⟨CLICK⟩ ⟨PAUSE⟩ B.` (reveal, then hold). A marker mid-sentence cuts the
  * sentence there: the author put the silence exactly where they wanted it.
- * A slow edge mid-sentence cuts it too — a clip is said at one rate — and
- * punctuation right after a stretch stays on it.
  */
 export function speechRuns(text) {
   const runs = [];
-  let lead = 0, slow = false;
-  for (const p of closeSlow(text).split(/(⟨PAUSE⟩|⟨SLOW⟩|⟨\/SLOW⟩)/)) {
-    if (p === PAUSE_MARK) { if (runs.length) runs[runs.length - 1].pause++; else lead++; continue; }
-    if (p === SLOW_OPEN || p === SLOW_CLOSE) { slow = p === SLOW_OPEN; continue; }
-    let words = p.replace(/\s+/g, ' ').trim();
-    const last = runs[runs.length - 1];
-    const punct = last && !last.pause ? LEADING_PUNCT.exec(words) : null;
-    if (punct) { last.text += punct[0]; words = words.slice(punct[0].length).trim(); }
-    if (!words) continue;
-    if (last && !last.pause && last.slow === slow) last.text += ` ${words}`;
-    else runs.push({ text: words, pause: 0, slow });
-  }
-  runs.forEach((r, j) => { r.glue = j < runs.length - 1 && !r.pause && !ENDS_SENTENCE.test(r.text); });
+  let lead = 0;
+  String(text ?? '').split(PAUSE_MARK).forEach((p, j) => {
+    if (j > 0) { if (runs.length) runs[runs.length - 1].pause++; else lead++; }
+    const words = p.replace(/\s+/g, ' ').trim();
+    if (words) runs.push({ text: words, pause: 0 });
+  });
   return { lead, runs };
 }
-
-/** A sentence as the live voice carries it: a slow one leads with ⟨SLOW⟩. */
-export const slowSentence = (s) => (String(s ?? '').startsWith(SLOW_OPEN)
-  ? { text: s.slice(SLOW_OPEN.length), slow: true } : { text: String(s ?? ''), slow: false });
-
-/** Is any stretch of this text said slowly? */
-export const hasSlow = (text) => String(text ?? '').includes(SLOW_OPEN);

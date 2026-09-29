@@ -199,10 +199,10 @@ test('a marker written with entity brackets is a marker', () => {
 
 test('every spelling of a marker reads as the marker, element or text — never spoken', () => {
   assert.equal(cleanNotes('<p>One. [pause] Two <pause>three.</p><p>[CLICK]</p><p>Four &lt;click&gt; five [slow]six[/slow].</p>'),
-    'One. Two three. Four five six.');
+    'One. Two three. Four five [slow]six.', '[slow] is an audio tag now — kept for a voice that acts on it; its close is nothing');
   assert.equal(cleanNotes('<p>One. [Pause] Two <PAUSE>three.</p>', { marks: true }), 'One. ⟨PAUSE⟩ Two ⟨PAUSE⟩ three.');
   assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>Two.</p><click></click><p>Three.</p>'), ['One.', 'Two.', 'Three.']);
-  assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>[slow][/slow]</p>'), null, 'a beat of nothing but markers is no file');
+  assert.deepEqual(notesSegments('<p>One.</p><p>[click]</p><p>[slow][/slow]</p>'), null, 'a beat of nothing but markers and tags is no file');
   assert.equal(readNotes('<p>[1] and [ ] stay</p>'), '<p>[1] and [ ] stay</p>');
 });
 
