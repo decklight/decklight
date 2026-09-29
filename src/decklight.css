@@ -2331,23 +2331,6 @@
 /* Where this slide got what it says (SLIDE_SOURCES) — the narration card's
    chrome, with rows that are real links. */
 .decklight-sources .narr-card { width: min(520px, 88vw); }
-
-/* S — the speaker notes beside the slide (notespanel.js): read-only, docked
-   right by default, the beat being spoken lit as the builds land */
-.decklight-notes-panel .narr-card { width: min(520px, 88vw); }
-.decklight-notes-panel:not([data-dock="float"]) .narr-card { display: flex; flex-direction: column; overflow: hidden; }
-.decklight-notes-panel .np-heading { flex: 1; opacity: .55; }
-.decklight-notes-panel .np-body { padding: 6px 14px 12px; overflow-y: auto; max-height: 60vh; font-size: 15px; line-height: 1.55; }
-.decklight-notes-panel:not([data-dock="float"]) .np-body { flex: 1 1 auto; min-height: 0; max-height: none; }
-.decklight-notes-panel .np-body p { margin: 0 0 .6em; }
-.decklight-notes-panel .np-none { opacity: .5; font-style: italic; }
-.decklight-notes-panel .np-seg { padding: 4px 8px; border-radius: 6px; border-left: 3px solid transparent; }
-.decklight-notes-panel .np-seg.said { opacity: .45; }
-.decklight-notes-panel .np-seg.now { background: rgba(255, 255, 255, .07); border-left-color: #6fd3b0; }
-.decklight-notes-panel .np-click { margin: 4px 8px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; opacity: .4; }
-.decklight-notes-panel .cue { display: inline-block; background: #553; color: #ffc; font-size: 11px; border-radius: 4px; padding: 0 6px; margin: 0 4px; }
-.decklight-notes-panel .cue.tag { background: #354; color: #dfe; font-style: italic; }
-@media print { .decklight-notes-panel { display: none; } }
 .decklight-sources .narr-row { text-decoration: none; color: inherit; }
 .decklight-sources .src-go { flex: none; opacity: .45; font-size: .85em; }
 .decklight-sources .narr-row .narr-tag {

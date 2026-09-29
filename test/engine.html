@@ -199,6 +199,8 @@
           return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code' });
         }
       }
+      // S opens the notes editor, which needs an author server behind it
+      if (HARNESS_MODE === 'skeys' && !new URLSearchParams(location.search).has('nosrv') && u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
       // The Publish row (PRESENTING) is the one that reaches off the machine,
       // so it is two presses: the plan, shown, then the push. Both routes are
       // stood up here — and the plan is a GET on purpose, which is half of
@@ -386,9 +388,8 @@
     // because createPlaylist reads them once at setup
     // Line Draw (#522): one more slide, only for the mode that looks at it —
     // every other mode counts on four
-    // notespanel: a slide with two builds and notes in three beats — a tag and
-    // a pause among them — to follow with S's panel
-    if (HARNESS_MODE === 'notespanel') {
+    // skeys: a slide with two builds and notes in three beats, for S to open
+    if (HARNESS_MODE === 'skeys') {
       document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>
         <ul data-build><li>first</li><li>second</li></ul>
         <aside class="notes"><p>Intro [whispers] here.</p><p>[click]</p><p>First item. [pause] Held.</p><p>[click]</p><p>Second.</p></aside>`;
@@ -2234,10 +2235,11 @@
         return;
       }
 
-      if (mode === 'notespanel') {
-        // S shows this slide's notes beside it, docked right, following the
-        // slide and the beat; ⌥⏎ is the speaker view now.
-        const N = '.decklight-notes-panel';
+      if (mode === 'skeys') {
+        const nosrv = params.has('nosrv');   // skeys&nosrv: no author server behind the deck
+        // S opens this slide's notes in the notes editor — authoring's key; the
+        // speaker view, for presenting, is ⌥⏎ and opens its own window.
+        const E = '.decklight-editor.decklight-notes';
         const opened = [];
         window.open = (...a) => { opened.push(a); return null; };   // the speaker view's popup
         await settle();
@@ -2245,33 +2247,25 @@
         await settle();
         press('s');
         await settle();
-        const panel = document.querySelector(N);
-        r.sOpensNotes = !!panel;
-        r.dockedRight = panel?.dataset.dock === 'right'
-          && parseFloat(getComputedStyle(document.querySelector('.decklight')).getPropertyValue('--dock-right')) > 100;
-        r.noSpeakerWindow = opened.length === 0;
-        const segs = () => [...document.querySelectorAll(`${N} .np-seg`)];
-        const now = () => segs().findIndex((n) => n.classList.contains('now'));
-        r.threeBeats = segs().length === 3 && document.querySelectorAll(`${N} .np-click`).length === 2;
-        r.firstBeatLit = now() === 0;
-        r.tagIsACue = !!document.querySelector(`${N} .cue.tag`) && !/\[whispers\]/.test(document.querySelector(N)?.textContent ?? '');
-        r.pauseIsACue = [...document.querySelectorAll(`${N} .cue`)].some((c) => c.textContent === 'PAUSE');
-        press('ArrowRight');                   // not modal: the deck advances with the panel up
-        await settle();
-        r.followsTheBeat = deck.state.slide === 3 && deck.state.step === 1 && now() === 1
-          && segs()[0].classList.contains('said');
-        press('ArrowRight'); press('ArrowRight');
-        await settle();
-        r.followsTheSlide = deck.state.slide === 4 && /slide 4/.test(document.querySelector(`${N} .np-heading`)?.textContent ?? '')
-          && /no speaker notes/.test(document.querySelector(`${N} .np-body`)?.textContent ?? '');
-        press('s');
-        await settle();
-        r.sCloses = !document.querySelector(N);
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        if (nosrv) {
+          r.noEditorWithoutAServer = !document.querySelector(E);
+          r.saysItNeedsAuthor = /decklight author/.test(said());
+        } else {
+          r.sOpensTheEditor = !!document.querySelector(E);
+          r.onThisSlide = /slide 3/.test(document.querySelector(`${E} .ed-heading`)?.textContent ?? '');
+          r.showsTheNotes = /First item\. \[pause\] Held\./.test(document.querySelector(`${E} textarea`)?.value ?? '');
+          r.noSpeakerWindow = opened.length === 0;
+          document.querySelector(`${E} textarea`)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+          await settle();
+          r.escCloses = !document.querySelector(E);
+        }
         document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', altKey: true, bubbles: true, cancelable: true }));
         await settle();
         r.altEnterOpensSpeakerView = opened.length === 1;
-        r.PASS = r.sOpensNotes && r.dockedRight && r.noSpeakerWindow && r.threeBeats && r.firstBeatLit
-          && r.tagIsACue && r.pauseIsACue && r.followsTheBeat && r.followsTheSlide && r.sCloses && r.altEnterOpensSpeakerView;
+        r.PASS = nosrv
+          ? r.noEditorWithoutAServer && r.saysItNeedsAuthor && r.altEnterOpensSpeakerView
+          : r.sOpensTheEditor && r.onThisSlide && r.showsTheNotes && r.noSpeakerWindow && r.escCloses && r.altEnterOpensSpeakerView;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

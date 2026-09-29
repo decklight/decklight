@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Speaker view — SPEC PRESENTING. Opened with ⌥⏎ / Alt+Enter (S is the notes panel); a popup written into about:blank
+// Speaker view — SPEC PRESENTING. Opened with ⌥⏎ / Alt+Enter (S edits the notes); a popup written into about:blank
 // (inherits the opener's origin, so the direct window.opener bridge works on
 // file:// too — no server needed). Thumbnails are iframes of the same deck
 // in ?embedded mode, driven by src hash.

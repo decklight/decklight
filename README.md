@@ -200,7 +200,7 @@ the CLI only.
 | Key | Action |
 |---|---|
 | `→` `←` `Space` | next / previous build or slide |
-| `S` | speaker notes beside the slide, following the build |
+| `S` | edit this slide's speaker notes (author mode) |
 | `⌥⏎` / `Alt+Enter` | speaker view — a second window with notes, next slide and timer (again: rehearse cue cards) |
 | `T` | theme picker, `⌃T` generate a theme |
 | `⎵` | play / pause the voice once one is chosen; otherwise it advances |

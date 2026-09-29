@@ -12,7 +12,6 @@ import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
-import { createNotesPanel } from './notespanel.js';
 import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
 import { createThemes } from './themes.js';
 import { createNarration } from './narration.js';
@@ -518,14 +517,6 @@ export function init(userConfig = {}) {
   // Where a slide got what it says (SLIDE_SOURCES). Not author-only and not
   // presenter-only: notes are for the person talking, and where to read more is
   // for the person listening — so this ships in the deck a reader is handed.
-  // S — the speaker notes beside the slide. `editmode` and the editor are
-  // built below; both are thunks, read only from a click.
-  const notesPanel = createNotesPanel({
-    root, overlays, getInstance: () => instance,
-    reflow: () => instance._reflow?.(),
-    editmode: () => editmode,
-    openEditor: () => editmode?.toggleEditor(),
-  });
   // ⌥⏎ — the speaker view: first press opens it, the next toggles speak ⇄ rehearse
   function speakerView() {
     const w = instance.__speakerWin;
@@ -883,7 +874,7 @@ export function init(userConfig = {}) {
       // of nothing once a second recorder existed.
       { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
-      { label: 'Speaker notes — beside the slide', hint: 'S', alias: 'notes script read presenter', run: () => notesPanel.toggle() },
+      { label: 'Edit speaker notes…', hint: 'S', alias: 'edit mode notes write script right-click background', run: toggleEditor },
       { label: 'Speaker view — second window', hint: '⌥⏎', alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
       { label: 'Overview', hint: 'O', run: toggleOverview },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
@@ -897,7 +888,6 @@ export function init(userConfig = {}) {
       { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
-      { label: 'Edit speaker notes…', alias: 'edit mode notes write right-click background', run: toggleEditor },
       { label: `Element edit mode ${editmode.elementEditOn() ? 'off' : 'on'} (dev)`, hint: 'E', alias: 'right-click remove delete html content build animation entrance effect context menu', run: toggleElementEdit },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
@@ -1575,8 +1565,6 @@ export function init(userConfig = {}) {
       // a docked sources panel is a reference open beside the talk, so it
       // follows the slide rather than showing the one you left (SLIDE_SOURCES)
       sources.onSlide?.();
-      // …and the notes panel follows the slide AND the beat
-      notesPanel.onNavigate();
       if (progressBar) {
         const rec = this._records[this.state.slide - 1];
         const stepsTotal = rec ? rec.groups.length : 0;
@@ -1933,7 +1921,7 @@ export function init(userConfig = {}) {
       <tr><td>← / PageUp</td><td>previous</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
-      <tr><td>S</td><td>speaker notes — this slide's, beside it, following the build</td></tr>
+      <tr><td>S</td><td>edit this slide's speaker notes (author mode)</td></tr>
       <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view — a second window with notes, next slide, timer (again: rehearse mode)</td></tr>
       <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
       <tr><td>I</td><td>information — where this slide got what it says: named facts, and links to read</td></tr>
@@ -2174,9 +2162,9 @@ export function init(userConfig = {}) {
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
       case 'i': case 'I': sources.open(); break;           // (I)nformation: where this slide got that
-      // S — this slide's speaker notes, beside it (notespanel.js); the
-      // speaker view, a second window, is ⌥⏎ above
-      case 's': case 'S': notesPanel.toggle(); break;
+      // S — this slide's speaker notes, in the notes editor (author mode); the
+      // speaker view, a second window for presenting, is ⌥⏎ above
+      case 's': case 'S': toggleEditor(); break;
       case 't': case 'T': themes.openPicker(); break;
       case '/': openPalette(); break;
       case '.': cycleTheme(1); break;
