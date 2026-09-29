@@ -277,11 +277,10 @@ test('author survives a deck git has never seen, with commit-messages on', async
   // ordinary thing that does both — and it is what a person translating their
   // talk does.
   const { dir, g } = repo(t);
-  g('config', 'decklight.commit-messages', 'true');
   fs.writeFileSync(path.join(dir, 'talk-pt.html'), '<section><h1>Um</h1></section>\n');
 
   const { spawn } = await import('node:child_process');
-  const child = spawn(process.execPath, [EDIT, 'talk-pt.html', '--port', '0'],
+  const child = spawn(process.execPath, [EDIT, 'talk-pt.html', '--port', '0', '--commit-messages'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(child));
 

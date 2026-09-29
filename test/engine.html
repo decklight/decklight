@@ -137,7 +137,9 @@
         }
         if (u.includes('/edit/commit') && (init?.method ?? 'GET') === 'GET') {
           return json({ ok: true, dirty: true, lines: 7, sinceMs: 0, nag: false,
-            canWrite: true, messages: window.__commitMessages === true, deck: 'engine.html' });
+            canWrite: true, messages: window.__commitMessages === true, deck: 'engine.html',
+            describer: window.__describer === undefined ? { name: 'claude', label: 'Claude Code' } : window.__describer,
+            subjectsOff: window.__subjectsOff === true });
         }
         if (u.includes('/edit/commit')) {
           window.__committed = JSON.parse(init?.body ?? '{}').message;
@@ -2136,26 +2138,47 @@
         r.cmdEnterCommits = window.__committed === 'tighten the closing slide';
         r.closesAfterCommitting = !document.querySelector(O);
 
-        // With subjects OFF in this session the button says so, and pressing it
-        // explains — in full, on the hint line — rather than asking the server
-        // for something it can only refuse.
+        const subjectAsks = () => CALLS.post.filter((c) => c.u.includes('/edit/commit/subject')).length;
+        const hintNow = () => document.querySelector('.decklight-commit .rec-hint')?.textContent ?? '';
+        // BY DEFAULT the button is there and asks only when pressed; before it
+        // is pressed, its tooltip says where the changes go — the agent
+        // installed on this machine, by name, and on to its provider.
         press('k');
         await settle();
-        const offBtn = document.querySelector('.cm-write');
-        r.offSaysOff = /write one for me — off/.test(offBtn?.textContent ?? '');
-        const subjectAsks = () => CALLS.post.filter((c) => c.u.includes('/edit/commit/subject')).length;
-        const asksBefore = subjectAsks();
-        offBtn?.click();
-        await settle();
-        const why = document.querySelector('.decklight-commit .rec-hint')?.textContent ?? '';
-        r.offExplainsInFull = /decklight author --commit-messages/.test(why) && /git config decklight\.commit-messages true/.test(why);
-        r.offAsksNothing = subjectAsks() === asksBefore;
+        const dflt = document.querySelector('.cm-write');
+        r.defaultOffersIt = dflt?.textContent === 'write one for me';
+        r.tooltipNamesTheAgent = /Sends the deck's uncommitted changes to claude \(Claude Code\), the agent installed on this machine, which may pass them to its provider\./
+          .test(dflt?.getAttribute('title') ?? '');
+        r.nothingSentOnOpen = subjectAsks() === 0;
         escapeUntilClosed(O);
+        // With no agent installed the button says so, and pressing it says why
+        // on the hint line — without asking the server anything.
+        window.__describer = null;
+        press('k');
+        await settle();
+        const none = document.querySelector('.cm-write');
+        r.noAgentSaysSo = /write one for me — no agent/.test(none?.textContent ?? '');
+        none?.click();
+        await settle();
+        r.noAgentExplains = /no agent is installed on this machine/.test(hintNow()) && /decklight doctor/.test(hintNow());
+        escapeUntilClosed(O);
+        // …and a session started with --no-commit-messages says THAT.
+        window.__subjectsOff = true;
+        press('k');
+        await settle();
+        const off = document.querySelector('.cm-write');
+        r.offSaysOff = /write one for me — off/.test(off?.textContent ?? '');
+        off?.click();
+        await settle();
+        r.offExplains = /started with --no-commit-messages/.test(hintNow());
+        r.offAsksNothing = subjectAsks() === 0;
+        escapeUntilClosed(O);
+        window.__subjectsOff = false;
+        window.__describer = undefined;
 
-        // Asking for a subject shows it is thinking — ASCII only, moving, in
+        // Pressed, it asks — and shows it is thinking: ASCII only, moving, in
         // the box where the subject will land and on the button — and stops,
-        // leaving the subject, once it arrives. (Subjects ON for this part.)
-        window.__commitMessages = true;
+        // leaving the subject, once it arrives.
         press('k');
         await settle();
         const write = document.querySelector('.cm-write');
@@ -2183,9 +2206,19 @@
         r.staysStopped = write.textContent === later;
         escapeUntilClosed(O);
 
+        // With --commit-messages the window drafts one the moment it opens.
+        window.__commitMessages = true;
+        const asksBefore = subjectAsks();
+        press('k');
+        await settle();
+        r.draftsOnOpenWhenAsked = subjectAsks() === asksBefore + 1;
+        escapeUntilClosed(O);
+        window.__commitMessages = false;
+
         r.PASS = r.bareKopens && r.bareKtoggles && r.metaKopens && r.metaKclosesFromTheBox
           && r.ctrlKopens && r.cmdEnterCommits && r.closesAfterCommitting
-          && r.offSaysOff && r.offExplainsInFull && r.offAsksNothing
+          && r.defaultOffersIt && r.tooltipNamesTheAgent && r.nothingSentOnOpen && r.draftsOnOpenWhenAsked
+          && r.noAgentSaysSo && r.noAgentExplains && r.offSaysOff && r.offExplains && r.offAsksNothing
           && r.saysItIsThinking && r.itMoves && r.asciiOnly && r.subjectLands && r.stopsThinking && r.staysStopped;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

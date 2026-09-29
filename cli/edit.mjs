@@ -66,7 +66,7 @@ import { resolve, relative, dirname, sep, basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from '../tools/video-options.mjs';
 import { spawn, execFileSync } from 'node:child_process';
-import { agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, claudeActivity } from './agents.mjs';
+import { agentAsk, agentCommand, detectAgents, agentUnavailable, preferredAgent, setPreferredAgent, claudeActivity } from './agents.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 import { readyLine } from './banner.mjs';
 
@@ -860,7 +860,7 @@ export function createHistory(limit = 200) {
 // where edit grew it.
 import { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit, lastCommitSha, resolveGitMode, shouldCommit, commitSubject, exitPushLine, oneline, remoteLine, remoteState, unpushed } from './git.mjs';
 import {
-  describeCommit, describeWorking, messagesLine, rememberPref, storedPref,
+  describeCommit, describeWorking, messagesLine,
 } from './commit-message.mjs';
 import { WIP_REF, deckDirty, nagText, planNag, snapshotWip, wipLine } from './commit-flow.mjs';
 import { THEME_NAME, GEN_THEME } from '../tools/render-theme.mjs';
@@ -969,15 +969,33 @@ export async function editMain(args, { onListen = null } = {}) {
   const noGit = args.includes('--no-git');
   const wantGit = args.includes('--git');
   const commitEvery = Math.max(5, Number(opt('--commit-every', 300)) || 300);
-  // --commit-messages: an agent writes the subject decklight would otherwise
-  // template. Still never inferred from what happens to be on PATH — but the
-  // permission can have been GIVEN already: `init` (and author's own first-run
-  // git offer) asks once, when the repository is created, and stores the answer
-  // in that repository's git config. The flag on the command line outranks it
-  // in both directions, so a stored yes is still one `--no-commit-messages`
-  // away from off for a single session.
-  const wantMessages = args.includes('--no-commit-messages') ? false
-    : args.includes('--commit-messages') || storedPref(process.cwd()) === true;
+  // Commit subjects written by an agent, from the deck's diff. Two levels:
+  //
+  //  - ON CLICK, by default: the commit window's "write one for me" asks the
+  //    agent installed on this machine when — and only when — it is pressed,
+  //    and its tooltip names the agent and says the changes go to it (and may
+  //    go on to its provider). Nothing leaves without that click.
+  //  - AUTOMATIC, with --commit-messages: the window drafts one as it opens,
+  //    and every commit decklight makes on its own is given one.
+  //
+  // --no-commit-messages turns both off for the session. Nothing is stored:
+  // the setting is the command line's, and the button is the consent.
+  const subjectsOff = args.includes('--no-commit-messages');
+  const wantMessages = !subjectsOff && args.includes('--commit-messages');
+  // The agent a subject would be asked of — named in the button's tooltip, so
+  // it is the SAME resolution describeWorking makes (agentAsk). Remembered per
+  // preference: commitState goes out on every ping and SSE tick, and probing
+  // PATH that often is waste.
+  let describerFor = null, describerIs = null;
+  const describer = () => {
+    if (subjectsOff) return null;
+    if (describerFor !== (agentPref ?? '')) {
+      const a = agentAsk(agentPref ?? null, 'x');
+      describerIs = a ? { name: a.name, label: a.label } : null;
+      describerFor = agentPref ?? '';
+    }
+    return describerIs;
+  };
 
   /**
    * Every commit decklight authors ITSELF goes through here — the cadence, the
@@ -1062,6 +1080,10 @@ export async function editMain(args, { onListen = null } = {}) {
     wip: lastWip,
     canWrite: gitOn && gitMode !== 'off',
     messages: wantMessages,
+    // who "write one for me" would ask — null when the session turned subjects
+    // off, or no agent is installed; `subjectsOff` says which
+    describer: describer(),
+    subjectsOff,
   });
   if (!noGit && (wantGit || inGitRepo(root))) {
     if (!inGitRepo(root)) {
@@ -1074,16 +1096,6 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     if (inGitRepo(root)) {
       gitOn = true;
-      // An answer given on the command line becomes the repository's answer,
-      // once. This is what makes the first-run question (dev.mjs, asked before
-      // the repository existed and so with nowhere to write) stick: the next
-      // session reads it back instead of asking again. Only when nothing is
-      // stored yet — a later `--no-commit-messages` is one session's override,
-      // not a silent change to what the repository has been told.
-      if (storedPref(root) === null
-          && (args.includes('--commit-messages') || args.includes('--no-commit-messages'))) {
-        rememberPref(root, wantMessages);
-      }
       // The session bookends are the cadence's siblings: generic subjects for
       // moments nobody described, and in the default mode the snapshot covers
       // what they were covering. THE FIRST COMMIT IS NOT ONE OF THEM. A
@@ -1574,11 +1586,15 @@ export async function editMain(args, { onListen = null } = {}) {
   }
 
   // A subject for work that is not committed yet — the overlay's "write one
-  // for me". Gated on the same permission as every other diff that leaves
-  // the machine: no `--commit-messages`, no ask.
+  // for me", asked only when that is pressed (or as the window opens, with
+  // --commit-messages). Refused when the session turned subjects off, or
+  // there is no agent to ask.
   async function commitSubjectRoute({ json }) {
-    if (!wantMessages) {
-      return json(403, { ok: false, error: 'commit subjects are off in this session — restart with: decklight author --commit-messages (or git config decklight.commit-messages true)' });
+    if (subjectsOff) {
+      return json(403, { ok: false, error: 'commit subjects are off in this session — it was started with --no-commit-messages' });
+    }
+    if (!describer()) {
+      return json(409, { ok: false, error: 'no agent is installed on this machine to write one — decklight doctor lists the ones it can use' });
     }
     const subject = await describeWorking({
       cwd: root, deckPath, deckRel, agent: agentPref,

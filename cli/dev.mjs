@@ -27,7 +27,6 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { onPath, detectAgents } from './agents.mjs';
-import { ASK_MESSAGES, planCommitMessages } from './commit-message.mjs';
 import { validProjectId } from '../tools/gemini-tts.mjs';
 import {
   ENGINES as TTS_ENGINES, PIPER_DEFAULT_VOICE, piperModelDir, engineStatus,
@@ -76,11 +75,13 @@ const USAGE = `usage: decklight author <deck.html | git url> [--port 8788] [--tt
                     press K), timer (the old five-minute cadence), off  [agent]
                     (no repo + no flag: author ASKS whether to create one)
   --commit-every N  cadence in seconds, timer mode only                [300]
-  --commit-messages an agent writes the commit subjects instead of the generic
+  --commit-messages an agent writes EVERY commit subject instead of the generic
                     "autosave" — reads each commit's diff and amends the subject
-                    afterwards, so the commit itself is never delayed or risked.
-                    Opt-in: it sends the deck's diffs to the agent, and most
-                    agent CLIs are cloud-backed.
+                    afterwards — and K drafts one as it opens. Without it, K's
+                    "write one for me" asks only when you press it
+  --no-commit-messages  no agent-written subjects at all this session. Either
+                    way the deck's changes go to the agent installed on this
+                    machine, which may pass them to its provider
   --agent <name>    preferred AI agent for A (default: first detected)
 
   every server binds 127.0.0.1; for a phone remote: decklight present --remote
@@ -378,21 +379,6 @@ export async function devMain(args) {
       if (yes && !args.includes('--git-mode') && detectAgents().length) {
         const mode = await rl.question("  commit once per agent edit, with the agent's own message, instead of on a timer? [y/N] ");
         if (/^y/i.test(mode.trim())) args = [...args, '--git-mode', 'agent'];
-      }
-      // The other half of what those commits say. Same moment, same reason as
-      // init's: the repository is being created right now, so this is when the
-      // commits it governs start existing. Default yes — but still a question,
-      // because the answer sends the deck's diffs to an agent.
-      if (yes) {
-        const msgs = planCommitMessages({
-          args, tty: true, agents: detectAgents().length, creatingRepo: true,
-          stored: null,   // the repo does not exist yet, so nothing is stored
-        });
-        if (msgs.action === 'ask') {
-          const a = (await rl.question(ASK_MESSAGES)).trim();
-          if (!/^n/i.test(a)) args = [...args, '--commit-messages'];
-          else args = [...args, '--no-commit-messages'];
-        }
       }
       rl.close();
       plan = planServices({ args, saved: loadTtsConfig() });
