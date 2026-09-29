@@ -71,7 +71,7 @@ test('a ⟨CLICK⟩ beat gets its own sidecar, cut to its own audio', { skip: wi
 
   const out = execFileSync('node', [TOOL, vo, '--rhubarb', stub], { encoding: 'utf8' });
   // counted apart, because "4 slides" would be a lie about a two-slide deck
-  assert.match(out, /2 slides with audio · 2 ⟨CLICK⟩ beats/);
+  assert.match(out, /2 slides with audio · 2 \[click\] beats/);
   for (const f of ['slide-01.visemes.json', 'slide-01-01.visemes.json',
     'slide-01-02.visemes.json', 'slide-02.visemes.json']) {
     assert.ok(fs.existsSync(path.join(vo, f)), `missing ${f}`);

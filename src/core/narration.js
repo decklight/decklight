@@ -15,7 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
-import { splitSentences, speechRuns, slowSentence, slowRateOf, stripPauses, stripSlow, spoken, canonMarks, CLICK_MARK, PAUSE_MARK, SLOW_OPEN, SLOW_CLOSE } from '../../tools/sentences.mjs';
+import { splitSentences, speechRuns, slowSentence, slowRateOf, stripPauses, stripSlow, spoken, canonMarks, stripAudioTags, hasWords, CLICK_MARK, PAUSE_MARK, SLOW_OPEN, SLOW_CLOSE } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
@@ -152,8 +152,8 @@ export const sentencePauseFor = (attr, cfg) => pauseFor(attr, cfg, SENTENCE_PAUS
  * Pure, and the single place either side may compute this.
  */
 export function segmentFileIndex(segs) {
-  // a segment of nothing but ⟨PAUSE⟩ has no words to record, so no file
-  const parts = (segs ?? []).map(spoken);
+  // a segment of nothing but ⟨PAUSE⟩ (or audio tags) has no words to record, so no file
+  const parts = (segs ?? []).map((t) => (hasWords(t) ? spoken(t) : ''));
   // the tool's own `parts.length > 1 ? parts : null` — one segment is not a
   // segmented slide, it is a slide
   if (parts.filter(Boolean).length < 2) return null;
@@ -225,7 +225,6 @@ export function recordPlan(segs, steps = 0) {
   const index = segmentFileIndex(parts);
   // ⟨PAUSE⟩ stays in the text a reader is shown — it is their cue to hold —
   // but a beat of nothing else is not a take
-  const hasWords = (t) => spoken(t) !== '';
   if (!index) {
     const text = parts.filter(Boolean).join(' ');
     return hasWords(text) ? [{ seg: 0, step: 0, file: null, text }] : [];
@@ -530,7 +529,7 @@ export function createNarration({
   // [{ label, dir, ext }, …] — ext defaults to 'm4a', the synthesized recorder recordings are
   // 'wav'). LIVE: synthesized on the fly per slide through the local bridge
   // (`decklight tts`) — pick a voice and, on an engine that can be told HOW
-  // to say it (gemini, always; elevenlabs only with --tts-model eleven_v3),
+  // to say it (gemini, always; elevenlabs only on a tag model — v3, v4),
   // a delivery tone in the picker; responses are cached per (slide, voice,
   // style) and the next slide is prefetched while the current one plays. N
   // opens the picker (tracks → voices → tones → custom-tone input); choice
@@ -573,6 +572,7 @@ export function createNarration({
   const ENGINE_URL = LIVE_URL.replace(/\/tts\/?$/, '/engine');
   let liveVoices = GEMINI_VOICES;
   let liveStylable = true;  // only gemini takes a delivery instruction
+  let liveAudioTags = false; // ElevenLabs v3/v4 act on [whispers]; any other voice has them taken out
   let liveEngine = null;
   let liveModel = null;   // what the bridge said it speaks with — an export voices with the same
   let liveCaveat = null;   // the engine's standing note — say's Siri hint rides here
@@ -656,6 +656,7 @@ export function createNarration({
     liveCaveat = typeof p.caveat === 'string' ? p.caveat : null;
     if (Array.isArray(p.voices) && p.voices.length) liveVoices = p.voices;
     liveStylable = p.stylable !== false;
+    liveAudioTags = p.audioTags === true;
     if (liveVoices.length && !liveVoices.some(([n]) => n === liveCfg.voice)) {
       const was = liveCfg.voice;
       liveCfg = { ...liveCfg, voice: liveVoices[0][0] };
@@ -757,7 +758,14 @@ export function createNarration({
   // resolves { url, blob }: playback needs the object URL, the the synthesized recorder stitcher
   // needs the raw bytes — one cache serves both
   function synthLive(text, key, label) {
-    if (!text) return Promise.resolve(null);
+    // an audio tag is direction for a voice that can act on it; any other is
+    // sent the words alone, and a sentence that was ONLY direction is no clip
+    // (cached as nothing, so the prefetch window moves past it)
+    if (!liveAudioTags) text = stripAudioTags(text);
+    if (!text || !stripSlow(text).trim()) {
+      if (key && !liveCache.has(key)) liveCache.set(key, Promise.resolve(null));
+      return Promise.resolve(null);
+    }
     // Counted once per clip, for the recording this call belongs to: a hit
     // here never reaches the bridge, so it is reuse; a miss is classified
     // when the bridge answers, by the header it sends.
@@ -855,7 +863,7 @@ export function createNarration({
     const steps = buildSteps(sl) + 1;
     if (segs <= steps) return;
     warnedSegs.add(sl);
-    const msg = `slide ${sl}: ${segs} ⟨CLICK⟩ segments but ${steps} build step${steps === 1 ? '' : 's'}`
+    const msg = `slide ${sl}: ${segs} [click] segments but ${steps} build step${steps === 1 ? '' : 's'}`
       + ` — the last ${segs - steps} ${segs - steps === 1 ? 'is' : 'are'} spoken on the final step`;
     logOnly?.(msg);
     debugLog('narr', msg);
@@ -981,7 +989,7 @@ export function createNarration({
           // window: hand the sentence's audio promise to the controller so
           // visemes/video for the next 10 sentences warm alongside the voice
           if (character.mode !== 'off') {
-            character.prefetchSentence(key, liveCache.get(key), sentences[i] ?? '');
+            character.prefetchSentence(key, liveCache.get(key), stripAudioTags(slowSentence(sentences[i] ?? '').text));
           }
         } catch {
           return; // bridge unreachable — stop; the next event retries
@@ -1127,8 +1135,8 @@ export function createNarration({
         }
         if (stale()) return;
         if (!clip) continue;
-        const said = slowSentence(sentences[i]).text;
-        setCaption(said); // captions follow the voice, not the notes
+        const said = stripAudioTags(slowSentence(sentences[i]).text);
+        setCaption(said); // captions follow the voice, not the notes — and a tag is not a word
         narrAudio ??= new Audio();
         // character is strictly opt-in: with mode 'off' narration runs with
         // zero lip-sync footprint. When on, begin* is fire-and-forget —
@@ -1697,7 +1705,7 @@ export function createNarration({
     // stepSentences, not the raw segment: on the last step this is every
     // segment the slide has no build for, and a caption that showed only the
     // first would go quiet exactly where the voice does not (#350).
-    setCaption(stepSentences(instance.state.slide, instance.state.step).map((t) => slowSentence(t).text).join(' '));
+    setCaption(stripAudioTags(stepSentences(instance.state.slide, instance.state.step).map((t) => slowSentence(t).text).join(' ')));
   }
   function showCaptions() {
     captionEl = document.createElement('div');
@@ -2589,7 +2597,7 @@ export function createNarration({
       const clips = clipTallyLine(data.clips, data.engine);
       // Where they landed is the whole point of the line: "your downloads" was
       // true and useless — the next command you run reads the deck's folder.
-      const names = data.segmented ? 'slide-NN.wav + one slide-NN-KK.wav per ⟨CLICK⟩' : 'slide-NN.wav';
+      const names = data.segmented ? 'slide-NN.wav + one slide-NN-KK.wav per [click]' : 'slide-NN.wav';
       const where = dir
         ? `saved as ${names} in <code>${escapeHtml(dir)}/</code>, next to the deck`
         : `saved as ${names} to your downloads — ${noServerReason()}`;
@@ -2706,7 +2714,7 @@ export function createNarration({
         carry += bare * hold;
         for (let i = 0; i < sentences.length; i++) {
           const tl = await character.ensureTimeline(
-            sentenceKey(sl, step, i, sentences[i]), fetchLiveSentence(sl, step, i, sentences[i]), slowSentence(sentences[i]).text);
+            sentenceKey(sl, step, i, sentences[i]), fetchLiveSentence(sl, step, i, sentences[i]), stripAudioTags(slowSentence(sentences[i]).text));
           if (run !== recRun) return null;
           if (!tl) continue;
           const breath = i > 0 && glue[i - 1] ? 0 : sentencePause(sl);
@@ -3251,7 +3259,7 @@ export function createNarration({
       }
       const { range, warn } = data;
       card.innerHTML = `<div class="narr-head">record your voice</div>
-        <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${beats} beat${beats === 1 ? '' : 's'} — the deck reads you the notes, one ⟨CLICK⟩ at a time${
+        <div class="rec-line">${slides} slide${slides === 1 ? '' : 's'} · ${beats} beat${beats === 1 ? '' : 's'} — the deck reads you the notes, one [click] at a time${
   range ? ` <strong>(slides ${escapeHtml(range)} only — everything else is left alone)</strong>` : ''}</div>
         ${beats === 0
     ? `<div class="rec-line rec-warn">Nothing to record${range ? ` in slides ${escapeHtml(range)}` : ''} — no slide there has notes to read.</div>`
@@ -3333,8 +3341,8 @@ export function createNarration({
       // paced by anything. That is an authoring gap, and the moment you are
       // reading the slide's notes aloud is the moment to learn about it.
       const note = plan.length === 1 && buildSteps(sl) > 0
-        ? `this slide has ${buildSteps(sl)} build${buildSteps(sl) === 1 ? '' : 's'} but no ⟨CLICK⟩ in its notes`
-          + ' — one take for the whole slide; add ⟨CLICK⟩ between the beats to pace them'
+        ? `this slide has ${buildSteps(sl)} build${buildSteps(sl) === 1 ? '' : 's'} but no [click] in its notes`
+          + ' — one take for the whole slide; add [click] between the beats to pace them'
         : null;
       const takes = [];
       for (let i = 0; i < plan.length; i++) {

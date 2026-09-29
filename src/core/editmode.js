@@ -24,6 +24,7 @@ import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { createDock } from './dock.js';
 import { thinking } from './thinking.js';
+import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
 
 /** Wire the dev-server features to a deck. */
@@ -763,7 +764,8 @@ export function createEditMode({
     editEl = el;
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
-    const notesText = () => notesSegs(sl).filter((s, i, a) => s || i < a.length).join('\n\n⟨CLICK⟩\n\n');
+    // the markers as the author writes them — [click], [pause], [slow] — never ⟨…⟩
+    const notesText = () => writtenMarks(notesSegs(sl).filter((s, i, a) => s || i < a.length).join('\n\n⟨CLICK⟩\n\n'));
     let loaded = ta.value = notesText();
     ta.spellcheck = false;
     notesFollow = () => {

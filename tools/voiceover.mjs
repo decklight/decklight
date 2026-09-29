@@ -69,7 +69,7 @@ Usage:
                       [--slides a-b] [--no-cache]
 
 The headless counterpart of the deck's V → Record this deck…: it reads each slide's speaker
-notes and writes one slide-NN file per slide (plus a file per ⟨CLICK⟩ beat)
+notes and writes one slide-NN file per slide (plus a file per [click] beat)
 and a manifest.json into <dir>, so a deck can point at it with
 narration: { files: [{ label, dir, segments: true }] }.
 

@@ -32,7 +32,7 @@ import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
 import { slideNotes, priorSlideTexts, manifestHash, markerPauses, slowRateIn } from './narration-manifest.mjs';
-import { PAUSE_MARK, speechRuns, hasSlow, spoken, canonMarks } from './sentences.mjs';
+import { PAUSE_MARK, speechRuns, hasSlow, hasWords, canonMarks, writtenMarks, forEngine } from './sentences.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -193,11 +193,11 @@ export async function synthesizeSlides({
   // speaks anything else has its clips decoded first, and only ffmpeg decodes.
   if (synthExt !== 'wav' && enc !== 'ffmpeg'
     && slides.some((t, i) => (t.includes(PAUSE_MARK) || hasSlow(t)) && i + 1 >= span.from && i + 1 <= span.to)) {
-    throw new Error(`⟨PAUSE⟩ or ⟨SLOW⟩ in the notes needs ffmpeg with an engine that speaks ${synthExt} — install it (brew install ffmpeg)`);
+    throw new Error(`[pause] or [slow] in the notes needs ffmpeg with an engine that speaks ${synthExt} — install it (brew install ffmpeg)`);
   }
   const canSegment = enc === 'ffmpeg';
   if (!canSegment && raw.some((r) => notesSegments(r))) {
-    log('  note: ⟨CLICK⟩ segments need ffmpeg to concatenate — narrating each slide whole');
+    log('  note: [click] segments need ffmpeg to concatenate — narrating each slide whole');
   }
   /** `audio` (in `from`, the synthesis format by default) into `dst` in the track's, or a plain write. */
   const encode = (audio, dst, from = synthExt) => {
@@ -239,10 +239,22 @@ export async function synthesizeSlides({
    * and caches as it always has; with one, each run of words between markers
    * is its own clip — no marker ever reaches the engine — and the clips are
    * joined as WAV. `ext` is the format `wav` is in.
+   *
+   * An engine that cannot act on audio tags (`[whispers]`) is sent the words
+   * without them — never the tag read aloud — and a run that was only
+   * direction is no clip: its hold joins the one before it.
    */
   const voiceText = async (text, hold) => {
+    text = forEngine(tts, text);
     if (!text.includes(PAUSE_MARK) && !hasSlow(text)) return { ...(await synth(text)), ext: synthExt };
-    const { lead, runs } = speechRuns(text);
+    const { lead: bare, runs: all } = speechRuns(text);
+    let lead = bare;
+    const runs = [];
+    for (const r of all) {
+      if (r.text.trim()) runs.push({ ...r });
+      else if (runs.length) runs[runs.length - 1].pause += r.pause;
+      else lead += r.pause;
+    }
     const outs = [];
     for (const r of runs) outs.push(await synth(r.text, r.slow ? slowRate : 1));
     let clips = outs.map((o) => o.wav);
@@ -319,15 +331,15 @@ export async function synthesizeSlides({
     // ranged run is a surgical redo, the promise `decklight record --slides`
     // makes, and the video rendered from this folder still finds the rest.
     if (i + 1 < span.from || i + 1 > span.to) { entries.push(prev?.slides?.[i] ?? null); continue; }
-    // no words — or nothing but ⟨PAUSE⟩, a hold with nothing to hold between
-    if (!spoken(slides[i])) { entries.push(null); continue; }
+    // no words — or nothing but ⟨PAUSE⟩ and audio tags: direction with nothing to direct
+    if (!hasWords(slides[i])) { entries.push(null); continue; }
     const txt = join(dir, `slide-${n}.txt`);
     // reused text: a second take (another engine or voice) narrates the SAME
     // words, not a re-roll
     const prior = reuseTextFrom.map((d) => join(d, `slide-${n}.txt`)).find((f) => existsSync(f));
     const text = prior ? canonMarks(readFileSync(prior, 'utf8')).replace(/\s+/g, ' ').trim() : slides[i];
     const file = `slide-${n}.${format}`;
-    writeFileSync(txt, text);
+    writeFileSync(txt, writtenMarks(text));   // read back through canonMarks: the hash is of `text`
     const hash = slideHash(text);
     entries.push({ file, hash });
 
@@ -365,7 +377,7 @@ export async function synthesizeSlides({
         if (out.cached) cachedBeats++;
         // the beat's own words beside its audio — tools/lipsync.mjs hands this
         // to Rhubarb as the dialog hint for that beat
-        writeFileSync(join(dir, `slide-${n}-${kk}.txt`), segs[k]);
+        writeFileSync(join(dir, `slide-${n}-${kk}.txt`), writtenMarks(segs[k]));
         slideCost += out.usage?.cost ?? 0;
         encode(out.wav, join(dir, beat), out.ext);
         parts.push(beat);
@@ -386,7 +398,7 @@ export async function synthesizeSlides({
     // a rerun that costs nothing and one that quietly re-bills the deck
     const cacheNote = cachedBeats ? ` · ${segs ? `${cachedBeats}/${segs.length} ` : ''}cached` : '';
     log(`  slide ${n}: ${text.length} chars → ${file}`
-      + `${segs ? ` (${segs.length} ⟨CLICK⟩ segments)` : ''}${cacheNote}${slideCost ? ` · ~$${slideCost.toFixed(4)}` : ''}`);
+      + `${segs ? ` (${segs.length} [click] segments)` : ''}${cacheNote}${slideCost ? ` · ~$${slideCost.toFixed(4)}` : ''}`);
     save(entries);   // crash-safe: an interrupted run resumes from here
   }
   save(entries);

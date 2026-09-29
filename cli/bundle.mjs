@@ -581,7 +581,7 @@ html = html.replace(
   if (seen.size) {
     const beats = [...seen].filter((k) => /^slide-\d+-\d+$/.test(k)).length;
     notices.push(`character visemes: inlined ${seen.size} timeline(s)`
-      + (beats ? ` (${seen.size - beats} slides + ${beats} ⟨CLICK⟩ beats)` : ''));
+      + (beats ? ` (${seen.size - beats} slides + ${beats} [click] beats)` : ''));
   }
 }
 

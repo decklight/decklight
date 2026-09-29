@@ -242,6 +242,9 @@
             // stylable" the picker would otherwise have to know by heart.
             : mode === 'elevenlabsv3'
               ? { engine: 'elevenlabs', model: 'eleven_v3', stylable: true, voices: [['Gilles', 'cloned'], ['Rachel', 'calm']] }
+            // v4 acts on the notes' own [whispers]-style tags, and says so
+            : mode === 'audiotagsv4'
+              ? { engine: 'elevenlabs', model: 'eleven_v4', stylable: true, audioTags: true, voices: [['Gilles', 'cloned']] }
               // A roster far taller than the card, which is the ordinary case
               // on a system voice: a Mac answers 184 names. The scrolling bug
               // this mode guards only exists past the fold.
@@ -412,7 +415,7 @@
       localStorage.setItem('decklight-onboarded', '1');
       localStorage.setItem('decklight-tips-off', '1');
       const capKey = 'decklight-captions:' + location.pathname;
-      if (mode === 'captions' || mode === 'pausemark' || mode === 'aliases' || mode === 'slowmark') localStorage.setItem(capKey, '1');
+      if (mode === 'captions' || mode === 'pausemark' || mode === 'aliases' || mode === 'slowmark' || mode === 'audiotags' || mode === 'audiotagsv4') localStorage.setItem(capKey, '1');
       else localStorage.removeItem(capKey);
     } catch { /* ignore */ }
 
@@ -756,7 +759,7 @@
             // #350 on a recorded track: one build, three beats. The two the
             // slide has no build for ride on the last step — chained, not
             // dropped — and the deck says the counts disagree.
-            r.warnedOverflow = msgs().some((m) => /3 ⟨CLICK⟩ segments but 2 build steps/.test(m));
+            r.warnedOverflow = msgs().some((m) => /3 \[click\] segments but 2 build steps/.test(m));
             r.PASS = r.PASS && r.warnedOverflow;
           }
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
@@ -1485,9 +1488,9 @@
           // the counts disagreeing is an authoring slip worth seeing, so it is
           // named in the message log (I) — but never toasted, because it is a
           // note about the deck, not something to act on mid-sentence
-          r.warned = deck.messages().some((m) => /⟨CLICK⟩ segments but/.test(m.text));
+          r.warned = deck.messages().some((m) => /\[click\] segments but/.test(m.text));
           r.notToasted = ![...document.querySelectorAll('.decklight-toast')]
-            .some((t) => /⟨CLICK⟩ segments but/.test(t.textContent));
+            .some((t) => /\[click\] segments but/.test(t.textContent));
 
           r.PASS = r.spokeFirst && r.spokeSurplus && r.movedOn && r.warned && r.notToasted;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
@@ -1651,6 +1654,41 @@
           r.captions = [...shown];
           r.neverCaptioned = r.captions.length > 0 && r.captions.every((t) => !t.includes('⟨'));
           r.PASS = r.heldTheMark && r.saidBoth && r.neverSpoken && r.neverCaptioned;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'audiotags' || mode === 'audiotagsv4') {
+          // An audio tag is direction: a voice that acts on one (v4 says so
+          // on /ping as audioTags) is sent it as written; any other is sent
+          // the words alone — never the tag read aloud. [long pause] is two
+          // holds on both, and no caption ever shows a bracket.
+          const sec = deck._sections[0];
+          sec.querySelector('aside.notes').textContent = 'First sentence here. [whispers] A secret here. Wow! [laughs] [long pause] Last one here.';
+          sec.dataset.narrationBeatPause = '0.3';
+          sec.dataset.narrationSentencePause = '0';
+          const seen = [];
+          deck.on('slide', () => seen.push({ n: deck.state.slide, at: Date.now() }));
+          const shown = new Set();
+          const watch = setInterval(() => {
+            const t = document.querySelector('.decklight-captions')?.textContent;
+            if (t) shown.add(t);
+          }, 20);
+          const t0 = Date.now();
+          deck.toggleNarration();                                // V
+          await new Promise((ok) => setTimeout(ok, 3000));
+          clearInterval(watch);
+          const left1 = seen.find((x) => x.n === 2);
+          r.took = left1 ? left1.at - t0 : null;
+          r.heldLong = r.took !== null && r.took >= 1150 && r.took < 2300;
+          r.said = bodies.map((b) => b.text).filter((t) => t && !/^Hey/.test(t)).slice(0, 4);
+          r.want = mode === 'audiotagsv4'
+            ? ['First sentence here.', '[whispers] A secret here.', 'Wow! [laughs]', 'Last one here.']
+            : ['First sentence here.', 'A secret here.', 'Wow!', 'Last one here.'];
+          r.saidAsWanted = JSON.stringify(r.said) === JSON.stringify(r.want);
+          r.captions = [...shown];
+          r.neverCaptioned = r.captions.length > 0 && r.captions.every((t) => !/[[⟨]/.test(t));
+          r.PASS = r.heldLong && r.saidAsWanted && r.neverCaptioned;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

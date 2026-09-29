@@ -12,7 +12,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
-import { speechRuns, closeSlow, slowSentence, slowRateOf, SLOW_RATE, stripPauses, PAUSE_MARK, canonMarks, markTags, notesMarks, spoken } from '../tools/sentences.mjs';
+import { speechRuns, closeSlow, slowSentence, slowRateOf, SLOW_RATE, stripPauses, PAUSE_MARK, canonMarks, markTags, notesMarks, spoken,
+  writtenMarks, stripAudioTags, forEngine, captioned, hasWords, markAudioTags, LONG_PAUSE } from '../tools/sentences.mjs';
 
 // speechRuns as the ⟨PAUSE⟩ tests read it: words and holds, nothing slow here
 const pauseRuns = (t) => { const { lead, runs } = speechRuns(t); return { lead, runs: runs.map(({ text, pause }) => ({ text, pause })) }; };
@@ -536,6 +537,42 @@ test('markTags: marker elements in markup, as the parser sees them', () => {
   assert.equal(markTags('A <slow>b'), 'A ⟨SLOW⟩b⟨/SLOW⟩', 'or the end of the notes');
   assert.equal(markTags('A </slow> <slow>b <slow>c</slow> d'), 'A  ⟨SLOW⟩b c⟨/SLOW⟩ d', 'a stray close and a nested opener are nothing');
   assert.equal(notesMarks('<p>A [pause] <click>B</p>'), '<p>A ⟨PAUSE⟩ ⟨CLICK⟩B</p>');
+});
+
+test('[long pause] — ElevenLabs v4\'s own — is two pauses, held by decklight on every engine', () => {
+  for (const w of ['[long pause]', '[Long  Pause]', '<long pause>', '&lt;LONG PAUSE&gt;', '⟨long pause⟩']) {
+    assert.equal(canonMarks(`A. ${w} B.`), `A. ${LONG_PAUSE} B.`, w);
+  }
+  assert.deepEqual(pauseRuns(canonMarks('A. [long pause] B.')).runs, [{ text: 'A.', pause: 2 }, { text: 'B.', pause: 0 }]);
+  assert.equal(canonMarks('[long pauses] and [longpause]'), '[long pauses] and [longpause]', 'only the two words');
+});
+
+test('writtenMarks: the markers as decklight writes them — square brackets, read back to the same canonical text', () => {
+  const canonical = `One. ${PAUSE_MARK} Two. ${LONG_PAUSE} Three. ⟨CLICK⟩ Four ⟨SLOW⟩five⟨/SLOW⟩ ${PAUSE_MARK}${PAUSE_MARK}${PAUSE_MARK} six.`;
+  const written = writtenMarks(canonical);
+  assert.equal(written, 'One. [pause] Two. [long pause] Three. [click] Four [slow]five[/slow] [long pause][pause] six.');
+  assert.equal(canonMarks(written), canonical, 'round-trips: writing the brackets re-voices nothing');
+});
+
+test('an audio tag is direction: kept for a voice that acts on it, taken out — never read aloud — for any other', () => {
+  const t = 'So [whispers] here is the secret. [nervous laugh] Ready? [door slams]';
+  assert.equal(forEngine({ audioTags: true }, t), t, 'ElevenLabs v3/v4 get it as written');
+  assert.equal(forEngine({ audioTags: false }, t), 'So here is the secret. Ready?');
+  assert.equal(forEngine(undefined, t), 'So here is the secret. Ready?', 'an engine that says nothing is one that cannot');
+  const prose = 'See [1], the [ ] box and [2024].';
+  assert.equal(stripAudioTags(prose), prose, 'no letters, no tag');
+  assert.equal(captioned(`A [sighs] b ${PAUSE_MARK} c.`), 'A b c.', 'captions and subtitles show words only');
+  assert.equal(markAudioTags('A [ whispers ] b', (w) => `<${w}>`), 'A <whispers> b');
+});
+
+test('a tag after a sentence directs that sentence, and a beat of nothing but direction has no take', () => {
+  assert.deepEqual(splitSentences('Wow! [laughs] Next one.'), ['Wow!', '[laughs] Next one.'], 'a leading tag leads the next');
+  assert.deepEqual(splitSentences('Wow! [laughs]'), ['Wow! [laughs]'], 'a trailing one is no clip of its own');
+  assert.deepEqual(splitSentences('[applause]'), ['[applause]'], 'alone, it is still what the note says');
+  assert.equal(hasWords('[applause] [pause]'), false);
+  assert.equal(hasWords('[applause] Thanks.'), true);
+  assert.deepEqual(segmentFileIndex(['A.', '[crowd applause]', 'B.']), [1, null, 2],
+    'the same rule the recorder names its files by — on any engine');
 });
 
 test('spoken: what is left of a text once the markers are gone', () => {

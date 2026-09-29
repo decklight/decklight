@@ -42,21 +42,21 @@
       </ul>
       <aside class="notes">
         <p>Here's what makes Decklight different, and it's the through-line for everything else: it was designed from the start to be authored by agents as much as by people.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>A deck is one plain HTML file. Nothing to build, nothing to serve.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>So the workflow can be: describe the slide you want, and your coding agent writes it.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>And it won't guess from Reveal.js memory — decklight init hands the agent a skill sliced straight from the spec.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>The part that makes this actually work: every feature is checkable by a headless render. Clipped content flags itself, every theme passes a contrast gate. An agent can verify a slide it can't see.</p>
       </aside>
       <aside class="rehearse">
         <p>Agent-native is the point</p>
-        <p>⟨CLICK⟩</p><p>One HTML file</p>
-        <p>⟨CLICK⟩</p><p>Describe → agent writes it</p>
-        <p>⟨CLICK⟩</p><p>init drops a skill</p>
-        <p>⟨CLICK⟩</p><p>Verifiable by render — no eyes needed</p>
+        <p>[click]</p><p>One HTML file</p>
+        <p>[click]</p><p>Describe → agent writes it</p>
+        <p>[click]</p><p>init drops a skill</p>
+        <p>[click]</p><p>Verifiable by render — no eyes needed</p>
       </aside>
     </section>
 
@@ -73,15 +73,15 @@
 &lt;script src="dist/decklight.js"&gt;&lt;/script&gt;</code></pre>
       <aside class="notes">
         <p>The whole model, on one screen. A deck is a div of sections — one section per slide.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Slides are just HTML. A heading, a list, whatever you'd put on a page.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>One script tag boots the runtime — one JS file, one CSS file, one theme. There's no server in this story. You double-click the file and you're presenting.</p>
       </aside>
       <aside class="rehearse">
         <p>Div of sections</p>
-        <p>⟨CLICK⟩</p><p>Slides are HTML</p>
-        <p>⟨CLICK⟩</p><p>One script — double-click to present</p>
+        <p>[click]</p><p>Slides are HTML</p>
+        <p>[click]</p><p>One script — double-click to present</p>
       </aside>
     </section>
 
@@ -93,25 +93,25 @@
         <li>Put <code>data-build</code> on the list</li>
         <li>Each item becomes one step, in document order</li>
         <li>Hidden steps hold their space — the layout never jumps</li>
-        <li>Speaker notes segment with <code>⟨CLICK⟩</code> to match</li>
+        <li>Speaker notes segment with <code>[click]</code> to match</li>
       </ul>
       <aside class="notes">
         <p>Progressive reveals — builds. One attribute on the container does it.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>data-build on the list. Not a single class on the items.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Each child is a step, in order.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Hidden steps keep their space, so nothing reflows as you advance.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>And the notes below split on the same click markers — which is exactly how the voice you're hearing stays in sync.</p>
       </aside>
       <aside class="rehearse">
         <p>Container opts in</p>
-        <p>⟨CLICK⟩</p><p>data-build on the list</p>
-        <p>⟨CLICK⟩</p><p>Each item = a step</p>
-        <p>⟨CLICK⟩</p><p>Layout never jumps</p>
-        <p>⟨CLICK⟩</p><p>Notes segment on ⟨CLICK⟩</p>
+        <p>[click]</p><p>data-build on the list</p>
+        <p>[click]</p><p>Each item = a step</p>
+        <p>[click]</p><p>Layout never jumps</p>
+        <p>[click]</p><p>Notes segment on [click]</p>
       </aside>
     </section>
 
@@ -152,15 +152,15 @@
       </svg>
       <aside class="notes">
         <p>Diagrams aren't screenshots here — inline SVG is native, and you author it with theme tokens instead of hex codes.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>The strokes draw themselves in, group by group — that's data-build equals draw.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>And the payoff: press comma or period to change theme and the entire diagram repaints itself, because every color is a token, not a constant.</p>
       </aside>
       <aside class="rehearse">
         <p>SVG is native — tokens, not hex</p>
-        <p>⟨CLICK⟩</p><p>Strokes draw in</p>
-        <p>⟨CLICK⟩</p><p>, / . repaints the whole diagram</p>
+        <p>[click]</p><p>Strokes draw in</p>
+        <p>[click]</p><p>, / . repaints the whole diagram</p>
       </aside>
     </section>
 
@@ -171,12 +171,12 @@
       <div class="terminal" data-cast-inline="#cast-init" data-mode="step" data-rows="12"></div>
       <aside class="notes">
         <p>When a deck needs to show a terminal, Decklight doesn't use a screen recording. This was captured from a real shell with decklight cast — real command, real output.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Each advance types the command, with humane little imperfections, then streams exactly what was recorded. It's truthful, it's repeatable, and it will never hang on conference Wi-Fi.</p>
       </aside>
       <aside class="rehearse">
         <p>PTY truth, not video</p>
-        <p>⟨CLICK⟩</p><p>Typed, then streamed — repeatable</p>
+        <p>[click]</p><p>Typed, then streamed — repeatable</p>
       </aside>
     </section>
 
@@ -200,21 +200,21 @@
       </ul>
       <aside class="notes">
         <p>Sixty-two themes in five packs — Default, Classics, Old Machines, TV Series, Movies — all on one token contract.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Press T to open the picker. Go ahead, this deck ships them all.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Every one passes machine-checked contrast gates and the same palette rules the generator follows. No theme ships that fails them.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>And when you switch, the whole deck moves with it — the diagram two slides back, the terminal one slide back, the code, all of it.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Control-T rolls a brand-new theme on the spot, fitted with luminance math so it can never fail validation.</p>
       </aside>
       <aside class="rehearse">
         <p>46 themes · 2 packs · one contract</p>
-        <p>⟨CLICK⟩</p><p>T = picker</p>
-        <p>⟨CLICK⟩</p><p>WCAG + palette gates</p>
-        <p>⟨CLICK⟩</p><p>Everything moves together</p>
-        <p>⟨CLICK⟩</p><p>⌃T generates — can't fail</p>
+        <p>[click]</p><p>T = picker</p>
+        <p>[click]</p><p>WCAG + palette gates</p>
+        <p>[click]</p><p>Everything moves together</p>
+        <p>[click]</p><p>⌃T generates — can't fail</p>
       </aside>
     </section>
 
@@ -224,26 +224,26 @@
       <p>Press <strong>V</strong> — the deck speaks the notes and drives itself</p>
       <ul data-build="fade-up">
         <li>Text-to-speech reads your speaker notes, in sync with the builds</li>
-        <li>The <strong>voice is the clock</strong> — each <code>⟨CLICK⟩</code> beat ends, the next step lands</li>
+        <li>The <strong>voice is the clock</strong> — each <code>[click]</code> beat ends, the next step lands</li>
         <li>Captions follow the voice; after the last beat it auto-advances</li>
         <li>Live on the fly, or recorded offline — starting with <strong>the voice already on your machine</strong>, free</li>
       </ul>
       <aside class="notes">
         <p>You may have noticed this deck is talking. That's the narration feature, and it's the same notes you author for the speaker view.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Text-to-speech reads them, synced to the builds — press V any time to toggle it.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>The important design choice: the voice is the clock. Each click-segment finishes speaking, then the next build appears — so audio and animation never drift apart.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Captions follow along, and at the end of a slide it advances on its own.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Run it live from a local bridge, or pre-record it offline and ship the audio in the file. And you already have a voice: with nothing configured, decklight asks the operating system what it can speak with — macOS and Windows have both shipped good neural voices for years. No key, no download, no signup.</p>
       </aside>
       <aside class="rehearse">
         <p>Notes → speech, synced</p>
-        <p>⟨CLICK⟩</p><p>The voice is the clock</p>
-        <p>⟨CLICK⟩</p><p>Captions + auto-advance</p>
-        <p>⟨CLICK⟩</p><p>Live or recorded</p>
+        <p>[click]</p><p>The voice is the clock</p>
+        <p>[click]</p><p>Captions + auto-advance</p>
+        <p>[click]</p><p>Live or recorded</p>
       </aside>
     </section>
 
@@ -259,18 +259,18 @@
       </ul>
       <aside class="notes">
         <p>Step back for the principle underneath all of this. There are no binary formats. Anywhere.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>So a deck diffs cleanly in git, and an agent can read and edit every byte of it.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Themes are gated on contrast, terminals are recorded rather than filmed —</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>— and slides are proven correct by a headless render instead of a human squinting at them. Text in, verifiable out. That's why an agent can drive it.</p>
       </aside>
       <aside class="rehearse">
         <p>No binaries anywhere</p>
-        <p>⟨CLICK⟩</p><p>Diffs in git · agents edit bytes</p>
-        <p>⟨CLICK⟩</p><p>Gated themes · recorded terminals</p>
-        <p>⟨CLICK⟩</p><p>Proven by render</p>
+        <p>[click]</p><p>Diffs in git · agents edit bytes</p>
+        <p>[click]</p><p>Gated themes · recorded terminals</p>
+        <p>[click]</p><p>Proven by render</p>
       </aside>
     </section>
 
@@ -287,23 +287,23 @@
       </ul>
       <aside class="notes">
         <p>So what does authoring actually feel like? Five moves.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>decklight init scaffolds a starter deck, and — this is the agent-native part — it also writes a skill file, sliced from the spec, so any agent in the repo knows exactly how Decklight works.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>decklight author serves the deck with live reload. Edit it in your own editor, or right in the browser.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>And here's the loop that makes it sing: press A, type what you want changed, and an installed coding agent — Claude Code, Codex, Gemini, whatever's on your PATH — edits the file headlessly. The browser reloads the moment it saves.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>E edits notes, L cycles layouts, Z undoes any of it — including the agent's edits — all on one history. Git keeps a silent snapshot as you go, and K commits when you're ready.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>When it's ready, decklight bundle flattens everything into a single offline file you can email.</p>
       </aside>
       <aside class="rehearse">
         <p>init = deck + agent skill</p>
-        <p>⟨CLICK⟩</p><p>dev = live reload</p>
-        <p>⟨CLICK⟩</p><p>A asks an agent, browser reloads</p>
-        <p>⟨CLICK⟩</p><p>E · L · Z, one history</p>
-        <p>⟨CLICK⟩</p><p>bundle = one file to ship</p>
+        <p>[click]</p><p>dev = live reload</p>
+        <p>[click]</p><p>A asks an agent, browser reloads</p>
+        <p>[click]</p><p>E · L · Z, one history</p>
+        <p>[click]</p><p>bundle = one file to ship</p>
       </aside>
     </section>
 
@@ -315,12 +315,12 @@
 decklight bundle deck.html --all          # merge a whole playlist</code></pre>
       <aside class="notes">
         <p>Shipping is one command. bundle inlines the runtime, the themes you chose, the terminal casts, even the narration —</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>— into a single HTML file. Email it, host it, open it on a plane. And with dash-dash-all it can merge an entire playlist of decks into one file with in-file navigation. This whole tour ships exactly this way.</p>
       </aside>
       <aside class="rehearse">
         <p>bundle = one offline file</p>
-        <p>⟨CLICK⟩</p><p>--all merges a playlist</p>
+        <p>[click]</p><p>--all merges a playlist</p>
       </aside>
     </section>
 

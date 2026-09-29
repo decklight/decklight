@@ -98,7 +98,7 @@ test('⟨CLICK⟩ segments and build steps: agreement is silent, disagreement na
   const found = only(staticFindings(drift, everything), 'clicks-vs-builds');
   assert.equal(found.length, 1);
   assert.equal(found[0].level, 'warn', 'a count that disagrees is worth saying, not worth failing on');
-  assert.match(found[0].message, /3 ⟨CLICK⟩ segments but 4 build clicks/);
+  assert.match(found[0].message, /3 \[click\] segments but 4 build clicks/);
 
   // notes without a single ⟨CLICK⟩ make no claim about the builds at all
   const quiet = deck(`  <section>
@@ -164,7 +164,7 @@ test('steps tied by data-build-order are one click — the count the presenter w
   // four segments still warn, and the number printed is the click count, with the tie explained
   const found = only(staticFindings(tied('<p>a</p><p>⟨CLICK⟩</p><p>b</p><p>⟨CLICK⟩</p><p>c</p><p>⟨CLICK⟩</p><p>d</p>'), everything), 'clicks-vs-builds');
   assert.equal(found.length, 1);
-  assert.match(found[0].message, /4 ⟨CLICK⟩ segments but 2 build clicks \(3 build steps, tied by data-build-order\)/);
+  assert.match(found[0].message, /4 \[click\] segments but 2 build clicks \(3 build steps, tied by data-build-order\)/);
   // auto steps never merge, even at equal keys (computeGroups' own rule)
   assert.equal(buildClicks(parseTree('<ul data-build><li>a</li><li>b</li></ul><p data-build>c</p>')), 3);
   // explicit keys reorder as well as tie: a container child and a leaf sharing one key are one click
@@ -294,7 +294,7 @@ test('findings print grouped by slide, each line saying error or warn, with a co
   ];
   const lines = formatFindings(findings, { slides: 2 });
   assert.equal(lines[0], 'slide 1  "B"', 'the heading names the slide the way the finder does');
-  assert.match(lines[1], /^ {2}warn {2} 2 ⟨CLICK⟩ segments/);
+  assert.match(lines[1], /^ {2}warn {2} 2 \[click\] segments/);
   assert.ok(lines.some((l) => l === 'slide 2  "B"'));
   assert.ok(lines.some((l) => /^ {2}error {2}content is clipped/.test(l)));
   assert.equal(lines.at(-1), '1 error, 1 warning');

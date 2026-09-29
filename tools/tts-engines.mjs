@@ -26,10 +26,11 @@
 //   elevenlabs — the one whose roster is YOUR account's, cloned voices included.
 //            Needs $ELEVENLABS_API_KEY (never saved to disk). Metered in
 //            characters against a plan allowance we cannot see, so it reports
-//            characters and no dollar estimate. Style is ignored on every
-//            model except the opt-in --tts-model eleven_v3 (its own delivery
-//            channel: bracketed audio tags read as direction, not words), so
-//            `stylable` here depends on the model chosen, not just the engine.
+//            characters and no dollar estimate. Style reaches only the tag
+//            models — eleven_v4 (the default), eleven_v4_turbo, eleven_v3 —
+//            whose delivery channel is bracketed audio tags read as direction,
+//            not words; so `stylable` and `audioTags` here depend on the model
+//            chosen, not just the engine.
 //
 // Cost is always an ESTIMATE from published list prices. Chirp's estimate is
 // the list price *ignoring* the free tier — we cannot see your monthly usage,
@@ -51,7 +52,7 @@ import { run, PROBE_MS, NETWORK_MS } from './exec.mjs';
 import { extFor } from './tts-cache.mjs';
 import {
   createSynth as createElevenLabs, apiKey as elevenLabsKey, KEY_ENV as ELEVENLABS_KEY_ENV,
-  DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL,
+  DEFAULT_MODEL as ELEVENLABS_MODEL, V3_MODEL as ELEVENLABS_V3_MODEL, readsAudioTags,
 } from './elevenlabs-tts.mjs';
 import {
   detectLocalVoice, sayArgs, sapiArgs, winrtArgs, TIER_LABEL, withoutSupersededPlain, baseName,
@@ -472,7 +473,7 @@ export function stretchClip(audio, rate, ext, { run = execFileSync } = {}) {
   } catch (e) {
     if (!warnedStretch) {
       warnedStretch = true;
-      console.warn(`  ⟨SLOW⟩: this engine has no pace of its own and ${e.code === 'ENOENT' ? 'ffmpeg is not installed' : 'ffmpeg failed'}`
+      console.warn(`  [slow]: this engine has no pace of its own and ${e.code === 'ENOENT' ? 'ffmpeg is not installed' : 'ffmpeg failed'}`
         + ' — the stretch is said at the usual pace (brew install ffmpeg)');
     }
     return null;
@@ -564,15 +565,19 @@ function buildEngine({
   if (engine === 'elevenlabs') {
     const m = model ?? ELEVENLABS_MODEL;
     const isV3 = m === ELEVENLABS_V3_MODEL;
+    const tagged = readsAudioTags(m);
     const { listVoices, synth } = createElevenLabs({
       key: elevenLabsKey(env), model: m, format: format ?? 'pcm', stability,
     });
     return {
       name: 'elevenlabs', model: m, needsProject: false,
-      // v3 alone reads audio tags as direction — every other ElevenLabs model
-      // would read a tag's brackets aloud as words, so the tone step is v3-only,
+      // v3 and v4 read audio tags as direction — every other ElevenLabs model
+      // would read a tag's brackets aloud as words, so the tone step and a
+      // deck's own tags ([whispers], [laughs]) are for those models only,
       // decided here from the model rather than the picker guessing by name.
-      stylable: isV3, rates: true,
+      // `audioTags` is what tells the rest of decklight to keep a deck's tags
+      // in the text; every other engine has them taken out, never spoken.
+      stylable: tagged, audioTags: tagged, rates: true,
       cost: 'metered in characters against your plan',
       // Stated once, at startup, where the presenter is still choosing —
       // v3 trades latency and consistency for expressiveness, and ElevenLabs'

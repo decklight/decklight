@@ -168,9 +168,9 @@ test('a tag is prepended to the text and billed as part of what was sent — v3 
   assert.match(usage.note, /\[excited\]/, 'the per-sentence line shows the cue it sent');
 });
 
-test('a style is never sent to a non-v3 model — the brackets would just be read aloud', async () => {
+test('a style is never sent to a model with no audio tags — the brackets would just be read aloud', async () => {
   const fetchImpl = fakeFetch();
-  const { synth } = createSynth({ key: 'k', fetchImpl }); // DEFAULT_MODEL, not v3
+  const { synth } = createSynth({ key: 'k', model: 'eleven_multilingual_v2', fetchImpl });
   const { usage } = await synth('Hello there.', { voice: 'Gilles', style: 'excited' });
 
   const post = fetchImpl.calls.find((c) => c.init.method === 'POST');
@@ -284,20 +284,30 @@ test('createEngine hands back the shape every engine has', () => {
   assert.equal(e.name, 'elevenlabs');
   assert.equal(e.model, DEFAULT_MODEL);
   assert.equal(e.needsProject, false, 'no GCP project — a key is the whole prerequisite');
-  assert.equal(e.stylable, false, 'no delivery-instruction channel, so the picker skips tones');
-  assert.equal(e.caveat, undefined, 'nothing to warn about on a model with no style channel');
+  assert.equal(DEFAULT_MODEL, 'eleven_v4', 'v4 by default: it reads [whispers]-style tags');
+  assert.equal(e.stylable, true, 'v4 is told HOW to say it by a tag, so the picker offers tones');
+  assert.equal(e.audioTags, true, 'and tags written in the notes are sent, not taken out');
+  assert.equal(e.caveat, undefined, 'v4 has none of v3\'s trade-offs to name');
   assert.deepEqual(e.voices, [], 'the roster belongs to the account, so it is fetched');
   assert.equal(typeof e.listVoices, 'function');
 });
 
-test('eleven_v3 alone reports stylable — the tone step follows the model, not the engine name', () => {
+test('the tag models alone report stylable and audioTags — the tone step follows the model, not the engine name', () => {
   const v3 = createEngine({ engine: 'elevenlabs', model: V3_MODEL, env: { [KEY_ENV]: 'k' } });
   assert.equal(v3.stylable, true);
   assert.match(v3.caveat, /eleven_v3/, 'the trade-offs are named, ready for the startup line');
   assert.match(v3.caveat, /250 characters/);
 
-  const v2 = createEngine({ engine: 'elevenlabs', model: DEFAULT_MODEL, env: { [KEY_ENV]: 'k' } });
+  assert.equal(v3.audioTags, true);
+  for (const model of ['eleven_v4', 'eleven_v4_turbo']) {
+    const v4 = createEngine({ engine: 'elevenlabs', model, env: { [KEY_ENV]: 'k' } });
+    assert.equal(v4.stylable, true, model);
+    assert.equal(v4.audioTags, true, model);
+  }
+
+  const v2 = createEngine({ engine: 'elevenlabs', model: 'eleven_multilingual_v2', env: { [KEY_ENV]: 'k' } });
   assert.equal(v2.stylable, false);
+  assert.equal(v2.audioTags, false, 'a tag would be read aloud, so it is taken out');
   assert.equal(v2.caveat, undefined);
 });
 

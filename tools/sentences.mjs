@@ -8,10 +8,20 @@
 // In tools/ because the package ships tools/ and not src/: the CLI may not
 // import from the runtime, and the runtime bundles what it imports from here.
 
-/** Where the live voice breathes: sentence ends, with closing quotes kept on the sentence. */
+/**
+ * Where the live voice breathes: sentence ends, with closing quotes kept on
+ * the sentence. An audio tag that FOLLOWS a sentence — `Wow! [laughs]` — is
+ * direction for that sentence, not one of its own: on its own it would be a
+ * clip that is only a laugh, or, on an engine that cannot act on tags, a clip
+ * of nothing.
+ */
 export function splitSentences(text) {
-  return ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? [])
-    .map((s) => s.trim()).filter(Boolean);
+  const out = [];
+  for (const s of ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? []).map((x) => x.trim()).filter(Boolean)) {
+    if (out.length && ONLY_TAGS.test(s)) out[out.length - 1] += ` ${s}`;
+    else out.push(s);
+  }
+  return out;
 }
 
 /**
@@ -44,9 +54,17 @@ export const SLOW_CLOSE = '⟨/SLOW⟩';
 export const SLOW_RATE = 0.85;
 export const slowRateOf = (cfg) => (typeof cfg === 'number' && Number.isFinite(cfg) && cfg >= 0.5 && cfg <= 1 ? cfg : SLOW_RATE);
 
-const MARK_OF = { pause: PAUSE_MARK, click: CLICK_MARK, slow: SLOW_OPEN };
+/**
+ * A long hold — ElevenLabs v4's own `[long pause]` — is two pauses: held by
+ * decklight the same on every engine, the way `[pause]` is, so a script
+ * written for v4 paces the same in piper's voice. As two marks it needs no
+ * path of its own anywhere downstream; `writtenMarks` gives the words back.
+ */
+export const LONG_PAUSE = PAUSE_MARK + PAUSE_MARK;
+
+const MARK_OF = { pause: PAUSE_MARK, click: CLICK_MARK, slow: SLOW_OPEN, 'long pause': LONG_PAUSE };
 const markFor = (close, word) => {
-  const w = word.toLowerCase();
+  const w = word.toLowerCase().replace(/\s+/g, ' ');
   if (w === 'slow') return close ? SLOW_CLOSE : SLOW_OPEN;
   return close ? '' : MARK_OF[w];   // a pause or a click has nothing to close
 };
@@ -54,7 +72,7 @@ const markFor = (close, word) => {
 // `[pause]`, `<Click>`, `&lt;SLOW&gt;`, `[/slow]`, `⟨pause⟩` — any case, spaces
 // inside allowed, the brackets a matched pair. Only the three words: `[1]`,
 // `[data-mouth]` and `<script>` in a note are somebody's prose.
-const TEXT_MARK = /\[\s*(\/?)\s*(pause|click|slow)\s*\]|<\s*(\/?)\s*(pause|click|slow)\s*\/?\s*>|&lt;\s*(\/?)\s*(pause|click|slow)\s*\/?\s*&gt;|⟨\s*(\/?)\s*(pause|click|slow)\s*⟩/gi;
+const TEXT_MARK = /\[\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\]|<\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\/?\s*>|&lt;\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\/?\s*&gt;|⟨\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*⟩/gi;
 
 /**
  * Every spelling of a marker written as TEXT, in its one canonical form —
@@ -98,6 +116,38 @@ export function markTags(html) {
 export const notesMarks = (html) => canonMarks(markTags(html));
 
 /**
+ * The markers as decklight WRITES them: `[click]`, `[pause]`, `[long pause]`,
+ * `[slow]` and `[/slow]` — the square brackets a script for a voice is
+ * written with (and ElevenLabs v4 reads). Every spelling is still READ
+ * (`canonMarks`); this is only what the notes editor shows, what a scaffold
+ * and a saved script are written in. Internally the forms stay ⟨…⟩ — that is
+ * what recordings were hashed against — so writing brackets re-voices nothing.
+ */
+export const writtenMarks = (text) => String(text ?? '')
+  .replaceAll(LONG_PAUSE, '[long pause]').replaceAll(PAUSE_MARK, '[pause]').replaceAll(CLICK_MARK, '[click]')
+  .replaceAll(SLOW_CLOSE, '[/slow]').replaceAll(SLOW_OPEN, '[slow]');
+
+/**
+ * An AUDIO TAG: direction for a voice that can act on it — ElevenLabs v3 and
+ * v4's `[whispers]`, `[laughs]`, `[excited]`, `[door slams]`. Square brackets
+ * around words and nothing else (letters, spaces, a hyphen or an apostrophe),
+ * so `[1]`, `[ ]` and `[2024]` stay prose. The markers are not tags — they
+ * are read first (`canonMarks`) and never reach this.
+ */
+const AUDIO_TAG = /\[\s*\p{L}[\p{L}' -]{0,38}\]/gu;
+const ONLY_TAGS = /^(?:\[\s*\p{L}[\p{L}' -]{0,38}\]\s*)+$/u;
+
+/** The text as an engine that CANNOT act on audio tags should hear it: every tag taken out, never read aloud. */
+export const stripAudioTags = (text) => String(text ?? '').replace(AUDIO_TAG, ' ')
+  .replace(/[ \t]+/g, ' ').replace(/ ([.,;:!?…])/g, '$1').trim();
+
+/** Each audio tag in `text` replaced by `fn(words)` — how a view shows one as a cue, not as prose. */
+export const markAudioTags = (text, fn) => String(text ?? '').replace(AUDIO_TAG, (m) => fn(m.slice(1, -1).trim()));
+
+/** What an engine is sent: tags kept for one that acts on them (`audioTags`), taken out for any other. */
+export const forEngine = (engine, text) => (engine?.audioTags ? String(text ?? '') : stripAudioTags(text));
+
+/**
  * The text with every ⟨SLOW⟩ and ⟨/SLOW⟩ gone — without a space in their
  * place: they wrap words like emphasis does, so `⟨SLOW⟩six⟨/SLOW⟩.` is `six.`
  */
@@ -108,6 +158,18 @@ export const stripPauses = (text) => String(text ?? '').replaceAll(PAUSE_MARK, '
 
 /** What of a text is words: every ⟨PAUSE⟩, ⟨SLOW⟩ and ⟨/SLOW⟩ gone, whitespace flat. */
 export const spoken = (text) => stripSlow(stripPauses(text)).replace(/\s+/g, ' ').trim();
+
+/** What of a text is SAID, for a caption or a subtitle: `spoken`, and no audio tag — tags are direction, not words. */
+export const captioned = (text) => stripAudioTags(spoken(text));
+
+/**
+ * Is there anything here to TAKE? Words, not direction: a beat that is only
+ * `[pause]`s and audio tags has no take of its own on any engine — direction
+ * needs words to direct. Engine-blind on purpose: the runtime predicts the
+ * recorder's file names with it (`segmentFileIndex`), so a take cannot exist
+ * for one voice and not another.
+ */
+export const hasWords = (text) => captioned(text) !== '';
 
 // splitSentences' sentence end: terminal punctuation, closing quotes kept on it
 const SENTENCE_END = /[.!?…]+[”’"')\]]*/;

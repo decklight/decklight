@@ -247,6 +247,8 @@ export async function loadEngineAt(modulePath, label, opts = {}) {
     name: typeof engine.name === 'string' && engine.name ? engine.name : label,
     voices: Array.isArray(engine.voices) ? engine.voices : [],
     stylable: engine.stylable === true,
+    // one that reads `[whispers]`-style audio tags says so; any other has them taken out
+    audioTags: engine.audioTags === true,
   };
 }
 

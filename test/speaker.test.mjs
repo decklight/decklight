@@ -36,6 +36,12 @@ test('notesSegments cuts where narration cuts, on every spelling, and shows a ho
   assert.match(seg, /Look\. <span class="cue">PAUSE<\/span> Now <em class="slow">slowly<\/em>\./);
 });
 
+test('an audio tag shows as a cue — direction to read, not words to say — and [1] stays prose', () => {
+  const [seg] = notesSegments('<p>[whispers] Here it is. See [1]. [long pause]</p>');
+  assert.match(seg, /<span class="cue tag">whispers<\/span> Here it is\. See \[1\]\./);
+  assert.equal(seg.match(/<span class="cue">PAUSE<\/span>/g)?.length, 2, '[long pause] is two holds');
+});
+
 test('the QR is offered only when a remote is actually running', () => {
   // no dev server, or a dev server started without --remote
   assert.equal(speakerState(fakeDeck(), 'deck.html').qr, null);

@@ -21,16 +21,23 @@ import { wavFromPcm } from './gemini-tts.mjs';
 export const KEY_ENV = 'ELEVENLABS_API_KEY';
 const API = 'https://api.elevenlabs.io/v1';
 
-// eleven_multilingual_v2 is the quality default and speaks every voice a
-// clone produces; --tts-model eleven_turbo_v2_5 trades a little of it for
-// latency, which live narration may prefer on a long deck.
-export const DEFAULT_MODEL = 'eleven_multilingual_v2';
+// eleven_v4 is the default: it reads the audio tags a script is written with
+// ([whispers], [laughs], [long pause]) as direction, follows them more
+// reliably than v3, and answers sooner. --tts-model eleven_v4_turbo trades a
+// little quality for latency; eleven_multilingual_v2 is the pre-tag voice.
+// A track already recorded keeps the model its manifest names — voiceover
+// reads it back — so changing this default re-voices nothing.
+export const DEFAULT_MODEL = 'eleven_v4';
 
-// The only ElevenLabs model that reads bracketed audio tags ([excited],
-// [whispers], …) as performance direction instead of words to pronounce — v3
-// joins the same style channel gemini has always had, opt-in only, because
-// every other model would read the brackets aloud (SPEC PRESENTING).
+// v3 was the first ElevenLabs model to read bracketed audio tags as
+// performance direction instead of words to pronounce; v4 follows them more
+// reliably. Every other model reads the brackets ALOUD, so tags — a deck's
+// own and the style channel gemini has always had — reach only these
+// (SPEC PRESENTING).
 export const V3_MODEL = 'eleven_v3';
+export const TAG_MODELS = ['eleven_v3', 'eleven_v4', 'eleven_v4_turbo'];
+/** Does this ElevenLabs model act on `[whispers]`-style audio tags? */
+export const readsAudioTags = (model) => TAG_MODELS.includes(model);
 
 // v3's stability slider is not the continuous 0–1 knob older models expose —
 // ElevenLabs documents exactly these three named positions. Creative follows
@@ -218,10 +225,10 @@ export function createSynth({
       throw new Error(`no ElevenLabs voice named ${JSON.stringify(voice)} on this key — have: `
         + list.map((v) => v.name).join(', '));
     }
-    // Audio tags are a v3-only delivery channel (SPEC PRESENTING). Sent to any
-    // other model the brackets are read aloud as words, so a tone is NEVER
-    // attached unless this is the model that can act on it.
-    const tag = model === V3_MODEL ? styleTag(style) : '';
+    // Audio tags reach only the models that act on them (SPEC PRESENTING).
+    // Sent to any other model the brackets are read aloud as words, so a tone
+    // is NEVER attached unless this is a model that can act on it.
+    const tag = readsAudioTags(model) ? styleTag(style) : '';
     const sent = tag ? `${tag} ${text}` : text;
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {

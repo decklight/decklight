@@ -43,7 +43,7 @@ import { argReader, isMain } from './args.mjs';
 import { renderThemeParams } from './render-theme.mjs';
 import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, valuesOf } from './video-options.mjs';
-import { splitSentences, speechRuns, PAUSE_MARK, CLICK_MARK, canonMarks, SLOW_RATE } from './sentences.mjs';
+import { splitSentences, speechRuns, stripAudioTags, PAUSE_MARK, CLICK_MARK, canonMarks, SLOW_RATE } from './sentences.mjs';
 import { serveForRender } from '../cli/present.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
 import { staleSlides, slideTexts, priorSlideTexts, slideNotes, markerPauses, slowRateIn } from './narration-manifest.mjs';
@@ -98,7 +98,7 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
                        over the --slides range only, when one is given
 
 Every slide BUILDS, one frame per step. A narrated slide takes its timing from
-its own audio: ⟨CLICK⟩ in the speaker notes splits the narration, and segment k
+its own audio: [click] in the speaker notes splits the narration, and segment k
 is spoken over build step k — the same rule the live player follows. Without
 markers it holds fully built for the audio's real duration. A silent slide holds
 --hold seconds, --build-hold per step. Either way the audio track is continuous
@@ -510,7 +510,8 @@ export function subtitleCues(plan, textOf, holdOf = () => 0, slowRate = SLOW_RAT
     const cut = [];
     let carry = null;
     for (const r of runs) {
-      const pieces = splitSentences(r.text).flatMap((s) => chunkCue(s, CUE_MAX_CHARS))
+      // an audio tag is direction for the voice, never a subtitle
+      const pieces = splitSentences(r.text).map(stripAudioTags).filter(Boolean).flatMap((s) => chunkCue(s, CUE_MAX_CHARS))
         .map((text) => ({ text, weight: text.length / (r.slow ? slowRate : 1) }));
       if (carry && pieces.length) pieces[0] = { text: `${carry.text} ${pieces[0].text}`, weight: carry.weight + pieces[0].weight };
       else if (carry) pieces.unshift(carry);

@@ -98,6 +98,7 @@ const USAGE = `usage: decklight author <deck.html | git url> [--port 8788] [--tt
                 --tts-model, --location, --voice, --data-dir, --lang,
                 --tts-format pcm|mp3 (elevenlabs),
                 --tts-stability creative|natural|robust (elevenlabs eleven_v3 only)
+                --tts-model eleven_v4 (default) · eleven_v4_turbo · eleven_v3 · eleven_multilingual_v2
   lipsync flags --rhubarb <bin>, --portrait <name=img.png>…, --wav2lip-dir,
                 --wav2lip-ckpt, --sadtalker-dir, --python, --cache-dir,
                 --veo (animate the portrait once through Vertex — BILLED),

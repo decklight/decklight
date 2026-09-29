@@ -18,7 +18,7 @@
 
 import { createHash } from 'node:crypto';
 import { cacheKey } from './tts-cache.mjs';
-import { V3_MODEL as ELEVENLABS_V3_MODEL } from './elevenlabs-tts.mjs';
+import { readsAudioTags } from './elevenlabs-tts.mjs';
 import { sectionBodies, NOTES_ASIDE, cleanNotes, readNotes, isHiddenSection } from './deck-html.mjs';
 import { deckConfig } from '../cli/runtime-link.mjs';
 import { PAUSE_MARK, slowRateOf } from './sentences.mjs';
@@ -114,7 +114,7 @@ export const slowRateIn = (html) => slowRateOf(deckConfig(html)?.narration?.slow
  * itself. The traits are the engines' own (tools/tts-engines.mjs):
  *   piper      voiceIsFixed — the model IS the voice, and it is what is keyed
  *   say, sapi  modelIsDefaultVoice — the spoken voice is keyed, the boot voice is not
- *   elevenlabs voice and model both; a delivery style only on eleven_v3
+ *   elevenlabs voice and model both; a delivery style only on eleven_v3 / v4
  *   chirp      voice and its one model; no style
  *   gemini     voice and model; the one engine every style reaches
  * `format` is the audio's extension, wav unless a header says otherwise —
@@ -124,7 +124,7 @@ export function manifestKey({ engine, model, voice, style, format } = {}, text) 
   const e = engine ?? '';
   const fixed = e === 'piper';
   const defaultVoice = e === 'say' || e === 'sapi';
-  const stylable = e === 'gemini' || (e === 'elevenlabs' && model === ELEVENLABS_V3_MODEL);
+  const stylable = e === 'gemini' || (e === 'elevenlabs' && readsAudioTags(model));
   return cacheKey({
     engine: e,
     model: fixed || defaultVoice ? undefined : (model ?? undefined),

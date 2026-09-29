@@ -101,15 +101,27 @@ test('every slide-mutation route the server dispatches is registered here', () =
 
 test('POST /edit/notes writes the aside and leaves one undo entry behind', async (t) => {
   const { routes, readDeck, history } = harness(t);
-  const r = await call(routes, 'POST /edit/notes', { body: { slide: 1, text: 'say this ⟨CLICK⟩ then this' } });
+  const r = await call(routes, 'POST /edit/notes', { body: { slide: 1, text: 'say this [click] then this' } });
   assert.equal(r.code, 200);
   assert.equal(r.body.ok, true);
   assert.equal(r.body.undo, 1, 'the write must be one step of the ONE undo history');
   const html = readDeck();
   assert.match(html, /<aside class="notes">/, 'the aside never reached the file');
   assert.match(html, /<p>say this<\/p>/);
-  assert.match(html, /<p>⟨CLICK⟩<\/p>/, 'the click marker is its own paragraph (SPEC PRESENTING)');
+  assert.match(html, /<p>\[click\]<\/p>/, 'the click marker is its own paragraph, written in brackets (SPEC PRESENTING)');
   assert.equal(history.counts().redo, 0, 'a fresh edit clears the redo stack');
+});
+
+test('POST /edit/notes reads every marker spelling and writes each one in brackets', async (t) => {
+  const { routes, readDeck } = harness(t);
+  const text = 'one <pause> two ⟨PAUSE⟩⟨PAUSE⟩ [whispers] three\n\n<click>\n\n[CLICK]\n\nfour ⟨SLOW⟩slowly⟨/SLOW⟩';
+  const r = await call(routes, 'POST /edit/notes', { body: { slide: 1, text } });
+  assert.equal(r.code, 200);
+  const aside = /<aside class="notes">([\s\S]*?)<\/aside>/.exec(readDeck())[1];
+  assert.match(aside, /<p>one \[pause\] two \[long pause\] \[whispers\] three<\/p>/, 'an audio tag is kept as written');
+  assert.equal(aside.match(/<p>\[click\]<\/p>/g)?.length, 2, 'each click spelling is one [click]');
+  assert.match(aside, /<p>four \[slow\]slowly\[\/slow\]<\/p>/);
+  assert.doesNotMatch(aside, /⟨|&lt;/, 'no angle-bracket form survives the save');
 });
 
 test('POST /edit/layout writes data-layout, and saying it twice changes nothing', async (t) => {

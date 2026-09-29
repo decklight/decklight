@@ -146,7 +146,7 @@ test('voiceoverProgress: voiced and kept slides both count against the plan line
   read('talk.html: 5 slides, 4 with notes — voicing slides 2–4 only · 3 to voice');
   read('  slide 02: 24 chars → slide-02.m4a · cached');
   read('  slide 03: unchanged — kept');
-  read('  slide 04: 31 chars → slide-04.m4a (2 ⟨CLICK⟩ segments)');
+  read('  slide 04: 31 chars → slide-04.m4a (2 [click] segments)');
   read('done → /d/voices/ryan');
   assert.deepEqual(ticks, ['1/3', '2/3', '3/3']);
 });

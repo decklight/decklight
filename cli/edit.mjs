@@ -91,6 +91,7 @@ import { runMain } from './util.mjs';
 // "agent". (`decklight author` builds this argv itself and was never affected.)
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
+import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkAddedThemes } from './theme-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
@@ -140,12 +141,16 @@ const corsHeadersFor = (origin) => ({
 // existing importers — the tests, init.mjs — and SPEC citations keep working.
 export { isLoopback, lanAddress, escapeHtml } from './serve.mjs';
 
-/** ⟨CLICK⟩-separated plain text → the aside's inner HTML (one <p> per segment). */
+/**
+ * Click-separated plain text → the aside's inner HTML (one <p> per segment).
+ * Every marker spelling is read (`[click]`, `<click>`, `⟨CLICK⟩`…) and each is
+ * written back the one way decklight writes them, in square brackets.
+ */
 export function notesTextToAside(text) {
-  const segs = text.split(/\s*⟨CLICK⟩\s*/).map((s) => s.replace(/\s+/g, ' ').trim());
+  const segs = canonMarks(text).split(CLICK_MARK).map((s) => writtenMarks(s).replace(/\s+/g, ' ').trim());
   const ps = [];
   segs.forEach((seg, i) => {
-    if (i > 0) ps.push('<p>⟨CLICK⟩</p>');
+    if (i > 0) ps.push('<p>[click]</p>');
     if (seg) ps.push(`<p>${escapeHtml(seg)}</p>`);
   });
   return ps.join('\n        ');

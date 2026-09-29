@@ -9,7 +9,7 @@
 // and the dependency only ever flows cli/ → tools/.
 
 import { escapeHtml } from './escape.mjs';
-import { PAUSE_MARK, CLICK_MARK, spoken, stripSlow, notesMarks } from './sentences.mjs';
+import { PAUSE_MARK, CLICK_MARK, hasWords, stripSlow, notesMarks } from './sentences.mjs';
 
 /**
  * A section's `<aside class="notes">`. Capture group [1] is the inner HTML (what
@@ -182,12 +182,13 @@ export const decodeNoteEntities = (s) => String(s ?? '').replace(/&(#x[0-9a-f]+|
  *
  * An empty segment is dropped rather than recorded as silence — a ⟨CLICK⟩ at
  * the very start or end of a note is punctuation, not a beat. So is one that
- * is nothing but ⟨PAUSE⟩: a hold with no words has no take to be baked into.
+ * is nothing but ⟨PAUSE⟩ or audio tags: a hold, or direction, with no words
+ * has no take to be baked into (`hasWords`).
  */
 export const notesSegments = (notes, { marks = false } = {}) => {
   const parts = readNotes(notes).split(CLICK_MARK)
     .map((part) => cleanNotes(part, { marks }))
-    .filter((part) => spoken(part));
+    .filter((part) => hasWords(part));
   return parts.length > 1 ? parts : null;
 };
 

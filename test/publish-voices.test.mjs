@@ -315,7 +315,7 @@ test('a track with ⟨CLICK⟩ beats uploads and signs them, and says how many',
     assert.equal(dry.status, 0, dry.stderr);
     // the beats are files like any other: uploaded, and counted
     assert.match(dry.stdout, /would upload 4 changed file/);
-    assert.match(dry.stdout, /would sign 4 URL\(s\) \(2 slides \+ 2 ⟨CLICK⟩ beats\) for 7d/);
+    assert.match(dry.stdout, /would sign 4 URL\(s\) \(2 slides \+ 2 \[click\] beats\) for 7d/);
   } finally {
     rmTemp(dir);
   }

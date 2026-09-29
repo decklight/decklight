@@ -318,7 +318,7 @@ Commands:
            EXAMPLE: decklight author demo/showcase.html   (bridges without prerequisites are skipped)
            EXAMPLE: decklight author https://github.com/you/talk   (clones it, opens the deck inside)
   record   capture the deck's narration in YOUR voice — the deck reads you its notes
-           one ⟨CLICK⟩ beat at a time, and → ends a beat AND reveals the next build
+           one [click] beat at a time, and → ends a beat AND reveals the next build
            (this records YOU — decklight cast records a terminal)
            EXAMPLE: decklight record talk.html   (serves it: a microphone needs 127.0.0.1)
   voiceover batch-synthesize the deck's narration into a folder with a live engine
@@ -343,7 +343,7 @@ Commands:
            and, for each thing missing, which commands it unlocks and the line that installs it
            EXAMPLE: decklight doctor
   check    lint ONE deck headlessly and say, per slide, what you would otherwise only find by
-           looking — clipped content, an asset that is not on disk, ⟨CLICK⟩ beats that do not
+           looking — clipped content, an asset that is not on disk, [click] beats that do not
            line up with the builds; exit 1 on an error (an agent after every edit, you before a talk)
            EXAMPLE: decklight check deck.html   (--json for an agent, --no-render without Chrome)
   help     show this help, or a command's help: decklight help bundle

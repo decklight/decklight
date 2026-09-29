@@ -32,7 +32,7 @@ import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader } from './args.mjs';
 import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
 import { run, PROBE_MS, CODEC_MS } from './exec.mjs';
-import { spoken, canonMarks } from './sentences.mjs';
+import { captioned, canonMarks } from './sentences.mjs';
 
 const args = process.argv.slice(2);
 const dirArg = args.find((a) => !a.startsWith('-'));
@@ -98,7 +98,7 @@ const slides = stems.filter((st) => !/-\d+-\d+$/.test(st));
 const beats = stems.filter((st) => /-\d+-\d+$/.test(st));
 if (!stems.length) { console.error(`${dir}: no slide-NN.wav/.m4a files`); process.exit(1); }
 console.log(`${basename(dir)}: ${slides.length} slides with audio`
-  + (beats.length ? ` · ${beats.length} ⟨CLICK⟩ beats` : ''));
+  + (beats.length ? ` · ${beats.length} [click] beats` : ''));
 
 // incremental state — its own file so voiceover.mjs reruns can't clobber it
 const statePath = join(dir, 'lipsync.json');
@@ -159,7 +159,7 @@ for (const stem of stems) {
         const tmpOut = join(dir, `${stem}.tmp.visemes.json`);
         let dialogFile;
         // the script keeps its ⟨PAUSE⟩ holds (#560); Rhubarb is told the words
-        const words = spoken(canonMarks(text));
+        const words = captioned(canonMarks(text));
         if (words) { dialogFile = join(dir, `${stem}.tmp.txt`); writeFileSync(dialogFile, words); }
         const tl = await runRhubarb(rhubarb, { wav: wav.path, dialogFile, out: tmpOut });
         writeFileSync(outFile, JSON.stringify(tl));

@@ -432,13 +432,13 @@ function starterSlides(title) {
       <ul data-build="fade-up">
         <li>One attribute on the container: <code>data-build</code></li>
         <li>Each direct child becomes one build step, in document order</li>
-        <li>Speaker notes segment with ⟨CLICK⟩ to match — see below</li>
+        <li>Speaker notes segment with [click] to match — see below</li>
       </ul>
       <aside class="notes">
         <p>The container opts in and the engine does the rest — not a single class on the items themselves.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>Every press of the arrow reveals the next one, in order.</p>
-        <p>⟨CLICK⟩</p>
+        <p>[click]</p>
         <p>And that's it — replace this slide's content, duplicate the section for more, and you have a deck.</p>
       </aside>
     </section>

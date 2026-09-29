@@ -6,7 +6,7 @@
 // narration ON THE FLY (SPEC PRESENTING live voice). The browser can't mint Google
 // credentials (nor run piper), so this process holds them and exposes:
 //
-//   GET  /ping    → { ok, engine, model, voices, stylable }   (player probes)
+//   GET  /ping    → { ok, engine, model, voices, stylable, audioTags }   (player probes)
 //   GET  /voices  → [[name, flavor], …]
 //   POST /tts     → audio/wav                                 { text, voice, style }
 //
@@ -67,6 +67,7 @@ import { resolveEngine, engineBlocker, engineMenu, engineStatus, ENGINES } from 
 import { loadTtsConfig, runSetupWizard, ttsConfigPath } from './tts-setup.mjs';
 import { argReader, isMain, parsePort, badPort } from './args.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
+import { forEngine } from './sentences.mjs';
 import { installedVoices } from '../cli/units.mjs';
 import { readyLine } from '../cli/banner.mjs';
 
@@ -115,10 +116,11 @@ export async function ttsMain(args) {
   piper   local neural TTS — offline, unlimited, no credentials, no cost.
   elevenlabs  your ElevenLabs account's own voices — the ones you cloned included, listed
           first in the picker. Needs $ELEVENLABS_API_KEY (never written to disk).
-          --tts-model eleven_multilingual_v2 (default) / eleven_turbo_v2_5 for latency /
-          eleven_v3 to opt into style direction via audio tags — higher latency, more
-          variable consistency, and best on short prompts; the only ElevenLabs model
-          the picker's tone step appears for.
+          --tts-model eleven_v4 (default) reads a script's audio tags ([whispers],
+          [laughs], [long pause]) as direction, and the picker's tone step appears
+          for it / eleven_v4_turbo for latency / eleven_v3, the first tag model —
+          higher latency, more variable / eleven_multilingual_v2, no tags (a tag
+          in the notes is taken out rather than read aloud).
           --tts-stability creative|natural|robust — how hard v3 follows a tag (v3 only;
           refused on any other model rather than silently doing nothing).
           --tts-format mp3 if your plan has no PCM output (costs you the panel's
@@ -278,6 +280,9 @@ export async function ttsMain(args) {
         engine: engine.name,
         model: engine.model,
         stylable: engine.stylable, // gemini alone can be told HOW to say it
+        // ElevenLabs v3/v4 act on [whispers]-style tags; for any other engine
+        // the player (and /tts) take them out rather than have them read aloud
+        audioTags: engine.audioTags === true,
         // the engine's standing note — for `say` with no Siri voice this is
         // the download hint, and the picker keys its install row off it
         ...(engine.caveat ? { caveat: engine.caveat } : {}),
@@ -331,7 +336,7 @@ export async function ttsMain(args) {
       if (name === engine.name) {
         res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
         return res.end(JSON.stringify({ ok: true, engine: engine.name, model: engine.model,
-          stylable: engine.stylable, voices: await voiceRoster().catch(() => []), changed: false }));
+          stylable: engine.stylable, audioTags: engine.audioTags === true, voices: await voiceRoster().catch(() => []), changed: false }));
       }
       const opts = menuOpts();
       // Checked BEFORE building, because two of the six build perfectly well
@@ -365,7 +370,7 @@ export async function ttsMain(args) {
       const voices = await voiceRoster().catch(() => []);
       res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
       return res.end(JSON.stringify({ ok: true, engine: engine.name, model: engine.model,
-        stylable: engine.stylable, cost: engine.cost, caveat: engine.caveat, voices, changed: true }));
+        stylable: engine.stylable, audioTags: engine.audioTags === true, cost: engine.cost, caveat: engine.caveat, voices, changed: true }));
     }
     if (req.method === 'GET' && req.url === '/voices') {
       res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
@@ -373,7 +378,10 @@ export async function ttsMain(args) {
     }
     if (req.method === 'POST' && req.url === '/tts') {
       try {
-        const { text, voice: picked, style, rate: asked } = JSON.parse((await readBody(req)).toString());
+        const { text: said, voice: picked, style, rate: asked } = JSON.parse((await readBody(req)).toString());
+        // an audio tag is direction for a voice that can act on it and is
+        // never read aloud by one that cannot (SPEC `PRESENTING`)
+        const text = forEngine(engine, said);
         if (!text?.trim()) { res.writeHead(400, CORS); return res.end('no text'); }
         // a ⟨SLOW⟩ sentence asks for a pace; anything outside what the deck
         // itself allows (tools/sentences.mjs `slowRateOf`) is the usual one

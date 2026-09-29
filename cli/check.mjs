@@ -411,7 +411,7 @@ export function staticFindings(html, { dir = '.', exists = existsSync } = {}) {
     if (segments > 1 && segments - 1 !== clicks && !hasProvider(tree)) {
       const tied = clicks !== steps ? ` (${steps} build steps, tied by data-build-order)` : '';
       out.push(finding('warn', 'clicks-vs-builds', slide, head,
-        `${segments} ⟨CLICK⟩ segment${segments === 1 ? '' : 's'} but ${clicks} build click${clicks === 1 ? '' : 's'}${tied}`
+        `${segments} [click] segment${segments === 1 ? '' : 's'} but ${clicks} build click${clicks === 1 ? '' : 's'}${tied}`
         + ' — segment k narrates click k, so the narration and the builds drift apart here'));
     }
   }
@@ -552,7 +552,7 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
   what it reports
     from the file     a <section> that is never closed · an image, video, cast
                       or stylesheet that is not on disk · a data-markdown slide
-                      (removed in 0.3.0) · ⟨CLICK⟩ segments that do not line up
+                      (removed in 0.3.0) · [click] segments that do not line up
                       with the slide's build steps · script blocks and inline
                       handlers present --strict would strip
     from a render     slides the overflow guardrail measured as clipped, split

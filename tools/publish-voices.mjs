@@ -27,7 +27,7 @@ import { run, NETWORK_MS } from './exec.mjs';
 
 const USAGE = `usage: node tools/publish-voices.mjs <voice-dir> --bucket gs://bucket/prefix [--sign 7d]
   uploads a recorded track's audio to Cloud Storage and writes a manifest of
-  URLs to deploy next to the deck — one per slide, plus one per ⟨CLICK⟩ beat,
+  URLs to deploy next to the deck — one per slide, plus one per [click] beat,
   which is what lets a cloud-hosted track pace the builds and not just the slides
 
   --bucket gs://…  destination; the track's own folder name is appended
@@ -252,7 +252,7 @@ export async function publishVoicesMain(args = []) {
   // Said out loud, because it is the difference between a cloud track that
   // paces the builds and one that only changes slides — and the count is the
   // only place a publisher can notice the beats were never recorded.
-  const tally = `${all.length} URL(s)` + (beats ? ` (${slideCount} slides + ${beats} ⟨CLICK⟩ beats)` : '');
+  const tally = `${all.length} URL(s)` + (beats ? ` (${slideCount} slides + ${beats} [click] beats)` : '');
   const urls = new Map();
   let expires = null;
   if (signSeconds === null) {
@@ -283,7 +283,7 @@ export async function publishVoicesMain(args = []) {
   console.log(`  narration: { files: [{ label: '${manifest.voice ?? dirName}', manifest: '${dir}/manifest.signed.json' }] }`);
   // A manifest track needs no `segments: true` — the manifest IS the list of
   // what exists — so the only thing left to say is that the beats are in it.
-  if (beats) console.log(`  ${beats} ⟨CLICK⟩ beat(s) signed too — this track paces the builds, not just the slides`);
+  if (beats) console.log(`  ${beats} [click] beat(s) signed too — this track paces the builds, not just the slides`);
   return 0;
 }
 

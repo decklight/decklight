@@ -7,7 +7,7 @@
 // in ?embedded mode, driven by src hash.
 
 import { readJson, writeJson } from './prefs.js';
-import { notesMarks, CLICK_MARK, PAUSE_MARK, SLOW_OPEN, SLOW_CLOSE } from '../../tools/sentences.mjs';
+import { notesMarks, markAudioTags, CLICK_MARK, PAUSE_MARK, SLOW_OPEN, SLOW_CLOSE } from '../../tools/sentences.mjs';
 
 /** Where a deck's rehearsal lives when no author server can write it into the file. */
 // `location` exists in the deck; the unit tests build speakerState without one
@@ -39,12 +39,13 @@ export function paceLine({ slide, spent, planned, total, plannedTotal }) {
  * Notes markup cut into its ⟨CLICK⟩ segments, every marker spelling read the
  * way narration reads it (`notesMarks`, tools/sentences.mjs) — `[click]`,
  * `<click>`, `&lt;CLICK&gt;` all cut — so the segment the view lights is the
- * one the voice is on. A hold shows as a cue beside CLICK's; a slow stretch
- * is set in italics. The popup re-balances each segment's markup, which also
+ * one the voice is on. A hold shows as a cue beside CLICK's, and so does an
+ * audio tag (`[whispers]`) — direction to read, not words to say; a slow
+ * stretch is set in italics. The popup re-balances each segment's markup, which also
  * closes a slow stretch the split cut through.
  */
 export function notesSegments(notesHtml) {
-  return notesMarks(notesHtml || '').split(CLICK_MARK).map((seg) => seg
+  return notesMarks(notesHtml || '').split(CLICK_MARK).map((seg) => markAudioTags(seg, (w) => `<span class="cue tag">${w}</span>`)
     .replaceAll(PAUSE_MARK, '<span class="cue">PAUSE</span>')
     .replaceAll(SLOW_OPEN, '<em class="slow">')
     .replaceAll(SLOW_CLOSE, '</em>'));
@@ -141,6 +142,7 @@ export function openSpeakerView(instance) {
   aside .seg.now { opacity:1; background:#2d2d00; outline:2px solid #665; border-radius:4px; }
   aside .seg.said { opacity:.8; }
   .cue { display:inline-block; background:#553; color:#ffc; font-size:11px; border-radius:4px; padding:0 6px; margin:0 4px; }
+  .cue.tag { background:#354; color:#dfe; font-style:italic; }
   footer { grid-column:1/3; color:#888; font-size:12px; display:flex; gap:14px; overflow:auto; white-space:nowrap; }
   footer .step.now { color:#ffc; }
 </style></head><body>

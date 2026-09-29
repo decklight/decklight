@@ -74,7 +74,7 @@ configuration block — and `author`/`present` add the runtime as they serve it;
         <li>First point</li>
         <li>Second point, revealed on the next advance</li>
       </ul>
-      <aside class="notes">Speaker notes. ⟨CLICK⟩ markers line up with builds.</aside>
+      <aside class="notes">Speaker notes. [click] markers line up with builds.</aside>
     </section>
   </div>
 </body>
@@ -94,7 +94,7 @@ itself — `<script src="decklight/dist/decklight.js">` and a
   editor and the agent ask dock beside the slide, wherever you left them.
   Every edit lands in the file and `Z` takes it back. `decklight check`
   reports what an author or an agent would otherwise only see by looking:
-  clipped slides, missing images, notes whose ⟨CLICK⟩ count disagrees with
+  clipped slides, missing images, notes whose [click] count disagrees with
   the builds.
 - **Take slides from another deck.** `/` → *Insert from a template…* lists the
   decks you have installed, renders each slide in *your* theme, and takes one
@@ -118,7 +118,8 @@ itself — `<script src="decklight/dist/decklight.js">` and a
   record your own voice one beat at a time. Captions and auto-advance come with
   it. The notes are the script, and a script's own markers work as written:
   `[pause]` holds a beat, `[slow]…[/slow]` says a line slower, `[click]` cuts a
-  beat — in any spelling. A synthesized recording tells you what it cost:
+  beat — in any spelling. ElevenLabs v4 (the default model) acts on audio tags
+  like `[whispers]` or `[laughs]`; any other voice leaves them out. A synthesized recording tells you what it cost:
   clips reused against clips sent to the engine.
 - **Video.** `decklight video` renders the deck to mp4, mov or webm, narrated
   by its track with subtitles in the file or beside it, and re-voices a slide
@@ -151,8 +152,8 @@ Every item above has a SPEC section behind it. The index at the top of
 | `init ["Title"]` | scaffold a deck and the agent skill, then offer author mode (`--author`, `--from <template>`) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob |
 | `author deck.html` | live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser: double-click text to edit it, drop a picture onto a slide, right-click for the slide menu |
-| `check deck.html` | lint it headlessly: clipped slides, missing assets, ⟨CLICK⟩ beats out of step with the builds (`--json`) |
-| `record deck.html` | record the narration in your own voice, one ⟨CLICK⟩ beat at a time |
+| `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
+| `record deck.html` | record the narration in your own voice, one [click] beat at a time |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`refresh` re-runs, `export` writes asciicast) |
 
 | Sharing | |

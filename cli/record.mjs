@@ -33,7 +33,7 @@ import { exitWhenOrphaned } from './supervise.mjs';
 const USAGE = `usage: decklight record <deck.html> [--port 8788] [--dir voiceover] [--slides a-b] [--no-open]
   serves the deck over http://127.0.0.1 and opens it with the voice recorder up
 
-  the deck reads you its notes one ⟨CLICK⟩ beat at a time; → ends a beat, which
+  the deck reads you its notes one [click] beat at a time; → ends a beat, which
   both closes that file and reveals the next build — so your voice paces the
   deck exactly as it will when you present it
 
