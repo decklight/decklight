@@ -1420,6 +1420,12 @@
 .decklight-narr .narr-row.narr-sel { background: rgba(255, 255, 255, .14); }
 .decklight-narr .narr-row.narr-cur::after { content: ' ✓'; opacity: .7; }
 .decklight-narr .narr-flavor { opacity: .5; font-size: .85em; margin-left: 6px; }
+/* An informational row in the settings panel: a fact, not a command. It keeps
+   full contrast — unlike .narr-blocked, which dims a row to say "this one is
+   not available to you" — and only loses the pointer cursor, because there is
+   nothing to click. */
+.decklight-narr .narr-row.narr-fact { cursor: default; }
+.decklight-settings .narr-card { width: min(380px, 80vw); }
 /* An engine this machine cannot use is SHOWN, dimmed, with the terminal command
    that would fix it — hiding it would answer "where did ElevenLabs go?" with
    silence. The fix wraps onto its own line (the row is a flex box) because it

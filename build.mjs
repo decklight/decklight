@@ -11,7 +11,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
-import { parseDescribe } from './cli/util.mjs';
+import { parseDescribe, versionLine } from './cli/util.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const playerPath = resolve(here, 'src/terminal/player.mjs');
@@ -101,6 +101,25 @@ const virtualTerminal = {
 // fallback in src/index.js that could never fire — printed on every build for
 // as long as it existed and was read by nobody, because a build that says
 // something and then succeeds anyway has said nothing.
+// The build's provenance, baked in because a packed tarball ships no .git:
+// three sandbox repacks in one afternoon all called themselves "0.6.0", and
+// which build a bug lived in was anybody's guess. `git describe` against the
+// release tags; a build outside a clone, or before any tag exists, writes
+// nothing and the banner shows the plain version — absence is the honest
+// answer there, not a made-up zero.
+let buildInfo = null;
+try {
+  const desc = execFileSync('git', ['describe', '--tags', '--long', '--dirty=.dirty'],
+    { cwd: here, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  buildInfo = parseDescribe(desc);
+} catch { /* not a clone — the plain version is the whole truth */ }
+// …and the same stamp the CLI banner prints (`0.9.0+107.g6dad7a3`, plain on a
+// release build), for the runtime's settings panel. Computed BEFORE the bundle
+// is built so it can be baked in, and through the CLI's own versionLine so the
+// panel and `decklight --version` can never spell one build two ways.
+const versionStamp = versionLine(runtimeVersion, buildInfo).replace(/^decklight /, '');
+
+
 const result = await build({
   entryPoints: [resolve(here, 'src/index.js')],
   bundle: true,
@@ -114,6 +133,11 @@ const result = await build({
   define: {
     __DECKLIGHT_THEMES__: JSON.stringify(shippedThemes),
     __DECKLIGHT_PACKS__: JSON.stringify(packs),
+    // The same string `decklight --version` prints — the version, plus the
+    // build's `+N.gSHA` when it is not a release — for the settings panel
+    // (PRESENTING). Baked rather than imported: src/index.js imports the
+    // engine, so the engine cannot import it back without a cycle.
+    __DECKLIGHT_VERSION__: JSON.stringify(versionStamp),
   },
   logLevel: 'info',
 });
@@ -140,18 +164,7 @@ if (result.warnings.length) {
   writeFileSync(resolve(here, 'dist/decklight.css'), core + termCss + mathCss);
 }
 
-// The build's provenance, baked in because a packed tarball ships no .git:
-// three sandbox repacks in one afternoon all called themselves "0.6.0", and
-// which build a bug lived in was anybody's guess. `git describe` against the
-// release tags; a build outside a clone, or before any tag exists, writes
-// nothing and the banner shows the plain version — absence is the honest
-// answer there, not a made-up zero.
-try {
-  const desc = execFileSync('git', ['describe', '--tags', '--long', '--dirty=.dirty'],
-    { cwd: here, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  const info = parseDescribe(desc);
-  if (info) writeFileSync(resolve(here, 'dist/build-info.json'), JSON.stringify(info) + '\n');
-} catch { /* not a clone — the plain version is the whole truth */ }
+if (buildInfo) writeFileSync(resolve(here, 'dist/build-info.json'), JSON.stringify(buildInfo) + '\n');
 
 const kb = (f) => (statSync(resolve(here, f)).size / 1024).toFixed(1) + ' KB';
 console.log(`decklight.js ${kb('dist/decklight.js')} · decklight.css ${kb('dist/decklight.css')}` +

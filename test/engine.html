@@ -755,6 +755,12 @@
         const tipRows = labels('tips');
         r.paletteTogglesTips = tipRows.some((t) => /Tips on/.test(t));
         r.paletteHidesEmptyReset = !tipRows.some((t) => /Reset tips/.test(t));
+        // SETTINGS is reachable by the word people actually type. "config" is
+        // not in the label, so this is really asserting the alias carries it —
+        // the row would still LOOK right in a screenshot with the alias gone.
+        r.paletteHasSettings = labels('settings').some((t) => /Settings…/.test(t));
+        r.paletteSettingsByConfig = labels('config').some((t) => /Settings…/.test(t));
+        r.paletteSettingsByVersion = labels('version').some((t) => /Settings…/.test(t));
         escapeUntilClosed(Q);
 
         r.PASS = r.opens && r.hasRows && r.hasSelection && r.downMoves
@@ -762,7 +768,57 @@
           && r.paletteReopensWelcome && r.paletteTogglesTips && r.paletteHidesEmptyReset
           && r.palettePrintsNotes && r.palettePrintsHandout && r.paletteRehearses
           && r.paletteNoHiddenRowWhenNoneHidden && r.paletteNoHideRowWithoutServer
-          && r.paletteNoExportRowWithoutServer;
+          && r.paletteNoExportRowWithoutServer
+          && r.paletteHasSettings && r.paletteSettingsByConfig && r.paletteSettingsByVersion;
+      }
+
+      // PRESENTING: the settings panel. One row today — the runtime's version —
+      // and what matters is that the number it shows is the REAL one: a panel
+      // that renders "unknown", or a hard-coded string that drifted from the
+      // bundle, is worse than no panel, because a version is read as a fact
+      // (the same reasoning as build.mjs's drift check). So this compares the
+      // row against the banner of the very bundle the page loaded.
+      if (mode === 'settings') {
+        const Q = '.decklight-settings', ROW = '.narr-row';
+        press('/');
+        for (const ch of 'settings') press(ch);
+        // The FIRST match for the word has to be the panel itself: the word
+        // used to land on Narration…, whose alias still claimed it, so ⏎
+        // opened the voice picker. Asserting the order is what catches that
+        // coming back the next time a row borrows the word.
+        const firstMatch = document.querySelector(`${'.decklight-palette'} .pal-row`)?.textContent ?? '';
+        r.settingsIsFirstMatch = /Settings…/.test(firstMatch);
+        press('Enter');
+        r.opens = !!document.querySelector(Q);
+        const rows = [...document.querySelectorAll(`${Q} ${ROW}`)];
+        r.hasRows = rows.length > 0;
+        const versionRow = rows.find((n) => /Decklight version/.test(n.textContent));
+        r.showsVersionRow = !!versionRow;
+        // A fact, not a command: shown at full strength, with no pointer.
+        r.versionIsAFact = !!versionRow?.classList.contains('narr-fact');
+        // The runtime agrees with the bundle it came from.
+        const shown = versionRow?.querySelector('.narr-flavor')?.textContent?.trim() ?? '';
+        r.versionShown = shown;
+        r.versionIsReal = /^\d+\.\d+\.\d+/.test(shown);
+        // The version the runtime reports, plus — on anything but a release
+        // build — the `+N.gSHA` stamp `decklight --version` prints, because
+        // "which 0.9.0?" is the question a bug report is asking.
+        const plain = window.Decklight?.version ?? '';
+        r.versionMatchesApi = !!plain && (shown === plain
+          || new RegExp(`^${plain.replace(/\./g, '\\.')}\\+\\d+\\.g[0-9a-f]+(\\.dirty)?$`).test(shown));
+        // …and the programmatic door reports the same thing without an overlay.
+        const api = deck.settings.rows();
+        r.apiRowsMatch = api.some((x) => x.label === 'Decklight version' && x.value === shown);
+        r.escapeCloses = escapeUntilClosed(Q);
+        // reopens from the API too
+        deck.settings.open();
+        r.apiOpens = !!document.querySelector(Q);
+        deck.settings.close();
+        r.apiCloses = !document.querySelector(Q);
+
+        r.PASS = r.settingsIsFirstMatch && r.opens && r.hasRows && r.showsVersionRow && r.versionIsAFact
+          && r.versionIsReal && r.versionMatchesApi && r.apiRowsMatch
+          && r.escapeCloses && r.apiOpens && r.apiCloses;
       }
 
       // PRESENTING: exporting to PowerPoint from inside the deck. The deck

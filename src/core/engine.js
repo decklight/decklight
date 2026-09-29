@@ -851,7 +851,10 @@ export function init(userConfig = {}) {
       // was which — and one of the shortcuts was not in the keyboard help.
       { label: `Narration ${narration.status().paused ? 'resume' : narration.status().narrating ? 'pause' : 'play'}`,
         hint: '⎵', alias: 'play pause resume voice narration speak start stop', run: () => narration.playPause() },
-      { label: 'Narration…', hint: 'V', alias: 'voice audio track picker settings', run: () => openNarrPicker('tracks') },
+      // 'settings' used to be an alias here, from before there was a settings
+      // panel. Typing the word for a thing that exists should reach THAT thing:
+      // it opened the narration picker instead, one row above the real one.
+      { label: 'Narration…', hint: 'V', alias: 'voice audio track picker', run: () => openNarrPicker('tracks') },
       { label: 'Live voice…', hint: 'V', alias: 'tts synthesize tone gemini', run: () => openNarrPicker('voices') },
       { label: 'Character…', hint: 'V', alias: 'avatar lipsync face talking head visemes', run: () => openNarrPicker('character') },
       { label: 'Record this deck…', hint: 'V', alias: 'record narrate microphone mic voice wav offline batch teleprompter',
@@ -956,6 +959,10 @@ export function init(userConfig = {}) {
         run: () => { const w = speakerWindow(); w?.__decklightSpeakerRec?.(true); } },
       { label: 'First slide', hint: 'Home', run: () => instance.goto(1, 0) },
       { label: 'Last slide', hint: 'End', run: () => instance.goto(instance.state.totalSlides, 0) },
+      // Named for the word people reach for first; `config` finds it too, and
+      // so does `version`, which is what somebody is usually after in here.
+      { label: 'Settings…', alias: 'config configuration preferences options about version build release which version',
+        run: openSettings },
       { label: 'Keyboard help', hint: '?', run: toggleHelp },
       { label: 'Welcome to Decklight', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
       { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
@@ -1070,6 +1077,67 @@ export function init(userConfig = {}) {
   function closeFontPicker() {
     fontPickEl?.remove();
     fontPickEl = null;
+  }
+
+  // settings (palette drill-in): facts about what this deck is running, and a
+  // home for the knobs that will never be worth a key of their own. One row
+  // today — the runtime version, which is the first thing a bug report asks
+  // for and which nothing in the player could previously tell you (the banner
+  // is a comment in a file you would have to go open). Later settings join
+  // THIS panel rather than growing the palette a row at a time.
+  //
+  // Baked in by the build (__DECKLIGHT_VERSION__), guarded the way themes.js
+  // guards its own baked constants so importing this module in a unit test
+  // does not throw on a define that only exists in a bundle.
+  const RUNTIME_VERSION = typeof __DECKLIGHT_VERSION__ !== 'undefined' ? __DECKLIGHT_VERSION__ : '';
+  let setEl = null, setSel = 0, setRows = [];
+  /** The rows the panel shows. Exposed on the instance so a headless probe can
+   *  assert the version without opening an overlay. A row with no `run` is a
+   *  FACT, not a disabled command: it is shown plainly, never greyed out. */
+  function settingsRows() {
+    return [
+      { label: 'Decklight version', value: RUNTIME_VERSION || 'unknown — not a built bundle' },
+    ];
+  }
+  function openSettings() {
+    if (setEl) return closeSettings();
+    overlays.opening();
+    setEl = document.createElement('div');
+    setEl.className = 'decklight-narr decklight-settings';
+    setEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Settings"></div>';
+    const card = setEl.querySelector('.narr-card');
+    const head = document.createElement('div');
+    head.className = 'narr-head';
+    head.textContent = 'settings';
+    card.appendChild(head);
+    setRows = settingsRows();
+    setRows.forEach((r, i) => {
+      const el = document.createElement('div');
+      el.className = 'narr-row' + (r.run ? '' : ' narr-fact');
+      const label = document.createElement('span');
+      label.className = 'narr-row-label';
+      label.textContent = r.label;
+      el.appendChild(label);
+      if (r.value !== undefined) {
+        const val = document.createElement('span');
+        val.className = 'narr-flavor';
+        val.textContent = r.value;
+        el.appendChild(val);
+      }
+      el.addEventListener('mouseenter', () => selectSetRow(i));
+      if (r.run) el.addEventListener('click', () => { r.run(); closeSettings(); });
+      card.appendChild(el);
+    });
+    closeOnBackdrop(setEl, closeSettings);
+    root.appendChild(setEl);
+    selectSetRow(0);
+  }
+  function selectSetRow(i) {
+    setSel = selectInList(setEl.querySelectorAll('.narr-row'), i, 'narr-sel');
+  }
+  function closeSettings() {
+    setEl?.remove();
+    setEl = null;
   }
   themes.restoreSaved();
   themes.reportMissing();
@@ -1878,6 +1946,18 @@ export function init(userConfig = {}) {
     }),
   });
   overlays.register({
+    isOpen: () => !!setEl,
+    close: closeSettings,
+    transient: true,
+    keydown: (e) => typeaheadKeydown(e, {
+      onMove: (d) => selectSetRow(setSel + d),
+      // A fact row has nothing to run, so ⏎ on one is an acknowledgement:
+      // it closes, rather than sitting there looking broken.
+      onCommit: () => { setRows[setSel]?.run?.(); closeSettings(); },
+      onClose: closeSettings,
+    }),
+  });
+  overlays.register({
     isOpen: () => !!finderEl,
     close: closeSlideFinder,
     transient: true,
@@ -2169,6 +2249,11 @@ export function init(userConfig = {}) {
   instance.toggleMessages = toggleMessages;                 // I, programmatic
   instance.messages = messages;                             // [{ at, text }] — every message shown
   instance.showWelcome = onboarding.showWelcome;            // first-run card, palette / programmatic
+  instance.settings = {                                     // palette → Settings…, programmatic
+    open: openSettings,
+    close: closeSettings,
+    rows: settingsRows,                                     // [{ label, value?, run? }]
+  };
   instance.tips = {                                         // the rotation the palette drives
     show: onboarding.showTip,
     reset: onboarding.resetTips,
