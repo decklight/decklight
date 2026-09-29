@@ -11,7 +11,7 @@
 //
 //   { "theme": "acme", "markedThemes": ["acme@acme-themes"] }
 //
-// A theme in that list is MARKED: it travels with the deck. The servers link it
+// A theme in that list is MARKED: it will be part of the deck's bundle. The servers link it
 // from the marketplace already on this machine, `present` lists it, and
 // `bundle` inlines it at hand-over, where the reference would mean nothing to
 // whoever opens the file. A theme that is not marked is still listed while

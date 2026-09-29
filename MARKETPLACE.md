@@ -588,7 +588,7 @@ pasting it into the deck as a `<style data-theme-added>` block. That made a
 source deck carry kilobytes of somebody else's CSS, which a deck that is data
 (SPEC `DECK_ANATOMY`) should not. **Superseded:** the deck now *refers* to a
 theme — `"markedThemes": ["acme@acme-themes"]` in its config block — and a
-theme in that list is **marked**: it travels with the deck. While authoring,
+theme in that list is **marked**: it will be part of the deck's bundle. While authoring,
 the picker lists every registered marketplace's themes as packs; any of them
 previews and applies, and Space marks one. A presented deck lists only what it
 marks. Every server links a marked theme from this machine's copy of its

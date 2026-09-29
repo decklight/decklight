@@ -421,7 +421,7 @@
 }
 /* Marketplace themes: names from someone else's catalog are shown as written
    — no capitalization. While authoring, one the deck does not mark is dimmed:
-   it can be looked at and applied, but it does not travel with the deck. */
+   it can be looked at and applied, but it will not be part of the bundle. */
 .decklight-theme-picker .tp-row.tp-marked,
 .decklight-theme-picker .tp-row.tp-unmarked { text-transform: none; }
 .decklight-theme-picker .tp-row.tp-unmarked { color: #b9bec8; }

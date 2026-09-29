@@ -611,7 +611,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         renderPickerList();
         selectPickerRow(at, true);
       }
-      toast(on ? `${name} marked — it travels with the deck · Z takes it back` : `${name} unmarked`, 2800);
+      toast(on ? `${name} marked — it will be part of the bundle · Z takes it back`
+        : `${name} unmarked — the bundle will leave it out`, 2800);
       debugLog('theme', `${ref} ${on ? 'marked' : 'unmarked'}`);
     } catch {
       if (caption) caption.textContent = 'the author server did not answer';
@@ -688,7 +689,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         row.className = 'tp-row' + (name === cur ? ' tp-current' : '');
         row.textContent = name;
         // While authoring, a marketplace theme's tag says whether the deck
-        // carries it: ● marked (it travels), ○ not (it is only on screen). A
+        // bundles it: ● marked (part of the bundle), ○ not (only on screen). A
         // shipped theme is tagged only when marked — ○ on every one of them
         // would be forty rows of noise; the caption says Space marks it.
         const market = isMarketTheme(name);
@@ -815,10 +816,9 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const o = offered.get(name);
     const market = isMarketTheme(name);
     return [market ? refOf(name) : `${packLabel(packOf(name))} · ${name}`, o?.description,
-      marked.has(name) ? 'marked — travels with the deck · Space unmarks'
+      marked.has(name) ? 'marked — part of the bundle · Space unmarks'
         : o?.remote ? 'lives at a URL — Space marks it, which reads it once'
-        : market ? 'not marked — Space marks it so the deck carries it'
-        : 'Space marks it so a bundle carries it too',
+        : 'not marked — Space marks it to include it in the bundle',
     ].filter(Boolean).join(' · ');
   }
   // Lazy preview: the embedded deck loads ONCE per picker session; theme

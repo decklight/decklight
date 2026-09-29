@@ -595,7 +595,7 @@
         r.rowTurnsMarked = !!nordNow && nordNow.classList.contains('tp-marked')
           && /●/.test(nordNow.querySelector('.tp-tag')?.textContent ?? '');
         r.selectionStays = nordNow?.classList.contains('tp-selected') === true;
-        r.captionSaysMarked = /marked — travels with the deck/.test(caption());
+        r.captionSaysMarked = /marked — part of the bundle/.test(caption());
 
         // A theme the deck marked when the page loaded — linked by the server —
         // unmarked with Space and then marked again with Space: both presses
@@ -619,13 +619,13 @@
         // so a bundle carries it beside the one the file opens on.
         for (const ch of 'ember') press(ch);
         find(/^ember/)?.dispatchEvent(new MouseEvent('mouseenter'));
-        r.shippedCaptionSaysSpace = /Space marks it so a bundle carries it too/.test(caption());
+        r.shippedCaptionSaysSpace = /Space marks it to include it in the bundle/.test(caption());
         press(' ');
         await settle();
         const shippedMark = CALLS.post.filter((c) => c.u.includes('/edit/theme/mark')).at(-1)?.body;
         r.marksAShippedTheme = shippedMark?.ref === 'ember' && shippedMark?.marked === true && shippedMark?.quiet === true;
         r.shippedRowSaysMarked = /●/.test(find(/^ember/)?.querySelector('.tp-tag')?.textContent ?? '')
-          && /marked — travels with the deck/.test(caption());
+          && /marked — part of the bundle/.test(caption());
         for (let n = 0; n < 5; n++) press('Backspace');
         find(/nord-deep/).dispatchEvent(new MouseEvent('mouseenter'));
 

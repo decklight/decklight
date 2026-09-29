@@ -274,7 +274,7 @@ test('theme add marks a shipped theme by name, and theme remove takes it off', (
   try {
     const add = run('add', 'ember', deckPath);
     assert.equal(add.status, 0, add.stderr);
-    assert.match(add.stdout, /marked ember in .* decklight bundle carries it/);
+    assert.match(add.stdout, /marked ember in .* it will be part of the bundle/);
     assert.deepEqual(cfgOf(readFileSync(deckPath, 'utf8')).markedThemes, ['ember']);
     const off = run('remove', 'ember', deckPath);
     assert.equal(off.status, 0, off.stderr);

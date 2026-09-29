@@ -1744,9 +1744,13 @@ export function createEditMode({
   // reload in sessionStorage and resumed once the page is back.
   const RESUME_KEY = 'decklight-resume-handover:' + location.pathname;
   let markArmed = null; // { ref, theme, at }
-  function armMark(ref, theme, run) {
+  function armMark(ref, theme, run, { bundles = false } = {}) {
     markArmed = { ref, theme, at: Date.now() };
-    run.done(`${ref} is not marked for this deck — choose this again to mark it and carry on`, 9000);
+    // A bundle (or a publish, which bundles) leaves an unmarked theme out, so
+    // that is what it says; a render needs the mark for the deck to have it.
+    run.done(bundles
+      ? `${ref} is not marked, so it would not be part of the bundle — choose this again to mark it and bundle`
+      : `${ref} is not marked for this deck — choose this again to mark it and carry on`, 9000);
     debugLog('export', `${ref} unmarked — armed`);
   }
   /** True when this press is the confirmation: the mark is sent and the hand-over resumes after the reload. */
@@ -1823,7 +1827,7 @@ export function createEditMode({
       });
       const j = await r.json().catch(() => ({}));
       if (j.unmarked) {
-        armMark(j.unmarked, theme, run);
+        armMark(j.unmarked, theme, run, { bundles: kind === 'bundle' });
         return;
       }
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
@@ -1867,7 +1871,7 @@ export function createEditMode({
         body: JSON.stringify(theme ? { theme } : {}),
       });
       const j = await r.json().catch(() => ({}));
-      if (j.unmarked) { armMark(j.unmarked, theme, run); return; }
+      if (j.unmarked) { armMark(j.unmarked, theme, run, { bundles: true }); return; }
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       run.done(j.url ? `published — ${j.url}` : `published — pushed to ${j.remote} ${j.branch}`, 9000);
       debugLog('publish', j.url ?? `${j.remote} ${j.branch}`);

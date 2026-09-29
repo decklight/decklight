@@ -41,7 +41,7 @@ const USAGE = `usage: decklight theme <check|add|remove> …
     under its marketplace, reachable by , / . and ?theme=, and inlined by
     decklight bundle. A file or url is first copied into your personal
     marketplace (~/.decklight/local) and marked as <name>@local. A theme
-    decklight ships is marked by its name, so the bundle carries it too
+    decklight ships is marked by its name, to include it in the bundle
     EXAMPLE: decklight theme add ember talk.html
     EXAMPLE: decklight theme add nord-deep@acme-themes talk.html
     EXAMPLE: decklight theme add https://gist.../nord-deep.css talk.html
@@ -164,7 +164,7 @@ async function addMain(args) {
     catch (e) { if (e instanceof MarketplaceError) return fail(e.message); throw e; }
     if (args.includes('--dry-run')) { console.log(`would ${next.changed ? 'mark' : 'keep'} ${source} in ${deck}`); return 0; }
     if (next.changed) writeFileAtomic(deckPath, next.html);
-    console.log(next.changed ? `marked ${source} in ${deck} — decklight bundle carries it` : `${source} is already marked in ${deck}`);
+    console.log(next.changed ? `marked ${source} in ${deck} — it will be part of the bundle` : `${source} is already marked in ${deck}`);
     return 0;
   }
 
@@ -242,7 +242,7 @@ async function addMain(args) {
   }
   if (next.changed) writeFileAtomic(deckPath, next.html);
   console.log(next.changed
-    ? `marked ${ref} in ${deck} — press T and look under "${label}"; decklight bundle carries it`
+    ? `marked ${ref} in ${deck} — press T and look under "${label}"; it will be part of the bundle`
     : `${ref} is already marked in ${deck}`);
   return 0;
 }
@@ -268,7 +268,7 @@ function removeMain(args) {
     return 1;
   }
   writeFileAtomic(deckPath, next.html);
-  console.log(`unmarked ${hit.ref} — ${deck} no longer lists or carries it`);
+  console.log(`unmarked ${hit.ref} — it will no longer be part of the bundle`);
   return 0;
 }
 
