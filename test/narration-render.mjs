@@ -247,7 +247,7 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
   if (mode === 'audiotags' || mode === 'audiotagsv4') {
     if (!ok) console.error('   ', JSON.stringify(r));
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} ${mode === 'audiotagsv4' ? 'a v4 voice is sent the tags as written' : 'any other voice is sent the words alone'}=${r.saidAsWanted}`
-      + ` · [long pause] held ${r.took}ms (≈1200=${r.heldLong}) · never captioned=${r.neverCaptioned}`
+      + ` · [long pause] ${mode === 'audiotagsv4' ? `left to the voice, slide turned in ${r.took}ms` : `held ${r.took}ms (≈1200`}=${r.heldLong}${mode === 'audiotagsv4' ? '' : ')'} · never captioned=${r.neverCaptioned}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

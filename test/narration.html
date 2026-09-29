@@ -1662,7 +1662,9 @@
           // An audio tag is direction: a voice that acts on one (v4 says so
           // on /ping as audioTags) is sent it as written; any other is sent
           // the words alone — never the tag read aloud. [long pause] is two
-          // holds on both, and no caption ever shows a bracket.
+          // holds decklight makes on any other voice; v4 is sent the tag, on
+          // the sentence before it, and holds it itself — decklight holds
+          // nothing. No caption ever shows a bracket.
           const sec = deck._sections[0];
           sec.querySelector('aside.notes').textContent = 'First sentence here. [whispers] A secret here. Wow! [laughs] [long pause] Last one here.';
           sec.dataset.narrationBeatPause = '0.3';
@@ -1680,10 +1682,12 @@
           clearInterval(watch);
           const left1 = seen.find((x) => x.n === 2);
           r.took = left1 ? left1.at - t0 : null;
-          r.heldLong = r.took !== null && r.took >= 1150 && r.took < 2300;
+          r.heldLong = mode === 'audiotagsv4'
+            ? r.took !== null && r.took < 700   // the voice holds it, inside its clip
+            : r.took !== null && r.took >= 1150 && r.took < 2300;
           r.said = bodies.map((b) => b.text).filter((t) => t && !/^Hey/.test(t)).slice(0, 4);
           r.want = mode === 'audiotagsv4'
-            ? ['First sentence here.', '[whispers] A secret here.', 'Wow! [laughs]', 'Last one here.']
+            ? ['First sentence here.', '[whispers] A secret here.', 'Wow! [laughs] [long pause]', 'Last one here.']
             : ['First sentence here.', 'A secret here.', 'Wow!', 'Last one here.'];
           r.saidAsWanted = JSON.stringify(r.said) === JSON.stringify(r.want);
           r.captions = [...shown];

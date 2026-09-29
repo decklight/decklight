@@ -138,13 +138,39 @@ Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
 multi-beat notes with a bare \`[click]\` line so narration and build steps
 stay in sync (PRESENTING in the reference). Where an idea needs a moment to
-land, put \`[pause]\` there: the voice holds two beat pauses (1s by default)
-and never says it (\`[long pause]\` holds twice that). Use it sparingly — at
-the few moments that earn it. Write the markers in square brackets; the older
-\`<pause>\` and \`⟨PAUSE⟩\` spellings still read the same.
-Any other bracketed words — \`[whispers]\`, \`[laughs]\`, \`[slow]\` — are
-audio tags for ElevenLabs v4 (the default ElevenLabs model) and v3; every
-other voice leaves them out, and captions never show them. Use them rarely.
+land, put \`[pause]\` there (\`[long pause]\` for twice that) and it is never
+said: ElevenLabs v4/v3 holds it itself, in its own breath; for every other
+voice decklight holds it (two beat pauses, 1s by default). Use it sparingly —
+at the few moments that earn it. Write the markers in square brackets; the
+older \`<pause>\` and \`⟨PAUSE⟩\` spellings still read the same.
+Any other bracketed words — \`[whispers]\`, \`[laughs]\` — are audio tags for
+ElevenLabs v4 (the default ElevenLabs model) and v3; every other voice leaves
+them out, and captions never show them, so the notes read the same anywhere.
+
+**Prompting ElevenLabs v4 in the notes.** When a deck is narrated by
+ElevenLabs, the notes ARE the prompt — write them the way ElevenLabs'
+[best practices](https://elevenlabs.io/docs/overview/capabilities/text-to-speech/best-practices#prompting-eleven-v4)
+say v4 is prompted:
+
+- **Text structure does most of the work.** Natural spoken sentences, real
+  punctuation and a clear emotional context steer v4 more than tags do.
+  An ellipsis (…) adds a pause and weight; CAPITALS add emphasis — use both
+  sparingly, since captions show them.
+- **Tags are free-form direction, placed right before what they direct**:
+  delivery (\`[whispers]\`, \`[excited]\`, \`[curious]\`, \`[sarcastic]\`,
+  \`[sighs]\`), reactions (\`[laughs]\`, \`[exhales]\`), sound effects
+  (\`[applause]\`, \`[clapping]\`). Being explicit helps: \`[low, warm voice]\`
+  says more than a vague cue. Tags can be combined for a layered delivery.
+- **Match the tag to the voice.** A tag lands best when the voice already has
+  that delivery in it — a calm narrator will not shout convincingly, a hyped
+  one will not whisper. Experimental tags (\`[sings]\`, \`[strong French
+  accent]\`) vary by voice; tell the author to listen before the talk.
+- **Pauses are tags, not SSML**: v4 and v3 ignore \`<break>\`. Write
+  \`[pause]\` or \`[long pause]\` (decklight's own markers, above) — or an
+  ellipsis for a lighter one.
+- **One or two tags a slide, at the lines that earn them.** A tag on every
+  sentence flattens the delivery it was meant to lift, and every tag is
+  billed as characters.
 
 **Commit your own changes when an authoring server is running.** \`decklight
 author\` does not commit edits for anyone: it snapshots the deck silently on

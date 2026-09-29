@@ -190,7 +190,8 @@ test('an audio tag reaches a voice that acts on it, and never any other — a sl
 
   const tagged = fakeTts({ name: 'elevenlabs', model: 'eleven_v4', audioTags: true });
   await run({ html, dir: tmp('synth-tags-v4', t), tts: tagged, format: 'wav' });
-  assert.deepEqual(tagged.said, ['[whispers] A secret. Wow! [laughs]', 'Hold on.', '[sighs] Fine.'], 'sent as written');
+  assert.deepEqual(tagged.said, ['[whispers] A secret. Wow! [laughs]', 'Hold on. [pause] [sighs] Fine.'],
+    'sent as written — and the pause is the voice\'s own, inside one clip, not two clips joined by silence');
 });
 
 // ── ⟨PAUSE⟩ is baked into the take (#560) ──────────────────────────────────

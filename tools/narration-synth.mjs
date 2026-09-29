@@ -32,7 +32,7 @@ import { join, extname } from 'node:path';
 import { clipKey, extFor } from './tts-cache.mjs';
 import { cleanNotes, notesSegments } from './deck-html.mjs';
 import { slideNotes, priorSlideTexts, manifestHash, markerPauses } from './narration-manifest.mjs';
-import { PAUSE_MARK, speechRuns, hasWords, canonMarks, writtenMarks, forEngine } from './sentences.mjs';
+import { PAUSE_MARK, speechRuns, hasWords, canonMarks, writtenMarks, forEngine, voicedPauses } from './sentences.mjs';
 import { run as runBounded, PROBE_MS, CODEC_MS } from './exec.mjs';
 
 /** The formats a track can be in — what a manifest's `file` names end with. */
@@ -190,7 +190,7 @@ export async function synthesizeSlides({
   if (format === 'mp3' && enc !== 'ffmpeg') throw new Error('an mp3 track needs ffmpeg — install it (brew install ffmpeg)');
   // A hold is baked by joining WAVs; an engine that
   // speaks anything else has its clips decoded first, and only ffmpeg decodes.
-  if (synthExt !== 'wav' && enc !== 'ffmpeg'
+  if (synthExt !== 'wav' && enc !== 'ffmpeg' && !tts.audioTags
     && slides.some((t, i) => t.includes(PAUSE_MARK) && i + 1 >= span.from && i + 1 <= span.to)) {
     throw new Error(`[pause] in the notes needs ffmpeg with an engine that speaks ${synthExt} — install it (brew install ffmpeg)`);
   }
@@ -240,10 +240,12 @@ export async function synthesizeSlides({
    *
    * An engine that cannot act on audio tags (`[whispers]`) is sent the words
    * without them — never the tag read aloud — and a run that was only
-   * direction is no clip: its hold joins the one before it.
+   * direction is no clip: its hold joins the one before it. One that CAN
+   * (ElevenLabs v3/v4) holds each ⟨PAUSE⟩ itself: it is sent as `[pause]`,
+   * in one clip, and nothing is joined.
    */
   const voiceText = async (text, hold) => {
-    text = forEngine(tts, text);
+    text = tts.audioTags ? voicedPauses(text) : forEngine(tts, text);
     if (!text.includes(PAUSE_MARK)) return { ...(await synth(text)), ext: synthExt };
     const { lead: bare, runs: all } = speechRuns(text);
     let lead = bare;

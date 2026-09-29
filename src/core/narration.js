@@ -15,7 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
-import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, stripAudioTags, hasWords, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
+import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
@@ -828,11 +828,15 @@ export function createNarration({
    * `segStarts` marks which sentences begin a folded segment, so the synthesized recorder
    * stitcher can put a segment-sized silence there rather than a sentence one —
    * a recorded take breathes exactly where the live one does. The ⟨PAUSE⟩
-   * holds ride along as counts (stepPlan) — the sentences never contain one.
+   * holds ride along as counts (stepPlan) — the sentences never contain one —
+   * except on a voice that holds a `[pause]` itself (ElevenLabs v3/v4,
+   * `audioTags`): there each is sent as that tag, inside the sentence, and
+   * decklight holds nothing (`voicedPauses`).
    */
   function stepAudio(sl, step) {
     const segs = notesSegs(sl);
-    return stepPlan(step < buildSteps(sl) ? [segs[step]] : segs.slice(step));
+    const beats = step < buildSteps(sl) ? [segs[step]] : segs.slice(step);
+    return stepPlan(liveAudioTags ? beats.map(voicedPauses) : beats);
   }
   const stepSentences = (sl, step) => stepAudio(sl, step).sentences;
 

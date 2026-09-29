@@ -17,7 +17,12 @@
  */
 export function splitSentences(text) {
   const out = [];
-  for (const s of ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? []).map((x) => x.trim()).filter(Boolean)) {
+  for (let s of ((text ?? '').match(/[^.!?…]+[.!?…]+[”’"')\]]*|[^.!?…]+$/g) ?? []).map((x) => x.trim()).filter(Boolean)) {
+    // a `[pause]` a voice holds itself (`voicedPauses`) belongs to the words
+    // BEFORE it, as a ⟨PAUSE⟩ does — and so does any tag ahead of it
+    const held = out.length ? LEADING_PAUSE.exec(s) : null;
+    if (held) { out[out.length - 1] += ` ${held[1]}`; s = s.slice(held[0].length); }
+    if (!s) continue;
     if (out.length && ONLY_TAGS.test(s)) out[out.length - 1] += ` ${s}`;
     else out.push(s);
   }
@@ -54,13 +59,14 @@ export const LONG_PAUSE = PAUSE_MARK + PAUSE_MARK;
  */
 const SLOW_TAG = '[slow]';
 
-const MARK_OF = { pause: PAUSE_MARK, click: CLICK_MARK, slow: SLOW_TAG, 'long pause': LONG_PAUSE };
+const MARK_OF = { pause: PAUSE_MARK, 'short pause': PAUSE_MARK, click: CLICK_MARK, slow: SLOW_TAG, 'long pause': LONG_PAUSE };
 const markFor = (close, word) => (close ? '' : MARK_OF[word.toLowerCase().replace(/\s+/g, ' ')]);   // nothing has a close
 
-// `[pause]`, `<Click>`, `&lt;pause&gt;`, `[/slow]`, `⟨pause⟩` — any case, spaces
+// `[pause]`, `[short pause]` (ElevenLabs' own spelling of it), `<Click>`,
+// `&lt;pause&gt;`, `[/slow]`, `⟨pause⟩` — any case, spaces
 // inside allowed, the brackets a matched pair. Only these words: `[1]`,
 // `[data-mouth]` and `<script>` in a note are somebody's prose.
-const TEXT_MARK = /\[\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\]|<\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\/?\s*>|&lt;\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*\/?\s*&gt;|⟨\s*(\/?)\s*(long\s+pause|pause|click|slow)\s*⟩/gi;
+const TEXT_MARK = /\[\s*(\/?)\s*(long\s+pause|short\s+pause|pause|click|slow)\s*\]|<\s*(\/?)\s*(long\s+pause|short\s+pause|pause|click|slow)\s*\/?\s*>|&lt;\s*(\/?)\s*(long\s+pause|short\s+pause|pause|click|slow)\s*\/?\s*&gt;|⟨\s*(\/?)\s*(long\s+pause|short\s+pause|pause|click|slow)\s*⟩/gi;
 
 /**
  * Every spelling of a marker written as TEXT, in its one canonical form —
@@ -100,6 +106,18 @@ export const writtenMarks = (text) => String(text ?? '')
   .replaceAll(LONG_PAUSE, '[long pause]').replaceAll(PAUSE_MARK, '[pause]').replaceAll(CLICK_MARK, '[click]');
 
 /**
+ * The text as a voice that acts on audio tags is sent it: each ⟨PAUSE⟩ as
+ * `[pause]`, two as `[long pause]` — the voice holds them itself, in its own
+ * breath, inside one clip, rather than decklight cutting the sentence there
+ * and joining the pieces with silence. Only where there are words to hold
+ * between: a beat of nothing but pauses has no clip to put them in, so
+ * decklight holds it on every engine (`hasWords`).
+ */
+export const voicedPauses = (text) => (hasWords(text)
+  ? String(text ?? '').replaceAll(LONG_PAUSE, ' [long pause] ').replaceAll(PAUSE_MARK, ' [pause] ').replace(/[ \t]+/g, ' ').trim()
+  : String(text ?? ''));
+
+/**
  * An AUDIO TAG: direction for a voice that can act on it — ElevenLabs v3 and
  * v4's `[whispers]`, `[laughs]`, `[excited]`, `[door slams]`. Square brackets
  * around words and nothing else (letters, spaces, a hyphen or an apostrophe),
@@ -108,6 +126,7 @@ export const writtenMarks = (text) => String(text ?? '')
  */
 const AUDIO_TAG = /\[\s*\p{L}[\p{L}' -]{0,38}\]/gu;
 const ONLY_TAGS = /^(?:\[\s*\p{L}[\p{L}' -]{0,38}\]\s*)+$/u;
+const LEADING_PAUSE = /^((?:\[\s*\p{L}[\p{L}' -]{0,38}\]\s*)*\[\s*(?:long\s+|short\s+)?pause\s*\])\s*/iu;
 
 /** The text as an engine that CANNOT act on audio tags should hear it: every tag taken out, never read aloud. */
 export const stripAudioTags = (text) => String(text ?? '').replace(AUDIO_TAG, ' ')

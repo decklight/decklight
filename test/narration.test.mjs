@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { notesSegments } from '../tools/deck-html.mjs';
 import { speechRuns, stripPauses, PAUSE_MARK, canonMarks, markTags, notesMarks, spoken,
-  writtenMarks, stripAudioTags, forEngine, captioned, hasWords, markAudioTags, LONG_PAUSE } from '../tools/sentences.mjs';
+  writtenMarks, stripAudioTags, forEngine, captioned, hasWords, markAudioTags, LONG_PAUSE, voicedPauses } from '../tools/sentences.mjs';
 
 // speechRuns as the ⟨PAUSE⟩ tests read it: words and holds
 const pauseRuns = (t) => { const { lead, runs } = speechRuns(t); return { lead, runs: runs.map(({ text, pause }) => ({ text, pause })) }; };
@@ -541,6 +541,18 @@ test('[long pause] — ElevenLabs v4\'s own — is two pauses, held by decklight
   }
   assert.deepEqual(pauseRuns(canonMarks('A. [long pause] B.')).runs, [{ text: 'A.', pause: 2 }, { text: 'B.', pause: 0 }]);
   assert.equal(canonMarks('[long pauses] and [longpause]'), '[long pauses] and [longpause]', 'only the two words');
+});
+
+test('a voice that acts on tags holds a pause itself: [pause] and [long pause] in the sentence, on the words before it', () => {
+  const t = canonMarks('It was [pause] enormous. [Short Pause] Wow! [laughs] [long pause] Last one.');
+  assert.equal(t, `It was ${PAUSE_MARK} enormous. ${PAUSE_MARK} Wow! [laughs] ${LONG_PAUSE} Last one.`, '[short pause] is ElevenLabs\' own [pause]');
+  const said = voicedPauses(t);
+  assert.equal(said, 'It was [pause] enormous. [pause] Wow! [laughs] [long pause] Last one.');
+  assert.deepEqual(speechRuns(said).runs.length, 1, 'no hold of decklight\'s own: one run, no cut');
+  assert.deepEqual(splitSentences(said), ['It was [pause] enormous. [pause]', 'Wow! [laughs] [long pause]', 'Last one.'],
+    'a pause belongs to the words before it — tags ahead of it too');
+  assert.equal(voicedPauses(`${PAUSE_MARK} [sighs]`), `${PAUSE_MARK} [sighs]`, 'no words to hold between: decklight holds it');
+  assert.deepEqual(stepPlan([said]).after, [0, 0, 0]);
 });
 
 test('writtenMarks: the markers as decklight writes them — square brackets, read back to the same canonical text', () => {
