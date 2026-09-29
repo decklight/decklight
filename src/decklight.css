@@ -1426,6 +1426,9 @@
    nothing to click. */
 .decklight-narr .narr-row.narr-fact { cursor: default; }
 .decklight-settings .narr-card { width: min(380px, 80vw); }
+/* what ⏎ does on a row, kept to the right and quieter than the value */
+.decklight-settings .narr-hint { margin-left: auto; padding-left: 12px; }
+.decklight-settings .narr-row { display: flex; align-items: baseline; }
 /* An engine this machine cannot use is SHOWN, dimmed, with the terminal command
    that would fix it — hiding it would answer "where did ElevenLabs go?" with
    silence. The fix wraps onto its own line (the row is a flex box) because it

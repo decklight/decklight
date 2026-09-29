@@ -794,8 +794,8 @@
         r.hasRows = rows.length > 0;
         const versionRow = rows.find((n) => /Decklight version/.test(n.textContent));
         r.showsVersionRow = !!versionRow;
-        // A fact, not a command: shown at full strength, with no pointer.
-        r.versionIsAFact = !!versionRow?.classList.contains('narr-fact');
+        // Something to act on: ⏎ copies it, and the row says so.
+        r.saysEnterCopies = /⏎ copies/.test(versionRow?.textContent ?? '');
         // The runtime agrees with the bundle it came from.
         const shown = versionRow?.querySelector('.narr-flavor')?.textContent?.trim() ?? '';
         r.versionShown = shown;
@@ -809,15 +809,33 @@
         // …and the programmatic door reports the same thing without an overlay.
         const api = deck.settings.rows();
         r.apiRowsMatch = api.some((x) => x.label === 'Decklight version' && x.value === shown);
-        r.escapeCloses = escapeUntilClosed(Q);
+        // ⏎ copies the version — a number retyped into a bug report arrives
+        // with a typo in it — and says so. A stand-in clipboard, since a
+        // headless page has no clipboard to read back.
+        let copied = null;
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { copied = t; } } });
+        press('Enter');
+        await settle();
+        const toastSaid = () => [...document.querySelectorAll('.decklight-toast')].map((n) => n.textContent).join(' | ');
+        r.enterCopiesTheVersion = copied === shown;
+        r.saysItCopied = toastSaid().includes(`copied ${shown}`);
+        r.closesAfterCopying = !document.querySelector(Q);
+        // …and where the clipboard is refused, the toast still carries the text
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('denied'); } } });
+        deck.settings.open();
+        press('Enter');
+        await settle();
+        r.refusedCopyStillShowsIt = new RegExp(`(copied|could not copy —) ${shown.replace(/[.+]/g, '\\$&')}`).test(toastSaid());
+        r.escapeCloses = (deck.settings.open(), escapeUntilClosed(Q));
         // reopens from the API too
         deck.settings.open();
         r.apiOpens = !!document.querySelector(Q);
         deck.settings.close();
         r.apiCloses = !document.querySelector(Q);
 
-        r.PASS = r.settingsIsFirstMatch && r.opens && r.hasRows && r.showsVersionRow && r.versionIsAFact
+        r.PASS = r.settingsIsFirstMatch && r.opens && r.hasRows && r.showsVersionRow && r.saysEnterCopies
           && r.versionIsReal && r.versionMatchesApi && r.apiRowsMatch
+          && r.enterCopiesTheVersion && r.saysItCopied && r.closesAfterCopying && r.refusedCopyStillShowsIt
           && r.escapeCloses && r.apiOpens && r.apiCloses;
       }
 

@@ -1096,8 +1096,35 @@ export function init(userConfig = {}) {
    *  FACT, not a disabled command: it is shown plainly, never greyed out. */
   function settingsRows() {
     return [
-      { label: 'Decklight version', value: RUNTIME_VERSION || 'unknown — not a built bundle' },
+      // ⏎ copies it: the version goes into a bug report, and a number you
+      // have to retype is a number that arrives with a typo in it
+      { label: 'Decklight version', value: RUNTIME_VERSION || 'unknown — not a built bundle',
+        ...(RUNTIME_VERSION ? { hint: '⏎ copies', run: () => copyText(RUNTIME_VERSION) } : {}) },
     ];
+  }
+  /**
+   * Put `text` on the clipboard and say so. The async clipboard needs a secure
+   * context, which a deck opened from file:// is not everywhere — so the old
+   * select-and-copy is the fallback, and if both are refused the toast carries
+   * the text itself, which is at least something to select.
+   */
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`copied ${text}`, 2200);
+      return true;
+    } catch { /* not allowed here — try the old way */ }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { /* refused */ }
+    ta.remove();
+    toast(ok ? `copied ${text}` : `could not copy — ${text}`, ok ? 2200 : 6000);
+    return ok;
   }
   function openSettings() {
     if (setEl) return closeSettings();
@@ -1123,6 +1150,12 @@ export function init(userConfig = {}) {
         val.className = 'narr-flavor';
         val.textContent = r.value;
         el.appendChild(val);
+      }
+      if (r.hint) {
+        const hint = document.createElement('span');
+        hint.className = 'narr-flavor narr-hint';
+        hint.textContent = r.hint;
+        el.appendChild(hint);
       }
       el.addEventListener('mouseenter', () => selectSetRow(i));
       if (r.run) el.addEventListener('click', () => { r.run(); closeSettings(); });
