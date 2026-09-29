@@ -12,6 +12,7 @@ import { cssDurationMs, transitionClasses, transitionName } from './motion.js';
 import { initMath } from '../math/math.js';
 import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
+import { createNotesPanel } from './notespanel.js';
 import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
 import { createThemes } from './themes.js';
 import { createNarration } from './narration.js';
@@ -517,6 +518,20 @@ export function init(userConfig = {}) {
   // Where a slide got what it says (SLIDE_SOURCES). Not author-only and not
   // presenter-only: notes are for the person talking, and where to read more is
   // for the person listening — so this ships in the deck a reader is handed.
+  // S — the speaker notes beside the slide. `editmode` and the editor are
+  // built below; both are thunks, read only from a click.
+  const notesPanel = createNotesPanel({
+    root, overlays, getInstance: () => instance,
+    reflow: () => instance._reflow?.(),
+    editmode: () => editmode,
+    openEditor: () => editmode?.toggleEditor(),
+  });
+  // ⌥⏎ — the speaker view: first press opens it, the next toggles speak ⇄ rehearse
+  function speakerView() {
+    const w = instance.__speakerWin;
+    if (w && !w.closed) w.__decklightSpeakerToggle?.();
+    else instance.__speakerWin = openSpeakerView(instance);
+  }
   const sources = createSources({
     root, overlays, toast,
     reflow: () => instance._reflow?.(),
@@ -868,11 +883,8 @@ export function init(userConfig = {}) {
       // of nothing once a second recorder existed.
       { label: 'Voice faster', hint: '>', alias: 'speed rate playback', run: () => changeNarrRate(+0.25) },
       { label: 'Voice slower', hint: '<', alias: 'speed rate playback', run: () => changeNarrRate(-0.25) },
-      { label: 'Speaker view', hint: 'S', run: () => {
-        const w = instance.__speakerWin;
-        if (w && !w.closed) w.__decklightSpeakerToggle?.();
-        else instance.__speakerWin = openSpeakerView(instance);
-      } },
+      { label: 'Speaker notes — beside the slide', hint: 'S', alias: 'notes script read presenter', run: () => notesPanel.toggle() },
+      { label: 'Speaker view — second window', hint: '⌥⏎', alias: 'presenter view display timer next slide rehearse popup', run: speakerView },
       { label: 'Overview', hint: 'O', run: toggleOverview },
       { label: 'Blackout', hint: 'B', run: toggleBlackout },
       { label: `Pen ${hud.annotator?.tool === 'pen' ? 'off' : 'on'} — draw on the slide`, hint: 'W', alias: 'ink annotate draw scribble marker highlight', run: () => toggleInk('pen') },
@@ -1563,6 +1575,8 @@ export function init(userConfig = {}) {
       // a docked sources panel is a reference open beside the talk, so it
       // follows the slide rather than showing the one you left (SLIDE_SOURCES)
       sources.onSlide?.();
+      // …and the notes panel follows the slide AND the beat
+      notesPanel.onNavigate();
       if (progressBar) {
         const rec = this._records[this.state.slide - 1];
         const stepsTotal = rec ? rec.groups.length : 0;
@@ -1919,7 +1933,8 @@ export function init(userConfig = {}) {
       <tr><td>← / PageUp</td><td>previous</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
-      <tr><td>S</td><td>speaker view (again: rehearse mode)</td></tr>
+      <tr><td>S</td><td>speaker notes — this slide's, beside it, following the build</td></tr>
+      <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view — a second window with notes, next slide, timer (again: rehearse mode)</td></tr>
       <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
       <tr><td>I</td><td>information — where this slide got what it says: named facts, and links to read</td></tr>
       <tr><td>&lt; / &gt;</td><td>voice speed (0.25× steps)</td></tr>
@@ -2087,7 +2102,10 @@ export function init(userConfig = {}) {
     // typing guard on purpose, so in a text box the browser's own undo is the
     // one you get, and past the overlays below, so an open dialog still owns it.
     const undoChord = isUndoChord(e);
-    if (!undoChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
+    // ⌥⏎ / Alt+Enter — the speaker view: PowerPoint's presenter-view chord,
+    // one that reads the same on every OS without reaching for an F-key.
+    const speakerChord = e.altKey && !e.metaKey && !e.ctrlKey && e.key === 'Enter';
+    if (!undoChord && !speakerChord && (e.metaKey || e.ctrlKey || e.altKey)) return;
     // An overlay that is up owns the keyboard — whether or not it wants this
     // particular key. Registration order (see `overlays.register` calls) is the
     // priority order the long if-chain here used to encode.
@@ -2104,6 +2122,7 @@ export function init(userConfig = {}) {
       const modal = typeof top.modal === 'function' ? top.modal() : top.modal;
       if (modal !== false) return;
     }
+    if (speakerChord) { speakerView(); e.preventDefault(); return; }
     if (undoChord) {
       deckHistory(e.shiftKey ? 'redo' : 'undo');
       e.preventDefault();   // ⌘Z / Ctrl+Z has no page default worth keeping here
@@ -2155,13 +2174,9 @@ export function init(userConfig = {}) {
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
       case 'i': case 'I': sources.open(); break;           // (I)nformation: where this slide got that
-      case 's': case 'S': {
-        // first S opens the speaker view; S again toggles speak ⇄ rehearse
-        const w = instance.__speakerWin;
-        if (w && !w.closed) w.__decklightSpeakerToggle?.();
-        else instance.__speakerWin = openSpeakerView(instance);
-        break;
-      }
+      // S — this slide's speaker notes, beside it (notespanel.js); the
+      // speaker view, a second window, is ⌥⏎ above
+      case 's': case 'S': notesPanel.toggle(); break;
       case 't': case 'T': themes.openPicker(); break;
       case '/': openPalette(); break;
       case '.': cycleTheme(1); break;

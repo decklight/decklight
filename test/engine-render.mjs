@@ -26,7 +26,7 @@ let bad = 0;
 /** Every mode this harness drives, grouped by concern (see test/verify.mjs). */
 export const MODES = [
   'themepicker', 'added', 'browse', 'nobrowse', 'wizard',
-  'palette', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance',
+  'palette', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'notespanel',
   'narration', 'nonarration', 'panel',
   'restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'publish',

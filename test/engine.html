@@ -386,6 +386,13 @@
     // because createPlaylist reads them once at setup
     // Line Draw (#522): one more slide, only for the mode that looks at it —
     // every other mode counts on four
+    // notespanel: a slide with two builds and notes in three beats — a tag and
+    // a pause among them — to follow with S's panel
+    if (HARNESS_MODE === 'notespanel') {
+      document.querySelectorAll('.decklight > section')[2].innerHTML = `<h2>Three</h2>
+        <ul data-build><li>first</li><li>second</li></ul>
+        <aside class="notes"><p>Intro [whispers] here.</p><p>[click]</p><p>First item. [pause] Held.</p><p>[click]</p><p>Second.</p></aside>`;
+    }
     if (HARNESS_MODE === 'linedraw') {
       document.querySelector('.decklight').insertAdjacentHTML('beforeend', `<section><h2>Five</h2>
       <svg viewBox="0 0 800 200" width="800" data-build="draw">
@@ -1354,7 +1361,7 @@
         input.focus();
         input.value = 'docs-team';
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        press('s');                           // would open the speaker view
+        press('s');                           // would open the speaker notes
         r.typingDoesNotReachTheDeck = deck.state.slide === before && !!document.querySelector(P);
 
         press('Enter');
@@ -2223,6 +2230,48 @@
         r.PASS = r.slideRow && r.sentSlide === '[2]' && r.saysDrafting && r.counts && r.saysDone
           && r.allRow && r.sentAll && r.saysWhatWasLeft
           && r.editorButton && r.tooltipNamesTheAgent && r.draftInTheBox && r.nothingSaved;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'notespanel') {
+        // S shows this slide's notes beside it, docked right, following the
+        // slide and the beat; ⌥⏎ is the speaker view now.
+        const N = '.decklight-notes-panel';
+        const opened = [];
+        window.open = (...a) => { opened.push(a); return null; };   // the speaker view's popup
+        await settle();
+        deck.goto(3, 0);
+        await settle();
+        press('s');
+        await settle();
+        const panel = document.querySelector(N);
+        r.sOpensNotes = !!panel;
+        r.dockedRight = panel?.dataset.dock === 'right'
+          && parseFloat(getComputedStyle(document.querySelector('.decklight')).getPropertyValue('--dock-right')) > 100;
+        r.noSpeakerWindow = opened.length === 0;
+        const segs = () => [...document.querySelectorAll(`${N} .np-seg`)];
+        const now = () => segs().findIndex((n) => n.classList.contains('now'));
+        r.threeBeats = segs().length === 3 && document.querySelectorAll(`${N} .np-click`).length === 2;
+        r.firstBeatLit = now() === 0;
+        r.tagIsACue = !!document.querySelector(`${N} .cue.tag`) && !/\[whispers\]/.test(document.querySelector(N)?.textContent ?? '');
+        r.pauseIsACue = [...document.querySelectorAll(`${N} .cue`)].some((c) => c.textContent === 'PAUSE');
+        press('ArrowRight');                   // not modal: the deck advances with the panel up
+        await settle();
+        r.followsTheBeat = deck.state.slide === 3 && deck.state.step === 1 && now() === 1
+          && segs()[0].classList.contains('said');
+        press('ArrowRight'); press('ArrowRight');
+        await settle();
+        r.followsTheSlide = deck.state.slide === 4 && /slide 4/.test(document.querySelector(`${N} .np-heading`)?.textContent ?? '')
+          && /no speaker notes/.test(document.querySelector(`${N} .np-body`)?.textContent ?? '');
+        press('s');
+        await settle();
+        r.sCloses = !document.querySelector(N);
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', altKey: true, bubbles: true, cancelable: true }));
+        await settle();
+        r.altEnterOpensSpeakerView = opened.length === 1;
+        r.PASS = r.sOpensNotes && r.dockedRight && r.noSpeakerWindow && r.threeBeats && r.firstBeatLit
+          && r.tagIsACue && r.pauseIsACue && r.followsTheBeat && r.followsTheSlide && r.sCloses && r.altEnterOpensSpeakerView;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

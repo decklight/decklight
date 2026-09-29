@@ -76,7 +76,7 @@ const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-
  */
 const ENGINE_GROUPS = {
   themes: ['themepicker', 'added', 'browse', 'nobrowse', 'wizard'],
-  palette: ['palette', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance'],
+  palette: ['palette', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'notespanel'],
   narration: ['narration', 'nonarration', 'panel'],
   navigation: ['restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'publish'],

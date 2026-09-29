@@ -43,7 +43,7 @@ export const TIPS = [
   { id: 'goto', text: 'press G to jump to any slide by name' },
   { id: 'theme', text: 'press T to browse themes — the deck restyles live' },
   { id: 'overview', text: 'press O for the slide overview grid' },
-  { id: 'speaker', text: 'press S for speaker view — notes, next slide and a timer' },
+  { id: 'speaker', text: 'press S for the speaker notes beside the slide — ⌥⏎ (Alt+Enter) opens the speaker view: notes, next slide and a timer' },
   { id: 'narrate', text: 'press V to have the deck narrate itself from its speaker notes' },
   { id: 'messages', text: 'press ` (left of 1) for the message log — every message the deck has shown' },
   { id: 'fullscreen', text: 'press F for fullscreen, B to black out the screen mid-talk' },
@@ -100,7 +100,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
         <tr><td>/</td><td><b>Command palette</b> — every command, type to filter. Start here.</td></tr>
         <tr><td>?</td><td>All keyboard shortcuts.</td></tr>
         <tr><td>T · ⌃T</td><td>Browse themes with a live preview; <b>⌃T</b> generates a brand-new one.</td></tr>
-        <tr><td>S · V</td><td>Speaker view with notes &amp; timer; <b>V</b> narrates the deck aloud.</td></tr>
+        <tr><td>S · V</td><td>Speaker notes beside the slide (<b>⌥⏎</b>: the speaker view, with a timer); <b>V</b> narrates the deck aloud.</td></tr>
         <tr><td>A · E · Z</td><td><b>Author mode</b> (<code>decklight author &lt;deck.html&gt;</code>): live-reload editing — ask an AI agent to change the deck, edit an element, undo.</td></tr>
       </table>
       <div class="wel-foot">

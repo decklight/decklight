@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Speaker view — SPEC PRESENTING. Opened with S; a popup written into about:blank
+// Speaker view — SPEC PRESENTING. Opened with ⌥⏎ / Alt+Enter (S is the notes panel); a popup written into about:blank
 // (inherits the opener's origin, so the direct window.opener bridge works on
 // file:// too — no server needed). Thumbnails are iframes of the same deck
 // in ?embedded mode, driven by src hash.
@@ -149,7 +149,7 @@ export function openSpeakerView(instance) {
   <span id="pos"></span>
   <button id="prev">◀ prev</button>
   <button id="next">next ▶</button>
-  <button id="mode" title="S toggles rehearse mode (cue cards instead of prose)">speak</button>
+  <button id="mode" title="S or ⌥⏎ toggles rehearse mode (cue cards instead of prose)">speak</button>
   <button id="rec" title="record how long each slide takes, then save the timings onto the deck">⏱ rehearse timings</button>
   <span id="pace" class="pace"></span>
   <img id="qr" alt="scan to use your phone as a remote" title="scan to use your phone as a remote — click to enlarge" hidden>
@@ -196,7 +196,7 @@ export function openSpeakerView(instance) {
     rec.cur = slide; rec.since = Date.now();
   };
   // Start/stop from the button, or from the deck's palette via
-  // window.__decklightSpeakerRec (like __decklightSpeakerToggle for S).
+  // window.__decklightSpeakerRec (like __decklightSpeakerToggle for ⌥⏎).
   // start === true only ever starts: a palette row that opened this window
   // to begin a rehearsal must not stop one already running.
   const toggleRec = async (start) => {
@@ -221,7 +221,7 @@ export function openSpeakerView(instance) {
   $('#next').onclick = () => api && api.next();
   // speak = full prose notes; rehearse = the deck's aside.rehearse cue cards
   // (same ⟨CLICK⟩ segmentation, a few words per segment). S toggles — from
-  // this window or remotely via window.__decklightSpeakerToggle (deck's S).
+  // this window or remotely via window.__decklightSpeakerToggle (the deck's ⌥⏎).
   let mode = 'speak', lastSt = null;
   window.__decklightSpeakerToggle = () => {
     mode = mode === 'speak' ? 'rehearse' : 'speak';
@@ -235,7 +235,8 @@ export function openSpeakerView(instance) {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === ' ') api && api.next();
     if (e.key === 'ArrowLeft') api && api.prev();
-    if (e.key === 's' || e.key === 'S') window.__decklightSpeakerToggle();
+    // S here, or the same ⌥⏎ that opened this window: speak ⇄ rehearse
+    if (e.key === 's' || e.key === 'S' || (e.altKey && e.key === 'Enter')) { window.__decklightSpeakerToggle(); e.preventDefault(); }
   });
   let last = { slide: -1, nextHash: '' };
   function render(st) {

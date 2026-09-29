@@ -32,8 +32,10 @@ const MODES = ['float', 'left', 'right', 'bottom'];
  * the panel opens and closes, and one of these panels is built before the deck
  * exists — naming it here would read it inside its own dead zone.
  */
-export function createDock({ root, reflow, key, getEl, closeLabel = 'close' }) {
-  const dock = { mode: 'float', x: null, y: null };
+export function createDock({ root, reflow, key, getEl, closeLabel = 'close', defaultMode = 'float' }) {
+  // where a panel opens before anybody has moved it: float, unless the panel
+  // is one you read beside the slide (the notes, S) and says so
+  const dock = { mode: defaultMode, x: null, y: null };
   {
     // first run, or storage denied — either way the default float is fine
     const s = readJson(key);
