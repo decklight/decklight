@@ -253,6 +253,24 @@ export function enhanceable(html, only = null) {
 }
 
 /**
+ * One script, enhanced: the agent is asked, its answer unwrapped and checked.
+ * Resolves to `{ ok, text }` or `{ ok: false, why }` — the unit every caller
+ * shares, from the notes editor's one box to a whole deck.
+ */
+export async function enhanceText(script, {
+  agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
+  resolveAgent = agentAsk, exec = ask,
+} = {}) {
+  const cmd = resolveAgent(agent, enhancePrompt(script), { env });
+  if (!cmd) return { ok: false, why: agentUnavailable(agent, detectAgents({ env })) };
+  const out = await exec(cmd, cwd, timeoutMs);
+  if (out == null) return { ok: false, why: 'the agent did not answer in time' };
+  const text = unwrapAnswer(out);
+  const why = enhanceProblem(script, text);
+  return why ? { ok: false, why } : { ok: true, text, changed: text !== script.trim() };
+}
+
+/**
  * The answers written into `html`: each slide that passed the check and says
  * something new — and only if its notes still read exactly as they did when
  * the agent was asked. A slide edited in the meantime keeps the edit; the
@@ -290,12 +308,9 @@ export async function enhanceDeck(html, slides = null, {
   const worker = async () => {
     while (next < todo.length) {
       const { slide, script } = todo[next++];
-      const cmd = resolveAgent(agent, enhancePrompt(script), { env });
-      const out = cmd ? await exec(cmd, cwd, timeoutMs) : null;
-      const after = out == null ? null : unwrapAnswer(out);
-      const why = out == null ? 'the agent did not answer in time' : enhanceProblem(script, after);
-      const r = { slide, ok: !why, changed: !why && after !== script, ...(why ? { why } : {}) };
-      answers.push({ ...r, before: script, text: after });
+      const a = await enhanceText(script, { agent, cwd, env, timeoutMs, resolveAgent, exec });
+      const r = { slide, ok: a.ok, changed: a.ok && a.text !== script, ...(a.ok ? {} : { why: a.why }) };
+      answers.push({ ...r, before: script, text: a.text ?? null });
       onSlide({ ...r, done: ++finished, of: todo.length });
     }
   };

@@ -190,6 +190,10 @@
       // slides it will ask about; the rest arrives as 'enhance' events.
       if (HARNESS_MODE === 'enhance') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
+        if (u.includes('/edit/enhance/text')) {
+          const { text } = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, changed: true, text: `[warm] ${text}`, agent: 'claude', label: 'Claude Code' });
+        }
         if (u.includes('/edit/enhance')) {
           const body = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code' });
@@ -2199,8 +2203,26 @@
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [1, 3], failed: [{ slide: 2, why: 'the agent changed the words — the prompt allows only tags and emphasis' }], stale: [] });
         await settle();
         r.saysWhatWasLeft = /enhanced 2 slides — Z undoes · slide 2 left as it was: the agent changed the words/.test(said());
+        // …and the notes editor's own button: the draft lands IN THE BOX, and
+        // nothing is posted to /edit/notes until ⌘⏎
+        if (document.querySelector(Q)) press('Escape');
+        await settle();
+        deck.goto(2, 0);
+        await run('speaker notes', /Edit speaker notes/);
+        const box = document.querySelector('.decklight-editor textarea');
+        if (box) box.value = 'An unsaved line. [pause] And another.';   // a draft, not yet saved
+        const before = box?.value;
+        const notesPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/notes')).length;
+        const posted = notesPosts();
+        document.querySelector('.decklight-editor .notes-enhance')?.click();
+        await settle(); await settle();
+        r.editorButton = !!document.querySelector('.decklight-editor .notes-enhance');
+        r.tooltipNamesTheAgent = /Claude Code drafts ElevenLabs v4 audio tags/.test(document.querySelector('.decklight-editor .notes-enhance')?.title ?? '');
+        r.draftInTheBox = !!before && box?.value === `[warm] ${before}`;
+        r.nothingSaved = notesPosts() === posted;
         r.PASS = r.slideRow && r.sentSlide === '[2]' && r.saysDrafting && r.counts && r.saysDone
-          && r.allRow && r.sentAll && r.saysWhatWasLeft;
+          && r.allRow && r.sentAll && r.saysWhatWasLeft
+          && r.editorButton && r.tooltipNamesTheAgent && r.draftInTheBox && r.nothingSaved;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

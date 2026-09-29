@@ -39,6 +39,7 @@
 //   POST /edit/redo            → step it forward again
 //   POST /edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
 //   POST /edit/enhance         → { slides: [n…]|'all', agent? } audio tags for the voiceover script
+//   POST /edit/enhance/text    → { text, agent? } → { text }   the same, for the notes editor's box (writes nothing)
 //   POST /edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
 //                                port conflict can take over an old session cleanly
 //
@@ -2806,6 +2807,24 @@ export async function editMain(args, { onListen = null } = {}) {
     return json(200, { ok: true, of, agent: cmd.name, label: cmd.label });
   }
 
+  // The notes editor's one box, enhanced without touching the file: the text
+  // goes to the agent (read-only) and comes back checked, for the author to
+  // read and save — or not. Nothing here writes; ⌘⏎ in the editor does.
+  async function enhanceTextRoute({ body, json }) {
+    const { text, agent } = JSON.parse(body);
+    if (typeof text !== 'string') throw new Error('bad payload');
+    if (!text.trim()) return json(422, { ok: false, error: 'nothing to enhance — the notes are empty' });
+    const name = agent ?? agentPref ?? null;
+    const cmd = agentAsk(name, 'x');
+    if (!cmd) return json(400, { ok: false, error: agentUnavailable(name, agents) });
+    const { enhanceText } = await import('./enhance.mjs');
+    console.log(`  enhance: the notes editor's text ← ${cmd.name} (read-only)`);
+    const r = await enhanceText(text, { agent: name, cwd: dirname(deckPath) });
+    return r.ok
+      ? json(200, { ok: true, text: r.text, changed: r.changed, agent: cmd.name, label: cmd.label })
+      : json(422, { ok: false, error: r.why, agent: cmd.name });
+  }
+
   function agentRoute({ body, json }) {
     const { prompt, agent, message, slide } = JSON.parse(body);
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
@@ -2874,6 +2893,7 @@ export async function editMain(args, { onListen = null } = {}) {
     'POST /edit/agent': agentRoute,
     'POST /edit/agent/prefer': agentPreferRoute,
     'POST /edit/enhance': enhanceRoute,
+    'POST /edit/enhance/text': enhanceTextRoute,
   }));
 
   // The slide mutations are a file of their own (cli/edit-slides.mjs): thirteen

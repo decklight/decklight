@@ -877,6 +877,50 @@ export function createEditMode({
     btn.textContent = '💾 save to file';
     btn.addEventListener('click', save);
     actions.appendChild(btn);
+    // ✨ The voiceover in this box, given the audio tags ElevenLabs v4 performs
+    // (cli/enhance.mjs): the agent drafts, read-only; the answer comes back only
+    // if it kept every word, [click] and [pause], and lands IN THE BOX — to read,
+    // edit, and save with ⌘⏎, or not. Nothing is written by pressing this.
+    if (editAgents.length) {
+      const agent = editAgents.find((a) => a.name === preferredAgent) ?? editAgents[0];
+      const tags = document.createElement('button');
+      tags.type = 'button';
+      tags.className = 'narr-prev-btn notes-enhance';
+      tags.textContent = '✨ add audio tags';
+      tags.title = `${agent.label} drafts ElevenLabs v4 audio tags ([thoughtful], [sighs]) into this text, `
+        + 'with the prompt ElevenLabs publishes for it — the text is sent to that agent, which may pass it to its '
+        + 'provider. Every word, [click] and [pause] must survive, or nothing changes. Nothing is saved until ⌘⏎.';
+      tags.addEventListener('click', async () => {
+        const text = ta.value;
+        if (!text.trim()) { toast('nothing to enhance — the notes are empty'); return; }
+        tags.disabled = true;
+        ta.readOnly = true;   // the answer is to THIS text; typing meanwhile would be overwritten
+        const stop = thinking((t) => { tags.textContent = `✨ ${t}`; }, { label: 'drafting' });
+        try {
+          const r = await fetch(editBase + '/edit/enhance/text', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ text }),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+          if (!j.changed) toast(`${j.label || j.agent} found nothing to add`, 3200);
+          else {
+            ta.value = j.text;
+            toast('audio tags added — read them, then ⌘⏎ saves (Esc leaves the file as it was)', 5200);
+          }
+          debugLog('enhance', `notes editor: ${j.changed ? 'tags drafted' : 'nothing to add'}`);
+        } catch (e) {
+          toast(`no tags added — ${String(e.message || e)}`, 6000);
+        } finally {
+          stop();
+          tags.textContent = '✨ add audio tags';
+          tags.disabled = false;
+          ta.readOnly = false;
+          ta.focus();
+        }
+      });
+      actions.appendChild(tags);
+    }
     card.append(ta, actions);
     unmountEditor = mountTypingCard(el, notesDock);
     setTimeout(() => ta.focus(), 0);

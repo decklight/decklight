@@ -685,6 +685,27 @@ test('POST /edit/enhance: the agent drafts tags read-only, decklight writes the 
   }
 });
 
+test('POST /edit/enhance/text: the notes editor\'s box comes back tagged — and nothing is written', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  writeFakeBin(bin, 'claude', [
+    "const prompt = process.argv[process.argv.indexOf('-p') + 1] ?? '';",
+    "const script = prompt.split('# Script\\n\\n')[1] ?? '';",
+    "console.log(script.includes('REWORD') ? 'something else' : script.replace('Hello.', '[warm] Hello!'));",
+  ].join('\n'));
+  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+  const ok = await (await post(base, '/edit/enhance/text', { text: 'Hello.\n\n[click]\n\nNext.' })).json();
+  assert.deepEqual({ ok: ok.ok, text: ok.text, changed: ok.changed }, { ok: true, text: '[warm] Hello!\n\n[click]\n\nNext.', changed: true });
+  assert.equal(readFileSync(deck, 'utf8'), DECK, 'the file is the author\'s to save');
+  const bad = await post(base, '/edit/enhance/text', { text: 'REWORD me.' });
+  assert.equal(bad.status, 422);
+  assert.match((await bad.json()).error, /changed the words/);
+  assert.equal((await post(base, '/edit/enhance/text', { text: '  ' })).status, 422);
+});
+
 test('POST /edit/enhance with no agent on the machine is a 400 that says so', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK.replace('<h2>Beta</h2>', '<h2>Beta</h2><aside class="notes"><p>Words.</p></aside>'));
