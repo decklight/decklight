@@ -38,6 +38,7 @@
 //   POST /edit/undo            → step the deck file back through the edit history
 //   POST /edit/redo            → step it forward again
 //   POST /edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
+//   POST /edit/enhance         → { slides: [n…]|'all', agent? } audio tags for the voiceover script
 //   POST /edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
 //                                port conflict can take over an old session cleanly
 //
@@ -978,6 +979,7 @@ export async function editMain(args, { onListen = null } = {}) {
   const ASKS_KEPT = 20;
   let askSeq = 0;
   let exporting = false; // an export in flight — one browser, one output path, any kind
+  let enhancing = null;  // a script enhancement in flight: { of, done } — one at a time
   let publishing = false; // a publish in flight — one push at a time
 
   // ── git autocommit — the durable record, independent of undo/redo ──────
@@ -2760,6 +2762,50 @@ export async function editMain(args, { onListen = null } = {}) {
     return json(200, { ok: true, preferredAgent: agent ?? null });
   }
 
+  // The voiceover script, given ElevenLabs v4's audio tags (cli/enhance.mjs):
+  // the agent drafts, read-only, a few slides at a time; decklight checks each
+  // answer kept the words and beats, and writes them in ONE edit so Z takes
+  // the whole run back. Progress rides the SSE channel as 'enhance' events.
+  async function enhanceRoute({ body, json }) {
+    const { slides, agent } = JSON.parse(body);
+    const which = slides === 'all' ? null
+      : Array.isArray(slides) && slides.length && slides.every((n) => Number.isInteger(n) && n > 0) ? slides : undefined;
+    if (which === undefined) throw new Error('bad payload');
+    if (enhancing) return json(409, { ok: false, error: `already enhancing — ${enhancing.done} of ${enhancing.of} slides done` });
+    if (agentJob) return json(409, { ok: false, error: `${agentJob.agent} is editing the deck — wait for it to finish` });
+    const name = agent ?? agentPref ?? null;
+    const cmd = agentAsk(name, 'x');
+    if (!cmd) return json(400, { ok: false, error: agentUnavailable(name, agents) });
+    const { enhanceDeck, applyEnhanced, enhanceable } = await import('./enhance.mjs');
+    const html = readDeck();
+    const of = enhanceable(html, which).length;
+    if (!of) return json(422, { ok: false, error: which?.length === 1 ? `slide ${which[0]} has no notes to enhance` : 'no notes to enhance' });
+    enhancing = { of, done: 0 };
+    broadcast('enhance', { state: 'start', of, agent: cmd.name });
+    console.log(`  enhance: ${of} slide${of === 1 ? '' : 's'} ← ${cmd.name} (read-only)`);
+    enhanceDeck(html, which, {
+      agent: name, cwd: dirname(deckPath),
+      onSlide: (r) => {
+        enhancing.done = r.done;
+        broadcast('enhance', { state: 'slide', ...r });
+        console.log(`  enhance: slide ${r.slide} ${r.ok ? (r.changed ? 'enhanced' : 'unchanged') : `left as it was — ${r.why}`}`);
+      },
+    }).then(({ answers, results }) => {
+      let stale = [];
+      // against the deck as it is NOW: a slide edited while the agent thought keeps the edit
+      applyEdit((cur) => { const a = applyEnhanced(cur, answers); stale = a.stale; return a.html; });
+      const changed = results.filter((r) => r.changed && !stale.includes(r.slide)).map((r) => r.slide);
+      const failed = results.filter((r) => !r.ok).map(({ slide, why }) => ({ slide, why }));
+      enhancing = null;
+      broadcast('enhance', { state: 'done', ok: true, changed, failed, stale });
+      console.log(`  enhance: done — ${changed.length} enhanced${failed.length ? `, ${failed.length} left as they were` : ''}`);
+    }).catch((e) => {
+      enhancing = null;
+      broadcast('enhance', { state: 'done', ok: false, error: oneline(e) });
+    });
+    return json(200, { ok: true, of, agent: cmd.name, label: cmd.label });
+  }
+
   function agentRoute({ body, json }) {
     const { prompt, agent, message, slide } = JSON.parse(body);
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('bad payload');
@@ -2827,6 +2873,7 @@ export async function editMain(args, { onListen = null } = {}) {
 
     'POST /edit/agent': agentRoute,
     'POST /edit/agent/prefer': agentPreferRoute,
+    'POST /edit/enhance': enhanceRoute,
   }));
 
   // The slide mutations are a file of their own (cli/edit-slides.mjs): thirteen

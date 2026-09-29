@@ -186,6 +186,15 @@
         }
         if (u.includes('/edit/agent')) return json({ ok: true, agent: 'claude', label: 'Claude Code' });
       }
+      // Enhance the voiceover script (cli/enhance.mjs): the route answers how many
+      // slides it will ask about; the rest arrives as 'enhance' events.
+      if (HARNESS_MODE === 'enhance') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
+        if (u.includes('/edit/enhance')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code' });
+        }
+      }
       // The Publish row (PRESENTING) is the one that reaches off the machine,
       // so it is two presses: the plan, shown, then the push. Both routes are
       // stood up here — and the plan is a GET on purpose, which is half of
@@ -2153,6 +2162,45 @@
           && /Reading deck\.html/.test(r.running) && r.sendLocked
           && rows.length === 2 && /slide 2/.test(r.last) && /no changes/.test(r.last) && /Nothing to change\./.test(r.last)
           && r.noMarkup && r.sendFree;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'enhance') {
+        // Two palette rows — this slide, every slide — post the scope; the row
+        // rewrites itself per slide and ends on what was done and what was not.
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        const run = async (typed, want) => {
+          if (document.querySelector(Q)) press('Escape');
+          press('/');
+          for (const ch of typed) press(ch);
+          const found = [...document.querySelectorAll(`${Q} ${ROW}`)].find((n) => want.test(n.textContent));
+          const rows = [...document.querySelectorAll(`${Q} ${ROW}`)];
+          // walk the selection down to the row wanted, then ⏎
+          for (let i = 0; found && i < rows.indexOf(found); i++) press('ArrowDown');
+          press('Enter');
+          await settle();
+          return !!found;
+        };
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((e) => e.textContent).join(' | ');
+        await settle();
+        deck.goto(2, 0);
+        r.slideRow = await run('enhance', /Enhance this slide's voiceover script/);
+        r.sentSlide = JSON.stringify(CALLS.post.filter((c) => c.u.includes('/edit/enhance')).pop()?.body?.slides);
+        r.saysDrafting = /Claude Code is drafting audio tags \(read-only\)/.test(said());
+        window.__es.emit('enhance', { state: 'slide', slide: 2, ok: true, changed: true, done: 1, of: 1 });
+        await settle();
+        r.counts = /1 of 1 slide/.test(said());
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2], failed: [], stale: [] });
+        await settle();
+        r.saysDone = /enhanced slide 2 — Z undoes/.test(said());
+        r.allRow = await run('enhance', /Enhance every slide's voiceover script/);
+        r.sentAll = CALLS.post.filter((c) => c.u.includes('/edit/enhance')).pop()?.body?.slides === 'all';
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [1, 3], failed: [{ slide: 2, why: 'the agent changed the words — the prompt allows only tags and emphasis' }], stale: [] });
+        await settle();
+        r.saysWhatWasLeft = /enhanced 2 slides — Z undoes · slide 2 left as it was: the agent changed the words/.test(said());
+        r.PASS = r.slideRow && r.sentSlide === '[2]' && r.saysDrafting && r.counts && r.saysDone
+          && r.allRow && r.sentAll && r.saysWhatWasLeft;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

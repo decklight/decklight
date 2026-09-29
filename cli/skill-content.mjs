@@ -172,6 +172,13 @@ say v4 is prompted:
   sentence flattens the delivery it was meant to lift, and every tag is
   billed as characters.
 
+To tag a script that already exists, \`decklight enhance deck.html --slides 3\`
+(or \`--all\`, \`--dry-run\` to only look) asks the installed agent with the
+prompt ElevenLabs publishes for exactly that, and writes only answers that kept
+every word, \`[click]\` and \`[pause]\`. When you edit the notes yourself,
+follow the same rules: add tags and emphasis, never reword the author's script
+unless asked.
+
 **Commit your own changes when an authoring server is running.** \`decklight
 author\` does not commit edits for anyone: it snapshots the deck silently on
 \`decklight/wip\` and commits when told to — the person presses K; only an

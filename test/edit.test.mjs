@@ -641,6 +641,59 @@ test('the asks of a session are kept on the server — slide, prompt and outcome
   assert.equal(p.agentAsks[1].slide, undefined, 'a slide that is not a slide number is left out');
 });
 
+test('POST /edit/enhance: the agent drafts tags read-only, decklight writes the slides that kept their words — in ONE undo', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const withNotes = DECK
+    .replace('<ul><li>one</li></ul>', '<ul><li>one</li></ul>\n      <aside class="notes"><p>Hello there.</p><p>[click]</p><p>Next beat.</p></aside>')
+    .replace('<h2>Beta</h2>', '<h2>Beta</h2>\n      <aside class="notes"><p>Keep my words.</p></aside>');
+  writeFileSync(deck, withNotes);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  // a fake `claude -p <prompt>`: answers slide 1 with tags, slide 2 reworded
+  writeFakeBin(bin, 'claude', [
+    "const prompt = process.argv[process.argv.indexOf('-p') + 1] ?? '';",
+    "const script = prompt.split('# Script\\n\\n')[1] ?? '';",
+    "console.log(script.startsWith('Keep') ? 'Change my words.' : script.replace('Hello there.', '[warm] Hello there!'));",
+  ].join('\n'));
+  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+
+  const bad = await post(base, '/edit/enhance', { slides: [0] });
+  assert.equal(bad.status, 400, 'slide numbers are 1-based');
+  const started = await (await post(base, '/edit/enhance', { slides: 'all' })).json();
+  assert.deepEqual({ ok: started.ok, of: started.of, agent: started.agent }, { ok: true, of: 2, agent: 'claude' });
+  const again = await post(base, '/edit/enhance', { slides: 'all' });
+  assert.equal(again.status, 409, 'one run at a time');
+
+  for (let i = 0; i < 200; i++) {
+    if ((await (await fetch(base + '/edit/ping')).json()).undo === 1) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  const after = readFileSync(deck, 'utf8');
+  assert.match(after, /<p>\[warm\] Hello there!<\/p>\s*<p>\[click\]<\/p>\s*<p>Next beat\.<\/p>/);
+  assert.match(after, /Keep my words\./, 'the reworded answer was not written');
+  assert.doesNotMatch(after, /Change my words/);
+  await post(base, '/edit/undo');
+  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes the whole run back');
+
+  const none = await post(base, '/edit/enhance', { slides: [2] });
+  assert.equal(none.status, 200, 'slide 2 has notes');
+  for (let i = 0; i < 200; i++) {
+    const r = await post(base, '/edit/enhance', { slides: [1] });
+    if (r.status !== 409) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+});
+
+test('POST /edit/enhance with no agent on the machine is a 400 that says so', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DECK.replace('<h2>Beta</h2>', '<h2>Beta</h2><aside class="notes"><p>Words.</p></aside>'));
+  const { base } = await startEdit(t, dir, { env: { PATH: '' } });
+  const r = await post(base, '/edit/enhance', { slides: 'all' });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /no agent CLI|install one/);
+});
+
 // ── the author server is loopback-only, and has no remote (PRESENT#REMOTE) ─
 
 test('--remote and --host are refused out loud, naming where the remote went', () => {

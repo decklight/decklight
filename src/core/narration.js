@@ -524,7 +524,7 @@ export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
   openedMidTalk = false, rangePicker = null, chapters = () => [],
   syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
-  authorReady = () => Promise.resolve(),
+  authorReady = () => Promise.resolve(), enhanceScript = () => null,
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
@@ -1859,7 +1859,7 @@ export function createNarration({
     else if (narrView === 'tones') renderNarr('voices');
     else if (narrView === 'engines') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('character');
-    else if (narrView === 'record') renderNarr('tracks');
+    else if (narrView === 'record' || narrView === 'enhance') renderNarr('tracks');
     else if (narrView === 'voices' || narrView === 'character') renderNarr('tracks');
     else closeNarrPicker();
   }
@@ -2050,6 +2050,15 @@ export function createNarration({
       // Recording used to be two shortcuts nobody found — the synthesized recorder and the your-voice recorder, one of
       // which was not even in the keyboard help. It is a thing you do TO this
       // deck's narration, so it belongs beside the track it produces.
+      // The script the voice reads, given ElevenLabs v4's audio tags — the
+      // agent drafts, decklight checks no word or beat moved (cli/enhance.mjs).
+      // It writes the deck, so it needs the author server; said in place.
+      narrRows.push({
+        text: '✨ Enhance the script — ElevenLabs audio tags…',
+        flavor: enhanceScript() ? '[thoughtful] [sighs] — your agent drafts, nothing reworded' : '',
+        blocked: enhanceScript() ? null : 'needs decklight author — it writes the notes',
+        commit: () => (enhanceScript() ? renderNarr('enhance') : toast('enhancing the script needs decklight author — it writes the notes', 4000)),
+      });
       narrRows.push({
         text: '🎙 Record this deck…',
         flavor: narrSets.some((t) => !t.live) ? 're-record, or add another take' : 'write the audio to a folder',
@@ -2069,6 +2078,20 @@ export function createNarration({
         flavor: '< slower · > faster',
         toggle: true,
         commit: () => { changeNarrRate(narrRate >= 2 ? -1.75 : 0.25); renderNarr('tracks'); },
+      });
+    } else if (view === 'enhance') {
+      head.textContent = 'enhance the script — audio tags ElevenLabs v4 performs';
+      // Two scopes, the ones the palette offers too. Z takes either back.
+      const run = (scope) => { const go = enhanceScript(); closeNarrPicker(); go?.(scope); };
+      narrRows.push({
+        text: `This slide — ${instance.state.slide}`,
+        flavor: 'its notes, with tags added where they help',
+        commit: () => run('slide'),
+      });
+      narrRows.push({
+        text: 'Every slide with notes',
+        flavor: 'a few at a time — the agent is asked once per slide',
+        commit: () => run('all'),
       });
     } else if (view === 'record') {
       head.textContent = 'record this deck — writes wav files beside it';

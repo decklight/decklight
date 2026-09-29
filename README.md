@@ -165,6 +165,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `pptx deck.html` | a PowerPoint file, every slide a picture, notes as notes |
 | `video deck.html` | a narrated video — mp4, mov or webm, with subtitles in it or beside it (`--format`, `--quality`, `--subtitles`; `--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette, which can voice it with the live voice first) |
 | `voiceover deck.html` | batch-synthesize the narration into a folder |
+| `enhance deck.html --slides 3` | add ElevenLabs v4 audio tags to the notes with the prompt ElevenLabs publishes — your agent drafts, decklight checks no word changed (`--all`, `--dry-run`) |
 
 | Keeping track | |
 |---|---|

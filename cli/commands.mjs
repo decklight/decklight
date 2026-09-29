@@ -65,6 +65,7 @@ export const COMMANDS = {
   // already spawns it. stdio inherited: its per-slide progress and cost lines
   // are the whole point of running it in a terminal.
   voiceover: { spawn: '../tools/voiceover.mjs' },
+  enhance: { module: './enhance.mjs', main: 'enhanceMain' },
   review: { module: './review.mjs', main: 'reviewMain' },
   comments: { module: './comments.mjs', main: 'commentsMain' },
   present: { module: './present.mjs', main: 'presentMain' },
@@ -324,6 +325,9 @@ Commands:
   voiceover batch-synthesize the deck's narration into a folder with a live engine
            (piper/chirp/gemini/elevenlabs) — the headless counterpart of the deck's V → Record this deck…
            EXAMPLE: decklight voiceover talk.html -o voices/chirp --engine chirp --voice Achernar
+  enhance  add ElevenLabs v4 audio tags ([thoughtful], [sighs]) to the voiceover script, with the
+           prompt ElevenLabs publishes for it — your agent drafts, decklight checks no word changed
+           EXAMPLE: decklight enhance talk.html --slides 3   (or --all; --dry-run to only look)
   review   leave comments on somebody's deck, anchored to slides and carried by git
            (writes <deck>.review.jsonl beside it; never touches the deck itself)
            EXAMPLE: decklight review talk.html   (then M in the deck)

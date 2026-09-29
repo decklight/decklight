@@ -399,6 +399,12 @@ export function createEditMode({
               paintAsks?.();
             } catch { /* malformed event */ }
           });
+          // A script enhancement, slide by slide (cli/enhance.mjs). Its last
+          // event lands just before the reload its write causes, so the summary
+          // is kept for the page that loads next as well as said here.
+          es.addEventListener('enhance', (ev) => {
+            try { enhanceEvent(JSON.parse(ev.data)); } catch { /* malformed event */ }
+          });
           // Progress for a long export — the row that started it is still on
           // screen, so this rewrites that row rather than adding one per slide.
           es.addEventListener('export', (ev) => {
@@ -414,6 +420,7 @@ export function createEditMode({
             + (editAgents.length ? ` · agents: ${editAgents.map((a) => a.name).join(', ')}` : ''));
           probeSettled();
           resumeHandover();
+          enhanceSummaryAfterReload();
           return;
         } catch { /* not served by the edit server */ }
       }
@@ -1948,6 +1955,66 @@ export function createEditMode({
     }
   }
 
+  // ── the voiceover script, enhanced with ElevenLabs v4's audio tags ────────
+  // The agent drafts (read-only), decklight checks and writes (cli/enhance.mjs,
+  // SPEC PRESENTING). One run at a time; `scope` is 'slide' or 'all'.
+  let enhanceRun = null;
+  const ENHANCE_DONE_KEY = 'decklight-enhance-done:' + location.pathname;
+  async function enhanceScript(scope = 'slide') {
+    if (!editAvailable) { toast(needsDevMode('enhancing the script', location), 3200); return; }
+    if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
+    if (enhanceRun) { toast('already enhancing the script — one run at a time'); return; }
+    const slide = instance.state.slide;
+    const what = scope === 'all' ? 'every slide\'s script' : `slide ${slide}'s script`;
+    const run = progress(`enhancing ${what} with ElevenLabs audio tags — asking the agent…`);
+    enhanceRun = { run, what };
+    try {
+      const r = await fetch(editBase + '/edit/enhance', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ slides: scope === 'all' ? 'all' : [slide] }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      enhanceRun.of = j.of;
+      run.update(`enhancing ${what} — ${j.label || j.agent} is drafting audio tags (read-only)…`);
+      debugLog('enhance', `${j.of} slide(s) → ${j.agent}`);
+    } catch (e) {
+      run.done(`could not enhance ${what} — ${e.message}`, 5200);
+      enhanceRun = null;
+    }
+  }
+  /** What a finished run says, in one line. */
+  function enhanceSummary(d) {
+    if (!d.ok) return `could not enhance the script — ${d.error}`;
+    const n = d.changed.length;
+    const parts = [n ? `enhanced ${n === 1 ? `slide ${d.changed[0]}` : `${n} slides`} — Z undoes` : 'no slide changed'];
+    if (d.failed.length) {
+      parts.push(d.failed.length === 1 ? `slide ${d.failed[0].slide} left as it was: ${d.failed[0].why}`
+        : `${d.failed.length} left as they were (the agent changed their words or beats)`);
+    }
+    if (d.stale.length) parts.push(`${d.stale.length === 1 ? `slide ${d.stale[0]}` : `${d.stale.length} slides`} edited meanwhile, kept`);
+    return parts.join(' · ');
+  }
+  function enhanceEvent(d) {
+    if (d.state === 'slide' && enhanceRun) {
+      enhanceRun.run.update(`enhancing ${enhanceRun.what} — ${d.done} of ${d.of} slide${d.of === 1 ? '' : 's'}…`);
+    } else if (d.state === 'done') {
+      const line = enhanceSummary(d);
+      if (enhanceRun) enhanceRun.run.done(line, 6000); else toast(line, 6000);
+      enhanceRun = null;
+      debugLog('enhance', line);
+      // a write reloads the page a moment from now — say it again there
+      if (d.ok && d.changed.length) {
+        try { sessionStorage.setItem(ENHANCE_DONE_KEY, JSON.stringify({ line, at: Date.now() })); } catch { /* said once */ }
+      }
+    }
+  }
+  function enhanceSummaryAfterReload() {
+    let kept = null;
+    try { kept = JSON.parse(sessionStorage.getItem(ENHANCE_DONE_KEY) || 'null'); sessionStorage.removeItem(ENHANCE_DONE_KEY); } catch { /* nothing kept */ }
+    if (kept && Date.now() - kept.at < 15000) toast(kept.line, 6000);
+  }
+
   // ── publishing: the one row that reaches off this machine ────────────────
   //
   // Every other hand-over row writes a file next to the deck. This one pushes
@@ -2056,6 +2123,7 @@ export function createEditMode({
     commit: { open: openCommit, close: closeCommit, state: () => commitNow },
     /** The palette's hand-over rows: 'pptx' | 'pdf' | 'pdf-notes' | 'pdf-handout'. */
     exportDeck,
+    enhanceScript,
     /** The Publish row: the first call asks and arms, the second publishes. */
     publishDeck,
   };

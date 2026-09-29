@@ -921,6 +921,14 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Apply template to current slide… (dev)',
         alias: 'template look layout style restyle apply reskin borrow shape backdrop',
         run: () => templates.open('apply') },
+      // the voiceover script, given ElevenLabs v4's audio tags — the agent
+      // drafts, decklight checks no word or beat moved (cli/enhance.mjs)
+      editmode.available() && { label: 'Enhance this slide\'s voiceover script… (dev)',
+        alias: 'enhance elevenlabs v4 audio tags expressive emotion notes narration voice script improve direction',
+        run: () => editmode.enhanceScript('slide') },
+      editmode.available() && { label: 'Enhance every slide\'s voiceover script… (dev)',
+        alias: 'enhance all slides whole deck elevenlabs v4 audio tags expressive emotion notes narration voice script',
+        run: () => editmode.enhanceScript('all') },
       editmode.available() && { label: 'Export to PowerPoint… (dev)',
         alias: 'pptx powerpoint keynote google slides export file office send share hand over',
         run: () => editmode.exportDeck('pptx') },
@@ -2325,6 +2333,8 @@ export function init(userConfig = {}) {
     // …and the thing that makes reading it safe: false means "no server" only
     // AFTER this resolves. The recorder awaits it rather than guessing early.
     authorReady: () => editmode?.settled?.() ?? Promise.resolve(),
+    // V → Enhance the script…: author mode only, like every row that writes the deck
+    enhanceScript: () => (editmode?.available() ? editmode.enhanceScript : null),
   });
   const {
     character, toggleNarration, toggleNarrPause, changeNarrRate, toggleCaptions,
