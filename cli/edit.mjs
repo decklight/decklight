@@ -142,16 +142,20 @@ const corsHeadersFor = (origin) => ({
 export { isLoopback, lanAddress, escapeHtml } from './serve.mjs';
 
 /**
- * Click-separated plain text → the aside's inner HTML (one <p> per segment).
- * Every marker spelling is read (`[click]`, `<click>`, `⟨CLICK⟩`…) and each is
- * written back the one way decklight writes them, in square brackets.
+ * Click-separated plain text → the aside's inner HTML: one <p> per paragraph
+ * — a blank line apart, as the author wrote them; saving never merges them —
+ * and a `<p>[click]</p>` between beats. Every marker spelling is read
+ * (`[click]`, `<click>`, `⟨CLICK⟩`…) and each is written back the one way
+ * decklight writes them, in square brackets.
  */
 export function notesTextToAside(text) {
-  const segs = canonMarks(text).split(CLICK_MARK).map((s) => writtenMarks(s).replace(/\s+/g, ' ').trim());
   const ps = [];
-  segs.forEach((seg, i) => {
+  canonMarks(text).split(CLICK_MARK).forEach((seg, i) => {
     if (i > 0) ps.push('<p>[click]</p>');
-    if (seg) ps.push(`<p>${escapeHtml(seg)}</p>`);
+    for (const para of writtenMarks(seg).split(/\n[ \t]*\n/)) {
+      const p = para.replace(/\s+/g, ' ').trim();
+      if (p) ps.push(`<p>${escapeHtml(p)}</p>`);
+    }
   });
   return ps.join('\n        ');
 }

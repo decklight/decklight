@@ -30,7 +30,7 @@ import { hljs } from '../code/code.js';
 /** Wire the dev-server features to a deck. */
 export function createEditMode({
   root, config, params, printMode, toast, progress, debugLog, overlays, instance,
-  notesSegs, renderTheme = () => ({}), previewQuery = () => '?embedded',
+  notesSegs, notesDraft = (sl) => notesSegs(sl).join('\n\n⟨CLICK⟩\n\n'), renderTheme = () => ({}), previewQuery = () => '?embedded',
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
   // Served by the edit server: the deck subscribes to /edit/events and
@@ -831,8 +831,9 @@ export function createEditMode({
     editEl = el;
     const ta = document.createElement('textarea');
     ta.className = 'narr-input edit-notes';
-    // the markers as the author writes them — [click], [pause] — never ⟨…⟩
-    const notesText = () => writtenMarks(notesSegs(sl).filter((s, i, a) => s || i < a.length).join('\n\n⟨CLICK⟩\n\n'));
+    // the markers as the author writes them — [click], [pause] — never ⟨…⟩ —
+    // and the paragraphs as the author laid them out, a blank line apart
+    const notesText = () => writtenMarks(notesDraft(sl));
     let loaded = ta.value = notesText();
     ta.spellcheck = false;
     notesFollow = () => {

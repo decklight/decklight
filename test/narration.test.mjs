@@ -22,7 +22,7 @@ import { BEAT_PAUSE_DEFAULT } from '../tools/narration-manifest.mjs';
 import {
   hintApplies, clipTallyLine, pauseSeconds, pauseFor, sentencePauseFor, SENTENCE_PAUSE_S, BEAT_PAUSE_S, SLIDE_PAUSE_S, segmentFileIndex, narrationTracks, recordPlan, floatToPcm16,
   proposeTrack, parseVoiceQuery, voiceMatches,
-  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, notesPlain, stepPlan,
+  splitSentences, fmtTime, stitchWav, silencePcm, micWhy, notesSegsOf, notesPlain, notesDraft, stepPlan,
 } from '../src/core/narration.js';
 
 /** A deck that should show the hint — each case below spoils exactly one thing. */
@@ -592,6 +592,13 @@ test('a person\'s spelling of a marker cuts and holds like the canonical one', (
   assert.deepEqual(notesSegsOf(asideOf('One. [click] Two. [CLICK] Three. <Click> Four.')), ['One.', 'Two.', 'Three.', 'Four.']);
   assert.deepEqual(notesSegsOf(asideOf('Look. [pause] Now [Slow]slowly[/SLOW].')), ['Look. ⟨PAUSE⟩ Now [slow]slowly.'],
     'the editor reads these segments back: an old slow stretch comes back as the [slow] tag, its close gone');
+});
+
+test('the notes editor shows each paragraph a blank line apart — the narration still reads one line a beat', () => {
+  const aside = el('aside', el('p', txt('First para.')), txt('\n  '), el('p', txt('Second  para,'), el('br'), txt('same one.')),
+    el('p', txt('[click]')), el('p', txt('Beat two.')), el('p', txt('More of it.')));
+  assert.equal(notesDraft(aside), 'First para.\n\nSecond para, same one.\n\n⟨CLICK⟩\n\nBeat two.\n\nMore of it.');
+  assert.equal(notesSegsOf(Object.assign(aside, { innerHTML: 'y' })).length, 2, 'the narration\'s beats are unchanged');
 });
 
 test('notesPlain reads a marker ELEMENT as its marker — textContent sees nothing there', () => {

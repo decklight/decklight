@@ -443,7 +443,7 @@ export function notesSegsOf(aside) {
  * file-reading twin is `readNotes` in tools/deck-html.mjs, and the two must
  * agree or the deck and its recording disagree about where a beat is.
  */
-export function notesPlain(node) {
+export function notesPlain(node, { blocks = false } = {}) {
   let out = '';
   const walk = (el) => {
     for (const c of el.childNodes) {
@@ -453,11 +453,30 @@ export function notesPlain(node) {
       if (tag === 'pause') out += PAUSE_MARK;
       else if (tag === 'click') out += CLICK_MARK;
       else if (tag === 'slow') out += '[slow]';
+      else if (blocks && tag === 'br') out += '\n';
+      const block = blocks && BLOCKS.has(tag);
+      if (block) out += '\n\n';
       walk(c);
+      if (block) out += '\n\n';
     }
   };
   if (node) walk(node);
   return canonMarks(out);
+}
+// the elements a paragraph break is made of, for `notesDraft`
+const BLOCKS = new Set(['p', 'div', 'li', 'ul', 'ol', 'blockquote', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'table', 'tr']);
+
+/**
+ * A notes element as the notes editor shows it: each beat's paragraphs kept
+ * apart by a blank line — the author's own layout, which the narration's
+ * flattened `notesSegsOf` has no use for but a person editing it does — and a
+ * `⟨CLICK⟩` line between beats. Saving writes a paragraph back per blank-line
+ * block (`notesTextToAside`), so opening and saving changes nothing.
+ */
+export function notesDraft(aside) {
+  return notesPlain(aside, { blocks: true }).split(CLICK_MARK)
+    .map((beat) => beat.split(/\n[ \t]*\n/).map((p) => p.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n\n'))
+    .join('\n\n⟨CLICK⟩\n\n').trim();
 }
 
 /** `47s`, `1m05s` — how the recorder's progress line says how long it has been. */
@@ -747,6 +766,7 @@ export function createNarration({
   function notesSegs(sl) {
     return notesSegsOf(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
   }
+  const notesDraftOf = (sl) => notesDraft(instance._sections?.[sl - 1]?.querySelector('aside.notes'));
   // resolves { url, blob }: playback needs the object URL, the the synthesized recorder stitcher
   // needs the raw bytes — one cache serves both
   function synthLive(text, key, label) {
@@ -3559,7 +3579,7 @@ export function createNarration({
     openRecordDialog,
     openMicRecorder,
     applySolo,
-    notesSegs,
+    notesSegs, notesDraftOf,
     /** Everything the engine's chrome, palette and debug panel read back. */
     status: () => ({
       narrating,

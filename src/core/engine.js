@@ -2328,7 +2328,7 @@ export function init(userConfig = {}) {
   });
   const {
     character, toggleNarration, toggleNarrPause, changeNarrRate, toggleCaptions,
-    openRecordDialog, openMicRecorder, notesSegs,
+    openRecordDialog, openMicRecorder, notesSegs, notesDraftOf,
   } = narration;
   const openNarrPicker = narration.openPicker;
   instance.toggleNarration = toggleNarration;               // programmatic start/stop
@@ -2390,7 +2390,7 @@ export function init(userConfig = {}) {
   // notes segmentation; it registers its own three overlays.
   const editmode = createEditMode({
     root, config, params, printMode, toast, progress: progressToast, debugLog, overlays, instance,
-    notesSegs,
+    notesSegs, notesDraft: notesDraftOf,
     // what an export renders in — the theme on screen, not the deck's default (#547)
     renderTheme: () => themes.renderTheme(),
     // what a preview frame looks like — the history's included — the same

@@ -112,6 +112,15 @@ test('POST /edit/notes writes the aside and leaves one undo entry behind', async
   assert.equal(history.counts().redo, 0, 'a fresh edit clears the redo stack');
 });
 
+test('POST /edit/notes keeps the paragraphs: a blank line is a new <p>, never merged away', async (t) => {
+  const { routes, readDeck } = harness(t);
+  const r = await call(routes, 'POST /edit/notes', { body: { slide: 1, text: 'First para.\n\nSecond para,\nsame one.\n\n[click]\n\nBeat two.\n\n\nMore of it.' } });
+  assert.equal(r.code, 200);
+  const aside = /<aside class="notes">([\s\S]*?)<\/aside>/.exec(readDeck())[1];
+  assert.deepEqual([...aside.matchAll(/<p>(.*?)<\/p>/g)].map((m) => m[1]),
+    ['First para.', 'Second para, same one.', '[click]', 'Beat two.', 'More of it.']);
+});
+
 test('POST /edit/notes reads every marker spelling and writes each one in brackets', async (t) => {
   const { routes, readDeck } = harness(t);
   const text = 'one <pause> two ⟨PAUSE⟩⟨PAUSE⟩ [whispers] three\n\n<click>\n\n[CLICK]\n\nfour ⟨SLOW⟩slowly⟨/SLOW⟩';
