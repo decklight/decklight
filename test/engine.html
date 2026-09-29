@@ -788,6 +788,17 @@
         // coming back the next time a row borrows the word.
         const firstMatch = document.querySelector(`${'.decklight-palette'} .pal-row`)?.textContent ?? '';
         r.settingsIsFirstMatch = /Settings…/.test(firstMatch);
+        // …and so for "version", the word somebody asking WHICH decklight this
+        // is types — it used to land on History…, whose alias said "version"
+        press('Escape');
+        if (!document.querySelector('.decklight-palette')) press('/');
+        for (const ch of 'settings') press('Backspace');
+        for (const ch of 'version') press(ch);
+        r.versionFindsSettingsFirst = /Settings…/.test(document.querySelector('.decklight-palette .pal-row')?.textContent ?? '');
+        press('Escape');
+        if (document.querySelector('.decklight-palette')) press('Escape');
+        press('/');
+        for (const ch of 'settings') press(ch);
         press('Enter');
         r.opens = !!document.querySelector(Q);
         const rows = [...document.querySelectorAll(`${Q} ${ROW}`)];
@@ -833,7 +844,7 @@
         deck.settings.close();
         r.apiCloses = !document.querySelector(Q);
 
-        r.PASS = r.settingsIsFirstMatch && r.opens && r.hasRows && r.showsVersionRow && r.saysEnterCopies
+        r.PASS = r.settingsIsFirstMatch && r.versionFindsSettingsFirst && r.opens && r.hasRows && r.showsVersionRow && r.saysEnterCopies
           && r.versionIsReal && r.versionMatchesApi && r.apiRowsMatch
           && r.enterCopiesTheVersion && r.saysItCopied && r.closesAfterCopying && r.refusedCopyStillShowsIt
           && r.escapeCloses && r.apiOpens && r.apiCloses;

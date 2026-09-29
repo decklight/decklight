@@ -814,7 +814,10 @@ export function init(userConfig = {}) {
       { label: 'Comments…', hint: 'M', alias: 'feedback remarks reviewer notes critique review read', run: () => review.open() },
       { label: 'Leave a comment…', hint: '⇧M', alias: 'comment note remark feedback add write say', run: () => review.compose() },
       { label: 'Submit review…', alias: 'send review push comments submit feedback', run: () => review.submit() },
-      { label: 'History… (dev)', hint: 'H', alias: 'restore version rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() },
+      // Not "version": that word is what somebody types to find out WHICH
+      // decklight this is (Settings…), and it landed here first. An earlier
+      // state of the deck is reached by the words below.
+      { label: 'History… (dev)', hint: 'H', alias: 'restore previous earlier rollback revert back git log commits unpushed push remote when changed', run: () => editmode.history.open() },
       { label: 'Go to slide…', hint: '#', alias: 'goto', keepOpen: true, run: () => { palQuery = 'goto '; renderPalette(); } },
       { label: 'Theme…', hint: 'T', run: themes.openPicker },
       { label: 'Cycle theme', hint: ', · .', run: () => cycleTheme(1) },
