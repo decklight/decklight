@@ -244,6 +244,18 @@
         return new Response(JSON.stringify({ ok: true, engine: 'mock', engines: [{ name: 'mock', ready: true, current: true, cost: 'free' }] }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
+      // engineback / enginegone: the deck asks for the engine its saved live
+      // voice was picked on BY NAME (`/ping?engine=`) — a question for this tab,
+      // never a switch of the bridge every tab shares
+      if ((mode === 'engineback' || mode === 'enginegone') && /\/ping\?engine=/.test(u)) {
+        window.__engineAsked = new URL(u, location.href).searchParams.get('engine');
+        const answer = mode === 'enginegone'
+          ? { ok: false, error: 'missing-key', why: 'ELEVENLABS_API_KEY is not set' }
+          : { ok: true, engine: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false,
+            voices: [['Gilles', 'cloned'], ['Rachel', 'calm']] };
+        return new Response(JSON.stringify(answer),
+          { status: answer.ok ? 200 : 409, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/ping')) {
         // xss: the roster is somebody ELSE'S text — an ElevenLabs voice is
         // named by whoever shared it, and that name may be markup
@@ -289,10 +301,10 @@
         return new Response(JSON.stringify({ ok: true, ...roster }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      // the deck asks for the engine its saved live voice was picked on
-      // (engineback); enginegone is that engine's key gone since
+      // POST /engine switches the bridge's DEFAULT for every tab — a current
+      // deck must never call it (engineback/enginegone assert it did not)
       if (u.endsWith('/engine') && opts?.method === 'POST') {
-        window.__engineAsked = JSON.parse(opts.body ?? '{}').engine;
+        window.__engineSwitched = JSON.parse(opts.body ?? '{}').engine;
         const answer = mode === 'enginegone'
           ? { ok: false, error: 'missing-key', why: 'ELEVENLABS_API_KEY is not set' }
           : { ok: true, engine: 'elevenlabs', model: 'eleven_multilingual_v2', stylable: false,
@@ -1600,15 +1612,16 @@
           await new Promise((ok) => setTimeout(ok, 1500));
           const saved = JSON.parse(localStorage.getItem(key)).live;
           r.askedForTheEngine = window.__engineAsked === 'elevenlabs';
+          r.switchedNothing = window.__engineSwitched === undefined;   // other tabs keep their voice
           r.asked = bodies.length > 0;
           if (mode === 'engineback') {
-            r.spokeAs = bodies.every((b) => b.voice === 'Gilles');
+            r.spokeAs = bodies.every((b) => b.voice === 'Gilles' && b.engine === 'elevenlabs');
             r.keptBoth = saved.voice === 'Gilles' && saved.engine === 'elevenlabs';
-            r.PASS = r.askedForTheEngine && r.asked && r.spokeAs && r.keptBoth;
+            r.PASS = r.askedForTheEngine && r.switchedNothing && r.asked && r.spokeAs && r.keptBoth;
           } else {
             r.saidSo = deck.messages().some((m) => /elevenlabs: ELEVENLABS_API_KEY is not set — speaking with mock/.test(m.text));
-            r.spokeAs = bodies.every((b) => b.voice === 'Alnilam');
-            r.PASS = r.askedForTheEngine && r.asked && r.saidSo && r.spokeAs;
+            r.spokeAs = bodies.every((b) => b.voice === 'Alnilam' && b.engine === 'mock');
+            r.PASS = r.askedForTheEngine && r.switchedNothing && r.asked && r.saidSo && r.spokeAs;
           }
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;

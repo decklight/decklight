@@ -581,7 +581,9 @@ export function createNarration({
   // (SPEC `NARRATION`) — so which one is a choice the deck can make, not just a
   // fact it reads. These two are the same route in its read and write forms.
   const ENGINES_URL = LIVE_URL.replace(/\/tts\/?$/, '/engines');
-  const ENGINE_URL = LIVE_URL.replace(/\/tts\/?$/, '/engine');
+  // `?engine=` on the bridge's GETs: THIS tab's engine, never a switch of the
+  // bridge — one bridge serves every tab, each on the engine its voice is on
+  const forEngine = (url, name) => (name ? `${url}${url.includes('?') ? '&' : '?'}engine=${encodeURIComponent(name)}` : url);
   let liveVoices = GEMINI_VOICES;
   let liveStylable = true;  // only gemini takes a delivery instruction
   let liveAudioTags = false; // ElevenLabs v3/v4 act on [whispers]; any other voice has them taken out
@@ -604,12 +606,10 @@ export function createNarration({
   // must see that on the next open, not the answer from before they fixed it.
   let liveMenu = null;
   function probeLive() {
-    livePing ??= fetch(PING_URL)
-      .then((r) => (r.ok ? r.json() : null))
+    livePing ??= askBridge()
       .then(async (p) => {
         if (!p) return null;
         liveFound = true;
-        p = await restoreEngine(p);
         // A saved voice the LIVE bridge cannot speak is stale, not a choice: it
         // was picked for a different engine (the Gemini roster is the default,
         // and an ElevenLabs key knows none of those names). Sending it anyway
@@ -627,31 +627,28 @@ export function createNarration({
     return livePing;
   }
   /**
-   * Put the bridge back on the engine this deck's live voice was picked on.
+   * Ask the bridge about the engine this deck's live voice was picked on.
    *
    * A voice name belongs to an engine — `Alnilam` is Gemini's, an ElevenLabs
-   * voice is yours — so the two are saved together, and the next session
-   * restores both: a bridge restarted on its default engine would otherwise
-   * find the saved voice missing from its roster and replace it. The bridge
-   * refuses an engine that is not ready here (no key, no model), and then the
-   * deck speaks with what the bridge has — said out loud, never silently.
+   * voice is yours — so the two are saved together, and the next session asks
+   * for both: `/ping?engine=`. That NAMES the engine for this tab; it switches
+   * nothing for anyone else. It used to switch the bridge (POST /engine), and
+   * one bridge serves every tab — so a second tab restoring ITS engine on load
+   * silently took the voice from the first. An engine this machine cannot run
+   * any more (no key, no model) is said out loud, and the deck speaks with
+   * what the bridge has.
    */
-  async function restoreEngine(p) {
+  async function askBridge() {
     const want = narrSet?.live ? liveCfg.engine : null;
-    if (!want || want === p.engine) return p;
     try {
-      const r = await fetch(ENGINE_URL, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ engine: want }),
-      });
-      const j = await r.json();
-      if (j.ok) {
-        debugLog('tts', `engine ${p.engine} → ${j.engine} (restored for this deck)`);
-        return j;
-      }
-      toast(`${want}: ${j.why ?? j.error ?? 'unavailable'} — speaking with ${p.engine}`, 4000);
-    } catch { /* the bridge answered /ping; speak with what it has */ }
-    return p;
+      const r = await fetch(forEngine(PING_URL, want));
+      if (r.ok) return await r.json();
+      if (!want || r.status !== 409) return null;
+      const j = await r.json().catch(() => ({}));
+      const plain = await fetch(PING_URL).then((x) => (x.ok ? x.json() : null)).catch(() => null);
+      if (plain) toast(`${want}: ${j.why ?? j.error ?? 'unavailable'} — speaking with ${plain.engine}`, 4000);
+      return plain;
+    } catch { return null; } // no bridge — the picker still works, V just warns
   }
   /**
    * Take on what the bridge just told us about itself.
@@ -792,7 +789,7 @@ export function createNarration({
           const res = await fetch(LIVE_URL, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text, voice: liveCfg.voice, style: liveCfg.style }),
+            body: JSON.stringify({ text, voice: liveCfg.voice, style: liveCfg.style, ...(liveEngine ? { engine: liveEngine } : {}) }),
           });
           if (!res.ok) throw new Error(String(res.status));
           const blob = await res.blob();
@@ -1816,7 +1813,7 @@ export function createNarration({
     try {
       writeJson(narrKey, narrSet?.live
         // the engine rides with the voice, because a voice name is only a
-        // name on the engine it came from (restoreEngine)
+        // name on the engine it came from (askBridge)
         ? { live: { ...liveCfg, engine: liveEngine ?? liveCfg.engine } }
         // `off` is written rather than left implied. An empty payload already
         // reads back as off today, but only by accident of nothing matching;
@@ -1925,7 +1922,7 @@ export function createNarration({
         const res = await fetch(LIVE_URL, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text, voice, style }),
+          body: JSON.stringify({ text, voice, style, ...(liveEngine ? { engine: liveEngine } : {}) }),
         });
         if (!res.ok) throw new Error(String(res.status));
         const blob = await res.blob();
@@ -2208,7 +2205,7 @@ export function createNarration({
         // port — telling its owner to restart decklight would send them
         // looking in exactly the wrong place.
         const isBridge = () => fetch(PING_URL).then((r) => (r.ok ? r.json() : null)).then((p) => p?.ok === true && !!p.engine).catch(() => false);
-        fetch(ENGINES_URL)
+        fetch(forEngine(ENGINES_URL, liveEngine))
           .then(async (r) => (r.ok ? r.json() : { stale: true, bridge: await isBridge() }))
           .then((j) => { liveMenu = j?.stale ? (j.bridge ? 'stale' : 'foreign') : (j?.engines ?? []); })
           .catch(() => { liveMenu = []; })
@@ -2521,7 +2518,7 @@ export function createNarration({
   /**
    * Ask the bridge to speak with a different engine.
    *
-   * Remembered by THIS DECK, with its live voice (restoreEngine), and nowhere
+   * Remembered by THIS DECK, with its live voice (askBridge), and nowhere
    * else. `~/.config/decklight/tts.json` is what the CLI and the setup wizard
    * write, and it decides what the NEXT `decklight author` starts with for
    * every deck; an experiment two minutes before a talk must not quietly
@@ -2540,10 +2537,9 @@ export function createNarration({
     }
     if (e.current) return renderNarr('voices');
     try {
-      const r = await fetch(ENGINE_URL, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ engine: e.name }),
-      });
+      // THIS tab's engine — asked for by name, switching nothing for any other
+      // tab on the same bridge (askBridge says why)
+      const r = await fetch(forEngine(PING_URL, e.name));
       const j = await r.json();
       if (!j.ok) return toast(`${e.name}: ${j.why ?? j.error}${j.fix ? ` — ${j.fix}` : ''}`, 5000);
       // The roster just changed under us, so the cached /ping must not be

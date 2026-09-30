@@ -174,3 +174,45 @@ test('a swap round trip leaves the bridge exactly where it started', async (t) =
   assert.equal(end.stylable, start.stylable);
   assert.deepEqual(end.voices, start.voices);
 });
+
+// ── two tabs, two engines, one bridge ──────────────────────────────────────
+//
+// Found by hand: a deck speaking with ElevenLabs fell silent because another
+// tab, whose saved voice was on another engine, SWITCHED the bridge they
+// share on load. Each tab now names its engine on every request, and the
+// bridge holds every engine it is asked for side by side.
+
+test('two tabs on two engines: each is described by its own engine, and neither switches the other', async (t) => {
+  const { base } = await startBridge(t, { engine: 'chirp' });
+  const tabA = await (await fetch(`${base}/ping?engine=gemini`)).json();
+  assert.equal(tabA.engine, 'gemini');
+  assert.equal(tabA.stylable, true, 'gemini\'s own style channel, not chirp\'s');
+  const tabB = await (await fetch(`${base}/ping?engine=chirp`)).json();
+  assert.equal(tabB.engine, 'chirp');
+  assert.equal(tabB.stylable, false);
+  // asking for gemini BY NAME built it beside chirp — it switched nothing
+  assert.equal((await ping(base)).engine, 'chirp', 'a named engine is a question, not a switch');
+  // each tab sees its own engine ticked
+  const menuA = await (await fetch(`${base}/engines?engine=gemini`)).json();
+  assert.deepEqual(menuA.engines.filter((e) => e.current).map((e) => e.name), ['gemini']);
+  assert.equal(menuA.engines.find((e) => e.name === 'gemini').ready, true, 'an engine the bridge holds is ready');
+  const menuB = await (await fetch(`${base}/engines?engine=chirp`)).json();
+  assert.deepEqual(menuB.engines.filter((e) => e.current).map((e) => e.name), ['chirp']);
+  // and an OLDER deck's POST /engine moves only the default — a tab naming its
+  // engine is still described by it
+  await swap(base, 'gemini');
+  assert.equal((await ping(base)).engine, 'gemini');
+  assert.equal((await (await fetch(`${base}/ping?engine=chirp`)).json()).engine, 'chirp');
+});
+
+test('an engine a tab names that this machine cannot run is refused with its fix, and the default is untouched', async (t) => {
+  const { base } = await startBridge(t, { engine: 'chirp', env: { ELEVENLABS_API_KEY: '' } });
+  const r = await fetch(`${base}/ping?engine=elevenlabs`);
+  assert.equal(r.status, 409);
+  const j = await r.json();
+  assert.equal(j.reason, 'no-key');
+  assert.ok(j.fix);
+  const tts = await fetch(`${base}/tts`, { method: 'POST', body: JSON.stringify({ text: 'Hi.', voice: 'x', engine: 'elevenlabs' }) });
+  assert.equal(tts.status, 409, 'a sentence for an engine it cannot run is refused the same way, never spoken by another');
+  assert.equal((await ping(base)).engine, 'chirp');
+});

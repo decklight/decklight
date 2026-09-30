@@ -216,20 +216,79 @@ export async function ttsMain(args) {
   // deck can now change which engine that is (SPEC `NARRATION`), and a roster
   // or an id map left behind from the previous one would offer voices the
   // current engine cannot say.
-  let refs = [];
-  let refIds = new Map();
-  const useEngine = (e) => {
-    engine = e;
-    refs = installedVoices(e.name);
-    refIds = new Map(refs.map((r) => [r.label, r.voiceId]));
-    if (refs.length) console.log(`  voices: +${refs.length} installed (decklight voice list)`);
+  //
+  // SEVERAL ENGINES AT ONCE. One bridge serves every tab, and each tab speaks
+  // with the engine ITS live voice was picked on — a deck on ElevenLabs and a
+  // speaker view, or a second deck, on the system voice. When the bridge held
+  // ONE engine and a tab switched it (POST /engine, or a deck restoring its
+  // saved engine on load), every other tab went on sending voice names the
+  // new engine did not have, and fell silent without a word. So the bridge
+  // keeps each engine it is asked for, built once, beside the one it started
+  // with (the DEFAULT — what a request naming no engine gets, as before):
+  // /ping, /voices, /engines and /tts take `?engine=` / `{ engine }`.
+  const held = new Map();   // name → { engine, refs, refIds }
+  const hold = (e) => {
+    const refs = installedVoices(e.name);
+    const h = { engine: e, refs, refIds: new Map(refs.map((r) => [r.label, r.voiceId])) };
+    held.set(e.name, h);
+    if (refs.length) console.log(`  voices: +${refs.length} installed for ${e.name} (decklight voice list)`);
+    return h;
   };
-  useEngine(engine);
+  hold(engine);
+  const useEngine = (e) => { engine = e; if (!held.has(e.name)) hold(e); };
 
-  const voiceRoster = async () => [
-    ...(engine.listVoices ? (await engine.listVoices()).map((v) => [v.name, v.flavor]) : engine.voices),
-    ...refs.map((r) => [r.label, r.marketplace ?? 'installed']),
+  /**
+   * The engine a request asked for — built the first time it is asked, and
+   * refused with the blocker when this machine cannot run it (checked BEFORE
+   * building: two of the six build fine and only fail on the first sentence).
+   * No name: the default. Throws `{ status, body }` for the route to send.
+   */
+  const building = new Map();
+  async function engineFor(name) {
+    if (!name || name === engine.name) return held.get(engine.name);
+    if (held.has(name)) return held.get(name);
+    if (!building.has(name)) {
+      building.set(name, (async () => {
+        const opts = menuOpts();
+        const status = engineStatus(name, opts);
+        if (ENGINES.includes(name) && !status.ready) {
+          throw { status: 409, body: { ok: false, error: status.reason, ...status, ...(engineBlocker(status, opts) ?? {}) } };
+        }
+        let next;
+        try { next = await resolveEngine({ ...opts, engine: name, model: undefined }); }
+        catch (e) { throw { status: 409, body: { ok: false, error: String(e.message ?? e).slice(0, 200) } }; }
+        console.log(`  engine: ${name} ready too (asked for by a deck)`);
+        if (next.caveat) console.log(`  ${next.caveat}`);
+        return hold(next);
+      })().finally(() => building.delete(name)));
+    }
+    return building.get(name);
+  }
+
+  const voiceRoster = async (h = held.get(engine.name)) => [
+    ...(h.engine.listVoices ? (await h.engine.listVoices()).map((v) => [v.name, v.flavor]) : h.engine.voices),
+    ...h.refs.map((r) => [r.label, r.marketplace ?? 'installed']),
   ];
+  /** What a deck is told about one engine — /ping's answer, and a switch's. */
+  const describe = async (h) => ({
+    ok: true,
+    engine: h.engine.name,
+    model: h.engine.model,
+    stylable: h.engine.stylable, // gemini alone can be told HOW to say it
+    // ElevenLabs v3/v4 act on [whispers]-style tags; for any other engine
+    // the player (and /tts) take them out rather than have them read aloud
+    audioTags: h.engine.audioTags === true,
+    // the engine's standing note — for `say` with no Siri voice this is
+    // the download hint, and the picker keys its install row off it
+    ...(h.engine.caveat ? { caveat: h.engine.caveat } : {}),
+    ...(h.engine.cost ? { cost: h.engine.cost } : {}),
+    // A roster the bridge cannot fetch is not a reason to report itself dead:
+    // the player falls back to its built-in list, and a synth would say why.
+    voices: await voiceRoster(h).catch((e) => {
+      console.error(`  voices: ${String(e.message ?? e).slice(0, 160)}`);
+      return [];
+    }),
+  });
 
   // The engine's NAME is part of every cache key, so a swap cannot serve one
   // engine's audio under another's voice — the cache survives the switch, and
@@ -265,36 +324,25 @@ export async function ttsMain(args) {
   let totalCost = 0;
   let totalChars = 0;
 
+  const sendJson = (res, status, body) => {
+    res.writeHead(status, { ...CORS, 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
   const server = createServer(async (req, res) => {
     if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
-    if (req.method === 'GET' && req.url === '/ping') {
-      // A roster the bridge cannot fetch is not a reason to report itself dead:
-      // the player falls back to its built-in list, and a synth would say why.
-      const voices = await voiceRoster().catch((e) => {
-        console.error(`  voices: ${String(e.message ?? e).slice(0, 160)}`);
-        return [];
-      });
-      res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
-      return res.end(JSON.stringify({
-        ok: true,
-        engine: engine.name,
-        model: engine.model,
-        stylable: engine.stylable, // gemini alone can be told HOW to say it
-        // ElevenLabs v3/v4 act on [whispers]-style tags; for any other engine
-        // the player (and /tts) take them out rather than have them read aloud
-        audioTags: engine.audioTags === true,
-        // the engine's standing note — for `say` with no Siri voice this is
-        // the download hint, and the picker keys its install row off it
-        ...(engine.caveat ? { caveat: engine.caveat } : {}),
-        voices,                    // piper speaks one voice, not the star roster
-      }));
+    // routes by PATH: `?engine=` rides the query (the author server forwards it)
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const asked = url.searchParams.get('engine') || null;
+    if (req.method === 'GET' && url.pathname === '/ping') {
+      try { return sendJson(res, 200, await describe(await engineFor(asked))); }
+      catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 500, { ok: false, error: String(e) }); }
     }
     // ── the one exec a deck may trigger: open the voice-download pane ──
     // Darwin only, loopback only (like every route here), and the argv is a
     // FROZEN CONSTANT — no byte of the request reaches it. It opens a System
     // Settings pane and does nothing else; the download itself stays a human
     // clicking, which is the whole point of the pane.
-    if (req.method === 'POST' && req.url === '/voices/install') {
+    if (req.method === 'POST' && url.pathname === '/voices/install') {
       if (process.platform !== 'darwin' && process.platform !== 'win32') { res.writeHead(404); return res.end(); }
       try {
         openVoiceSettings();
@@ -309,76 +357,59 @@ export async function ttsMain(args) {
       }
     }
     // ── which engine is speaking, and what else could (SPEC `NARRATION`) ──
-    if (req.method === 'GET' && req.url === '/engines') {
+    if (req.method === 'GET' && url.pathname === '/engines') {
       // Ready or not, every engine is listed. Hiding the ones this machine
       // cannot use would answer "where did ElevenLabs go?" with silence — the
       // useful answer is that it is there and needs a key.
       const opts = menuOpts();
-      const menu = engineMenu(opts).map((e) => ({ ...e, current: e.name === engine.name }));
+      // `current` is the ASKING tab's engine (`?engine=`), not the default:
+      // two tabs on two engines each see their own ticked
+      const mine = asked && held.has(asked) ? asked : engine.name;
+      const menu = engineMenu(opts).map((e) => ({ ...e, current: e.name === mine }));
       // An engine the bridge was STARTED with is ready by definition — it is
       // speaking. Detection can disagree (a marketplace engine is not one of
       // the six, and a project passed by flag is invisible to a later probe),
       // and a picker that greyed out the running engine would be absurd.
       if (!menu.some((e) => e.current)) {
-        menu.unshift({ name: engine.name, ready: true, reason: 'ok', current: true, cost: engine.cost });
+        const h = held.get(mine);
+        menu.unshift({ name: mine, ready: true, reason: 'ok', current: true, cost: h?.engine.cost });
       }
+      // an engine this bridge already holds is ready by definition — it speaks
+      for (const e of menu) if (held.has(e.name)) Object.assign(e, { ready: true, reason: 'ok' });
       res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, engine: engine.name, engines: menu }));
+      return res.end(JSON.stringify({ ok: true, engine: mine, engines: menu }));
     }
-    if (req.method === 'POST' && req.url === '/engine') {
+    // Makes an engine the DEFAULT — what a request naming none gets. Kept for
+    // decks built before `?engine=`, which switch the bridge this way; a
+    // current deck names its engine on every request instead, and never calls
+    // this, so no tab can switch another's voice (see `held` above).
+    if (req.method === 'POST' && url.pathname === '/engine') {
       let name;
       try { ({ engine: name } = JSON.parse((await readBody(req)).toString())); }
       catch { name = null; }
-      if (typeof name !== 'string' || !name) {
-        res.writeHead(400, { ...CORS, 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ ok: false, error: 'name the engine' }));
+      if (typeof name !== 'string' || !name) return sendJson(res, 400, { ok: false, error: 'name the engine' });
+      let h;
+      try { h = await engineFor(name); }
+      catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 500, { ok: false, error: String(e) }); }
+      const changed = h.engine.name !== engine.name;
+      if (changed) {
+        console.log(`  engine: default ${engine.name} → ${h.engine.name} (asked for by the deck)`);
+        useEngine(h.engine);
       }
-      if (name === engine.name) {
-        res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ ok: true, engine: engine.name, model: engine.model,
-          stylable: engine.stylable, audioTags: engine.audioTags === true, voices: await voiceRoster().catch(() => []), changed: false }));
-      }
-      const opts = menuOpts();
-      // Checked BEFORE building, because two of the six build perfectly well
-      // and only fail on the first sentence — which mid-talk is a keypress into
-      // silence. A refusal here is recoverable; that one is not.
-      const status = engineStatus(name, opts);
-      if (ENGINES.includes(name) && !status.ready) {
-        // The blocker travels WITH the refusal. The deck's picker normally has
-        // it already (it came down with /engines), but a menu can be a minute
-        // stale — a key exported and un-exported, a model deleted — and a
-        // refusal the deck cannot put words to is a row that does nothing when
-        // clicked.
-        res.writeHead(409, { ...CORS, 'content-type': 'application/json' });
-        return res.end(JSON.stringify({
-          ok: false, error: status.reason, ...status, ...(engineBlocker(status, opts) ?? {}),
-        }));
-      }
-      let next;
-      try {
-        next = await resolveEngine({ ...opts, engine: name, model: undefined });
-      } catch (e) {
-        res.writeHead(409, { ...CORS, 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ ok: false, error: String(e.message ?? e).slice(0, 200) }));
-      }
-      // Only now, once the new engine exists: a failed swap must leave the
-      // bridge speaking exactly as it was, not half-way between two engines.
-      const was = engine.name;
-      useEngine(next);
-      console.log(`  engine: ${was} → ${engine.name} (asked for by the deck)`);
-      if (engine.caveat) console.log(`  ${engine.caveat}`);
-      const voices = await voiceRoster().catch(() => []);
-      res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
-      return res.end(JSON.stringify({ ok: true, engine: engine.name, model: engine.model,
-        stylable: engine.stylable, audioTags: engine.audioTags === true, cost: engine.cost, caveat: engine.caveat, voices, changed: true }));
+      return sendJson(res, 200, { ...(await describe(h)), changed });
     }
-    if (req.method === 'GET' && req.url === '/voices') {
-      res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
-      return res.end(JSON.stringify(await voiceRoster()));
+    if (req.method === 'GET' && url.pathname === '/voices') {
+      try { return sendJson(res, 200, await voiceRoster(await engineFor(asked))); }
+      catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 500, { ok: false, error: String(e) }); }
     }
-    if (req.method === 'POST' && req.url === '/tts') {
+    if (req.method === 'POST' && url.pathname === '/tts') {
       try {
-        const { text: said, voice: picked, style } = JSON.parse((await readBody(req)).toString());
+        const { text: said, voice: picked, style, engine: wanted } = JSON.parse((await readBody(req)).toString());
+        // the engine THIS tab speaks with — never whichever another tab last chose
+        let h;
+        try { h = await engineFor(wanted || asked); }
+        catch (e) { if (e?.status) return sendJson(res, e.status, e.body); throw e; }
+        const { engine, refIds } = h;
         // an audio tag is direction for a voice that can act on it and is
         // never read aloud by one that cannot (SPEC `PRESENTING`)
         const text = forEngine(engine, said);
