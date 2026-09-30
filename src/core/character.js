@@ -13,7 +13,8 @@
 //   video  — a muted talking-head <video> (Wav2Lip/SadTalker behind the same
 //            bridge; slide-NN.mp4 in recorded mode). Audio ALWAYS comes from
 //            narrAudio — muted video is immune to autoplay policy — and the
-//            loop nudges video.currentTime whenever it drifts past 150 ms.
+//            loop keeps the lips on what is HEARD (lipTarget): nudging the
+//            video's rate for small drift, seeking for large.
 //
 // Live-mode prefetch rides the engine's existing 10-sentence lookahead: the
 // buffer worker calls prefetchSentence() with the sentence's audio promise,
@@ -68,6 +69,19 @@ export function concatTimelines(parts) {
 }
 
 // ── controller ──────────────────────────────────────────────────────────────
+
+/**
+ * How to bring a talking-head clip back onto the voice, given how far AHEAD of
+ * it the video is (`d`, seconds; negative = behind) and the voice's own rate:
+ * a jump for a big gap, a few percent faster or slower for a small one — a
+ * seek on every tick would stutter the mouth — and the voice's rate once
+ * within 15 ms. Pure, so the rule is testable without a clip.
+ */
+export function lipCorrection(d, rate = 1) {
+  if (Math.abs(d) > 0.25) return { seek: true, rate };
+  if (Math.abs(d) > 0.015) return { seek: false, rate: rate * (d > 0 ? 0.92 : 1.08) };
+  return { seek: false, rate };
+}
 
 export function createCharacter({ root, config, debugLog, toast }) {
   const cfg = config.narration?.character ?? {};
@@ -235,15 +249,44 @@ export function createCharacter({ root, config, debugLog, toast }) {
   }
 
   // ── sync loop ────────────────────────────────────────────────────────────
+  //
+  // Where the lips should be: what is HEARD, not what the audio element says.
+  // `audio.currentTime` is the sample being handed to the output, and the
+  // sound reaches the ear later — tens of ms through speakers, 150-250 ms and
+  // more through Bluetooth — so a video pinned to it moves its lips before the
+  // voice (measured: ~40 ms ahead through speakers, before any of that). The
+  // browser reports the output delay (AudioContext.outputLatency, and
+  // baseLatency); what it cannot know, `narration.character.lipOffsetMs`
+  // shifts by hand (positive = lips later).
+  const LIP_OFFSET = (Number(cfg.lipOffsetMs) || 0) / 1000;
+  let latencyCtx = null;
+  function outputLatency() {
+    try {
+      latencyCtx ??= new (window.AudioContext || window.webkitAudioContext)();
+      if (latencyCtx.state === 'suspended') latencyCtx.resume().catch(() => {});
+      return (latencyCtx.outputLatency || 0) + (latencyCtx.baseLatency || 0);
+    } catch { return 0; }
+  }
+  const lipTarget = () => Math.max(0, audioEl.currentTime - outputLatency() - LIP_OFFSET);
+  // A clip is corrected GENTLY: within 250 ms the video's rate is nudged
+  // until it is within 15 ms (a seek on every tick would stutter the mouth),
+  // and only a bigger gap — a clip that landed mid-sentence, a seek — jumps.
+  let latencyLogged = false;
+  function syncVideo() {
+    if (!videoEl || !audioEl || videoEl.readyState < 2 || audioEl.paused || videoEl.paused) return;
+    const target = lipTarget();
+    if (!latencyLogged) {
+      latencyLogged = true;
+      debugLog('lipsync', `lips follow what is heard: audio output delay ${Math.round(outputLatency() * 1000)} ms`
+        + (LIP_OFFSET ? ` · lipOffsetMs ${Math.round(LIP_OFFSET * 1000)}` : ''));
+    }
+    const fix = lipCorrection(videoEl.currentTime - target, audioEl.playbackRate || 1);
+    if (fix.seek) videoEl.currentTime = target;
+    if (videoEl.playbackRate !== fix.rate) videoEl.playbackRate = fix.rate;
+  }
   function tick() {
     if (!el?.classList.contains('show')) return;
-    if (mode === 'video') {
-      if (videoEl && audioEl && videoEl.readyState >= 2 && !audioEl.paused
-          && Math.abs(videoEl.currentTime - audioEl.currentTime) > 0.15) {
-        videoEl.currentTime = audioEl.currentTime;
-      }
-      return;
-    }
+    if (mode === 'video') { syncVideo(); return; }
     if (!audioEl || audioEl.paused || audioEl.ended) { setViseme('X'); return; }
     if (timeline) setViseme(cueAt(timeline, audioEl.currentTime));
     else if (FALLBACK === 'hide') setViseme('X');
@@ -325,7 +368,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
           videoEl.src = url;
           videoEl.playbackRate = audioEl?.playbackRate ?? 1;
           if (audioEl && !audioEl.paused) {
-            videoEl.currentTime = audioEl.currentTime;
+            videoEl.currentTime = lipTarget();
             videoEl.play().catch(() => { /* muted video — should not happen */ });
           }
         })

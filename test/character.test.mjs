@@ -88,3 +88,13 @@ test('normalizeRhubarb tolerates missing metadata', () => {
   assert.equal(tl.duration, 1.5); // falls back to the last cue's end
   assert.deepEqual(tl.cues, [{ t: 0, v: 'A' }]);
 });
+
+test('lipCorrection: a big gap jumps, a small one is nudged a few percent, within 15 ms the voice\'s rate stands', async () => {
+  const { lipCorrection } = await import('../src/core/character.js');
+  assert.deepEqual(lipCorrection(0.4, 1), { seek: true, rate: 1 }, 'a clip that landed mid-sentence jumps');
+  assert.deepEqual(lipCorrection(-0.3, 1.5), { seek: true, rate: 1.5 });
+  assert.deepEqual(lipCorrection(0.04, 1), { seek: false, rate: 0.92 }, 'lips ahead of the voice: slow the video a little');
+  assert.deepEqual(lipCorrection(-0.04, 1), { seek: false, rate: 1.08 }, 'lips behind: speed it a little');
+  assert.equal(lipCorrection(0.04, 1.25).rate, 1.25 * 0.92, 'relative to the voice\'s own speed');
+  assert.deepEqual(lipCorrection(0.01, 1.25), { seek: false, rate: 1.25 }, 'close enough — no hunting');
+});
