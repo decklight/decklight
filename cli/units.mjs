@@ -34,7 +34,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
-import { configHome, loadRegistry, loadCatalog, resolveEntry, MarketplaceError } from './marketplace.mjs';
+import { configHome, loadRegistry, loadCatalog, resolveEntry, MarketplaceError, recordInstall, forgetInstall } from './marketplace.mjs';
 
 /** A failure with a message for a human — the mains print it, never a stack. */
 export class UnitError extends Error {}
@@ -317,6 +317,7 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
     const { name, type: _t, source: _s, ...rest } = hit.entry;
     mkdirSync(unitDir(type, home), { recursive: true });
     writeFileSync(dest, `${JSON.stringify({ name, ...rest, marketplace: hit.marketplace }, null, 2)}\n`);
+    recordInstall({ type, name, marketplace: hit.marketplace, version: hit.entry.version, commit: reg.marketplaces[hit.marketplace]?.commit }, home);
     return { name, qualified: hit.qualified, entry: hit.entry, path: dest, files: [] };
   }
 
@@ -394,6 +395,9 @@ export async function installUnit(type, ref, home = configHome(), { fetchImpl = 
     mkdirSync(dest, { recursive: true });
     for (const [file, text] of fetched) writeFileSync(join(dest, file), text);
   }
+  // what was taken, at which version and commit — what `marketplace update`
+  // later compares the catalog against (#616)
+  recordInstall({ type, name: hit.entry.name, marketplace: hit.marketplace, version: hit.entry.version, commit: reg.marketplaces[hit.marketplace]?.commit }, home);
   return { name: hit.entry.name, qualified: hit.qualified, entry: hit.entry, path: dest, files: fetched.map(([f]) => f).filter(Boolean) };
 }
 
@@ -402,6 +406,7 @@ export function removeUnit(type, name, home = configHome()) {
   const p = unitPath(type, name, home);
   if (!existsSync(p)) throw new UnitError(`no ${type} "${name}" installed (decklight ${type} list)`);
   rmSync(p, { recursive: true, force: true });
+  forgetInstall({ type, name }, home);
   return p;
 }
 
@@ -437,7 +442,7 @@ async function addMain(type, args, home) {
     console.error(`decklight ${type} add: ${e.message}`);
     return 1;
   }
-  console.log(`installed ${done.name} from ${done.qualified} — ${UNIT_TYPES[type].use}`);
+  console.log(`installed ${done.name}${done.entry.version ? ` ${done.entry.version}` : ''} from ${done.qualified} — ${UNIT_TYPES[type].use}`);
   if (done.entry.description) console.log(`  ${done.entry.description}`);
   return 0;
 }

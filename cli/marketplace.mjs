@@ -109,6 +109,120 @@ const cachePath = (home, name) => join(home, 'marketplaces', `${name}.json`);
  */
 export const checkoutPath = (home, name) => join(home, 'marketplaces', name);
 
+// ── entry versions (#616) ──────────────────────────────────────────────────
+//
+// An entry may carry its own semver `version` — every kind, a theme or a skill
+// with no code at all as much as a transform — the way a Claude Code plugin
+// does. It is a CATALOG/INSTALL fact: what an install took, and whether the
+// catalog now offers something newer. Not `apiVersion` (the calling
+// convention a code entry needs, SPEC UNIT_COMPAT) and not decklight's own
+// package version.
+
+/** Semantic Versioning 2.0.0, exactly — no leading `v`, no two-part `1.1`. */
+export const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+/**
+ * Semver precedence: < 0 when `a` is older than `b`, 0 when equal, > 0 when
+ * newer. Build metadata is ignored; a prerelease sorts before its release,
+ * its dot-separated identifiers compared numerically where both are numbers.
+ * Null when either is not semver.
+ */
+export function semverCompare(a, b) {
+  const pa = SEMVER_RE.exec(String(a ?? ''));
+  const pb = SEMVER_RE.exec(String(b ?? ''));
+  if (!pa || !pb) return null;
+  for (let i = 1; i <= 3; i++) {
+    const d = Number(pa[i]) - Number(pb[i]);
+    if (d) return Math.sign(d);
+  }
+  const ra = pa[4], rb = pb[4];
+  if (ra === rb) return 0;
+  if (ra === undefined) return 1;    // 1.0.0 > 1.0.0-rc.1
+  if (rb === undefined) return -1;
+  const xa = ra.split('.'), xb = rb.split('.');
+  for (let i = 0; i < Math.max(xa.length, xb.length); i++) {
+    if (xa[i] === undefined) return -1;
+    if (xb[i] === undefined) return 1;
+    const na = /^\d+$/.test(xa[i]), nb = /^\d+$/.test(xb[i]);
+    if (na && nb) { const d = Number(xa[i]) - Number(xb[i]); if (d) return Math.sign(d); }
+    else if (na !== nb) return na ? -1 : 1;
+    else if (xa[i] !== xb[i]) return xa[i] < xb[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * What was installed from which catalog, at which version and commit:
+ * `~/.decklight/installed.json`, one record per `type:name@marketplace`.
+ * Written by every kind's `add` (themes included — `theme add` marks the
+ * theme in a deck, and the ledger is what remembers the version it marked);
+ * read by `marketplace list` and `update` to say what is newer. Decks are
+ * never read or written here: the update path is the installed unit.
+ */
+const ledgerPath = (home) => join(home, 'installed.json');
+const ledgerKey = (type, name, marketplace) => `${type}:${name}@${marketplace}`;
+
+/** The install ledger — `{ installs: { key: record } }`, empty when there is none. */
+export function loadLedger(home = configHome()) {
+  try {
+    const j = JSON.parse(readFileSync(ledgerPath(home), 'utf8'));
+    return { installs: j && typeof j.installs === 'object' && j.installs ? j.installs : {} };
+  } catch { return { installs: {} }; }
+}
+
+/**
+ * Record an install: the entry's catalog `version` (null when it carries
+ * none) and the marketplace `commit` its files came from. Re-running an
+ * `add` overwrites the record — that is how taking a newer version is noted.
+ */
+export function recordInstall({ type, name, marketplace, version = null, commit = null }, home = configHome(), now = Date.now()) {
+  const ledger = loadLedger(home);
+  ledger.installs[ledgerKey(type, name, marketplace)] = {
+    type, name, marketplace, version: version ?? null, commit: commit ?? null, at: new Date(now).toISOString(),
+  };
+  mkdirSync(home, { recursive: true });
+  writeFileAtomic(ledgerPath(home), `${JSON.stringify(ledger, null, 2)}\n`);
+  return ledger.installs[ledgerKey(type, name, marketplace)];
+}
+
+/** Drop an install's record — `remove` of the installed unit. */
+export function forgetInstall({ type, name, marketplace = null }, home = configHome()) {
+  const ledger = loadLedger(home);
+  let dropped = 0;
+  for (const [k, r] of Object.entries(ledger.installs)) {
+    if (r.type === type && r.name === name && (!marketplace || r.marketplace === marketplace)) { delete ledger.installs[k]; dropped++; }
+  }
+  if (dropped) writeFileAtomic(ledgerPath(home), `${JSON.stringify(ledger, null, 2)}\n`);
+  return dropped;
+}
+
+/** The command that takes `qualified` again, for its kind. */
+export function reinstallHint(type, qualified) {
+  const how = INSTALL_HINT[type];
+  if (!how) return null;
+  return how.replace(/<name@marketplace>|<name>/, qualified);
+}
+
+/**
+ * Installed entries whose catalog now offers a NEWER version, from the cached
+ * catalogs alone: `[{ qualified, type, from, to, how }]` — `from` null for an
+ * install recorded before its entry carried a version. `only` narrows it to
+ * one marketplace.
+ */
+export function newerThanInstalled(home = configHome(), only = null) {
+  const out = [];
+  for (const r of Object.values(loadLedger(home).installs)) {
+    if (only && r.marketplace !== only) continue;
+    const cat = loadCatalog(r.marketplace, home);
+    const entry = cat?.ok ? cat.manifest.entries.find((e) => e.name === r.name && e.type === r.type) : null;
+    if (!entry?.version) continue;
+    if (r.version && !(semverCompare(entry.version, r.version) > 0)) continue;
+    const qualified = `${r.name}@${r.marketplace}`;
+    out.push({ qualified, type: r.type, from: r.version ?? null, to: entry.version, how: reinstallHint(r.type, qualified) });
+  }
+  return out.sort((a, b) => a.qualified.localeCompare(b.qualified));
+}
+
 export function loadRegistry(home = configHome()) {
   const p = registryPath(home);
   if (!existsSync(p)) return { version: 1, marketplaces: {} };
@@ -506,6 +620,12 @@ export function validateManifest(raw) {
       if (entry.description !== undefined && typeof entry.description !== 'string') {
         err(`${p}.description`, 'must be a string');
       }
+      // Optional — a catalog without versions is as valid as it always was —
+      // and never "close enough": `v1.1` and `1.1` are refused, because the
+      // answer to "is this newer than what I installed" needs real semver.
+      if (entry.version !== undefined && (typeof entry.version !== 'string' || !SEMVER_RE.test(entry.version))) {
+        err(`${p}.version`, `${JSON.stringify(entry.version)} — a semver version, major.minor.patch (e.g. "1.1.0"), no leading v`);
+      }
     });
   }
   return { ok: errors.length === 0, manifest: errors.length ? null : data, errors };
@@ -834,13 +954,17 @@ const USAGE = `usage: decklight marketplace <add|list|update|remove> …
 
   decklight marketplace list
     every registered marketplace and its cached entries (as name@marketplace),
-    read from the cache alone — list works on a plane
+    read from the cache alone — list works on a plane. An entry's version is
+    shown, and for one you installed, what you have against what the catalog
+    offers: confluent-devrel@decklight-confluent  1.0.0 → 1.1.0
 
   decklight marketplace update <name> [--branch <ref>]
     re-clone a marketplace, refreshing the cached manifest and the checkout
     (at the ref it was added with, unless --branch moves the pin)
     its entries install from; for a registered-not-fetched marketplace this is
-    the FIRST fetch it ever gets
+    the FIRST fetch it ever gets. Then it names every entry you installed from
+    it that the catalog now has newer, and the command that takes it — it
+    installs nothing itself
 
   decklight marketplace remove <name>
     unregister a marketplace and drop its cached manifest and checkout
@@ -922,7 +1046,21 @@ export function writeCache(home, name, raw) {
   catalogCache.delete(cachePath(home, name));
 }
 
+/**
+ * What `list` says about an entry's version: the catalog's (`1.1.0`), and
+ * for an installed one what you have — `1.0.0 → 1.1.0` when the catalog is
+ * newer, `1.1.0 installed` when it is what you have.
+ */
+function versionNote(entry, installed) {
+  if (!installed) return entry.version ? `  ${entry.version}` : '';
+  const had = installed.version ?? 'unversioned';
+  if (!entry.version || entry.version === installed.version) return `  ${installed.version ? `${installed.version} ` : ''}installed`;
+  if (installed.version && !(semverCompare(entry.version, installed.version) > 0)) return `  ${had} installed (catalog: ${entry.version})`;
+  return `  ${had} → ${entry.version}`;
+}
+
 function listMain(home) {
+  const installs = loadLedger(home).installs;
   const reg = loadRegistry(home);
   const names = Object.keys(reg.marketplaces).sort();
   if (!names.length) {
@@ -961,7 +1099,8 @@ function listMain(home) {
         console.log(`  ${kind}${known ? '' : ' (this decklight does not install this kind)'}`
           + `${how ? `  —  ${how}` : ''}`);
         for (const e of entries.filter((x) => x.type === kind)) {
-          console.log(`    ${e.name}@${name}${e.description ? ` — ${e.description}` : ''}`);
+          console.log(`    ${e.name}@${name}${versionNote(e, installs[ledgerKey(e.type, e.name, name)])}`
+            + `${e.description ? ` — ${e.description}` : ''}`);
         }
       }
     }
@@ -1010,6 +1149,16 @@ async function updateMain(args, home) {
     }
     console.log(`${first ? 'fetched' : 'updated'} ${name}${ref ? ` at ${ref}` : ''} — ${entriesSummary(name, v.manifest.entries)}`);
     if (at) console.log(`  cloned to ${at}${got.commit ? ` (${got.commit.slice(0, 7)})` : ''}`);
+    // What you installed from it that the catalog now has newer — and the
+    // one command that takes each. Nothing is installed here: an update
+    // refreshes the catalog, and taking a new version stays your call.
+    const newer = newerThanInstalled(home, name);
+    if (newer.length) {
+      console.log(`  newer than what you installed:`);
+      for (const n of newer) {
+        console.log(`    ${n.qualified}  ${n.from ?? 'unversioned'} → ${n.to}${n.how ? `  —  ${n.how}` : ''}`);
+      }
+    }
     return 0;
   } finally {
     if (got.checkout) rmSync(got.checkout, { recursive: true, force: true });

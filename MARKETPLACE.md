@@ -809,10 +809,17 @@ before 0.3.0 ships to npm.
 
 1. ~~`upgrade` semantics~~ once a theme can come from a marketplace — **resolved:
    neither re-fetch nor pin; kept as-is, and the warning says which of two
-   things this is** (full text: SPEC `PRESENTING`'s runtime-upgrade bullet). Both
-   re-fetching and pinning need something this design deliberately does not
-   keep: a theme carries no version (THEMING — compatibility with a runtime
-   *is* passing `theme check`, there is no compat range to be stale against),
+   things this is** (full text: SPEC `PRESENTING`'s runtime-upgrade bullet).
+   **Revised (#616):** the reasoning below once said "a theme carries no
+   version". That predates decks-as-data, and it was about `upgrade` having
+   nowhere to re-fetch a theme INTO a deck. With decks as data, and bundled
+   decks deliberately frozen, that argument no longer applies; the need for a
+   version is at install/update time, not deck time. So a marketplace entry of
+   any kind, a theme included, now carries an optional semver `version`, and
+   what you installed is compared against it (SPEC `UNIT_VERSIONS`). The deck
+   still records none, and `upgrade` still re-fetches nothing. What follows
+   stands for the DECK: compatibility with a runtime *is* passing
+   `theme check`, there is no compat range to be stale against,
    and once a theme is inline in a deck nothing records which marketplace it
    came from, so there is nowhere to re-fetch FROM even if `upgrade` fetched
    at all — which it does not, the same registered-not-fetched posture

@@ -26,7 +26,7 @@ import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import path, { resolve } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { validateTheme, themeNameFrom, validThemeName, REQUIRED } from '../tools/theme-check.mjs';
-import { checkoutPath, classifySource, configHome, MarketplaceError, loadRegistry, loadCatalog, resolveEntry } from './marketplace.mjs';
+import { checkoutPath, classifySource, configHome, MarketplaceError, loadRegistry, loadCatalog, resolveEntry, recordInstall } from './marketplace.mjs';
 import { setMarked, addToLocalMarketplace, resolveThemeRef, cacheThemeCss, markedEntries, parseRef, parseShipped, refForDeck } from './theme-refs.mjs';
 
 const USAGE = `usage: decklight theme <check|add|remove> …
@@ -172,7 +172,7 @@ async function addMain(args) {
   // one marketplace alone has) is marked where it is; a file or a URL has no
   // marketplace to be referenced in, so it is copied into the personal one.
   const isFile = /^https?:\/\//i.test(source) || existsSync(resolve(source));
-  let name, css, ref, label, remote = null, origin = null;
+  let name, css, ref, label, remote = null, origin = null, taken = null;
   if (!isFile) {
     const reg = loadRegistry();
     const catalogs = {};
@@ -197,6 +197,7 @@ async function addMain(args) {
     ref = hit.qualified;
     origin = r.source ?? null;
     label = catalogs[hit.marketplace]?.title?.trim() || hit.marketplace;
+    taken = { type: 'theme', name: hit.entry.name, marketplace: hit.marketplace, version: hit.entry.version, commit: reg.marketplaces[hit.marketplace]?.commit };
   } else {
     name = opt('--name') ?? themeNameFrom(source);
     if (!validThemeName(name)) {
@@ -241,9 +242,14 @@ async function addMain(args) {
     cacheThemeCss(home, remote.marketplace, name, css);
   }
   if (next.changed) writeFileAtomic(deckPath, next.html);
+  // The version this add took, whether or not the mark was new: re-running
+  // `theme add` after a catalog update is how a newer theme is taken (#616).
+  // The deck holds a mark, never a version — it is not rewritten for one.
+  if (taken) recordInstall(taken, home);
+  const v = taken?.version ? ` ${taken.version}` : '';
   console.log(next.changed
-    ? `marked ${ref} in ${deck} — press T and look under "${label}"; it will be part of the bundle`
-    : `${ref} is already marked in ${deck}`);
+    ? `marked ${ref}${v} in ${deck} — press T and look under "${label}"; it will be part of the bundle`
+    : `${ref} is already marked in ${deck}${v ? ` — recorded${v} as the version you have` : ''}`);
   return 0;
 }
 

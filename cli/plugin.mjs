@@ -63,7 +63,7 @@ import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
 // an explicit `plugin add`; `resolveSource` is imported dynamically there so
 // it is not even resolved on the serving path.
 import {
-  configHome, loadRegistry, loadCatalog, resolveEntry, MarketplaceError, NAME_RE,
+  configHome, loadRegistry, loadCatalog, resolveEntry, MarketplaceError, NAME_RE, recordInstall, forgetInstall,
 } from './marketplace.mjs';
 
 /** A failure with a message for a human — the mains print it, never a stack. */
@@ -580,7 +580,8 @@ async function addMain(args, home) {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'plugin.json'), files.manifest);
   writeFileSync(join(dir, 'plugin.js'), files.source);
-  console.log(`installed ${manifest.name} from ${hit.qualified} — ${manifest.slot}, reads ${manifest.needs.join(' + ')}`);
+  recordInstall({ type: 'plugin', name: manifest.name, marketplace: hit.marketplace, version: hit.entry.version, commit: reg.marketplaces[hit.marketplace]?.commit }, home);
+  console.log(`installed ${manifest.name}${hit.entry.version ? ` ${hit.entry.version}` : ''} from ${hit.qualified} — ${manifest.slot}, reads ${manifest.needs.join(' + ')}`);
   console.log(`  it is yours, not the deck's: decklight present loads it, bundle never will`);
   if (manifest.needs.includes('notes')) console.log('  it reads your speaker notes — it asked, and plugin list says so');
   return 0;
@@ -625,6 +626,7 @@ function removeMain(args, home) {
   const dir = join(pluginsDir(home), name);
   if (!existsSync(dir)) { console.error(`decklight plugin remove: no plugin "${name}" installed (decklight plugin list)`); return 1; }
   rmSync(dir, { recursive: true, force: true });
+  forgetInstall({ type: 'plugin', name }, home);
   console.log(`removed ${name}`);
   return 0;
 }
