@@ -256,6 +256,14 @@
         return new Response(JSON.stringify(answer),
           { status: answer.ok ? 200 : 409, headers: { 'content-type': 'application/json' } });
       }
+      // enginebar: an engine list with one ready and two needing setup, out of order
+      if (mode === 'enginebar' && /\/engines(\?|$)/.test(u)) {
+        return new Response(JSON.stringify({ ok: true, engine: 'elevenlabs', engines: [
+          { name: 'piper', ready: false, why: 'not installed', fix: 'uv tool install piper-tts' },
+          { name: 'elevenlabs', ready: true, current: true, cost: 'your plan' },
+          { name: 'gemini', ready: false, why: 'needs a Google Cloud project', fix: 'export GOOGLE_CLOUD_PROJECT=<id>' },
+        ] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/ping')) {
         // xss: the roster is somebody ELSE'S text — an ElevenLabs voice is
         // named by whoever shared it, and that name may be markup
@@ -267,6 +275,8 @@
             // stylable follows the MODEL here, same as the real bridge computes
             // it (tools/tts-engines.mjs), never a hardcoded "elevenlabs is never
             // stylable" the picker would otherwise have to know by heart.
+            : mode === 'enginebar'
+              ? { engine: 'elevenlabs', model: 'eleven_v4', stylable: true, audioTags: true, voices: [['Gilles', 'cloned'], ['Rachel', 'calm']] }
             : mode === 'elevenlabsv3'
               ? { engine: 'elevenlabs', model: 'eleven_v3', stylable: true, voices: [['Gilles', 'cloned'], ['Rachel', 'calm']] }
             // v4 acts on the notes' own [whispers]-style tags, and says so
@@ -1280,6 +1290,31 @@
           return;
         }
 
+        if (mode === 'enginebar') {
+          // The engine is the one choice that decides every voice below it, so
+          // it is a BAR at the top of the voices card — not a line among them.
+          deck.narration.openPicker('voices');
+          await new Promise((ok) => setTimeout(ok, 500));
+          const card = document.querySelector('.decklight-narr .narr-card');
+          const bar = card?.querySelector('.narr-engine-bar');
+          r.barExists = !!bar;
+          const kids = [...(card?.children ?? [])];
+          r.barAboveTheFilter = !!bar && kids.indexOf(bar) < kids.indexOf(card.querySelector('.narr-filter-row'));
+          r.barNamesIt = /elevenlabs/.test(bar?.querySelector('.eb-name')?.textContent ?? '')
+            && /eleven_v4/.test(bar?.querySelector('.eb-model')?.textContent ?? '')
+            && /change engine/.test(bar?.textContent ?? '');
+          r.barIsTheFirstRow = card?.querySelector('.narr-row') === bar;
+          bar?.click();
+          await new Promise((ok) => setTimeout(ok, 400));
+          const groups = [...document.querySelectorAll('.decklight-narr .narr-group')].map((n) => n.textContent);
+          const names = [...document.querySelectorAll('.decklight-narr .narr-row .narr-row-label')].map((n) => n.firstChild?.textContent?.trim());
+          r.opensTheEngines = /which engine speaks/.test(document.querySelector('.decklight-narr')?.textContent ?? '');
+          r.groupedReadyFirst = JSON.stringify(groups) === JSON.stringify(['ready', 'needs setup']) && names[0] === 'elevenlabs';
+          r.PASS = r.barExists && r.barAboveTheFilter && r.barNamesIt && r.barIsTheFirstRow && r.opensTheEngines && r.groupedReadyFirst;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
         if (mode === 'elevenlabsv3') {
           // eleven_v3 is the one ElevenLabs model the tone step exists for —
           // /ping reports stylable from the MODEL (tools/tts-engines.mjs), and
@@ -1297,7 +1332,7 @@
           // the voices view also carries the engine row (SPEC PRESENTING), and
           // an index into this list is a thing that silently starts meaning
           // something else the next time a row is added above it.
-          rows.find((el) => !/engine:/.test(el.textContent))?.click();
+          rows.find((el) => !el.classList.contains('narr-engine-bar'))?.click();
           // Long enough to hold on the tones view for a screenshot
           // (tools/shot.mjs --drive against this same mode, budget ~1200ms)
           // before the next click moves on.

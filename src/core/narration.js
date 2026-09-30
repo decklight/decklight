@@ -1809,6 +1809,8 @@ export function createNarration({
   // the tickers of rows that are waiting on something (`busy`), stopped on every re-render and close
   let busyStops = [];
   const stopBusyRows = () => { busyStops.forEach((stop) => stop()); busyStops = []; };
+  // engines whose `model` is a model, not a default voice (the engine bar names it)
+  const MODEL_ENGINES = new Set(['elevenlabs', 'gemini', 'chirp']);
   function persistNarr() {
     try {
       writeJson(narrKey, narrSet?.live
@@ -2041,6 +2043,8 @@ export function createNarration({
       }));
       narrRows.push({
         text: '⚡ Live voice — synthesize on the fly…',
+        // which engine and voice it is, once a bridge has said
+        flavor: liveEngine ? `${liveEngine} · ${liveCfg.voice}` : '',
         cur: narrSet?.live,
         commit: () => renderNarr('voices'),
       });
@@ -2057,7 +2061,7 @@ export function createNarration({
       // It writes the deck, so it needs the author server; said in place.
       narrRows.push({
         text: '✨ Enhance the script — ElevenLabs audio tags…',
-        flavor: enhanceScript() ? '[thoughtful] [sighs] — your agent drafts, nothing reworded' : '',
+        flavor: enhanceScript() ? 'your agent adds them, nothing reworded' : '',
         blocked: enhanceScript() ? null : 'needs decklight author — it writes the notes',
         commit: () => (enhanceScript() ? renderNarr('enhance') : toast('enhancing the script needs decklight author — it writes the notes', 4000)),
       });
@@ -2237,7 +2241,10 @@ export function createNarration({
           commit: () => {},
         });
       }
-      (Array.isArray(liveMenu) ? liveMenu : []).forEach((e) => narrRows.push({
+      // Ready engines first, then the ones that need setup — each group under
+      // its own heading, so the one-line fixes stop breaking up the choice.
+      (Array.isArray(liveMenu) ? [...liveMenu].sort((a, b) => (b.ready === true) - (a.ready === true)) : []).forEach((e) => narrRows.push({
+        group: e.ready ? 'ready' : 'needs setup',
         // No glyph: every row here is the same kind of thing, and the card's
         // own ✓ already marks the live one — a ⚡ beside it would say it twice.
         text: e.name,
@@ -2261,11 +2268,17 @@ export function createNarration({
         : 'live voice — pick a voice · ▶ previews';
       // The engine sits ABOVE the voice and decides the whole roster, so it
       // belongs here rather than a level up: this is the screen where you
-      // notice the names are not the ones you wanted. Never in the way — it is
-      // one row, and picking a voice does not pass through it.
+      // notice the names are not the ones you wanted. It is drawn as a BAR at
+      // the top of the card (`bar`), not one more line among the voices —
+      // it was one, and it got lost there. Still the first row, so ↑/↓ and ⏎
+      // reach it like any other.
       narrRows.push({
-        text: `⚙ engine: ${liveEngine ?? 'the bridge'}…`,
-        flavor: 'changes which voices exist',
+        bar: true,
+        text: liveEngine ?? 'no bridge',
+        // the model where it is a real choice (eleven_v4, a Gemini model) — for
+        // say, sapi and piper it is only the default VOICE, which the list below
+        // already shows, and naming one voice up here would read as the pick
+        flavor: MODEL_ENGINES.has(liveEngine) && liveModel ? liveModel : '',
         cur: false,
         commit: () => renderNarr('engines'),
       });
@@ -2460,6 +2473,21 @@ export function createNarration({
         }
       }
       const el = document.createElement('div');
+      if (row.bar) {
+        // ENGINE  say · Voice 1 ………… change engine ›
+        el.className = 'narr-row narr-engine-bar';
+        const k = Object.assign(document.createElement('span'), { className: 'eb-k', textContent: 'engine' });
+        const name = Object.assign(document.createElement('span'), { className: 'eb-name', textContent: row.text });
+        const model = Object.assign(document.createElement('span'), { className: 'eb-model', textContent: row.flavor || '' });
+        const go = Object.assign(document.createElement('span'), { className: 'eb-go', textContent: 'change engine ›' });
+        el.title = 'the engine decides which voices exist — change it here';
+        el.append(k, name, model, go);
+        el.addEventListener('mouseenter', () => selectNarrRow(i));
+        el.addEventListener('click', () => { selectNarrRow(i); commitNarrRow(); });
+        // above the filter and the preview sentence: the first thing on the card
+        card.insertBefore(el, head.nextSibling);
+        return;
+      }
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '')
         + (row.toggle ? ' narr-toggle' : '')
         + (row.blocked || row.blocked === '' ? ' narr-blocked' : '');
