@@ -23,23 +23,26 @@ test('the setup lives beside tts.json, round-trips, and a missing file is "not s
 });
 
 test('a portrait is name=path, or a bare path named by its file', () => {
-  assert.deepEqual(parsePortrait('me=/tmp/face.jpg'), ['me', '/tmp/face.jpg']);
-  assert.deepEqual(parsePortrait('/tmp/gilles.png'), ['gilles', '/tmp/gilles.png']);
+  const face = path.resolve('/tmp/face.jpg');
+  assert.deepEqual(parsePortrait(`me=${face}`), ['me', face]);
+  assert.deepEqual(parsePortrait(path.resolve('/tmp/gilles.png')), ['gilles', path.resolve('/tmp/gilles.png')]);
 });
 
 test('videoSetup says which engines can run — and, when none can, exactly what is missing', () => {
-  const have = (...files) => (f) => files.includes(f);
+  // paths as this OS spells them (videoSetup resolves and joins them)
+  const P = (f) => path.resolve(f);
+  const have = (...files) => (f) => files.map(P).includes(P(f));
   const ok = videoSetup({ wav2lipDir: '/w', wav2lipCkpt: '/w/c.pth', portraits: ['me=/p.jpg'] },
-    { exists: have('/w/inference.py', '/w/c.pth', '/p.jpg') });
+    { exists: have(path.join('/w', 'inference.py'), '/w/c.pth', '/p.jpg') });
   assert.deepEqual(ok, { engines: ['wav2lip'], problems: [] });
-  const noCkpt = videoSetup({ wav2lipDir: '/w', portraits: ['me=/p.jpg'] }, { exists: have('/w/inference.py', '/p.jpg') });
+  const noCkpt = videoSetup({ wav2lipDir: '/w', portraits: ['me=/p.jpg'] }, { exists: have(path.join('/w', 'inference.py'), '/p.jpg') });
   assert.deepEqual(noCkpt.engines, []);
   assert.match(noCkpt.problems[0], /needs its checkpoint/);
   const noRepo = videoSetup({ wav2lipDir: '/nope', wav2lipCkpt: '/c', portraits: ['/p.jpg'] }, { exists: have('/c', '/p.jpg') });
   assert.match(noRepo.problems[0], /no Wav2Lip checkout at \/nope/);
-  const noFace = videoSetup({ wav2lipDir: '/w', wav2lipCkpt: '/c' }, { exists: have('/w/inference.py', '/c') });
+  const noFace = videoSetup({ wav2lipDir: '/w', wav2lipCkpt: '/c' }, { exists: have(path.join('/w', 'inference.py'), '/c') });
   assert.match(noFace.problems.join(), /no portrait/);
-  const lostFace = videoSetup({ wav2lipDir: '/w', wav2lipCkpt: '/c', portraits: ['me=/gone.jpg'] }, { exists: have('/w/inference.py', '/c') });
+  const lostFace = videoSetup({ wav2lipDir: '/w', wav2lipCkpt: '/c', portraits: ['me=/gone.jpg'] }, { exists: have(path.join('/w', 'inference.py'), '/c') });
   assert.match(lostFace.problems.join(), /portrait not found: me/);
   assert.match(SETUP_HINT, /--save$/);
 });
