@@ -1958,13 +1958,21 @@
   height: var(--character-solo-size, min(74vh, 74vw));
 }
 .decklight-character svg, .decklight-character img { width: 100%; height: 100%; display: block; }
+/* video mode: the portrait still underneath, the clip over it only while it
+   plays (.live) — never a black medallion while the next clip renders */
+.decklight-character.mode-video .still,
 .decklight-character.mode-video video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  background: rgba(8, 9, 12, .6);
 }
+.decklight-character.mode-video .still { background: rgba(8, 9, 12, .6); }
+.decklight-character.mode-video .still.missing { visibility: hidden; }
+.decklight-character.mode-video video { opacity: 0; transition: opacity .12s; }
+.decklight-character.mode-video video.live { opacity: 1; }
 .decklight-character [data-mouth] { visibility: hidden; }
 .decklight-character[data-viseme="A"] [data-mouth="A"],
 .decklight-character[data-viseme="B"] [data-mouth="B"],

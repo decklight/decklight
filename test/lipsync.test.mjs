@@ -17,6 +17,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 let dir, server, base;
 if (!winSkip) {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-lipsync-'));
+  // the bridge reads a saved talking-head setup (lipsync.json) — this machine's
+  // must not leak in, or a developer with Wav2Lip set up runs it here
+  process.env.XDG_CONFIG_HOME = path.join(dir, 'config');
   // a stub rhubarb copies the checked-in fixture to whatever -o names — the
   // bridge should normalize + cache it
   const stub = writeRhubarbStub(dir, path.join(here, 'fixtures', 'rhubarb-out.json'));
@@ -72,4 +75,10 @@ test('/viseme rejects an empty body, /video rejects a missing engine', { skip: w
   });
   assert.equal(vid.status, 502); // not configured on this bridge
   assert.match(await vid.text(), /not available/);
+});
+
+test('/portrait names an unknown portrait with a 404 — the deck hides the still rather than show a broken image', { skip: winSkip }, async () => {
+  const r = await fetch(`${base}/portrait?name=nobody`);
+  assert.equal(r.status, 404);
+  assert.match(await r.text(), /unknown portrait 'nobody'/);
 });

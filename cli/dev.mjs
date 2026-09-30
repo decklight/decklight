@@ -40,6 +40,7 @@ import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { deckFromUrl } from './clone-deck.mjs';
 import { runMain } from './util.mjs';
 import { openUrl } from './open-browser.mjs';
+import { loadLipsyncConfig, SETUP_HINT } from '../tools/lipsync-config.mjs';
 import { isPortOpen, resolvePortConflict, identifyBridge, identifyStranger, canBind } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
 import { nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
@@ -127,7 +128,7 @@ const VALUE_FLAGS = new Set([
  * command there) runs its own module.
  */
 export function planServices({
-  args = [], env = process.env, hasBin = onPath, saved = null,
+  args = [], env = process.env, hasBin = onPath, saved = null, lipsync = null,
   detect = detectLocalVoice, exists = existsSync,
 } = {}) {
   const { opt, opts } = argReader(args);
@@ -252,11 +253,16 @@ export function planServices({
   // something it can actually use is present
   const lipPort = opt('--lipsync-port', '8789');
   const rhubarb = opt('--rhubarb', 'rhubarb');
-  const configured = has('--rhubarb') || has('--portrait') || has('--wav2lip-dir') || has('--sadtalker-dir');
+  // A talking head set up and saved once (`decklight lipsync … --save`,
+  // lipsync.json) counts as configured: author starts the bridge for it with
+  // no flags, rhubarb or not — the bridge reads the same file.
+  const savedLips = lipsync;
+  const savedVideo = !!(savedLips?.wav2lipDir || savedLips?.sadtalkerDir);
+  const configured = has('--rhubarb') || has('--portrait') || has('--wav2lip-dir') || has('--sadtalker-dir') || savedVideo;
   if (has('--no-lipsync')) {
     skip.push({ name: 'lip-sync', why: 'disabled with --no-lipsync' });
   } else if (!configured && !hasBin(rhubarb, env)) {
-    skip.push({ name: 'lip-sync', why: 'rhubarb not on PATH — install it, or pass --rhubarb/--portrait' });
+    skip.push({ name: 'lip-sync', why: `rhubarb not on PATH, and no talking head set up — ${SETUP_HINT}` });
   } else {
     run.push({
       name: 'lipsync',
@@ -318,7 +324,7 @@ const RESET = '\x1b[0m';
 export async function devMain(args) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
 
-  let plan = planServices({ args, saved: loadTtsConfig() });
+  let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   if (plan.gone.length) {
     console.error(`decklight author no longer takes ${plan.gone.join(' or ')} — the phone remote moved to \`decklight present\`.`);
     console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
@@ -355,7 +361,7 @@ export async function devMain(args) {
     args = args.map((a) => (a === deck ? local : a)).filter((a, i, all) => !(a === '--branch' || a === '--into' || all[i - 1] === '--branch' || all[i - 1] === '--into'));
     if (!args.includes('--no-git') && !args.includes('--git')) args.push('--git');
     deck = local;
-    plan = planServices({ args, saved: loadTtsConfig() });
+    plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   }
   if (!existsSync(deck)) {
     console.error(`decklight author: no such deck: ${deck}`);
@@ -382,7 +388,7 @@ export async function devMain(args) {
         if (/^y/i.test(mode.trim())) args = [...args, '--git-mode', 'agent'];
       }
       rl.close();
-      plan = planServices({ args, saved: loadTtsConfig() });
+      plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
     } else {
       console.log('  git: no repository here — pass --git to create one and keep every version of the deck');
     }
@@ -401,7 +407,7 @@ export async function devMain(args) {
         if (!/^n/i.test(answer.trim())) {
           const { bin, args: dlArgs } = offer.download;
           const r = spawnSync(bin, dlArgs, { stdio: 'inherit' });
-          if (r.status === 0) plan = planServices({ args });
+          if (r.status === 0) plan = planServices({ args, lipsync: loadLipsyncConfig() });
           else console.log('  download failed — the voice stays skipped');
         }
       } finally { rl.close(); }
@@ -421,7 +427,7 @@ export async function devMain(args) {
           // the wizard's test synthesis may hold a resident engine (piper);
           // author runs the bridge as its own child process, so let it go
           result.engine.synth.close?.();
-          plan = planServices({ args, saved: result.config });
+          plan = planServices({ args, saved: result.config, lipsync: loadLipsyncConfig() });
         }
       }
     } finally { rl.close(); }
@@ -675,7 +681,12 @@ export async function moveBridgesOffStrangers(plan, {
     if (!svc) continue;
     const at = svc.args.indexOf('--port');
     const port = Number(svc.args[at + 1]);
-    if (!(await isOpen(port)) || await isBridge(port)) continue;
+    if (!(await isOpen(port))) continue;
+    // ours only if it is the SAME kind: a voice bridge that moved to 8789 is
+    // not the lip-sync bridge, and "reusing" it would send /lipsync to /tts
+    const there = await isBridge(port);
+    const sameKind = there && (name === 'tts' ? typeof there.engine === 'string' : typeof there.engines === 'object');
+    if (sameKind) continue;
     const fresh = await freeFrom(port + 1);
     if (!fresh) continue;   // nothing free nearby: the bridge refuses with its own message, as before
     spoken.add(fresh);
@@ -684,8 +695,9 @@ export async function moveBridgesOffStrangers(plan, {
     svc.url = `http://127.0.0.1:${fresh}`;
     const e = editSvc.args.indexOf(flag);
     if (e >= 0) editSvc.args[e + 1] = String(fresh); else editSvc.args.push(flag, String(fresh));
-    lines.push(`${name === 'tts' ? 'voice' : 'lip-sync'}: port ${port} is held by ${who ? `${who.command} (pid ${who.pid})` : 'another program'}`
-      + ` — not decklight — so the bridge takes ${fresh}; the deck reaches it through this server`);
+    const holder = there ? there.name ?? 'another decklight bridge' : who ? `${who.command} (pid ${who.pid})` : 'another program';
+    lines.push(`${name === 'tts' ? 'voice' : 'lip-sync'}: port ${port} is held by ${holder}`
+      + ` — ${there ? 'not this bridge' : 'not decklight'} — so the bridge takes ${fresh}; the deck reaches it through this server`);
   }
   return lines;
 }

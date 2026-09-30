@@ -101,6 +101,9 @@ export function createCharacter({ root, config, debugLog, toast }) {
   const visemeCache = new Map();
   const videoCache = new Map();
   const videoKey = (key) => `${key}|${engine}|${portrait}`;
+  // the still under the video: the same head crop the bridge renders clips from
+  let stillEl = null;
+  const showStill = () => { if (stillEl) stillEl.src = `${BRIDGE}/portrait?name=${encodeURIComponent(portrait)}`; };
 
   function persist() {
     writeJson(storeKey, { mode, engine, portrait, solo });
@@ -116,7 +119,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
   function warnOnce() {
     if (warned) return;
     warned = true;
-    toast('lipsync bridge unreachable — run: decklight lipsync');
+    toast('the lip-sync bridge is not running — the mouth follows the voice\'s loudness instead. decklight author starts it once rhubarb is installed or a talking head is set up (V → Character says how)', 6000);
     debugLog('lipsync', 'bridge unreachable — amplitude fallback');
   }
 
@@ -133,12 +136,30 @@ export function createCharacter({ root, config, debugLog, toast }) {
     artMode = mode;
     el.classList.toggle('mode-video', mode === 'video');
     videoEl = null;
+    stillEl = null;
     if (mode === 'video') {
       el.innerHTML = '';
+      // The PORTRAIT is always there, under the video: a clip renders in
+      // seconds on a laptop, the voice does not wait for it, and before this
+      // the medallion was black for every sentence whose clip was not ready
+      // yet — the whole first run of a deck. The video shows only while a
+      // clip is actually playing (`live`), and fades back to the photo
+      // between sentences.
+      stillEl = document.createElement('img');
+      stillEl.className = 'still';
+      stillEl.alt = '';
+      // no bridge, or no such portrait: hidden, not a broken-image icon — the
+      // address it asked for stays on it, for whoever inspects it
+      stillEl.addEventListener('error', () => stillEl?.classList.add('missing'));
+      stillEl.addEventListener('load', () => stillEl?.classList.remove('missing'));
+      el.appendChild(stillEl);
+      showStill();
       videoEl = document.createElement('video');
       videoEl.muted = true;
       videoEl.playsInline = true;
       videoEl.preload = 'auto';
+      videoEl.addEventListener('playing', () => videoEl?.classList.add('live'));
+      for (const ev of ['ended', 'emptied', 'error']) videoEl.addEventListener(ev, () => videoEl?.classList.remove('live'));
       el.appendChild(videoEl);
     } else if (cfg.sprites) {
       el.innerHTML = '';
@@ -296,6 +317,8 @@ export function createCharacter({ root, config, debugLog, toast }) {
         .then((tl) => { if (currentKey === key) timeline = tl; })
         .catch(() => warnOnce());
     } else {
+      // this sentence's clip is not playing yet: the photo, not the last clip's frame
+      videoEl?.classList.remove('live');
       ensureVideo(key, Promise.resolve(clip))
         .then((url) => {
           if (currentKey !== key || !url || !videoEl) return;
@@ -383,6 +406,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
     if (opts.engine) engine = opts.engine;
     if (opts.portrait) portrait = opts.portrait;
     persist();
+    showStill();
     if (mode === 'off') stop();
     // solo is remembered across an off/on switch: coming back to a character
     // that is meant to own the stage, show it now rather than wait for V

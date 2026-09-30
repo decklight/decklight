@@ -9,10 +9,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { diagnose, formatDoctor, installLine } from '../cli/doctor.mjs';
 
-const nothing = { which: () => null, has: () => false, chrome: null, agents: [], platform: 'linux' };
+const nothing = { which: () => null, has: () => false, chrome: null, agents: [], platform: 'linux', lipsync: null };
 const everything = {
   which: (b) => `/usr/bin/${b}`, has: () => true, chrome: '/usr/bin/google-chrome',
   agents: ['Claude Code', 'Codex CLI'], platform: 'linux',
+  lipsync: { wav2lipDir: '/w2l', wav2lipCkpt: '/w2l/c.pth', portraits: ['me=/me.jpg'] },
+  videoCheck: () => ({ engines: ['wav2lip'], problems: [] }),
 };
 
 test('a bare machine gets a fix line for every row, and the closing line is reassuring', () => {
@@ -63,4 +65,15 @@ test('color is opt-in and never changes the words', () => {
   const colored = formatDoctor(rows, { color: true }).join('\n');
   assert.doesNotMatch(plain, /\x1b\[/);
   assert.equal(colored.replace(/\x1b\[[0-9;]*m/g, ''), plain);
+});
+
+test('neural video: a set-up Wav2Lip is present with its portraits; none gives the one-line setup; a broken one says what broke', () => {
+  const row = (o) => diagnose({ ...nothing, ...o }).find((r) => r.label === 'neural video');
+  assert.equal(row(everything).ok, true);
+  assert.match(row(everything).found, /wav2lip · 1 portrait/);
+  assert.equal(row({}).ok, false);
+  assert.match(row({}).fix, /decklight lipsync --wav2lip-dir .* --save/);
+  const broken = row({ lipsync: { wav2lipDir: '/w2l' }, videoCheck: () => ({ engines: [], problems: ['Wav2Lip needs its checkpoint'] }) });
+  assert.equal(broken.ok, false);
+  assert.match(broken.fix, /needs its checkpoint/);
 });

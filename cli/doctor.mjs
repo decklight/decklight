@@ -18,6 +18,7 @@
 import { findChrome } from '../tools/chrome.mjs';
 import { detectAgents, whichBin } from './agents.mjs';
 import { resolves } from './report-bug.mjs';
+import { loadLipsyncConfig, videoSetup, SETUP_HINT } from '../tools/lipsync-config.mjs';
 
 /** The package manager's install line for `name`, per platform. */
 export function installLine(name, platform = process.platform) {
@@ -37,6 +38,8 @@ export function diagnose({
   has = resolves,
   chrome = findChrome(),
   agents = detectAgents().map((a) => a.label),
+  lipsync = loadLipsyncConfig(),
+  videoCheck = (cfg) => videoSetup(cfg),
 } = {}) {
   const bin = (name) => which(name);
   const rows = [];
@@ -64,6 +67,13 @@ export function diagnose({
     'uv tool install piper-tts   (or a cloud engine: decklight tts --setup)');
   row('rhubarb', bin('rhubarb'), 'lipsync (mouth shapes for the talking-head character)',
     'https://github.com/DanielSWolf/rhubarb-lip-sync/releases — put the binary on PATH');
+  // Neural video is not a binary on PATH but a checkout, its checkpoint, the
+  // Python that has its packages, and a portrait — what `lipsync --save`
+  // remembers (tools/lipsync-config.mjs). Read the same way the bridge reads it.
+  const video = lipsync && (lipsync.wav2lipDir || lipsync.sadtalkerDir) ? videoCheck(lipsync) : null;
+  row('neural video', video?.engines.length ? `${video.engines.join(', ')} · ${(lipsync.portraits ?? []).length} portrait(s)` : null,
+    'the talking-head character with your own face (Wav2Lip or SadTalker, offline)',
+    video ? video.problems.join(' · ') || 'set up, but not ready' : `clone Wav2Lip, then: ${SETUP_HINT}`);
   return rows;
 }
 

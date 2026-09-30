@@ -448,8 +448,23 @@ test('a decklight bridge already on the port is not moved — the bridge reuses 
     { name: 'tts', args: ['tts', '--port', '8787'] },
   ] };
   const lines = await moveBridgesOffStrangers(plan, {
-    isOpen: async () => true, isBridge: async () => ({ bridge: true }), bindable: async () => true, stranger: () => null,
+    isOpen: async () => true, isBridge: async () => ({ bridge: true, engine: 'say' }), bindable: async () => true, stranger: () => null,
   });
   assert.deepEqual(lines, []);
   assert.equal(plan.run[1].args.at(-1), '8787');
+});
+
+test('a voice bridge that moved onto the lip-sync port is not the lip-sync bridge — the lip-sync bridge moves on', async () => {
+  const plan = { run: [
+    { name: 'edit', args: ['deck.html', '--port', '8788'] },
+    { name: 'lipsync', args: ['--port', '8789'], url: 'http://127.0.0.1:8789' },
+  ] };
+  const lines = await moveBridgesOffStrangers(plan, {
+    isOpen: async (p) => p === 8789,
+    isBridge: async () => ({ ok: true, engine: 'say', bridge: true, name: 'the say voice bridge' }),
+    bindable: async (p) => p !== 8789,
+    stranger: () => null,
+  });
+  assert.equal(plan.run[1].args.at(-1), '8790');
+  assert.match(lines[0], /lip-sync: port 8789 is held by the say voice bridge — not this bridge — so the bridge takes 8790/);
 });

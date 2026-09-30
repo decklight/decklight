@@ -124,6 +124,19 @@ try {
   character.beginSlide({ dir: 'voices/me' }, 7);
   await raf2();
   results.videoFollowsTheTrack = /voices\/me\/slide-07\.mp4$/.test(vid());
+  // The portrait sits UNDER the video, so the medallion is the photo — never
+  // black — while a clip renders; the video shows only once it is playing.
+  const still = () => root.querySelector('.decklight-character .still');
+  const videoEl = root.querySelector('.decklight-character video');
+  results.stillUnderTheVideo = (still()?.getAttribute('src') ?? '').endsWith(`/portrait?name=${encodeURIComponent(character.portrait)}`);
+  results.videoHiddenUntilPlaying = !videoEl.classList.contains('live');
+  videoEl.dispatchEvent(new Event('playing'));
+  results.videoShownWhilePlaying = videoEl.classList.contains('live');
+  videoEl.dispatchEvent(new Event('ended'));
+  results.photoBackWhenItEnds = !videoEl.classList.contains('live');
+  character.setMode('video', { portrait: 'gilles' });
+  results.stillFollowsThePortrait = /\/portrait\?name=gilles$/.test(still()?.getAttribute('src') ?? '');
+  character.setMode('video', { portrait: 'default' });   // the choice persists: leave it as found
   character.setMode('viseme');
 
   character.stop();
@@ -133,6 +146,8 @@ try {
 
   results.PASS = results.mounted && results.shown && results.mouthShapes === 9
     && results.videoFromFirstTrack && results.videoFollowsTheTrack
+    && results.stillUnderTheVideo && results.videoHiddenUntilPlaying && results.videoShownWhilePlaying
+    && results.photoBackWhenItEnds && results.stillFollowsThePortrait
     && results.visemeMidB === 'B' && results.visemeMidD === 'D'
     && results.visemeWhenPaused === 'X' && results.visemeFromSidecar === 'E'
     && results.visemeFromBeatSidecar === 'C' && results.missingBeatDidNotReuseTheSlide

@@ -12,6 +12,8 @@
 //        → viseme timeline JSON v1 (tools/visemes.mjs)
 //   POST /video?engine=wav2lip&portrait=<name>  (body: audio/wav)
 //        → video/mp4 (muted talking head)
+//   GET  /portrait?name=<name>  → image/jpeg: the still the clips are made from
+//        (scaled, cropped square around the head) — shown under the video
 //
 //   decklight lipsync [--port 8789] [--rhubarb <bin>]
 //                     [--portrait <name=img.png>]…   (first one is 'default')
@@ -35,13 +37,14 @@ import { createInterface } from 'node:readline/promises';
 import { canBind, resolvePortConflict } from '../cli/port-conflict.mjs';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, statSync, copyFileSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync, statSync, copyFileSync, renameSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader, isMain, parsePort, badPort } from './args.mjs';
-import { runRhubarb, runWav2lip, runSadtalker, muteFaststart } from './lipsync-engines.mjs';
+import { runRhubarb, runWav2lip, runSadtalker, muteFaststart, prepareStill, faceBox, headCrop, mouthComposite } from './lipsync-engines.mjs';
+import { loadLipsyncConfig, saveLipsyncConfig, lipsyncConfigPath, videoSetup, SETUP_HINT } from './lipsync-config.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 import { readyLine } from '../cli/banner.mjs';
 
@@ -98,14 +101,20 @@ export async function lipsyncMain(args) {
   [--wav2lip-dir <repo> --wav2lip-ckpt <checkpoint.pth>]
   [--sadtalker-dir <repo>] [--python python3]
   [--cache-dir ~/.cache/decklight/lipsync]
+  [--save]                              remember these (lipsync.json) — author then needs no flags
   [--veo] [--veo-project <id>] [--veo-model veo-3.1-lite-generate-001]
   [--veo-seconds 4|6|8] [--veo-prompt "..."] [--veo-location us-central1]
   [--veo-face-y 0.12]                   where the square crop starts, as a fraction of height
 
 Viseme timelines need rhubarb on PATH (or --rhubarb):
   https://github.com/DanielSWolf/rhubarb-lip-sync
-Talking-head video needs a local Wav2Lip and/or SadTalker checkout, a GPU,
-and at least one --portrait. Everything runs offline on this machine.
+Talking-head video needs a local Wav2Lip and/or SadTalker checkout, its
+Python, and at least one --portrait (a head-and-shoulders photo; a large one is
+scaled down for the face detector). Everything runs offline on this machine.
+Set it up once and --save it:
+  ${SETUP_HINT}
+Wav2Lip redraws the face at 96 px, so only the MOUTH is taken from it and laid
+over the sharp photo.
 
 --veo is the exception, and the only thing here that leaves the machine: it
 animates each portrait ONCE through Veo on Vertex AI (head turns, blinks,
@@ -121,11 +130,37 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   const { opt, opts } = argReader(args);
   const port = parsePort(opt('--port', 8789));
   if (port === null) { console.error(`decklight lipsync: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
-  const rhubarb = opt('--rhubarb', 'rhubarb');
-  const python = opt('--python', 'python3');
-  const wav2lipDir = opt('--wav2lip-dir');
-  const wav2lipCkpt = opt('--wav2lip-ckpt');
-  const sadtalkerDir = opt('--sadtalker-dir');
+  // Flags win; what `--save` remembered fills the rest (tools/lipsync-config.mjs),
+  // so a talking head set up once starts with every `decklight author`.
+  const saved = loadLipsyncConfig() ?? {};
+  const rhubarb = opt('--rhubarb', saved.rhubarb ?? 'rhubarb');
+  const python = opt('--python', saved.python ?? 'python3');
+  const wav2lipDir = opt('--wav2lip-dir', saved.wav2lipDir);
+  const wav2lipCkpt = opt('--wav2lip-ckpt', saved.wav2lipCkpt);
+  const sadtalkerDir = opt('--sadtalker-dir', saved.sadtalkerDir);
+  const portraitSpecs = opts('--portrait').length ? opts('--portrait') : (saved.portraits ?? []);
+  if (args.includes('--save')) {
+    const abs = (p) => (p ? resolve(p) : undefined);
+    const next = {
+      ...saved,
+      ...(wav2lipDir ? { wav2lipDir: abs(wav2lipDir) } : {}),
+      ...(wav2lipCkpt ? { wav2lipCkpt: abs(wav2lipCkpt) } : {}),
+      ...(sadtalkerDir ? { sadtalkerDir: abs(sadtalkerDir) } : {}),
+      ...(python !== 'python3' ? { python: python.includes('/') ? abs(python) : python } : {}),
+      ...(portraitSpecs.length ? { portraits: portraitSpecs.map((sp) => {
+        const at = sp.indexOf('=');
+        return at > 0 ? `${sp.slice(0, at)}=${abs(sp.slice(at + 1))}` : abs(sp);
+      }) } : {}),
+    };
+    const { engines, problems } = videoSetup(next);
+    console.log(`saved to ${saveLipsyncConfig(next)} — decklight author starts the lip-sync bridge with it from now on`);
+    console.log(engines.length ? `  neural video: ${engines.join(', ')} ready` : '  neural video: not ready yet');
+    for (const p of problems) console.log(`  ${p}`);
+    // saving is the whole job: `author` starts the bridge with it (and a second
+    // bridge here would only fight the one author runs for the port)
+    process.exitCode = problems.length && !engines.length ? 1 : 0;
+    return;
+  }
   const cacheDir = resolve(opt('--cache-dir', join(homedir(), '.cache', 'decklight', 'lipsync')));
   mkdirSync(cacheDir, { recursive: true });
 
@@ -154,7 +189,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
 
   // portraits: --portrait alice=face.png (or a bare path — named by basename)
   const portraits = new Map();
-  for (const p of opts('--portrait')) {
+  for (const p of portraitSpecs) {
     if (!p) continue;
     const eq = p.indexOf('=');
     const name = eq > 0 ? p.slice(0, eq) : basename(p).replace(/\.[^.]+$/, '');
@@ -172,10 +207,16 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   const videoEngines = [];
   if (wav2lipDir && wav2lipCkpt && existsSync(join(wav2lipDir, 'inference.py')) && existsSync(wav2lipCkpt) && portraits.size) videoEngines.push('wav2lip');
   if (sadtalkerDir && existsSync(join(sadtalkerDir, 'inference.py')) && portraits.size) videoEngines.push('sadtalker');
+  // What stands in the way of video, in the same words doctor and the deck use
+  const setupNow = videoSetup({ wav2lipDir, wav2lipCkpt, sadtalkerDir, python, portraits: portraitSpecs });
+  if (!videoEngines.length) {
+    for (const p of setupNow.problems) console.log(`  video: ${p}`);
+    if (!wav2lipDir && !sadtalkerDir) console.log(`  video: not set up — ${SETUP_HINT}`);
+  }
   if (!visemeOk && !videoEngines.length) {
     console.error(`neither engine is usable:
   visemes — rhubarb not found (install it, or pass --rhubarb <bin>)
-  video   — needs --wav2lip-dir/--wav2lip-ckpt or --sadtalker-dir, plus --portrait`);
+  video   — needs Wav2Lip or SadTalker and a portrait, set up once: ${SETUP_HINT}`);
     process.exitCode = 1;
     return;
   }
@@ -219,6 +260,28 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     return { body: readFileSync(out), cached: false };
   }
 
+  /**
+   * A portrait as the clips are made from it: scaled down for the face
+   * detector, its face box found once, cropped square around the head — and
+   * what the deck shows UNDER the video (GET /portrait), so the photo and the
+   * clips line up exactly. Cached per portrait; `box` is null without Wav2Lip.
+   */
+  const prepared = new Map();
+  function stillFor(name) {
+    const still = portraits.get(name);
+    if (!still) return Promise.reject(new Error(`unknown portrait '${name}'`));
+    if (!prepared.has(name)) {
+      prepared.set(name, (async () => {
+        const small = await prepareStill(still, cacheDir).catch(() => still);
+        const found = wav2lipDir ? await faceBox(python, { dir: wav2lipDir, still: small, cacheDir }).catch(() => null) : null;
+        const head = found && ffmpegOk ? await headCrop(small, found, cacheDir).catch(() => null) : null;
+        return { file: head?.file ?? small, box: head?.box ?? found };
+      })());
+      prepared.get(name).catch(() => prepared.delete(name));
+    }
+    return prepared.get(name);
+  }
+
   async function video(wav, engine, portraitName) {
     if (!videoEngines.includes(engine)) throw new Error(`engine '${engine}' not available`);
     const still = portraits.get(portraitName);
@@ -228,10 +291,16 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     // the new mouth. Bought once per portrait and cached (tools/veo.mjs), so
     // this awaits a network call only the very first time. SadTalker is left
     // alone — it makes its own head motion and needs the still.
-    const face = veo && engine === 'wav2lip' ? await veo.motionFor(still) : still;
+    const moving = veo && engine === 'wav2lip';
+    // a phone photo is too big for the face detector, and the head should fill
+    // the round overlay: scaled, face found, cropped — once per portrait
+    const ready = moving ? null : await stillFor(portraitName);
+    const small = ready?.file ?? still;
+    const face = moving ? await veo.motionFor(still) : small;
     // the key reads `face`, so a veo clip and a still can never share a cache
-    // entry — flip --veo off and yesterday's clips are still there, untouched
-    const key = sha('video|', engine, '|', readFileSync(face), '|', wav);
+    // entry — flip --veo off and yesterday's clips are still there, untouched.
+    // `mouth-v1`: clips from before the mouth-only composite are not reused.
+    const key = sha('video|head-v2|', engine, '|', readFileSync(face), '|', wav);
     const out = join(cacheDir, `${key}.mp4`);
     if (existsSync(out)) return { body: readFileSync(out), cached: true };
     await dedup(key, () => gpuQ(async () => {
@@ -250,12 +319,26 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
           // big to run face detection on GPU" — which it will do on an 8 GB card
           // that a desktop is already using half of. Batch small instead: the
           // clip is short, and the GPU queue is serial anyway.
-          await runWav2lip(python, { dir: wav2lipDir, checkpoint: wav2lipCkpt, face,
-            wav: tmpWav, out: tmpMp4, smallBatches: face !== still, timeout: 600000 });
+          // A still's face is found ONCE (cached), handed to Wav2Lip as --box so
+          // it skips detection per clip — and it places the mouth-only
+          // composite below. A motion clip moves, so neither applies to it.
+          // the head-cropped still and its face box (stillFor) — handed to
+          // Wav2Lip as --box so it skips detection per clip
+          const src = face;
+          const box = moving ? null : ready?.box ?? null;
+          const raw = box ? join(cacheDir, `${key}.tmp.raw.mp4`) : tmpMp4;
+          await runWav2lip(python, { dir: wav2lipDir, checkpoint: wav2lipCkpt, face: src,
+            wav: tmpWav, out: raw, smallBatches: moving, box, timeout: 600000 });
+          // Wav2Lip redraws the whole face at 96 px; keep the photo sharp and
+          // take only the mouth from it (lipsync-engines.mjs `mouthComposite`)
+          if (box && ffmpegOk) {
+            try { await mouthComposite(src, raw, box, tmpMp4); }
+            finally { rmSync(raw, { force: true }); }
+          } else if (box) renameSync(raw, tmpMp4);
         } else {
           // SadTalker writes <timestamp>/….mp4 into result_dir — runSadtalker
           // takes the newest and moves it to tmpMp4.
-          await runSadtalker(python, { dir: sadtalkerDir, still: face,
+          await runSadtalker(python, { dir: sadtalkerDir, still: small,
             wav: tmpWav, out: tmpMp4, resultDir: tmpDir, timeout: 1800000 });
         }
         // strip the audio track (playback is muted — narrAudio is the voice)
@@ -281,10 +364,24 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
       return res.end(JSON.stringify({
         ok: true,
         engines: { viseme: visemeOk, video: videoEngines },
+        // why there is no video, in the words doctor uses — the deck says it
+        ...(videoEngines.length ? {} : { videoWhy: setupNow.problems[0] ?? 'no Wav2Lip or SadTalker set up' }),
         // what the head is driven from: a veo motion clip, or the still photo
         motion: veo ? { engine: 'veo', model: veo.model, seconds: veo.seconds } : null,
         portraits: [...portraits.keys()],
       }));
+    }
+    // the portrait the clips are made from, for the deck to show UNDER the
+    // video — so the medallion is the photo, not black, while a clip renders
+    if (req.method === 'GET' && url.pathname === '/portrait') {
+      try {
+        const { file } = await stillFor(url.searchParams.get('name') || 'default');
+        res.writeHead(200, { ...CORS, 'content-type': 'image/jpeg', 'cache-control': 'max-age=3600' });
+        return res.end(readFileSync(file));
+      } catch (e) {
+        res.writeHead(404, { ...CORS, 'content-type': 'text/plain' });
+        return res.end(String(e.message ?? e));
+      }
     }
     if (req.method === 'POST' && (url.pathname === '/viseme' || url.pathname === '/video')) {
       try {

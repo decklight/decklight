@@ -2154,19 +2154,24 @@ export function createNarration({
       const bi = character.bridgeInfo;
       const vids = bi?.engines?.video ?? [];
       narrRows.push({ text: 'Off', cur: character.mode === 'off', commit: () => applyCharacter('off') });
+      // What stands in the way, said plainly — "run: decklight lipsync" used to
+      // be the answer to everything here, and on its own it gives no video.
+      const LIPS_SETUP = 'decklight lipsync --wav2lip-dir <Wav2Lip> --wav2lip-ckpt <wav2lip_gan.pth> --python <its python> --portrait me=<photo> --save';
+      const videoWhy = !bi ? 'the lip-sync bridge is not running' : (bi.videoWhy ?? 'no Wav2Lip or SadTalker set up');
       narrRows.push({
         text: '🎭 2D character — offline visemes',
-        flavor: bi?.engines?.viseme ? '' : 'bridge offline — amplitude fallback',
+        flavor: bi?.engines?.viseme ? '' : bi ? 'no rhubarb — amplitude fallback' : 'lip-sync bridge offline — amplitude fallback',
         cur: character.mode === 'viseme',
         commit: () => applyCharacter('viseme'),
       });
       narrRows.push({
         text: `🎥 Neural video — local GPU${vids.length ? '…' : ''}`,
-        flavor: vids.length ? '' : 'needs the bridge — run: decklight lipsync',
+        flavor: vids.length ? '' : videoWhy,
+        blocked: vids.length ? null : `set it up once: ${LIPS_SETUP}, then restart decklight author`,
         cur: character.mode === 'video',
         commit: () => {
           if (vids.length) renderNarr('charvideo');
-          else toast('video needs wav2lip/sadtalker on the bridge — run: decklight lipsync');
+          else toast(`neural video: ${videoWhy} — set it up once with ${LIPS_SETUP}, then restart decklight author`, 9000);
         },
       });
       // a toggle, not a mode: solo works with either look above
