@@ -24,6 +24,27 @@ export function lipsyncConfigPath(env = process.env) {
   return join(base, 'decklight', 'lipsync.json');
 }
 
+/** Where a portrait filmed from the deck is kept, beside lipsync.json. */
+export function portraitsDir(env = process.env) {
+  return join(dirname(lipsyncConfigPath(env)), 'portraits');
+}
+
+/**
+ * `config` with portrait `name` pointing at `file` — replacing one of that
+ * name, else added — and the bridge's own `setup` (Wav2Lip, its checkpoint,
+ * its Python) filled in where the saved file has none, so a portrait filmed
+ * on a bridge started with flags still works on the next plain `author`. Pure.
+ */
+export function withPortrait(config, name, file, setup = {}) {
+  const next = { ...(config ?? {}) };
+  for (const k of ['wav2lipDir', 'wav2lipCkpt', 'sadtalkerDir', 'python']) {
+    if (next[k] == null && setup[k] != null) next[k] = setup[k];
+  }
+  const kept = (next.portraits ?? []).filter((spec) => parsePortrait(spec)[0] !== name);
+  next.portraits = [...kept, `${name}=${file}`];
+  return next;
+}
+
 /** The saved setup, or null — a missing or unreadable file is "not set up", not an error. */
 export function loadLipsyncConfig(env = process.env) {
   try { return JSON.parse(readFileSync(lipsyncConfigPath(env), 'utf8')); }

@@ -478,6 +478,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
     get portrait() { return portrait; },
     get solo() { return solo; },
     get bridgeInfo() { return bridgeInfo; },
+    get bridge() { return BRIDGE; },
     setMode, setSolo, prefetchSentence, beginSentence, beginSlide,
     attachAudio, stop, probe, ensureTimeline,
   };

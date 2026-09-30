@@ -1569,6 +1569,41 @@
    synthesized one and the line you are reading is the largest thing on it. Everything
    else on the card is chrome around that one sentence. */
 .decklight-mic .narr-card { width: min(640px, 90vw); }
+/* film yourself (V → Character): the camera in the medallion's own shape */
+.decklight-film .narr-card { width: min(420px, 90vw); }
+.decklight-film .film-circle {
+  position: relative;
+  width: min(260px, 60vw);
+  aspect-ratio: 1;
+  margin: 10px auto 6px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .15);
+}
+.decklight-film .film-circle.rec { box-shadow: 0 0 0 3px #e5533d; }
+.decklight-film .film-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.decklight-film .film-video.mirror { transform: scaleX(-1); }
+.decklight-film .film-mark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 64px;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .7);
+  pointer-events: none;
+}
+.decklight-film .film-circle.rec .film-mark {
+  align-items: flex-end;
+  padding-bottom: 14px;
+  font-size: 18px;
+}
+.decklight-film .film-tips { margin: 4px 0; padding: 0 12px 0 30px; font-size: 13px; opacity: .85; }
+.decklight-film .film-tips li { margin: 2px 0; }
+.decklight-film .film-hold { text-align: center; }
 .decklight-mic .rec-where { font-size: 12px; opacity: .55; letter-spacing: .04em; }
 .decklight-mic .rec-read {
   padding: 10px 12px 12px;

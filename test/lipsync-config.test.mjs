@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { lipsyncConfigPath, loadLipsyncConfig, saveLipsyncConfig, parsePortrait, videoSetup, SETUP_HINT } from '../tools/lipsync-config.mjs';
+import { lipsyncConfigPath, loadLipsyncConfig, saveLipsyncConfig, parsePortrait, videoSetup, SETUP_HINT, withPortrait, portraitsDir } from '../tools/lipsync-config.mjs';
 import { planServices } from '../cli/dev.mjs';
 
 test('the setup lives beside tts.json, round-trips, and a missing file is "not set up", not an error', () => {
@@ -54,4 +54,16 @@ test('author starts the lip-sync bridge for a saved talking head — rhubarb or 
   const none = planServices(noRhubarb);
   assert.ok(!none.run.some((s) => s.name === 'lipsync'));
   assert.match(none.skip.find((s) => s.name === 'lip-sync').why, /decklight lipsync --wav2lip-dir .* --save/);
+});
+
+test('a filmed portrait replaces one of its name, keeps the rest, and fills in the bridge’s setup only where none is saved', () => {
+  const r = (p) => path.resolve(p);
+  const saved = { wav2lipDir: r('/w'), portraits: [`me=${r('/p/me.jpg')}`, `filmed=${r('/p/old.webm')}`] };
+  const next = withPortrait(saved, 'filmed', r('/p/filmed.mp4'), { wav2lipDir: r('/other'), wav2lipCkpt: r('/w/c.pth'), python: 'python3' });
+  assert.deepEqual(next.portraits, [`me=${r('/p/me.jpg')}`, `filmed=${r('/p/filmed.mp4')}`]);
+  assert.equal(next.wav2lipDir, r('/w'), 'what was saved wins');
+  assert.equal(next.wav2lipCkpt, r('/w/c.pth'), 'what was missing is filled in');
+  assert.deepEqual(saved.portraits.length, 2, 'the saved config is not mutated');
+  assert.deepEqual(withPortrait(null, 'filmed', r('/f.webm')).portraits, [`filmed=${r('/f.webm')}`]);
+  assert.equal(portraitsDir({ XDG_CONFIG_HOME: r('/cfg') }), path.join(r('/cfg'), 'decklight', 'portraits'));
 });

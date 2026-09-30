@@ -217,6 +217,13 @@
         }
         return new Response('', { status: 404 });
       }
+      // filmrow: a lip-sync bridge with Wav2Lip set up and no portrait yet —
+      // filming yourself is the way to the first one
+      if (mode === 'filmrow' && /(\/lipsync\/ping|:8789\/ping)$/.test(u)) {
+        return new Response(JSON.stringify({ ok: true, engines: { viseme: false, video: [] }, film: true,
+          videoWhy: 'no portrait — add one: --portrait me=photo.jpg', portraits: [] }),
+        { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       if (!u.startsWith(BRIDGE)) return realFetch(url, opts);
       // the lip-sync bridge `recordseg&pause` points the character at: every
       // sentence is 10ms of one mouth shape
@@ -1286,6 +1293,30 @@
           const rows = [...document.querySelectorAll('.decklight-narr .narr-row-label')].map((n) => n.textContent);
           r.answerReplacesIt = rows.some((t) => /^mock/.test(t)) && !rows.some((t) => /^asking/.test(t));
           r.PASS = r.saysAsking && r.itMoves && r.asciiOnly && r.answerReplacesIt;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'filmrow') {
+          // V → Character, with Wav2Lip ready and no portrait: the video row
+          // points at filming, and the Film row opens the camera card
+          navigator.mediaDevices && (navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('denied', 'NotAllowedError')));
+          deck.narration.openPicker('character');
+          await new Promise((ok) => setTimeout(ok, 600));
+          const rows = [...document.querySelectorAll('.decklight-narr .narr-row')];
+          const film = rows.find((el) => /Film yourself/.test(el.textContent));
+          const video = rows.find((el) => /Neural video/.test(el.textContent));
+          r.filmRowShown = !!film;
+          r.videoRowPointsAtFilming = /film yourself, below/.test(video?.textContent ?? '');
+          film?.click();
+          await new Promise((ok) => setTimeout(ok, 400));
+          const card = document.querySelector('.decklight-film');
+          r.cameraCardOpens = !!card && !document.querySelector('.decklight-narr:not(.decklight-film)');
+          r.refusalSaid = /the camera was refused/.test(card?.textContent ?? '');
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+          await new Promise((ok) => setTimeout(ok, 100));
+          r.escCloses = !document.querySelector('.decklight-film');
+          r.PASS = r.filmRowShown && r.videoRowPointsAtFilming && r.cameraCardOpens && r.refusalSaid && r.escCloses;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

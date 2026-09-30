@@ -15,6 +15,7 @@
 // engine.js in the first place.
 
 import { createCharacter, concatTimelines } from './character.js';
+import { createFilmRecorder, cameraUnavailable } from './film.js';
 import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
 import { thinking } from './thinking.js';
@@ -745,6 +746,21 @@ export function createNarration({
   // the lookahead worker, beginSentence per clip); recorded mode loads
   // slide-NN sidecar files. Configured in the V picker ("Character…").
   const character = createCharacter({ root, config, debugLog, toast });
+  // Film yourself (V → Character): a few seconds from the camera become the
+  // talking head's portrait, prepared and kept by the lip-sync bridge.
+  const film = createFilmRecorder({
+    root, bridge: character.bridge, debugLog,
+    seconds: Number(config.narration?.character?.filmSeconds) || 8,
+    onUse: ({ name, steady }) => {
+      charProbed = false;
+      character.probe().then(() => {
+        const eng = character.bridgeInfo?.engines?.video?.includes('wav2lip') ? 'wav2lip' : character.bridgeInfo?.engines?.video?.[0];
+        if (eng) character.setMode('video', { engine: eng, portrait: name });
+        toast(`🎥 your talking head is “${name}”${steady ? '' : ' — your head moved, so the whole face is redrawn (softer): retake it holding still for a sharper one'}${narrating ? '' : ' · V starts narration'}`, steady ? 4000 : 9000);
+      });
+    },
+  });
+  overlays.register({ isOpen: film.isOpen, close: film.close, keydown: film.keydown });
   // liveClipKey (position, voice, style, and the sentence's text hash) →
   // PROMISE of a blob URL. Caching the promise (not the resolved URL) dedups
   // concurrent misses: the prefetch and a play (or the synthesized recorder's
@@ -1867,6 +1883,19 @@ export function createNarration({
     else closeNarrPicker();
   }
   let charProbed = false; // one bridge probe per picker open
+  function filmRow(bi, what = 'yourself') {
+    const why = bi.film ? cameraUnavailable() : bi.filmWhy;
+    return {
+      text: `📹 Film ${what} — a few seconds that become your talking head`,
+      flavor: why ?? 'face the camera, mouth relaxed — no photo needed',
+      blocked: why ?? null,
+      commit: () => {
+        if (why) return toast(`film yourself: ${why}`, 7000);
+        closeNarrPicker();
+        film.open();
+      },
+    };
+  }
   function applyCharacter(m, opts) {
     character.setMode(m, opts);
     closeNarrPicker();
@@ -2162,6 +2191,8 @@ export function createNarration({
       // be the answer to everything here, and on its own it gives no video.
       const LIPS_SETUP = 'decklight lipsync --wav2lip-dir <Wav2Lip> --wav2lip-ckpt <wav2lip_gan.pth> --python <its python> --portrait me=<photo> --save';
       const videoWhy = !bi ? 'the lip-sync bridge is not running' : (bi.videoWhy ?? 'no Wav2Lip or SadTalker set up');
+      // Wav2Lip is there and only the portrait is missing: filming is the fix
+      const filmFirst = !vids.length && bi?.film === true;
       narrRows.push({
         text: '🎭 2D character — offline visemes',
         flavor: bi?.engines?.viseme ? '' : bi ? 'no rhubarb — amplitude fallback' : 'lip-sync bridge offline — amplitude fallback',
@@ -2170,14 +2201,18 @@ export function createNarration({
       });
       narrRows.push({
         text: `🎥 Neural video — local GPU${vids.length ? '…' : ''}`,
-        flavor: vids.length ? '' : videoWhy,
-        blocked: vids.length ? null : `set it up once: ${LIPS_SETUP}, then restart decklight author`,
+        flavor: vids.length ? '' : filmFirst ? 'no portrait yet — film yourself, below' : videoWhy,
+        blocked: vids.length ? null : filmFirst ? 'film yourself first — the row below' : `set it up once: ${LIPS_SETUP}, then restart decklight author`,
         cur: character.mode === 'video',
         commit: () => {
           if (vids.length) renderNarr('charvideo');
+          else if (filmFirst) toast('neural video needs a portrait — 📹 Film yourself, below, makes one', 6000);
           else toast(`neural video: ${videoWhy} — set it up once with ${LIPS_SETUP}, then restart decklight author`, 9000);
         },
       });
+      // Film yourself: the bridge says whether it can take a film (Wav2Lip
+      // and ffmpeg there); the browser, whether it has a camera to give one.
+      if (bi && 'film' in bi) narrRows.push(filmRow(bi));
       // a toggle, not a mode: solo works with either look above
       if (character.mode !== 'off') {
         narrRows.push({
@@ -2199,6 +2234,7 @@ export function createNarration({
           });
         }
       }
+      if (bi && 'film' in bi) narrRows.push(filmRow(bi, 'a new one'));
     } else if (view === 'engines') {
       head.textContent = 'live voice — which engine speaks';
       // Asked fresh on every open. A presenter who just exported a key and

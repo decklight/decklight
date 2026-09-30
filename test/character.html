@@ -27,6 +27,7 @@
 // static import: dynamic import() under --virtual-time-budget is flaky
 // (module fetch races the budget); static module graphs load before it starts
 import { createCharacter, cueAt } from '../src/core/character.js';
+import { createFilmRecorder } from '../src/core/film.js';
 const results = { PASS: false };
 // two 33 ms sync-loop ticks — the controller runs on setInterval, not rAF
 const raf2 = () => new Promise((r) => setTimeout(r, 80));
@@ -144,6 +145,84 @@ try {
   results.soloDroppedWhenStopped = !root.classList.contains('decklight-solo');
   results.cueAtSpot = cueAt(timeline, 1.5);
 
+  // ── film yourself (src/core/film.js) ─────────────────────────────────────
+  // A canvas is the camera (headless has none) and a stand-in MediaRecorder
+  // hands back one chunk on stop; the bridge is a stubbed fetch. What is
+  // real: the overlay, its views and keys, the upload, the camera's release.
+  {
+    const until = async (pred, ms = 20000) => {
+      const t0 = Date.now();
+      while (!pred()) { if (Date.now() - t0 > ms) throw new Error('timed out waiting'); await new Promise((r) => setTimeout(r, 20)); }
+    };
+    if (!navigator.mediaDevices?.getUserMedia) {
+      Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia: () => Promise.reject(new Error('unused')) }, configurable: true });
+    }
+    class FakeRecorder {
+      constructor(stream, o) { this.mimeType = o?.mimeType ?? 'video/webm'; this.state = 'inactive'; }
+      start() { this.state = 'recording'; }
+      stop() {
+        this.state = 'inactive';
+        this.ondataavailable?.({ data: new Blob([new Uint8Array(4096)], { type: this.mimeType }) });
+        setTimeout(() => this.onstop?.(), 0);
+      }
+    }
+    const filmRoot = document.createElement('div');
+    document.body.appendChild(filmRoot);
+    const opts = { root: filmRoot, bridge: 'http://bridge.test/lipsync', seconds: 1, countdownMs: 10, createRecorder: (s, o) => new FakeRecorder(s, o) };
+
+    // the camera refused: said as what to do, not a stack
+    const refused = createFilmRecorder({ ...opts, getUserMedia: () => Promise.reject(new DOMException('denied', 'NotAllowedError')) });
+    refused.open();
+    await until(() => refused.view === 'why');
+    results.filmRefusalSaid = /the camera was refused — allow it/.test(filmRoot.textContent);
+    refused.close();
+
+    const canvas = Object.assign(document.createElement('canvas'), { width: 64, height: 48 });
+    canvas.getContext('2d').fillRect(0, 0, 64, 48);
+    const cam = canvas.captureStream(10);
+    const posts = [];
+    const answers = [
+      { status: 422, body: { error: 'no face found in the film — film the face toward the camera, evenly lit' } },
+      { status: 200, body: { ok: true, name: 'filmed', steady: true, seconds: 1 } },
+    ];
+    let used = null;
+    const film = createFilmRecorder({
+      ...opts,
+      getUserMedia: async (c) => { results.filmAskedNoMic = c.audio === false && !!c.video; return cam; },
+      fetchFn: async (url, init) => {
+        posts.push({ url, type: init.headers['content-type'], size: init.body.size });
+        const a = answers.shift();
+        return new Response(JSON.stringify(a.body), { status: a.status, headers: { 'content-type': 'application/json' } });
+      },
+      onUse: (u) => { used = u; },
+    });
+    film.open();
+    await until(() => film.view === 'ready');
+    const live = filmRoot.querySelector('.decklight-film .film-circle .film-video');
+    results.filmLivePreview = live?.srcObject === cam && live.classList.contains('mirror');
+    results.filmTipsShown = /don't talk/.test(filmRoot.textContent);
+    film.keydown({ key: 'Enter' });
+    await until(() => film.view === 'review');
+    results.filmReviewPlaysTheTake = (filmRoot.querySelector('.film-video')?.getAttribute('src') ?? '').startsWith('blob:');
+    film.keydown({ key: 'r' });
+    results.filmRetakeBackToReady = film.view === 'ready';
+    film.keydown({ key: 'Enter' });
+    await until(() => film.view === 'review');
+    film.keydown({ key: 'Enter' });
+    await until(() => film.view === 'failed');
+    results.filmBridgeRefusalSaid = /no face found in the film/.test(filmRoot.textContent);
+    results.filmPosted = posts[0]?.url === 'http://bridge.test/lipsync/portrait?name=filmed' && /^video\/(mp4|webm)$/.test(posts[0].type) && posts[0].size === 4096;
+    film.keydown({ key: 'Enter' });            // retake from the failure
+    await until(() => film.view === 'ready');
+    film.keydown({ key: 'Enter' });
+    await until(() => film.view === 'review');
+    film.keydown({ key: 'Enter' });
+    await until(() => film.view === 'closed');
+    results.filmUsed = used?.name === 'filmed' && used.steady === true;
+    results.filmCameraReleased = cam.getTracks().every((t) => t.readyState === 'ended');
+    results.filmOverlayGone = !filmRoot.querySelector('.decklight-film');
+  }
+
   results.PASS = results.mounted && results.shown && results.mouthShapes === 9
     && results.videoFromFirstTrack && results.videoFollowsTheTrack
     && results.stillUnderTheVideo && results.videoHiddenUntilPlaying && results.videoShownWhilePlaying
@@ -154,7 +233,10 @@ try {
     && results.hiddenAfterStop && results.cueAtSpot === 'F'
     && results.soloOnRoot && results.soloPersisted && results.soloDroppedWhenOff
     && results.soloBackOnWhenShown && results.soloOffClears
-    && results.soloDroppedWhenStopped;
+    && results.soloDroppedWhenStopped
+    && results.filmRefusalSaid && results.filmAskedNoMic && results.filmLivePreview && results.filmTipsShown
+    && results.filmReviewPlaysTheTake && results.filmRetakeBackToReady && results.filmBridgeRefusalSaid
+    && results.filmPosted && results.filmUsed && results.filmCameraReleased && results.filmOverlayGone;
 } catch (e) {
   results.error = String(e && e.stack || e);
 }

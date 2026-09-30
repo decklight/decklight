@@ -44,11 +44,14 @@ import { promisify } from 'node:util';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader, isMain, parsePort, badPort } from './args.mjs';
 import { runRhubarb, runWav2lip, runSadtalker, muteFaststart, prepareStill, faceBox, headCrop, mouthComposite, isClip, prepareClip, CLIP_MAX_SECONDS } from './lipsync-engines.mjs';
-import { loadLipsyncConfig, saveLipsyncConfig, lipsyncConfigPath, videoSetup, SETUP_HINT } from './lipsync-config.mjs';
+import { loadLipsyncConfig, saveLipsyncConfig, lipsyncConfigPath, videoSetup, SETUP_HINT, portraitsDir, withPortrait } from './lipsync-config.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 import { readyLine } from '../cli/banner.mjs';
 
 const run = promisify(execFile);
+
+/** The largest film the deck may send — ten seconds of 1080p is well under it. */
+const FILM_MAX = 200 * 1024 * 1024;
 
 // width-limited job queue: rhubarb gets 2 lanes, the GPU exactly 1 — a burst
 // of lookahead prefetches must never launch parallel model runs
@@ -208,16 +211,29 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   };
   const visemeOk = await has(rhubarb);
   const ffmpegOk = await has('ffmpeg', ['-version']);
+  const wav2lipReady = !!(wav2lipDir && wav2lipCkpt && existsSync(join(wav2lipDir, 'inference.py')) && existsSync(wav2lipCkpt));
+  const sadtalkerReady = !!(sadtalkerDir && existsSync(join(sadtalkerDir, 'inference.py')));
+  // grows when a portrait is filmed from the deck (POST /portrait)
   const videoEngines = [];
-  if (wav2lipDir && wav2lipCkpt && existsSync(join(wav2lipDir, 'inference.py')) && existsSync(wav2lipCkpt) && portraits.size) videoEngines.push('wav2lip');
-  if (sadtalkerDir && existsSync(join(sadtalkerDir, 'inference.py')) && portraits.size) videoEngines.push('sadtalker');
+  const enginesNow = () => {
+    if (!portraits.size) return;
+    if (wav2lipReady && !videoEngines.includes('wav2lip')) videoEngines.push('wav2lip');
+    if (sadtalkerReady && !videoEngines.includes('sadtalker')) videoEngines.push('sadtalker');
+  };
+  enginesNow();
+  // Filming yourself from the deck needs Wav2Lip's face detector and ffmpeg
+  // here — not a portrait: filming is how the first one gets made.
+  const filmWhy = !wav2lipReady ? (videoSetup({ wav2lipDir, wav2lipCkpt, python }).problems[0] ?? `Wav2Lip is not set up — ${SETUP_HINT}`)
+    : !ffmpegOk ? 'ffmpeg is not installed on this machine' : null;
   // What stands in the way of video, in the same words doctor and the deck use
   const setupNow = videoSetup({ wav2lipDir, wav2lipCkpt, sadtalkerDir, python, portraits: portraitSpecs });
   if (!videoEngines.length) {
     for (const p of setupNow.problems) console.log(`  video: ${p}`);
     if (!wav2lipDir && !sadtalkerDir) console.log(`  video: not set up — ${SETUP_HINT}`);
+    else if (!filmWhy) console.log('  video: or film yourself from the deck — V → Character → Film yourself');
   }
-  if (!visemeOk && !videoEngines.length) {
+  // Wav2Lip with no portrait yet still serves: filming one is what the deck does next
+  if (!visemeOk && !videoEngines.length && filmWhy) {
     console.error(`neither engine is usable:
   visemes — rhubarb not found (install it, or pass --rhubarb <bin>)
   video   — needs Wav2Lip or SadTalker and a portrait, set up once: ${SETUP_HINT}`);
@@ -396,6 +412,8 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
         ...(videoEngines.length ? {} : { videoWhy: setupNow.problems[0] ?? 'no Wav2Lip or SadTalker set up' }),
         // what the head is driven from: a veo motion clip, or the still photo
         motion: veo ? { engine: 'veo', model: veo.model, seconds: veo.seconds } : null,
+        // whether the deck may film a portrait here (POST /portrait), and why not
+        film: !filmWhy, ...(filmWhy ? { filmWhy } : {}),
         portraits: [...portraits.keys()],
       }));
     }
@@ -410,6 +428,47 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
       } catch (e) {
         res.writeHead(404, { ...CORS, 'content-type': 'text/plain' });
         return res.end(String(e.message ?? e));
+      }
+    }
+    // A portrait filmed in the deck: prepared like any film, kept beside
+    // lipsync.json, remembered there, and offered at once — no restart.
+    if (req.method === 'POST' && url.pathname === '/portrait') {
+      const answer = (code, body) => { res.writeHead(code, { ...CORS, 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
+      const name = url.searchParams.get('name') || 'filmed';
+      if (!/^[A-Za-z0-9_-]{1,40}$/.test(name) || name === 'default') return answer(400, { error: `a portrait name is letters, digits, - and _ (not '${name}')` });
+      if (filmWhy) return answer(409, { error: filmWhy });
+      const type = String(req.headers['content-type'] ?? '');
+      const ext = /mp4/.test(type) ? '.mp4' : /webm/.test(type) ? '.webm' : /quicktime/.test(type) ? '.mov' : null;
+      if (!ext) return answer(415, { error: `a film is video/mp4, video/webm or video/quicktime, not '${type || 'nothing'}'` });
+      const tmp = join(cacheDir, `upload-${process.pid}-${Date.now()}${ext}`);
+      try {
+        const body = await readBody(req, { max: FILM_MAX });
+        if (body.length < 1024) return answer(400, { error: 'no film in the request' });
+        writeFileSync(tmp, body);
+        const t0 = Date.now();
+        const c = await prepareClip(python, { dir: wav2lipDir, clip: tmp, cacheDir });
+        const dir = portraitsDir();
+        mkdirSync(dir, { recursive: true });
+        const file = join(dir, `${name}${ext}`);
+        // a retake in another container must not leave the old take behind
+        for (const old of ['.mp4', '.webm', '.mov']) if (old !== ext) rmSync(join(dir, `${name}${old}`), { force: true });
+        copyFileSync(tmp, file);
+        prepared.delete(file);          // a retake: same path, new film
+        if (!portraits.size) portraits.set('default', file);
+        portraits.set(name, file);
+        enginesNow();
+        const saved = saveLipsyncConfig(withPortrait(loadLipsyncConfig(), name, file,
+          { wav2lipDir: resolve(wav2lipDir), wav2lipCkpt: resolve(wav2lipCkpt), python: python.includes('/') ? resolve(python) : python }));
+        console.log(`  portrait ${name}: filmed in the deck · ${c.seconds.toFixed(1)}s · face in ${c.faces} frames · `
+          + `${c.steady ? 'head steady' : 'head moves'} · ${((Date.now() - t0) / 1000).toFixed(1)}s → ${file}`);
+        return answer(200, { ok: true, name, file, saved, seconds: c.seconds, steady: c.steady, faces: c.faces });
+      } catch (e) {
+        const msg = String(e.message ?? e);
+        console.error(`  portrait ${name}: ${msg.slice(0, 200)}`);
+        return answer(e.code === 'E2BIG' ? 413 : /no face found/.test(msg) ? 422 : 500,
+          { error: e.code === 'E2BIG' ? `a film is at most ${FILM_MAX / 1024 / 1024} MB` : msg.replace(tmp, 'the film') });
+      } finally {
+        rmSync(tmp, { force: true });
       }
     }
     if (req.method === 'POST' && (url.pathname === '/viseme' || url.pathname === '/video')) {
@@ -470,7 +529,8 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   // bridge running somewhere nothing will ever knock.
   if (asked === null) process.exit(0);
   server.listen(asked, '127.0.0.1', () => {
-    const what = [visemeOk && 'visemes (rhubarb)', ...videoEngines.map((e) => `video (${e})`)].filter(Boolean).join(' · ');
+    const what = [visemeOk && 'visemes (rhubarb)', ...videoEngines.map((e) => `video (${e})`)].filter(Boolean).join(' · ')
+      || 'no portrait yet — film one from the deck (V → Character)';
     if (process.env.DECKLIGHT_BANNER) console.log(readyLine({ key: 'lips', text: `${what} — on :${port}` }));
     else console.log(`decklight lipsync bridge on http://127.0.0.1:${port} — ${what} — Ctrl-C stops`);
     if (veo) {
