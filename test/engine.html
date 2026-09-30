@@ -2227,6 +2227,10 @@
         deck.goto(2, 0);
         await run('speaker notes', /Edit speaker notes/);
         const box = document.querySelector('.decklight-editor textarea');
+        const saved = box?.value;
+        const btnOf = (c) => document.querySelector(`.decklight-editor .${c}`);
+        // nothing to reset or compare while the box says what the file says
+        r.idleWhenUnchanged = !!btnOf('notes-reset')?.disabled && !!btnOf('notes-compare')?.disabled;
         if (box) box.value = 'An unsaved line. [pause] And another.';   // a draft, not yet saved
         const before = box?.value;
         const notesPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/notes')).length;
@@ -2242,6 +2246,23 @@
         await settle(); await settle();
         r.draftInTheBox = !!before && box?.value === `[warm] ${before}`;
         r.nothingSaved = notesPosts() === posted;
+        // ⇄ before / after: the notes as last saved against the box, word by word
+        r.compareLit = !btnOf('notes-compare')?.disabled && btnOf('notes-compare')?.classList.contains('notes-fresh');
+        btnOf('notes-compare')?.click();
+        await settle();
+        const diff = document.querySelector('.decklight-editor .notes-diff');
+        r.diffShown = !!diff && !diff.hidden && box.hidden
+          && [...diff.querySelectorAll('ins')].some((n) => n.textContent.includes('[warm]'))
+          && [...diff.querySelectorAll('ins')].some((n) => n.textContent.includes('An unsaved line.'))
+          && /before → after · −\d+ \+\d+ words/.test(diff.querySelector('.notes-diff-head')?.textContent ?? '');
+        r.diffNothingSaved = notesPosts() === posted;
+        btnOf('notes-compare')?.click();   // ✎ back to editing
+        await settle();
+        r.backToEditing = diff.hidden && !box.hidden && box.value === `[warm] ${before}`;
+        // ↺ reset: back to the notes as last saved — the draft AND the typing go
+        btnOf('notes-reset')?.click();
+        await settle();
+        r.resetToSaved = box.value === saved && !!btnOf('notes-reset')?.disabled && notesPosts() === posted;
         r.boxAskedForTags = CALLS.post.filter((c) => c.u.includes('/edit/enhance/text')).pop()?.body?.kind === 'tags';
         // 🗣 write it for the ear: the same choice; the whole deck is written in the file
         const spoken = document.querySelector('.decklight-editor .notes-spoken');
@@ -2261,6 +2282,7 @@
           && r.allRow && r.sentAll && r.saysWhatWasLeft
           && r.editorButton && r.tooltipNamesTheAgent && r.asksWhichSlides && r.draftInTheBox && r.nothingSaved
           && r.boxAskedForTags && r.spokenButton && r.unsavedStops
+          && r.idleWhenUnchanged && r.compareLit && r.diffShown && r.diffNothingSaved && r.backToEditing && r.resetToSaved
           && r.earModuleRow && r.sentModuleSpoken && r.saysWritingForTheEar && r.saysWrote;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;

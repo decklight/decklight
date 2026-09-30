@@ -2075,6 +2075,26 @@
 .decklight-editor .tr-actions { flex-wrap: wrap; }
 .decklight-editor .notes-scope { align-items: center; }
 .decklight-editor .notes-scope-what { font-size: 12px; opacity: .7; margin-right: 2px; }
+/* ↺ reset · ⇄ before / after: the notes as last saved, against this box */
+.decklight-editor .narr-prev-btn:disabled { opacity: .35; cursor: default; }
+.decklight-editor .notes-compare.notes-fresh { box-shadow: 0 0 0 2px var(--accent, #6af); }
+.decklight-editor .notes-diff {
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: 50vh;
+  overflow: auto;
+  margin: 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid rgba(255, 255, 255, .12);
+  font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+  outline: none;
+}
+.decklight-editor .notes-diff-head { font: 11px/1.4 system-ui, sans-serif; letter-spacing: .04em; opacity: .6; margin-bottom: 8px; text-transform: uppercase; }
+.decklight-editor .notes-diff-body { white-space: pre-wrap; word-break: break-word; }
+.decklight-editor .notes-diff del { background: rgba(229, 83, 61, .22); color: #ffb4a8; text-decoration: line-through; }
+.decklight-editor .notes-diff ins { background: rgba(80, 200, 120, .22); color: #b6f5c8; text-decoration: none; }
 /* the notes editor and the agent ask dock the same way: their plain textarea
    (no painted layer behind it) is the part that takes the gutter */
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .narr-card > textarea.edit-notes {

@@ -24,6 +24,7 @@ import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { createDock } from './dock.js';
 import { thinking } from './thinking.js';
+import { wordDiff, diffCounts } from './worddiff.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
 
@@ -848,11 +849,13 @@ export function createEditMode({
     ta.spellcheck = false;
     ta.readOnly = readOnly;
     if (readOnly) ta.classList.add('edit-notes-readonly');
+    let syncChanged = () => {};   // the reset / before-after buttons, once they exist (not read-only)
     notesFollow = () => {
       if (ta.value !== loaded || instance.state.slide === sl) return;
       sl = instance.state.slide;
       loaded = ta.value = notesText();
       title.textContent = heading();
+      syncChanged();
     };
     const save = async () => {
       try {
@@ -889,6 +892,71 @@ export function createEditMode({
     btn.textContent = '💾 save to file';
     btn.addEventListener('click', save);
     actions.appendChild(btn);
+    // ↺ reset and ⇄ before / after: both against the notes AS LAST SAVED
+    // (`loaded` — the page reloads after every save, so the deck's own notes
+    // are the file's). Reset drops every change in the box, typed or drafted
+    // by the agent; before/after shows them, word by word, before ⌘⏎ writes
+    // them. Neither does anything while the box says what the file says.
+    const diffEl = document.createElement('div');
+    diffEl.className = 'notes-diff';
+    diffEl.hidden = true;
+    diffEl.tabIndex = 0;
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'narr-prev-btn notes-reset';
+    resetBtn.textContent = '↺ reset';
+    resetBtn.title = 'back to the notes as last saved — drops every change in this box, typed or drafted';
+    const diffBtn = document.createElement('button');
+    diffBtn.type = 'button';
+    diffBtn.className = 'narr-prev-btn notes-compare';
+    diffBtn.title = 'what saving would change: the notes as last saved, and this box, word by word';
+    const showDiff = (on) => {
+      diffEl.hidden = !on;
+      ta.hidden = on;
+      if (on) {
+        const runs = wordDiff(loaded, ta.value);
+        const { removed, added } = diffCounts(runs);
+        diffEl.replaceChildren();
+        const head = document.createElement('div');
+        head.className = 'notes-diff-head';
+        head.textContent = `before → after · −${removed} +${added} word${added === 1 ? '' : 's'} · ⌘⏎ saves the after`;
+        const body = document.createElement('div');
+        body.className = 'notes-diff-body';
+        // built as nodes: the notes are text, and an agent's answer is somebody else's
+        for (const r of runs) {
+          const span = document.createElement(r.op === '-' ? 'del' : r.op === '+' ? 'ins' : 'span');
+          span.textContent = r.text;
+          body.appendChild(span);
+        }
+        diffEl.append(head, body);
+        diffEl.focus();
+      } else ta.focus();
+      diffBtn.textContent = on ? '✎ back to editing' : '⇄ before / after';
+      diffBtn.classList.toggle('narr-sel', on);
+    };
+    syncChanged = () => {
+      const changed = ta.value !== loaded;
+      resetBtn.disabled = !changed;
+      diffBtn.disabled = !changed && diffEl.hidden;
+      if (!changed && !diffEl.hidden) showDiff(false);
+    };
+    resetBtn.addEventListener('click', () => {
+      ta.value = loaded;
+      diffBtn.classList.remove('notes-fresh');
+      showDiff(false);
+      syncChanged();
+      toast('back to the notes as last saved', 2200);
+    });
+    diffBtn.addEventListener('click', () => { diffBtn.classList.remove('notes-fresh'); showDiff(diffEl.hidden); });
+    diffEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { save(); e.preventDefault(); }
+      else if (e.key === 'Escape') { showDiff(false); e.preventDefault(); }
+      e.stopPropagation();
+    });
+    ta.addEventListener('input', syncChanged);
+    actions.append(resetBtn, diffBtn);
+    showDiff(false);
+    syncChanged();
     // Two rewrites by the agent (cli/enhance.mjs), each for this slide, its
     // module, or the whole deck:
     //   ✨ add audio tags — the tags ElevenLabs v4 performs, same words;
@@ -926,7 +994,10 @@ export function createEditMode({
           if (!j.changed) toast(`${j.label || j.agent} ${b.none}`, 3200);
           else {
             ta.value = j.text;
-            toast(`${b.landed} — read it, then ⌘⏎ saves (Esc leaves the file as it was)`, 5200);
+            syncChanged();
+            // fresh: the button that shows what just changed, lit until looked at
+            diffBtn.classList.add('notes-fresh');
+            toast(`${b.landed} — ⇄ before / after shows what changed · ⌘⏎ saves · ↺ reset drops it`, 6000);
           }
           debugLog('enhance', `notes editor (${b.kind}): ${j.changed ? 'drafted' : 'nothing to change'}`);
         } catch (e) {
@@ -981,7 +1052,7 @@ export function createEditMode({
         actions.appendChild(btn);
       }
     }
-    card.append(ta, actions);
+    card.append(ta, diffEl, actions);
     unmountEditor = mountTypingCard(el, notesDock);
     setTimeout(() => ta.focus(), 0);
   }
