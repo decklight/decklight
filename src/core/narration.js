@@ -2198,9 +2198,14 @@ export function createNarration({
         // not answer at all: it is running, it is older than this deck, and
         // telling its owner to start the thing they already started would send
         // them looking in the wrong place entirely.
+        // …but only something that answers /ping as a decklight bridge is an
+        // OLD bridge. A 404 from anything else is another program on the voice
+        // port — telling its owner to restart decklight would send them
+        // looking in exactly the wrong place.
+        const isBridge = () => fetch(PING_URL).then((r) => (r.ok ? r.json() : null)).then((p) => p?.ok === true && !!p.engine).catch(() => false);
         fetch(ENGINES_URL)
-          .then((r) => (r.ok ? r.json() : { stale: true }))
-          .then((j) => { liveMenu = j?.stale ? 'stale' : (j?.engines ?? []); })
+          .then(async (r) => (r.ok ? r.json() : { stale: true, bridge: await isBridge() }))
+          .then((j) => { liveMenu = j?.stale ? (j.bridge ? 'stale' : 'foreign') : (j?.engines ?? []); })
           .catch(() => { liveMenu = []; })
           .then(() => { if (narrEl && narrView === 'engines') renderNarr('engines'); });
       }
@@ -2211,6 +2216,14 @@ export function createNarration({
           flavor: 'this voice bridge predates the engine picker',
           blocked: 'restart it: decklight author',
           cur: true,
+          commit: () => {},
+        });
+      } else if (liveMenu === 'foreign') {
+        narrRows.push({
+          text: 'another program is answering on the voice bridge\'s port',
+          flavor: 'not decklight — the bridge could not start there',
+          blocked: 'stop that program, or restart decklight author (it moves the bridge)',
+          cur: false,
           commit: () => {},
         });
       } else if (!liveMenu.length) {

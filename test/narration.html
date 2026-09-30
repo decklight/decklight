@@ -229,6 +229,15 @@
         return new Response(JSON.stringify({ ok: true }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
+      // the engine list: `stalebridge` is a decklight bridge older than the
+      // picker (a /ping, but no /engines); `foreignport` is some other program
+      // on the voice port — neither route is its to answer
+      if ((mode === 'stalebridge' || mode === 'foreignport') && u.endsWith('/engines')) {
+        return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
+      }
+      if (mode === 'foreignport' && u.endsWith('/ping')) {
+        return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/ping')) {
         // xss: the roster is somebody ELSE'S text — an ElevenLabs voice is
         // named by whoever shared it, and that name may be markup
@@ -1213,6 +1222,20 @@
 
           r.PASS = r.noModuleMenu && r.mIsReviewNow && r.finderOpens && r.listsSlides
             && r.listsModules && r.hidesCurrentModule && r.moduleRowMarked;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'stalebridge' || mode === 'foreignport') {
+          // Which engine speaks — asked of whatever answers on the voice port.
+          // Only a bridge that said so on /ping is an OLD bridge; anything else
+          // is another program, and "restart decklight" would be the wrong advice.
+          deck.narration.openPicker('engines');
+          await new Promise((ok) => setTimeout(ok, 600));
+          const text = document.querySelector('.decklight-narr')?.textContent ?? '';
+          r.saysPredates = /predates the engine picker/.test(text);
+          r.saysAnotherProgram = /another program is answering on the voice bridge's port/.test(text);
+          r.PASS = mode === 'stalebridge' ? r.saysPredates && !r.saysAnotherProgram : r.saysAnotherProgram && !r.saysPredates;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

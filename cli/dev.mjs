@@ -40,7 +40,7 @@ import { argReader, firstPositional, isMain } from '../tools/args.mjs';
 import { deckFromUrl } from './clone-deck.mjs';
 import { runMain } from './util.mjs';
 import { openUrl } from './open-browser.mjs';
-import { isPortOpen, resolvePortConflict } from './port-conflict.mjs';
+import { isPortOpen, resolvePortConflict, identifyBridge, identifyStranger, canBind } from './port-conflict.mjs';
 import { leashEnv } from './supervise.mjs';
 import { nextFlushDelay, parseReady, renderBanner } from './banner.mjs';
 
@@ -444,6 +444,7 @@ export async function devMain(args) {
       editSvc.url = `http://127.0.0.1:${freshPort}/${deck}`;
     }
   }
+  for (const line of await moveBridgesOffStrangers(plan)) console.log(`  ${line}`);
   const { run, skip, agents } = plan;
 
   const tty = process.stdout.isTTY;
@@ -643,4 +644,48 @@ export async function devMain(args) {
 if (isMain(import.meta.url)) {
   // devMain sets process.exitCode itself; only a throw runMain caught lands here
   if (await runMain('author', () => devMain(process.argv.slice(2))) === 1) process.exitCode = 1;
+}
+
+/**
+ * A bridge's port held by something that is NOT a decklight bridge — another
+ * project's dev server on 8787 is the usual case. Alone, a bridge may not move
+ * (port-conflict.mjs: a file:// deck assumes its literal port). Under author it
+ * may, and should: the deck is served by author and reaches the bridges on ITS
+ * origin (/tts, /lipsync — #520), so the bridge takes the next free port that
+ * no other service of this run will use, and the edit server is told where to
+ * forward. A decklight bridge already on its port is left alone — the bridge
+ * reuses it itself. Mutates `plan`; returns one line per move, to print.
+ */
+export async function moveBridgesOffStrangers(plan, {
+  isOpen = isPortOpen, isBridge = identifyBridge, bindable = canBind, stranger = identifyStranger,
+} = {}) {
+  const lines = [];
+  const editSvc = plan.run.find((s) => s.name === 'edit');
+  if (!editSvc) return lines;
+  const portOf = (svc) => Number(svc.args[svc.args.indexOf('--port') + 1]);
+  // every port this run will listen on — a moved bridge must not land on the
+  // next one's (8787 held → not 8788, the edit server's, nor 8789, lip-sync's)
+  const spoken = new Set(plan.run.filter((s) => s.args.includes('--port')).map(portOf));
+  const freeFrom = async (port) => {
+    for (let p = port; p < port + 64 && p <= 65535; p++) if (!spoken.has(p) && await bindable(p)) return p;
+    return null;
+  };
+  for (const [name, flag] of [['tts', '--tts-port'], ['lipsync', '--lipsync-port']]) {
+    const svc = plan.run.find((s) => s.name === name);
+    if (!svc) continue;
+    const at = svc.args.indexOf('--port');
+    const port = Number(svc.args[at + 1]);
+    if (!(await isOpen(port)) || await isBridge(port)) continue;
+    const fresh = await freeFrom(port + 1);
+    if (!fresh) continue;   // nothing free nearby: the bridge refuses with its own message, as before
+    spoken.add(fresh);
+    const who = stranger(port);
+    svc.args[at + 1] = String(fresh);
+    svc.url = `http://127.0.0.1:${fresh}`;
+    const e = editSvc.args.indexOf(flag);
+    if (e >= 0) editSvc.args[e + 1] = String(fresh); else editSvc.args.push(flag, String(fresh));
+    lines.push(`${name === 'tts' ? 'voice' : 'lip-sync'}: port ${port} is held by ${who ? `${who.command} (pid ${who.pid})` : 'another program'}`
+      + ` — not decklight — so the bridge takes ${fresh}; the deck reaches it through this server`);
+  }
+  return lines;
 }

@@ -15,7 +15,7 @@ import path from 'node:path';
 import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
-import { planServices, inGitRepo, voiceSetupOffer } from '../cli/dev.mjs';
+import { planServices, inGitRepo, voiceSetupOffer, moveBridgesOffStrangers } from '../cli/dev.mjs';
 import { LEASH, onLeash, leashEnv, exitWhenOrphaned } from '../cli/supervise.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { DECK_URL_RE } from '../cli/banner.mjs';
@@ -416,4 +416,40 @@ test('author without a deck, or with a missing one, fails with usage — not a s
   const missing = spawnSync('node', [CLI, 'author', 'nope.html'], { encoding: 'utf8' });
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /no such deck/);
+});
+
+// ── a bridge's port held by somebody else's program (author moves it) ────────
+
+test('author moves a bridge off a port another program holds — onto one no other service takes — and tells the edit server', async () => {
+  const plan = { run: [
+    { name: 'edit', args: ['deck.html', '--port', '8788'] },
+    { name: 'tts', args: ['tts', '--port', '8787'], url: 'http://127.0.0.1:8787' },
+    { name: 'lipsync', args: ['--port', '8789'], url: 'http://127.0.0.1:8789' },
+  ] };
+  const held = new Set([8787, 8790]);
+  const lines = await moveBridgesOffStrangers(plan, {
+    isOpen: async (p) => held.has(p),
+    isBridge: async () => null,                                   // what holds 8787 is not decklight
+    bindable: async (p) => !held.has(p),
+    stranger: () => ({ pid: 42, command: 'Python' }),
+  });
+  const tts = plan.run.find((s) => s.name === 'tts');
+  assert.equal(tts.args.at(-1), '8791', 'not 8788 (edit), not 8789 (lip-sync), not 8790 (held)');
+  assert.equal(tts.url, 'http://127.0.0.1:8791');
+  const edit = plan.run.find((s) => s.name === 'edit').args;
+  assert.equal(edit[edit.indexOf('--tts-port') + 1], '8791', 'the edit server forwards /tts there');
+  assert.equal(plan.run.find((s) => s.name === 'lipsync').args.at(-1), '8789', 'a free bridge port stays put');
+  assert.deepEqual(lines, ['voice: port 8787 is held by Python (pid 42) — not decklight — so the bridge takes 8791; the deck reaches it through this server']);
+});
+
+test('a decklight bridge already on the port is not moved — the bridge reuses it', async () => {
+  const plan = { run: [
+    { name: 'edit', args: ['deck.html', '--port', '8788', '--tts-port', '8787'] },
+    { name: 'tts', args: ['tts', '--port', '8787'] },
+  ] };
+  const lines = await moveBridgesOffStrangers(plan, {
+    isOpen: async () => true, isBridge: async () => ({ bridge: true }), bindable: async () => true, stranger: () => null,
+  });
+  assert.deepEqual(lines, []);
+  assert.equal(plan.run[1].args.at(-1), '8787');
 });
