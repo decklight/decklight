@@ -17,6 +17,7 @@
 import { createCharacter, concatTimelines } from './character.js';
 import { splitSentences, speechRuns, stripPauses, spoken, canonMarks, stripAudioTags, hasWords, voicedPauses, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 import { rangeLabel } from './ranges.js';
+import { thinking } from './thinking.js';
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
@@ -1808,6 +1809,9 @@ export function createNarration({
 
   // N: narration picker — tracks → live voices → tones → custom tone
   let narrEl = null, narrSel = 0, narrView = 'tracks', narrRows = [], liveDraft = null;
+  // the tickers of rows that are waiting on something (`busy`), stopped on every re-render and close
+  let busyStops = [];
+  const stopBusyRows = () => { busyStops.forEach((stop) => stop()); busyStops = []; };
   function persistNarr() {
     try {
       writeJson(narrKey, narrSet?.live
@@ -1997,6 +2001,7 @@ export function createNarration({
     // already true, and re-deciding would fight the ArrowDown that just left.
     if (view === 'voices' && cameFrom !== 'voices') narrFilterFocus = true;
     const card = narrEl.querySelector('.narr-card');
+    stopBusyRows();   // a row that was waiting is about to be replaced
     card.innerHTML = '';
     const head = document.createElement('div');
     head.className = 'narr-head';
@@ -2209,7 +2214,7 @@ export function createNarration({
           .catch(() => { liveMenu = []; })
           .then(() => { if (narrEl && narrView === 'engines') renderNarr('engines'); });
       }
-      if (!liveMenu) narrRows.push({ text: 'asking the bridge…', cur: false, commit: () => {} });
+      if (!liveMenu) narrRows.push({ text: 'asking the bridge', busy: 'asking the bridge', cur: false, commit: () => {} });
       else if (liveMenu === 'stale') {
         narrRows.push({
           text: `⚡ ${liveEngine ?? 'the bridge'} — and it cannot be changed from here`,
@@ -2467,6 +2472,10 @@ export function createNarration({
       // somebody else's text (an ElevenLabs roster is named by whoever shared
       // the voices) — textContent escapes them by construction.
       label.textContent = row.text;
+      // A row that is WAITING says so the way every wait in decklight does —
+      // the ASCII `| / - \` turning, seconds after two (thinking.js) — until
+      // the answer re-renders the view and stopBusyRows() ends it.
+      if (row.busy) busyStops.push(thinking((t) => { label.textContent = t; }, { label: row.busy }));
       if (row.flavor) {
         const flavor = document.createElement('span');
         flavor.className = 'narr-flavor';
@@ -2574,6 +2583,7 @@ export function createNarration({
     probeLive().then((p) => { if (p && narrEl && narrView === 'voices') renderNarr('voices'); });
   }
   function closeNarrPicker() {
+    stopBusyRows();
     narrEl?.remove();
     narrEl = null;
     narrExpanded.clear();  // the collapsed shelves fold back for the next open

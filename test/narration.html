@@ -238,6 +238,12 @@
       if (mode === 'foreignport' && u.endsWith('/ping')) {
         return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
       }
+      // askingbridge: a bridge slow to list its engines — long enough to see the wait
+      if (mode === 'askingbridge' && u.endsWith('/engines')) {
+        await new Promise((ok) => setTimeout(ok, 1500));
+        return new Response(JSON.stringify({ ok: true, engine: 'mock', engines: [{ name: 'mock', ready: true, current: true, cost: 'free' }] }),
+          { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/ping')) {
         // xss: the roster is somebody ELSE'S text — an ElevenLabs voice is
         // named by whoever shared it, and that name may be markup
@@ -1236,6 +1242,28 @@
           r.saysPredates = /predates the engine picker/.test(text);
           r.saysAnotherProgram = /another program is answering on the voice bridge's port/.test(text);
           r.PASS = mode === 'stalebridge' ? r.saysPredates && !r.saysAnotherProgram : r.saysAnotherProgram && !r.saysPredates;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'askingbridge') {
+          // The wait for the engine list turns, the way every wait does: the
+          // ASCII | / - \ (or the reduced-motion dots), and it stops once the
+          // answer lands — no frozen "asking…" row, and no ticker left running.
+          deck.narration.openPicker('engines');
+          const label = () => [...document.querySelectorAll('.decklight-narr .narr-row-label')].map((n) => n.textContent).find((t) => /^asking the bridge/.test(t)) ?? '';
+          await new Promise((ok) => setTimeout(ok, 150));
+          const a = label();
+          await new Promise((ok) => setTimeout(ok, 700));
+          const b = label();
+          r.frames = [a, b];
+          r.saysAsking = /^asking the bridge [|/\\-]$|^asking the bridge \.{1,3} *$/.test(a);
+          r.itMoves = a !== '' && b !== '' && a !== b;
+          r.asciiOnly = [a, b].every((t) => /^[\x20-\x7e]*$/.test(t));
+          await new Promise((ok) => setTimeout(ok, 1200));
+          const rows = [...document.querySelectorAll('.decklight-narr .narr-row-label')].map((n) => n.textContent);
+          r.answerReplacesIt = rows.some((t) => /^mock/.test(t)) && !rows.some((t) => /^asking/.test(t));
+          r.PASS = r.saysAsking && r.itMoves && r.asciiOnly && r.answerReplacesIt;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }
