@@ -7,7 +7,7 @@
 // (`decklight dev` is its permanent hidden alias, from before the rename.)
 //
 //   decklight author <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
-//                    [--project <id>] [--rhubarb <bin>] [--portrait <name=img.png>]…
+//                    [--project <id>] [--rhubarb <bin>] [--portrait <name=img.png|clip.mp4>]…
 //                    [--no-tts] [--no-lipsync]
 //
 // The bridges keep their OWN PROCESSES on their own ports, exactly as if you
@@ -100,7 +100,7 @@ const USAGE = `usage: decklight author <deck.html | git url> [--port 8788] [--tt
                 --tts-format pcm|mp3 (elevenlabs),
                 --tts-stability creative|natural|robust (elevenlabs eleven_v3 only)
                 --tts-model eleven_v4 (default) · eleven_v4_turbo · eleven_v3 · eleven_multilingual_v2
-  lipsync flags --rhubarb <bin>, --portrait <name=img.png>…, --wav2lip-dir,
+  lipsync flags --rhubarb <bin>, --portrait <name=img.png|clip.mp4>…, --wav2lip-dir,
                 --wav2lip-ckpt, --sadtalker-dir, --python, --cache-dir,
                 --veo (animate the portrait once through Vertex — BILLED),
                 --veo-project, --veo-model, --veo-seconds, --veo-face-y

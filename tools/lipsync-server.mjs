@@ -16,7 +16,7 @@
 //        (scaled, cropped square around the head) — shown under the video
 //
 //   decklight lipsync [--port 8789] [--rhubarb <bin>]
-//                     [--portrait <name=img.png>]…   (first one is 'default')
+//                     [--portrait <name=img.png|clip.mp4>]…   (first one is 'default')
 //                     [--wav2lip-dir <repo> --wav2lip-ckpt <pth>]
 //                     [--sadtalker-dir <repo>] [--python <bin>]
 //                     [--cache-dir ~/.cache/decklight/lipsync]
@@ -43,7 +43,7 @@ import { homedir } from 'node:os';
 import { promisify } from 'node:util';
 import { createVeo, DEFAULT_PROMPT, VEO_MODELS } from './veo.mjs';
 import { argReader, isMain, parsePort, badPort } from './args.mjs';
-import { runRhubarb, runWav2lip, runSadtalker, muteFaststart, prepareStill, faceBox, headCrop, mouthComposite } from './lipsync-engines.mjs';
+import { runRhubarb, runWav2lip, runSadtalker, muteFaststart, prepareStill, faceBox, headCrop, mouthComposite, isClip, prepareClip, CLIP_MAX_SECONDS } from './lipsync-engines.mjs';
 import { loadLipsyncConfig, saveLipsyncConfig, lipsyncConfigPath, videoSetup, SETUP_HINT } from './lipsync-config.mjs';
 import { corsHeaders, readBody } from './bridge.mjs';
 import { readyLine } from '../cli/banner.mjs';
@@ -97,7 +97,7 @@ export async function lipsyncMain(args) {
   process.on('SIGTERM', () => process.exit(0));
   if (args.includes('--help')) {
     console.log(`usage: decklight lipsync [--port 8789] [--rhubarb <bin>]
-  [--portrait <name=img.png>]...        portraits offered for video mode (first = default)
+  [--portrait <name=img.png|clip.mp4>]... portraits offered for video mode (first = default)
   [--wav2lip-dir <repo> --wav2lip-ckpt <checkpoint.pth>]
   [--sadtalker-dir <repo>] [--python python3]
   [--cache-dir ~/.cache/decklight/lipsync]
@@ -111,6 +111,10 @@ Viseme timelines need rhubarb on PATH (or --rhubarb):
 Talking-head video needs a local Wav2Lip and/or SadTalker checkout, its
 Python, and at least one --portrait (a head-and-shoulders photo; a large one is
 scaled down for the face detector). Everything runs offline on this machine.
+A portrait can be FILMED instead (.mp4 .mov .m4v .webm .mkv): 5-10 s of you
+facing the camera, mouth relaxed, blinking, not talking. Its first ${CLIP_MAX_SECONDS} s are
+played forward then back, so the head never snaps back; hold the head still
+and only the mouth is redrawn over the film.
 Set it up once and --save it:
   ${SETUP_HINT}
 Wav2Lip redraws the face at 96 px, so only the MOUTH is taken from it and laid
@@ -265,21 +269,40 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
    * detector, its face box found once, cropped square around the head — and
    * what the deck shows UNDER the video (GET /portrait), so the photo and the
    * clips line up exactly. Cached per portrait; `box` is null without Wav2Lip.
+   * A FILMED portrait (a video) becomes a forward-and-back loop the same way
+   * (`prepareClip`): `loop` is what Wav2Lip is given, `file` its first frame,
+   * and `box` is only kept when the head held still enough to use it.
    */
   const prepared = new Map();
   function stillFor(name) {
     const still = portraits.get(name);
     if (!still) return Promise.reject(new Error(`unknown portrait '${name}'`));
-    if (!prepared.has(name)) {
-      prepared.set(name, (async () => {
+    // keyed by FILE: 'default' and its own name are one portrait, prepared once
+    if (!prepared.has(still)) {
+      prepared.set(still, (async () => {
+        if (isClip(still)) {
+          // without ffmpeg or Wav2Lip's detector the film goes in as it is:
+          // Wav2Lip finds the face per frame, and the loop jumps at its end
+          if (!ffmpegOk || !wav2lipDir) return { file: null, loop: still, box: null };
+          const t0 = Date.now();
+          const c = await prepareClip(python, { dir: wav2lipDir, clip: still, cacheDir });
+          console.log(`  portrait ${name}: filmed · ${c.seconds.toFixed(1)}s, played there and back · face in ${c.faces} frames · `
+            + (c.steady ? 'head steady — only the mouth is redrawn'
+              : 'head moves — the whole face is redrawn (softer); film with the head still for a sharper one')
+            + ` · ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+          return { file: c.still, loop: c.loop, box: c.steady ? c.box : null };
+        }
         const small = await prepareStill(still, cacheDir).catch(() => still);
         const found = wav2lipDir ? await faceBox(python, { dir: wav2lipDir, still: small, cacheDir }).catch(() => null) : null;
         const head = found && ffmpegOk ? await headCrop(small, found, cacheDir).catch(() => null) : null;
         return { file: head?.file ?? small, box: head?.box ?? found };
       })());
-      prepared.get(name).catch(() => prepared.delete(name));
+      prepared.get(still).catch((e) => {
+        console.error(`  portrait ${name}: ${String(e.message ?? e).slice(0, 200)}`);
+        prepared.delete(still);
+      });
     }
-    return prepared.get(name);
+    return prepared.get(still);
   }
 
   async function video(wav, engine, portraitName) {
@@ -291,12 +314,15 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     // the new mouth. Bought once per portrait and cached (tools/veo.mjs), so
     // this awaits a network call only the very first time. SadTalker is left
     // alone — it makes its own head motion and needs the still.
-    const moving = veo && engine === 'wav2lip';
+    // A filmed portrait already moves: Veo is not asked to animate a film.
+    const filmed = isClip(still);
+    const moving = veo && engine === 'wav2lip' && !filmed;
     // a phone photo is too big for the face detector, and the head should fill
     // the round overlay: scaled, face found, cropped — once per portrait
     const ready = moving ? null : await stillFor(portraitName);
     const small = ready?.file ?? still;
-    const face = moving ? await veo.motionFor(still) : small;
+    if (filmed && engine !== 'wav2lip' && !ready?.file) throw new Error(`${engine} needs a still — no frame could be taken from ${still} (is ffmpeg installed?)`);
+    const face = moving ? await veo.motionFor(still) : filmed && engine === 'wav2lip' ? ready.loop : small;
     // the key reads `face`, so a veo clip and a still can never share a cache
     // entry — flip --veo off and yesterday's clips are still there, untouched.
     // `mouth-v1`: clips from before the mouth-only composite are not reused.
@@ -324,11 +350,13 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
           // composite below. A motion clip moves, so neither applies to it.
           // the head-cropped still and its face box (stillFor) — handed to
           // Wav2Lip as --box so it skips detection per clip
+          // A filmed portrait whose head held still gets the same: one box for
+          // every frame, and the mouth laid over the film (frame-aligned).
           const src = face;
           const box = moving ? null : ready?.box ?? null;
           const raw = box ? join(cacheDir, `${key}.tmp.raw.mp4`) : tmpMp4;
           await runWav2lip(python, { dir: wav2lipDir, checkpoint: wav2lipCkpt, face: src,
-            wav: tmpWav, out: raw, smallBatches: moving, box, timeout: 600000 });
+            wav: tmpWav, out: raw, smallBatches: moving || (filmed && !box), box, timeout: 600000 });
           // Wav2Lip redraws the whole face at 96 px; keep the photo sharp and
           // take only the mouth from it (lipsync-engines.mjs `mouthComposite`)
           if (box && ffmpegOk) {
@@ -376,6 +404,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     if (req.method === 'GET' && url.pathname === '/portrait') {
       try {
         const { file } = await stillFor(url.searchParams.get('name') || 'default');
+        if (!file) throw new Error('no still for a film without ffmpeg');
         res.writeHead(200, { ...CORS, 'content-type': 'image/jpeg', 'cache-control': 'max-age=3600' });
         return res.end(readFileSync(file));
       } catch (e) {
@@ -449,6 +478,15 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
         + 'then wav2lip re-syncs that clip locally for every sentence');
     }
     console.log(`cache: ${cacheDir}`);
+    // A filmed portrait takes a minute to prepare (a face found in every
+    // second of it): start now, not on the first sentence of the talk.
+    if (videoEngines.length) {
+      const seen = new Set();
+      // by the name it was given, not the 'default' alias it also answers to
+      for (const [name, file] of [...portraits].reverse()) {
+        if (!seen.has(file)) { seen.add(file); stillFor(name).catch(() => {}); }
+      }
+    }
   });
   return server;
 }

@@ -71,7 +71,7 @@ export function videoSetup(setup, { exists = existsSync } = {}) {
     else if (havePortrait) engines.push('sadtalker');
   }
   if ((wav2lipDir || sadtalkerDir) && !havePortrait && !missingPortraits.length) {
-    problems.push('no portrait — add one: --portrait me=photo.jpg (a head-and-shoulders photo)');
+    problems.push('no portrait — add one: --portrait me=photo.jpg (a head-and-shoulders photo, or a short video of you: me=clip.mp4)');
   }
   if (setup?.python && setup.python.includes('/') && !exists(setup.python)) problems.push(`python not found: ${setup.python}`);
   return { engines, problems };
