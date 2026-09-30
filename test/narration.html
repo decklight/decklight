@@ -717,7 +717,9 @@
             // the DECK-WIDE tier: no attribute on the slide, `narration.beatPause`
             // in the init config instead — the runtime reads the same object it
             // was initialised with, so the same hold must appear
-            deck.toggleNarration();                     // V off
+            // the talk is over, so the voice turned itself off — no toggle
+            // needed (it used to stay "on", saying nothing, for ever)
+            r.offAtTheEnd = deck.narration.status().narrating === false;
             await wait(100);
             delete deck._sections[4].dataset.narrationBeatPause;
             cfg.narration.beatPause = 0.4;
@@ -737,7 +739,7 @@
             deck.toggleNarration();
             await wait(250);
             r.slideZeroWins = deck.state.step >= 1 || deck.state.slide > 5;
-            r.PASS = r.heldAfterClip && r.advancedAfterHold && r.reachedTheEnd && r.inOrder
+            r.PASS = r.heldAfterClip && r.advancedAfterHold && r.reachedTheEnd && r.inOrder && r.offAtTheEnd
               && r.deckWideHeld && r.deckWideAdvanced && r.slideZeroWins;
             sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
             return;
@@ -1915,6 +1917,43 @@
           r.total = deck.state.totalSlides;
           r.reachedEnd = deck.state.slide === deck.state.totalSlides;
           r.PASS = r.held && r.reachedEnd;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'endoftalk') {
+          // A talk that runs to its end turns the voice off, and says so —
+          // it used to stay "on", saying nothing, for ever. And P where
+          // nothing is left to say (the user's case: the last build of the last
+          // slide, its notes all spoken on earlier builds) says so instead of
+          // switching the voice on into silence.
+          const toasts = [];
+          new MutationObserver(() => {
+            for (const t of document.querySelectorAll('.decklight-toast')) if (!toasts.includes(t.textContent)) toasts.push(t.textContent);
+          }).observe(document.body, { subtree: true, childList: true, characterData: true });
+          const last = deck.state.totalSlides;
+          deck.goto(last, 0);
+          await new Promise((ok) => setTimeout(ok, 50));
+          const before = bodies.length;
+          deck.toggleNarration();
+          await new Promise((ok) => setTimeout(ok, 200));
+          r.spoke = bodies.length > before;           // the last slide's words were asked for
+          for (let i = 0; i < 100 && deck.narration.status().narrating; i++) await new Promise((ok) => setTimeout(ok, 100));
+          r.offAtTheEnd = deck.narration.status().narrating === false;
+          r.saidTheEnd = toasts.some((t) => /end of the talk — narration off/.test(t));
+
+          // the last slide with its words already said: nothing left from here
+          deck._sections[last - 1].querySelector('aside.notes').textContent = '';
+          deck.goto(last, 0);
+          await new Promise((ok) => setTimeout(ok, 50));
+          const asked = bodies.length;
+          toasts.length = 0;
+          deck.toggleNarration();
+          await new Promise((ok) => setTimeout(ok, 400));
+          r.saidNothingLeft = toasts.some((t) => /nothing left to say — this is the end of the talk/.test(t));
+          r.stayedOff = deck.narration.status().narrating === false;
+          r.askedNothing = bodies.length === asked;
+          r.PASS = r.spoke && r.offAtTheEnd && r.saidTheEnd && r.saidNothingLeft && r.stayedOff && r.askedNothing;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

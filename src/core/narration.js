@@ -1096,9 +1096,27 @@ export function createNarration({
       instance.next();
       return;
     }
-    if (narrationHolds(sl) || sl >= instance.state.totalSlides) return;
+    if (narrationHolds(sl)) return;
+    // The talk is over. Said, and the voice handed back — it used to stay
+    // "on" in silence, and P then read as the thing that was broken.
+    if (sl >= instance.state.totalSlides) return stopNarration(END_OF_TALK);
     if (!(await held(narrationPause(sl), 'the next slide'))) return;
     instance.goto(sl + 1, 0);
+  }
+  const END_OF_TALK = '🔚 end of the talk — narration off · Home goes back to the start';
+  /**
+   * Is there anything for the live voice to say from (sl, step) to the end of
+   * the deck? Pressing P on the last build of the last slide used to switch
+   * the voice "on" and then say nothing, for ever.
+   */
+  function liveLeft(sl, step) {
+    for (let s = sl; s <= instance.state.totalSlides; s++) {
+      if (!notesText(s)) continue;
+      for (let st = s === sl ? step : 0; st <= buildSteps(s); st++) {
+        if (stepAudio(s, st).sentences.length) return true;
+      }
+    }
+    return false;
   }
   async function playLive() {
     const sl = instance.state.slide, step = instance.state.step;
@@ -1109,7 +1127,9 @@ export function createNarration({
       // nothing to say on this slide at all — skip it after a short beat
       setTimeout(() => {
         if (gen !== segGen || !narrating || !narrSet?.live) return;
-        if (instance.state.slide === sl && sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+        if (instance.state.slide !== sl) return;
+        if (sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+        else stopNarration(END_OF_TALK);
       }, 400);
       return;
     }
@@ -1516,7 +1536,9 @@ export function createNarration({
       // nothing to say on this slide at all — skip it after a short beat
       setTimeout(() => {
         if (gen !== segGen || !narrating || modeNow() !== 'file') return;
-        if (instance.state.slide === sl && sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+        if (instance.state.slide !== sl) return;
+        if (sl < instance.state.totalSlides) instance.goto(sl + 1, 0);
+        else stopNarration(END_OF_TALK);
       }, 400);
       return;
     }
@@ -1673,6 +1695,12 @@ export function createNarration({
     // out from a failed sentence is finding out too late. One request, ever —
     // probeLive caches the promise — and a bridge that does not answer just
     // leaves the built-in roster in place, exactly as before.
+    if (narrSet.live && !liveLeft(instance.state.slide, instance.state.step)) {
+      toast(instance.state.slide >= instance.state.totalSlides
+        ? 'nothing left to say — this is the end of the talk · ← goes back, Home starts over'
+        : 'nothing left to say from here — the rest of the deck has no notes', 5000);
+      return;
+    }
     if (narrSet.live) await probeLive();
     // and the recorded equivalent: a manifest track's file list and its
     // signatures are settled before the first clip, not discovered by it
