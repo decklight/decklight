@@ -1416,6 +1416,23 @@ export function createNarration({
     return files.every((f) => f.url) ? files : null;
   }
   /** Where slide n plays from, for either kind of track — null for silence. */
+  /**
+   * The audio files a beat-paced track plays from (sl, step) to the end of the
+   * next slide — what a talking head with no clips beside the track asks the
+   * bridge for ahead of time, in playing order.
+   */
+  function upcomingFiles(sl, step) {
+    const urls = [];
+    for (const s of [sl, sl + 1]) {
+      if (s > instance.state.totalSlides || !notesText(s)) continue;
+      for (let st = s === sl ? step : 0; st <= buildSteps(s); st++) {
+        const files = stepFiles(s, st);
+        if (files === null) { const u = slideFileUrl(s); if (u) urls.push(u); break; }
+        urls.push(...files.map((f) => f.url));
+      }
+    }
+    return [...new Set(urls)];
+  }
   function slideFileUrl(n) {
     if (narrSet.manifest) return manifestSlideUrl(loaded?.data, narrSet.manifest, n);
     // state.slide and the files are BOTH 1-based (slide-01 = first section).
@@ -1463,7 +1480,10 @@ export function createNarration({
     narrAudio.playbackRate = narrRate;
     if (character.mode !== 'off') {
       character.attachAudio(narrAudio);
-      character.beginSlide(narrSet, sl);
+      character.beginSlide(narrSet, sl, null, file);
+      // no clips beside the track? the bridge starts on the next slide's now
+      const next = sl < instance.state.totalSlides && notesText(sl + 1) ? slideFileUrl(sl + 1) : null;
+      character.prefetchFiles(narrSet, sl, [file, next].filter(Boolean));
     }
     if (selfDriving) {
       // The generation the CALLER was on, not the one this reads when the file
@@ -1568,7 +1588,8 @@ export function createNarration({
           // Per BEAT: the sidecar is cut to the same audio this element is
           // about to play, so the mouth cannot drift across a ⟨CLICK⟩ the way
           // one slide-long timeline replayed per beat inevitably did.
-          character.beginSlide(narrSet, sl, files[i].file);
+          character.beginSlide(narrSet, sl, files[i].file, files[i].url);
+          if (i === 0) character.prefetchFiles(narrSet, sl, upcomingFiles(sl, step));
         }
         // both cleared before the src moves — see playLive
         narrAudio.onended = null;

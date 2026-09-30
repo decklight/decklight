@@ -391,7 +391,50 @@ export function createCharacter({ root, config, debugLog, toast }) {
   // while the slide's timeline would be confidently wrong in exactly the way
   // this exists to fix. (Tracks made before lipsync learned to cut beats are
   // that case, and they animate rather than mouth the wrong words.)
-  function beginSlide(set, slideNo, seg = null) {
+  // ── a recorded track with no clips beside it ─────────────────────────────
+  // `decklight lipsync` renders slide-NN.mp4 beside a track, as a batch. A
+  // track you just recorded has none — so the head stood still over your own
+  // voice while the live voice, a minute earlier, got a clip per sentence. When
+  // the sidecar is missing and the bridge can make video, it makes one from
+  // the very audio file that plays (keyed by that file; the bridge caches by
+  // content), synced to the audio exactly as a live sentence is.
+  const sidecars = new Map();   // sidecar url → Promise<boolean>
+  function hasSidecar(url) {
+    // A request that cannot even be made — fetch is blocked on file:// — is
+    // not an answer: trust the file to be there, as this always has. Only a
+    // server saying "no such file" sends the head to the bridge.
+    // GET, not HEAD — `decklight author` answers HEAD 405 — and the body
+    // dropped the moment the status is in.
+    if (!sidecars.has(url)) {
+      sidecars.set(url, fetch(url).then((r) => { r.body?.cancel?.().catch?.(() => {}); return r.ok; }).catch(() => true));
+    }
+    return sidecars.get(url);
+  }
+  async function bridgeMakesVideo() {
+    const info = bridgeInfo === undefined ? await probe() : bridgeInfo;
+    return (info?.engines?.video ?? []).includes(engine);
+  }
+  /** A clip for one recorded audio file — rendered once, then from cache. */
+  function fileVideo(audioUrl) {
+    const key = `rec|${audioUrl}`;
+    if (videoCache.has(videoKey(key))) return ensureVideo(key, Promise.resolve(null));
+    return ensureVideo(key, fetch(audioUrl).then((r) => (r.ok ? r.blob() : null)).then((blob) => blob && { blob }));
+  }
+  /**
+   * What is about to play on a recorded track, warmed ahead the way the live
+   * lookahead warms sentences — only where no sidecar exists. `urls` are the
+   * audio files; the bridge's queue is serial, so this is an order, not a burst.
+   */
+  function prefetchFiles(set, slideNo, urls) {
+    if (mode !== 'video' || !set || set.live || !urls?.length) return;
+    const src = `${set.dir}/slide-${String(slideNo).padStart(2, '0')}.mp4`;
+    hasSidecar(src).then(async (ok) => {
+      if (ok || mode !== 'video' || !(await bridgeMakesVideo())) return;
+      for (const u of urls) fileVideo(u).catch(() => { /* played falls back to the photo */ });
+    });
+  }
+
+  function beginSlide(set, slideNo, seg = null, audioUrl = null) {
     if (mode === 'off' || !set || set.live) return;
     show();
     const nn = String(slideNo).padStart(2, '0');
@@ -416,15 +459,35 @@ export function createCharacter({ root, config, debugLog, toast }) {
       // timeline, so cutting it per beat would cost a great deal to fix a
       // smaller error than the visemes had.
       const src = `${set.dir}/slide-${nn}.mp4`;
-      // The WHOLE path, not the `/slide-NN.mp4` suffix: every track names its
-      // files the same way, so a suffix match said "already playing" when the
-      // presenter switched tracks on this slide — rachel's face kept mouthing
-      // over the new track's audio. videoEl.src is absolutized by the browser,
-      // so the relative src resolves the same way before comparing.
-      if (videoEl.src === new URL(src, location.href).href) return;
-      videoEl.src = src;
-      videoEl.playbackRate = audioEl?.playbackRate ?? 1;
-      videoEl.play().catch(() => { /* no file — poster frame stays */ });
+      hasSidecar(src).then(async (ok) => {
+        if (currentKey !== key || mode !== 'video') return;
+        if (ok || !audioUrl) {
+          // The WHOLE path, not the `/slide-NN.mp4` suffix: every track names its
+          // files the same way, so a suffix match said "already playing" when the
+          // presenter switched tracks on this slide — rachel's face kept mouthing
+          // over the new track's audio. videoEl.src is absolutized by the browser,
+          // so the relative src resolves the same way before comparing.
+          if (videoEl.src === new URL(src, location.href).href) return;
+          videoEl.src = src;
+          videoEl.playbackRate = audioEl?.playbackRate ?? 1;
+          videoEl.play().catch(() => { /* no file — poster frame stays */ });
+          return;
+        }
+        // No clips beside the track: this file's own, from the bridge. Until
+        // it lands, the photo — never the previous beat's mouth, which the
+        // audio's `play` would otherwise restart.
+        videoEl.removeAttribute('src');
+        videoEl.load();
+        if (!(await bridgeMakesVideo())) return;
+        const url = await fileVideo(audioUrl).catch(() => { warnOnce(); return null; });
+        if (currentKey !== key || !url || mode !== 'video') return;
+        videoEl.src = url;
+        videoEl.playbackRate = audioEl?.playbackRate ?? 1;
+        if (audioEl && !audioEl.paused) {
+          videoEl.currentTime = lipTarget();
+          videoEl.play().catch(() => { /* muted video — should not happen */ });
+        }
+      });
     }
   }
   // Wire the (single) narration Audio element: video mirrors its transport.
@@ -479,7 +542,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
     get solo() { return solo; },
     get bridgeInfo() { return bridgeInfo; },
     get bridge() { return BRIDGE; },
-    setMode, setSolo, prefetchSentence, beginSentence, beginSlide,
+    setMode, setSolo, prefetchSentence, beginSentence, beginSlide, prefetchFiles,
     attachAudio, stop, probe, ensureTimeline,
   };
 }

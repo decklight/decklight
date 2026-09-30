@@ -145,6 +145,49 @@ try {
   results.soloDroppedWhenStopped = !root.classList.contains('decklight-solo');
   results.cueAtSpot = cueAt(timeline, 1.5);
 
+  // ── a recorded track with no clips beside it ─────────────────────────────
+  // The server says slide-03.mp4 does not exist, the bridge makes video: the
+  // head gets a clip made from the very audio file playing, once per file;
+  // the files ahead are warmed in order; a track WITH clips never asks.
+  {
+    const posts = [];
+    const realFetch = window.fetch;
+    window.fetch = async (url, init = {}) => {
+      const u = String(url);
+      if (/\.mp4$/.test(u)) return new Response('mp4', { status: /voices\/withclips\//.test(u) ? 200 : 404 });
+      if (u.endsWith('/ping')) return new Response(JSON.stringify({ ok: true, engines: { viseme: false, video: ['wav2lip'] }, portraits: ['default'] }), { status: 200 });
+      if (/\.wav$/.test(u)) return new Response(new Blob([`RIFF-${u}`]), { status: 200 });
+      if (u.includes('/video?')) {
+        posts.push(await init.body.text());
+        return new Response(new Blob(['mp4'], { type: 'video/mp4' }), { status: 200 });
+      }
+      return realFetch(url, init);
+    };
+    const recRoot = document.createElement('div');
+    document.body.appendChild(recRoot);
+    const rec = createCharacter({ root: recRoot, config: { narration: { character: { bridgeUrl: 'http://bridge.test' } } }, debugLog: () => {}, toast: () => {} });
+    rec.setMode('video', { engine: 'wav2lip', portrait: 'default' });
+    const audio2 = { paused: true, ended: false, currentTime: 0, playbackRate: 1, addEventListener() {} };
+    rec.attachAudio(audio2);
+    const v = () => recRoot.querySelector('.decklight-character video');
+    const until = async (pred, ms = 5000) => { const t0 = Date.now(); while (!pred() && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 20)); return pred(); };
+    rec.beginSlide({ dir: 'voices/me' }, 3, 1, 'voices/me/slide-03-01.wav');
+    results.recClipFromTheBridge = await until(() => (v()?.getAttribute('src') ?? '').startsWith('blob:'));
+    results.recClipIsThatFile = posts[0] === 'RIFF-voices/me/slide-03-01.wav';
+    rec.prefetchFiles({ dir: 'voices/me' }, 3, ['voices/me/slide-03-01.wav', 'voices/me/slide-03-02.wav', 'voices/me/slide-04.wav']);
+    await until(() => posts.length >= 3);
+    results.recWarmsAheadOnce = JSON.stringify(posts) === JSON.stringify(['RIFF-voices/me/slide-03-01.wav', 'RIFF-voices/me/slide-03-02.wav', 'RIFF-voices/me/slide-04.wav']);
+    rec.beginSlide({ dir: 'voices/me' }, 3, 2, 'voices/me/slide-03-02.wav');
+    await until(() => false, 200);
+    results.recNextBeatFromCache = posts.length === 3 && (v()?.getAttribute('src') ?? '').startsWith('blob:');
+    rec.beginSlide({ dir: 'voices/withclips' }, 5, null, 'voices/withclips/slide-05.wav');
+    results.recSidecarStillWins = await until(() => /voices\/withclips\/slide-05\.mp4$/.test(v()?.getAttribute('src') ?? '')) && posts.length === 3;
+    rec.setMode('video', { portrait: 'default' });
+    rec.stop();
+    recRoot.remove();
+    window.fetch = realFetch;
+  }
+
   // ── film yourself (src/core/film.js) ─────────────────────────────────────
   // A canvas is the camera (headless has none) and a stand-in MediaRecorder
   // hands back one chunk on stop; the bridge is a stubbed fetch. What is
@@ -234,6 +277,8 @@ try {
     && results.soloOnRoot && results.soloPersisted && results.soloDroppedWhenOff
     && results.soloBackOnWhenShown && results.soloOffClears
     && results.soloDroppedWhenStopped
+    && results.recClipFromTheBridge && results.recClipIsThatFile && results.recWarmsAheadOnce
+    && results.recNextBeatFromCache && results.recSidecarStillWins
     && results.filmRefusalSaid && results.filmAskedNoMic && results.filmLivePreview && results.filmTipsShown
     && results.filmReviewPlaysTheTake && results.filmRetakeBackToReady && results.filmBridgeRefusalSaid
     && results.filmPosted && results.filmUsed && results.filmCameraReleased && results.filmOverlayGone;
