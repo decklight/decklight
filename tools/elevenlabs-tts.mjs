@@ -90,12 +90,27 @@ export const apiKey = (env = process.env) => env[KEY_ENV]?.trim() || null;
  * it under twenty stock ones would make the feature technically present and
  * practically useless. Within a group the API's own order is kept.
  */
+/**
+ * The languages a voice speaks, as two-letter codes (`['en', 'fr']`): what
+ * ElevenLabs verified it for, and the language its labels name. The picker
+ * filters on these (`lang:es`), and opens on the deck's own language, so a
+ * deck translated to Spanish offers the voices that sound Spanish first.
+ */
+export function voiceLangs(v) {
+  const codes = [
+    ...(v?.verified_languages ?? []).map((l) => l?.language ?? l?.locale),
+    v?.labels?.language, v?.labels?.locale, v?.language, v?.locale,
+  ];
+  return [...new Set(codes.filter(Boolean).map((c) => String(c).toLowerCase().split(/[-_]/)[0]).filter((c) => /^[a-z]{2,3}$/.test(c)))];
+}
+
 export function shapeVoices(json) {
   const rank = { cloned: 0, professional: 1, generated: 2, premade: 3 };
   return (json?.voices ?? [])
     .map((v, i) => ({
       name: String(v.name ?? '').trim() || v.voice_id,
       id: v.voice_id,
+      langs: voiceLangs(v),
       // `category` is ElevenLabs' own word for where a voice came from, and
       // "cloned" is exactly the label that makes yours findable at a glance
       flavor: v.category === 'premade'
@@ -105,6 +120,26 @@ export function shapeVoices(json) {
     }))
     .filter((v) => v.id)
     .sort((a, b) => a.order[0] - b.order[0] || a.order[1] - b.order[1]);
+}
+
+/**
+ * The ElevenLabs voice LIBRARY (GET /v1/shared-voices) as the picker lists it:
+ * voices other people share, searchable by language — where the native
+ * Spanish or Portuguese voice for a translated deck is, when the account's
+ * own are English. `preview` is ElevenLabs' own sample (free to play);
+ * `owner` + `id` are what adding one to the account takes.
+ */
+export function shapeLibrary(json) {
+  return (json?.voices ?? []).filter((v) => v?.voice_id && v?.public_owner_id).map((v) => ({
+    owner: v.public_owner_id,
+    id: v.voice_id,
+    name: String(v.name ?? '').trim() || v.voice_id,
+    // "young · female · british · narrative_story" — what a stranger's voice is, in its own labels
+    flavor: [v.age, v.gender, v.accent, v.use_case ?? v.descriptive].filter(Boolean).join(' · ').replace(/_/g, ' '),
+    description: String(v.description ?? '').trim().slice(0, 200),
+    langs: voiceLangs(v),
+    preview: v.preview_url ?? null,
+  }));
 }
 
 /**
@@ -189,6 +224,45 @@ export function createSynth({
     return roster;
   }
 
+  /**
+   * Search the voice library — `language` a two-letter code, `search` free
+   * text. Reading it costs nothing and changes nothing.
+   */
+  async function searchLibrary({ language, search, page = 0, pageSize = 30 } = {}) {
+    const q = new URLSearchParams({ page_size: String(pageSize), page: String(page) });
+    if (language) q.set('language', language);
+    if (search) q.set('search', search);
+    const res = await fetchImpl(`${API}/shared-voices?${q}`, { headers });
+    if (!res.ok) throw new Error(synthError(res.status, await res.text(), { format }));
+    const j = await res.json();
+    return { voices: shapeLibrary(j), hasMore: j.has_more === true };
+  }
+  /**
+   * Add a library voice to the account (POST /v1/voices/add/{owner}/{id}) —
+   * the one call here that CHANGES the account, and only ever on the
+   * presenter's own ⏎. The roster is fetched afresh after, so it is offered
+   * at once.
+   */
+  async function addLibraryVoice({ owner, id, name }) {
+    if (!owner || !id || !name) throw new Error('adding a library voice needs its owner, id and name');
+    const res = await fetchImpl(`${API}/voices/add/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { ...headers, 'content-type': 'application/json' },
+      body: JSON.stringify({ new_name: name }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      // a plan's voice slots are the one limit a presenter will meet here
+      if (/voice_limit|limit_reached|maximum/i.test(text)) {
+        throw new Error('your ElevenLabs plan has no free voice slot — remove a voice at elevenlabs.io/app/voice-lab, then try again');
+      }
+      throw new Error(synthError(res.status, text, { format }));
+    }
+    const j = await res.json().catch(() => ({}));
+    roster = null;   // the next listVoices() asks again, and finds it
+    return { id: j.voice_id ?? id, name };
+  }
+
   async function call(text, voice) {
     const payload = { text, model_id: model };
     // Unasked, the account's own voice settings are left alone — sending a
@@ -251,5 +325,5 @@ export function createSynth({
     throw lastErr;
   }
   synth.mimeType = format === 'pcm' ? 'audio/wav' : 'audio/mpeg';
-  return { listVoices, synth };
+  return { listVoices, synth, searchLibrary, addLibraryVoice };
 }

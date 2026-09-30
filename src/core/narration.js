@@ -212,15 +212,32 @@ export function parseVoiceQuery(query) {
 }
 
 /** Does this voice survive the filter? An empty filter keeps everything. */
-export function voiceMatches(name, locale, query) {
+export function voiceMatches(name, locale, query, langs = []) {
   const terms = Array.isArray(query) ? query : parseVoiceQuery(query);
   if (!terms.length) return true;
   const n = foldVoiceText(name);
   const l = foldVoiceText(locale);
   // A locale term anchors — `lang:en` must not match `zh_HK` through some
-  // stray "en" in the middle of a tag.
-  return terms.every((t) => (t.lang !== undefined ? l.startsWith(t.lang) : n.includes(t.any) || l.includes(t.any)));
+  // stray "en" in the middle of a tag. A voice whose engine names its
+  // languages (ElevenLabs: `['en', 'es']`) matches on those too.
+  return terms.every((t) => (t.lang !== undefined
+    ? l.startsWith(t.lang) || (langs ?? []).some((c) => c.startsWith(t.lang))
+    : n.includes(t.any) || l.includes(t.any)));
 }
+
+/** A language code as a presenter reads it: 'es' → 'Spanish'. The code itself if the browser has no name for it. */
+export function langName(code) {
+  try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(code) ?? code; } catch { return code; }
+}
+
+/**
+ * The languages ElevenLabs' multilingual voices speak, most-asked first — what
+ * the language list offers beyond the ones the account's voices already
+ * speak, so a deck translated into a language no voice of yours speaks still
+ * has somewhere to go (the voice library).
+ */
+export const ELEVENLABS_LANGS = ['en', 'es', 'fr', 'de', 'pt', 'it', 'nl', 'pl', 'ja', 'zh', 'ko', 'hi', 'ar',
+  'ru', 'tr', 'sv', 'da', 'no', 'fi', 'cs', 'el', 'ro', 'hu', 'uk', 'id', 'ms', 'vi', 'fil', 'ta', 'bg', 'hr', 'sk'];
 
 export function recordPlan(segs, steps = 0) {
   const parts = (segs ?? []).map((t) => String(t ?? '').replace(/\s+/g, ' ').trim());
@@ -1925,9 +1942,9 @@ export function createNarration({
   function narrBack() {
     if (narrView === 'custom') renderNarr('tones');
     else if (narrView === 'tones') renderNarr('voices');
-    else if (narrView === 'engines') renderNarr('voices');
+    else if (narrView === 'engines' || narrView === 'langs' || narrView === 'library') renderNarr('voices');
     else if (narrView === 'charvideo') renderNarr('character');
-    else if (narrView === 'record' || narrView === 'enhance') renderNarr('tracks');
+    else if (narrView === 'record' || narrView === 'enhance' || narrView === 'spoken') renderNarr('tracks');
     else if (narrView === 'voices' || narrView === 'character') renderNarr('tracks');
     else closeNarrPicker();
   }
@@ -1978,6 +1995,16 @@ export function createNarration({
   // so who has focus is state, not something the DOM can be asked afterwards.
   let narrFilter = '';
   let narrFilterFocus = false;
+  // the deck's language, applied to the filter ONCE per open (then yours to change)
+  let langDefaulted = false;
+  // the ElevenLabs voice library: the language and text searched, the answer,
+  // and the voice one ⏎ has armed to add (a second ⏎ adds it — it changes the account)
+  let libLang = null, libSearch = '', libResult = null, libArmed = null;
+  const LIBRARY_URL = LIVE_URL.replace(/\/tts\/?$/, '/voices/library');
+  /** The deck's own language, two letters — `<html lang>`, else null. */
+  const deckLang = () => (document.documentElement.lang || '').toLowerCase().split('-')[0] || null;
+  /** Does this roster know its voices' languages? (ElevenLabs does — the 4th element.) */
+  const rosterHasLangs = () => liveVoices.some((v) => Array.isArray(v[3]));
   let previewAudio = null;
   const previewDefaultCache = new Map();
   let previewCustomCache = new Map();
@@ -2069,6 +2096,34 @@ export function createNarration({
       toast('live voice bridge unreachable — run: decklight tts');
       debugLog('narr', `preview ${voice} failed`);
     });
+  }
+  function openLibrary(lang) {
+    if (libLang !== lang) { libResult = null; libSearch = ''; }
+    libLang = lang || null;
+    libArmed = null;
+    renderNarr('library');
+  }
+  /** A library voice onto the account — the presenter's second ⏎ — then picked, like any voice. */
+  async function addLibraryVoice(v) {
+    libArmed = null;
+    toast(`adding “${v.name}” to your ElevenLabs voices…`, 2400);
+    try {
+      const r = await fetch(LIBRARY_URL + '/add', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ engine: liveEngine, owner: v.owner, id: v.id, name: v.name }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error ?? `the bridge answered ${r.status}`);
+      if (Array.isArray(j.voices) && j.voices.length) liveVoices = j.voices;
+      debugLog('tts', `library: added ${v.name} (${v.id})`);
+      toast(`“${v.name}” is one of your ElevenLabs voices now`, 3200);
+      liveDraft = v.name;
+      if (liveStylable) renderNarr('tones');
+      else applyLive(liveEngine ?? 'plain', '');
+    } catch (e) {
+      toast(`“${v.name}” was not added — ${String(e.message ?? e)}`, 7000);
+      if (narrEl && narrView === 'library') renderNarr('library');
+    }
   }
   function renderNarr(view) {
     const cameFrom = narrView;
@@ -2347,12 +2402,21 @@ export function createNarration({
         commit: () => switchEngine(e),
       }));
     } else if (view === 'voices') {
+      // A deck in another language opens on the voices that speak it: a deck
+      // translated to Spanish wants a Spanish voice, and 23 English ones
+      // above it is the list being unhelpful. Once per open; then it is yours.
+      if (!langDefaulted && rosterHasLangs()) {
+        langDefaulted = true;
+        const dl = deckLang();
+        if (dl && dl !== 'en' && !narrFilter) narrFilter = `lang:${dl}`;
+      }
       // Parsed once, up here, because it decides the heading, the roster, and
       // whether the collapsed shelves stay collapsed.
       const terms = parseVoiceQuery(narrFilter);
       const shown = terms.length
-        ? liveVoices.filter(([name, flavor]) => voiceMatches(name, flavor, terms))
+        ? liveVoices.filter(([name, flavor, , langs]) => voiceMatches(name, flavor, terms, langs))
         : liveVoices;
+      const langTerm = terms.find((t) => t.lang !== undefined)?.lang ?? null;
       head.textContent = terms.length
         ? `live voice — ${shown.length} of ${liveVoices.length} · ▶ previews`
         : 'live voice — pick a voice · ▶ previews';
@@ -2405,6 +2469,16 @@ export function createNarration({
       });
       fwrap.appendChild(filter);
       card.appendChild(fwrap);
+      // Which language — for an engine whose voices say (ElevenLabs). The
+      // same `lang:` the filter takes, chosen from a list rather than typed.
+      if (rosterHasLangs()) {
+        narrRows.push({
+          text: `🌐 Language — ${langTerm ? langName(langTerm) : 'all'}`,
+          flavor: langTerm && langTerm === deckLang() ? 'the deck\'s' : (deckLang() && deckLang() !== 'en' && !langTerm ? `the deck is ${langName(deckLang())}` : ''),
+          toggle: true,
+          commit: () => renderNarr('langs'),
+        });
+      }
 
       const wrap = document.createElement('div');
       wrap.className = 'narr-preview-row';
@@ -2474,9 +2548,11 @@ export function createNarration({
           }
           return;
         }
+        const langs = shown.find((v) => v[0] === name)?.[3];
         narrRows.push({
           text: name,
-          flavor,
+          // ElevenLabs says which languages a voice speaks: "cloned · en es"
+          flavor: Array.isArray(langs) && langs.length ? `${flavor ? `${flavor} · ` : ''}${langs.join(' ')}` : flavor,
           // the third element is optional and structured: a quality group the
           // engine vouches for. Engines that send pairs — every bridge before
           // this, gemini's star roster — group nothing and render as before.
@@ -2494,11 +2570,99 @@ export function createNarration({
       });
       if (terms.length && !shown.length) {
         narrRows.push({
-          text: 'no voice matches',
+          text: langTerm && rosterHasLangs() ? `none of your voices speaks ${langName(langTerm)}` : 'no voice matches',
           flavor: 'Esc clears the filter · lang:fr narrows to a language',
           blocked: true,
           commit: () => {},   // a dead end, but ⏎ on it must not throw
         });
+      }
+      // The account's voices are mostly English; the native ones live in the
+      // library. Offered below the roster, in the language chosen.
+      if (liveEngine === 'elevenlabs') {
+        const lang = langTerm ?? (deckLang() !== 'en' ? deckLang() : null);
+        narrRows.push({
+          text: `🔎 Find ${lang ? `${langName(lang)} ` : ''}voices in the ElevenLabs library…`,
+          flavor: 'native voices other people share — hear each one free, add the one you want',
+          toggle: true,
+          commit: () => { openLibrary(lang); },
+        });
+      }
+    } else if (view === 'langs') {
+      head.textContent = 'live voice — which language';
+      const counts = new Map();
+      for (const v of liveVoices) for (const c of (Array.isArray(v[3]) ? v[3] : [])) counts.set(c, (counts.get(c) ?? 0) + 1);
+      const dl = deckLang();
+      const cur = parseVoiceQuery(narrFilter).find((t) => t.lang !== undefined)?.lang ?? null;
+      const pick = (code) => {
+        // the language is the filter's `lang:` term — every other word typed stays
+        const rest = parseVoiceQuery(narrFilter).filter((t) => t.lang === undefined).map((t) => t.any);
+        narrFilter = [...(code ? [`lang:${code}`] : []), ...rest].join(' ');
+        renderNarr('voices');
+      };
+      narrRows.push({ text: 'All languages', flavor: `${liveVoices.length} voices`, cur: !cur, commit: () => pick(null) });
+      // the deck's own language first, then what your voices speak, then the rest
+      const order = [...new Set([...(dl ? [dl] : []), ...[...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a)), ...ELEVENLABS_LANGS])];
+      for (const code of order) {
+        const n = counts.get(code) ?? 0;
+        narrRows.push({
+          text: `${langName(code)}${code === dl ? ' — the deck\'s' : ''}`,
+          flavor: n ? `${n} of your voices` : 'none of yours yet — find some in the library',
+          cur: cur === code,
+          commit: () => (n ? pick(code) : openLibrary(code)),
+        });
+      }
+    } else if (view === 'library') {
+      const lang = libLang;
+      head.textContent = `ElevenLabs voice library${lang ? ` — ${langName(lang)}` : ''} · ▶ plays each voice's sample`;
+      const swrap = document.createElement('div');
+      swrap.className = 'narr-preview-row narr-filter-row';
+      const box = document.createElement('input');
+      box.className = 'narr-input narr-filter';
+      box.value = libSearch;
+      box.placeholder = 'Search — narrator, warm, castilian… ⏎';
+      box.setAttribute('aria-label', 'Search the ElevenLabs voice library');
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { libSearch = box.value.trim(); libResult = null; renderNarr('library'); e.preventDefault(); }
+        else if (e.key === 'Escape') { narrBack(); e.preventDefault(); }
+        else if (e.key === 'ArrowDown') { box.blur(); selectNarrRow(0, { scroll: true }); e.preventDefault(); }
+        e.stopPropagation();
+      });
+      swrap.appendChild(box);
+      card.appendChild(swrap);
+      const key = `${lang ?? ''}|${libSearch}`;
+      if (!libResult || libResult.key !== key) {
+        libResult = { key, pending: true };
+        const q = new URLSearchParams({ ...(lang ? { language: lang } : {}), ...(libSearch ? { search: libSearch } : {}) });
+        fetch(forEngine(`${LIBRARY_URL}?${q}`, liveEngine))
+          .then(async (r) => ({ r, j: await r.json().catch(() => ({})) }))
+          .then(({ r, j }) => {
+            if (libResult?.key !== key) return;
+            libResult = r.ok && j.ok ? { key, voices: j.voices ?? [] } : { key, error: j.error ?? `the bridge answered ${r.status}` };
+          })
+          .catch((e) => { if (libResult?.key === key) libResult = { key, error: `the voice bridge did not answer (${e.message ?? e})` }; })
+          .then(() => { if (narrEl && narrView === 'library') renderNarr('library'); });
+      }
+      if (libResult.pending) narrRows.push({ text: 'asking ElevenLabs', busy: 'asking ElevenLabs', cur: false, commit: () => {} });
+      else if (libResult.error) narrRows.push({ text: 'the library did not answer', flavor: libResult.error, blocked: true, commit: () => {} });
+      else if (!libResult.voices.length) {
+        narrRows.push({ text: `no ${lang ? `${langName(lang)} ` : ''}voices${libSearch ? ` for “${libSearch}”` : ''}`, flavor: 'try fewer words', blocked: true, commit: () => {} });
+      } else {
+        const mine = new Set(liveVoices.map((v) => v[0]));
+        for (const v of libResult.voices) {
+          const armed = libArmed === v.id;
+          narrRows.push({
+            text: armed ? `⏎ again adds “${v.name}” to your ElevenLabs voices` : v.name,
+            flavor: armed ? 'it uses one of your plan\'s voice slots · Esc leaves it' : (mine.has(v.name) ? `already yours · ${v.flavor}` : v.flavor),
+            title: v.description,
+            cur: armed,
+            ...(v.preview ? { preview: { url: v.preview, voice: v.name } } : {}),
+            commit: () => {
+              if (mine.has(v.name)) { liveDraft = v.name; return liveStylable ? renderNarr('tones') : applyLive(liveEngine ?? 'plain', ''); }
+              if (!armed) { libArmed = v.id; return renderNarr('library'); }
+              addLibraryVoice(v);
+            },
+          });
+        }
       }
     } else if (view === 'tones') {
       head.textContent = `live voice · ${liveDraft ?? liveCfg.voice} — pick a tone · ▶ previews`;
@@ -2581,6 +2745,7 @@ export function createNarration({
       el.className = 'narr-row' + (row.cur ? ' narr-cur' : '')
         + (row.toggle ? ' narr-toggle' : '')
         + (row.blocked || row.blocked === '' ? ' narr-blocked' : '');
+      if (row.title) el.title = row.title;
       const label = document.createElement('span');
       label.className = 'narr-row-label';
       // Built as nodes, not innerHTML: a bridge's voice names and flavors are
@@ -2614,7 +2779,17 @@ export function createNarration({
         btn.textContent = '▶';
         btn.title = `preview ${row.preview.voice}`;
         btn.setAttribute('aria-label', `preview ${row.preview.voice}`);
-        btn.addEventListener('click', (e) => { e.stopPropagation(); previewClip(row.preview, btn); });
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          // a library voice's own sample, as ElevenLabs hosts it — free to play, no synthesis
+          if (row.preview.url) {
+            previewAudio ??= new Audio();
+            previewAudio.src = row.preview.url;
+            previewAudio.play().catch(() => toast('the sample would not play', 2400));
+            return;
+          }
+          previewClip(row.preview, btn);
+        });
         el.appendChild(btn);
       }
       el.addEventListener('mouseenter', () => selectNarrRow(i));
@@ -2703,6 +2878,8 @@ export function createNarration({
     narrExpanded.clear();  // the collapsed shelves fold back for the next open
     narrFilter = '';       // and the filter goes with them — same reasoning
     narrFilterFocus = false;
+    langDefaulted = false;
+    libArmed = null;
     charProbed = false; // next open re-probes the lipsync bridge
   }
 

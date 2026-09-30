@@ -263,6 +263,21 @@
         return new Response(JSON.stringify(answer),
           { status: answer.ok ? 200 : 409, headers: { 'content-type': 'application/json' } });
       }
+      // voicelangs: an ElevenLabs roster that says which languages each voice
+      // speaks, and a voice library to search and add from
+      if (mode === 'voicelangs') {
+        const J = (b, status = 200) => new Response(JSON.stringify(b), { status, headers: { 'content-type': 'application/json' } });
+        const ROSTER = [['Gilles', 'cloned', null, ['en', 'fr']], ['Rachel', 'calm', null, ['en']], ['Lucía', 'professional', null, ['es']]];
+        if (/\/ping(\?|$)/.test(u)) return J({ ok: true, engine: 'elevenlabs', model: 'eleven_v4', stylable: true, audioTags: true, voices: window.__added ? [...ROSTER, ['Mateo', 'professional', null, ['es']]] : ROSTER });
+        if (u.includes('/voices/library/add')) {
+          window.__added = JSON.parse(opts?.body ?? '{}');
+          return J({ ok: true, id: 'v9', name: 'Mateo', voices: [...ROSTER, ['Mateo', 'professional', null, ['es']]] });
+        }
+        if (u.includes('/voices/library')) {
+          window.__libraryAsked = u;
+          return J({ ok: true, voices: [{ owner: 'o1', id: 'v9', name: 'Mateo', flavor: 'middle aged · male · castilian', description: 'A calm Spanish narrator', langs: ['es'], preview: null }] });
+        }
+      }
       // enginebar: an engine list with one ready and two needing setup, out of order
       if (mode === 'enginebar' && /\/engines(\?|$)/.test(u)) {
         return new Response(JSON.stringify({ ok: true, engine: 'elevenlabs', engines: [
@@ -1319,6 +1334,47 @@
           await new Promise((ok) => setTimeout(ok, 100));
           r.escCloses = !document.querySelector('.decklight-film');
           r.PASS = r.filmRowShown && r.videoRowPointsAtFilming && r.cameraCardOpens && r.refusalSaid && r.escCloses;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'voicelangs') {
+          // A deck in Spanish, a roster that says which languages each voice speaks
+          document.documentElement.lang = 'es';
+          const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+          const labels = () => [...document.querySelectorAll('.decklight-narr .narr-row')].map((el) => el.querySelector('.narr-row-label')?.firstChild?.textContent?.trim() ?? '');
+          const flavorOf = (name) => [...document.querySelectorAll('.decklight-narr .narr-row')].find((el) => el.querySelector('.narr-row-label')?.firstChild?.textContent?.trim() === name)?.querySelector('.narr-flavor')?.textContent;
+          const rowNamed = (re) => [...document.querySelectorAll('.decklight-narr .narr-row')].find((el) => re.test(el.textContent));
+          const VOICES = ['Gilles', 'Rachel', 'Lucía', 'Mateo'];
+          const voices = () => labels().filter((l) => VOICES.includes(l));
+          deck.narration.openPicker('voices');
+          await wait(600);
+          r.openedOnTheDecksLanguage = document.querySelector('.decklight-narr .narr-filter')?.value === 'lang:es';
+          r.onlySpanishVoices = JSON.stringify(voices()) === '["Lucía"]';
+          r.languageRow = /🌐 Language — Spanish/.test(rowNamed(/Language —/)?.textContent ?? '') && /the deck's/.test(rowNamed(/Language —/)?.textContent ?? '');
+          r.flavorNamesLanguages = flavorOf('Lucía') === 'professional · es';
+          rowNamed(/Language —/)?.click();
+          await wait(200);
+          const langRows = [...document.querySelectorAll('.decklight-narr .narr-row')].map((el) => el.textContent);
+          r.languagesListed = langRows.some((t) => /^Spanish — the deck's.*1 of your voices/.test(t))
+            && langRows.some((t) => /^English.*2 of your voices/.test(t))
+            && langRows.some((t) => /^German.*none of yours yet/.test(t));
+          rowNamed(/^All languages/)?.click();
+          await wait(200);
+          r.allLanguages = JSON.stringify(voices()) === '["Gilles","Rachel","Lucía"]' && flavorOf('Gilles') === 'cloned · en fr';
+          rowNamed(/Find Spanish voices in the ElevenLabs library/)?.click();
+          await wait(400);
+          r.libraryAskedInSpanish = /\/voices\/library\?language=es/.test(window.__libraryAsked ?? '') && /engine=elevenlabs/.test(window.__libraryAsked ?? '');
+          r.libraryListed = labels().includes('Mateo') && /castilian/.test(flavorOf('Mateo') ?? '');
+          rowNamed(/^Mateo/)?.click();
+          await wait(150);
+          r.firstPressArms = /⏎ again adds “Mateo” to your ElevenLabs voices/.test(document.querySelector('.decklight-narr')?.textContent ?? '') && !window.__added;
+          rowNamed(/again adds “Mateo”/)?.click();
+          await wait(400);
+          r.secondPressAdds = window.__added?.owner === 'o1' && window.__added?.id === 'v9' && window.__added?.name === 'Mateo' && window.__added?.engine === 'elevenlabs';
+          r.thenPickedLikeAnyVoice = /live voice · Mateo — pick a tone/.test(document.querySelector('.decklight-narr .narr-head')?.textContent ?? '');
+          r.PASS = r.openedOnTheDecksLanguage && r.onlySpanishVoices && r.languageRow && r.flavorNamesLanguages && r.languagesListed
+            && r.allLanguages && r.libraryAskedInSpanish && r.libraryListed && r.firstPressArms && r.secondPressAdds && r.thenPickedLikeAnyVoice;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

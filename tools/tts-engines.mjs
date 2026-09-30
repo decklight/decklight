@@ -516,7 +516,7 @@ function buildEngine({
     const m = model ?? ELEVENLABS_MODEL;
     const isV3 = m === ELEVENLABS_V3_MODEL;
     const tagged = readsAudioTags(m);
-    const { listVoices, synth } = createElevenLabs({
+    const { listVoices, synth, searchLibrary, addLibraryVoice } = createElevenLabs({
       key: elevenLabsKey(env), model: m, format: format ?? 'pcm', stability,
     });
     return {
@@ -541,6 +541,9 @@ function buildEngine({
       // the real roster arrives from the account; until it does the picker has
       // nothing truthful to show, which is better than thirty names it cannot say
       voices: [], listVoices,
+      // the voice library: other people's voices, by language (the account's
+      // own are mostly English, and a translated deck wants a native one)
+      searchLibrary, addLibraryVoice,
       synth,
     };
   }

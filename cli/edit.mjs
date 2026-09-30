@@ -2849,6 +2849,7 @@ export async function editMain(args, { onListen = null } = {}) {
     // of these from `/tts`, exactly as it derives them from the bridge's URL
     'POST /tts': ttsProxy, 'GET /ping': ttsProxy, 'GET /engines': ttsProxy,
     'POST /engine': ttsProxy, 'GET /voices': ttsProxy, 'POST /voices/install': ttsProxy,
+    'GET /voices/library': ttsProxy, 'POST /voices/library/add': ttsProxy,
     'GET /edit/events': eventsRoute,
     'POST /edit/shutdown': shutdownRoute,
     'POST /edit/undo': undoRedoRoute,
@@ -2913,7 +2914,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // different payload — an image dropped on the stage, read under its own
   // 25 MB limit. The other three carry no body, and never had one read for them.
   const BEFORE_BODY = new Set([
-    'POST /tts', 'POST /engine', 'POST /voices/install',
+    'POST /tts', 'POST /engine', 'POST /voices/install', 'POST /voices/library/add',
     'POST /edit/record', 'POST /edit/asset',
     'POST /edit/shutdown', 'POST /edit/undo', 'POST /edit/redo',
   ]);

@@ -266,7 +266,11 @@ export async function ttsMain(args) {
   }
 
   const voiceRoster = async (h = held.get(engine.name)) => [
-    ...(h.engine.listVoices ? (await h.engine.listVoices()).map((v) => [v.name, v.flavor]) : h.engine.voices),
+    // [name, flavor, group, langs] — the languages ride fourth, for engines
+    // that know them (ElevenLabs), so the picker can filter and open on the deck's
+    ...(h.engine.listVoices
+      ? (await h.engine.listVoices()).map((v) => (v.langs?.length ? [v.name, v.flavor, null, v.langs] : [v.name, v.flavor]))
+      : h.engine.voices),
     ...h.refs.map((r) => [r.label, r.marketplace ?? 'installed']),
   ];
   /** What a deck is told about one engine — /ping's answer, and a switch's. */
@@ -397,6 +401,29 @@ export async function ttsMain(args) {
         useEngine(h.engine);
       }
       return sendJson(res, 200, { ...(await describe(h)), changed });
+    }
+    // The voice LIBRARY (ElevenLabs): search by language — free, changes
+    // nothing — and add one to the account, on the presenter's own ⏎.
+    if (req.method === 'GET' && url.pathname === '/voices/library') {
+      try {
+        const h = await engineFor(asked);
+        if (!h.engine.searchLibrary) return sendJson(res, 404, { ok: false, error: `${h.engine.name} has no voice library — ElevenLabs does` });
+        const page = Number(url.searchParams.get('page')) || 0;
+        const r = await h.engine.searchLibrary({
+          language: url.searchParams.get('language') || undefined, search: url.searchParams.get('search') || undefined, page,
+        });
+        return sendJson(res, 200, { ok: true, engine: h.engine.name, page, ...r });
+      } catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 502, { ok: false, error: String(e.message ?? e) }); }
+    }
+    if (req.method === 'POST' && url.pathname === '/voices/library/add') {
+      try {
+        const { engine: wanted, owner, id, name } = JSON.parse((await readBody(req)).toString());
+        const h = await engineFor(wanted || asked);
+        if (!h.engine.addLibraryVoice) return sendJson(res, 404, { ok: false, error: `${h.engine.name} has no voice library — ElevenLabs does` });
+        const added = await h.engine.addLibraryVoice({ owner, id, name });
+        console.log(`  voices: added "${added.name}" to the ElevenLabs account, from the voice library`);
+        return sendJson(res, 200, { ok: true, ...added, voices: await voiceRoster(h) });
+      } catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 502, { ok: false, error: String(e.message ?? e) }); }
     }
     if (req.method === 'GET' && url.pathname === '/voices') {
       try { return sendJson(res, 200, await voiceRoster(await engineFor(asked))); }

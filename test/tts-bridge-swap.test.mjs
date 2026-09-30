@@ -216,3 +216,15 @@ test('an engine a tab names that this machine cannot run is refused with its fix
   assert.equal(tts.status, 409, 'a sentence for an engine it cannot run is refused the same way, never spoken by another');
   assert.equal((await ping(base)).engine, 'chirp');
 });
+
+test('the voice library is ElevenLabs\' — any other engine says so, for a search and for an add', async (t) => {
+  const { base } = await startBridge(t, { engine: 'chirp' });
+  const search = await fetch(`${base}/voices/library?language=es`);
+  assert.equal(search.status, 404);
+  assert.match((await search.json()).error, /chirp has no voice library — ElevenLabs does/);
+  const add = await fetch(`${base}/voices/library/add`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ owner: 'o', id: 'v', name: 'X' }),
+  });
+  assert.equal(add.status, 404);
+});

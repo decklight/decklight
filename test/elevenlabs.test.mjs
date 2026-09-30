@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {
   KEY_ENV, DEFAULT_MODEL, V3_MODEL, STABILITY_PRESETS, FORMATS,
   apiKey, shapeVoices, pickVoice, synthError, createSynth, styleTag,
+  voiceLangs, shapeLibrary,
 } from '../tools/elevenlabs-tts.mjs';
 import { createEngine, ENGINES } from '../tools/tts-engines.mjs';
 import { suggestEngine } from '../tools/tts-setup.mjs';
@@ -342,4 +343,69 @@ test('--tts-model and --tts-stability both ride along, and the deck is still fou
   assert.ok(argv.includes(`--tts-model ${V3_MODEL}`));
   assert.ok(argv.includes('--tts-stability natural'));
   assert.equal(p.deck, 'deck.html');
+});
+
+// ── languages, and the voice library ──────────────────────────────────────
+
+test('a voice\'s languages: what ElevenLabs verified, and what its labels say — two letters, once each', () => {
+  assert.deepEqual(voiceLangs({ verified_languages: [{ language: 'en', locale: 'en-US' }, { language: 'es', locale: 'es-MX' }], labels: { language: 'es' } }), ['en', 'es']);
+  assert.deepEqual(voiceLangs({ labels: { locale: 'pt_BR' } }), ['pt']);
+  assert.deepEqual(voiceLangs({ language: 'FR' }), ['fr']);
+  assert.deepEqual(voiceLangs({}), []);
+  const shaped = shapeVoices({ voices: [{ voice_id: 'x', name: 'Lucía', category: 'professional', verified_languages: [{ language: 'es' }] }] });
+  assert.deepEqual(shaped[0].langs, ['es']);
+});
+
+test('the library, as the picker lists it: who shared it, what it is, its free sample, and what adding it takes', () => {
+  const [v, ...rest] = shapeLibrary({ voices: [
+    { public_owner_id: 'o1', voice_id: 'v1', name: 'Lucía', age: 'young', gender: 'female', accent: 'castilian',
+      use_case: 'narrative_story', description: 'Warm Spanish narrator', preview_url: 'https://x/lucia.mp3', language: 'es' },
+    { voice_id: 'v2', name: 'no owner' },   // cannot be added — left out
+  ] });
+  assert.deepEqual(v, { owner: 'o1', id: 'v1', name: 'Lucía', flavor: 'young · female · castilian · narrative story',
+    description: 'Warm Spanish narrator', langs: ['es'], preview: 'https://x/lucia.mp3' });
+  assert.equal(rest.length, 0);
+});
+
+test('searching the library asks shared-voices by language and text — and changes nothing', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    return { ok: true, json: async () => ({ voices: [{ public_owner_id: 'o', voice_id: 'v', name: 'Lucía' }], has_more: true }) };
+  };
+  const { searchLibrary } = createSynth({ key: 'k', fetchImpl });
+  const r = await searchLibrary({ language: 'es', search: 'warm narrator' });
+  const u = new URL(calls[0].url);
+  assert.equal(u.pathname, '/v1/shared-voices');
+  assert.equal(u.searchParams.get('language'), 'es');
+  assert.equal(u.searchParams.get('search'), 'warm narrator');
+  assert.equal(calls[0].init.method, undefined, 'a GET');
+  assert.equal(r.hasMore, true);
+  assert.equal(r.voices[0].name, 'Lucía');
+});
+
+test('adding a library voice posts to voices/add/{owner}/{id} with its name, and the roster is asked again after', async () => {
+  const calls = [];
+  let added = false;
+  const fetchImpl = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url).includes('/voices/add/')) { added = true; return { ok: true, json: async () => ({ voice_id: 'v1' }) }; }
+    return { ok: true, json: async () => ({ voices: [{ voice_id: 'c1', name: 'Gilles', category: 'cloned' }, ...(added ? [{ voice_id: 'v1', name: 'Lucía', category: 'professional' }] : [])] }) };
+  };
+  const { listVoices, addLibraryVoice } = createSynth({ key: 'k', fetchImpl });
+  assert.equal((await listVoices()).length, 1);
+  const r = await addLibraryVoice({ owner: 'o 1', id: 'v1', name: 'Lucía' });
+  assert.deepEqual(r, { id: 'v1', name: 'Lucía' });
+  const post = calls.find((c) => c.url.includes('/voices/add/'));
+  assert.match(post.url, /\/v1\/voices\/add\/o%201\/v1$/);
+  assert.equal(post.init.method, 'POST');
+  assert.deepEqual(JSON.parse(post.init.body), { new_name: 'Lucía' });
+  assert.deepEqual((await listVoices()).map((v) => v.name), ['Gilles', 'Lucía'], 'offered at once');
+});
+
+test('a plan with no free voice slot is said as what to do about it', async () => {
+  const fetchImpl = async () => ({ ok: false, status: 400, text: async () => '{"detail":{"status":"voice_limit_reached"}}' });
+  const { addLibraryVoice } = createSynth({ key: 'k', fetchImpl });
+  await assert.rejects(addLibraryVoice({ owner: 'o', id: 'v', name: 'X' }), /no free voice slot — remove a voice/);
+  await assert.rejects(addLibraryVoice({ owner: 'o', id: 'v' }), /needs its owner, id and name/);
 });

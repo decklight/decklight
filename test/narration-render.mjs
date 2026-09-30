@@ -143,7 +143,7 @@ let slowest = 0;
 // assertion used to cost the whole suite — which is how a mode gets added
 // without ever being watched fail.
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
-const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiotags', 'audiotagsv4', 'reccount', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss', 'stalebridge', 'foreignport', 'askingbridge', 'enginebar', 'endoftalk', 'filmrow',
+const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiotags', 'audiotagsv4', 'reccount', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss', 'stalebridge', 'foreignport', 'askingbridge', 'enginebar', 'voicelangs', 'endoftalk', 'filmrow',
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
   'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'realsay'];
@@ -207,6 +207,14 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
   if (mode === 'endoftalk') {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} a talk run out: spoke=${r.spoke} off at the end=${r.offAtTheEnd} said so=${r.saidTheEnd}`
       + ` · P with nothing left: said so=${r.saidNothingLeft} stayed off=${r.stayedOff} asked nothing=${r.askedNothing}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'voicelangs') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} opens on the deck's language=${r.openedOnTheDecksLanguage} only Spanish=${r.onlySpanishVoices}`
+      + ` language row=${r.languageRow} flavor names languages=${r.flavorNamesLanguages} languages listed=${r.languagesListed} all=${r.allLanguages}`
+      + ` · library asked in Spanish=${r.libraryAskedInSpanish} listed=${r.libraryListed} first ⏎ arms=${r.firstPressArms}`
+      + ` second adds=${r.secondPressAdds} then picked=${r.thenPickedLikeAnyVoice}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }
