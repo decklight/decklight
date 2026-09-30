@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   ELEVENLABS_ENHANCE_PROMPT, ENHANCE_SOURCE, enhancePrompt, slideScript, enhanceProblem, unwrapAnswer,
   parseSlides, enhanceable, enhanceDeck, applyEnhanced, enhanceMain,
+  SPOKEN_PROMPT, spokenPrompt, spokenProblem, enhanceText, KINDS,
 } from '../cli/enhance.mjs';
 
 const deck = (...notes) => `<div class="decklight">\n${notes.map((n, i) => `    <section><h2>S${i + 1}</h2>${
@@ -119,4 +120,42 @@ test('the command wants a deck and a choice of slides', async (t) => {
   assert.equal(await enhanceMain(['no-such-deck.html', '--all']), 1);
   assert.match(errs.at(-1), /no such deck/);
   assert.equal(await enhanceMain(['--help']), 0);
+});
+
+// ── written for the ear (--spoken) ──────────────────────────────────────────
+
+test('written for the ear: its own prompt — the example it was asked for — then decklight\'s markers, then the script', () => {
+  const p = spokenPrompt('Fluffed a line? Backspace retakes it.');
+  assert.ok(p.startsWith(SPOKEN_PROMPT));
+  assert.match(SPOKEN_PROMPT, /writing for the ear/);
+  assert.match(SPOKEN_PROMPT, /Original: Fluffed a line\? Backspace retakes it\. Escape stops, and every slide you already finished is saved\./);
+  assert.match(SPOKEN_PROMPT, /Rewritten: And if you fluff a line, just press Backspace to take it again\./);
+  assert.match(p, /\[click\] — on a line of its own/, 'the beats are still decklight\'s');
+  assert.match(p, /Reply with the rewritten script ONLY/);
+  assert.ok(p.endsWith('# Script\n\nFluffed a line? Backspace retakes it.'));
+  assert.deepEqual(Object.keys(KINDS), ['tags', 'spoken']);
+});
+
+test('written for the ear may reword — but never the beats, a pause, a whole beat, or the length out of proportion', () => {
+  const before = 'Fluffed a line? Backspace retakes it. [pause] Escape stops.\n\n[click]\n\nEvery slide is saved.';
+  const good = 'And if you fluff a line, just press Backspace to take it again. [pause] Press Escape to stop.\n\n[click]\n\nEvery slide you finished is saved.';
+  assert.equal(spokenProblem(before, good), null, 'rewording is the point');
+  assert.equal(enhanceProblem(before, good) !== null, true, 'which the tags check would refuse');
+  assert.match(spokenProblem(before, good.replace('\n\n[click]\n\n', ' ')), /changed the \[click\] beats \(2 → 1\)/);
+  assert.match(spokenProblem(before, good.replace(' [pause]', '')), /dropped a \[pause\]/);
+  assert.match(spokenProblem(before, good.replace('Every slide you finished is saved.', '')), /emptied beat 2/);
+  assert.match(spokenProblem(before, `${good} ${'Here is some commentary about my rewrite. '.repeat(6)}`), /far longer than the notes/);
+  assert.match(spokenProblem(before, 'Stop. [pause]\n\n[click]\n\nSaved.'), /far shorter than the notes/);
+  assert.match(spokenProblem(before, ''), /answered nothing/);
+});
+
+test('enhanceText({ kind: "spoken" }) asks the spoken prompt and checks with the spoken rule', async () => {
+  let asked = '';
+  const resolveAgent = (_a, prompt) => { asked = prompt; return { bin: 'x', args: [], name: 'claude' }; };
+  const exec = async () => 'And if you fluff a line, just press Backspace to take it again.';
+  const r = await enhanceText('Fluffed a line? Backspace retakes it.', { kind: 'spoken', resolveAgent, exec });
+  assert.ok(asked.startsWith(SPOKEN_PROMPT));
+  assert.deepEqual(r, { ok: true, text: 'And if you fluff a line, just press Backspace to take it again.', changed: true });
+  const tags = await enhanceText('Fluffed a line? Backspace retakes it.', { resolveAgent, exec });
+  assert.equal(tags.ok, false, 'the default is still the tags, which keep every word');
 });

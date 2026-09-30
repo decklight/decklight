@@ -706,6 +706,35 @@ test('POST /edit/enhance/text: the notes editor\'s box comes back tagged — and
   assert.equal((await post(base, '/edit/enhance/text', { text: '  ' })).status, 422);
 });
 
+test('POST /edit/enhance { kind: "spoken" }: the notes written for the ear, in ONE undo — the box, and the deck', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  const withNotes = DECK
+    .replace('<ul><li>one</li></ul>', '<ul><li>one</li></ul>\n      <aside class="notes"><p>Fluffed a line? Backspace retakes it.</p></aside>');
+  writeFileSync(deck, withNotes);
+  const bin = path.join(dir, 'bin');
+  mkdirSync(bin);
+  // a fake agent that writes for the ear only when asked to
+  writeFakeBin(bin, 'claude', [
+    "const prompt = process.argv[process.argv.indexOf('-p') + 1] ?? '';",
+    "const script = prompt.split('# Script\\n\\n')[1] ?? '';",
+    "console.log(prompt.includes('writing for the ear') ? script.replace('Fluffed a line? Backspace retakes it.', 'And if you fluff a line, just press Backspace to take it again.') : script);",
+  ].join('\n'));
+  const { base } = await startEdit(t, dir, { env: { PATH: bin } });
+  const box = await (await post(base, '/edit/enhance/text', { text: 'Fluffed a line? Backspace retakes it.', kind: 'spoken' })).json();
+  assert.equal(box.text, 'And if you fluff a line, just press Backspace to take it again.');
+  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'the box writes nothing');
+  const started = await (await post(base, '/edit/enhance', { slides: [1], kind: 'spoken' })).json();
+  assert.deepEqual({ ok: started.ok, of: started.of, kind: started.kind }, { ok: true, of: 1, kind: 'spoken' });
+  for (let i = 0; i < 200; i++) {
+    if ((await (await fetch(base + '/edit/ping')).json()).undo === 1) break;
+    await new Promise((res) => setTimeout(res, 50));
+  }
+  assert.match(readFileSync(deck, 'utf8'), /<p>And if you fluff a line, just press Backspace to take it again\.<\/p>/);
+  await post(base, '/edit/undo');
+  assert.equal(readFileSync(deck, 'utf8'), withNotes, 'Z takes it back');
+});
+
 test('POST /edit/enhance with no agent on the machine is a 400 that says so', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK.replace('<h2>Beta</h2>', '<h2>Beta</h2><aside class="notes"><p>Words.</p></aside>'));

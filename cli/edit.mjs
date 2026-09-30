@@ -38,8 +38,8 @@
 //   POST /edit/undo            → step the deck file back through the edit history
 //   POST /edit/redo            → step it forward again
 //   POST /edit/agent           → { prompt, agent?, slide? } one-shot AI agent edit
-//   POST /edit/enhance         → { slides: [n…]|'all', agent? } audio tags for the voiceover script
-//   POST /edit/enhance/text    → { text, agent? } → { text }   the same, for the notes editor's box (writes nothing)
+//   POST /edit/enhance         → { slides: [n…]|'all', agent?, kind? } audio tags ('tags') or written for the ear ('spoken')
+//   POST /edit/enhance/text    → { text, agent?, kind? } → { text }   the same, for the notes editor's box (writes nothing)
 //   POST /edit/shutdown        → final autocommit, then exit — same as Ctrl-C, so a
 //                                port conflict can take over an old session cleanly
 //
@@ -2768,7 +2768,8 @@ export async function editMain(args, { onListen = null } = {}) {
   // answer kept the words and beats, and writes them in ONE edit so Z takes
   // the whole run back. Progress rides the SSE channel as 'enhance' events.
   async function enhanceRoute({ body, json }) {
-    const { slides, agent } = JSON.parse(body);
+    const { slides, agent, kind: asked } = JSON.parse(body);
+    const kind = asked === 'spoken' ? 'spoken' : 'tags';
     const which = slides === 'all' ? null
       : Array.isArray(slides) && slides.length && slides.every((n) => Number.isInteger(n) && n > 0) ? slides : undefined;
     if (which === undefined) throw new Error('bad payload');
@@ -2777,19 +2778,20 @@ export async function editMain(args, { onListen = null } = {}) {
     const name = agent ?? agentPref ?? null;
     const cmd = agentAsk(name, 'x');
     if (!cmd) return json(400, { ok: false, error: agentUnavailable(name, agents) });
-    const { enhanceDeck, applyEnhanced, enhanceable } = await import('./enhance.mjs');
+    const { enhanceDeck, applyEnhanced, enhanceable, KINDS } = await import('./enhance.mjs');
+    const verb = KINDS[kind].done;
     const html = readDeck();
     const of = enhanceable(html, which).length;
     if (!of) return json(422, { ok: false, error: which?.length === 1 ? `slide ${which[0]} has no notes to enhance` : 'no notes to enhance' });
     enhancing = { of, done: 0 };
-    broadcast('enhance', { state: 'start', of, agent: cmd.name });
-    console.log(`  enhance: ${of} slide${of === 1 ? '' : 's'} ← ${cmd.name} (read-only)`);
+    broadcast('enhance', { state: 'start', of, agent: cmd.name, kind });
+    console.log(`  enhance: ${of} slide${of === 1 ? '' : 's'}${kind === 'spoken' ? ', written for the ear' : ''} ← ${cmd.name} (read-only)`);
     enhanceDeck(html, which, {
-      agent: name, cwd: dirname(deckPath),
+      kind, agent: name, cwd: dirname(deckPath),
       onSlide: (r) => {
         enhancing.done = r.done;
         broadcast('enhance', { state: 'slide', ...r });
-        console.log(`  enhance: slide ${r.slide} ${r.ok ? (r.changed ? 'enhanced' : 'unchanged') : `left as it was — ${r.why}`}`);
+        console.log(`  enhance: slide ${r.slide} ${r.ok ? (r.changed ? verb : 'unchanged') : `left as it was — ${r.why}`}`);
       },
     }).then(({ answers, results }) => {
       let stale = [];
@@ -2798,28 +2800,29 @@ export async function editMain(args, { onListen = null } = {}) {
       const changed = results.filter((r) => r.changed && !stale.includes(r.slide)).map((r) => r.slide);
       const failed = results.filter((r) => !r.ok).map(({ slide, why }) => ({ slide, why }));
       enhancing = null;
-      broadcast('enhance', { state: 'done', ok: true, changed, failed, stale });
-      console.log(`  enhance: done — ${changed.length} enhanced${failed.length ? `, ${failed.length} left as they were` : ''}`);
+      broadcast('enhance', { state: 'done', ok: true, changed, failed, stale, kind });
+      console.log(`  enhance: done — ${changed.length} ${verb}${failed.length ? `, ${failed.length} left as they were` : ''}`);
     }).catch((e) => {
       enhancing = null;
-      broadcast('enhance', { state: 'done', ok: false, error: oneline(e) });
+      broadcast('enhance', { state: 'done', ok: false, error: oneline(e), kind });
     });
-    return json(200, { ok: true, of, agent: cmd.name, label: cmd.label });
+    return json(200, { ok: true, of, agent: cmd.name, label: cmd.label, kind });
   }
 
   // The notes editor's one box, enhanced without touching the file: the text
   // goes to the agent (read-only) and comes back checked, for the author to
   // read and save — or not. Nothing here writes; ⌘⏎ in the editor does.
   async function enhanceTextRoute({ body, json }) {
-    const { text, agent } = JSON.parse(body);
+    const { text, agent, kind: asked } = JSON.parse(body);
+    const kind = asked === 'spoken' ? 'spoken' : 'tags';
     if (typeof text !== 'string') throw new Error('bad payload');
-    if (!text.trim()) return json(422, { ok: false, error: 'nothing to enhance — the notes are empty' });
+    if (!text.trim()) return json(422, { ok: false, error: `nothing to ${kind === 'spoken' ? 'rewrite' : 'enhance'} — the notes are empty` });
     const name = agent ?? agentPref ?? null;
     const cmd = agentAsk(name, 'x');
     if (!cmd) return json(400, { ok: false, error: agentUnavailable(name, agents) });
     const { enhanceText } = await import('./enhance.mjs');
-    console.log(`  enhance: the notes editor's text ← ${cmd.name} (read-only)`);
-    const r = await enhanceText(text, { agent: name, cwd: dirname(deckPath) });
+    console.log(`  enhance: the notes editor's text${kind === 'spoken' ? ', written for the ear' : ''} ← ${cmd.name} (read-only)`);
+    const r = await enhanceText(text, { kind, agent: name, cwd: dirname(deckPath) });
     return r.ok
       ? json(200, { ok: true, text: r.text, changed: r.changed, agent: cmd.name, label: cmd.label })
       : json(422, { ok: false, error: r.why, agent: cmd.name });

@@ -451,7 +451,7 @@
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
         '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>');
     }
-    if (HARNESS_MODE.startsWith('chapters')) {
+    if (HARNESS_MODE.startsWith('chapters') || HARNESS_MODE === 'enhance') {
       const secs = document.querySelectorAll('.decklight > section');
       secs[1].setAttribute('data-module', 'Foundations');
       secs[3].setAttribute('data-module', 'Operations');
@@ -2211,6 +2211,15 @@
         window.__es.emit('enhance', { state: 'done', ok: true, changed: [1, 3], failed: [{ slide: 2, why: 'the agent changed the words — the prompt allows only tags and emphasis' }], stale: [] });
         await settle();
         r.saysWhatWasLeft = /enhanced 2 slides — Z undoes · slide 2 left as it was: the agent changed the words/.test(said());
+        // written for the ear, for the MODULE this slide is in (slide 2 opens
+        // "Foundations", which runs to slide 3 — slide 4 opens "Operations")
+        r.earModuleRow = await run('ear', /Write this module's notes for the ear/);
+        const earBody = CALLS.post.filter((c) => c.u.includes('/edit/enhance')).pop()?.body;
+        r.sentModuleSpoken = JSON.stringify(earBody?.slides) === '[2,3]' && earBody?.kind === 'spoken';
+        r.saysWritingForTheEar = /writing for the ear: the “Foundations” module \(slides 2–3\)/.test(said());
+        window.__es.emit('enhance', { state: 'done', ok: true, changed: [2, 3], failed: [], stale: [], kind: 'spoken' });
+        await settle();
+        r.saysWrote = /wrote 2 slides for the ear — Z undoes/.test(said());
         // …and the notes editor's own button: the draft lands IN THE BOX, and
         // nothing is posted to /edit/notes until ⌘⏎
         if (document.querySelector(Q)) press('Escape');
@@ -2222,15 +2231,37 @@
         const before = box?.value;
         const notesPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/notes')).length;
         const posted = notesPosts();
-        document.querySelector('.decklight-editor .notes-enhance')?.click();
-        await settle(); await settle();
         r.editorButton = !!document.querySelector('.decklight-editor .notes-enhance');
         r.tooltipNamesTheAgent = /Claude Code drafts ElevenLabs v4 audio tags/.test(document.querySelector('.decklight-editor .notes-enhance')?.title ?? '');
+        // it asks which slides first: this one (the box), or the whole deck
+        document.querySelector('.decklight-editor .notes-enhance')?.click();
+        await settle();
+        const scopes = () => [...document.querySelectorAll('.decklight-editor .notes-scope button')].map((b) => b.textContent);
+        r.asksWhichSlides = JSON.stringify(scopes().slice(0, 2)) === '["this slide","module “Foundations” · 2"]' && scopes().some((t) => /^whole deck · \d+$/.test(t));
+        [...document.querySelectorAll('.decklight-editor .notes-scope button')].find((b) => b.textContent === 'this slide')?.click();
+        await settle(); await settle();
         r.draftInTheBox = !!before && box?.value === `[warm] ${before}`;
         r.nothingSaved = notesPosts() === posted;
+        r.boxAskedForTags = CALLS.post.filter((c) => c.u.includes('/edit/enhance/text')).pop()?.body?.kind === 'tags';
+        // 🗣 write it for the ear: the same choice; the whole deck is written in the file
+        const spoken = document.querySelector('.decklight-editor .notes-spoken');
+        r.spokenButton = spoken?.textContent === '🗣 write it for the ear' && /sentences a person would say out loud/.test(spoken.title);
+        if (box) box.value = before;   // nothing unsaved: the deck is about to be rewritten
+        const loadedAgain = box?.value;
+        spoken?.click();
+        await settle();
+        const deckRow = [...document.querySelectorAll('.decklight-editor .notes-scope button')].find((b) => /^whole deck/.test(b.textContent));
+        // an unsaved edit in the box stops a whole-deck rewrite, and says why
+        if (box) box.value = `${loadedAgain} edited`;
+        deckRow?.click();
+        await settle();
+        r.unsavedStops = /save or leave this slide's edits first/.test(said());
+        if (box) box.value = loadedAgain;
         r.PASS = r.slideRow && r.sentSlide === '[2]' && r.saysDrafting && r.counts && r.saysDone
           && r.allRow && r.sentAll && r.saysWhatWasLeft
-          && r.editorButton && r.tooltipNamesTheAgent && r.draftInTheBox && r.nothingSaved;
+          && r.editorButton && r.tooltipNamesTheAgent && r.asksWhichSlides && r.draftInTheBox && r.nothingSaved
+          && r.boxAskedForTags && r.spokenButton && r.unsavedStops
+          && r.earModuleRow && r.sentModuleSpoken && r.saysWritingForTheEar && r.saysWrote;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

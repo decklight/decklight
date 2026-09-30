@@ -543,7 +543,7 @@ export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
   openedMidTalk = false, rangePicker = null, chapters = () => [],
   syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
-  authorReady = () => Promise.resolve(), enhanceScript = () => null,
+  authorReady = () => Promise.resolve(), enhanceScript = () => null, moduleOf = () => null,
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
@@ -2198,6 +2198,13 @@ export function createNarration({
         blocked: enhanceScript() ? null : 'needs decklight author — it writes the notes',
         commit: () => (enhanceScript() ? renderNarr('enhance') : toast('enhancing the script needs decklight author — it writes the notes', 4000)),
       });
+      // …and written for the ear: terse notes as sentences a person would say
+      narrRows.push({
+        text: '🗣 Write the script for the ear…',
+        flavor: enhanceScript() ? 'terse notes become sentences a person would say' : '',
+        blocked: enhanceScript() ? null : 'needs decklight author — it writes the notes',
+        commit: () => (enhanceScript() ? renderNarr('spoken') : toast('rewriting the script needs decklight author — it writes the notes', 4000)),
+      });
       narrRows.push({
         text: '🎙 Record this deck…',
         flavor: narrSets.some((t) => !t.live) ? 're-record, or add another take' : 'write the audio to a folder',
@@ -2218,15 +2225,26 @@ export function createNarration({
         toggle: true,
         commit: () => { changeNarrRate(narrRate >= 2 ? -1.75 : 0.25); renderNarr('tracks'); },
       });
-    } else if (view === 'enhance') {
-      head.textContent = 'enhance the script — audio tags ElevenLabs v4 performs';
-      // Two scopes, the ones the palette offers too. Z takes either back.
-      const run = (scope) => { const go = enhanceScript(); closeNarrPicker(); go?.(scope); };
+    } else if (view === 'enhance' || view === 'spoken') {
+      const kind = view === 'spoken' ? 'spoken' : 'tags';
+      head.textContent = kind === 'spoken'
+        ? 'write the script for the ear — sentences a person would say'
+        : 'enhance the script — audio tags ElevenLabs v4 performs';
+      // Three scopes, the ones the palette and the notes editor offer too. Z takes any back.
+      const run = (scope) => { const go = enhanceScript(); closeNarrPicker(); go?.(scope, { kind }); };
+      const mod = moduleOf(instance.state.slide);
       narrRows.push({
         text: `This slide — ${instance.state.slide}`,
-        flavor: 'its notes, with tags added where they help',
+        flavor: kind === 'spoken' ? 'its notes, reworded to be said aloud' : 'its notes, with tags added where they help',
         commit: () => run('slide'),
       });
+      if (mod) {
+        narrRows.push({
+          text: `This module — “${mod.title}”`,
+          flavor: `slides ${mod.from}–${mod.to}`,
+          commit: () => run('module'),
+        });
+      }
       narrRows.push({
         text: 'Every slide with notes',
         flavor: 'a few at a time — the agent is asked once per slide',

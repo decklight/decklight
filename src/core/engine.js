@@ -928,9 +928,22 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Enhance this slide\'s voiceover script… (dev)',
         alias: 'enhance elevenlabs v4 audio tags expressive emotion notes narration voice script improve direction',
         run: () => editmode.enhanceScript('slide') },
+      editmode.available() && { label: 'Enhance this module\'s voiceover script… (dev)',
+        alias: 'enhance module chapter section elevenlabs v4 audio tags expressive emotion notes narration voice script',
+        run: () => editmode.enhanceScript('module') },
       editmode.available() && { label: 'Enhance every slide\'s voiceover script… (dev)',
         alias: 'enhance all slides whole deck elevenlabs v4 audio tags expressive emotion notes narration voice script',
         run: () => editmode.enhanceScript('all') },
+      // …and written for the ear: terse notes as sentences a person would say
+      editmode.available() && { label: 'Write this slide\'s notes for the ear… (dev)',
+        alias: 'spoken conversational natural sentences rewrite notes voiceover script say aloud human speakable ear',
+        run: () => editmode.enhanceScript('slide', { kind: 'spoken' }) },
+      editmode.available() && { label: 'Write this module\'s notes for the ear… (dev)',
+        alias: 'spoken conversational natural sentences rewrite module chapter notes voiceover script say aloud human speakable ear',
+        run: () => editmode.enhanceScript('module', { kind: 'spoken' }) },
+      editmode.available() && { label: 'Write every slide\'s notes for the ear… (dev)',
+        alias: 'spoken conversational natural sentences rewrite all slides whole deck notes voiceover script say aloud human speakable ear',
+        run: () => editmode.enhanceScript('all', { kind: 'spoken' }) },
       editmode.available() && { label: 'Export to PowerPoint… (dev)',
         alias: 'pptx powerpoint keynote google slides export file office send share hand over',
         run: () => editmode.exportDeck('pptx') },
@@ -2339,6 +2352,8 @@ export function init(userConfig = {}) {
     authorReady: () => editmode?.settled?.() ?? Promise.resolve(),
     // V → Enhance the script…: author mode only, like every row that writes the deck
     enhanceScript: () => (editmode?.available() ? editmode.enhanceScript : null),
+    // the data-module chapter a slide is in, for the rewrite scopes
+    moduleOf: (n) => editmode?.moduleOf?.(n) ?? null,
   });
   const {
     character, toggleNarration, toggleNarrPause, changeNarrRate, toggleCaptions,

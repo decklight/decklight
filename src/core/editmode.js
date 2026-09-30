@@ -889,49 +889,97 @@ export function createEditMode({
     btn.textContent = '💾 save to file';
     btn.addEventListener('click', save);
     actions.appendChild(btn);
-    // ✨ The voiceover in this box, given the audio tags ElevenLabs v4 performs
-    // (cli/enhance.mjs): the agent drafts, read-only; the answer comes back only
-    // if it kept every word, [click] and [pause], and lands IN THE BOX — to read,
-    // edit, and save with ⌘⏎, or not. Nothing is written by pressing this.
+    // Two rewrites by the agent (cli/enhance.mjs), each for this slide, its
+    // module, or the whole deck:
+    //   ✨ add audio tags — the tags ElevenLabs v4 performs, same words;
+    //   🗣 write it for the ear — terse notes as sentences a person would say.
+    // THIS SLIDE lands in the box — to read, edit, and save with ⌘⏎, or not;
+    // nothing is written by pressing it. A module or the deck is rewritten in
+    // the file in one edit, which Z takes back.
     if (editAgents.length) {
       const agent = editAgents.find((a) => a.name === preferredAgent) ?? editAgents[0];
-      const tags = document.createElement('button');
-      tags.type = 'button';
-      tags.className = 'narr-prev-btn notes-enhance';
-      tags.textContent = '✨ add audio tags';
-      tags.title = `${agent.label} drafts ElevenLabs v4 audio tags ([thoughtful], [sighs]) into this text, `
-        + 'with the prompt ElevenLabs publishes for it — the text is sent to that agent, which may pass it to its '
-        + 'provider. Every word, [click] and [pause] must survive, or nothing changes. Nothing is saved until ⌘⏎.';
-      tags.addEventListener('click', async () => {
+      const REWRITE_BUTTONS = [
+        { kind: 'tags', label: '✨ add audio tags', drafting: 'drafting',
+          title: `${agent.label} drafts ElevenLabs v4 audio tags ([thoughtful], [sighs]) into the notes, `
+            + 'with the prompt ElevenLabs publishes for it. Every word, [click] and [pause] must survive, or nothing changes.',
+          none: 'found nothing to add', landed: 'audio tags added' },
+        { kind: 'spoken', label: '🗣 write it for the ear', drafting: 'rewriting',
+          title: `${agent.label} rewrites terse notes as sentences a person would say out loud — `
+            + '"Fluffed a line? Backspace retakes it." becomes "And if you fluff a line, just press Backspace to take it again." '
+            + 'Every [click] and [pause] must survive, and the length stay in proportion, or nothing changes.',
+          none: 'found nothing to rewrite', landed: 'rewritten for the ear' },
+      ];
+      // the box, rewritten in place — the one scope that writes nothing
+      const rewriteBox = async (b, btn) => {
         const text = ta.value;
-        if (!text.trim()) { toast('nothing to enhance — the notes are empty'); return; }
-        tags.disabled = true;
+        if (!text.trim()) { toast('nothing to rewrite — the notes are empty'); return; }
+        btn.disabled = true;
         ta.readOnly = true;   // the answer is to THIS text; typing meanwhile would be overwritten
-        const stop = thinking((t) => { tags.textContent = `✨ ${t}`; }, { label: 'drafting' });
+        const stop = thinking((t) => { btn.textContent = `${b.label.split(' ')[0]} ${t}`; }, { label: b.drafting });
         try {
           const r = await fetch(editBase + '/edit/enhance/text', {
             method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ text }),
+            body: JSON.stringify({ text, kind: b.kind }),
           });
           const j = await r.json().catch(() => ({}));
           if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
-          if (!j.changed) toast(`${j.label || j.agent} found nothing to add`, 3200);
+          if (!j.changed) toast(`${j.label || j.agent} ${b.none}`, 3200);
           else {
             ta.value = j.text;
-            toast('audio tags added — read them, then ⌘⏎ saves (Esc leaves the file as it was)', 5200);
+            toast(`${b.landed} — read it, then ⌘⏎ saves (Esc leaves the file as it was)`, 5200);
           }
-          debugLog('enhance', `notes editor: ${j.changed ? 'tags drafted' : 'nothing to add'}`);
+          debugLog('enhance', `notes editor (${b.kind}): ${j.changed ? 'drafted' : 'nothing to change'}`);
         } catch (e) {
-          toast(`no tags added — ${String(e.message || e)}`, 6000);
+          toast(`nothing changed — ${String(e.message || e)}`, 6000);
         } finally {
           stop();
-          tags.textContent = '✨ add audio tags';
-          tags.disabled = false;
+          btn.textContent = b.label;
+          btn.disabled = false;
           ta.readOnly = false;
           ta.focus();
         }
-      });
-      actions.appendChild(tags);
+      };
+      // which slides: this one (the box), its module, or the whole deck
+      const chooseScope = (b, btn) => {
+        const mod = moduleOf(sl);
+        const row = document.createElement('div');
+        row.className = 'tr-actions notes-scope';
+        const opt = (text, title, go) => {
+          const o = document.createElement('button');
+          o.type = 'button';
+          o.className = 'narr-prev-btn';
+          o.textContent = text;
+          if (title) o.title = title;
+          o.addEventListener('click', () => { row.remove(); actions.hidden = false; go(); });
+          row.appendChild(o);
+          return o;
+        };
+        const writesFile = (scope) => () => {
+          if (ta.value !== loaded) { toast('save or leave this slide\'s edits first (⌘⏎ saves, Esc leaves) — this rewrites the file', 5000); return; }
+          toggleEditor();
+          enhanceScript(scope, { kind: b.kind });
+        };
+        opt(`this slide`, 'into the box above — read it, then ⌘⏎ saves', () => rewriteBox(b, btn)).classList.add('narr-sel');
+        if (mod) opt(`module “${mod.title}” · ${mod.to - mod.from + 1}`, `slides ${mod.from}–${mod.to}, in the file — Z undoes`, writesFile('module'));
+        opt(`whole deck · ${instance.state.totalSlides}`, 'every slide with notes, in the file — Z undoes', writesFile('all'));
+        opt('✕', 'never mind', () => {});
+        const hint = document.createElement('span');
+        hint.className = 'notes-scope-what';
+        hint.textContent = `${b.label} —`;
+        row.prepend(hint);
+        actions.hidden = true;
+        actions.after(row);
+        row.querySelector('.narr-sel')?.focus();
+      };
+      for (const b of REWRITE_BUTTONS) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `narr-prev-btn notes-${b.kind === 'tags' ? 'enhance' : 'spoken'}`;
+        btn.textContent = b.label;
+        btn.title = `${b.title} The notes are sent to that agent, which may pass them to its provider.`;
+        btn.addEventListener('click', () => chooseScope(b, btn));
+        actions.appendChild(btn);
+      }
     }
     card.append(ta, actions);
     unmountEditor = mountTypingCard(el, notesDock);
@@ -2013,49 +2061,77 @@ export function createEditMode({
     }
   }
 
-  // ── the voiceover script, enhanced with ElevenLabs v4's audio tags ────────
-  // The agent drafts (read-only), decklight checks and writes (cli/enhance.mjs,
-  // SPEC PRESENTING). One run at a time; `scope` is 'slide' or 'all'.
+  // ── the voiceover script, rewritten by the agent ──────────────────────────
+  // Two rewrites (cli/enhance.mjs, SPEC PRESENTING): `tags` gives it the audio
+  // tags ElevenLabs v4 performs, same words; `spoken` writes it for the ear —
+  // terse notes turned into sentences a person would say. The agent drafts
+  // (read-only), decklight checks and writes. One run at a time; `scope` is
+  // 'slide', 'module' (the data-module chapter this slide is in) or 'all'.
   let enhanceRun = null;
   const ENHANCE_DONE_KEY = 'decklight-enhance-done:' + location.pathname;
-  async function enhanceScript(scope = 'slide') {
-    if (!editAvailable) { toast(needsDevMode('enhancing the script', location), 3200); return; }
+  const REWRITES = {
+    tags: { doing: 'enhancing', with: ' with ElevenLabs audio tags', drafting: 'drafting audio tags', done: (x) => `enhanced ${x}` },
+    spoken: { doing: 'writing for the ear', with: '', drafting: 'rewriting it as spoken sentences', done: (x) => `wrote ${x} for the ear` },
+  };
+  /**
+   * The chapter slide `n` is in — `{ title, from, to }` from the deck's
+   * `data-module` markers (DECK_ANATOMY) — or null when the deck has none, or
+   * the slide comes before the first.
+   */
+  function moduleOf(n = instance.state.slide) {
+    const secs = [...(instance._sections ?? [])];
+    let from = 0, title = null;
+    secs.forEach((sec, i) => { if (i + 1 <= n && sec.hasAttribute('data-module')) { from = i + 1; title = sec.getAttribute('data-module'); } });
+    if (!from) return null;
+    let to = secs.length;
+    for (let i = from; i < secs.length; i++) if (secs[i].hasAttribute('data-module')) { to = i; break; }
+    return { title, from, to };
+  }
+  async function enhanceScript(scope = 'slide', { kind = 'tags' } = {}) {
+    if (!editAvailable) { toast(needsDevMode(kind === 'spoken' ? 'rewriting the notes' : 'enhancing the script', location), 3200); return; }
     if (!editAgents.length) { toast('no agent CLI detected on the dev machine (claude, codex, bob, …)', 2600); return; }
-    if (enhanceRun) { toast('already enhancing the script — one run at a time'); return; }
+    if (enhanceRun) { toast('the agent is already rewriting the script — one run at a time'); return; }
+    const k = REWRITES[kind] ?? REWRITES.tags;
     const slide = instance.state.slide;
-    const what = scope === 'all' ? 'every slide\'s script' : `slide ${slide}'s script`;
-    const run = progress(`enhancing ${what} with ElevenLabs audio tags — asking the agent…`);
-    enhanceRun = { run, what };
+    const mod = scope === 'module' ? moduleOf(slide) : null;
+    if (scope === 'module' && !mod) { toast('this slide is not in a module — the deck marks none before it (data-module)', 4000); return; }
+    const slides = scope === 'all' ? 'all'
+      : mod ? Array.from({ length: mod.to - mod.from + 1 }, (_, i) => mod.from + i) : [slide];
+    const what = scope === 'all' ? 'every slide\'s script'
+      : mod ? `the “${mod.title}” module (slides ${mod.from}–${mod.to})` : `slide ${slide}'s script`;
+    const run = progress(`${k.doing}: ${what}${k.with} — asking the agent…`);
+    enhanceRun = { run, what, kind };
     try {
       const r = await fetch(editBase + '/edit/enhance', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ slides: scope === 'all' ? 'all' : [slide] }),
+        body: JSON.stringify({ slides, kind }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       enhanceRun.of = j.of;
-      run.update(`enhancing ${what} — ${j.label || j.agent} is drafting audio tags (read-only)…`);
-      debugLog('enhance', `${j.of} slide(s) → ${j.agent}`);
+      run.update(`${k.doing}: ${what} — ${j.label || j.agent} is ${k.drafting} (read-only)…`);
+      debugLog('enhance', `${kind}: ${j.of} slide(s) → ${j.agent}`);
     } catch (e) {
-      run.done(`could not enhance ${what} — ${e.message}`, 5200);
+      run.done(`could not rewrite ${what} — ${e.message}`, 5200);
       enhanceRun = null;
     }
   }
   /** What a finished run says, in one line. */
   function enhanceSummary(d) {
-    if (!d.ok) return `could not enhance the script — ${d.error}`;
+    const k = REWRITES[d.kind] ?? REWRITES.tags;
+    if (!d.ok) return `could not rewrite the script — ${d.error}`;
     const n = d.changed.length;
-    const parts = [n ? `enhanced ${n === 1 ? `slide ${d.changed[0]}` : `${n} slides`} — Z undoes` : 'no slide changed'];
+    const parts = [n ? `${k.done(n === 1 ? `slide ${d.changed[0]}` : `${n} slides`)} — Z undoes` : 'no slide changed'];
     if (d.failed.length) {
       parts.push(d.failed.length === 1 ? `slide ${d.failed[0].slide} left as it was: ${d.failed[0].why}`
-        : `${d.failed.length} left as they were (the agent changed their words or beats)`);
+        : `${d.failed.length} left as they were (the agent's answer did not pass the check)`);
     }
     if (d.stale.length) parts.push(`${d.stale.length === 1 ? `slide ${d.stale[0]}` : `${d.stale.length} slides`} edited meanwhile, kept`);
     return parts.join(' · ');
   }
   function enhanceEvent(d) {
     if (d.state === 'slide' && enhanceRun) {
-      enhanceRun.run.update(`enhancing ${enhanceRun.what} — ${d.done} of ${d.of} slide${d.of === 1 ? '' : 's'}…`);
+      enhanceRun.run.update(`${(REWRITES[enhanceRun.kind] ?? REWRITES.tags).doing}: ${enhanceRun.what} — ${d.done} of ${d.of} slide${d.of === 1 ? '' : 's'}…`);
     } else if (d.state === 'done') {
       const line = enhanceSummary(d);
       if (enhanceRun) enhanceRun.run.done(line, 6000); else toast(line, 6000);
@@ -2182,6 +2258,7 @@ export function createEditMode({
     /** The palette's hand-over rows: 'pptx' | 'pdf' | 'pdf-notes' | 'pdf-handout'. */
     exportDeck,
     enhanceScript,
+    moduleOf,
     /** The Publish row: the first call asks and arms, the second publishes. */
     publishDeck,
   };

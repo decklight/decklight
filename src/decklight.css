@@ -2071,6 +2071,10 @@
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .edit-code > textarea { flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; max-height: none; resize: none; }
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .edit-code > pre { max-height: none; }
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .tr-actions { flex: 0 0 auto; }
+/* the notes editor's rewrite buttons ask which slides first */
+.decklight-editor .tr-actions { flex-wrap: wrap; }
+.decklight-editor .notes-scope { align-items: center; }
+.decklight-editor .notes-scope-what { font-size: 12px; opacity: .7; margin-right: 2px; }
 /* the notes editor and the agent ask dock the same way: their plain textarea
    (no painted layer behind it) is the part that takes the gutter */
 .decklight-editor.decklight-dockable:not([data-dock="float"]) .narr-card > textarea.edit-notes {

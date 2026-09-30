@@ -21,6 +21,10 @@
  *
  * One slide per ask, a few at a time: each answer is small enough to check,
  * and one slide's bad answer costs that slide, not the deck.
+ *
+ * `--spoken` is the other rewrite (KINDS): the notes WRITTEN FOR THE EAR —
+ * terse notes turned into sentences a person would say. It rewords, so its
+ * check is the deck's structure instead of the words (`spokenProblem`).
  */
 
 import { execFile } from 'node:child_process';
@@ -216,6 +220,72 @@ export function enhanceProblem(before, after) {
   return null;
 }
 
+// ── written for the ear ─────────────────────────────────────────────────────
+// The other rewrite the notes get: terse, written-style notes ("Fluffed a
+// line? Backspace retakes it.") turned into sentences a person would say
+// ("And if you fluff a line, just press Backspace to take it again."). Unlike
+// the tags, this one REWORDS — so its check cannot be "same words". What it
+// guards is what the deck depends on: the [click] beats (the builds), every
+// [pause], no beat emptied, and a length in proportion — an answer twice as
+// long is commentary, not a rewrite.
+
+export const SPOKEN_PROMPT = `# Instructions
+
+You are rewriting the speaker-notes script of one presentation slide so that it reads as something a person would actually SAY out loud to an audience — writing for the ear, not for the page. A narrator will read your text aloud, word for word.
+
+Turn terse, written-style notes — fragments, headline phrasing, bullet-like lists, abbreviations, symbols — into natural spoken sentences:
+
+* Full sentences, in the conversational register the presenter would use live, addressing the audience directly where the original does. Connect ideas with the small words speech uses ("so", "and", "which means", "if you …, just …").
+* Keep every fact, instruction, number, name and technical term. Do not add new claims, examples, jokes or opinions, and do not drop any point.
+* Say what a voice cannot read: symbols, arrows, abbreviations and key glyphs become words ("⌘" → "Command", "e.g." → "for example", "→" → "then"), unless the audience needs the exact code identifier.
+* Keep it about as long as it was — a little longer where connecting words are needed, never twice as long.
+* Keep the language of the original.
+* Keep any audio tag in square brackets (such as [thoughtful]) attached to the sentence it belongs to.
+
+## Example
+
+Original: Fluffed a line? Backspace retakes it. Escape stops, and every slide you already finished is saved.
+
+Rewritten: And if you fluff a line, just press Backspace to take it again. When you press Escape, the recording stops, and every slide you've already finished is saved.`;
+
+/** The whole ask for one slide's script, written for the ear. */
+export const spokenPrompt = (script) =>
+  `${SPOKEN_PROMPT}\n\n${DECKLIGHT_ADDENDUM.replace('the enhanced script', 'the rewritten script')}\n\n# Script\n\n${script}`;
+
+const wordCount = (text) => wordsOf(text).split(' ').filter(Boolean).length;
+
+/**
+ * Is `after` the script `before`, rewritten for the ear, without breaking what
+ * the deck depends on? Null when it is; otherwise the reason, in words.
+ */
+export function spokenProblem(before, after) {
+  if (!after?.trim()) return 'the agent answered nothing';
+  const was = beatsOf(before);
+  const now = beatsOf(after);
+  if (now.length !== was.length) {
+    return `the agent changed the [click] beats (${was.length} → ${now.length}) — the builds would drift`;
+  }
+  for (let k = 0; k < was.length; k++) {
+    if (wordCount(was[k]) && !wordCount(now[k])) return `the agent emptied${was.length > 1 ? ` beat ${k + 1}` : ' the script'}`;
+    if (pausesOf(now[k]) < pausesOf(was[k])) return 'the agent dropped a [pause]';
+  }
+  const ratio = wordCount(after) / Math.max(1, wordCount(before));
+  if (ratio > 2.5) return 'the agent\'s answer is far longer than the notes — commentary, not a rewrite';
+  if (ratio < 0.5) return 'the agent\'s answer is far shorter than the notes — points were dropped';
+  return null;
+}
+
+/**
+ * The two rewrites the notes get, by name: `tags` (ElevenLabs v4 audio tags,
+ * same words) and `spoken` (written for the ear, reworded). Each is a prompt
+ * and the check its answer must pass before a byte of the deck changes.
+ */
+export const KINDS = {
+  tags: { prompt: enhancePrompt, problem: enhanceProblem, done: 'enhanced' },
+  spoken: { prompt: spokenPrompt, problem: spokenProblem, done: 'rewritten for the ear' },
+};
+const kindOf = (kind) => KINDS[kind] ?? KINDS.tags;
+
 /** Run a read-only agent ask; resolves to its stdout, or null. */
 function ask(cmd, cwd, timeoutMs) {
   return new Promise((done) => {
@@ -258,15 +328,16 @@ export function enhanceable(html, only = null) {
  * shares, from the notes editor's one box to a whole deck.
  */
 export async function enhanceText(script, {
-  agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
+  kind = 'tags', agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
   resolveAgent = agentAsk, exec = ask,
 } = {}) {
-  const cmd = resolveAgent(agent, enhancePrompt(script), { env });
+  const k = kindOf(kind);
+  const cmd = resolveAgent(agent, k.prompt(script), { env });
   if (!cmd) return { ok: false, why: agentUnavailable(agent, detectAgents({ env })) };
   const out = await exec(cmd, cwd, timeoutMs);
   if (out == null) return { ok: false, why: 'the agent did not answer in time' };
   const text = unwrapAnswer(out);
-  const why = enhanceProblem(script, text);
+  const why = k.problem(script, text);
   return why ? { ok: false, why } : { ok: true, text, changed: text !== script.trim() };
 }
 
@@ -298,7 +369,7 @@ export function applyEnhanced(html, answers) {
  * slide's failure — only when there is no agent to ask at all.
  */
 export async function enhanceDeck(html, slides = null, {
-  agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
+  kind = 'tags', agent = null, cwd = process.cwd(), env = process.env, timeoutMs = ENHANCE_TIMEOUT_MS,
   concurrency = ENHANCE_CONCURRENCY, resolveAgent = agentAsk, exec = ask, onSlide = () => {},
 } = {}) {
   if (!resolveAgent(agent, 'x', { env })) throw new Error(agentUnavailable(agent, detectAgents({ env })));
@@ -308,7 +379,7 @@ export async function enhanceDeck(html, slides = null, {
   const worker = async () => {
     while (next < todo.length) {
       const { slide, script } = todo[next++];
-      const a = await enhanceText(script, { agent, cwd, env, timeoutMs, resolveAgent, exec });
+      const a = await enhanceText(script, { kind, agent, cwd, env, timeoutMs, resolveAgent, exec });
       const r = { slide, ok: a.ok, changed: a.ok && a.text !== script, ...(a.ok ? {} : { why: a.why }) };
       answers.push({ ...r, before: script, text: a.text ?? null });
       onSlide({ ...r, done: ++finished, of: todo.length });
@@ -341,6 +412,7 @@ const USAGE = `decklight enhance — add ElevenLabs v4 audio tags to the voiceov
 Usage:
   decklight enhance <deck.html> --slides <n | a-b | a,b,c> [--agent <name>] [--dry-run]
   decklight enhance <deck.html> --all [--agent <name>] [--dry-run]
+  decklight enhance <deck.html> --spoken --slides … | --all   write it for the ear instead
 
 Asks the AI agent installed on this machine (claude, codex, …) to add audio
 tags — [thoughtful], [sighs], [excited] — to each slide's speaker notes, with
@@ -355,6 +427,11 @@ ElevenLabs v4/v3 and left out by every other voice.
   --all      every slide with notes
   --agent    which agent to ask (default: your remembered one, else the first found)
   --dry-run  print each enhanced script; write nothing
+  --spoken   rewrite terse notes as sentences a person would say out loud
+             ("Fluffed a line? Backspace retakes it." → "And if you fluff a
+             line, just press Backspace to take it again."). This one DOES
+             reword; decklight checks the [click] beats and [pause]s survive
+             and the length stays in proportion.
 
 Note: the notes are sent to that agent, and most agents are cloud services.`;
 
@@ -376,14 +453,16 @@ export async function enhanceMain(args = []) {
   try { slides = all ? null : parseSlides(which, sectionBodies(html).length); }
   catch (e) { console.error(`decklight enhance: ${e.message}`); return 1; }
   const dry = args.includes('--dry-run');
+  const kind = args.includes('--spoken') ? 'spoken' : 'tags';
+  const verb = KINDS[kind].done;
   let res;
   try {
     const n = enhanceable(html, slides).length;
     if (!n) { console.log('decklight enhance: no notes to enhance on those slides'); return 0; }
-    console.log(`enhance: ${n} slide${n === 1 ? '' : 's'} — asking the agent (read-only), a few at a time…`);
+    console.log(`enhance: ${n} slide${n === 1 ? '' : 's'}${kind === 'spoken' ? ', written for the ear' : ''} — asking the agent (read-only), a few at a time…`);
     res = await enhanceDeck(html, slides, {
-      agent: opt('--agent') ?? null, cwd: dirname(path),
-      onSlide: (r) => console.log(`  slide ${r.slide}: ${r.ok ? (r.changed ? 'enhanced' : 'already as it would be') : `left as it was — ${r.why}`}`
+      kind, agent: opt('--agent') ?? null, cwd: dirname(path),
+      onSlide: (r) => console.log(`  slide ${r.slide}: ${r.ok ? (r.changed ? verb : 'already as it would be') : `left as it was — ${r.why}`}`
         + `  (${r.done}/${r.of})`),
     });
   } catch (e) { console.error(`decklight enhance: ${e.message}`); return 1; }
@@ -396,7 +475,7 @@ export async function enhanceMain(args = []) {
     console.log(`\n${done.length} slide${done.length === 1 ? '' : 's'} would change — nothing written (--dry-run)`);
   } else if (done.length) {
     writeFileSync(path, res.html);
-    console.log(`wrote ${deck}: ${done.length} slide${done.length === 1 ? '' : 's'} enhanced`);
+    console.log(`wrote ${deck}: ${done.length} slide${done.length === 1 ? '' : 's'} ${verb}`);
   } else console.log('nothing changed');
   return res.results.some((r) => !r.ok) ? 2 : 0;
 }
