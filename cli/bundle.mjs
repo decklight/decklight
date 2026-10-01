@@ -23,6 +23,10 @@
  *                    data-cast-inline (fetch is blocked on file://).
  *   - images       : <img src>, data-background-image and data-background-poster
  *                    → data: URIs (background VIDEOS stay external, with a notice).
+ *   - design systems: every one the deck references ("designSystems") — its
+ *                    stylesheet with each relative url() as a data: URI, its
+ *                    meta and its layouts, the blocks every server injects
+ *                    (SPEC DESIGN_SYSTEMS), so layouts expand from file://.
  *
  * MERGE mode (--all or several inputs): every module's <section>s are
  * concatenated into one deck, in order. Each module's first section gets
@@ -35,9 +39,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
-import { configBlock, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
+import { configBlock, firstExecutableScript, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
 import { addedThemeStyle, markedRefs, markedShipped, markedSources, resolveThemeRef, stillValid } from './theme-refs.mjs';
-import { designSystemRefs } from './design-system-refs.mjs';
+import { bundleDesignSystem, designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
+import { MarketplaceError } from './marketplace.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
@@ -231,12 +236,17 @@ Options:
                    well, whichever you choose
   --theme <name>   the theme the bundle opens on — a shipped theme (embedded
                    alongside the others) or one the deck marks
+  --allow-missing-design-systems
+                   bundle even when a design system the deck uses cannot be
+                   read on this machine: it is left out, and the slides that
+                   name its layouts render plainly wherever the file opens
 `);
   return 0;
 }
 
 const inputs = [];
 let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false, deckFile = false, openOn = null;
+let allowMissingSystems = false;
 const transformNames = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -251,6 +261,7 @@ for (let i = 0; i < argv.length; i++) {
   // an attestation. Naming the implication beats refusing the obvious command.
   else if (a === '--deck') { deckFile = true; sign = true; }
   else if (a === '--title') mergedTitle = argv[++i];
+  else if (a === '--allow-missing-design-systems') allowMissingSystems = true;
   else if (!a.startsWith('-')) inputs.push(a);
   else fail(`unknown argument: ${a}`);
 }
@@ -409,13 +420,53 @@ const marked = markedRefs(sourceHtml).map((r) => {
   return hit;
 });
 const markedNames = marked.map((r) => r.name);
-// Design systems (SPEC DESIGN_SYSTEMS) are linked by every server but not yet
-// carried into a hand-over file: say so, rather than send a file that has
-// silently lost its look. The output itself is unchanged.
-const usedSystems = designSystemRefs(sourceHtml).map((r) => r.ref);
-if (usedSystems.length) {
-  notices.push(`the deck uses ${usedSystems.join(', ')} — a bundle does not carry design systems yet,`
-    + ' so this file shows its slides without them');
+// Design systems (SPEC DESIGN_SYSTEMS) travel like marked themes: resolved
+// from this machine's checkouts now, carried as bytes, never linked. Merged,
+// every module's count — once per name and version; one name at two
+// versions has no single right answer, so it is refused.
+const systems = [];          // { ref, name, version, marketplace, block }
+const systemsLeftOut = [];   // { ref, why }
+{
+  const decks = jobs
+    ? jobs.map((j) => ({ label: j.title, html: fs.readFileSync(j.path, 'utf8') }))
+    : [{ label: path.basename(firstPath), html: sourceHtml }];
+  const byName = new Map();
+  for (const d of decks) {
+    const from = markedSources(d.html);
+    for (const ref of designSystemRefs(d.html)) {
+      const r = resolveDesignSystemRef(ref, undefined, { source: from[ref.marketplace] ?? null });
+      const verdict = r.dir ? packageVerdict(r.dir) : null;
+      // a package that is HERE but broken is its author's bug, never papered over
+      if (verdict && !verdict.ok) fail(`the deck uses the design system ${ref.ref}, and ${verdict.why}`);
+      const why = r.missing;
+      if (why) {
+        if (!allowMissingSystems) {
+          fail(`the deck uses the design system ${ref.ref}, and this machine cannot read it — ${why}
+`
+            + '  (--allow-missing-design-systems bundles without it: its slides render plainly)');
+        }
+        if (!systemsLeftOut.some((x) => x.ref === ref.ref)) systemsLeftOut.push({ ref: ref.ref, why });
+        continue;
+      }
+      const version = String(verdict.manifest.version ?? '');
+      const seen = byName.get(ref.name);
+      if (seen) {
+        if (seen.version !== version) {
+          fail(`two modules use the design system "${ref.name}" at different versions — ${seen.label} has ${seen.version}, ${d.label} has ${version}; one file can carry one`);
+        }
+        continue;
+      }
+      let block;
+      try { block = bundleDesignSystem(r, verdict); } catch (e) {
+        if (e instanceof MarketplaceError) fail(`the design system ${ref.ref}: ${e.message}`);
+        throw e;
+      }
+      byName.set(ref.name, { version, label: d.label });
+      systems.push({ ref: ref.ref, name: ref.name, version, marketplace: ref.marketplace, block });
+      for (const url of block.external) notices.push(`design system ${ref.ref}: url(${url}) stays external — it will not show offline`);
+    }
+  }
+  for (const x of systemsLeftOut) notices.push(`design system ${x.ref} not carried — ${x.why}; the slides that use it render plainly`);
 }
 if (openOn !== null && !/^[\w-]+$/.test(openOn)) fail(`--theme ${JSON.stringify(openOn)} is not a theme name`);
 if (openOn && !ownTheme && !markedNames.includes(openOn) && !themeNames.includes(openOn)) themeNames.push(openOn);
@@ -619,6 +670,23 @@ html = html.replace(
   if (n) notices.push(`narration: inlined ${n} voice manifest(s) — the audio stays in its bucket`);
 }
 
+// -------------------------------------------------------- design systems
+
+// The stylesheets where every server links them — the end of <head>, after
+// the themes, so the cascade is the one the author saw — and the meta and
+// layouts before the runtime too: classic scripts execute mid-parse, so they
+// must be in the document when the engine looks for them.
+if (systems.length) {
+  const at = (withScript) => {
+    const masked = html.replace(/<!--[\s\S]*?-->/g, (m) => ' '.repeat(m.length));
+    const marks = [masked.search(/<\/head>/i), withScript ? firstExecutableScript(html) ?? -1 : -1].filter((i) => i !== -1);
+    return marks.length ? Math.min(...marks) : 0;
+  };
+  const insert = (i, tags) => { html = `${html.slice(0, i)}${tags.join('\n')}\n${html.slice(i)}`; };
+  insert(at(true), systems.flatMap((x) => x.block.tags.slice(1)));
+  insert(at(false), systems.map((x) => x.block.tags[0]));
+}
+
 // -------------------------------------------------------------- assemble
 
 if (embeds.length) {
@@ -680,6 +748,15 @@ process.stdout.write(`  runtime  decklight ${PKG.version} — ${runtimeFrom}\n`)
   }
   for (const [m, names] of byMarket) parts.push(`${names.join(', ')} (marked, from ${m})`);
   process.stdout.write(`  themes   ${parts.join(' · ')}\n`);
+}
+// The design systems: name, version, the catalog it came from, what went in.
+if (systems.length || systemsLeftOut.length) {
+  const parts = systems.map(({ name, version, marketplace, block }) => {
+    const assets = block.assets ? `, ${block.assets} asset${block.assets === 1 ? '' : 's'} (${(block.bytes / 1024).toFixed(1)} KB)` : '';
+    return `${name} ${version} (from ${marketplace}) — stylesheet${assets}, ${block.layouts} layout${block.layouts === 1 ? '' : 's'}`;
+  });
+  for (const x of systemsLeftOut) parts.push(`${x.ref} — not carried`);
+  process.stdout.write(`  designs  ${parts.join(' · ')}\n`);
 }
 if (bundleSig) {
   const { writeSidecar, verifyBytes, formatSignature } = await import('./sign.mjs');

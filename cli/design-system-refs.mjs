@@ -32,8 +32,8 @@
 // `marketplace update` can change its bytes afterwards — remembered by a
 // stat signature so a page load re-reads nothing that has not changed.
 
-import { readdirSync, realpathSync, statSync } from 'node:fs';
-import { join, resolve, sep } from 'node:path';
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
 import { escapeHtml } from '../tools/escape.mjs';
 import { DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../tools/design-system-format.mjs';
 import { configBlock, isDeck } from './runtime-link.mjs';
@@ -177,6 +177,77 @@ export function linkDesignSystems(html, home = configHome(), { log = null } = {}
   const headEnd = masked.search(/<\/head>/i);
   const at = headEnd !== -1 ? headEnd : Math.max(0, masked.search(/<body\b/i));
   return `${html.slice(0, at)}${tags.join('\n')}\n${html.slice(at)}`;
+}
+
+/** A design system's `url()`s — quoted or not — and the address each names. */
+const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)/gi;
+
+/** Bytes as a `data:` URI: an SVG as percent-encoded UTF-8 (readable, smaller), anything else base64. */
+function dataUri(ext, bytes) {
+  if (ext === 'svg') {
+    const text = encodeURIComponent(bytes.toString('utf8')).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+    return `data:image/svg+xml;charset=utf-8,${text}`;
+  }
+  return `data:${(DS_MIME[ext] ?? 'application/octet-stream').split(';')[0]};base64,${bytes.toString('base64')}`;
+}
+
+/**
+ * A design system's stylesheet with every RELATIVE `url()` inlined as a
+ * `data:` URI, resolved against the stylesheet's own location — and nothing
+ * else touched, byte for byte, so a font's licence header travels with its
+ * face. `data:` and `#fragment` urls are left; an outside one (http(s), `//`)
+ * is left and listed, because it will not show offline. A relative url whose
+ * file is not in the package throws: half a design system is worse than none.
+ * Returns `{ css, assets, bytes, external }`.
+ */
+export function inlineDesignSystemCss(css, dir, stylesPath) {
+  const base = dirname(resolve(dir, stylesPath));
+  const root = resolve(dir);
+  const assets = new Set();
+  let bytes = 0;
+  const external = [];
+  const out = css.replace(CSS_URL, (whole, dq, sq, bare) => {
+    const url = (dq ?? sq ?? bare ?? '').trim();
+    if (!url || url.startsWith('#') || /^data:/i.test(url)) return whole;
+    if (/^([a-z][a-z0-9+.-]*:|\/\/)/i.test(url)) { external.push(url); return whole; }
+    const rel = url.replace(/[?#].*$/, '');
+    const file = resolve(base, rel);
+    let data;
+    try {
+      if (!file.startsWith(root + sep)) throw new Error('outside');
+      data = readFileSync(file);
+    } catch {
+      throw new MarketplaceError(`${stylesPath} names url(${url}), and the design system has no such file`);
+    }
+    assets.add(file);
+    bytes += data.length;
+    return `url("${dataUri(file.split('.').pop().toLowerCase(), data)}")`;
+  });
+  return { css: out, assets: assets.size, bytes, external: [...new Set(external)] };
+}
+
+/**
+ * What a bundle carries for one resolved, still-valid design system: the
+ * stylesheet INLINE (`<style data-design-system data-design-system-version>`
+ * — the block every server's `linkDesignSystems` sees and links no second
+ * copy of), then the meta `<script>` and the layouts `<template>` exactly as
+ * the servers inject them, so the runtime finds them by the same selectors.
+ * Returns `{ tags, assets, bytes, external, layouts }`.
+ */
+export function bundleDesignSystem(r, verdict) {
+  const m = verdict.manifest;
+  const inlined = inlineDesignSystemCss(readFileSync(join(r.dir, m.styles), 'utf8'), r.dir, m.styles);
+  const name = escapeHtml(r.name);
+  const safe = inlined.css.replace(/<\/(style)/gi, '<\\/$1');
+  return {
+    tags: [
+      `<style data-design-system="${name}" data-design-system-version="${escapeHtml(String(m.version ?? ''))}">\n${safe}\n</style>`,
+      `<script type="application/json" data-design-system-meta="${name}">${scriptJson(designSystemMeta(verdict))}</script>`,
+      `<template data-design-system-layouts="${name}">\n${verdict.layoutsHtml.trim()}\n</template>`,
+    ],
+    assets: inlined.assets, bytes: inlined.bytes, external: inlined.external,
+    layouts: verdict.summary?.layouts?.length ?? 0,
+  };
 }
 
 /** The MIME a package file is answered as — fixed by extension, never sniffed. */

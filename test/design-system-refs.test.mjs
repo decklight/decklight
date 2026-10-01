@@ -255,16 +255,6 @@ test('design-system add refuses a package that fails the check, leaving the deck
   assert.match(cli(h, 'add', 'nord@acme-mkt', deckPath).stderr, /is a theme, not a design system/);
 });
 
-test('bundle says a design system does not travel yet — and leaves the file as it would be', (t) => {
-  const { dir, home: h } = home(t);
-  const deckPath = path.join(dir, 'talk.html');
-  writeFileSync(deckPath, deck({ decklight: '0.9.0', theme: 'aurora', designSystems: ['acme@acme-mkt'] }));
-  const r = spawnSync(process.execPath, [CLI, 'bundle', deckPath, '-o', path.join(dir, 'out.html')], { encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: h } });
-  assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /note: the deck uses acme@acme-mkt — a bundle does not carry design systems yet/);
-  assert.doesNotMatch(readFileSync(path.join(dir, 'out.html'), 'utf8'), /decklight-design-system\//);
-});
-
 // ── author mode ────────────────────────────────────────────────────────────
 
 async function startAuthor(t, h, body) {

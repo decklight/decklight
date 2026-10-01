@@ -187,7 +187,7 @@ export function configBlockHtml(config = {}, { indent = '  ', version = PKG.vers
 }
 
 /** The first executable `<script>` — no type, or a JavaScript one — and its offset; null when there is none. */
-function firstExecutableScript(html) {
+export function firstExecutableScript(html) {
   const masked = maskComments(html);
   for (const m of masked.matchAll(/<script\b([^>]*)>/gi)) {
     const type = /\btype\s*=\s*["']([^"']*)["']/i.exec(m[1])?.[1]?.trim().toLowerCase();
