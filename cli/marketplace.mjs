@@ -71,6 +71,10 @@ export const INSTALL_HINT = {
   transform: 'decklight transform add <name>',  // EXTENSIONS#LOADER — installs; bundle --transform <name> runs it
   voice: 'decklight voice add <name>',
   'publish-target': null,
+  // DESIGN_SYSTEMS: real, admitted by `decklight design-system check` — but a
+  // deck references one from #622 on, and decklight never prints a command
+  // that does not exist yet.
+  'design-system': null,
 };
 
 export const KNOWN_TYPES = Object.keys(INSTALL_HINT);
@@ -118,38 +122,11 @@ export const checkoutPath = (home, name) => join(home, 'marketplaces', name);
 // convention a code entry needs, SPEC UNIT_COMPAT) and not decklight's own
 // package version.
 
-/** Semantic Versioning 2.0.0, exactly — no leading `v`, no two-part `1.1`. */
-export const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
-
-/**
- * Semver precedence: < 0 when `a` is older than `b`, 0 when equal, > 0 when
- * newer. Build metadata is ignored; a prerelease sorts before its release,
- * its dot-separated identifiers compared numerically where both are numbers.
- * Null when either is not semver.
- */
-export function semverCompare(a, b) {
-  const pa = SEMVER_RE.exec(String(a ?? ''));
-  const pb = SEMVER_RE.exec(String(b ?? ''));
-  if (!pa || !pb) return null;
-  for (let i = 1; i <= 3; i++) {
-    const d = Number(pa[i]) - Number(pb[i]);
-    if (d) return Math.sign(d);
-  }
-  const ra = pa[4], rb = pb[4];
-  if (ra === rb) return 0;
-  if (ra === undefined) return 1;    // 1.0.0 > 1.0.0-rc.1
-  if (rb === undefined) return -1;
-  const xa = ra.split('.'), xb = rb.split('.');
-  for (let i = 0; i < Math.max(xa.length, xb.length); i++) {
-    if (xa[i] === undefined) return -1;
-    if (xb[i] === undefined) return 1;
-    const na = /^\d+$/.test(xa[i]), nb = /^\d+$/.test(xb[i]);
-    if (na && nb) { const d = Number(xa[i]) - Number(xb[i]); if (d) return Math.sign(d); }
-    else if (na !== nb) return na ? -1 : 1;
-    else if (xa[i] !== xb[i]) return xa[i] < xb[i] ? -1 : 1;
-  }
-  return 0;
-}
+// SEMVER_RE and semverCompare live in tools/semver.mjs — pure, so the
+// design-system format (tools/design-system-format.mjs) shares them without
+// importing this module's filesystem and git — and are re-exported here.
+export { SEMVER_RE, semverCompare } from '../tools/semver.mjs';
+import { SEMVER_RE, semverCompare } from '../tools/semver.mjs';
 
 /**
  * What was installed from which catalog, at which version and commit:
@@ -431,9 +408,26 @@ const sha256Shape = (v) => (typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)
   ? null
   : 'must be 64 lowercase hex characters — the SHA-256 of the module file\'s bytes (SPEC UNIT_PINNING)');
 
+/**
+ * A design system's `source` (SPEC DESIGN_SYSTEMS): a directory in the
+ * marketplace's own repo. Not a URL — v1's package is a directory of files,
+ * and the https escape hatch themes have (`theme-cache/`) caches one file —
+ * and never outside the checkout.
+ */
+const designSystemSource = (v) => {
+  if (typeof v !== 'string' || !v) return 'must be the package directory, relative to the marketplace, e.g. "systems/acme"';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(v)) return `"${v}" is a URL — a design system is a directory in the marketplace's repo (v1 has no https source: the cache holds single files, a package is many)`;
+  if (v.startsWith('/') || v.startsWith('\\') || /^[A-Za-z]:/.test(v)) return `"${v}" is absolute — a source is relative to the marketplace`;
+  if (v.split(/[\\/]/).includes('..')) return `"${v}" climbs out with .. — a design system lives inside its marketplace`;
+  return null;
+};
+
 /** Fields a kind MAY carry, checked only when present — see `sha256Shape`. */
 const ENTRY_SHAPES_OPTIONAL = {
   importer: { sha256: sha256Shape },
+  // presence is the generic rule's ("missing — the repo-relative path…"); the
+  // shape is checked here, so a missing source is said once, not twice
+  'design-system': { source: designSystemSource },
   transform: { sha256: sha256Shape },
   // An engine entry wears one `type` for two jobs, and only one of them
   // carries code. `{name, type: 'engine', source, wizard}` DECLARES a wizard
@@ -480,6 +474,15 @@ const ENTRY_SHAPES = {
     apiVersion: (v) => (Number.isInteger(v) && v >= 1
       ? null
       : 'must be a positive integer — the EXTENSIONS#TRANSFORMS contract version this transform needs, not a decklight version'),
+  },
+  // A design system names the format version it needs (SPEC DESIGN_SYSTEMS,
+  // DESIGN_SYSTEM_API_VERSION) — shape only here, like a transform's: a
+  // catalog written for a newer decklight still validates, and the entry is
+  // what says "needs a newer decklight" when a deck reaches for it.
+  'design-system': {
+    apiVersion: (v) => (Number.isInteger(v) && v >= 1
+      ? null
+      : 'must be a positive integer — the design-system format version this package needs, not a decklight version'),
   },
   // An agent entry is a DESCRIPTOR (SPEC AGENT_UNITS): the binary you already
   // installed, and the argv of its headless mode. Deliberately not code — the

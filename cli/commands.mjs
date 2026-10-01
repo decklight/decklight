@@ -53,6 +53,7 @@ export const COMMANDS = {
   voice: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
   agent: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
   extension: { module: './extension.mjs', main: 'extensionMain' },
+  'design-system': { module: './design-system.mjs', main: 'designSystemMain' },
   tts: { module: '../tools/voiceover-server.mjs', main: 'ttsMain' },
   lipsync: { module: '../tools/lipsync-server.mjs', main: 'lipsyncMain' },
   video: { module: '../tools/video.mjs', main: 'videoMain' },
@@ -300,6 +301,9 @@ Commands:
   extension  the marketplace admission gate for a transform file — lint, then a headless load
            of its OUTPUT; not run by bundle/import/publish, which never re-check an installed unit
            EXAMPLE: decklight extension check grammar-check.mjs
+  design-system  the marketplace admission gate for a design system — a company's tokens, art and
+           slide layouts, checked: inert layouts, script-free SVG, nothing outside the package
+           EXAMPLE: decklight design-system check systems/acme
   voice    add a marketplace voice to the picker — a reference to one of an engine's
            voices, never a model, so nothing that reproduces a person is ever downloaded
            EXAMPLE: decklight voice add narrator-anna    (works offline; speaking needs your key)

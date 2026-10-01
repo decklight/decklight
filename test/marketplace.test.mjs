@@ -417,6 +417,9 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
     // through these two — from the catalog cache and the checkouts, never a
     // catalog fetch.
     'cli/theme-refs.mjs', 'cli/runtime-link.mjs',
+    // The design-system format (SPEC DESIGN_SYSTEMS) runs where a package is
+    // checked, served and expanded — it reads texts it is handed, never a URL.
+    'tools/design-system-format.mjs', 'tools/semver.mjs', 'cli/design-system.mjs',
   ];
   assert.ok(files.length > 10, 'the sweep found the runtime');
   for (const f of files) {

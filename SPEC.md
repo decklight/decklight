@@ -23,6 +23,7 @@ being moved, and it says what it points at.
 | `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `UNIT_VERSIONS` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | catalogs of themes, templates, skills and engines — registered, not fetched; the unit library; voices as references; agents as descriptors, and the remembered preference; the speech-engine factory contract and installing one; what an engine needs from the machine before a key is worth asking for; compat for code-carrying units; the digest pin they install against; what you installed, and what the catalog has newer; the transform calling convention; the marketplace admission gate for it; the import adapter calling convention, and running one |
+| `DESIGN_SYSTEMS` | a company's tokens, art and slide layouts, published once and referenced by every deck built on it |
 | `REPO_LAYOUT` · `NON_GOALS` | for contributors |
 
 ---
@@ -1586,6 +1587,41 @@ marketplace already registered as `local` from anywhere else is left alone,
 and `theme add` says so rather than taking the name.
 
 
+## DESIGN_SYSTEMS — Design systems: tokens, art and layouts, by reference
+
+A **design system** is what a company publishes once so that every deck built on it inherits what a theme cannot carry: tokens beyond the 56-token theme contract, background art, and **slide layouts** with named slots — and receives updates by reference, the way a marked theme does (`THEME_DISTRIBUTION`). It is a marketplace unit of its own (`type: "design-system"`), and decklight never learns any particular design system's name.
+
+**Why it is not a theme.** A theme is one CSS file answering a fixed contract, so any deck can wear any theme; switching it is the point. A design system sits **beside** whichever theme is on screen: its stylesheet is always on, its tokens are prefixed so they never collide with the contract, and it may set a contract token only with a declared, printed exception. It also carries structure — layouts — which a theme never does.
+
+**The package** is a directory:
+
+```
+<name>/
+  design-system.json   required: apiVersion, name ([a-z][a-z0-9-]*), version (semver),
+                       title, styles ("design-system.css"), layouts ("layouts.html")
+                       optional: description, tokenPrefix (default "--<name>-"),
+                       palette: [{ group, label, token }], recommendedThemes: ["…"] (advice only)
+  design-system.css    always-on styles: prefixed tokens, component and per-layout rules;
+                       url()s resolve relative to this file (url(assets/…))
+  layouts.html         inert <template data-layout="…"> blocks, one per layout
+  assets/…             svg · png · jpg · jpeg · webp · woff2 · woff
+```
+
+A layout template carries **structure only** — containers marked `data-slot="<name>"` (children are the default content), `data-slot-hint` (what an author is expected to put there, e.g. `h1,h2`), `data-slot-required`, and at most one `data-slot-default` (where unslotted content lands). Backgrounds and per-layout tokens live in the CSS, keyed on the slide's namespaced layout (`.decklight section[data-layout="acme/section-divider"] { background-image: url(assets/divider.svg) }`), so every `url()` resolves inside the package.
+
+**`DESIGN_SYSTEM_API_VERSION`** (1) is the format's own counter — additive only, the doctrine `UNIT_COMPAT` sets for `TRANSFORM_API_VERSION`: bumped only when the format would break an existing package. A package's `apiVersion` above it is refused ("needs a newer decklight"). The package's semver `version` is a different fact (`UNIT_VERSIONS`).
+
+**`decklight design-system check <dir>`** is the admission gate a catalog's CI runs, in the mould of `extension check` (`EXTENSIONS_CHECK`): ✔ and a summary (tokens, layouts and their slots, assets) and exit 0, or ✘ naming the file, the line and the rule for every problem and exit 1 — never a stack. The rules, all in `tools/design-system-format.mjs` (pure over texts, so the serving path and the engine run the same ones):
+
+- **the manifest**: valid JSON; the fields and shapes above; `apiVersion` not above this decklight's; `styles` and `layouts` present and inside the package (no scheme, not absolute, no `..`);
+- **the CSS**: no `@import`; no `url()` that names a scheme (`https:`, `data:`, any), is absolute or contains `..`; every relative `url()` a file in the package (a `#fragment` is fine); every custom property **declared** (not merely read through `var()`) starts with the `tokenPrefix`; a **theme-contract token** (`THEMING`) is set only with a `/* ds-exception: --token reason */` comment — the `rule-exception:` idiom — and every declared exception is printed on every run so it stays reviewable;
+- **the layouts**: everything inside `<template data-layout>` blocks; no `script`, `style`, `iframe`, `object`, `embed`, `foreignObject`, `link`, `meta`, `base`, `frame`; no `on*` attribute, no `srcdoc`, no `javascript:` URL (entities decoded first); no `src`/`href`/`srcset`/`poster` reference other than a `#fragment` — art lives in the CSS; layout ids and slot names `[a-z][a-z0-9-]*`, layout ids unique, a slot name once per layout, at most one `data-slot-default`;
+- **SVG assets**: no `<script>`, no `<foreignObject>`, no `on*` attribute, no `href`/`xlink:href` other than a `#fragment`;
+- **the palette**: every `token` it names is defined in the CSS;
+- **assets**: svg/png/jpg/jpeg/webp/woff2/woff only (a top-level README/LICENSE/CHANGELOG/NOTICE and dotfiles are not assets); over **2 MB** is a ⚠ warning, not a refusal; a symlink resolving outside the package is refused.
+
+**In a catalog** a design-system entry carries a required positive-integer `apiVersion` (shape only, like a transform's) and a `source` that is a **directory in the marketplace's own repo** — a URL, an absolute path or one with `..` is refused with why (v1 has no https source: the theme cache holds single files, a package is many). `marketplace list` groups the kind like any other. Nothing is ever installed into `~/.decklight/` (`cli/units.mjs` `UNIT_TYPES` has no row): a deck references a package in place, from the checkout. Until a deck can reference one, the kind's install hint is empty — decklight never prints a command that does not exist.
+
 ## REPO_LAYOUT — Repository layout & tooling
 
 ```
@@ -1627,7 +1663,8 @@ decklight/
                  deck, JS_API), pdf.mjs (the print variants, PRESENTING) + pptx-export.mjs (deck → PowerPoint,
                  NON_GOALS), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY; entry versions and
                  the install ledger, UNIT_VERSIONS), enhance.mjs (the notes rewritten by your agent: audio tags, or
-                 written for the ear — checked before a byte is written), units.mjs
+                 written for the ear — checked before a byte is written), design-system.mjs (the design-system
+                 admission gate, DESIGN_SYSTEMS), units.mjs
                  (templates/skills/importers/voices/engines/agents), plugin.mjs (presenter chrome, PRESENT#PLUGINS),
                  loader.mjs + extension.mjs (build-time transforms and their admission gate), wizard.mjs (the
                  credential wizard, ENGINES#WIZARD), sign.mjs + deckfile.mjs + associate.mjs (signing, the
@@ -1640,7 +1677,7 @@ decklight/
                  check.mjs (one deck linted headlessly — the file half and one --dump-dom of ?print, in one
                  exit code, PRESENTING), open-browser.mjs (hand a URL to the platform launcher)
   tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes) + template-slides.mjs (a deck template as a list of slides you can take, UNITS#REST) + lorem.mjs (a taken slide's prose replaced, its markup and its code left alone) + css-slice.mjs (the rules a taken slide is shaped by, cut out of the stylesheet it came from), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), atomic-write.mjs (a temp sibling and a rename, so a
-                 crash never truncates a deck), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge) + lipsync-engines.mjs (rhubarb, Wav2Lip, SadTalker, and preparing a photo or a film) + lipsync-config.mjs (the talking-head setup, saved once), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
+                 crash never truncates a deck), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge) + lipsync-engines.mjs (rhubarb, Wav2Lip, SadTalker, and preparing a photo or a film) + lipsync-config.mjs (the talking-head setup, saved once), visemes.mjs (timeline v1), design-system-format.mjs (the design-system package rules, pure, DESIGN_SYSTEMS) + semver.mjs (versions and their precedence, UNIT_VERSIONS), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the
                  marketplace, THEME_DISTRIBUTION) + packs.json + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css

@@ -1,0 +1,24 @@
+/* Acme Brand — an invented design system for decklight's tests. */
+
+@font-face {
+  font-family: "Acme Sans";
+  src: url(assets/fonts/acme-sans.woff2) format("woff2");
+}
+
+.decklight {
+  --acme-blue: #0056f9;
+  --acme-coral: #ff6f61;
+  --acme-ink: #14213d;
+  --brand-coral: #ff6f61;
+  --acme-divider-pad: 6vh;
+  /* ds-exception: --heading-weight Acme headings are always semibold */
+  --heading-weight: 600;
+}
+
+.decklight section[data-layout="acme/section-divider"] {
+  background: var(--acme-ink) url(assets/divider.svg) no-repeat right bottom / 40%;
+  color: #fff;
+}
+.decklight .acme-divider { padding: var(--acme-divider-pad); font-family: "Acme Sans", var(--font-heading); }
+.decklight .acme-divider [data-slot="kicker"] { color: var(--acme-coral); letter-spacing: .08em; }
+.decklight .acme-statement { border-left: .4em solid var(--acme-blue); padding-left: 1em; }

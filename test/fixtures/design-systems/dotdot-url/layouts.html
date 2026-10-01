@@ -1,0 +1,16 @@
+<!-- Acme Brand layouts: structure only — the art lives in design-system.css -->
+<template data-layout="section-divider" data-title="Section divider">
+  <div class="acme-divider">
+    <div data-slot="kicker" data-slot-hint="p">Module 01</div>
+    <div data-slot="title" data-slot-hint="h1,h2" data-slot-required></div>
+    <div data-slot="subtitle" data-slot-hint="p"></div>
+    <div data-slot="body" data-slot-default></div>
+  </div>
+</template>
+
+<template data-layout="statement" data-title="Statement">
+  <div class="acme-statement">
+    <div data-slot="title" data-slot-hint="h2" data-slot-required></div>
+    <div data-slot="body" data-slot-default></div>
+  </div>
+</template>

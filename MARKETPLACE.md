@@ -519,7 +519,10 @@ association widen that population; share-the-link covers the rest.
 **Marketplace:** import adapters (Marp, Slidev, Deckset, reveal.js, PDF),
 TTS/lipsync engine adapters, deck templates (`init --from`), specialised agent
 skills, layout packs (CSS), export targets, build-time transforms, novelty and
-homage theme packs, voices. ("Casts" dropped from this line — `OPEN` 13.)
+homage theme packs, voices, **design systems** (a company's tokens, art and
+slide layouts, referenced by a deck in place like a marked theme — never
+installed into the library; SPEC `DESIGN_SYSTEMS`). ("Casts" dropped from this
+line — `OPEN` 13.)
 
 **Stays in core:** the graded house theme set, the full `reveal-*` compat set
 (migration must work offline), charts and math (SPEC contracts — `data-chart`
