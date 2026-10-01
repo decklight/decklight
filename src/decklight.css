@@ -1569,6 +1569,20 @@
    synthesized one and the line you are reading is the largest thing on it. Everything
    else on the card is chrome around that one sentence. */
 .decklight-mic .narr-card { width: min(640px, 90vw); }
+/* A design-system slide (DESIGN_SYSTEMS): what could not be expanded, or did
+   not land in a slot, is badged — while authoring only; presenting is silent */
+.decklight-authoring .decklight > section[data-ds-missing]::after {
+  content: '⚠ ' attr(data-ds-missing);
+  position: absolute; top: .6em; right: .6em; max-width: 60%;
+  padding: .25em .6em; border-radius: .4em;
+  font: 600 13px/1.3 system-ui, sans-serif;
+  background: rgba(229, 83, 61, .92); color: #fff; z-index: 5; pointer-events: none;
+}
+.decklight-authoring .decklight .ds-unslotted { outline: 2px dashed rgba(229, 83, 61, .8); outline-offset: .3em; position: relative; }
+.decklight-authoring .decklight .ds-unslotted::before {
+  content: 'not in a slot'; position: absolute; top: -1.6em; left: 0;
+  font: 600 11px/1 system-ui, sans-serif; color: rgba(229, 83, 61, .95);
+}
 /* Design systems… (DESIGN_SYSTEMS): the marketplaces' design systems, ● used / ○ not */
 .decklight-design-systems .narr-card { width: min(520px, 90vw); }
 /* film yourself (V → Character): the camera in the medallion's own shape */

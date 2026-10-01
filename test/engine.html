@@ -463,6 +463,42 @@
         <blockquote class="cp-quote">A quoted <strong>block</strong> of text.</blockquote>
       </section>`);
     }
+    // Referenced layouts (SPEC DESIGN_SYSTEMS): the page carries a design
+    // system as a server would inject it — the fixture package's stylesheet,
+    // its meta and its layouts inline — and one slide per case.
+    if (HARNESS_MODE === 'dslayouts') {
+      document.head.insertAdjacentHTML('beforeend', `
+        <link rel="stylesheet" href="fixtures/design-systems/ok/design-system.css" data-design-system="acme">
+        <script type="application/json" data-design-system-meta="acme">{"name":"acme","version":"1.2.0","title":"Acme Brand","palette":[],"layouts":[]}<\/script>
+        <template data-design-system-layouts="acme">
+          <template data-layout="section-divider" data-title="Section divider">
+            <div class="acme-divider">
+              <div data-slot="kicker" data-slot-hint="p">Module 01</div>
+              <div data-slot="title" data-slot-hint="h1,h2" data-slot-required></div>
+              <div data-slot="subtitle" data-slot-hint="p"></div>
+              <div data-slot="body" data-slot-default></div>
+            </div>
+          </template>
+          <template data-layout="statement" data-title="Statement">
+            <div class="acme-statement"><div data-slot="title" data-slot-required></div><div data-slot="body" data-slot-default></div></div>
+          </template>
+          <template data-layout="quote"><figure class="acme-quote"><blockquote data-slot="quote"></blockquote></figure></template>
+          <template data-layout="booby"><div class="acme-booby"><img src="https://evil.invalid/x.png" onerror="window.__ran = true" alt=""><div data-slot="title"></div></div></template>
+        </template>`);
+      document.querySelector('.decklight').insertAdjacentHTML('beforeend', `
+        <section class="ds-filled" data-layout="acme/section-divider">
+          <p data-slot="kicker">Module 07</p>
+          <h2 data-slot="title">Flink on Confluent Cloud</h2>
+          <p data-slot="subtitle">Managed runtime doesn't manage correctness.</p>
+          <aside class="notes">The divider, every slot filled.</aside>
+        </section>
+        <section class="ds-defaults" data-layout="acme/section-divider"><h2 data-slot="title">Only a title</h2></section>
+        <section class="ds-unslotted" data-layout="acme/quote"><blockquote data-slot="quote">Said once.</blockquote><p class="loose">Nobody put me in a slot.</p></section>
+        <section class="ds-builds" data-layout="acme/statement"><h2 data-slot="title">Steps</h2><ul data-slot="body" data-build><li>one</li><li>two</li></ul></section>
+        <section class="ds-nolayout" data-layout="acme/nope"><h2>Plain, still here</h2></section>
+        <section class="ds-nosystem" data-layout="other/x"><h2>Also plain</h2></section>
+        <section class="ds-booby" data-layout="acme/booby"><h2 data-slot="title">Booby-trapped layout</h2></section>`);
+    }
     if (HARNESS_MODE === 'codeedit') {
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
         '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>');
@@ -2190,6 +2226,58 @@
           && /Reading deck\.html/.test(r.running) && r.sendLocked
           && rows.length === 2 && /slide 2/.test(r.last) && /no changes/.test(r.last) && /Nothing to change\./.test(r.last)
           && r.noMarkup && r.sendFree;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'dslayouts') {
+        await settle();
+        const q = (sel) => document.querySelector(sel);
+        const sec = (c) => q(`section.${c}`);
+        const filled = sec('ds-filled');
+        r.expanded = filled.getAttribute('data-ds-expanded') === 'section-divider@1.2.0';
+        r.structure = !!filled.querySelector(':scope > .acme-divider[data-ds-injected]');
+        r.slotted = filled.querySelector('[data-slot="title"][data-ds-injected] > h2[data-slot="title"]')?.textContent === 'Flink on Confluent Cloud'
+          && filled.querySelector('[data-slot="kicker"][data-ds-injected] > p')?.textContent === 'Module 07'
+          && !/Module 01/.test(filled.textContent);
+        r.notesStay = filled.querySelector(':scope > aside.notes') !== null;
+        r.noPin = !filled.hasAttribute('data-pinned');
+        r.defaults = /Module 01/.test(sec('ds-defaults').querySelector('[data-slot="kicker"]')?.textContent ?? '');
+        r.requiredFine = !sec('ds-defaults').hasAttribute('data-ds-required-empty');
+        const unslotted = sec('ds-unslotted');
+        r.unslottedBox = unslotted.querySelector('.ds-unslotted[data-ds-injected] > p.loose') !== null
+          && unslotted.querySelector('blockquote[data-ds-injected][data-slot="quote"] > blockquote')?.textContent === 'Said once.';
+        const builds = sec('ds-builds');
+        const idx = deck._sections.indexOf(builds);
+        r.buildsCounted = deck._records[idx]?.groups.length === 2;
+        deck.goto(idx + 1, 0);
+        await settle();
+        deck.next();
+        await settle();
+        r.buildsStep = deck.state.slide === idx + 1 && deck.state.step === 1;
+        r.missingLayout = /acme has no layout "nope"/.test(sec('ds-nolayout').getAttribute('data-ds-missing') ?? '')
+          && sec('ds-nolayout').querySelector(':scope > h2') !== null;
+        r.missingSystem = /design system "other" is not available/.test(sec('ds-nosystem').getAttribute('data-ds-missing') ?? '');
+        const booby = sec('ds-booby');
+        const img = booby.querySelector('img');
+        r.scrubbed = !!img && !img.hasAttribute('onerror') && !img.hasAttribute('src') && !window.__ran;
+        // idempotent: sync again, and again — the same DOM
+        const stageHtml = () => deck._sections.map((x) => x.outerHTML).join('');
+        deck.sync();                       // build state on the current slide settles first
+        const before = stageHtml();
+        deck.sync(); deck.sync();
+        r.idempotent = stageHtml() === before;
+        // a new version re-lays-out, without doubling the content
+        const meta = q('script[data-design-system-meta="acme"]');
+        meta.textContent = meta.textContent.replace('"1.2.0"', '"1.3.0"');
+        deck.sync();
+        r.relaid = filled.getAttribute('data-ds-expanded') === 'section-divider@1.3.0'
+          && filled.querySelectorAll('h2[data-slot="title"]').length === 1
+          && filled.querySelectorAll('.acme-divider').length === 1
+          && filled.querySelector('[data-slot="kicker"] > p')?.textContent === 'Module 07';
+        r.PASS = r.expanded && r.structure && r.slotted && r.notesStay && r.noPin && r.defaults && r.requiredFine
+          && r.unslottedBox && r.buildsCounted && r.buildsStep && r.missingLayout && r.missingSystem && r.scrubbed
+          && r.idempotent && r.relaid;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

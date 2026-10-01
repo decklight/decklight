@@ -131,3 +131,12 @@ test('a failed save says the server is gone — the edit is not silently lost', 
   await new Promise((r) => setTimeout(r, 0));
   assert.ok(h.toasts.some((t) => /layout save failed/.test(t)));
 });
+
+test('a design-system layout is not the ring\'s to cycle — L says so and changes nothing (SPEC DESIGN_SYSTEMS)', () => {
+  const h = harness({ sections: [section({ 'data-layout': 'acme/section-divider' })] });
+  h.cycler.cycle(1);
+  assert.equal(h.sections[0].attrs['data-layout'], 'acme/section-divider', 'the reference is never overwritten');
+  assert.match(h.toasts[0], /acme\/section-divider — the design system lays this slide out; L does not cycle it/);
+  h.tick();
+  assert.deepEqual(h.posted, [], 'and nothing is written to the file');
+});

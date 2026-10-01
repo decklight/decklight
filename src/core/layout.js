@@ -87,6 +87,13 @@ export function createLayoutCycler({
     const idx = slideOf();
     const sec = sectionAt(idx);
     if (!sec) return;
+    // A design-system layout (SPEC DESIGN_SYSTEMS) owns this slide's geometry,
+    // and a ring pick would silently overwrite the reference.
+    const current = sec.getAttribute('data-layout') || '';
+    if (current.includes('/')) {
+      toast(`layout: ${current} — the design system lays this slide out; L does not cycle it`, 3200);
+      return;
+    }
 
     const name = nextInRing(ring(idx), sec.getAttribute('data-layout') || 'auto', dir);
     if (!name) return;

@@ -1637,6 +1637,30 @@ A layout template carries **structure only** — containers marked `data-slot="<
 
 **While authoring**, `/` → **Design systems…** lists every design system the registered marketplaces offer, from the cache, grouped by catalog — ● this deck uses it, ○ it does not, an unusable one saying why, an unread marketplace named with `marketplace update` — and **Space** (or ⏎) toggles it through `POST /edit/design-system/mark { ref, used }` (`GET /edit/design-system/browse` lists): the twin of `/edit/theme/mark`, refusing by the same check as the command line (400 with `problems`, 404 unknown, 409 unresolvable or a name clash), one undo entry, and the reload that brings the deck back with it linked. `present` has neither route. Until bundling carries design systems, `bundle` of a deck that uses one says so (`note: … a bundle does not carry design systems yet`) and its output is otherwise unchanged.
 
+**A slide uses a layout by naming it** — the existing `data-layout`, reused: a value with a `/` is `<design system>/<layout>`; the built-in ring (`auto`, `centered`, `pinned`, `top`, `split`, `split-flip`) has no slash, so the two can never collide. The slide carries only content, one element per named slot:
+
+```html
+<section data-layout="acme/section-divider">
+  <p data-slot="kicker">Module 01</p>
+  <h2 data-slot="title">Flink on Confluent Cloud</h2>
+  <p data-slot="subtitle">Managed runtime doesn't manage correctness.</p>
+  <aside class="notes">…</aside>
+</section>
+```
+
+The engine **expands the slide in the DOM, never in the file** (`src/core/design-system.js` `setupSystemLayouts`, the **first** pass of `sync()`, so pins, splits, builds and the overflow guardrail all see the final DOM): it clones the layout's template from the page's `data-design-system-layouts` block, scrubs the clone once more (forbidden elements, `on*`, `srcdoc` and outside references removed — the markup was checked at admission and at serving; this is the copy that becomes live DOM, and a scrub that had anything to remove is logged), marks every node it brought `data-ds-injected`, and moves the slide's elements into it:
+
+- an element with `data-slot="X"` goes into the layout's `[data-slot="X"]` container, replacing that container's default children; several elements naming the same slot all land there, in authored order; a slot nobody filled keeps the layout's default content;
+- an element with no `data-slot`, or one the layout does not define, goes to the layout's `[data-slot-default]` container, or — if it has none — into an injected `.ds-unslotted` box, which author mode outlines ("not in a slot");
+- a `data-slot-required` slot left empty is marked on the section (`data-ds-required-empty`) and warned about;
+- `aside.notes`, `aside.sources`, `aside.rehearse`, `script`, `style` and `.slide-bg` stay direct children of the section.
+
+The section gets `data-ds-expanded="<layout>@<version>"`, and a later `sync()` leaves it alone unless the layout, the design system's version or the slide's authored content changed — expanding twice yields identical DOM. Each authored element's index **in the file** is recorded before anything moves (`fileIndexOf`), because author-mode editing addresses elements by file index and expansion reorders the live DOM. **Builds** inside a slot step as anywhere else; their order follows the **layout's** DOM order, which may differ from the order the slide was written in. A layout's own markup is never itself expanded — one level. Pinned titles and the split layout skip these slides (the design system owns the slide's geometry; an unknown slashed value no longer falls into the auto pin), and **`L` does not cycle** one — it toasts why, since a ring pick would silently overwrite the reference. The overflow guardrail still runs. Print, `?print`, `pdf`, `pptx`, `video` and the speaker view show the expanded slide, because expansion precedes print-page construction.
+
+**When the layout is not there** — the design system is not on the page, or has no such layout — the section gets `data-ds-missing="<reason>"` and its content stays where it was written, so it renders plainly and nothing is lost. While authoring, the slide carries a badge with the reason and the deck says it once (together with any `decklight-design-system-missing` meta); presenting falls back silently.
+
+**Slot names are the design system's contract.** A slide addresses a layout only by its layout id and slot names, so renaming either is a breaking change for the design system's author; a version that keeps them re-lays-out every slide that uses the layout on the next load, by design, with the deck file untouched.
+
 **In a catalog** a design-system entry carries a required positive-integer `apiVersion` (shape only, like a transform's) and a `source` that is a **directory in the marketplace's own repo** — a URL, an absolute path or one with `..` is refused with why (v1 has no https source: the theme cache holds single files, a package is many). `marketplace list` groups the kind like any other. Nothing is ever installed into `~/.decklight/` (`cli/units.mjs` `UNIT_TYPES` has no row): a deck references a package in place, from the checkout; the kind's hint is `decklight design-system add <name@marketplace> <deck>`.
 
 ## REPO_LAYOUT — Repository layout & tooling
@@ -1660,7 +1684,8 @@ decklight/
                  named theme palette, which shape and label a right-click means), motion.js (the duration, FLIP and transition-class decisions
                  behind SLIDE_TRANSITIONS and AUTO_ANIMATE), thinking.js (the ASCII | / - \\ every wait shows),
                  worddiff.js (the notes editor's before / after, word by word), design-systems.js (the
-                 palette's Design systems… list), film.js (Film yourself: the camera,
+                 palette's Design systems… list), design-system.js (a slide's design-system layout, expanded
+                 into slots in the DOM — never the file), film.js (Film yourself: the camera,
                  a take, and the upload to the lip-sync bridge) — plus autoanimate, builds, print, svg, charts, media,
                  speaker, annotate, character, character-art, devmode, themegen, voicetrack
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)

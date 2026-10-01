@@ -35,6 +35,7 @@ import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker } from './design-systems.js';
+import { setupSystemLayouts, isSystemLayout } from './design-system.js';
 import { readPref, writePref } from './prefs.js';
 
 /**
@@ -171,6 +172,9 @@ function autoPinY(sec, config) {
 /** The pin Y a section resolves to under its data-layout, or null for none. */
 function pinYFor(sec, config) {
   const layout = sec.getAttribute('data-layout');
+  // a design-system layout owns the slide's geometry (SPEC DESIGN_SYSTEMS):
+  // no pin, not even the auto one an unknown value used to fall into
+  if (isSystemLayout(layout)) return null;
   if (layout === 'pinned') {
     const n = parseFloat(sec.getAttribute('data-pin'));
     return isFinite(n) ? n : (deckPinY(config) ?? PIN_DEFAULT_Y);
@@ -253,7 +257,8 @@ function setupSplit(sections, slideNumber = (i) => i + 1) {
   sections.forEach((sec, i) => {
     sec.querySelectorAll(':scope > .split-columns, :scope > .split-footer')
       .forEach((el) => el.classList.remove('split-columns', 'split-footer'));
-    if (!/^split/.test(sec.getAttribute('data-layout') || '')) {
+    const layoutName = sec.getAttribute('data-layout') || '';
+    if (!/^split/.test(layoutName) || isSystemLayout(layoutName)) {
       sec.removeAttribute('data-split-conflict');
       return;
     }
@@ -1412,6 +1417,9 @@ export function init(userConfig = {}) {
     sync() {
       this._sections = [...stage.querySelectorAll(':scope > section')];
       this._sections.forEach((s, i) => s.setAttribute('data-slide-index', String(i + 1)));
+      // FIRST: a slide naming a design-system layout gets its structure before
+      // any pass below measures, pins, splits or scans it (SPEC DESIGN_SYSTEMS)
+      setupSystemLayouts(this._sections, { warn: (m) => { console.warn(`decklight: ${m}`); debugLog('design-system', m); } });
       applyConcepts(stage, config.concepts); // idempotent; covers dynamic slides
       setupHeroLogos(this._sections);        // idempotent; before pin measurement
       setupMedia(this._sections, { printMode }); // backgrounds first — .slide-bg must not read as content
@@ -2439,6 +2447,23 @@ export function init(userConfig = {}) {
     previewQuery: () => themes.previewQuery(),
   });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
+
+  // A design-system slide that could not be expanded, or a design system the
+  // page could not have (SPEC DESIGN_SYSTEMS): badged on the slide and said
+  // once — while AUTHORING only. Presenting falls back to the plain content
+  // silently; a render or a preview has no one to tell.
+  editmode.settled?.().then(() => {
+    if (!editmode.available() || printMode || params.has('embedded') || params.has('capture')) return;
+    root.classList.add('decklight-authoring');
+    const systems = [...document.querySelectorAll('meta[name="decklight-design-system-missing"]')].map((m) => m.content);
+    const slides = instance._sections.map((s, i) => [i + 1, s.getAttribute('data-ds-missing')]).filter(([, why]) => why);
+    if (!systems.length && !slides.length) return;
+    const said = systems.length ? `design ${systems.length === 1 ? 'system' : 'systems'} not on this machine: ${systems.join('; ')}`
+      : `slide ${slides[0][0]}: ${slides[0][1]}${slides.length > 1 ? ` (and ${slides.length - 1} more)` : ''} — shown as plain content`;
+    toast(said, 7000);
+    for (const m of systems) debugLog('design-system', `missing ${m}`);
+    for (const [n, why] of slides) debugLog('design-system', `slide ${n}: ${why}`);
+  });
 
   // The video export (PRESENTING): which slides, and how — voice, format,
   // quality, subtitles — on one card, then the door every export uses. Each
