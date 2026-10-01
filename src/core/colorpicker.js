@@ -13,6 +13,13 @@
  * brand colour and exactly what stops following the theme; it lives on its
  * own tab so reaching for it is a decision rather than the default.
  *
+ * A deck that uses a design system (SPEC DESIGN_SYSTEMS) gets its palette on
+ * the Theme tab too, after the theme's own, under the names the design system
+ * gives its colours. Those write `var(--token, #rrggbb)` — the hex is what the
+ * token is at pick time — because the token is the design system's, not the
+ * theme's: the box keeps its brand colour through `T`, and still has it if
+ * the design system goes missing.
+ *
  * The colour maths and the target resolution are pure and exported for the
  * unit tests; the card is the only part that needs a document.
  */
@@ -94,6 +101,50 @@ export function themePalette(read) {
       .map((it) => ({ ...it, value: norm(read(it.token)) }))
       .filter((it) => it.value && !(it.unlessSameAs && it.value === norm(read(it.unlessSameAs)))),
   })).filter((g) => g.items.length);
+}
+
+/** A token a style value may name — the same shape the author server accepts. */
+const TOKEN = /^--[a-z][a-z0-9-]{0,40}$/i;
+
+/**
+ * The palettes of the deck's design systems, against a token reader: one
+ * group per design system and palette `group`, in the order the deck uses
+ * them, headed `<title> · <group>` (just `<title>` when its palette has one
+ * group); a token the page leaves undefined is dropped, like a theme's.
+ * `systems` is the page's design-system metas: `[{ name, title, palette:
+ * [{ group, label, token }] }]`.
+ */
+export function systemPalette(systems, read) {
+  const norm = (v) => String(v ?? '').trim().toLowerCase();
+  const out = [];
+  for (const sys of systems ?? []) {
+    const entries = (Array.isArray(sys?.palette) ? sys.palette : [])
+      .filter((p) => p && typeof p.label === 'string' && TOKEN.test(String(p.token)));
+    const title = String(sys.title || sys.name || 'Design system');
+    const declared = new Set(entries.map((p) => String(p.group ?? '').trim()));
+    const groups = new Map();
+    for (const p of entries) {
+      const value = norm(read(p.token));
+      if (!value) continue;
+      const g = String(p.group ?? '').trim();
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push({ label: p.label, token: p.token, value });
+    }
+    for (const [g, items] of groups) {
+      out.push({ group: declared.size > 1 && g ? `${title} · ${g}` : title, system: sys.name, fallback: true, items });
+    }
+  }
+  return out;
+}
+
+/** The token a written value names — `var(--x)` or `var(--x, #hex)` → `--x` — or null. */
+export function tokenOf(value) {
+  return /^var\(\s*(--[a-z][a-z0-9-]*)\s*(?:,[^()]*)?\)$/i.exec(String(value ?? '').trim())?.[1] ?? null;
+}
+
+/** What a design-system pick writes: the token, and what it is now as the fallback. */
+export function fallbackValue(token, rgb) {
+  return rgb ? `var(${token}, ${rgbToHex(rgb)})` : `var(${token})`;
 }
 
 // ----- what a right-click means ---------------------------------------------
@@ -210,9 +261,11 @@ const h = (tag, cls, text) => {
  * `onApply(edits)` gets the `{ path, tag, prop, value }` list to save — `value`
  * null takes the picker's colour back off — and the card is closed by then.
  * Every pick PREVIEWS on the slide at once; anything but Apply puts the
- * slide back exactly as it was. Returns `{ el, close, apply, isOpen }`.
+ * slide back exactly as it was. `systems` is the deck's design-system metas
+ * (`pageDesignSystems()`), whose palettes follow the theme's. Returns
+ * `{ el, close, apply, isOpen }`.
  */
-export function openColorPicker({ root, dock, targets, onApply, onClose }) {
+export function openColorPicker({ root, dock, targets, systems = [], onApply, onClose }) {
   const all = [...targets.fill, ...targets.text];
   const before = new Map(all.map((t) => [t, [t.el.style.getPropertyValue(t.prop), t.el.style.getPropertyPriority(t.prop)]]));
   // undefined: untouched · null: reset · string: the value to write
@@ -271,7 +324,10 @@ export function openColorPicker({ root, dock, targets, onApply, onClose }) {
   function renderTheme(body) {
     const style = getComputedStyle(root);
     const chosen = picks[side] === undefined ? authored(side) : picks[side];
-    for (const g of themePalette((t) => style.getPropertyValue(t))) {
+    const read = (t) => style.getPropertyValue(t);
+    // marked by the token, never by a design-system pick's fallback, which can go stale
+    const chosenToken = tokenOf(chosen);
+    for (const g of [...themePalette(read), ...systemPalette(systems, read)]) {
       const box = h('div', 'cp-groupbox');
       box.appendChild(h('div', 'cp-group', g.group));
       const grid = h('div', g.compact ? 'cp-swatches cp-compact' : 'cp-swatches');
@@ -281,11 +337,11 @@ export function openColorPicker({ root, dock, targets, onApply, onClose }) {
         b.dataset.token = it.token;
         b.title = `${it.label} · ${it.token} · ${it.value}`;
         b.setAttribute('aria-label', `${it.label} (${it.token})`);
-        b.setAttribute('aria-pressed', String(chosen === `var(${it.token})`));
+        b.setAttribute('aria-pressed', String(chosenToken === it.token));
         const chip = h('span', 'cp-chip');
         chip.style.background = `var(${it.token})`;
         b.append(chip, h('span', 'cp-label', g.compact ? it.short : it.label));
-        b.addEventListener('click', () => pick(`var(${it.token})`));
+        b.addEventListener('click', () => pick(g.fallback ? fallbackValue(it.token, resolveColor(it.value)) : `var(${it.token})`));
         grid.appendChild(b);
       }
       box.appendChild(grid);

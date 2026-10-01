@@ -24,7 +24,7 @@ import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { createDock } from './dock.js';
 import { thinking } from './thinking.js';
-import { authoredTop, authoredIndex } from './design-system.js';
+import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
 import { wordDiff, diffCounts } from './worddiff.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
@@ -1275,6 +1275,8 @@ export function createEditMode({
     overlays.opening();
     colorCard = openColorPicker({
       root, dock: colorDock, targets,
+      // the deck's design systems' palettes follow the theme's (SPEC DESIGN_SYSTEMS)
+      systems: [...pageDesignSystems().values()],
       onClose: () => { colorCard = null; },
       onApply: async (edits) => {
         try {

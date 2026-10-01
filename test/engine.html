@@ -333,7 +333,7 @@
         }
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
-      if (HARNESS_MODE === 'colors') {
+      if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
@@ -461,7 +461,7 @@
     // The colour picker: a diagram box with its label, a loose label, and an
     // HTML block — only for the mode that looks at it. No theme loads here, so
     // the palette's tokens are given inline (a secondary that IS one).
-    if (HARNESS_MODE === 'colors') {
+    if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
       const tokens = { '--accent': '#5ee6c0', '--accent-contrast': '#04261c', '--link': '#8ecbff', '--fg': '#eef0ff', '--bg': '#0d1b3d',
         '--d-text': '#f2ece4', '--d-fill-1': '#141c33', '--d-fill-2': '#1a2a44', '--d-fill-3': '#223355' };
       for (const [k, v] of Object.entries(tokens)) document.querySelector('.decklight').style.setProperty(k, v);
@@ -472,6 +472,21 @@
         </svg>
         <blockquote class="cp-quote">A quoted <strong>block</strong> of text.</blockquote>
       </section>`);
+    }
+    // …and a design system's palette after the theme's (SPEC DESIGN_SYSTEMS):
+    // its meta as a server injects it, and its tokens, one of them undefined
+    if (HARNESS_MODE === 'dscolors') {
+      document.head.insertAdjacentHTML('beforeend', `<script type="application/json" data-design-system-meta="acme">${JSON.stringify({
+        name: 'acme', version: '1.2.0', title: 'Acme', layouts: [], palette: [
+          { group: 'Brand', label: 'Acme blue', token: '--acme-blue' },
+          { group: 'Brand', label: 'Acme coral', token: '--acme-coral' },
+          { group: 'Surfaces', label: 'Deep ink', token: '--acme-ink' },
+          { group: 'Surfaces', label: 'Undefined here', token: '--acme-gone' },
+        ] })}<\/script>`);
+      const root = document.querySelector('.decklight');
+      root.style.setProperty('--acme-blue', '#0056f9');
+      root.style.setProperty('--acme-coral', '#ff6f61');
+      root.style.setProperty('--acme-ink', '#14213d');
     }
     // Referenced layouts (SPEC DESIGN_SYSTEMS): the page carries a design
     // system as a server would inject it — the fixture package's stylesheet,
@@ -2899,6 +2914,52 @@
           && r.escapeRestores && r.customHasRgb && r.customStartsFromTheTarget && r.customHasHsb
           && r.hsbPreviews && r.hexTyped && r.postsBoth && r.pathIsTheFiles && r.closesOnApply
           && r.labelFindsItsBox && r.resetPostsNull && r.htmlBlock;
+      }
+
+      if (mode === 'dscolors') {
+        // A design system's palette on the Theme tab (SPEC DESIGN_SYSTEMS):
+        // after the theme's groups, under its own names; a pick writes the
+        // token WITH its hex now as the fallback; re-opened, the swatch is
+        // marked by the token, even when the fallback has gone stale.
+        const C = '.decklight-colorpicker';
+        const q = (s) => document.querySelector(`${C} ${s}`);
+        const openOn = (el) => {
+          el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+          [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].find((x) => x.textContent === 'Colors…')?.click();
+        };
+        await settle();
+        deck.goto(5);
+        await settle();
+        const box = document.querySelector('.cp-box');
+        press('e');
+        openOn(box);
+        const groups = [...document.querySelectorAll(`${C} .cp-group`)].map((g) => g.textContent);
+        r.groupsAfterTheTheme = JSON.stringify(groups.slice(-2)) === JSON.stringify(['Acme · Brand', 'Acme · Surfaces'])
+          && groups.indexOf('Theme') === 0;
+        const labels = [...document.querySelectorAll(`${C} .cp-swatch`)].map((b) => b.getAttribute('aria-label'));
+        r.itsOwnNames = labels.includes('Acme blue (--acme-blue)') && labels.includes('Deep ink (--acme-ink)');
+        r.undefinedLeftOut = !labels.some((l) => l.includes('--acme-gone'));
+        q('.cp-swatch[data-token="--acme-blue"]').click();
+        r.previews = box.style.fill === 'var(--acme-blue, #0056f9)' && getComputedStyle(box).fill === 'rgb(0, 86, 249)';
+        q('.cp-apply').click();
+        await settle();
+        const post = CALLS.post.find((c) => c.u.includes('/edit/element/style'));
+        r.writesTheFallback = post?.body.edits[0]?.value === 'var(--acme-blue, #0056f9)';
+        // the file now says so, with a fallback gone stale since: still marked, by the token
+        box.style.fill = 'var(--acme-blue, #123456)';
+        openOn(box);
+        r.markedByTheToken = q('.cp-swatch[aria-pressed="true"]')?.dataset.token === '--acme-blue';
+        q('.cp-tabs [data-id="custom"]').click();
+        r.customOpensOnWhatShows = q('.cp-hex').value === '#0056f9';
+        press('Escape');
+        // a theme pick is still the plain token
+        openOn(box);
+        q('.cp-swatch[data-token="--accent"]').click();
+        q('.cp-apply').click();
+        await settle();
+        r.themePickPlain = CALLS.post.filter((c) => c.u.includes('/edit/element/style'))[1]?.body.edits[0]?.value === 'var(--accent)';
+        r.PASS = r.groupsAfterTheTheme && r.itsOwnNames && r.undefinedLeftOut && r.previews && r.writesTheFallback
+          && r.markedByTheToken && r.customOpensOnWhatShows && r.themePickPlain;
       }
 
       if (mode === 'contextmenu') {

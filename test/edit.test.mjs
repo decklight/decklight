@@ -527,7 +527,15 @@ test('element colours: a shape and its label in one edit, by path, and only ever
   assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ path: [0, 7], tag: 'rect', prop: 'fill', value: '#fff' }] })).status, 409);
 
   // the value lands inside an attribute: a colour, or nothing
-  for (const bad of ['red" onload="x', 'url(javascript:1)', 'var(--x); position: fixed', 'expression(1)']) {
+  // a design system's token carries exactly one hex fallback (SPEC DESIGN_SYSTEMS)
+  for (const good of ['var(--x)', 'var(--x,#fff)', 'var(--x, #0a1b2c)']) {
+    const r2 = await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: good }] });
+    assert.equal(r2.status, 200, good);
+  }
+  assert.match(readFileSync(deck, 'utf8'), /fill: var\(--x, #0a1b2c\)/);
+  writeFileSync(deck, before);
+  for (const bad of ['red" onload="x', 'url(javascript:1)', 'var(--x); position: fixed', 'expression(1)',
+    'var(--x, red)', 'var(--x,#fff);x', 'var(--a, var(--b))', 'var(--x, #fff, #000)']) {
     assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, value: bad }] })).status, 400, bad);
   }
   assert.equal((await post(base, '/edit/element/style', { slide: 1, index: 1, edits: [{ ...rect, prop: 'position', value: '#fff' }] })).status, 400);

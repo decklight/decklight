@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hsbToRgb, rgbToHsb, rgbToHex, hexToRgb, themePalette, PALETTE } from '../src/core/colorpicker.js';
+import { hsbToRgb, rgbToHsb, rgbToHex, hexToRgb, themePalette, PALETTE, systemPalette, tokenOf, fallbackValue } from '../src/core/colorpicker.js';
 
 test('HSB and RGB agree on the corners and round-trip everywhere between', () => {
   assert.deepEqual(hsbToRgb(0, 100, 100), { r: 255, g: 0, b: 0 });
@@ -32,6 +32,42 @@ test('hex is read the way people paste it and written one way', () => {
   for (const bad of ['', '#ffb31', 'red', '#ggg', '#ffb319ff', null]) assert.equal(hexToRgb(bad), null, String(bad));
   assert.equal(rgbToHex({ r: 255, g: 179, b: 25 }), '#ffb319');
   assert.equal(rgbToHex({ r: 300, g: -4, b: 7.6 }), '#ff0008', 'clamped and rounded');
+});
+
+test('a design system\'s palette: a group per design system and palette group, its own names, undefined tokens dropped', () => {
+  const page = { '--acme-blue': ' #0056F9 ', '--acme-coral': '#ff6f61', '--acme-ink': '#14213d', '--solo-red': '#c00' };
+  const read = (t) => page[t];
+  const acme = { name: 'acme', title: 'Acme Brand', palette: [
+    { group: 'Brand', label: 'Acme blue', token: '--acme-blue' },
+    { group: 'Brand', label: 'Acme coral', token: '--acme-coral' },
+    { group: 'Surfaces', label: 'Deep ink', token: '--acme-ink' },
+    { group: 'Surfaces', label: 'Not on this page', token: '--acme-gone' },
+    { group: 'Brand', label: 'Not a token', token: 'red; x' },
+  ] };
+  const solo = { name: 'solo', title: 'Solo', palette: [{ group: 'Only', label: 'Red', token: '--solo-red' }] };
+  const groups = systemPalette([acme, solo], read);
+  assert.deepEqual(groups.map((g) => [g.group, g.items.map((i) => `${i.label}=${i.value}`)]), [
+    ['Acme Brand · Brand', ['Acme blue=#0056f9', 'Acme coral=#ff6f61']],
+    ['Acme Brand · Surfaces', ['Deep ink=#14213d']],
+    ['Solo', ['Red=#c00']],
+  ], 'in the order the deck uses them; one group is headed by the title alone');
+  assert.ok(groups.every((g) => g.fallback), 'every design-system pick carries a fallback');
+  assert.deepEqual(systemPalette([{ name: 'x', title: 'X', palette: [{ group: 'G', label: 'L', token: '--gone' }] }], read), [], 'no empty group');
+  assert.deepEqual(systemPalette([], read), [], 'no design system, nothing new');
+  assert.deepEqual(systemPalette(undefined, read), []);
+});
+
+test('a design-system pick writes the token with what it is now as the fallback — and is recognised by the token', () => {
+  assert.equal(fallbackValue('--acme-blue', { r: 0, g: 86, b: 249 }), 'var(--acme-blue, #0056f9)');
+  assert.equal(fallbackValue('--acme-blue', null), 'var(--acme-blue)', 'no colour to fall back to, no fallback');
+  assert.equal(tokenOf('var(--acme-blue, #0056f9)'), '--acme-blue');
+  assert.equal(tokenOf('var(--acme-blue,#123)'), '--acme-blue', 'a stale fallback still marks its token');
+  assert.equal(tokenOf(' var(--accent) '), '--accent');
+  assert.equal(tokenOf('#0056f9'), null);
+  assert.equal(tokenOf('var(--a, var(--b))'), null);
+  // what the picker writes is what the author server accepts
+  const STYLE_VALUE = /^(?:var\(--[a-z][a-z0-9-]{0,40}(?:,\s?#[0-9a-f]{3,8})?\)|#[0-9a-f]{3,8})$/i;
+  assert.match(fallbackValue('--acme-blue', { r: 255, g: 111, b: 97 }), STYLE_VALUE);
 });
 
 test('the palette names the primary, and a secondary only where the theme has one', () => {

@@ -416,10 +416,13 @@ export function removeSlideElement(html, slide, index) {
 /**
  * The colours a page may ask this server to write (PRESENTING, element edit
  * mode): a theme token by reference — `var(--d-fill-3)`, so the deck stays
- * theme-aware — or a literal hex colour. Nothing else: the value lands inside
- * a style attribute, and a style attribute is markup.
+ * theme-aware — a design system's token with ONE hex fallback,
+ * `var(--acme-blue, #0056f9)` (SPEC DESIGN_SYSTEMS: the colour survives the
+ * design system going missing), or a literal hex colour. Nothing else — no
+ * nested var(), no other characters: the value lands inside a style
+ * attribute, and a style attribute is markup.
  */
-const STYLE_VALUE = /^(?:var\(--[a-z][a-z0-9-]{0,40}\)|#[0-9a-f]{3,8})$/i;
+const STYLE_VALUE = /^(?:var\(--[a-z][a-z0-9-]{0,40}(?:,\s?#[0-9a-f]{3,8})?\)|#[0-9a-f]{3,8})$/i;
 const STYLE_PROPS = new Set(['fill', 'color', 'background-color']);
 
 /** The page and the file disagree about what is where: a 409, not a bad request. */
