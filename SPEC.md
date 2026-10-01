@@ -1659,6 +1659,16 @@ The section gets `data-ds-expanded="<layout>@<version>"`, and a later `sync()` l
 
 **When the layout is not there** — the design system is not on the page, or has no such layout — the section gets `data-ds-missing="<reason>"` and its content stays where it was written, so it renders plainly and nothing is lost. While authoring, the slide carries a badge with the reason and the deck says it once (together with any `decklight-design-system-missing` meta); presenting falls back silently.
 
+**Editing a design-system slide edits the file's content, never the layout's structure.** Element edit mode, the double-click inline editor, a dropped image and the colour picker all address an element through `authoredTop` / `authoredIndex` (`src/core/design-system.js`): the authored element a click lands in — on an expanded slide, wherever expansion put it — at its index **in the file**, recorded before expansion reordered the DOM, so the server needs nothing new. A click on the layout's own decoration (`data-ds-injected`) addresses nothing; the colour picker's path into an element never crosses an injected node. An element-content write that would **drop the `data-slot`** an element on such a slide carries is refused (409, "keep data-slot=…") — an edit may change what an element says, or move it to another slot, never silently send it to the unslotted box (`cli/design-system-edit.mjs` `slotWriteProblem`).
+
+**`/` → Use design-system layout…** (author mode) lists the deck's design systems' layouts from the page's meta, grouped by design system, each with its slots (`*` required), and a **live preview**: a scaled slide in that layout, expanded by the engine itself, its slots at their default content (an empty one labelled with its name). Choosing a layout offers, for the current slide:
+
+- **put it in** the layout (convert, from a plain slide): `data-layout` is set; children that already carry a `data-slot` the layout has keep it; the rest are assigned by the slots' `data-slot-hint`s in the layout's slot order (the first `h2` → a slot hinted `h1,h2`, …); leftovers carry no slot and land in the default slot (or the unslotted box);
+- **switch** it (from another design-system layout): only the attribute changes — content stays by slot name, and slots the new layout lacks are reported (that content shows in the unslotted box);
+- **insert** a new slide in the layout after it: one element per **required** slot, by its hint, saying the slot's name — every other slot shows the layout's defaults until filled;
+
+and, when the current slide uses one, **take it out**: the attribute goes, `data-slot` attributes stay (harmless on a plain slide, and what a later convert reads). Each is one `POST /edit/slide/system-layout { slide, layout | null, insert? }`, one undo entry, and a sentence saying what went where (`h2 → title (hint h1,h2) · ul → body (the default slot)`). The server reads the layout from the package on disk — the deck's own design systems, through the same resolver and check every server uses — never from the page that asked; a layout the deck's design system does not have, or a design system the deck does not use, is refused by name.
+
 **Slot names are the design system's contract.** A slide addresses a layout only by its layout id and slot names, so renaming either is a breaking change for the design system's author; a version that keeps them re-lays-out every slide that uses the layout on the next load, by design, with the deck file untouched.
 
 **In a catalog** a design-system entry carries a required positive-integer `apiVersion` (shape only, like a transform's) and a `source` that is a **directory in the marketplace's own repo** — a URL, an absolute path or one with `..` is refused with why (v1 has no https source: the theme cache holds single files, a package is many). `marketplace list` groups the kind like any other. Nothing is ever installed into `~/.decklight/` (`cli/units.mjs` `UNIT_TYPES` has no row): a deck references a package in place, from the checkout; the kind's hint is `decklight design-system add <name@marketplace> <deck>`.
@@ -1684,7 +1694,7 @@ decklight/
                  named theme palette, which shape and label a right-click means), motion.js (the duration, FLIP and transition-class decisions
                  behind SLIDE_TRANSITIONS and AUTO_ANIMATE), thinking.js (the ASCII | / - \\ every wait shows),
                  worddiff.js (the notes editor's before / after, word by word), design-systems.js (the
-                 palette's Design systems… list), design-system.js (a slide's design-system layout, expanded
+                 palette's Design systems… list and Use design-system layout…), design-system.js (a slide's design-system layout, expanded
                  into slots in the DOM — never the file), film.js (Film yourself: the camera,
                  a take, and the upload to the lip-sync bridge) — plus autoanimate, builds, print, svg, charts, media,
                  speaker, annotate, character, character-art, devmode, themegen, voicetrack
@@ -1708,7 +1718,8 @@ decklight/
                  the install ledger, UNIT_VERSIONS), enhance.mjs (the notes rewritten by your agent: audio tags, or
                  written for the ear — checked before a byte is written), design-system.mjs (the design-system
                  admission gate, and add/remove/list/layouts, DESIGN_SYSTEMS) + design-system-refs.mjs (a deck's
-                 design systems: resolution, injection, and serving the package), units.mjs
+                 design systems: resolution, injection, and serving the package) + design-system-edit.mjs
+                 (a slide put into, switched, taken out of or inserted in a layout; the slot guard), units.mjs
                  (templates/skills/importers/voices/engines/agents), plugin.mjs (presenter chrome, PRESENT#PLUGINS),
                  loader.mjs + extension.mjs (build-time transforms and their admission gate), wizard.mjs (the
                  credential wizard, ENGINES#WIZARD), sign.mjs + deckfile.mjs + associate.mjs (signing, the

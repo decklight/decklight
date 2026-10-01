@@ -94,6 +94,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /edit/narration',
     'POST /edit/notes',
     'POST /edit/slide',
+    'POST /edit/slide/system-layout',
     'POST /edit/sources',
     'POST /edit/timings',
   ], 'a route that leaves this list has left the author server too');

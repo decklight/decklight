@@ -42,6 +42,10 @@ import {
   locateElement, removeSlideElement, setSlideElementHtml, setSlideElementBuild, setElementStyles,
 } from './edit.mjs';
 import { oneline } from './git.mjs';
+import { slotWriteProblem, applySystemLayout, insertSystemLayoutSlide, describeLayoutChange } from './design-system-edit.mjs';
+import { designSystemRefs, resolveDesignSystemRef, packageVerdict } from './design-system-refs.mjs';
+import { markedSources } from './theme-refs.mjs';
+import { parseSystemLayout } from '../tools/design-system-format.mjs';
 // The whole-slide and image transforms are NOT in edit.mjs with the rest: they
 // are string surgery on a deck's sections, which is what tools/deck-html.mjs
 // is, and nothing about them wants the server.
@@ -103,6 +107,63 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     const changed = applyEdit((html) => setSlideLayout(html, slide, layout));
     if (changed) console.log(`  layout saved: slide ${slide} → ${layout}`);
     return json(200, { ok: true, changed, ...history.counts() });
+  }
+
+  /**
+   * A layout of one of THIS deck's design systems, as the server resolves it
+   * (SPEC DESIGN_SYSTEMS) — `{ ref, id, slots }`, or a sentence saying why not.
+   * Read from the package on disk through the same resolver and check every
+   * server uses, never from the page that asked.
+   */
+  function deckLayout(html, value) {
+    const want = parseSystemLayout(value);
+    if (!want) return { error: `"${value}" is not a design-system layout (name/layout)` };
+    const ref = designSystemRefs(html).find((r) => r.name === want.system);
+    if (!ref) return { error: `the deck does not use a design system called "${want.system}" — Design systems… adds one` };
+    const hit = resolveDesignSystemRef(ref, undefined, { source: markedSources(html)[ref.marketplace] ?? null });
+    if (!hit.dir) return { error: `${ref.ref} — ${hit.missing}` };
+    const verdict = packageVerdict(hit.dir);
+    if (!verdict.ok) return { error: `${ref.ref} — ${verdict.why}` };
+    const layout = verdict.summary.layouts.find((l) => l.id === want.layout);
+    if (!layout) return { error: `${ref.ref} has no layout "${want.layout}" — it has ${verdict.summary.layouts.map((l) => l.id).join(', ')}` };
+    return { layout: { ref: `${want.system}/${want.layout}`, id: layout.id, slots: layout.slots } };
+  }
+
+  /**
+   * Put a slide into a design-system layout, move it to another, take it out,
+   * or insert a new slide in one (SPEC DESIGN_SYSTEMS) — one edit, one undo,
+   * and what went where, said back.
+   *   { slide, layout: "acme/divider" }              convert or switch slide N
+   *   { slide, layout: null }                          remove: back to a plain slide
+   *   { slide, layout: "acme/divider", insert: true }  a new slide after slide N
+   */
+  function systemLayoutRoute({ body, json }) {
+    const { slide, layout, insert } = JSON.parse(body || '{}');
+    if (!Number.isInteger(slide) || slide < 1 || !(layout === null || typeof layout === 'string')) throw new Error('bad payload');
+    const html = readDeck();
+    let def = null;
+    if (layout !== null) {
+      const r = deckLayout(html, layout);
+      if (r.error) return json(409, { ok: false, error: r.error });
+      def = r.layout;
+    } else if (insert) return json(400, { ok: false, error: 'insert needs a layout' });
+    let report = null;
+    try {
+      const changed = applyEdit((deck) => {
+        if (insert) return insertSystemLayoutSlide(deck, slide, def);
+        const out = applySystemLayout(deck, slide, def);
+        report = out;
+        return out.html;
+      });
+      const said = insert ? `a new ${def.ref} slide after slide ${slide}` : describeLayoutChange(report, def?.ref ?? '');
+      if (changed) console.log(`  design-system layout: slide ${slide} — ${said}`);
+      return json(200, {
+        ok: true, changed, said, ...(insert ? { inserted: slide + 1 } : { mode: report.mode, moved: report.moved, lacking: report.lacking }),
+        ...history.counts(),
+      });
+    } catch (e) {
+      return json(404, { ok: false, error: oneline(e) });
+    }
   }
 
   function hiddenRoute({ body, json }) {
@@ -191,6 +252,10 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     if (!Number.isInteger(slide) || slide < 1 || !Number.isInteger(index) || index < 0 || typeof html !== 'string') {
       throw new Error('bad payload');
     }
+    // on a design-system slide an edit changes what an element says, never
+    // the slot it fills (SPEC DESIGN_SYSTEMS)
+    const dropped = slotWriteProblem(readDeck(), slide, index, html);
+    if (dropped) return json(409, { ok: false, error: dropped });
     const changed = applyEdit((deck) => setSlideElementHtml(deck, slide, index, html));
     if (changed) console.log(`  element content saved: slide ${slide} #${index}`);
     return json(200, { ok: true, changed, ...history.counts() });
@@ -437,6 +502,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /edit/sources', sourcesRoute);
   routes.set('POST /edit/timings', timingsRoute);
   routes.set('POST /edit/layout', layoutRoute);
+  routes.set('POST /edit/slide/system-layout', systemLayoutRoute);
   routes.set('POST /edit/hidden', hiddenRoute);
   routes.set('POST /edit/narration', narrationRoute);
   routes.set('GET /edit/element/source', elementSourceRoute);

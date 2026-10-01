@@ -19,6 +19,7 @@
  * that changed.
  */
 
+import { authoredTop, authoredIndex } from './design-system.js';
 import { boundedFetch } from './devmode.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
@@ -103,11 +104,9 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const slide = sec ? instance._sections.indexOf(sec) + 1 : 0;
     return slide ? { sec, slide } : null;
   };
-  const topLevelChild = (sec, target) => {
-    let el = target;
-    while (el && el !== sec && el.parentElement !== sec) el = el.parentElement;
-    return el && el !== sec ? el : null;
-  };
+  // the authored element a click addresses — on a design-system slide, the
+  // slot content wherever expansion put it, never the layout's decoration
+  const topLevelChild = (sec, target) => authoredTop(sec, target);
 
   // ── double-click to edit text ─────────────────────────────────────────────
   let editing = null; // { el, original, slide, index, path }
@@ -191,7 +190,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (editing) await saveInline();
     const top = topLevelChild(sec, codeEl);
     if (!top) return;
-    const index = Array.prototype.indexOf.call(sec.children, top);
+    const index = authoredIndex(sec, top);
     const path = childPath(top, codeEl);
     if (path === null) return;
     let text;
@@ -249,7 +248,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     if (editing) saveInline();
     const top = topLevelChild(sec, el);
     if (!top) return;
-    const index = Array.prototype.indexOf.call(sec.children, top);
+    const index = authoredIndex(sec, top);
     const path = childPath(top, el);
     if (path === null) return;
     editing = { el, original: el.innerHTML, slide, index, path };
@@ -321,7 +320,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       ?? sectionOf(instance._sections[instance.state.slide - 1]);
     if (!where) return;
     const under = topLevelChild(where.sec, document.elementFromPoint(e.clientX, e.clientY));
-    let index = under && !under.matches('aside') ? Array.prototype.indexOf.call(where.sec.children, under) : null;
+    let index = under && !under.matches('aside') ? authoredIndex(where.sec, under) : null;
     const job = (async () => { for (const file of files) {
       try {
         const up = await fetch(base() + '/edit/asset', {

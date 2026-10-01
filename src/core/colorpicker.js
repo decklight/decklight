@@ -101,6 +101,8 @@ export function themePalette(read) {
 const SVG_SHAPES = 'rect, circle, ellipse, polygon, path';
 /** Nodes the ENGINE put in the page (builds.js's arrowheads): in the DOM, not in the file. */
 const INJECTED = '.draw-head';
+/** …and what a design-system layout brought (SPEC DESIGN_SYSTEMS) — never on a path into the file. */
+const INJECTED_ON_PATH = '.draw-head, [data-ds-injected]';
 
 /**
  * The child-index path from `top` down to `el`, counted the way the file
@@ -111,8 +113,8 @@ export function pathFrom(top, el) {
   const path = [];
   for (let n = el; n !== top; n = n.parentElement) {
     const parent = n?.parentElement;
-    if (!parent || n.matches(INJECTED)) return null;
-    path.unshift([...parent.children].filter((c) => !c.matches(INJECTED)).indexOf(n));
+    if (!parent || n.matches(INJECTED_ON_PATH)) return null;
+    path.unshift([...parent.children].filter((c) => !c.matches(INJECTED_ON_PATH)).indexOf(n));
   }
   return path;
 }

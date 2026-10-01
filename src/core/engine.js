@@ -34,7 +34,7 @@ import { createDebugLog } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
-import { createDesignSystemsPicker } from './design-systems.js';
+import { createDesignSystemsPicker, createSystemLayoutPicker } from './design-systems.js';
 import { setupSystemLayouts, isSystemLayout } from './design-system.js';
 import { readPref, writePref } from './prefs.js';
 
@@ -562,6 +562,14 @@ export function init(userConfig = {}) {
     debugLog: (...a) => debugLog(...a),
   });
   overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
+  // Use design-system layout…: this slide into a layout, to another, out of
+  // one, or a new slide in one — written by the author server
+  const systemLayouts = createSystemLayoutPicker({
+    root, toast, deck: () => instance,
+    base: () => (editmode?.available() ? editmode.base() : null),
+    debugLog: (...a) => debugLog(...a),
+  });
+  overlays.register({ isOpen: systemLayouts.isOpen, close: systemLayouts.close, keydown: systemLayouts.keydown });
 
   // ----- slide finder: / opens find-a-slide with live preview ---------------
   // Same panel anatomy and lazy-preview mechanism as the theme picker: the
@@ -932,6 +940,9 @@ export function init(userConfig = {}) {
       // ⏎ do" lived in a keystroke you may not have pressed. The two things are
       // different enough to be asked for by name: one adds a slide, the other
       // rewrites one you wrote.
+      editmode.available() && { label: 'Use design-system layout… (dev)',
+        alias: 'design system layout slots convert switch insert slide divider section structure',
+        run: () => systemLayouts.open() },
       editmode.available() && { label: 'Design systems… (dev)',
         alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
         run: () => designSystems.open() },

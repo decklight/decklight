@@ -337,6 +337,16 @@
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // Editing a design-system slide (SPEC DESIGN_SYSTEMS): an author server
+      // that answers the element routes and the layout picker's write
+      if (HARNESS_MODE === 'dsedit') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/edit/slide/system-layout')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, changed: true, mode: 'switch', said: `now ${body.layout} — content stays by slot name`, undo: 1, redo: 0 });
+        }
+      }
       if (HARNESS_MODE === 'contextmenu') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
@@ -466,10 +476,10 @@
     // Referenced layouts (SPEC DESIGN_SYSTEMS): the page carries a design
     // system as a server would inject it — the fixture package's stylesheet,
     // its meta and its layouts inline — and one slide per case.
-    if (HARNESS_MODE === 'dslayouts') {
+    if (HARNESS_MODE === 'dslayouts' || HARNESS_MODE === 'dsedit') {
       document.head.insertAdjacentHTML('beforeend', `
         <link rel="stylesheet" href="fixtures/design-systems/ok/design-system.css" data-design-system="acme">
-        <script type="application/json" data-design-system-meta="acme">{"name":"acme","version":"1.2.0","title":"Acme Brand","palette":[],"layouts":[]}<\/script>
+        <script type="application/json" data-design-system-meta="acme">{"name":"acme","version":"1.2.0","title":"Acme Brand","palette":[],"layouts":[{"id":"section-divider","title":"Section divider","slots":[{"name":"kicker","hint":"p","required":false,"default":false},{"name":"title","hint":"h1,h2","required":true,"default":false},{"name":"subtitle","hint":"p","required":false,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"statement","title":"Statement","slots":[{"name":"title","hint":"","required":true,"default":false},{"name":"body","hint":"","required":false,"default":true}]},{"id":"quote","title":"quote","slots":[{"name":"quote","hint":"","required":false,"default":false}]}]}<\/script>
         <template data-design-system-layouts="acme">
           <template data-layout="section-divider" data-title="Section divider">
             <div class="acme-divider">
@@ -2226,6 +2236,67 @@
           && /Reading deck\.html/.test(r.running) && r.sendLocked
           && rows.length === 2 && /slide 2/.test(r.last) && /no changes/.test(r.last) && /Nothing to change\./.test(r.last)
           && r.noMarkup && r.sendFree;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'dsedit') {
+        // A right-click inside an expanded slide addresses what the AUTHOR
+        // wrote, by its index in the FILE — never the layout's decoration
+        await settle();
+        const M = '.decklight-ctxmenu', ROW = '.cm-row';
+        const rows = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.textContent);
+        const filled = document.querySelector('section.ds-filled');
+        const n = deck._sections.indexOf(filled) + 1;
+        deck.goto(n, 0);
+        await settle();
+        press('e');
+        const title = filled.querySelector('h2[data-slot="title"]');
+        title.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        await settle();
+        r.titleIsAnElement = rows().includes('Remove element');
+        [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === 'Remove element')?.click();
+        await settle();
+        const rm = CALLS.post.filter((c) => c.u.includes('/edit/element/remove')).pop()?.body;
+        // in the file: kicker 0, title 1, subtitle 2 — whatever order the layout put them in
+        r.fileIndex = rm?.slide === n && rm?.index === 1;
+        if (document.querySelector(M)) press('Escape');
+        const decoration = filled.querySelector('.acme-divider');
+        decoration.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+        await settle();
+        r.decorationIsNothing = !!document.querySelector(M) && !rows().includes('Remove element');
+        if (document.querySelector(M)) press('Escape');
+        press('e');
+        await settle();
+        // the palette's "Use design-system layout…": the deck's layouts, a live preview, one write
+        const Q = '.decklight-palette', PROW = '.pal-row';
+        press('/');
+        for (const ch of 'design-system layout') press(ch);
+        await settle();
+        const found = [...document.querySelectorAll(`${Q} ${PROW}`)].find((x) => /Use design-system layout…/.test(x.textContent));
+        r.paletteRow = !!found;
+        const prow = [...document.querySelectorAll(`${Q} ${PROW}`)];
+        for (let i = 0; found && i < prow.indexOf(found); i++) press('ArrowDown');
+        press('Enter');
+        await settle();
+        const picker = document.querySelector('.decklight-ds-layouts');
+        const labels = [...(picker?.querySelectorAll('.dsl-row') ?? [])].map((x) => x.textContent);
+        r.offersRemove = /Take slide \d+ out of acme\/section-divider/.test(labels[0] ?? '');
+        r.listsLayouts = labels.some((t) => /^acme\/statement/.test(t)) && labels.some((t) => /^acme\/quote/.test(t));
+        press('ArrowDown'); press('ArrowDown');     // past "take out", past section-divider → statement
+        await settle();
+        const pv = picker?.querySelector('.dsl-preview .dsl-preview-slide');
+        r.livePreview = pv?.getAttribute('data-ds-expanded') === 'statement@1.2.0' && !!pv.querySelector('.acme-statement');
+        press('Enter');                              // → its actions
+        await settle();
+        r.actions = /Switch slide \d+ to it/.test(picker?.textContent ?? '') && /Insert a new slide in it after slide/.test(picker?.textContent ?? '');
+        press('Enter');                              // switch
+        await settle(); await settle();
+        const sent = CALLS.post.filter((c) => c.u.includes('/edit/slide/system-layout')).pop()?.body;
+        r.posted = sent?.slide === n && sent?.layout === 'acme/statement' && !sent?.insert;
+        r.said = [...document.querySelectorAll('.decklight-toast')].some((x) => /now acme\/statement — content stays by slot name — Z takes it back/.test(x.textContent));
+        r.PASS = r.titleIsAnElement && r.fileIndex && r.decorationIsNothing && r.paletteRow && r.offersRemove && r.listsLayouts
+          && r.livePreview && r.actions && r.posted && r.said;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

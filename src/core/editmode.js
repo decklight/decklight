@@ -24,6 +24,7 @@ import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { createDock } from './dock.js';
 import { thinking } from './thinking.js';
+import { authoredTop, authoredIndex } from './design-system.js';
 import { wordDiff, diffCounts } from './worddiff.js';
 import { writtenMarks } from '../../tools/sentences.mjs';
 import { hljs } from '../code/code.js';
@@ -1086,11 +1087,10 @@ export function createEditMode({
   }
 
   /** The direct child of `sec` that contains `target`, or null for the bare background (target IS sec). */
-  function topLevelChild(sec, target) {
-    let el = target;
-    while (el && el !== sec && el.parentElement !== sec) el = el.parentElement;
-    return el && el !== sec ? el : null;
-  }
+  // the authored element a right-click addresses (SPEC DESIGN_SYSTEMS): on an
+  // expanded design-system slide, the slot content wherever it was put — the
+  // layout's decoration addresses nothing, and the index is the FILE's
+  const topLevelChild = (sec, target) => authoredTop(sec, target);
 
   root.addEventListener('contextmenu', (e) => {
     if (!elementEditOn) return;
@@ -1107,7 +1107,7 @@ export function createEditMode({
       return;
     }
     const child = topLevelChild(sec, e.target);
-    const index = child ? [...sec.children].indexOf(child) : null;
+    const index = child ? authoredIndex(sec, child) : null;
     overlays.opening();
     openElementMenu(e.clientX, e.clientY, { sec, slide, index, top: child, clicked: e.target });
   });

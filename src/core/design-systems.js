@@ -14,6 +14,7 @@
 
 import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
+import { pageDesignSystems, setupSystemLayouts, isSystemLayout } from './design-system.js';
 
 /** `base()` is the author server's URL, or null when there is none. */
 export function createDesignSystemsPicker({ root, base, toast, debugLog = () => {} }) {
@@ -117,6 +118,164 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
     if (e.key === 'ArrowUp') { select(Math.max(0, sel - 1)); return true; }
     if (e.key === ' ' || e.key === 'Enter') { toggle(); return true; }
     return true;   // the list holds the keyboard while it is open
+  }
+
+  return { open, close, keydown, isOpen: () => !!el };
+}
+
+// ── Use design-system layout… ───────────────────────────────────────────────
+// Put this slide into one of the deck's design-system layouts, move it to
+// another, take it out, or insert a new slide in one (SPEC DESIGN_SYSTEMS).
+// The layouts listed are the ones the PAGE carries (the meta block the server
+// injected); the write goes to the author server, which reads the layout from
+// the package on disk, never from here — POST /edit/slide/system-layout, one
+// undo entry, and a sentence saying what went where.
+
+
+export function createSystemLayoutPicker({ root, base, toast, deck, debugLog = () => {} }) {
+  let el = null, rows = [], sel = 0, view = 'layouts', chosen = null, busy = false;
+  const card = () => el?.querySelector('.narr-card');
+
+  /** The deck's design systems and their layouts, as the page has them. */
+  function listed() {
+    const out = [];
+    for (const meta of document.querySelectorAll('script[type="application/json"][data-design-system-meta]')) {
+      let m;
+      try { m = JSON.parse(meta.textContent); } catch { continue; }
+      for (const l of m.layouts ?? []) out.push({ system: m.name, title: m.title, ref: `${m.name}/${l.id}`, layout: l });
+    }
+    return out;
+  }
+
+  /** A scaled slide in the layout, its slots showing their defaults — what choosing it would look like. */
+  function preview(ref) {
+    const box = card()?.querySelector('.dsl-preview');
+    if (!box) return;
+    box.replaceChildren();
+    if (!ref) return;
+    const sec = document.createElement('section');
+    sec.className = 'dsl-preview-slide';
+    sec.setAttribute('data-layout', ref);
+    box.appendChild(sec);
+    setupSystemLayouts([sec], { systems: pageDesignSystems() });
+    // a slot with no default content would preview as nothing: name it, faintly
+    for (const slot of sec.querySelectorAll('[data-slot]')) {
+      if (!slot.textContent.trim() && !slot.children.length) {
+        slot.textContent = slot.getAttribute('data-slot');
+        slot.classList.add('dsl-placeholder');
+      }
+    }
+  }
+
+  function render() {
+    const c = card();
+    if (!c) return;
+    const slide = deck().state.slide;
+    const current = deck()._sections[slide - 1]?.getAttribute('data-layout') ?? '';
+    rows = [];
+    let html = '';
+    if (view === 'layouts') {
+      const all = listed();
+      html += `<div class="narr-head">use a design-system layout — slide ${slide}${isSystemLayout(current) ? ` is ${escapeHtml(current)}` : ''}</div>`;
+      html += '<div class="dsl-split"><div class="dsl-list">';
+      if (isSystemLayout(current)) {
+        rows.push({ remove: true });
+        html += `<div class="narr-row dsl-row" data-i="0"><span class="narr-row-label">↩ Take slide ${slide} out of ${escapeHtml(current)} <span class="narr-flavor">back to a plain slide</span></span></div>`;
+      }
+      let group = null;
+      for (const l of all) {
+        if (l.system !== group) { group = l.system; html += `<div class="narr-group">${escapeHtml(l.title ?? l.system)}</div>`; }
+        const i = rows.length;
+        rows.push(l);
+        const slots = l.layout.slots.map((s) => `${s.name}${s.required ? '*' : ''}`).join(' · ');
+        html += `<div class="narr-row dsl-row${l.ref === current ? ' narr-cur' : ''}" data-i="${i}"><span class="narr-row-label">${escapeHtml(l.ref)}`
+          + ` <span class="narr-flavor">${escapeHtml(slots)}</span></span></div>`;
+      }
+      if (!all.length) html += '<div class="rec-line">This deck uses no design system — Design systems… adds one.</div>';
+      html += '</div><div class="dsl-preview" aria-hidden="true"></div></div>';
+      html += '<div class="rec-hint">↑/↓ · ⏎ chooses · Esc closes</div>';
+    } else {
+      const switching = isSystemLayout(current);
+      rows = [{ act: 'apply' }, { act: 'insert' }];
+      html += `<div class="narr-head">${escapeHtml(chosen.ref)}</div>`
+        + `<div class="narr-row dsl-row" data-i="0"><span class="narr-row-label">${switching ? 'Switch' : 'Put'} slide ${slide} ${switching ? 'to' : 'in'} it`
+        + ` <span class="narr-flavor">${switching ? 'content stays by slot name' : 'its content assigned to slots by their hints'}</span></span></div>`
+        + `<div class="narr-row dsl-row" data-i="1"><span class="narr-row-label">Insert a new slide in it after slide ${slide}`
+        + ' <span class="narr-flavor">its required slots, ready to fill</span></span></div>'
+        + '<div class="rec-hint">⏎ does it · Esc back</div>';
+    }
+    c.innerHTML = html;
+    c.querySelectorAll('.dsl-row').forEach((r) => {
+      r.addEventListener('mouseenter', () => select(Number(r.dataset.i)));
+      r.addEventListener('click', () => { select(Number(r.dataset.i)); choose(); });
+    });
+    select(Math.min(sel, Math.max(0, rows.length - 1)));
+  }
+
+  function select(i) {
+    sel = i;
+    selectInList([...(card()?.querySelectorAll('.dsl-row') ?? [])], i, 'narr-sel');
+    if (view === 'layouts') preview(rows[i]?.ref ?? null);
+  }
+
+  async function send(body, what) {
+    if (busy) return;
+    busy = true;
+    try {
+      const r = await fetch(`${base()}/edit/slide/system-layout`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error ?? `the author server answered ${r.status}`);
+      debugLog('design-system', `slide ${body.slide}: ${j.said}`);
+      toast(`${j.said} — Z takes it back`, 6000);
+      close();
+    } catch (e) {
+      toast(`${what}: ${e.message ?? e}`, 7000);
+    } finally {
+      busy = false;
+    }
+  }
+
+  function choose() {
+    const slide = deck().state.slide;
+    const row = rows[sel];
+    if (!row) return;
+    if (view === 'layouts') {
+      if (row.remove) return send({ slide, layout: null }, 'could not take the slide out');
+      chosen = row;
+      view = 'actions';
+      sel = 0;
+      return render();
+    }
+    if (row.act === 'insert') return send({ slide, layout: chosen.ref, insert: true }, 'could not insert the slide');
+    return send({ slide, layout: chosen.ref }, 'could not lay the slide out');
+  }
+
+  function open() {
+    if (el) return;
+    if (!base()) { toast('design-system layouts are chosen while authoring — decklight author <deck.html>', 3200); return; }
+    el = document.createElement('div');
+    el.className = 'decklight-narr decklight-record decklight-ds-layouts';
+    el.innerHTML = '<div class="narr-card" role="listbox" aria-label="Use design-system layout"></div>';
+    closeOnBackdrop(el, close);
+    root.appendChild(el);
+    view = 'layouts';
+    sel = 0;
+    render();
+  }
+
+  function close() { el?.remove(); el = null; rows = []; }
+
+  function keydown(e) {
+    if (e.key === 'Escape') {
+      if (view === 'actions') { view = 'layouts'; sel = 0; render(); } else close();
+      return true;
+    }
+    if (e.key === 'ArrowDown') { select(Math.min(rows.length - 1, sel + 1)); return true; }
+    if (e.key === 'ArrowUp') { select(Math.max(0, sel - 1)); return true; }
+    if (e.key === 'Enter') { choose(); return true; }
+    return true;
   }
 
   return { open, close, keydown, isOpen: () => !!el };

@@ -45,6 +45,15 @@ export const ASSET_WARN_BYTES = 2 * 1024 * 1024;
 /** A package's, a layout's and a slot's name: what a slide writes, so it stays plain. */
 export const NAME_RE = /^[a-z][a-z0-9-]*$/;
 
+/** Is this `data-layout` value a design-system layout (`name/layout`)? The built-in ring never has a slash. */
+export const isSystemLayout = (value) => typeof value === 'string' && value.includes('/');
+
+/** `acme/section-divider` → `{ system, layout }`, or null for anything else. */
+export function parseSystemLayout(value) {
+  const m = /^([^/\s]+)\/([^/\s]+)$/.exec(String(value ?? ''));
+  return m && NAME_RE.test(m[1]) && NAME_RE.test(m[2]) ? { system: m[1], layout: m[2] } : null;
+}
+
 /**
  * The theme contract (SPEC THEMING): the tokens a THEME owns. A design system
  * sits beside any theme, so setting one of these is overriding the theme —

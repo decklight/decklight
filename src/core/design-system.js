@@ -26,16 +26,9 @@
 // admitted and again when it was served; it is checked a THIRD time here, on
 // the clone, because this is the copy that becomes live DOM.
 
-import { NAME_RE } from '../../tools/design-system-format.mjs';
+import { NAME_RE, isSystemLayout, parseSystemLayout } from '../../tools/design-system-format.mjs';
 
-/** Is this `data-layout` value a design-system layout (`name/layout`)? */
-export const isSystemLayout = (value) => typeof value === 'string' && value.includes('/');
-
-/** `acme/section-divider` → `{ system, layout }`, or null for anything else. */
-export function parseSystemLayout(value) {
-  const m = /^([^/\s]+)\/([^/\s]+)$/.exec(String(value ?? ''));
-  return m && NAME_RE.test(m[1]) && NAME_RE.test(m[2]) ? { system: m[1], layout: m[2] } : null;
-}
+export { isSystemLayout, parseSystemLayout };
 
 /** Direct children that stay where they are: what the slide carries, not what it shows. */
 const KEEP = 'aside.notes, aside.sources, aside.rehearse, script, style, .slide-bg';
@@ -92,6 +85,23 @@ const expanded = new WeakMap();
 
 /** The element's index among its section's children in the file — what `/edit/element/*` addresses. */
 export const fileIndexOf = (el) => fileIndex.get(el);
+
+/**
+ * The element a click inside a slide addresses, for editing (SPEC
+ * DESIGN_SYSTEMS): the section's direct child it is in — or, on an expanded
+ * design-system slide, the AUTHORED element, wherever expansion put it. The
+ * layout's own decoration addresses nothing (null): it is not in the file.
+ */
+export function authoredTop(sec, target) {
+  for (let el = target; el && el !== sec; el = el.parentElement) {
+    if (fileIndex.has(el)) return el;
+    if (el.parentElement === sec) return el.hasAttribute('data-ds-injected') ? null : el;
+  }
+  return null;
+}
+
+/** That element's index among its section's children IN THE FILE — what `/edit/element/*` addresses. */
+export const authoredIndex = (sec, el) => fileIndex.get(el) ?? Array.prototype.indexOf.call(sec.children, el);
 
 /** The authored content of an expanded slide that has not moved since — or null if it changed. */
 function stillExpanded(sec, key) {
