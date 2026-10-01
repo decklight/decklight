@@ -47,7 +47,10 @@ import {
   sectionInner, slideHeading, splitOpenTag,
 } from '../tools/deck-html.mjs';
 import { CLICK_MARK } from '../tools/sentences.mjs';
+import { isSystemLayout, parseSystemLayout } from '../tools/design-system-format.mjs';
 import { auditDeck } from './audit.mjs';
+import { designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
+import { markedSources } from './theme-refs.mjs';
 import { printUrl } from './pdf.mjs';
 import { runMain } from './util.mjs';
 
@@ -357,6 +360,76 @@ export function clickSegments(notesHtml) {
   return text.split(CLICK_MARK).length;
 }
 
+// ── design systems ───────────────────────────────────────────────────────────
+
+/**
+ * The deck's design systems as `check` needs them (SPEC DESIGN_SYSTEMS):
+ * name → `{ ref, layouts: Map<id, slots> }`, or `{ ref, missing }` when this
+ * machine cannot read one. From the checkouts and the cache only — never a
+ * fetch — and through the same check every server makes, so a package that
+ * no longer passes it is as unreadable here as it is on stage. The default
+ * `designSystems` of `staticFindings`, which a test replaces with a fixture.
+ */
+export function deckDesignSystems(html) {
+  const sources = markedSources(html);
+  const out = new Map();
+  for (const ref of designSystemRefs(html)) {
+    const r = resolveDesignSystemRef(ref, undefined, { source: sources[ref.marketplace] ?? null });
+    const verdict = r.dir ? packageVerdict(r.dir) : null;
+    const missing = r.missing ?? (verdict.ok ? null : verdict.why);
+    out.set(ref.name, missing ? { ref: ref.ref, missing }
+      : { ref: ref.ref, layouts: new Map((verdict.summary?.layouts ?? []).map((l) => [l.id, l.slots])) });
+  }
+  return out;
+}
+
+const slotList = (slots) => `${slots.map((s) => `${s.name}${s.required ? '*' : ''}`).join(', ')}${slots.some((s) => s.required) ? '; * = required' : ''}`;
+
+/**
+ * A slide that names a design-system layout, against what the design system
+ * defines. Every mistake here renders — the engine shows the content plainly
+ * or in the unslotted box rather than losing it — so each is a warning that
+ * names what was written and what the design system offers instead.
+ */
+function designSystemFindings(value, tree, systems, configured, push) {
+  // the slots the engine reads: the slide's direct children, as written
+  const slotted = tree.children.map((n) => readAttrs(n.attrs)['data-slot']).filter((v) => v !== undefined);
+  const ref = parseSystemLayout(value);
+  const sys = ref ? systems.get(ref.system) : null;
+  const slots = sys?.layouts?.get(ref.layout) ?? null;
+  // a slot filled twice is decidable from the file alone — except the layout's
+  // default slot, which is MEANT to take everything else
+  const fallback = slots?.find((s) => s.default)?.name;
+  const seen = new Set();
+  for (const name of slotted) {
+    if (seen.has(name) && name !== fallback) {
+      push('ds-slot-twice', `data-slot="${name}" is filled twice on this slide — a slot is one place in the layout; put both elements in one wrapper, or one of them in another slot`);
+    }
+    seen.add(name);
+  }
+  if (!ref) {
+    push('ds-unknown-layout', `data-layout="${value}" is not a design-system layout — it is written <design system>/<layout>`);
+    return;
+  }
+  if (!sys) {
+    push('ds-unknown-system', `data-layout="${value}" — the deck uses no design system called "${ref.system}"`
+      + ` (it uses: ${configured.length ? configured.join(', ') : 'none'}); decklight design-system add ${ref.system}@<marketplace> <deck> references one`);
+    return;
+  }
+  if (sys.missing) return;   // said once, in the head; nothing here can be known
+  if (!slots) {
+    push('ds-unknown-layout', `data-layout="${value}" — ${sys.ref} has no layout "${ref.layout}" (its layouts: ${[...sys.layouts.keys()].join(', ') || 'none'})`);
+    return;
+  }
+  const names = new Set(slots.map((s) => s.name));
+  for (const name of new Set(slotted)) {
+    if (!names.has(name)) push('ds-unknown-slot', `data-slot="${name}" — the ${ref.layout} layout has no such slot (its slots: ${slotList(slots)})`);
+  }
+  for (const s of slots) {
+    if (s.required && !seen.has(s.name)) push('ds-required-empty', `the ${ref.layout} layout needs its "${s.name}" slot filled — no element here carries data-slot="${s.name}" (its slots: ${slotList(slots)})`);
+  }
+}
+
 // ── A. the static half ───────────────────────────────────────────────────────
 
 /**
@@ -366,10 +439,21 @@ export function clickSegments(notesHtml) {
  * `dir` is what a relative asset path resolves against — the deck's own
  * directory, exactly as the browser would resolve it from the deck's URL.
  */
-export function staticFindings(html, { dir = '.', exists = existsSync } = {}) {
+export function staticFindings(html, { dir = '.', exists = existsSync, designSystems = deckDesignSystems } = {}) {
   const src = String(html ?? '');
   const out = [];
   const ranges = sectionRanges(src);
+  // Design systems (SPEC DESIGN_SYSTEMS): resolved only when the deck names
+  // one — a deck without any attempts nothing — and one this machine cannot
+  // read is said once, its slides' layouts and slots skipped, not guessed.
+  const configured = designSystemRefs(src);
+  const systems = configured.length ? designSystems(src) : new Map();
+  for (const [, sys] of systems) {
+    if (sys.missing) {
+      out.push(finding('warn', 'ds-unresolved', null, 'head',
+        `design system ${sys.ref} cannot be read on this machine — ${sys.missing}; its slides' layouts and slots go unchecked`));
+    }
+  }
   // `sectionInner`, never the raw body: a body begins mid-open-tag, so a slide
   // with no heading to fall back on would be titled ` data-markdown>` — the
   // remnant of its own tag, read as the slide's opening words.
@@ -403,6 +487,10 @@ export function staticFindings(html, { dir = '.', exists = existsSync } = {}) {
     }
 
     const tree = parseTree(inner);
+    if (isSystemLayout(attrs['data-layout'])) {
+      designSystemFindings(attrs['data-layout'], tree, systems, configured.map((r) => r.ref),
+        (rule, message) => out.push(finding('warn', rule, slide, head, message)));
+    }
     const segments = clickSegments(NOTES_ASIDE.exec(inner)?.[1]);
     const steps = buildSteps(tree);
     const clicks = buildClicks(tree);

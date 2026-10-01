@@ -134,6 +134,28 @@ COMPARISON_SLIDES has the markup. The engine marks the mixed state
 same \`decklight pdf\` run above names such slides — one render check catches
 both.
 
+**On a deck that uses a design system, fill its layouts' slots — never
+recreate a layout's structure by hand.** A design system (DESIGN_SYSTEMS) is a
+company's look as a package: the deck lists it under \`designSystems\` in its
+configuration block, and a slide names one of its layouts and supplies only
+content, one element per named slot:
+
+\`\`\`html
+<section data-layout="acme/section-divider">
+  <p data-slot="kicker">Module 01</p>
+  <h2 data-slot="title">Flink on Confluent Cloud</h2>
+</section>
+\`\`\`
+
+Find the layouts and their slots first —
+\`decklight design-system layouts acme@<marketplace>\` lists every layout, its
+slots, and which are required (\`*\`). The structure comes from the design
+system when the deck renders, so a slide that copies a layout's markup instead
+never updates with it. Then \`decklight check deck.html\` names every layout
+or slot the design system does not have, a slot filled twice, and a required
+one left empty — before the talk, not on stage, where the slide would only
+render plainly.
+
 Speaker notes drive both live narration and the transcript/caption
 features, so write them even for decks that will only ever be read: split
 multi-beat notes with a bare \`[click]\` line so narration and build steps
@@ -239,6 +261,12 @@ After editing slides, render the deck and check nothing is clipped:
 line is a slide losing content. Overflow is the late failure, though: a slide
 that fits can still be too crowded, so keep to one idea and ~3–4 bullets per
 column rather than to whatever renders.
+
+On a deck with a design system, a slide fills a layout's slots
+(\`<section data-layout="acme/section-divider">\` and children carrying
+\`data-slot\`, listed by \`decklight design-system layouts <ref>\`) and never
+recreates its structure by hand; \`decklight check deck.html\` names any slot
+or layout the design system does not have.
 
 When an authoring server is running (\`decklight author\`), commit each logical
 change you finish rather than leaving it to the timer's generic \`autosave\`:
