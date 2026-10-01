@@ -262,6 +262,10 @@ function walkLayouts(html) {
       if (closing) {
         if (current && depth === 0) { layouts.push(current); current = null; }
         else if (current) depth--;
+        // A </template> with nothing open is not harmless: wherever these
+        // layouts are inlined into a page's own <template>, it would close
+        // that one early and let what follows out as live markup.
+        else push(line, 'layout-outside-template', '</template> with no <template data-layout> open — it would close whatever template the layouts are carried in');
         continue;
       }
       if (current) { push(line, 'layout-forbidden-tag', '<template> inside a layout — one level of templates, one per layout'); depth++; continue; }

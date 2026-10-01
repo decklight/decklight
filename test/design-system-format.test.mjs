@@ -167,6 +167,7 @@ test('layouts: inert structure only — every way to run something is refused, w
 test('layouts: everything inside a <template data-layout>, ids unique and plain, slots unique, one default', () => {
   for (const [from, to, rule] of [
     ['<!-- Acme Brand layouts', '<p>stray</p>\n<!-- Acme Brand layouts', 'layout-outside-template'],
+    ['<!-- Acme Brand layouts', '</template>\n<!-- Acme Brand layouts', 'layout-outside-template'],
     ['data-layout="statement"', 'data-layout="section-divider"', 'layout-duplicate'],
     ['data-layout="statement"', 'data-layout="Statement Slide"', 'layout-id'],
     ['<div data-slot="subtitle" data-slot-hint="p"></div>', '<div data-slot="kicker"></div>', 'slot-repeated'],
