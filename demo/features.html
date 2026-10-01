@@ -28,7 +28,7 @@
       <h1>Decklight</h1>
       <p>Every feature, demonstrated by the slide that explains it</p>
       <p style="font-size:0.58em; opacity:.8">This deck is the reference implementation of its own documentation.<br>
-        <strong>V</strong> speaks · <strong>N</strong> voice · <strong>T</strong> theme · <strong>⌥⏎</strong> speaker view · <strong>?</strong> help</p>
+        <strong>P</strong> speaks · <strong>V</strong> voice · <strong>T</strong> theme · <strong>⌥⏎</strong> speaker view · <strong>?</strong> help</p>
       <aside class="notes">
         <p>This is the long tour — every feature Decklight has, demonstrated by the slide that explains it. Not screenshots of the feature: the feature, running, on the slide making the claim. If a slide says builds work like this, that slide is built like that. The mark above the title is the first one already — that's the hero logo, one attribute on the section.</p>
       </aside>
@@ -504,7 +504,7 @@ decklight theme add sunset.css deck.html  # validates, then marks it for the dec
     <!-- ══ 22 · narration ══ -->
     <section>
       <h2>The Deck Speaks</h2>
-      <p><strong>V</strong> narrates · <strong>N</strong> picks the voice · <strong>C</strong> captions · <strong>P</strong> pauses</p>
+      <p><strong>P</strong> narrates and pauses · <strong>V</strong> picks the voice · <strong>C</strong> captions</p>
       <ul data-build>
         <li><strong>The voice already on your machine</strong> — macOS <code>say</code>, Windows SAPI. No key, no download, no signup</li>
         <li>Or cloud voices, your own cloned ones, or <code>piper</code> fully offline — <code>decklight tts</code> sets itself up on first run</li>
@@ -513,7 +513,7 @@ decklight theme add sunset.css deck.html  # validates, then marks it for the dec
         <li>When the voice <em>can't</em> play, the deck <strong>stops advancing</strong> and says why — rather than walking the talk past slides nobody heard</li>
       </ul>
       <aside class="notes">
-        <p>This deck has been able to talk since slide one. V starts it, N picks the voice, C puts captions underneath, P pauses mid-sentence and resumes exactly there.</p><p>[click]</p><p>And it uses the voice already on your machine. Every desktop has shipped a speech synthesizer for twenty years and the current ones are genuinely good — macOS Premium and Personal voices, Windows natural voices. With nothing configured, no key and no account, it just talks.</p><p>[click]</p><p>Prefer a cloud voice, your own cloned one, or piper running entirely offline? All there, and the first time the bridge can't start it asks you a few plain questions instead of throwing an error.</p><p>[click]</p><p>The voice is the clock. Those click markers in the notes split the audio into beats, and when a beat ends the next build lands. A deck that can rehearse with you at two in the morning.</p><p>[click]</p><p>And the failure mode got the most thought. When the voice cannot play — a quota error, a dead bridge, a browser that blocked autoplay — the deck stops advancing and tells you why, naming the cause and the fix. Auto-advancing through slides nobody has heard is worse than stopping.</p>
+        <p>This deck has been able to talk since slide one. P starts it, V picks the voice, C puts captions underneath, and P again pauses mid-sentence and resumes exactly there.</p><p>[click]</p><p>And it uses the voice already on your machine. Every desktop has shipped a speech synthesizer for twenty years and the current ones are genuinely good — macOS Premium and Personal voices, Windows natural voices. With nothing configured, no key and no account, it just talks.</p><p>[click]</p><p>Prefer a cloud voice, your own cloned one, or piper running entirely offline? All there, and the first time the bridge can't start it asks you a few plain questions instead of throwing an error.</p><p>[click]</p><p>The voice is the clock. Those click markers in the notes split the audio into beats, and when a beat ends the next build lands. A deck that can rehearse with you at two in the morning.</p><p>[click]</p><p>And the failure mode got the most thought. When the voice cannot play — a quota error, a dead bridge, a browser that blocked autoplay — the deck stops advancing and tells you why, naming the cause and the fix. Auto-advancing through slides nobody has heard is worse than stopping.</p>
       </aside>
       <aside class="rehearse">
         <p>V · N · C · P</p>
@@ -550,20 +550,20 @@ decklight theme add sunset.css deck.html  # validates, then marks it for the dec
     <!-- ══ 24 · character ══ -->
     <section>
       <h2>A Narrator With a Face</h2>
-      <p><strong>N</strong> → Character… — lips synced to the narration, fully offline</p>
+      <p><strong>V</strong> → Character… — lips synced to the narration, fully offline</p>
       <ul data-build>
         <li><strong>2D</strong> — a layered SVG bust with one mouth group per Rhubarb viseme; a 30 Hz loop maps the audio clock onto the timeline, so pause and speed sync for free</li>
-        <li><strong>Neural video</strong> — a muted talking head generated by Wav2Lip or SadTalker <em>on your own GPU</em>, drift-corrected against the audio</li>
+        <li><strong>Neural video</strong> — your photo, or a few seconds of you filmed right here, lip-synced by Wav2Lip <em>on your own machine</em>, the lips kept on what you hear</li>
         <li><strong>Solo</strong> puts the narrator on the whole stage — a talking-head slide without authoring one</li>
         <li>Bring your own art: any SVG honoring the <code>[data-mouth]</code> contract</li>
       </ul>
       <aside class="notes">
-        <p>And if a voice isn't enough, there's a face. N, then Character.</p><p>[click]</p><p>The 2D mode is a layered SVG bust with one mouth group per Rhubarb viseme shape. A thirty-hertz loop maps the narration audio's current time onto a viseme timeline — which means pausing and changing voice speed stay in sync for free, because the mouth is reading the same clock the audio is.</p><p>[click]</p><p>Video mode is a real talking head from Wav2Lip or SadTalker, running on your own GPU. Nothing leaves the machine, and the video is muted — the audio always comes from the narration element, which also makes it immune to autoplay policy.</p><p>[click]</p><p>Solo mode steps the slide content aside and centers the narrator. A talking-head slide, without authoring one.</p><p>[click]</p><p>And the art is yours if you want it — any SVG that honors the data-mouth contract works.</p>
+        <p>And if a voice isn't enough, there's a face. V, then Character.</p><p>[click]</p><p>The 2D mode is a layered SVG bust with one mouth group per Rhubarb viseme shape. A thirty-hertz loop maps the narration audio's current time onto a viseme timeline — which means pausing and changing voice speed stay in sync for free, because the mouth is reading the same clock the audio is.</p><p>[click]</p><p>Video mode is a real talking head from Wav2Lip, running on your own machine. Start from a photo, or press Film yourself and give it eight seconds of you, mouth relaxed, head still — that loop becomes the face. Nothing leaves the machine, and the video is muted: the audio always comes from the narration, and the lips follow what you hear, not just what the player is decoding.</p><p>[click]</p><p>Solo mode steps the slide content aside and centers the narrator. A talking-head slide, without authoring one.</p><p>[click]</p><p>And the art is yours if you want it — any SVG that honors the data-mouth contract works.</p>
       </aside>
       <aside class="rehearse">
-        <p>N → Character…, offline</p>
+        <p>V → Character…, offline</p>
         <p>[click]</p><p>2D visemes on the audio clock</p>
-        <p>[click]</p><p>Neural video, your GPU, muted</p>
+        <p>[click]</p><p>Neural video: photo or film yourself, local</p>
         <p>[click]</p><p>Solo = talking-head slide</p>
         <p>[click]</p><p>BYO art via [data-mouth]</p>
       </aside>

@@ -179,6 +179,13 @@ every word, \`[click]\` and \`[pause]\`. When you edit the notes yourself,
 follow the same rules: add tags and emphasis, never reword the author's script
 unless asked.
 
+**Notes are said, not read.** Write them as sentences a person would say out
+loud — "And if you fluff a line, just press Backspace to take it again", not
+"Fluffed a line? Backspace retakes it." — and say symbols as words ("Command",
+not "⌘"). To rewrite terse notes that way when asked, \`decklight enhance
+deck.html --spoken --slides 3\` does it with the same checks on the beats and
+the pauses.
+
 **Commit your own changes when an authoring server is running.** \`decklight
 author\` does not commit edits for anyone: it snapshots the deck silently on
 \`decklight/wip\` and commits when told to — the person presses K; only an

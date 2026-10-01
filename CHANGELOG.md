@@ -7,11 +7,11 @@ carrying the same notes in prose.
 
 ## 0.9.0
 
-Eighty-nine commits since 0.8.1, and the release has a shape: a deck is now
-something you **edit with the mouse**, **take slides into**, **import real
-PowerPoint drawings into**, **export as video**, and **narrate in a voice you
-can pace**. The runtime it plays with is a link, not a copy — and so is a
-theme from a marketplace.
+A hundred and thirty-four commits since 0.8.1, and the release has a shape: a
+deck is now something you **edit with the mouse**, **take slides into**,
+**import real PowerPoint drawings into**, **export as video**, and **narrate in
+a voice you can pace and direct — with a face, yours if you like**. The runtime
+it plays with is a link, not a copy — and so is a theme from a marketplace.
 
 ### Edit the deck in front of you (SPEC `DECK_ANATOMY`)
 
@@ -32,7 +32,24 @@ the way the comments panel does (#482).
 looks at the directory, and `init` hands off to `author` (#487). The CLI is
 table-driven, the README is shorter, and 120 unit tests and seven fixed bugs
 came with that pass (#485, #486). Hand `author` a git URL and it clones the
-repository and opens the deck inside the clone (#514).
+repository and opens the deck inside the clone (#514) — and the URL is a
+command by itself, the way a `.html` file is: `decklight <repository url>`
+(#583), finding a deck that is data (#584), and `present` and `review` open
+the same one clone rather than making a second (#585).
+
+Undo is `⌘Z` on a Mac and `Ctrl+Z` elsewhere, beside `Z`, and `⇧` redoes
+(#579). The commit window shows it is thinking while it drafts a subject
+(#580), and "write one for me" asks only when pressed and names the agent the
+changes go to (#593). The docked agent card stays open after `⌘⏎` and lists
+this session's asks — the slide each came from, and what the agent said
+(#597). `/` → **Settings…** says which build the deck is running, the stamp
+`decklight --version` prints (#591). The history and template previews show
+the deck again rather than a black box (#576), and each version in the theme
+on screen (#589).
+
+**`S` opens this slide's notes in the notes editor** — read-only under
+`present` and `review` — and the speaker view moved to **`⌥⏎` / `Alt+Enter`**,
+PowerPoint's presenter-view chord (#601, #602).
 
 ### A deck is data, and the runtime is a link (SPEC `DECK_ANATOMY`)
 
@@ -89,17 +106,18 @@ refused unless `--allow-stale`, and the export card marks it (#540).
 
 ### Narration: a voice you can pace (SPEC `PRESENTING`)
 
-Speaker notes carry **timing markers** that are never spoken. `⟨PAUSE⟩` holds a
+Speaker notes carry **timing markers** that are never spoken, written the way
+a script writes them — in square brackets (#594). `[pause]` holds a
 let-it-sink-in beat where it stands — two beat pauses, the same live, in a
-recording and in a render (#561). `⟨SLOW⟩ … ⟨/SLOW⟩` says a stretch slowly, at
-0.85× by default (`narration.slowRate`), each engine slowing the way it slows
-best and ffmpeg stretching the clip for engines with no pace of their own
-(#564). **Every spelling a person writes is the marker they mean**: `[pause]`,
-`[Pause]`, `<PAUSE>`, `[click]`, `<click>`, `[slow]…[/slow]` — as text, escaped,
-or as elements in the HTML — so a script written for a human to read aloud goes
-into the notes as written (#563). Notes read from the file decode entities the
-way the browser does, which is what makes `&#10216;CLICK&#10217;` a beat and
-`&mdash;` a dash rather than words (#562).
+recording and in a render (#561) — and `[click]` cuts a beat. **Every spelling
+a person writes is the marker they mean**: `[Pause]`, `<PAUSE>`, `<click>`,
+the older `⟨PAUSE⟩` — as text, escaped, or as elements in the HTML — so a
+script written for a human to read aloud goes into the notes as written
+(#563). Notes read from the file decode entities the way the browser does,
+which is what makes `&#10216;CLICK&#10217;` a beat and `&mdash;` a dash rather
+than words (#562). A `[slow]…[/slow]` marker came and went within the cycle
+(#564): with ElevenLabs v4 the default, `[slow]` is an audio tag like any
+other, and decklight no longer paces the voice itself (#595).
 
 **One synthesis core** now produces every machine-voiced track, so a video
 re-voices a track's stale slides in its own voice instead of refusing (#556),
@@ -121,6 +139,50 @@ once, drops the plain twin of an Enhanced one, and still answers to a bare name
 (#554). `voiceover` stopped running a local model on the notes — the notes are
 the script (#495) — and refuses an option it does not take by name (#500).
 
+### ElevenLabs v4, and notes that direct the voice (SPEC `PRESENTING`)
+
+ElevenLabs speaks with **v4 by default** and acts on the notes' own audio tags
+— `[whispers]`, `[laughs]` — which every other voice leaves out (#594). With
+ElevenLabs a `[pause]` is held by the voice itself, and the agent skill teaches
+how v4 is prompted (#596).
+
+Your agent can now rewrite the notes, and decklight checks every answer
+before a byte is written. **✨ Add audio tags** uses the prompt ElevenLabs
+publishes and keeps every word (#599, `decklight enhance`). **🗣 Write it for
+the ear** turns terse notes into sentences a person would say — "Fluffed a
+line? Backspace retakes it." becomes "And if you fluff a line, just press
+Backspace to take it again." — and keeps every `[click]` and `[pause]` (#613,
+`enhance --spoken`). Each runs for this slide, its module or the whole deck;
+in the notes editor, this slide lands in the box to read before it is saved
+(#600), and **↺ reset** and **⇄ before / after** show what saving would change,
+word by word (#615). Saving notes keeps their paragraphs (#598).
+
+### The live voice: per tab, and in the deck's language (SPEC `PRESENTING`)
+
+**Each tab names its engine** on every request, so one bridge speaks ElevenLabs
+for one deck and the system voice for another, and no tab switches another's
+voice (#606). The engine is a bar at the top of the voices card, the engine
+list puts what is ready first (#605), and "asking the bridge" turns while it
+waits (#604). A program squatting the voice port moves the bridge rather than
+silencing it (#603). **ElevenLabs voices are listed by language**: the picker
+opens on the deck's own language, shows what each voice speaks, and finds
+native voices for a translated deck in the ElevenLabs voice library — sampled
+free, added to your account only on a second `⏎` (#614). And the voice ends
+with the talk: `P` with nothing left to say says so, and a talk that runs out
+turns the voice off rather than staying "on" in silence (#611).
+
+### A face for the voice (SPEC `PRESENTING`)
+
+**Neural video you set up once and see**: `decklight lipsync … --save`
+remembers a Wav2Lip setup that `author` then starts on its own, the face is
+sharp in the round overlay, and the medallion is never black (#607). The lips
+follow what is **heard** — the audio output delay taken off, drift nudged by
+rate within 15 ms (#608). A portrait can be **a short video of you**, looped
+there and back under the new mouth (#609) — and **V → Character → Film
+yourself** records it from the camera in the deck (#610). A track you recorded
+in your own voice gets its talking head from the bridge too, with no clips to
+pre-render (#612).
+
 ### A marketplace theme is a reference, not a copy (SPEC `THEME_DISTRIBUTION`)
 
 `theme add` and Browse used to paste a whole theme into the deck. Now a deck
@@ -140,6 +202,21 @@ a URL goes into a personal marketplace, `~/.decklight/local`, and is marked
 from there; `theme remove` unmarks (#572). A data deck still carrying a theme
 0.8 pasted in is served and bundled with its own base theme again, instead of
 with the pasted one as its only theme (#573).
+
+**A shipped theme can be marked too**, so a bundle carries it beside the one it
+opens on (#587). **Space** marks a theme without closing the picker (#582),
+an unmarked one can be marked again (#586), one applied without marking is
+listed once (#577), and marking says what it means — part of the bundle
+(#592). `bundle` says in two lines what went into the file (#588), and
+**Bundle into one file…** is a palette row: every marked theme in it, opening
+on the theme on screen, asking first when that one is not marked (#590).
+
+### Marketplace entries carry a version (SPEC `UNIT_VERSIONS`)
+
+An entry of any kind may carry a semver `version`. Every `add` records what it
+took, `marketplace list` shows `1.0.0 → 1.1.0` against what you installed, and
+`marketplace update` names what is newer and the command that takes it —
+never touching a deck (#617).
 
 ### Themes travel with the export (SPEC `THEMING`)
 
@@ -196,11 +273,15 @@ fallback is gone — a warning there is now a failure (#469).
 ### Documentation
 
 The README, the features deck and the site were brought back in line with what
-ships three times over the release (#463, #473, #570); the last pass covers
-editing with the mouse, slides taken from another deck, a data deck, the notes
-markers, video and sources. The features deck gained a chapter on pacing the
-voice — `⟨PAUSE⟩`, `⟨SLOW⟩` and every spelling of them, in notes you can hear
-(#569).
+ships four times over the release (#463, #473, #570, and once more before the
+tag); the passes cover editing with the mouse, slides taken from another deck,
+a data deck, the notes markers, video and sources, then ElevenLabs v4, notes
+written for the ear, the talking head and the narration keys (`P` speaks, `V`
+is the panel). The features deck gained a chapter on pacing the voice —
+`[pause]`, `[click]` and every spelling of them, in notes you can hear (#569).
+Author mode commits when you press `K`, and the README, `init`, the agent
+skill, `author`'s own git question and `doctor` stopped promising every edit
+auto-committed (#578, #581).
 
 ## 0.8.1
 

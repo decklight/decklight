@@ -119,8 +119,16 @@ itself — `<script src="decklight/dist/decklight.js">` and a
   it. The notes are the script, and a script's own markers work as written:
   `[pause]` holds a beat, `[long pause]` two, `[click]` cuts a beat — in any
   spelling. ElevenLabs v4 (the default model) acts on audio tags
-  like `[whispers]` or `[laughs]`; any other voice leaves them out. A synthesized recording tells you what it cost:
-  clips reused against clips sent to the engine.
+  like `[whispers]` or `[laughs]`; any other voice leaves them out. Your agent
+  can add those tags, or write terse notes for the ear — as sentences a person
+  would say — and the notes editor shows before and after until you save.
+  ElevenLabs voices are listed by language, and the voice library finds a
+  native one for a translated deck. A synthesized recording tells you what it
+  cost: clips reused against clips sent to the engine.
+- **A face for the voice.** `V` → Character: a 2D narrator whose lips follow
+  the voice, or a talking head made from your photo — or from a few seconds of
+  you filmed in the deck — lip-synced with Wav2Lip on your own machine, set up
+  once with `decklight lipsync … --save`.
 - **Video.** `decklight video` renders the deck to mp4, mov or webm, narrated
   by its track with subtitles in the file or beside it, and re-voices a slide
   whose notes moved. The same export is a palette row, which can voice the
@@ -166,6 +174,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `video deck.html` | a narrated video — mp4, mov or webm, with subtitles in it or beside it (`--format`, `--quality`, `--subtitles`; `--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette, which can voice it with the live voice first) |
 | `voiceover deck.html` | batch-synthesize the narration into a folder |
 | `enhance deck.html --slides 3` | add ElevenLabs v4 audio tags to the notes with the prompt ElevenLabs publishes — your agent drafts, decklight checks no word changed (`--all`, `--dry-run`) |
+| `enhance deck.html --spoken --slides 3` | write terse notes for the ear, as sentences a person would say — your agent rewrites, decklight checks every `[click]` and `[pause]` survived |
 
 | Keeping track | |
 |---|---|
@@ -180,6 +189,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `import talk.pptx` | convert PowerPoint, Keynote or Google Slides (`--theme template` keeps its palette, `--shapes strict` draws only snapped diagrams) |
 | `theme check\|add` | validate a theme against the token contract, or install one |
 | `marketplace add owner/repo` | register a catalog; it is cloned with your git credentials, then read from disk |
+| `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
 | `plugin add <name>` | presenter chrome for your machine only. `present` loads it, `bundle` never does |
 | `template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
 | `extension check t.mjs` | the marketplace admission gate for a transform |

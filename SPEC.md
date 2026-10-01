@@ -1605,7 +1605,9 @@ decklight/
                  history dialog share), escape.js, htmlfmt.js (dedenting an element's source for the
                  content editor, without changing what it renders), colorpicker.js (the Colors… card: RGB/HSB maths, the
                  named theme palette, which shape and label a right-click means), motion.js (the duration, FLIP and transition-class decisions
-                 behind SLIDE_TRANSITIONS and AUTO_ANIMATE) — plus autoanimate, builds, print, svg, charts, media,
+                 behind SLIDE_TRANSITIONS and AUTO_ANIMATE), thinking.js (the ASCII | / - \\ every wait shows),
+                 worddiff.js (the notes editor's before / after, word by word), film.js (Film yourself: the camera,
+                 a take, and the upload to the lip-sync bridge) — plus autoanimate, builds, print, svg, charts, media,
                  speaker, annotate, character, character-art, devmode, themegen, voicetrack
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
   src/code/      highlight bundling + line stepping provider
@@ -1623,20 +1625,22 @@ decklight/
                  one way), init.mjs, cast.mjs, bundle.mjs, upgrade.mjs, restore.mjs,
                  theme.mjs (validate + install a theme, THEMING), import.mjs (PowerPoint/Keynote/Google Slides →
                  deck, JS_API), pdf.mjs (the print variants, PRESENTING) + pptx-export.mjs (deck → PowerPoint,
-                 NON_GOALS), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY), units.mjs
+                 NON_GOALS), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY; entry versions and
+                 the install ledger, UNIT_VERSIONS), enhance.mjs (the notes rewritten by your agent: audio tags, or
+                 written for the ear — checked before a byte is written), units.mjs
                  (templates/skills/importers/voices/engines/agents), plugin.mjs (presenter chrome, PRESENT#PLUGINS),
                  loader.mjs + extension.mjs (build-time transforms and their admission gate), wizard.mjs (the
                  credential wizard, ENGINES#WIZARD), sign.mjs + deckfile.mjs + associate.mjs (signing, the
                  .decklight container, the double-click), audit.mjs (the ingredients label), serve.mjs (the server
                  core), present.mjs, edit.mjs (the author server: a route table, with the slide-mutation routes in
                  edit-slides.mjs), dev.mjs, remote.mjs, agents.mjs (AI-agent roster), git.mjs (the
-                 autocommit decision table), update-check.mjs (the "a newer decklight exists" notice), qr.mjs,
+                 commit-mode decision table: on your word, or the timer), update-check.mjs (the "a newer decklight exists" notice), qr.mjs,
                  port-conflict.mjs, supervise.mjs, skill-content.mjs (the agent skill's shipped text), start.mjs (a bare
                  `decklight`: start a deck here, or open the one that is), doctor.mjs (what this machine can do),
                  check.mjs (one deck linted headlessly — the file half and one --dump-dom of ?print, in one
                  exit code, PRESENTING), open-browser.mjs (hand a URL to the platform launcher)
   tools/         theme-check.mjs (the THEMING token contract + WCAG gates, as a function) + color.mjs (contrast math), local-voice.mjs (what this OS can say: macOS say / Windows SAPI, PRESENTING), zip.mjs (read an Office archive) + ooxml.mjs (a small XML reader) + pptx.mjs (PowerPoint → sections, JS_API) + template-theme.mjs (a .pptx theme part → a gated theme, DECK_IMPORT) + pptx-write.mjs (the other direction: slides as pictures, notes as notes) + template-slides.mjs (a deck template as a list of slides you can take, UNITS#REST) + lorem.mjs (a taken slide's prose replaced, its markup and its code left alone) + css-slice.mjs (the rules a taken slide is shaped by, cut out of the stylesheet it came from), voiceover.mjs (batch TTS) + voiceover-server.mjs (tts bridge), publish-voices.mjs (track → bucket + signed manifest, PRESENTING), publish-targets.mjs (Netlify/Vercel deploy adapters, PRESENTING), exec.mjs (one bounded subprocess: every hang names itself), atomic-write.mjs (a temp sibling and a rename, so a
-                 crash never truncates a deck), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
+                 crash never truncates a deck), tts-cache.mjs (a sentence is synthesized once — the on-disk cache every engine shares), tts-engines.mjs (gemini/chirp/piper/elevenlabs/say/sapi) + gemini-tts.mjs, elevenlabs-tts.mjs, lipsync.mjs (batch visemes/video) + lipsync-server.mjs (lipsync bridge) + lipsync-engines.mjs (rhubarb, Wav2Lip, SadTalker, and preparing a photo or a film) + lipsync-config.mjs (the talking-head setup, saved once), visemes.mjs (timeline v1), video.mjs (deck → narrated mp4, PRESENTING)
   themes/        46 × <name>.css (the graded + reveal-compat sets; the homage packs moved to the
                  marketplace, THEME_DISTRIBUTION) + packs.json + gallery.html
   dist/          decklight.js (IIFE, global Decklight), decklight.css
