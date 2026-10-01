@@ -412,7 +412,9 @@ export function staticFindings(html, { dir = '.', exists = existsSync } = {}) {
       const tied = clicks !== steps ? ` (${steps} build steps, tied by data-build-order)` : '';
       out.push(finding('warn', 'clicks-vs-builds', slide, head,
         `${segments} [click] segment${segments === 1 ? '' : 's'} but ${clicks} build click${clicks === 1 ? '' : 's'}${tied}`
-        + ' — segment k narrates click k, so the narration and the builds drift apart here'));
+        + ` — ${clicks} click${clicks === 1 ? '' : 's'} take${clicks === 1 ? 's' : ''} ${clicks} [click] marker${clicks === 1 ? '' : 's'}`
+        + ` in the notes (${clicks + 1} segments: one before the first click, one per click), and this slide has`
+        + ` ${segments - 1}, so the narration and the builds drift apart here`));
     }
   }
 

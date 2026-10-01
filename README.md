@@ -74,7 +74,7 @@ configuration block — and `author`/`present` add the runtime as they serve it;
         <li>First point</li>
         <li>Second point, revealed on the next advance</li>
       </ul>
-      <aside class="notes">Speaker notes. [click] markers line up with builds.</aside>
+      <aside class="notes">Said before the first point. [click] Said as the first appears. [click] And as the second.</aside>
     </section>
   </div>
 </body>

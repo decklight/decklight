@@ -99,6 +99,8 @@ test('⟨CLICK⟩ segments and build steps: agreement is silent, disagreement na
   assert.equal(found.length, 1);
   assert.equal(found[0].level, 'warn', 'a count that disagrees is worth saying, not worth failing on');
   assert.match(found[0].message, /3 \[click\] segments but 4 build clicks/);
+  assert.match(found[0].message, /4 clicks take 4 \[click\] markers in the notes \(5 segments: one before the first click, one per click\), and this slide has 2/,
+    'it says what the count should be, and why');
 
   // notes without a single ⟨CLICK⟩ make no claim about the builds at all
   const quiet = deck(`  <section>
@@ -365,4 +367,22 @@ test('a staged stroke with data-build-order ties its stops to the elements shari
   assert.equal(buildSteps(parseTree(svg)), 6, 'three stops and three boxes…');
   assert.equal(buildClicks(parseTree(svg)), 3, '…in three clicks');
   assert.equal(buildClicks(parseTree(svg.replace(' data-build-order="1"/>', '/>'))), 6, 'without the order the stops keep their own places');
+});
+
+test('the deck init scaffolds passes its own lint — one [click] beat per build, plus the one before', async () => {
+  const { mkdtempSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const { rmTemp } = await import('./helpers.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'dl-scaffold-'));
+  try {
+    const { fileURLToPath } = await import('node:url');
+    const cli = fileURLToPath(new URL('../cli/decklight.mjs', import.meta.url));
+    const r = spawnSync(process.execPath, [cli, 'init', '--dir', join(dir, 'talk'), 'My Talk', '--no-git'], { encoding: 'utf8', input: '' });
+    assert.equal(r.status, 0, r.stderr);
+    const html = readFileSync(join(dir, 'talk', 'deck.html'), 'utf8');
+    assert.deepEqual(only(staticFindings(html, { dir: join(dir, 'talk'), exists: () => true }), 'clicks-vs-builds'), [],
+      'a new deck that warns in its own check teaches the wrong count — and the last build played in silence');
+  } finally { rmTemp(dir); }
 });

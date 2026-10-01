@@ -435,11 +435,13 @@ function starterSlides(title) {
         <li>Speaker notes segment with [click] to match — see below</li>
       </ul>
       <aside class="notes">
+        <p>This slide shows its points one at a time.</p>
+        <p>[click]</p>
         <p>The container opts in and the engine does the rest — not a single class on the items themselves.</p>
         <p>[click]</p>
         <p>Every press of the arrow reveals the next one, in order.</p>
         <p>[click]</p>
-        <p>And that's it — replace this slide's content, duplicate the section for more, and you have a deck.</p>
+        <p>And the notes are cut the same way, one beat before the first point and one per point, so the voice says each as it appears. Replace this slide's content, duplicate the section for more, and you have a deck.</p>
       </aside>
     </section>
 `;
