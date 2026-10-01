@@ -186,6 +186,22 @@
         }
         if (u.includes('/edit/agent')) return json({ ok: true, agent: 'claude', label: 'Claude Code' });
       }
+      // Design systems… (SPEC DESIGN_SYSTEMS): the author server lists what the
+      // registered marketplaces offer and what the deck uses; marking toggles it
+      if (HARNESS_MODE === 'designsystems') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/design-system/browse')) {
+          return json({ ok: true, cacheOnly: true, stale: ['decklight'], systems: [
+            { name: 'acme', marketplace: 'acme-mkt', qualified: 'acme@acme-mkt', group: 'Acme', version: '1.2.0', description: 'Acme Brand', used: false },
+            { name: 'globex', marketplace: 'acme-mkt', qualified: 'globex@acme-mkt', group: 'Acme', version: '2.0.0', description: 'Globex', used: true },
+            { name: 'future', marketplace: 'acme-mkt', qualified: 'future@acme-mkt', group: 'Acme', missing: 'future@acme-mkt needs a newer decklight', used: false },
+          ] });
+        }
+        if (u.includes('/edit/design-system/mark')) {
+          const body = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, ref: body.ref, used: body.used, changed: true, undo: 1, redo: 0 });
+        }
+      }
       // Enhance the voiceover script (cli/enhance.mjs): the route answers how many
       // slides it will ask about; the rest arrives as 'enhance' events.
       if (HARNESS_MODE === 'enhance') {
@@ -2174,6 +2190,37 @@
           && /Reading deck\.html/.test(r.running) && r.sendLocked
           && rows.length === 2 && /slide 2/.test(r.last) && /no changes/.test(r.last) && /Nothing to change\./.test(r.last)
           && r.noMarkup && r.sendFree;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'designsystems') {
+        // ⌘K → "Design systems…": every design system on offer, grouped by
+        // marketplace, ● used / ○ not; Space toggles through the author server
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        await settle();
+        press('/');
+        for (const ch of 'design') press(ch);
+        await settle();
+        const rowFound = [...document.querySelectorAll(`${Q} ${ROW}`)].find((n) => /Design systems…/.test(n.textContent));
+        r.paletteRow = !!rowFound;
+        const rows = [...document.querySelectorAll(`${Q} ${ROW}`)];
+        for (let i = 0; rowFound && i < rows.indexOf(rowFound); i++) press('ArrowDown');
+        press('Enter');
+        await settle(); await settle();
+        const list = document.querySelector('.decklight-design-systems');
+        const labels = [...(list?.querySelectorAll('.ds-row .narr-row-label') ?? [])].map((n) => n.textContent);
+        r.listed = labels.length === 3 && /^○ acme@acme-mkt/.test(labels[0]) && /^● globex@acme-mkt/.test(labels[1]);
+        r.grouped = /Acme/.test(list?.querySelector('.narr-group')?.textContent ?? '');
+        r.unusableSaidWhy = /needs a newer decklight/.test(list?.querySelectorAll('.ds-row')[2]?.textContent ?? '');
+        r.staleNamed = /decklight could not be read — decklight marketplace update decklight/.test(list?.textContent ?? '');
+        press(' ');                                     // Space on the first row
+        await settle(); await settle();
+        const sent = CALLS.post.filter((c) => c.u.includes('/edit/design-system/mark')).pop()?.body;
+        r.toggled = sent?.ref === 'acme@acme-mkt' && sent?.used === true;
+        r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — Z takes it back/.test(n.textContent));
+        r.closed = !document.querySelector('.decklight-design-systems');
+        r.PASS = r.paletteRow && r.listed && r.grouped && r.unusableSaidWhy && r.staleNamed && r.toggled && r.said && r.closed;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

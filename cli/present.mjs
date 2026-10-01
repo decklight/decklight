@@ -44,6 +44,7 @@ const CORS = corsHeaders();
 import { auditDeck, formatLabel, stripUnaccounted } from './audit.mjs';
 import { linkRuntime } from './runtime-link.mjs';
 import { linkAddedThemes } from './theme-refs.mjs';
+import { linkDesignSystems } from './design-system-refs.mjs';
 import { loadLibrary, injectChrome } from './plugin.mjs';
 import { verifyFile, verifyBytes, formatSignature, isVerified, UNSIGNED, TAMPERED, VERIFIED } from './sign.mjs';
 import {
@@ -460,7 +461,7 @@ export async function presentMain(args, { client } = {}) {
   // does: a deck that is only data (#520) gets the runtime referenced on its
   // way out, and the audit above described the bytes WITHOUT it — which is
   // the point. `staticFiles` does this for every other page itself.
-  const serveText = (text) => linkAddedThemes(linkRuntime(rewrite(text, deckPath)));
+  const serveText = (text) => linkDesignSystems(linkAddedThemes(linkRuntime(rewrite(text, deckPath))));
   // No `index` here: "/" is the deck, and the deck is answered from memory
   // before this handler is consulted — a fallthrough should 404, not reopen
   // the disk read this route exists to avoid.

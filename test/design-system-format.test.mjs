@@ -262,5 +262,5 @@ test('a catalog takes design-system entries: apiVersion required, a relative dir
   }
   const missing = validateManifest(catalog({ apiVersion: 1 }));
   assert.equal(missing.errors.length, 1, 'a missing source is said once');
-  assert.equal(INSTALL_HINT['design-system'], null, 'no install command until a deck can reference one');
+  assert.equal(INSTALL_HINT['design-system'], 'decklight design-system add <name@marketplace> <deck>');
 });

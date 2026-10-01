@@ -71,10 +71,8 @@ export const INSTALL_HINT = {
   transform: 'decklight transform add <name>',  // EXTENSIONS#LOADER — installs; bundle --transform <name> runs it
   voice: 'decklight voice add <name>',
   'publish-target': null,
-  // DESIGN_SYSTEMS: real, admitted by `decklight design-system check` — but a
-  // deck references one from #622 on, and decklight never prints a command
-  // that does not exist yet.
-  'design-system': null,
+  // DESIGN_SYSTEMS: a deck REFERENCES one — nothing is installed into the library
+  'design-system': 'decklight design-system add <name@marketplace> <deck>',
 };
 
 export const KNOWN_TYPES = Object.keys(INSTALL_HINT);

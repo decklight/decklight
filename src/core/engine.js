@@ -34,6 +34,7 @@ import { createDebugLog } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
+import { createDesignSystemsPicker } from './design-systems.js';
 import { readPref, writePref } from './prefs.js';
 
 /**
@@ -548,6 +549,15 @@ export function init(userConfig = {}) {
     themes: () => themes,
   });
 
+  // Design systems… (SPEC DESIGN_SYSTEMS): the registered marketplaces'
+  // design systems, toggled for this deck through the author server
+  const designSystems = createDesignSystemsPicker({
+    root, toast,
+    base: () => (editmode?.available() ? editmode.base() : null),
+    debugLog: (...a) => debugLog(...a),
+  });
+  overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
+
   // ----- slide finder: / opens find-a-slide with live preview ---------------
   // Same panel anatomy and lazy-preview mechanism as the theme picker: the
   // embedded deck boots once, then selections postMessage a goto into it.
@@ -917,6 +927,9 @@ export function init(userConfig = {}) {
       // ⏎ do" lived in a keystroke you may not have pressed. The two things are
       // different enough to be asked for by name: one adds a slide, the other
       // rewrites one you wrote.
+      editmode.available() && { label: 'Design systems… (dev)',
+        alias: 'design system brand kit company tokens layouts slots marketplace corporate identity style guide',
+        run: () => designSystems.open() },
       editmode.available() && { label: 'Insert template slide… (dev)',
         alias: 'template marketplace slides insert add reuse boilerplate pitch starter steal borrow',
         run: () => templates.open('insert') },

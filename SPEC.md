@@ -1620,7 +1620,24 @@ A layout template carries **structure only** — containers marked `data-slot="<
 - **the palette**: every `token` it names is defined in the CSS;
 - **assets**: svg/png/jpg/jpeg/webp/woff2/woff only (a top-level README/LICENSE/CHANGELOG/NOTICE and dotfiles are not assets); over **2 MB** is a ⚠ warning, not a refusal; a symlink resolving outside the package is refused.
 
-**In a catalog** a design-system entry carries a required positive-integer `apiVersion` (shape only, like a transform's) and a `source` that is a **directory in the marketplace's own repo** — a URL, an absolute path or one with `..` is refused with why (v1 has no https source: the theme cache holds single files, a package is many). `marketplace list` groups the kind like any other. Nothing is ever installed into `~/.decklight/` (`cli/units.mjs` `UNIT_TYPES` has no row): a deck references a package in place, from the checkout. Until a deck can reference one, the kind's install hint is empty — decklight never prints a command that does not exist.
+**A deck references a design system — never copies it.** The configuration block records which ones it uses, beside `markedThemes`:
+
+```json
+"designSystems": ["acme@acme-mkt"],
+"themeSources": { "acme-mkt": "acme/decklight-marketplace" }
+```
+
+`themeSources` is **shared**, keyed by marketplace: a design system from a marketplace the deck already marks a theme from records nothing new, and a source goes only with the last mark of **either** kind (`setMarked` and `setDesignSystem` both count both). Entries are parsed with the same `name@marketplace` shape; anything else is dropped, not guessed at; two design systems of the same name from different catalogs are refused, since a slide names one by its name. `decklight design-system add <name@marketplace> <deck.html>` runs the package through `check` first — a package that fails leaves the deck byte-for-byte unchanged and prints why — then writes the reference and its source as one edit, and records `design-system:<name>@<marketplace>` with its version and the marketplace commit in `installed.json` (`UNIT_VERSIONS`); `remove` drops the reference (and the source with the last mark); the package stays in its marketplace. `list [<deck>]` says what a deck uses (version taken against the catalog's) or, with no deck, what every registered marketplace offers, cache-only, naming the ones it could not read; `layouts <ref>` lists a package's layouts and their slots — the names a slide writes.
+
+**Resolution** (`cli/design-system-refs.mjs` `resolveDesignSystemRef`) is the theme resolver's twin, on the catalog half they now share (`resolveCatalogEntry`, `cli/theme-refs.mjs`): the recorded source decides which registered catalog a reference means, a marketplace that only shares the name is refused by name, and nothing on the path fetches. A design system resolves to its package **directory** in the checkout; an entry whose `apiVersion` is above this decklight's resolves as missing — "needs a newer decklight" — while the catalog still registers (`UNIT_COMPAT`: shape, not currency); an entry naming a URL resolves as missing — a package is a directory, and the one fetching exception themes have (`theme-cache/`) holds single files.
+
+**Every server serves it.** `linkDesignSystems` runs wherever `linkAddedThemes` does — the author server, `present`, and `serveForRender` behind `shot`/`pdf`/`pptx`/`video` — and injects, after the theme links and before `</head>`, per reference: an **always-on** `<link rel="stylesheet" href="decklight-design-system/<marketplace>/<name>/design-system.css" data-design-system="<name>">` (no `media="not all"`: a design system is not an alternative to choose between, so `T` leaves it applied under any theme); `<script type="application/json" data-design-system-meta="<name>">{ name, version, title, palette, layouts: [{ id, title, slots }] }</script>` (every `<` escaped — the manifest is somebody else's file); and `<template data-design-system-layouts="<name>">…layouts.html…</template>`, inline, so expansion is synchronous and identical for a served deck and a bundled one. Nothing is injected when the page already carries the design system (a bundle's `<style data-design-system>`, or a link it already got). A reference this machine cannot resolve — or a package that **no longer passes `check`**, since `marketplace update` can change its bytes after `add` (re-checked wherever it is used, remembered by a stat signature) — becomes `<meta name="decklight-design-system-missing" content="<ref> — <why>">` and a log line, never a silently short page or an unchecked layout.
+
+**Its files** are answered under `decklight-design-system/<marketplace>/<name>/<path>`, a **terminal** namespace in `staticFiles`: answered from the package or not at all, so a file a deck folder happens to hold at that path never answers. Every path segment is `[\w-]+` (the extension apart, so no dotted segment, decoded or not); the extension is in the asset allowlist, or the file is the package's own stylesheet (`layouts.html`, the manifest, any other `.css` are never served); the package must resolve and still pass its check; and the file's **real path** must stay under the package's real directory, so a symlink cannot reach out. MIME is fixed per extension, never sniffed; every response carries `X-Content-Type-Options: nosniff`, and an SVG also `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` — a document served same-origin must not script. **Every refusal is the same plain 404** a missing path gets: a probe learns nothing.
+
+**While authoring**, `/` → **Design systems…** lists every design system the registered marketplaces offer, from the cache, grouped by catalog — ● this deck uses it, ○ it does not, an unusable one saying why, an unread marketplace named with `marketplace update` — and **Space** (or ⏎) toggles it through `POST /edit/design-system/mark { ref, used }` (`GET /edit/design-system/browse` lists): the twin of `/edit/theme/mark`, refusing by the same check as the command line (400 with `problems`, 404 unknown, 409 unresolvable or a name clash), one undo entry, and the reload that brings the deck back with it linked. `present` has neither route. Until bundling carries design systems, `bundle` of a deck that uses one says so (`note: … a bundle does not carry design systems yet`) and its output is otherwise unchanged.
+
+**In a catalog** a design-system entry carries a required positive-integer `apiVersion` (shape only, like a transform's) and a `source` that is a **directory in the marketplace's own repo** — a URL, an absolute path or one with `..` is refused with why (v1 has no https source: the theme cache holds single files, a package is many). `marketplace list` groups the kind like any other. Nothing is ever installed into `~/.decklight/` (`cli/units.mjs` `UNIT_TYPES` has no row): a deck references a package in place, from the checkout; the kind's hint is `decklight design-system add <name@marketplace> <deck>`.
 
 ## REPO_LAYOUT — Repository layout & tooling
 
@@ -1642,7 +1659,8 @@ decklight/
                  content editor, without changing what it renders), colorpicker.js (the Colors… card: RGB/HSB maths, the
                  named theme palette, which shape and label a right-click means), motion.js (the duration, FLIP and transition-class decisions
                  behind SLIDE_TRANSITIONS and AUTO_ANIMATE), thinking.js (the ASCII | / - \\ every wait shows),
-                 worddiff.js (the notes editor's before / after, word by word), film.js (Film yourself: the camera,
+                 worddiff.js (the notes editor's before / after, word by word), design-systems.js (the
+                 palette's Design systems… list), film.js (Film yourself: the camera,
                  a take, and the upload to the lip-sync bridge) — plus autoanimate, builds, print, svg, charts, media,
                  speaker, annotate, character, character-art, devmode, themegen, voicetrack
   src/math/      LaTeX math on data-math slides (Temml → MathML Core)
@@ -1664,7 +1682,8 @@ decklight/
                  NON_GOALS), publish.mjs, marketplace.mjs (register catalogs, MARKETPLACE_REGISTRY; entry versions and
                  the install ledger, UNIT_VERSIONS), enhance.mjs (the notes rewritten by your agent: audio tags, or
                  written for the ear — checked before a byte is written), design-system.mjs (the design-system
-                 admission gate, DESIGN_SYSTEMS), units.mjs
+                 admission gate, and add/remove/list/layouts, DESIGN_SYSTEMS) + design-system-refs.mjs (a deck's
+                 design systems: resolution, injection, and serving the package), units.mjs
                  (templates/skills/importers/voices/engines/agents), plugin.mjs (presenter chrome, PRESENT#PLUGINS),
                  loader.mjs + extension.mjs (build-time transforms and their admission gate), wizard.mjs (the
                  credential wizard, ENGINES#WIZARD), sign.mjs + deckfile.mjs + associate.mjs (signing, the

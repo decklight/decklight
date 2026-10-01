@@ -19,6 +19,7 @@ import { resolvePortConflict } from './port-conflict.mjs';
 import { packageAsset } from './pkg.mjs';
 import { linkRuntime } from './runtime-link.mjs';
 import { linkAddedThemes, themeRefAsset } from './theme-refs.mjs';
+import { linkDesignSystems, designSystemAsset, inDesignSystemNamespace } from './design-system-refs.mjs';
 
 // ── remote access: the security seam for the phone remote (#39) ────────────
 // --remote widens the LISTENER, never the editing surface: off-loopback,
@@ -231,12 +232,22 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     const rel = url.pathname === '/' ? index : decodeURIComponent(url.pathname);
     let file = resolve(root, '.' + rel);
     let type;
+    let extra = {};
     const dotted = rel.split('/').some((s) => s.startsWith('.'));
-    const escapes = !file.startsWith(root + sep) && file !== root;
-    if (escapes || !existsSync(file)) {
-      const asset = !dotted && (packageAsset(rel) ?? themeRefAsset(rel));
-      if (asset) { file = asset.file; type = asset.type; }
-      else if (escapes) { res.writeHead(403); res.end('forbidden'); return true; }
+    // A referenced design system's files (SPEC DESIGN_SYSTEMS) — somebody
+    // else's package, so this namespace is TERMINAL: it is answered from the
+    // package or not at all, and every refusal is the same plain 404.
+    if (inDesignSystemNamespace(rel)) {
+      const asset = !dotted && designSystemAsset(rel);
+      if (!asset) { res.writeHead(404); res.end('not found'); return true; }
+      file = asset.file; type = asset.type; extra = asset.headers;
+    } else {
+      const escapes = !file.startsWith(root + sep) && file !== root;
+      if (escapes || !existsSync(file)) {
+        const asset = !dotted && (packageAsset(rel) ?? themeRefAsset(rel));
+        if (asset) { file = asset.file; type = asset.type; }
+        else if (escapes) { res.writeHead(403); res.end('forbidden'); return true; }
+      }
     }
     const stat = existsSync(file) ? statSync(file) : null;
     if (!stat?.isFile()) { res.writeHead(404); res.end('not found'); return true; }
@@ -248,6 +259,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
       res.writeHead(403); res.end('forbidden'); return true;
     }
     const headers = {
+      ...extra,
       'content-type': type ?? 'application/octet-stream',
       'cache-control': 'no-cache',
       // Media elements are the reason both of these exist. A browser asks for
@@ -269,7 +281,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     // is a page; everything else streams below.
     if (type === MIME['.html']) {
       const text = readFileSync(file).toString('utf8');
-      const body = Buffer.from(linkAddedThemes(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text)), 'utf8');
+      const body = Buffer.from(linkDesignSystems(linkAddedThemes(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text))), 'utf8');
       const want = rangeOf(req.headers.range, body.length);
       if (want && !want.satisfiable) {
         res.writeHead(416, { 'content-range': `bytes */${body.length}` });

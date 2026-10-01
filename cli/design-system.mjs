@@ -5,6 +5,9 @@
 // decklight design-system — the design-system unit (SPEC DESIGN_SYSTEMS).
 //
 //   decklight design-system check <dir>
+//   decklight design-system add|remove <name@marketplace> <deck.html>
+//   decklight design-system list [<deck.html>]
+//   decklight design-system layouts <name@marketplace>
 //
 // `check` is the admission gate a catalog's own CI runs, in the mould of
 // `decklight extension check` and `decklight theme check`: a valid package
@@ -13,15 +16,34 @@
 // tools/design-system-format.mjs, which is pure — this file only reads a
 // directory into the shape it takes.
 //
-// Nothing here installs, references or serves a design system: a deck depends
-// on one by reference, from the marketplace checkout, like a marked theme.
+// A deck depends on a design system by REFERENCE (cli/design-system-refs.mjs):
+// `add` writes `designSystems` (and the shared `themeSources`) into its
+// configuration block, after the package passes `check`; every server serves
+// it from the marketplace checkout. Nothing is ever installed into
+// ~/.decklight/ — the ledger only remembers which version a deck took.
 
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { argReader, isMain } from '../tools/args.mjs';
 import { checkPackage, DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../tools/design-system-format.mjs';
 
-const USAGE = `usage: decklight design-system <check> …
+const USAGE = `usage: decklight design-system <add|remove|list|layouts|check> …
+
+  decklight design-system add <name@marketplace> <deck.html>
+    reference a design system from a deck — after the package passes check;
+    the deck gains one entry in its configuration block, never the package
+    EXAMPLE: decklight design-system add acme@acme-mkt talk.html
+
+  decklight design-system remove <name@marketplace> <deck.html>
+    drop the reference; the package stays in its marketplace
+
+  decklight design-system list [<deck.html>]
+    what a deck references (and the version it took against the catalog's);
+    with no deck, every design system the registered marketplaces offer —
+    from the cache alone, works on a plane
+
+  decklight design-system layouts <name@marketplace>
+    the package's layouts and their slots — the names a slide writes
 
   decklight design-system check <dir>
     the marketplace admission gate for a design-system package — its manifest,
@@ -39,8 +61,8 @@ const USAGE = `usage: decklight design-system <check> …
     layouts.html         inert <template data-layout="…"> blocks, with data-slot containers
     assets/…             ${ASSET_EXTENSIONS.join(' · ')}
 
-  A deck references a design system rather than copying it; that, and the
-  slide syntax that fills a layout's slots, arrive with the rest of the series.`;
+  A deck references a design system rather than copying it; every server
+  serves it from the marketplace on this machine, never the network.`;
 
 /** Files whose TEXT the rules read; everything else is checked by extension and size. */
 const TEXT = /\.(json|css|html|svg)$/i;
@@ -86,6 +108,10 @@ export function checkDir(dir) {
     r.problems.push({ file: rel, rule: 'file-outside', msg: 'a symlink that resolves outside the package — a design system reaches only its own files' });
   }
   r.ok = r.problems.length === 0;
+  // what a server needs from a passing package, read once here: the parsed
+  // manifest, and the layouts text it inlines into the page
+  try { r.manifest = JSON.parse(manifest); } catch { r.manifest = null; }
+  r.layoutsHtml = typeof r.manifest?.layouts === 'string' ? files.get(r.manifest.layouts)?.text ?? null : null;
   return r;
 }
 
@@ -137,6 +163,127 @@ async function checkMain(args) {
   return r.ok ? 0 : 1;
 }
 
+/** The deck path and its text, or a refusal printed as-is. */
+function readDeckArg(cmd, deck) {
+  if (!deck) { console.error(`decklight design-system ${cmd}: needs a deck\n\n${USAGE}`); return null; }
+  const path = resolve(deck);
+  if (!existsSync(path)) { console.error(`decklight design-system ${cmd}: no such deck: ${deck}`); return null; }
+  return { path, html: readFileSync(path, 'utf8') };
+}
+
+/** The catalogs this machine has fetched, for resolving a bare or qualified name. */
+async function catalogs() {
+  const { configHome, loadRegistry, loadCatalog } = await import('./marketplace.mjs');
+  const out = {};
+  for (const name of Object.keys(loadRegistry(configHome()).marketplaces ?? {})) {
+    const c = loadCatalog(name);
+    if (c?.ok) out[name] = c.manifest;
+  }
+  return out;
+}
+
+async function addMain(args, on) {
+  const cmd = on ? 'add' : 'remove';
+  const [ref, deck] = args.filter((a) => !a.startsWith('-'));
+  if (!ref) { console.error(`decklight design-system ${cmd}: needs a design system and a deck\n\n${USAGE}`); return 1; }
+  const d = readDeckArg(cmd, deck);
+  if (!d) return 1;
+  const { MarketplaceError, resolveEntry, recordInstall, loadRegistry, configHome } = await import('./marketplace.mjs');
+  const { resolveDesignSystemRef, setDesignSystem, designSystemRefs } = await import('./design-system-refs.mjs');
+  const { refForDeck, writeFileAtomic } = { ...(await import('./theme-refs.mjs')), ...(await import('../tools/atomic-write.mjs')) };
+  try {
+    if (!on) {
+      // the deck's own spelling of the reference wins, whatever this machine calls it
+      const hit = designSystemRefs(d.html).find((r) => r.ref === ref || r.name === ref);
+      if (!hit) {
+        const has = designSystemRefs(d.html).map((r) => r.ref);
+        console.error(`decklight design-system remove: ${ref} is not referenced by ${deck}${has.length ? ` — it uses ${has.join(', ')}` : ' — it uses no design system'}`);
+        return 1;
+      }
+      const out = setDesignSystem(d.html, hit.ref, false);
+      if (out.changed) writeFileAtomic(d.path, out.html);
+      console.log(out.changed ? `dropped ${hit.ref} from ${deck} — the package stays in its marketplace` : `${hit.ref} was not referenced by ${deck}`);
+      return 0;
+    }
+    let qualified = ref;
+    try { qualified = resolveEntry(ref, await catalogs()).qualified; } catch (e) { if (!(e instanceof MarketplaceError)) throw e; console.error(`decklight design-system add: ${e.message}`); return 1; }
+    const r = resolveDesignSystemRef(qualified);
+    if (!r.dir) { console.error(`decklight design-system add: ${r.ref} — ${r.missing}`); return 1; }
+    // the gate first: a package that fails leaves the deck byte-for-byte as it was
+    const verdict = checkDir(r.dir);
+    if (!verdict.ok) {
+      for (const line of reportLines(r.dir, verdict)) console.error(line);
+      console.error(`\ndecklight design-system add: ${r.ref} was NOT referenced — the package fails the check above`);
+      return 1;
+    }
+    const deckRef = refForDeck(d.html, r.name, r.local, r.source ?? null);
+    const out = setDesignSystem(d.html, deckRef, true, { source: r.source ?? null });
+    if (out.changed) writeFileAtomic(d.path, out.html);
+    const commit = loadRegistry(configHome()).marketplaces?.[r.local]?.commit ?? null;
+    recordInstall({ type: 'design-system', name: r.name, marketplace: r.local, version: r.entry.version ?? null, commit });
+    const v = verdict.summary.version ? ` ${verdict.summary.version}` : '';
+    console.log(out.changed
+      ? `${deck} now uses ${deckRef}${v} — ${verdict.summary.title}; every server links it from the marketplace on this machine`
+      : `${deck} already uses ${deckRef} — recorded${v} as the version you have`);
+    return 0;
+  } catch (e) {
+    if (e instanceof MarketplaceError) { console.error(`decklight design-system ${cmd}: ${e.message}`); return 1; }
+    throw e;
+  }
+}
+
+async function listMain(args) {
+  const [deck] = args.filter((a) => !a.startsWith('-'));
+  const { marketplaceDesignSystems, designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+  const { loadLedger, semverCompare } = await import('./marketplace.mjs');
+  const { markedSources } = await import('./theme-refs.mjs');
+  const installs = loadLedger().installs;
+  if (deck) {
+    const d = readDeckArg('list', deck);
+    if (!d) return 1;
+    const refs = designSystemRefs(d.html);
+    if (!refs.length) { console.log(`${deck} uses no design system — decklight design-system add <name@marketplace> ${deck}`); return 0; }
+    const sources = markedSources(d.html);
+    for (const ref of refs) {
+      const r = resolveDesignSystemRef(ref, undefined, { source: sources[ref.marketplace] ?? null });
+      const had = installs[`design-system:${ref.name}@${r.local ?? ref.marketplace}`]?.version ?? null;
+      const now = r.entry?.version ?? null;
+      const ver = had && now && semverCompare(now, had) > 0 ? `  ${had} → ${now}` : now ? `  ${now}` : '';
+      console.log(`${ref.ref}${ver}${r.missing ? `  — missing: ${r.missing}` : r.title ? `  — ${r.title}` : ''}`);
+    }
+    return 0;
+  }
+  const { systems, stale } = marketplaceDesignSystems();
+  if (!systems.length) console.log('no registered marketplace offers a design system');
+  for (const s of systems) {
+    console.log(`${s.qualified}${s.version ? `  ${s.version}` : ''}${s.description ? ` — ${s.description}` : ''}${s.missing ? `  (${s.missing})` : ''}`);
+  }
+  for (const m of stale) console.log(`  ${m} could not be read — decklight marketplace update ${m}`);
+  return 0;
+}
+
+async function layoutsMain(args) {
+  const [ref] = args.filter((a) => !a.startsWith('-'));
+  if (!ref) { console.error(`decklight design-system layouts: needs a design system (name@marketplace)\n\n${USAGE}`); return 1; }
+  const { resolveEntry, MarketplaceError } = await import('./marketplace.mjs');
+  const { resolveDesignSystemRef, packageVerdict } = await import('./design-system-refs.mjs');
+  let qualified = ref;
+  try { qualified = resolveEntry(ref, await catalogs()).qualified; } catch (e) { if (!(e instanceof MarketplaceError)) throw e; console.error(`decklight design-system layouts: ${e.message}`); return 1; }
+  const r = resolveDesignSystemRef(qualified);
+  if (!r.dir) { console.error(`decklight design-system layouts: ${r.ref} — ${r.missing}`); return 1; }
+  const v = packageVerdict(r.dir);
+  if (!v.ok) { console.error(`decklight design-system layouts: ${r.ref} — ${v.why}`); return 1; }
+  console.log(`${r.ref} — ${v.manifest.title} ${v.manifest.version}: ${v.summary.layouts.length} layout${v.summary.layouts.length === 1 ? '' : 's'}`);
+  for (const l of v.summary.layouts) {
+    console.log(`  ${v.manifest.name}/${l.id}${l.title && l.title !== l.id ? ` — ${l.title}` : ''}`);
+    for (const slot of l.slots) {
+      console.log(`    ${slot.name}${slot.required ? ' (required)' : ''}${slot.default ? ' (takes unslotted content)' : ''}${slot.hint ? `  — ${slot.hint}` : ''}`);
+    }
+  }
+  console.log(`\n  a slide: <section data-layout="${v.manifest.name}/<layout>"> with children carrying data-slot="<slot>"`);
+  return 0;
+}
+
 export async function designSystemMain(args = []) {
   const sub = args[0];
   if (!sub || sub === '--help' || sub === '-h' || sub === 'help') { console.log(USAGE); return sub ? 0 : 1; }
@@ -144,7 +291,11 @@ export async function designSystemMain(args = []) {
   if (rest.includes('--help') || rest.includes('-h')) { console.log(USAGE); return 0; }
   argReader(rest);
   if (sub === 'check') return checkMain(rest);
-  console.error(`decklight design-system: unknown subcommand "${sub}" — this decklight has: check\n\n${USAGE}`);
+  if (sub === 'add') return addMain(rest, true);
+  if (sub === 'remove') return addMain(rest, false);
+  if (sub === 'list') return listMain(rest);
+  if (sub === 'layouts') return layoutsMain(rest);
+  console.error(`decklight design-system: unknown subcommand "${sub}" — add, remove, list, layouts, check\n\n${USAGE}`);
   return 1;
 }
 

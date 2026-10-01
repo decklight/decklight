@@ -96,6 +96,7 @@ import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, split
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkAddedThemes } from './theme-refs.mjs';
+import { linkDesignSystems } from './design-system-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
@@ -1680,7 +1681,7 @@ export async function editMain(args, { onListen = null } = {}) {
    * `<base>` comes first, so those references resolve from the root, where
    * `staticFiles` answers them, not from under /edit/.
    */
-  const asServed = (html) => linkAddedThemes(linkRuntime(withBaseHref(html)));
+  const asServed = (html) => linkDesignSystems(linkAddedThemes(linkRuntime(withBaseHref(html))));
 
   function deckAtRoute({ res, url, json, CORS }) {
     if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
@@ -1990,6 +1991,78 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     return json(200, { ok: true, ref: deckRef, marked: on, changed: out.changed, ...history.counts() });
   }
+  // Every design system every registered marketplace offers, each saying
+  // whether this deck references it (SPEC DESIGN_SYSTEMS) — the palette's
+  // "Design systems…" list. Cache-only, like the theme browse above.
+  async function designSystemBrowseRoute({ json }) {
+    const { marketplaceDesignSystems, designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+    const { markedSources } = await import('./theme-refs.mjs');
+    const { systems, stale } = marketplaceDesignSystems();
+    const html = readDeck();
+    const sources = markedSources(html);
+    // what the deck references, as THIS machine names the catalog
+    const used = new Set(designSystemRefs(html).map((r) => {
+      const hit = resolveDesignSystemRef(r, undefined, { source: sources[r.marketplace] ?? null });
+      return `${r.name}@${hit.local ?? r.marketplace}`;
+    }));
+    return json(200, { ok: true, systems: systems.map((s) => ({ ...s, used: used.has(s.qualified) })), stale, cacheOnly: true });
+  }
+
+  /**
+   * Reference a design system from this deck, or drop it (SPEC
+   * DESIGN_SYSTEMS) — the twin of the theme mark below it. The package runs
+   * through `decklight design-system check` first, so the command line and
+   * this route refuse by the same code; the deck gains or loses one entry in
+   * its config block as one undo entry.
+   */
+  async function designSystemMarkRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const ref = typeof req.ref === 'string' ? req.ref.trim() : '';
+    const on = req.used !== false && req.marked !== false;
+    const { parseRef, refForDeck } = await import('./theme-refs.mjs');
+    const { resolveDesignSystemRef, setDesignSystem, designSystemRefs } = await import('./design-system-refs.mjs');
+    const { checkDir } = await import('./design-system.mjs');
+    const { MarketplaceError, recordInstall, loadRegistry, configHome } = await import('./marketplace.mjs');
+    if (!parseRef(ref)) return json(400, { ok: false, error: 'which design system? — name@marketplace' });
+    const before = readDeck();
+    let deckRef = ref, source = null;
+    if (on) {
+      const r = resolveDesignSystemRef(ref);
+      if (!r.dir) {
+        const status = r.entry && r.entry.type !== 'design-system' ? 400 : r.entry ? 409 : 404;
+        return json(status, { ok: false, error: r.missing });
+      }
+      const verdict = checkDir(r.dir);
+      if (!verdict.ok) {
+        // the deck is left byte-for-byte unchanged
+        return json(400, { ok: false, error: `${r.ref} fails the design-system check`, problems: verdict.problems.map((p) => `${p.file}${p.line ? ` line ${p.line}` : ''}: ${p.msg}`) });
+      }
+      source = r.source ?? null;
+      deckRef = refForDeck(before, r.name, r.local, source);
+      if (!designSystemRefs(before).some((x) => x.ref === deckRef)) {
+        recordInstall({ type: 'design-system', name: r.name, marketplace: r.local, version: r.entry.version ?? null,
+          commit: loadRegistry(configHome()).marketplaces?.[r.local]?.commit ?? null });
+      }
+    } else {
+      // the deck's own spelling, whatever this machine calls the catalog
+      const p = parseRef(ref);
+      deckRef = designSystemRefs(before).find((x) => x.ref === ref || x.name === p.name)?.ref ?? ref;
+    }
+    let out;
+    try { out = setDesignSystem(before, deckRef, on, { source }); }
+    catch (e) {
+      if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
+      throw e;
+    }
+    if (out.changed) {
+      history.record(before);   // Z takes it back like any other edit
+      if (req.quiet === true) quietWrite = out.html;
+      writeFileAtomic(deckPath, out.html);
+      console.log(`  design system: ${on ? 'referenced' : 'dropped'} ${deckRef}`);
+    }
+    return json(200, { ok: true, ref: deckRef, used: on, changed: out.changed, ...history.counts() });
+  }
+
   // `/edit/theme/add` was 0.9.0's name for installing from Browse. A deck that
   // carries its OWN copy of the runtime still asks for it; it means "mark".
   const themeAddRoute = ({ body, json }) =>
@@ -2875,6 +2948,8 @@ export async function editMain(args, { onListen = null } = {}) {
     'GET /edit/theme/browse': themeBrowseRoute,
     'POST /edit/theme/add': themeAddRoute,
     'POST /edit/theme/mark': themeMarkRoute,
+    'GET /edit/design-system/browse': designSystemBrowseRoute,
+    'POST /edit/design-system/mark': designSystemMarkRoute,
     'GET /edit/wizard': wizardSchemaRoute,
     'POST /edit/wizard': wizardConfigureRoute,
     'POST /edit/wizard/forget': wizardForgetRoute,

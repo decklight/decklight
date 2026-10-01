@@ -1569,6 +1569,8 @@
    synthesized one and the line you are reading is the largest thing on it. Everything
    else on the card is chrome around that one sentence. */
 .decklight-mic .narr-card { width: min(640px, 90vw); }
+/* Design systems… (DESIGN_SYSTEMS): the marketplaces' design systems, ● used / ○ not */
+.decklight-design-systems .narr-card { width: min(520px, 90vw); }
 /* film yourself (V → Character): the camera in the medallion's own shape */
 .decklight-film .narr-card { width: min(420px, 90vw); }
 .decklight-film .film-circle {

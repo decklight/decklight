@@ -45,6 +45,27 @@ export const MARKED_KEY = 'markedThemes';
 /** The config key a deck records where each of its marketplaces comes from. */
 export const SOURCES_KEY = 'themeSources';
 
+/**
+ * The config key a deck lists its design systems under (SPEC DESIGN_SYSTEMS).
+ * Here rather than in design-system-refs.mjs because the source sweep below
+ * has to count them: `themeSources` is keyed by MARKETPLACE, shared by both
+ * kinds of mark, and a source goes only with the last mark of either.
+ */
+export const DESIGN_SYSTEMS_KEY = 'designSystems';
+
+/** Every marketplace reference a deck holds, of any kind — what a recorded source is still needed for. */
+export function referencedMarketplaces(html) {
+  const config = configBlock(html)?.config ?? {};
+  const out = new Set();
+  for (const key of [MARKED_KEY, DESIGN_SYSTEMS_KEY]) {
+    for (const e of Array.isArray(config[key]) ? config[key] : []) {
+      const r = parseRef(e);
+      if (r) out.add(r.marketplace);
+    }
+  }
+  return out;
+}
+
 /** The personal marketplace `theme add <file|url>` copies into. */
 export const LOCAL_MARKETPLACE = 'local';
 
@@ -129,18 +150,18 @@ export function cacheThemeCss(home, marketplace, name, css) {
 }
 
 /**
- * Resolve a reference to the file on disk that holds its CSS, reading only
- * the registry, the catalog cache, the checkouts and the theme cache.
+ * The catalog entry a reference means on THIS machine — the half of resolving
+ * every by-reference kind shares (a marked theme, a design system, SPEC
+ * DESIGN_SYSTEMS): which registered marketplace the reference names (with a
+ * recorded source, the source decides, not the name), and its entry in that
+ * marketplace's cached catalog. Registry and cache only; it never fetches.
  *
- * Returns `{ name, marketplace, ref, title, entry, file }`, or
- * `{ ...parsed, missing }` with `missing` saying, in words a presenter can act
- * on, why this machine cannot show it. `remote` is set on an https-sourced
- * entry that has not been read yet — the caller that is allowed to fetch
- * (an explicit mark, an author looking at it) knows to.
+ * Returns `{ name, marketplace, ref, local, title, entry, registered, origin }`
+ * — `local` what this machine calls the catalog, `origin` its portable source
+ * — or `{ ...parsed, missing }` in words a presenter can act on. The kind is
+ * the caller's to check: the entry comes back whatever its type.
  */
-export function resolveThemeRef(ref, home = configHome(), { source = null } = {}) {
-  const parsed = typeof ref === 'string' ? parseRef(ref) : ref;
-  if (!parsed) return { ref: String(ref), missing: 'not a theme reference (name@marketplace)' };
+export function resolveCatalogEntry(parsed, home = configHome(), { source = null } = {}) {
   const { name } = parsed;
   // Which marketplace HERE the reference means. With a recorded source, the
   // source decides: whatever this machine calls that catalog is the one, and
@@ -161,16 +182,36 @@ export function resolveThemeRef(ref, home = configHome(), { source = null } = {}
     return { ...parsed, missing: `marketplace "${marketplace}" is not registered on this machine`
       + ' — it was local to whoever marked it, or never recorded where it came from' };
   }
-  const local = marketplace;
   const catalog = loadCatalog(marketplace, home);
   if (!catalog?.ok) {
     return { ...parsed, missing: `marketplace "${marketplace}" has never been fetched — decklight marketplace update ${marketplace}` };
   }
   const entry = (catalog.manifest.entries ?? []).find((e) => e.name === name);
   if (!entry) return { ...parsed, missing: `"${name}" is not in ${marketplace} any more` };
-  const origin = portableSource(registered.source);
+  return {
+    ...parsed, local: marketplace, title: catalog.manifest.title?.trim() || null, entry, registered,
+    origin: portableSource(registered.source),
+  };
+}
+
+/**
+ * Resolve a reference to the file on disk that holds its CSS, reading only
+ * the registry, the catalog cache, the checkouts and the theme cache.
+ *
+ * Returns `{ name, marketplace, ref, title, entry, file }`, or
+ * `{ ...parsed, missing }` with `missing` saying, in words a presenter can act
+ * on, why this machine cannot show it. `remote` is set on an https-sourced
+ * entry that has not been read yet — the caller that is allowed to fetch
+ * (an explicit mark, an author looking at it) knows to.
+ */
+export function resolveThemeRef(ref, home = configHome(), { source = null } = {}) {
+  const parsed = typeof ref === 'string' ? parseRef(ref) : ref;
+  if (!parsed) return { ref: String(ref), missing: 'not a theme reference (name@marketplace)' };
+  const hit = resolveCatalogEntry(parsed, home, { source });
+  if (hit.missing) return hit;
+  const { name, local, title, entry, registered, origin } = hit;
+  const marketplace = local;
   if (entry.type !== 'theme') return { ...parsed, entry, missing: `"${parsed.ref}" is a ${entry.type}, not a theme` };
-  const title = catalog.manifest.title?.trim() || null;
   if (/^https?:\/\//i.test(entry.source)) {
     const cached = themeCachePath(home, marketplace, name);
     if (existsSync(cached)) return { ...parsed, local, title, entry, file: cached, source: origin };
@@ -374,8 +415,12 @@ export function setMarked(html, ref, on, { source = null } = {}) {
   // marketplace with nothing portable to record (a local one) records nothing.
   const sources = markedSources(html);
   if (on && source) sources[parsed.marketplace] = source;
+  // gone with the last mark of EITHER kind — a design system the deck still
+  // uses keeps its marketplace's source when a theme from it is unmarked
+  const designSystems = new Set([...referencedMarketplaces(html)]
+    .filter((m) => (configBlock(html)?.config?.[DESIGN_SYSTEMS_KEY] ?? []).some((e) => parseRef(e)?.marketplace === m)));
   for (const m of Object.keys(sources)) {
-    if (!next.some((r) => r.endsWith(`@${m}`))) delete sources[m];
+    if (!next.some((r) => r.endsWith(`@${m}`)) && !designSystems.has(m)) delete sources[m];
   }
   let inner = withKey(block.inner, MARKED_KEY, next.length ? next : null);
   inner = withKey(inner, SOURCES_KEY, Object.keys(sources).length ? sources : null);
@@ -387,7 +432,7 @@ export function setMarked(html, ref, on, { source = null } = {}) {
 // removed when `value` is null. Both are flat, so a bracket match finds the
 // whole value; their strings are refs and sources, JSON-escaped, and a
 // `</script` cannot survive `portableSource` or a ref's shape to reach here.
-function withKey(inner, key, value) {
+export function withKey(inner, key, value) {
   const json = value === null ? null
     : Array.isArray(value) ? `[${value.map((r) => JSON.stringify(r)).join(', ')}]`
       : `{ ${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v).replace(/<\//g, '<\\/')}`).join(', ')} }`;

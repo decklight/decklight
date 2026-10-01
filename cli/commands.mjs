@@ -301,9 +301,11 @@ Commands:
   extension  the marketplace admission gate for a transform file — lint, then a headless load
            of its OUTPUT; not run by bundle/import/publish, which never re-check an installed unit
            EXAMPLE: decklight extension check grammar-check.mjs
-  design-system  the marketplace admission gate for a design system — a company's tokens, art and
-           slide layouts, checked: inert layouts, script-free SVG, nothing outside the package
-           EXAMPLE: decklight design-system check systems/acme
+  design-system  a company's tokens, art and slide layouts, referenced by a deck and served from
+           the marketplace on this machine — add/remove/list/layouts, and check, the admission gate
+           EXAMPLE: decklight design-system add acme@acme-mkt talk.html
+           EXAMPLE: decklight design-system layouts acme@acme-mkt   (the slots a slide fills)
+           EXAMPLE: decklight design-system check systems/acme   (a catalog's CI gate)
   voice    add a marketplace voice to the picker — a reference to one of an engine's
            voices, never a model, so nothing that reproduces a person is ever downloaded
            EXAMPLE: decklight voice add narrator-anna    (works offline; speaking needs your key)

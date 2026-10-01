@@ -37,6 +37,7 @@ import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
 import { configBlock, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
 import { addedThemeStyle, markedRefs, markedShipped, markedSources, resolveThemeRef, stillValid } from './theme-refs.mjs';
+import { designSystemRefs } from './design-system-refs.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
@@ -408,6 +409,14 @@ const marked = markedRefs(sourceHtml).map((r) => {
   return hit;
 });
 const markedNames = marked.map((r) => r.name);
+// Design systems (SPEC DESIGN_SYSTEMS) are linked by every server but not yet
+// carried into a hand-over file: say so, rather than send a file that has
+// silently lost its look. The output itself is unchanged.
+const usedSystems = designSystemRefs(sourceHtml).map((r) => r.ref);
+if (usedSystems.length) {
+  notices.push(`the deck uses ${usedSystems.join(', ')} — a bundle does not carry design systems yet,`
+    + ' so this file shows its slides without them');
+}
 if (openOn !== null && !/^[\w-]+$/.test(openOn)) fail(`--theme ${JSON.stringify(openOn)} is not a theme name`);
 if (openOn && !ownTheme && !markedNames.includes(openOn) && !themeNames.includes(openOn)) themeNames.push(openOn);
 themeNames = themeNames.filter((n) => !markedNames.includes(n));
