@@ -7,7 +7,7 @@ carrying the same notes in prose.
 
 ## 0.9.0
 
-A hundred and thirty-four commits since 0.8.1, and the release has a shape: a
+A hundred and thirty-five commits since 0.8.1, and the release has a shape: a
 deck is now something you **edit with the mouse**, **take slides into**,
 **import real PowerPoint drawings into**, **export as video**, and **narrate in
 a voice you can pace and direct — with a face, yours if you like**. The runtime
@@ -251,7 +251,9 @@ and a preview that fails says why (#509). The captions bar follows the stage
 scale down, so a preview is not buried under it (#492). `check` counts the
 clicks a slide takes rather than its raw build steps (#531). The messages panel
 names its key as a keycap (#510). `bundle --all` produces a multi-module deck,
-which is what it was always called in the docs (#504).
+which is what it was always called in the docs (#504). A new deck passes its own `check`:
+the scaffold narrates every build — a `[click]` beat before the first point
+and one per point — and the warning says what the count should be (#620).
 
 ### Verification
 
