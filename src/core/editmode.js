@@ -360,6 +360,7 @@ export function createEditMode({
           // mid-run is exactly when "is it still going?" is hardest to answer.
           paintAgentChip();
           reopenAgentAsk();   // a docked agent card open before the reload is open after it
+          reopenNotes();      // …and the notes card a save reloaded, where the author was
           const es = new EventSource(base + '/edit/events');
           es.onmessage = () => location.reload();
           es.addEventListener('commit', (ev) => {
@@ -679,6 +680,21 @@ export function createEditMode({
   const rememberAgentOpen = (open) => {
     try { if (open) sessionStorage.setItem(AGENT_OPEN_KEY, '1'); else sessionStorage.removeItem(AGENT_OPEN_KEY); } catch { /* no storage: it just closes */ }
   };
+  /** After a save's reload: the notes card back open where the author was, caret and scroll included (#646). */
+  function reopenNotes() {
+    let rec = null;
+    try { rec = JSON.parse(sessionStorage.getItem(NOTES_OPEN_KEY) ?? 'null'); } catch { /* no storage */ }
+    forgetNotesOpen();
+    // a minute is a save's reload; anything older is a different session
+    if (!rec || Date.now() - rec.t > 60000 || rec.slide !== instance.state.slide || editEl) return;
+    toggleEditor();
+    const ta = editEl?.querySelector('textarea.edit-notes');
+    if (!ta) return;
+    ta.focus();
+    const at = Math.min(Number(rec.caret) || 0, ta.value.length);
+    ta.setSelectionRange(at, at);
+    ta.scrollTop = Number(rec.scroll) || 0;
+  }
   function reopenAgentAsk() {
     let open = false;
     try { open = sessionStorage.getItem(AGENT_OPEN_KEY) === '1'; } catch { /* no storage */ }
@@ -817,6 +833,12 @@ export function createEditMode({
 
   let editEl = null;
   let notesSave = null;      // the open card's save, when it can save — what ⌘⏎ reaches from anywhere (#646)
+  // A save reloads the page (the server's watcher), which used to close the
+  // card on every save that worked and leave it open on every one that did
+  // not. The save records where the author was; the reload reopens the card
+  // there (#646). Esc or × — closing on purpose — never leaves the record.
+  const NOTES_OPEN_KEY = 'decklight-notes-open:' + location.pathname;
+  const forgetNotesOpen = () => { try { sessionStorage.removeItem(NOTES_OPEN_KEY); } catch { /* no storage */ } };
   let unmountEditor = null;
   let notesFollow = null;   // re-points a clean notes card at the slide on screen
   let notesReadOnly = false; // the card opened with no author server behind it
@@ -832,7 +854,7 @@ export function createEditMode({
   // stays with the slide it was written for, and its heading still says which.
   instance.on('slide', () => notesFollow?.());
   function toggleEditor() {
-    if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; return; }
+    if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; forgetNotesOpen(); return; }
     // With no author server behind the deck — `present`, `review`, a file —
     // the same card opens READ-ONLY: the notes to read, following the slide,
     // and nothing that could look like it saves. `decklight author` edits them.
@@ -853,6 +875,7 @@ export function createEditMode({
     ta.readOnly = readOnly;
     if (readOnly) ta.classList.add('edit-notes-readonly');
     let syncChanged = () => {};   // the reset / before-after buttons, once they exist (not read-only)
+    let saving = false;           // a save in flight: the mark says "saving…" 
     notesFollow = () => {
       if (ta.value !== loaded || instance.state.slide === sl) return;
       sl = instance.state.slide;
@@ -861,6 +884,9 @@ export function createEditMode({
       syncChanged();
     };
     const save = async () => {
+      saving = true;
+      syncChanged();
+      try { sessionStorage.setItem(NOTES_OPEN_KEY, JSON.stringify({ slide: sl, caret: ta.selectionStart, scroll: ta.scrollTop, t: Date.now() })); } catch { /* no storage: the card closes, as before */ }
       try {
         const res = await writeFetch(editBase + '/edit/notes', {
           method: 'POST',
@@ -872,16 +898,26 @@ export function createEditMode({
         // nothing written (the box matches the file once normalised) means no
         // reload is coming: say so, rather than "reloading" forever (#646)
         if (j.changed === false) {
+          forgetNotesOpen();   // no reload is coming
+          saving = false;
           loaded = ta.value;
           syncChanged();
           toast('nothing to save — the notes already match the file', 2600);
           return;
         }
         debugLog('edit', `notes saved — slide ${sl}`);
+        // written: the box matches the file now, so the mark clears at once —
+        // not "saving…" until a reload that a dropped connection may never send
+        saving = false;
+        loaded = ta.value;
+        syncChanged();
         toast('notes saved — reloading');
         // the server's watcher broadcasts the reload; nothing else to do
       } catch (e) {
         // long enough to read: the save did NOT happen, and the box still holds the text
+        forgetNotesOpen();
+        saving = false;
+        syncChanged();   // still unsaved, and the mark says so
         toast(`save failed: ${String(e.message || e).slice(0, 90)}`, 6000);
       }
     };
@@ -948,8 +984,14 @@ export function createEditMode({
       diffBtn.textContent = on ? '✎ back to editing' : '⇄ before / after';
       diffBtn.classList.toggle('narr-sel', on);
     };
+    // ● unsaved beside the heading while the box differs from the file —
+    // at full strength, the heading itself dimmed — and saving… in flight
+    const mark = Object.assign(document.createElement('span'), { className: 'notes-dirty-mark' });
+    title.after(mark);
     syncChanged = () => {
       const changed = ta.value !== loaded;
+      mark.textContent = saving ? 'saving…' : changed ? '● unsaved' : '';
+      mark.hidden = !mark.textContent;
       resetBtn.disabled = !changed;
       diffBtn.disabled = !changed && diffEl.hidden;
       if (!changed && !diffEl.hidden) showDiff(false);

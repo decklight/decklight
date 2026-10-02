@@ -2565,3 +2565,5 @@
 .decklight-bleed .bleed-dim { position: absolute; inset: 0; }
 .decklight-stage > section[data-bled] > .slide-bg { visibility: hidden; }
 .decklight-stage > section[data-bled] [data-ds-bleed] { background: none !important; }
+/* the notes card's unsaved mark: full strength beside a dimmed heading (#646) */
+.decklight-editor .notes-dirty-mark { flex: none; margin-right: 8px; font-size: .78em; color: #f5d77a; opacity: 1; }
