@@ -2201,7 +2201,7 @@ export function createEditMode({
     else if (job.kind) exportDeck(job.kind, job.opts ?? {});
   }
 
-  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null } = {}) {
+  async function exportDeck(kind, { slides = null, voice = null, format = null, quality = null, subtitles = null, audio = false } = {}) {
     const what = EXPORTS[kind];
     if (!what) return;
     // The server refuses a second export too (one browser, one output path);
@@ -2221,10 +2221,10 @@ export function createEditMode({
     // deck knows goes by name; one that lives only in this browser (a saved
     // custom theme, an unsaved roll) goes as its tokens.
     const { theme, gen } = renderTheme() ?? {};
-    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles } })) return;
+    if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, audio } })) return;
     const doing = kind === 'video'
       ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
-      : `exporting to ${what}`;
+      : `exporting to ${what}${audio === 'small' ? ', with small narration audio' : audio ? ', with the narration audio' : ''}`;
     const run = progress(`${doing} — this takes a moment…`);
     exportRun = { run, what, doing };
     try {
@@ -2234,6 +2234,7 @@ export function createEditMode({
           kind,
           ...(theme ? { theme } : gen ? { gen } : {}),
           ...(kind === 'video' ? { slides, format, quality, subtitles, ...videoVoice(voice) } : {}),
+          ...(kind === 'bundle' && audio ? { audio: audio === 'small' ? 'small' : true } : {}),
         }),
       });
       const j = await r.json().catch(() => ({}));

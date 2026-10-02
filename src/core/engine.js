@@ -14,7 +14,7 @@ import { initCode } from '../code/code.js';
 import { openSpeakerView } from './speaker.js';
 import { closeOnBackdrop, selectInList, createOverlays, typeaheadKeydown } from './overlay.js';
 import { createThemes } from './themes.js';
-import { createNarration } from './narration.js';
+import { createNarration, narrationTracks } from './narration.js';
 import { buildPrintPages } from './print.js';
 import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
@@ -1034,6 +1034,17 @@ export function init(userConfig = {}) {
       editmode.available() && { label: 'Bundle into one file… (dev)',
         alias: 'bundle standalone single file offline html send share email attach hand over export',
         run: () => editmode.exportDeck('bundle') },
+      // The recorded voice is tens of MB, so it rides along only when asked:
+      // the row above leaves it beside the deck, this one carries it inside.
+      editmode.available() && narrationTracks(config.narration).length > 0
+        && { label: 'Bundle into one file, with the narration audio… (dev)',
+          alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound',
+          run: () => editmode.exportDeck('bundle', { audio: true }) },
+      // …or re-encoded small for sending: mono AAC 32 kbps, some quality lost
+      editmode.available() && narrationTracks(config.narration).length > 0
+        && { label: 'Bundle into one file, with small narration audio… (dev)',
+          alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound small compressed compress low size light',
+          run: () => editmode.exportDeck('bundle', { audio: 'small' }) },
       // Minutes rather than seconds, and usually of PART of the deck — the
       // chapter you just re-recorded — so it asks which slides before it starts.
       editmode.available() && { label: 'Export a video… (dev)',

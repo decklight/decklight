@@ -629,7 +629,8 @@
       secs[1].setAttribute('data-module', 'Foundations');
       secs[3].setAttribute('data-module', 'Operations');
     }
-    const deck = Decklight.init(HARNESS_MODE === 'narration'
+    // exportpptx has a recorded voice too: it is what offers bundling the audio
+    const deck = Decklight.init(HARNESS_MODE === 'narration' || HARNESS_MODE === 'exportpptx'
       ? { narration: { files: [{ label: 'Test voice', dir: 'voices/t', ext: 'wav' }] } }
       // a cross-file playlist AND markers: the playlist wins, and the finder
       // must not grow a second set of rows for the same idea
@@ -1391,7 +1392,44 @@
           const bundled = CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
           r.bundlePostsTheThemeOnScreen = bundled.kind === 'bundle' && bundled.theme === 'aurora';
           r.bundleSaysWhereTheFileIs = said().some((t) => /wrote deck-standalone\.html/.test(t));
-          themedOk = r.bundleRowIsThere && r.bundlePostsTheThemeOnScreen && r.bundleSaysWhereTheFileIs;
+          r.plainBundleLeavesTheAudio = bundled.kind === 'bundle' && !('audio' in bundled);
+          // …and a deck with a recorded voice gets a second row that carries it
+          if (document.querySelector(Q)) press('Escape');
+          press('/');
+          for (const ch of 'narration audio') press(ch);
+          const top = document.querySelector(`${Q} ${ROW}`)?.textContent ?? '';
+          r.audioRowIsThere = /Bundle into one file, with the narration audio/.test(top);
+          press('Enter');
+          // read BEFORE yielding: the stand-in server's answer rewrites the row
+          r.audioRowSaysSo = said().some((t) => /exporting to one file, with the narration audio/.test(t));
+          await settle();
+          await settle();
+          const voiced = CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
+          r.audioRowAsksForTheAudio = voiced.kind === 'bundle' && voiced.audio === true && voiced.theme === 'aurora';
+          // …and one that re-encodes it small for sending
+          if (document.querySelector(Q)) press('Escape');
+          press('/');
+          for (const ch of 'small narration') press(ch);
+          r.smallRowIsThere = /Bundle into one file, with small narration audio/.test(document.querySelector(`${Q} ${ROW}`)?.textContent ?? '');
+          press('Enter');
+          r.smallRowSaysSo = said().some((t) => /exporting to one file, with small narration audio/.test(t));
+          await settle();
+          await settle();
+          const small = CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
+          r.smallRowAsksForSmall = small.kind === 'bundle' && small.audio === 'small';
+          themedOk = r.bundleRowIsThere && r.bundlePostsTheThemeOnScreen && r.bundleSaysWhereTheFileIs
+            && r.plainBundleLeavesTheAudio && r.audioRowIsThere && r.audioRowAsksForTheAudio && r.audioRowSaysSo
+            && r.smallRowIsThere && r.smallRowSaysSo && r.smallRowAsksForSmall;
+        }
+        if (mode === 'exportfail') {
+          // no recorded voice, no audio to carry: the row is not offered
+          if (document.querySelector(Q)) press('Escape');
+          press('/');
+          for (const ch of 'bundle') press(ch);
+          const rows = [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+          r.noAudioRowWithoutAVoice = rows.some((t) => /Bundle into one file/.test(t)) && !rows.some((t) => /narration audio/.test(t));
+          press('Escape');
+          themedOk = r.noAudioRowWithoutAVoice;
         }
         if (mode === 'exportpptx') {
           // A theme that lives only in this browser — a roll nobody saved — has

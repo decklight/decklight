@@ -145,7 +145,7 @@ let slowest = 0;
 const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const MODES = ['healthy', 'pause', 'sentpause', 'pausemark', 'aliases', 'audiotags', 'audiotagsv4', 'reccount', 'pausedefaults', 'pausenav', 'flaky', 'dead', 'keys', 'modules', 'recorded', 'roster', 'xss', 'stalebridge', 'foreignport', 'askingbridge', 'enginebar', 'voicelangs', 'endoftalk', 'filmrow',
   'elevenlabsv3', 'engineback', 'enginegone', 'scroll', 'sayshelves', 'filter', 'segoverflow', 'switch', 'hint', 'hint&print', 'hint&capture', 'hint&midtalk', 'captions', 'captions&embedded', 'captions&dead', 'edited', 'manifest', 'expired',
-  'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'off',
+  'segments', 'segfold', 'segmiss', 'segnav', 'beatpause', 'plainrec', 'segmanifest', 'segsigned', 'bundledaudio', 'off',
   'record', 'record&dir', 'record&nosrv', 'recordseg', 'recordseg&badconfig', 'recordseg&pause', 'micwarn&record', 'realsay'];
 for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')[0])) : MODES)) {
   const [m, extra] = mode.split('&');
@@ -432,6 +432,12 @@ for (const mode of (only.length ? MODES.filter((m) => only.includes(m.split('&')
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(10)} ⇧V wrote a beat per ⟨CLICK⟩=${r.wroteABeatPerClick}`
       + ` (${(r.beats ?? []).join(' ')}) · none for a one-breath slide=${r.noBeatsForAOneBreathSlide}`
       + ` · card offers segments: true=${r.namedSegments}`
+      + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
+    continue;
+  }
+  if (mode === 'bundledaudio') {
+    console.log(`${ok ? 'ok  ' : 'FAIL'} ${mode.padEnd(8)} played the carried copy=${r.playedTheCarriedCopy} (${r.first})`
+      + ` · same bytes=${r.sameBytes} · an uncarried slide plays its path=${r.otherSlidePlaysItsPath}`
       + (r.exception ? ` · ${r.exception.split('\n')[0]}` : ''));
     continue;
   }

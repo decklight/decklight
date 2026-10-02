@@ -389,7 +389,7 @@
     // thing under test.
     const offDeck = mode === 'off';
     const recordedDeck = mode === 'recorded' || mode === 'hint' || mode === 'switch'
-      || segmentDeck || plainDeck || offDeck;
+      || segmentDeck || plainDeck || offDeck || mode === 'bundledaudio';
 
     // ── the segmented half of the harness deck ──────────────────────────────
     // Appended rather than written into the markup above, so every OTHER mode
@@ -568,6 +568,32 @@
           r.warnsOnMissingFile = msgs.some((m) => /no narration for slide 3/.test(m));
           r.lastMessage = msgs[msgs.length - 1] ?? '';
           r.PASS = r.quietOnSlideWithNoNotes && r.warnsOnMissingFile;
+          sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+
+        if (mode === 'bundledaudio') {
+          // `decklight bundle --audio`: slide 1's file is carried inside the
+          // deck, keyed by the URL the track would play. The runtime plays the
+          // carried copy — and a slide with no block still plays its path.
+          const block = document.createElement('script');
+          block.type = 'application/json';
+          block.setAttribute('data-decklight-audio', 'voices/slide-01.m4a');
+          block.textContent = JSON.stringify(`data:audio/mp4;base64,${btoa('one')}`);
+          document.body.append(block);
+          // the harness stubs blob URLs; this one keeps the blob it was given
+          const blobs = [];
+          URL.createObjectURL = (b) => { blobs.push(b); return `blob:carried-${blobs.length}`; };
+          deck.toggleNarration();                 // V — plays slide 1
+          await new Promise((ok) => setTimeout(ok, 300));
+          const first = window.__audioSrcs.find((u) => u) ?? '';
+          r.first = first;
+          r.playedTheCarriedCopy = first === 'blob:carried-1';
+          r.sameBytes = blobs.length === 1 && blobs[0].type === 'audio/mp4' && (await blobs[0].text()) === 'one';
+          deck.goto(3, 0);                        // nothing carried for slide 3
+          await new Promise((ok) => setTimeout(ok, 400));
+          r.otherSlidePlaysItsPath = window.__audioSrcs.includes('voices/slide-03.m4a');
+          r.PASS = r.playedTheCarriedCopy && r.sameBytes && r.otherSlidePlaysItsPath;
           sink.textContent = 'DECKLIGHT-NARRATION-RESULTS ' + JSON.stringify(r);
           return;
         }

@@ -72,15 +72,16 @@ test('JSON and template blocks are data, not findings', () => {
 <script type="application/json" id="cast-one">{"v":2}</script>
 <script type="application/json" data-decklight-visemes="slide-01">{}</script>
 <script type="application/json" data-decklight-voices="v/m.json">{}</script>
+<script type="application/json" data-decklight-audio="v/slide-01.m4a">"data:audio/mp4;base64,AA=="</script>
 <script type="text/template">## not markup the browser runs</script>
 <script>Decklight.init()</script>`;
   const report = auditDeck(html);
-  assert.equal(report.counts.data, 3);
+  assert.equal(report.counts.data, 4);
   assert.equal(report.counts.template, 1);
   assert.equal(report.counts.unaccounted, 0, 'no browser executes any of those');
   assert.deepEqual(
     classifyScripts(html).filter((b) => b.kind === 'data').map((b) => b.subtype),
-    ['cast', 'visemes', 'voice manifest']);
+    ['cast', 'visemes', 'voice manifest', 'narration audio']);
 });
 
 test('theme <style> blocks are counted as inventory, never as script', () => {

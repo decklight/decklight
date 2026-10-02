@@ -13,7 +13,7 @@ import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSyn
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { childEnv, rmTemp, writeFakeBin, stop, homeEnv } from './helpers.mjs';
+import { childEnv, rmTemp, writeFakeBin, stop, homeEnv, have } from './helpers.mjs';
 
 import http from 'node:http';
 
@@ -1640,6 +1640,29 @@ test('the bundle row asks first when the theme on screen is not marked — a shi
   const out = readFileSync(path.join(dir, 'deck-standalone.html'), 'utf8');
   assert.equal(cfgIn(out).theme, 'midnight');
   for (const n of ['ember', 'midnight']) assert.match(out, new RegExp(`<style data-theme="${n}"`));
+});
+
+test('the bundle row carries the narration audio only when asked', async (t) => {
+  const dir = tmp(t);
+  writeFileSync(path.join(dir, 'deck.html'), DATA_DECK({ decklight: '0.9.0', theme: 'aurora', narration: { files: 'voices' } }));
+  mkdirSync(path.join(dir, 'voices'));
+  writeFileSync(path.join(dir, 'voices', 'slide-01.m4a'), 'one');
+  const { base } = await startEdit(t, dir);
+  const audioIn = () => /data-decklight-audio="voices\/slide-01\.m4a"/.test(readFileSync(path.join(dir, 'deck-standalone.html'), 'utf8'));
+
+  const plain = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora' })).json();
+  assert.equal(plain.ok, true, plain.error);
+  assert.equal(audioIn(), false, 'the plain row leaves the audio beside the deck');
+  const voiced = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora', audio: true })).json();
+  assert.equal(voiced.ok, true, voiced.error);
+  assert.equal(audioIn(), true, 'the audio row carries it inside');
+  // 'small' is --small-audio: here the file is not audio, so ffmpeg refuses it,
+  // and that refusal is the proof the route asked for the re-encode
+  if (have('ffmpeg')) {
+    const small = await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora', audio: 'small' });
+    assert.equal(small.status, 500);
+    assert.match((await small.json()).error, /--small-audio could not re-encode voices\/slide-01\.m4a/);
+  }
 });
 
 test('the bundle row refuses what it cannot bundle, with a sentence', async (t) => {

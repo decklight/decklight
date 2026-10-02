@@ -1273,6 +1273,33 @@ export function createNarration({
   const badManifests = new Set();        // asked once, failed; not re-asked on every re-render
   let loaded = null;                     // { track, data } for the selected manifest track
 
+  /**
+   * A recorded file `decklight bundle --audio` carried inside the deck, by the
+   * URL this track would otherwise play — so a bundle sent alone still speaks.
+   * Decoded once into a blob URL: a media element and the character's fetch
+   * both take one, and it is a short key where the data: URI is megabytes.
+   */
+  const bundledAudios = new Map();
+  function bundledAudio(url) {
+    if (!url) return url;
+    if (bundledAudios.has(url)) return bundledAudios.get(url);
+    let out = url;
+    for (const el of document.querySelectorAll('script[type="application/json"][data-decklight-audio]')) {
+      if (el.getAttribute('data-decklight-audio') !== url) continue;
+      try {
+        const m = /^data:([^;,]+);base64,(.*)$/s.exec(JSON.parse(el.textContent));
+        if (m) {
+          const bin = atob(m[2]);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          out = URL.createObjectURL(new Blob([bytes], { type: m[1] }));
+        }
+      } catch { /* a damaged block plays the path, which says what is missing */ }
+      break;
+    }
+    bundledAudios.set(url, out);
+    return out;
+  }
   /** A manifest `decklight bundle` inlined, because fetch is dead on file://. */
   function bundledManifest(url) {
     for (const el of document.querySelectorAll('script[type="application/json"][data-decklight-voices]')) {
@@ -1424,9 +1451,9 @@ export function createNarration({
       // deriving it back out of a signed url is not possible at all.
       .map((n) => ({
         file: n,
-        url: narrSet.manifest
+        url: bundledAudio(narrSet.manifest
           ? manifestSegmentUrl(loaded?.data, narrSet.manifest, sl, n)
-          : `${narrSet.dir}/slide-${String(sl).padStart(2, '0')}-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`,
+          : `${narrSet.dir}/slide-${String(sl).padStart(2, '0')}-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`),
       }));
     // A manifest that ran out of segments is the authority saying this slide
     // was recorded whole — not an error, just a different shape.
@@ -1451,10 +1478,10 @@ export function createNarration({
     return [...new Set(urls)];
   }
   function slideFileUrl(n) {
-    if (narrSet.manifest) return manifestSlideUrl(loaded?.data, narrSet.manifest, n);
+    if (narrSet.manifest) return bundledAudio(manifestSlideUrl(loaded?.data, narrSet.manifest, n));
     // state.slide and the files are BOTH 1-based (slide-01 = first section).
     // ext defaults to the pre-render tool's .m4a; the synthesized recorder-recorded sets are .wav.
-    return `${narrSet.dir}/slide-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`;
+    return bundledAudio(`${narrSet.dir}/slide-${String(n).padStart(2, '0')}.${narrSet.ext ?? 'm4a'}`);
   }
   /**
    * The router. Three shapes of track, one entry point — every caller

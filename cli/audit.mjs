@@ -177,6 +177,7 @@ function dataSubtype(attrs) {
   if (/\bdata-decklight-config\b/i.test(attrs)) return 'config';
   if (/\bdata-decklight-visemes\b/i.test(attrs)) return 'visemes';
   if (/\bdata-decklight-voices\b/i.test(attrs)) return 'voice manifest';
+  if (/\bdata-decklight-audio\b/i.test(attrs)) return 'narration audio';
   return 'cast';
 }
 

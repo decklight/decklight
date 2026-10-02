@@ -2765,11 +2765,13 @@ export async function editMain(args, { onListen = null } = {}) {
         }
       } else if (kind === 'bundle') {
         // The CLI's own name for the file, beside the deck, so the row and
-        // `decklight bundle` write the same one. bundleMain returns nothing on
+        // `decklight bundle` write the same one; `audio` is its --audio (true)
+        // or --small-audio ('small'), the recorded voice carried inside. bundleMain returns nothing on
         // success and throws a sentence on a refusal — the catch below says it.
         const { bundleMain } = await import('./bundle.mjs');
         out = join(dirname(deckPath), `${basename(deckPath).replace(/\.html?$/i, '')}-standalone.html`);
-        code = (await bundleMain([deckPath, '-o', out, ...(req.theme ? ['--theme', req.theme] : [])])) ?? 0;
+        code = (await bundleMain([deckPath, '-o', out, ...(req.theme ? ['--theme', req.theme] : []),
+          ...(req.audio === 'small' ? ['--small-audio'] : req.audio === true ? ['--audio'] : [])])) ?? 0;
       } else if (kind === 'pptx') {
         const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
         out = pptxOut(deckPath);
