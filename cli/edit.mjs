@@ -1379,9 +1379,10 @@ export async function editMain(args, { onListen = null } = {}) {
     if (filename && filename !== basename(deckPath)) return;
     clearTimeout(pending);
     pending = setTimeout(() => {
-      // A QUIET write — a theme marked from the open picker, which updates
-      // itself in place — is the one change that must not reload: a reload
-      // closes the picker the author is still choosing in. Skipped only when
+      // A QUIET write is one the pages update themselves in place, which must
+      // not reload: a theme marked from the open picker (a reload closes the
+      // picker the author is still choosing in), or a notes save, whose new
+      // notes every page is sent as a `notes` event. Skipped only when
       // the file is still exactly what that write put there; any other change
       // since (an editor save, an undo) reloads as it always has.
       const quiet = quietWrite;
@@ -1389,7 +1390,7 @@ export async function editMain(args, { onListen = null } = {}) {
       if (quiet !== null) {
         let now = null;
         try { now = readFileSync(deckPath, 'utf8'); } catch { /* gone — reload says so */ }
-        if (now === quiet) { console.log('  changed → theme marks, updated in place'); return; }
+        if (now === quiet) { console.log('  changed → updated in place, no reload'); return; }
       }
       clients.raw('data: reload\n\n');
       console.log(`  changed → reload × ${clients.size}`);
@@ -3115,7 +3116,12 @@ export async function editMain(args, { onListen = null } = {}) {
   // called from a test with a temp deck and no socket at all. `deckPath` is the
   // odd one: /edit/asset saves a dropped image beside the deck, so it needs to
   // know where the deck is and not only what it says.
-  registerSlideRoutes(routes, { readDeck, applyEdit, history, deckPath });
+  registerSlideRoutes(routes, {
+    readDeck, applyEdit, history, deckPath,
+    // a notes save updates every page in place: no reload for that write
+    quiet: (html) => { quietWrite = html; },
+    broadcast: (event, data) => clients.broadcast(event, data),
+  });
 
   // The routes that run BEFORE the shared body read, and the only reason the
   // dispatcher below has a sequence at all. `/edit/record`'s body is BINARY and

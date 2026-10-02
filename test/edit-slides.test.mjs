@@ -44,7 +44,7 @@ const DECK = `<!doctype html>
  * and answers whether anything changed, and `deckPath` is the deck itself,
  * which is what /edit/asset saves an image beside.
  */
-function harness(t, html = DECK) {
+function harness(t, html = DECK, deps = {}) {
   const dir = tmp('edit-slides', t);
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, html);
@@ -58,7 +58,7 @@ function harness(t, html = DECK) {
     return true;
   };
   const routes = new Map();
-  registerSlideRoutes(routes, { readDeck, applyEdit, history, deckPath: deck });
+  registerSlideRoutes(routes, { readDeck, applyEdit, history, deckPath: deck, ...deps });
   return { routes, history, readDeck, deck, dir };
 }
 
@@ -138,6 +138,19 @@ test('notes and sources are the author\'s text: $1, $&, $` and $\' are written l
   const again = setSlideSources(src, 1, '<ul><li>Now $1 and $&</li></ul>');
   assert.match(again, /Now \$1 and \$&/);
   assert.doesNotMatch(again, /Revenue grew/, 'replaced, not spliced');
+});
+
+test('POST /edit/notes saves in place: a quiet write, and every page sent the slide\'s new notes, never a reload', async (t) => {
+  const quiet = [];
+  const sent = [];
+  const { routes, readDeck } = harness(t, DECK, { quiet: (html) => quiet.push(html), broadcast: (e, d) => sent.push([e, d]) });
+  const r = await call(routes, 'POST /edit/notes', { body: { slide: 1, text: 'Said here.', from: 'page-1' } });
+  assert.deepEqual([r.body.changed, r.body.inPlace], [true, true]);
+  assert.deepEqual(quiet, [readDeck()], 'the bytes written are the quiet ones: the watcher skips their reload');
+  assert.deepEqual(sent, [['notes', { slide: 1, aside: '<p>Said here.</p>', from: 'page-1' }]]);
+  const again = await call(routes, 'POST /edit/notes', { body: { slide: 1, text: 'Said here.' } });
+  assert.equal(again.body.changed, false);
+  assert.equal(sent.length, 1, 'nothing written, nothing sent');
 });
 
 test('POST /edit/notes keeps the paragraphs: a blank line is a new <p>, never merged away', async (t) => {

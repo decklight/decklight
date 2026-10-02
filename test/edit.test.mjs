@@ -544,6 +544,30 @@ test('element colours: a shape and its label in one edit, by path, and only ever
   assert.equal(readFileSync(deck, 'utf8'), before);
 });
 
+test('a notes save is announced as `notes`, never a reload; any other change to the file still reloads', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DECK);
+  const { base } = await startEdit(t, dir, { extraArgs: ['--no-git'] });
+  const ctrl = new AbortController();
+  t.after(() => ctrl.abort());
+  const res = await fetch(`${base}/edit/events`, { signal: ctrl.signal });
+  const reader = res.body.getReader();
+  let stream = '';
+  (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; stream += new TextDecoder().decode(value); } } catch { /* aborted */ } })();
+  await new Promise((ok) => setTimeout(ok, 200));
+  const r = await (await post(base, '/edit/notes', { slide: 1, text: 'Said in place.', from: 'p1' })).json();
+  assert.deepEqual([r.changed, r.inPlace], [true, true]);
+  await new Promise((ok) => setTimeout(ok, 700));   // past the watcher's debounce
+  assert.match(stream, /event: notes\ndata: \{"slide":1,"aside":"<p>Said in place\.<\/p>","from":"p1"\}/);
+  assert.doesNotMatch(stream, /data: reload/, 'the page already shows what it saved');
+  assert.match(readFileSync(deck, 'utf8'), /<p>Said in place\.<\/p>/);
+  // an edit from anywhere else is not quiet: it reloads as it always has
+  writeFileSync(deck, readFileSync(deck, 'utf8').replace('</body>', '<!-- edited elsewhere -->\n</body>'));
+  await new Promise((ok) => setTimeout(ok, 700));
+  assert.match(stream, /data: reload/);
+});
+
 test('--git auto-commits on a cadence; undo/redo never consume the commits', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

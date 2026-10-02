@@ -363,6 +363,12 @@ export function createEditMode({
           reopenNotes();      // …and the notes card a save reloaded, where the author was
           const es = new EventSource(base + '/edit/events');
           es.onmessage = () => location.reload();
+          // A notes save is not a reload: every open view of the deck gets
+          // the slide's new notes and puts them in place (narration, the
+          // speaker view, a notes card left open in another tab)
+          es.addEventListener('notes', (ev) => {
+            try { const { slide, aside, from } = JSON.parse(ev.data); patchNotes(slide, aside, from); } catch { /* malformed: the next reload settles it */ }
+          });
           es.addEventListener('commit', (ev) => {
             try {
               commitNow = JSON.parse(ev.data);
@@ -833,6 +839,29 @@ export function createEditMode({
 
   let editEl = null;
   let notesSave = null;      // the open card's save, when it can save — what ⌘⏎ reaches from anywhere (#646)
+  let notesRefresh = null;   // the open card, told its slide's notes changed under it (another tab saved)
+  /**
+   * A slide's notes, replaced in this page as the author server wrote them
+   * (the `notes` event). The aside is the server's own markup, built from
+   * the saved text. Narration reads it fresh (its memo keys on the markup),
+   * the speaker view is nudged to re-read it, and an open card on that
+   * slide follows unless it holds something unsaved.
+   */
+  const PAGE_ID = Math.random().toString(36).slice(2, 12);   // which page a notes save came from
+  function patchNotes(slide, asideInner, from = null) {
+    const sec = instance._sections?.[slide - 1];
+    if (!sec || typeof asideInner !== 'string') return;
+    let aside = sec.querySelector(':scope > aside.notes');
+    if (!aside) {
+      aside = document.createElement('aside');
+      aside.className = 'notes';
+      sec.appendChild(aside);
+    }
+    aside.innerHTML = asideInner;
+    // the page that saved keeps its box exactly as typed: only the others follow
+    if (from !== PAGE_ID) notesRefresh?.(slide);
+    instance._notify();
+  }
   // A save reloads the page (the server's watcher), which used to close the
   // card on every save that worked and leave it open on every one that did
   // not. The save records where the author was; the reload reopens the card
@@ -854,7 +883,7 @@ export function createEditMode({
   // stays with the slide it was written for, and its heading still says which.
   instance.on('slide', () => notesFollow?.());
   function toggleEditor() {
-    if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; forgetNotesOpen(); return; }
+    if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; forgetNotesOpen(); return; }
     // With no author server behind the deck — `present`, `review`, a file —
     // the same card opens READ-ONLY: the notes to read, following the slide,
     // and nothing that could look like it saves. `decklight author` edits them.
@@ -883,6 +912,15 @@ export function createEditMode({
       title.textContent = heading();
       syncChanged();
     };
+    // this slide's notes changed under the card (saved from another tab):
+    // follow them, unless the box holds edits of its own
+    notesRefresh = (slide) => {
+      if (slide !== sl || saving) return;
+      const fresh = notesText();
+      if (ta.value === loaded) ta.value = fresh;
+      loaded = fresh;
+      syncChanged();
+    };
     const save = async () => {
       saving = true;
       syncChanged();
@@ -891,7 +929,7 @@ export function createEditMode({
         const res = await writeFetch(editBase + '/edit/notes', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ slide: sl, text: ta.value }),
+          body: JSON.stringify({ slide: sl, text: ta.value, from: PAGE_ID }),
         });
         if (!res.ok) throw new Error(await res.text());
         const j = await res.json().catch(() => ({}));
@@ -906,13 +944,13 @@ export function createEditMode({
           return;
         }
         debugLog('edit', `notes saved — slide ${sl}`);
-        // written: the box matches the file now, so the mark clears at once —
-        // not "saving…" until a reload that a dropped connection may never send
+        // written, and IN PLACE: no reload is coming (the server sends every
+        // page the new notes instead), so the card simply stays as it is
         saving = false;
         loaded = ta.value;
+        if (j.inPlace) forgetNotesOpen();
         syncChanged();
-        toast('notes saved — reloading');
-        // the server's watcher broadcasts the reload; nothing else to do
+        toast(j.inPlace ? 'notes saved' : 'notes saved — reloading', 1800);
       } catch (e) {
         // long enough to read: the save did NOT happen, and the box still holds the text
         forgetNotesOpen();

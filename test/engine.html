@@ -334,6 +334,11 @@
           return json({ ok: true, changed: text !== 'Same as the file.', undo: 1, redo: 0 });
         }
       }
+      // notes saved IN PLACE: no reload; every page is sent the new notes
+      if (HARNESS_MODE === 'notesinplace') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'notessave') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/notes')) {
@@ -1909,6 +1914,50 @@
           r.PASS = r.reopened && r.caretRestored && r.recordUsedUp && r.cleanHasNoMark && r.unsavedMark && r.savingMark
             && r.saveRecordsWhere && r.writtenClearsTheMark && r.noOpClears && r.escForgets;
         }
+      }
+
+      if (mode === 'notesinplace') {
+        // A notes save is not a reload: the page that saved keeps its card
+        // exactly as it was, and every page is sent the slide's new notes to
+        // put in place; a card elsewhere follows unless it holds edits.
+        await settle();   // the ping: authoring
+        deck.goto(2, 0); await settle();
+        press('/');
+        for (const ch of 'speaker notes') press(ch);
+        [...document.querySelectorAll('.decklight-palette .pal-row')].find((n) => /Edit speaker notes/.test(n.textContent))?.click();
+        await settle();
+        const box = () => document.querySelector('.decklight-editor textarea.edit-notes');
+        const mark = () => document.querySelector('.decklight-editor .notes-dirty-mark');
+        const asideOf = (n) => deck._sections[n - 1].querySelector(':scope > aside.notes');
+        const said = () => [...document.querySelectorAll('.decklight-toast')].map((t) => t.textContent).join(' | ');
+        // our own save: the card stays, the caret where it was, no "reloading"
+        box().value = 'Typed here,\nacross two lines.';
+        box().setSelectionRange(6, 6);
+        box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        await settle(); await settle();
+        const sent = CALLS.post.find((c) => c.u.includes('/edit/notes'))?.body;
+        r.saveSaysWhichPage = typeof sent?.from === 'string' && sent.from.length > 4;
+        r.ownSaveStaysPut = !!box() && box().selectionStart === 6 && /notes saved/.test(said()) && !/reloading/.test(said()) && mark().hidden;
+        // …and its own echo, which comes back normalised, leaves the box as typed
+        window.__es.emit('notes', { slide: 2, aside: '<p>Typed here, across two lines.</p>', from: sent?.from });
+        await settle();
+        r.ownEchoLeavesTheBox = box().value === 'Typed here,\nacross two lines.' && /Typed here, across two lines\./.test(asideOf(2).textContent);
+        // another page's save of THIS slide: the clean card follows
+        window.__es.emit('notes', { slide: 2, aside: '<p>Rewritten in the other tab.</p>', from: 'other-page' });
+        await settle();
+        r.cleanCardFollows = /Rewritten in the other tab\./.test(box().value) && mark().hidden;
+        // …but a card holding edits keeps them, and says they are unsaved
+        box().value = 'My own unsaved draft.';
+        box().dispatchEvent(new Event('input', { bubbles: true }));
+        window.__es.emit('notes', { slide: 2, aside: '<p>Again from elsewhere.</p>', from: 'other-page' });
+        await settle();
+        r.draftIsKept = box().value === 'My own unsaved draft.' && !mark().hidden && /Again from elsewhere\./.test(asideOf(2).textContent);
+        // another slide's notes, saved elsewhere: in place in the deck, the card untouched
+        window.__es.emit('notes', { slide: 3, aside: '<p>Slide three, updated.</p>', from: 'other-page' });
+        await settle();
+        r.otherSlidesUpdate = /Slide three, updated\./.test(asideOf(3)?.textContent ?? '') && box().value === 'My own unsaved draft.';
+        press('Escape');
+        r.PASS = r.saveSaysWhichPage && r.ownSaveStaysPut && r.ownEchoLeavesTheBox && r.cleanCardFollows && r.draftIsKept && r.otherSlidesUpdate;
       }
 
       if (mode === 'notessave') {

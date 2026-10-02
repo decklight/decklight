@@ -64,16 +64,28 @@ import {
  * one that is not about the deck's TEXT — because a dropped image is saved
  * beside the deck and nowhere else.
  */
-export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deckPath }) {
+export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deckPath, quiet = () => {}, broadcast = () => {} }) {
   function notesRoute({ body, json }) {
-    const { slide, text } = JSON.parse(body);
+    const { slide, text, from } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || typeof text !== 'string') throw new Error('bad payload');
     // `changed` says whether a byte was written: an edit that normalises to
     // the same notes writes nothing, so no reload follows — the page must
     // not sit waiting for one (#646)
-    const changed = applyEdit((html) => setSlideNotes(html, slide, notesTextToAside(text)));
-    if (changed) console.log(`  notes saved: slide ${slide} (${text.length} chars)`);
-    return json(200, { ok: true, changed: !!changed, ...history.counts() });
+    const aside = notesTextToAside(text);
+    const changed = applyEdit((html) => setSlideNotes(html, slide, aside));
+    if (changed) {
+      // Saved IN PLACE, never by a reload: the notes came from the page, so
+      // the page already shows them. The write is quiet (the watcher skips
+      // its reload), and every open view of the deck (another tab, the
+      // speaker view's deck) is sent the slide's new notes instead, so none
+      // keeps the old ones. Anything else that changes the file still reloads.
+      quiet(readDeck());
+      // `from` is the saving page's own id, echoed so that page leaves its
+      // box as the author typed it rather than as the file normalised it
+      broadcast('notes', { slide, aside, from: typeof from === 'string' ? from.slice(0, 64) : null });
+      console.log(`  notes saved: slide ${slide} (${text.length} chars), updated in place`);
+    }
+    return json(200, { ok: true, changed: !!changed, inPlace: !!changed, ...history.counts() });
   }
 
   // Where a slide got what it says, written back (SLIDE_SOURCES). One
