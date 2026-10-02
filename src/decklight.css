@@ -2521,3 +2521,12 @@
   font: 600 0.9rem var(--font-body); letter-spacing: 0.01em;
   pointer-events: none;
 }
+
+/* ---------- font picker (SPEC FONTS) — each row in its own face, its source on the right ---------- */
+/* the slide behind IS the preview: no blur, a light dim, the card off to the side */
+.decklight-narr.decklight-font-picker { background: rgba(0, 0, 0, .12); backdrop-filter: none; justify-content: flex-end; padding-right: 3vw; }
+.decklight-font-picker .narr-card { width: min(380px, 90vw); max-height: 86vh; overflow-y: auto; }
+.decklight-font-picker .fp-row .narr-row-label { font-size: 1.15em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.decklight-font-picker .fp-tag { flex: none; font-size: .72em; opacity: .6; white-space: nowrap; }
+.decklight-font-picker .fp-rec { opacity: .8; }
+.decklight-font-picker .fp-foot { margin: 10px 12px 2px; font-size: .72em; opacity: .55; }

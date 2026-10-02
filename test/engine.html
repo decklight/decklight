@@ -333,6 +333,20 @@
         }
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // Fonts while authoring (SPEC FONTS): an author server whose marketplaces
+      // offer one font package, which Space references from the deck
+      if (HARNESS_MODE === 'fontsauthor') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/font/browse')) {
+          return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], fonts: [
+            { name: 'inter', marketplace: 'type-mkt', qualified: 'inter@type-mkt', group: 'Type', title: 'Inter', family: 'Inter',
+              fallback: 'system-ui, sans-serif', stack: "'Inter', system-ui, sans-serif", role: 'body', used: false,
+              faces: [{ url: 'decklight-font/type-mkt/inter/Inter-400.woff2', weight: 400, style: 'normal', format: 'woff2' }] },
+            { name: 'broken', marketplace: 'type-mkt', qualified: 'broken@type-mkt', missing: 'it no longer passes the font check' },
+          ] });
+        }
+        if (u.includes('/edit/font/mark')) return json({ ok: true, ref: 'inter@type-mkt', used: true, changed: true, undo: 1, redo: 0 });
+      }
       if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -528,6 +542,19 @@
       document.querySelectorAll('.decklight > section')[2].insertAdjacentHTML('beforeend',
         '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>');
     }
+    // Fonts (SPEC FONTS): the deck references a font package — its faces and
+    // meta as a server links them — and a design system recommends a stack and
+    // that font. A 0.9.0 pick was an index; fontslegacy stores one.
+    if (HARNESS_MODE.startsWith('fonts')) {
+      try { localStorage.removeItem('decklight-font:' + location.pathname); } catch {}
+      if (HARNESS_MODE === 'fontslegacy') try { localStorage.setItem('decklight-font:' + location.pathname, '7'); } catch {}
+      if (HARNESS_MODE === 'fonts') {
+        document.head.insertAdjacentHTML('beforeend', `
+          <style data-font="sample" data-font-version="1.0.0">@font-face { font-family: 'Decklight Sample'; src: url("data:font/woff2;base64,d09GMg==") format("woff2"); font-display: swap; }</style>
+          <script type="application/json" data-font-meta="sample">${JSON.stringify({ name: 'sample', title: 'Decklight Sample', family: 'Decklight Sample', fallback: 'system-ui, sans-serif', stack: "'Decklight Sample', system-ui, sans-serif", role: 'body' })}<\/script>
+          <script type="application/json" data-design-system-meta="acme">${JSON.stringify({ name: 'acme', title: 'Acme', layouts: [], palette: [], recommendedFonts: ['humanist', 'sample@type-mkt', 'not-here'] })}<\/script>`);
+      }
+    }
     if (HARNESS_MODE.startsWith('chapters') || HARNESS_MODE === 'enhance') {
       const secs = document.querySelectorAll('.decklight > section');
       secs[1].setAttribute('data-module', 'Foundations');
@@ -539,7 +566,9 @@
       // must not grow a second set of rows for the same idea
       : HARNESS_MODE === 'chaptersplaylist'
         ? { playlist: { modules: [{ title: 'Part one', href: 'a.html' }, { title: 'Part two', href: 'b.html' }], index: 0 } }
-        : {});
+        // the deck's own default font: a referenced package, by name
+        : HARNESS_MODE === 'fonts' ? { font: 'sample' }
+          : {});
 
     const press = (k, opts = {}) => document.body.dispatchEvent(
       new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
@@ -855,6 +884,70 @@
         press('Escape');
         r.PASS = r.firstPackIsRecommended && r.captionSaysWhose && r.listsWhatCanBeApplied && r.starred && r.firstInTheFlatList
           && r.notTwiceInTheFlatList && r.starredWhenFiltered && r.goneWithoutOne;
+      }
+
+      if (mode === 'fonts' || mode === 'fontslegacy' || mode === 'fontsauthor') {
+        // Fonts (SPEC FONTS): the deck's default, the picker that PREVIEWS on
+        // the slide and puts back what you came with, the recommended first.
+        const F = '.decklight-font-picker';
+        const body = () => getComputedStyle(document.querySelector('.decklight')).getPropertyValue('--font-body');
+        const rows = () => [...document.querySelectorAll(`${F} .fp-row`)];
+        const selected = () => document.querySelector(`${F} .fp-row.narr-sel`)?.dataset.font;
+        const openPicker = async () => {
+          press('/');
+          for (const ch of 'font') press(ch);
+          const row = [...document.querySelectorAll('.decklight-palette .pal-row')].find((n) => /^Font…/.test(n.textContent));
+          row?.click();
+          await settle();
+        };
+        if (mode === 'fontslegacy') {
+          r.legacyIndexRestored = /Rockwell/.test(body());   // index 7: slab serif
+          r.PASS = r.legacyIndexRestored;
+        } else if (mode === 'fonts') {
+          r.deckDefault = /Decklight Sample/.test(body());
+          await openPicker();
+          r.opens = !!document.querySelector(F);
+          r.recommendedFirst = /★ recommended by Acme/.test(document.querySelector(`${F} .fp-rec`)?.textContent ?? '')
+            && rows()[0]?.dataset.font === 'humanist' && rows()[1]?.dataset.font === 'sample'   // the design system's order
+            && /★/.test(rows()[0].textContent) && !rows().some((n) => n.dataset.font === 'not-here');
+          r.deckFontTagged = /in the deck/.test(rows().find((n) => n.dataset.font === 'sample')?.textContent ?? '');
+          r.startsOnTheCurrent = selected() === 'sample';
+          r.eachInItsOwnFace = /Rockwell/.test(rows().find((n) => n.dataset.font === 'slab serif')?.querySelector('.narr-row-label').style.fontFamily ?? '');
+          press('ArrowUp');   // onto humanist
+          r.previews = /Seravek/.test(body()) && selected() === 'humanist';
+          press('Escape');
+          r.escapePutsItBack = !document.querySelector(F) && /Decklight Sample/.test(body());
+          await openPicker();
+          while (selected() !== 'slab serif') press('ArrowDown');
+          press('Enter');
+          r.enterKeeps = !document.querySelector(F) && /Rockwell/.test(body())
+            && localStorage.getItem('decklight-font:' + location.pathname) === 'slab serif';
+          press(']');
+          r.cycleReachesTheDeckFont = /monospace/.test(body());
+          press(']');
+          r.cycleReachesThePackage = /Decklight Sample/.test(body());
+          r.PASS = r.deckDefault && r.opens && r.recommendedFirst && r.deckFontTagged && r.startsOnTheCurrent && r.eachInItsOwnFace
+            && r.previews && r.escapePutsItBack && r.enterKeeps && r.cycleReachesTheDeckFont && r.cycleReachesThePackage;
+        } else {
+          await settle();   // the ping: authoring
+          await openPicker();
+          await settle(); await settle();   // the marketplace listing
+          const inter = () => rows().find((n) => n.dataset.font === 'inter');
+          r.offeredListed = /○ Type/.test(inter()?.textContent ?? '') && !rows().some((n) => n.dataset.font === 'broken');
+          r.saysSpaceAdds = /Space adds a marketplace font to the deck/.test(document.querySelector(`${F} .fp-foot`)?.textContent ?? '');
+          while (selected() !== 'inter') press('ArrowDown');
+          const face = document.querySelector('style[data-font-preview="inter"]');
+          r.previewLinksItsFaces = /font-family: 'Inter'; src: url\("[^"]*\/decklight-font\/type-mkt\/inter\/Inter-400\.woff2"\)/.test(face?.textContent ?? '')
+            && /'Inter'/.test(body());
+          press(' ');
+          await settle(); await settle();
+          const sent = CALLS.post.find((c) => c.u.includes('/edit/font/mark'))?.body;
+          r.spaceReferencesIt = sent?.ref === 'inter@type-mkt' && sent?.used === true && sent?.quiet === true;
+          r.rowSaysSo = /● Type/.test(inter()?.textContent ?? '');
+          r.staysOpen = !!document.querySelector(F);
+          press('Escape');
+          r.PASS = r.offeredListed && r.saysSpaceAdds && r.previewLinksItsFaces && r.spaceReferencesIt && r.rowSaysSo && r.staysOpen;
+        }
       }
 
       if (mode === 'palette') {

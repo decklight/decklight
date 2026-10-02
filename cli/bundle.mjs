@@ -27,6 +27,9 @@
  *                    stylesheet with each relative url() as a data: URI, its
  *                    meta and its layouts, the blocks every server injects
  *                    (SPEC DESIGN_SYSTEMS), so layouts expand from file://.
+ *   - fonts        : every font package the deck references ("fonts") — its
+ *                    faces as data: URIs in @font-face rules, and its meta
+ *                    (SPEC FONTS), so the type is the same from file://.
  *
  * MERGE mode (--all or several inputs): every module's <section>s are
  * concatenated into one deck, in order. Each module's first section gets
@@ -42,6 +45,7 @@ import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
 import { configBlock, firstExecutableScript, hasEmbeddedRuntime, hasRuntime, linkRuntime } from './runtime-link.mjs';
 import { addedThemeStyle, markedRefs, markedShipped, markedSources, resolveThemeRef, stillValid } from './theme-refs.mjs';
 import { bundleDesignSystem, designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
+import { bundleFont, fontRefs, fontVerdict, resolveFontRef } from './font-refs.mjs';
 import { MarketplaceError } from './marketplace.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
@@ -240,6 +244,10 @@ Options:
                    bundle even when a design system the deck uses cannot be
                    read on this machine: it is left out, and the slides that
                    name its layouts render plainly wherever the file opens
+  --allow-missing-fonts
+                   bundle even when a font the deck references cannot be read
+                   on this machine: it is left out, and the theme's own font
+                   stack shows wherever the file opens
 `);
   return 0;
 }
@@ -247,6 +255,7 @@ Options:
 const inputs = [];
 let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false, deckFile = false, openOn = null;
 let allowMissingSystems = false;
+let allowMissingFonts = false;
 const transformNames = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -262,6 +271,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--deck') { deckFile = true; sign = true; }
   else if (a === '--title') mergedTitle = argv[++i];
   else if (a === '--allow-missing-design-systems') allowMissingSystems = true;
+  else if (a === '--allow-missing-fonts') allowMissingFonts = true;
   else if (!a.startsWith('-')) inputs.push(a);
   else fail(`unknown argument: ${a}`);
 }
@@ -467,6 +477,42 @@ const systemsLeftOut = [];   // { ref, why }
     }
   }
   for (const x of systemsLeftOut) notices.push(`design system ${x.ref} not carried — ${x.why}; the slides that use it render plainly`);
+}
+
+// Fonts (SPEC FONTS) the same way: resolved from the checkouts, carried as
+// bytes, once per name; a font here but broken is refused whatever the flag.
+const fonts = [];          // { ref, name, version, marketplace, block }
+const fontsLeftOut = [];   // { ref, why }
+{
+  const decks = jobs
+    ? jobs.map((j) => ({ label: j.title, html: fs.readFileSync(j.path, 'utf8') }))
+    : [{ label: path.basename(firstPath), html: sourceHtml }];
+  const byName = new Map();
+  for (const d of decks) {
+    const from = markedSources(d.html);
+    for (const ref of fontRefs(d.html)) {
+      const r = resolveFontRef(ref, undefined, { source: from[ref.marketplace] ?? null });
+      const verdict = r.dir ? fontVerdict(r.dir) : null;
+      if (verdict && !verdict.ok) fail(`the deck uses the font ${ref.ref}, and ${verdict.why}`);
+      if (r.missing) {
+        if (!allowMissingFonts) {
+          fail(`the deck uses the font ${ref.ref}, and this machine cannot read it — ${r.missing}\n`
+            + '  (--allow-missing-fonts bundles without it: the theme\'s own font stack shows instead)');
+        }
+        if (!fontsLeftOut.some((x) => x.ref === ref.ref)) fontsLeftOut.push({ ref: ref.ref, why: r.missing });
+        continue;
+      }
+      const version = String(verdict.manifest.version ?? '');
+      const seen = byName.get(ref.name);
+      if (seen) {
+        if (seen.version !== version) fail(`two modules use the font "${ref.name}" at different versions — ${seen.label} has ${seen.version}, ${d.label} has ${version}; one file can carry one`);
+        continue;
+      }
+      byName.set(ref.name, { version, label: d.label });
+      fonts.push({ ref: ref.ref, name: ref.name, version, marketplace: ref.marketplace, family: verdict.manifest.family, block: bundleFont(r, verdict) });
+    }
+  }
+  for (const x of fontsLeftOut) notices.push(`font ${x.ref} not carried — ${x.why}; the theme's own font stack shows instead`);
 }
 if (openOn !== null && !/^[\w-]+$/.test(openOn)) fail(`--theme ${JSON.stringify(openOn)} is not a theme name`);
 if (openOn && !ownTheme && !markedNames.includes(openOn) && !themeNames.includes(openOn)) themeNames.push(openOn);
@@ -686,6 +732,18 @@ if (systems.length) {
   insert(at(true), systems.flatMap((x) => x.block.tags.slice(1)));
   insert(at(false), systems.map((x) => x.block.tags[0]));
 }
+// The fonts the same way: their @font-face at the end of <head>, where the
+// servers link them, their meta before the runtime reads it.
+if (fonts.length) {
+  const at = (withScript) => {
+    const masked = html.replace(/<!--[\s\S]*?-->/g, (m) => ' '.repeat(m.length));
+    const marks = [masked.search(/<\/head>/i), withScript ? firstExecutableScript(html) ?? -1 : -1].filter((i) => i !== -1);
+    return marks.length ? Math.min(...marks) : 0;
+  };
+  const insert = (i, tags) => { html = `${html.slice(0, i)}${tags.join('\n')}\n${html.slice(i)}`; };
+  insert(at(true), fonts.map((x) => x.block.tags[1]));
+  insert(at(false), fonts.map((x) => x.block.tags[0]));
+}
 
 // -------------------------------------------------------------- assemble
 
@@ -757,6 +815,12 @@ if (systems.length || systemsLeftOut.length) {
   });
   for (const x of systemsLeftOut) parts.push(`${x.ref} — not carried`);
   process.stdout.write(`  designs  ${parts.join(' · ')}\n`);
+}
+if (fonts.length || fontsLeftOut.length) {
+  const parts = fonts.map(({ name, version, marketplace, family, block }) =>
+    `${name} ${version} (from ${marketplace}) — '${family}', ${block.faces} face${block.faces === 1 ? '' : 's'} (${(block.bytes / 1024).toFixed(1)} KB)`);
+  for (const x of fontsLeftOut) parts.push(`${x.ref} — not carried`);
+  process.stdout.write(`  fonts    ${parts.join(' · ')}\n`);
 }
 if (bundleSig) {
   const { writeSidecar, verifyBytes, formatSignature } = await import('./sign.mjs');

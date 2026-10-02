@@ -52,12 +52,14 @@ export const SOURCES_KEY = 'themeSources';
  * kinds of mark, and a source goes only with the last mark of either.
  */
 export const DESIGN_SYSTEMS_KEY = 'designSystems';
+/** …and the fonts it references (SPEC FONTS) — the third kind that shares `themeSources`. */
+export const FONTS_KEY = 'fonts';
 
 /** Every marketplace reference a deck holds, of any kind — what a recorded source is still needed for. */
-export function referencedMarketplaces(html) {
+export function referencedMarketplaces(html, keys = [MARKED_KEY, DESIGN_SYSTEMS_KEY, FONTS_KEY]) {
   const config = configBlock(html)?.config ?? {};
   const out = new Set();
-  for (const key of [MARKED_KEY, DESIGN_SYSTEMS_KEY]) {
+  for (const key of keys) {
     for (const e of Array.isArray(config[key]) ? config[key] : []) {
       const r = parseRef(e);
       if (r) out.add(r.marketplace);
@@ -415,12 +417,11 @@ export function setMarked(html, ref, on, { source = null } = {}) {
   // marketplace with nothing portable to record (a local one) records nothing.
   const sources = markedSources(html);
   if (on && source) sources[parsed.marketplace] = source;
-  // gone with the last mark of EITHER kind — a design system the deck still
-  // uses keeps its marketplace's source when a theme from it is unmarked
-  const designSystems = new Set([...referencedMarketplaces(html)]
-    .filter((m) => (configBlock(html)?.config?.[DESIGN_SYSTEMS_KEY] ?? []).some((e) => parseRef(e)?.marketplace === m)));
+  // gone with the last reference of ANY kind — a design system or a font the
+  // deck still uses keeps its marketplace's source when a theme from it is unmarked
+  const others = referencedMarketplaces(html, [DESIGN_SYSTEMS_KEY, FONTS_KEY]);
   for (const m of Object.keys(sources)) {
-    if (!next.some((r) => r.endsWith(`@${m}`)) && !designSystems.has(m)) delete sources[m];
+    if (!next.some((r) => r.endsWith(`@${m}`)) && !others.has(m)) delete sources[m];
   }
   let inner = withKey(block.inner, MARKED_KEY, next.length ? next : null);
   inner = withKey(inner, SOURCES_KEY, Object.keys(sources).length ? sources : null);
@@ -434,9 +435,11 @@ export function setMarked(html, ref, on, { source = null } = {}) {
 // `</script` cannot survive `portableSource` or a ref's shape to reach here.
 export function withKey(inner, key, value) {
   const json = value === null ? null
-    : Array.isArray(value) ? `[${value.map((r) => JSON.stringify(r)).join(', ')}]`
-      : `{ ${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v).replace(/<\//g, '<\\/')}`).join(', ')} }`;
-  const val = '(?:\\[[^\\]]*\\]|\\{[^{}]*\\})';
+    : typeof value === 'string' ? JSON.stringify(value).replace(/<\//g, '<\\/')
+      : Array.isArray(value) ? `[${value.map((r) => JSON.stringify(r)).join(', ')}]`
+        : `{ ${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)}: ${JSON.stringify(v).replace(/<\//g, '<\\/')}`).join(', ')} }`;
+  // an array, an object, or a string (the deck's default `font`)
+  const val = '(?:\\[[^\\]]*\\]|\\{[^{}]*\\}|"(?:[^"\\\\]|\\\\.)*")';
   const keyRe = new RegExp(`"${key}"\\s*:\\s*${val}`);
   if (keyRe.test(inner)) {
     if (json !== null) return inner.replace(keyRe, () => `"${key}": ${json}`);

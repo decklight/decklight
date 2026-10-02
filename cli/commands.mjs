@@ -54,6 +54,7 @@ export const COMMANDS = {
   agent: { module: './units.mjs', main: 'unitMain', args: (rest, cmd) => [cmd, rest] },
   extension: { module: './extension.mjs', main: 'extensionMain' },
   'design-system': { module: './design-system.mjs', main: 'designSystemMain' },
+  font: { module: './font.mjs', main: 'fontMain' },
   tts: { module: '../tools/voiceover-server.mjs', main: 'ttsMain' },
   lipsync: { module: '../tools/lipsync-server.mjs', main: 'lipsyncMain' },
   video: { module: '../tools/video.mjs', main: 'videoMain' },
@@ -306,6 +307,10 @@ Commands:
            EXAMPLE: decklight design-system add acme@acme-mkt talk.html
            EXAMPLE: decklight design-system layouts acme@acme-mkt   (the slots a slide fills)
            EXAMPLE: decklight design-system check systems/acme   (a catalog's CI gate)
+  font     a typeface's files and licence, referenced by a deck so its faces travel with it —
+           served from the marketplace on this machine, carried by bundle; add/remove/list, check
+           EXAMPLE: decklight font add inter@type-mkt talk.html --use   (and open in it)
+           EXAMPLE: decklight font check fonts/inter   (a catalog's CI gate)
   voice    add a marketplace voice to the picker — a reference to one of an engine's
            voices, never a model, so nothing that reproduces a person is ever downloaded
            EXAMPLE: decklight voice add narrator-anna    (works offline; speaking needs your key)

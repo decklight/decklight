@@ -1,0 +1,15 @@
+{
+  "apiVersion": 1,
+  "name": "sample",
+  "version": "1.0.0",
+  "title": "Decklight Sample",
+  "description": "An invented font package — the fixture every font test starts from.",
+  "family": "Decklight Sample",
+  "fallback": "system-ui, sans-serif",
+  "role": "body",
+  "license": "OFL.txt",
+  "faces": [
+    { "file": "faces/sample-400.woff2", "weight": 400, "style": "normal" },
+    { "file": "faces/sample-700.woff2", "weight": 700, "style": "normal" }
+  ]
+}

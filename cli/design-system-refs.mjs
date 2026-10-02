@@ -39,7 +39,7 @@ import { DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../tools/design-sys
 import { configBlock, isDeck } from './runtime-link.mjs';
 import { configHome, loadRegistry, loadCatalog, MarketplaceError, NAME_RE } from './marketplace.mjs';
 import {
-  parseRef, resolveCatalogEntry, markedSources, withKey, DESIGN_SYSTEMS_KEY, SOURCES_KEY, MARKED_KEY,
+  parseRef, resolveCatalogEntry, markedSources, withKey, referencedMarketplaces, DESIGN_SYSTEMS_KEY, FONTS_KEY, SOURCES_KEY, MARKED_KEY,
 } from './theme-refs.mjs';
 import { resolveSource } from './theme.mjs';
 import { checkDir } from './design-system.mjs';
@@ -85,7 +85,7 @@ export function resolveDesignSystemRef(ref, home = configHome(), { source = null
 }
 
 /** A cheap fingerprint of a package's files — names, sizes and mtimes — so nothing unchanged is re-read. */
-function signature(dir) {
+export function signature(dir) {
   const parts = [];
   const walk = (abs, rel) => {
     for (const name of readdirSync(abs).sort()) {
@@ -129,6 +129,8 @@ export function designSystemMeta(verdict) {
     palette: Array.isArray(m.palette) ? m.palette : [],
     // the themes it is made to sit on — the theme picker lists them first
     recommendedThemes: Array.isArray(m.recommendedThemes) ? m.recommendedThemes.filter((t) => typeof t === 'string') : [],
+    // …and the fonts (SPEC FONTS) — the font picker lists them first
+    recommendedFonts: Array.isArray(m.recommendedFonts) ? m.recommendedFonts.filter((t) => typeof t === 'string') : [],
     layouts: (verdict.summary?.layouts ?? []).map(({ id, title, slots }) => ({ id, title, slots })),
   };
 }
@@ -326,9 +328,9 @@ export function setDesignSystem(html, ref, on, { source = null } = {}) {
   const next = on ? [...current.map((r) => r.ref), parsed.ref] : current.map((r) => r.ref).filter((r) => r !== parsed.ref);
   const sources = markedSources(html);
   if (on && source) sources[parsed.marketplace] = source;
-  const themes = (Array.isArray(block.config[MARKED_KEY]) ? block.config[MARKED_KEY] : []).map((e) => parseRef(e)).filter(Boolean);
+  const others = referencedMarketplaces(html, [MARKED_KEY, FONTS_KEY]);
   for (const m of Object.keys(sources)) {
-    if (!next.some((r) => r.endsWith(`@${m}`)) && !themes.some((t) => t.marketplace === m)) delete sources[m];
+    if (!next.some((r) => r.endsWith(`@${m}`)) && !others.has(m)) delete sources[m];
   }
   let inner = withKey(block.inner, DESIGN_SYSTEMS_KEY, next.length ? next : null);
   inner = withKey(inner, SOURCES_KEY, Object.keys(sources).length ? sources : null);

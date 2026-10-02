@@ -36,6 +36,7 @@ import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSystemLayoutPicker } from './design-systems.js';
 import { setupSystemLayouts, isSystemLayout } from './design-system.js';
+import { createFonts } from './fonts.js';
 import { readPref, writePref } from './prefs.js';
 
 /**
@@ -1104,36 +1105,6 @@ export function init(userConfig = {}) {
     palEl = null;
   }
 
-  // font picker (palette drill-in): the [ / ] stacks as a list
-  let fontPickEl = null, fontPickSel = 0;
-  function openFontPicker() {
-    if (fontPickEl) return closeFontPicker();
-    overlays.opening();
-    fontPickEl = document.createElement('div');
-    fontPickEl.className = 'decklight-narr decklight-font-picker';
-    fontPickEl.innerHTML = '<div class="narr-card" role="listbox" aria-label="Fonts"></div>';
-    const card = fontPickEl.querySelector('.narr-card');
-    FONTS.forEach(([name], i) => {
-      const el = document.createElement('div');
-      el.className = 'narr-row' + (i === fontIdx ? ' narr-cur' : '');
-      el.textContent = name;
-      if (i > 0) el.style.fontFamily = FONTS[i][1];
-      el.addEventListener('mouseenter', () => selectFontRow(i));
-      el.addEventListener('click', () => { applyFont(i); closeFontPicker(); });
-      card.appendChild(el);
-    });
-    closeOnBackdrop(fontPickEl, closeFontPicker);
-    root.appendChild(fontPickEl);
-    selectFontRow(fontIdx);
-  }
-  function selectFontRow(i) {
-    fontPickSel = selectInList(fontPickEl.querySelectorAll('.narr-row'), i, 'narr-sel');
-  }
-  function closeFontPicker() {
-    fontPickEl?.remove();
-    fontPickEl = null;
-  }
-
   // settings (palette drill-in): facts about what this deck is running, and a
   // home for the knobs that will never be worth a key of their own. One row
   // today — the runtime version, which is the first thing a bug report asks
@@ -1230,55 +1201,29 @@ export function init(userConfig = {}) {
   themes.restoreSaved();
   themes.reportMissing();
 
-  // ----- font cycling ([ / ]) — SPEC PRESENTING -------------------------------------
-  // Curated system stacks (offline-safe, same rule as theme fonts THEMING), applied
-  // as inline custom properties on the root so they override any theme — link,
-  // inline, or generated — and survive theme switching. Entry 0 restores the
-  // theme's own type. The choice persists per deck path.
-  const FONTS = [
-    ['theme default', null],
-    ['system sans', "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"],
-    ['rounded', "ui-rounded, 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Quicksand, Comfortaa, 'Arial Rounded MT Bold', Calibri, sans-serif"],
-    ['humanist', "Seravek, 'Gill Sans Nova', Ubuntu, Calibri, 'DejaVu Sans', source-sans-pro, sans-serif"],
-    ['geometric', "'Avenir Next', Avenir, Montserrat, Corbel, 'URW Gothic', source-sans-pro, sans-serif"],
-    ['classical serif', "'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif"],
-    ['transitional serif', "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif"],
-    ['slab serif', "Rockwell, 'Rockwell Nova', 'Roboto Slab', 'DejaVu Serif', 'Sitka Small', serif"],
-    ['monospace', "'SF Mono', SFMono-Regular, ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace"],
-  ];
-  const fontKey = 'decklight-font:' + location.pathname;
-  let fontIdx = 0;
-  function applyFont(i, { silent = false, remeasure = true } = {}) {
-    fontIdx = ((i % FONTS.length) + FONTS.length) % FONTS.length;
-    const [name, stack] = FONTS[fontIdx];
-    if (stack) {
-      root.style.setProperty('--font-body', stack);
-      root.style.setProperty('--font-heading', stack);
-    } else {
-      root.style.removeProperty('--font-body');
-      root.style.removeProperty('--font-heading');
-    }
-    if (!params.has('embedded')) {
-      try {
-        writePref(fontKey, stack ? fontIdx : null);
-      } catch { /* private mode */ }
-    }
-    if (remeasure) {
-      // type metrics changed: pinned titles and the overflow guardrail
-      // re-derive from real measurements
+  // ----- fonts ([ / ], Font…) — SPEC PRESENTING, FONTS --------------------------------
+  // The nine curated stacks (offline-safe, the same rule as theme fonts), the
+  // deck's font packages, and — authoring — what the marketplaces offer, all
+  // applied as inline custom properties on the root so they override any
+  // theme and survive theme switching. src/core/fonts.js holds the list, the
+  // previewing picker and the per-deck pick.
+  const fonts = createFonts({
+    root, config, params, toast,
+    debugLog: (...a) => debugLog(...a),
+    overlays,
+    editmode: () => editmode,
+    // type metrics changed: pinned titles and the overflow guardrail
+    // re-derive from real measurements (once there is a deck to measure)
+    remeasure: () => {
+      if (!instance?._sections) return;
       setupPinnedTitles(instance._sections, config);
       checkOverflow(instance._sections[instance.state.slide - 1], instance.state.slide);
-    }
-    if (!silent) toast(`font: ${name}`);
-    debugLog('font', name);
-  }
-  function cycleFont(dir) { applyFont(fontIdx + dir); }
-  try {
-    // restore BEFORE the first sync so pinned titles measure the real font
-    // (remeasure would touch the not-yet-created instance)
-    const savedFont = parseInt(readPref(fontKey) ?? '', 10);
-    if (savedFont > 0 && savedFont < FONTS.length) applyFont(savedFont, { silent: true, remeasure: false });
-  } catch { /* ignore */ }
+    },
+  });
+  const cycleFont = (dir) => fonts.cycle(dir);
+  const openFontPicker = () => fonts.open();
+  // restore BEFORE the first sync so pinned titles measure the real font
+  try { fonts.restore(); } catch { /* ignore */ }
 
   // ----- brand logo (SPEC PRESENTING) ------------------------------------------------
   // config.logo = { onLight, onDark, src?, height?, position? }: a mark shown
@@ -2027,16 +1972,7 @@ export function init(userConfig = {}) {
       onClose: closePalette,
     }),
   });
-  overlays.register({
-    isOpen: () => !!fontPickEl,
-    close: closeFontPicker,
-    transient: true,
-    keydown: (e) => typeaheadKeydown(e, {
-      onMove: (d) => selectFontRow(fontPickSel + d),
-      onCommit: () => { applyFont(fontPickSel); closeFontPicker(); },
-      onClose: closeFontPicker,
-    }),
-  });
+  overlays.register({ isOpen: fonts.isOpen, close: fonts.close, transient: true, keydown: fonts.keydown });
   overlays.register({
     isOpen: () => !!setEl,
     close: closeSettings,

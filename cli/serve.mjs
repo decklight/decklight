@@ -20,6 +20,7 @@ import { packageAsset } from './pkg.mjs';
 import { linkRuntime } from './runtime-link.mjs';
 import { linkAddedThemes, themeRefAsset } from './theme-refs.mjs';
 import { linkDesignSystems, designSystemAsset, inDesignSystemNamespace } from './design-system-refs.mjs';
+import { linkFonts, fontAsset, inFontNamespace } from './font-refs.mjs';
 
 // ── remote access: the security seam for the phone remote (#39) ────────────
 // --remote widens the LISTENER, never the editing surface: off-loopback,
@@ -241,6 +242,11 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
       const asset = !dotted && designSystemAsset(rel);
       if (!asset) { res.writeHead(404); res.end('not found'); return true; }
       file = asset.file; type = asset.type; extra = asset.headers;
+    } else if (inFontNamespace(rel)) {
+      // a font's faces (SPEC FONTS): the same terminal namespace, one 404
+      const asset = !dotted && fontAsset(rel);
+      if (!asset) { res.writeHead(404); res.end('not found'); return true; }
+      file = asset.file; type = asset.type; extra = asset.headers;
     } else {
       const escapes = !file.startsWith(root + sep) && file !== root;
       if (escapes || !existsSync(file)) {
@@ -281,7 +287,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     // is a page; everything else streams below.
     if (type === MIME['.html']) {
       const text = readFileSync(file).toString('utf8');
-      const body = Buffer.from(linkDesignSystems(linkAddedThemes(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text))), 'utf8');
+      const body = Buffer.from(linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(rewriteHtml ? rewriteHtml(text, file) : text)))), 'utf8');
       const want = rangeOf(req.headers.range, body.length);
       if (want && !want.satisfiable) {
         res.writeHead(416, { 'content-range': `bytes */${body.length}` });

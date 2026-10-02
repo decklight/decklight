@@ -156,6 +156,9 @@ export function readManifest(raw) {
   if (m.recommendedThemes !== undefined && (!Array.isArray(m.recommendedThemes) || !m.recommendedThemes.every((t) => typeof t === 'string'))) {
     at('manifest-field', 'recommendedThemes', 'recommendedThemes must be an array of theme names');
   }
+  if (m.recommendedFonts !== undefined && (!Array.isArray(m.recommendedFonts) || !m.recommendedFonts.every((t) => typeof t === 'string'))) {
+    at('manifest-field', 'recommendedFonts', 'recommendedFonts must be an array of font names — a font package (name or name@marketplace) or a font-picker stack');
+  }
   return { manifest: m, problems };
 }
 
@@ -493,5 +496,6 @@ export function checkPackage(pkg) {
   summary.assets = assets;
   summary.palette = Array.isArray(manifest.palette) ? manifest.palette.length : 0;
   summary.recommendedThemes = manifest.recommendedThemes ?? [];
+  summary.recommendedFonts = manifest.recommendedFonts ?? [];
   return { ok: problems.length === 0, problems, warnings, summary };
 }

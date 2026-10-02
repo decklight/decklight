@@ -97,6 +97,7 @@ import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
 import { configBlock, configTheme, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkAddedThemes } from './theme-refs.mjs';
 import { linkDesignSystems } from './design-system-refs.mjs';
+import { linkFonts } from './font-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides } from '../tools/narration-manifest.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
@@ -1684,7 +1685,7 @@ export async function editMain(args, { onListen = null } = {}) {
    * `<base>` comes first, so those references resolve from the root, where
    * `staticFiles` answers them, not from under /edit/.
    */
-  const asServed = (html) => linkDesignSystems(linkAddedThemes(linkRuntime(withBaseHref(html))));
+  const asServed = (html) => linkFonts(linkDesignSystems(linkAddedThemes(linkRuntime(withBaseHref(html)))));
 
   function deckAtRoute({ res, url, json, CORS }) {
     if (!gitOn) return json(409, { ok: false, error: 'git is off for this session' });
@@ -2062,6 +2063,74 @@ export async function editMain(args, { onListen = null } = {}) {
       if (req.quiet === true) quietWrite = out.html;
       writeFileAtomic(deckPath, out.html);
       console.log(`  design system: ${on ? 'referenced' : 'dropped'} ${deckRef}`);
+    }
+    return json(200, { ok: true, ref: deckRef, used: on, changed: out.changed, ...history.counts() });
+  }
+
+  // Every font every registered marketplace offers (SPEC FONTS), each saying
+  // whether this deck references it, with the faces a preview needs — the
+  // font picker's marketplace rows. Cache-only, like the theme browse.
+  async function fontBrowseRoute({ json }) {
+    const { marketplaceFonts, fontRefs, resolveFontRef } = await import('./font-refs.mjs');
+    const { markedSources } = await import('./theme-refs.mjs');
+    const { fonts, stale, unfetched } = marketplaceFonts();
+    const html = readDeck();
+    const sources = markedSources(html);
+    const used = new Set(fontRefs(html).map((r) => {
+      const hit = resolveFontRef(r, undefined, { source: sources[r.marketplace] ?? null });
+      return `${r.name}@${hit.local ?? r.marketplace}`;
+    }));
+    return json(200, { ok: true, fonts: fonts.map((f) => ({ ...f, used: used.has(f.qualified) })), stale, unfetched, cacheOnly: true });
+  }
+
+  /**
+   * Reference a font from this deck, or drop it (SPEC FONTS) — the twin of
+   * the design-system mark above: `font check` first, one config entry, one
+   * undo. `use: true` also makes it the deck's default font. `quiet` writes
+   * without the reload: the picker previews the face itself, and stays open.
+   */
+  async function fontMarkRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const ref = typeof req.ref === 'string' ? req.ref.trim() : '';
+    const on = req.used !== false && req.marked !== false;
+    const { parseRef, refForDeck } = await import('./theme-refs.mjs');
+    const { resolveFontRef, setFont, fontRefs } = await import('./font-refs.mjs');
+    const { checkFontDir } = await import('./font.mjs');
+    const { MarketplaceError, recordInstall, loadRegistry, configHome } = await import('./marketplace.mjs');
+    if (!parseRef(ref)) return json(400, { ok: false, error: 'which font? — name@marketplace' });
+    const before = readDeck();
+    let deckRef = ref, source = null;
+    if (on) {
+      const r = resolveFontRef(ref);
+      if (!r.dir) {
+        const status = r.entry && r.entry.type !== 'font' ? 400 : r.entry ? 409 : 404;
+        return json(status, { ok: false, error: r.missing });
+      }
+      const verdict = checkFontDir(r.dir);
+      if (!verdict.ok) {
+        return json(400, { ok: false, error: `${r.ref} fails the font check`, problems: verdict.problems.map((p) => `${p.file}${p.line ? ` line ${p.line}` : ''}: ${p.msg}`) });
+      }
+      source = r.source ?? null;
+      deckRef = refForDeck(before, r.name, r.local, source);
+      if (!fontRefs(before).some((x) => x.ref === deckRef)) {
+        recordInstall({ type: 'font', name: r.name, marketplace: r.local, version: r.entry.version ?? null,
+          commit: loadRegistry(configHome()).marketplaces?.[r.local]?.commit ?? null });
+      }
+    } else {
+      const p = parseRef(ref);
+      deckRef = fontRefs(before).find((x) => x.ref === ref || x.name === p.name)?.ref ?? ref;
+    }
+    let out;
+    try { out = setFont(before, deckRef, on, { source, use: req.use === true }); }
+    catch (e) {
+      if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
+      throw e;
+    }
+    if (out.changed) {
+      history.record(before);
+      if (req.quiet === true) quietWrite = out.html;
+      writeFileAtomic(deckPath, out.html);
+      console.log(`  font: ${on ? 'referenced' : 'dropped'} ${deckRef}${on && req.use === true ? ' (the deck\'s default)' : ''}`);
     }
     return json(200, { ok: true, ref: deckRef, used: on, changed: out.changed, ...history.counts() });
   }
@@ -2953,6 +3022,8 @@ export async function editMain(args, { onListen = null } = {}) {
     'POST /edit/theme/mark': themeMarkRoute,
     'GET /edit/design-system/browse': designSystemBrowseRoute,
     'POST /edit/design-system/mark': designSystemMarkRoute,
+    'GET /edit/font/browse': fontBrowseRoute,
+    'POST /edit/font/mark': fontMarkRoute,
     'GET /edit/wizard': wizardSchemaRoute,
     'POST /edit/wizard': wizardConfigureRoute,
     'POST /edit/wizard/forget': wizardForgetRoute,

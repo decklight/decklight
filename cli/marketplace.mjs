@@ -73,6 +73,8 @@ export const INSTALL_HINT = {
   'publish-target': null,
   // DESIGN_SYSTEMS: a deck REFERENCES one — nothing is installed into the library
   'design-system': 'decklight design-system add <name@marketplace> <deck>',
+  // FONTS: the same — a deck references a font, its faces stay in the marketplace
+  font: 'decklight font add <name@marketplace> <deck>',
 };
 
 export const KNOWN_TYPES = Object.keys(INSTALL_HINT);
@@ -426,6 +428,8 @@ const ENTRY_SHAPES_OPTIONAL = {
   // presence is the generic rule's ("missing — the repo-relative path…"); the
   // shape is checked here, so a missing source is said once, not twice
   'design-system': { source: designSystemSource },
+  // a font package is a directory too (SPEC FONTS) — held to the same rule
+  font: { source: (v) => designSystemSource(v)?.replace(/a design system/g, 'a font') ?? null },
   transform: { sha256: sha256Shape },
   // An engine entry wears one `type` for two jobs, and only one of them
   // carries code. `{name, type: 'engine', source, wizard}` DECLARES a wizard
@@ -481,6 +485,11 @@ const ENTRY_SHAPES = {
     apiVersion: (v) => (Number.isInteger(v) && v >= 1
       ? null
       : 'must be a positive integer — the design-system format version this package needs, not a decklight version'),
+  },
+  font: {
+    apiVersion: (v) => (Number.isInteger(v) && v >= 1
+      ? null
+      : 'must be a positive integer — the font format version this package needs, not a decklight version'),
   },
   // An agent entry is a DESCRIPTOR (SPEC AGENT_UNITS): the binary you already
   // installed, and the argv of its headless mode. Deliberately not code — the

@@ -1,0 +1,4 @@
+Copyright 2026 The Decklight Sample Project Authors
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+(A stand-in licence file for the test fixture.)
