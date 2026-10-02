@@ -2000,7 +2000,7 @@ export async function editMain(args, { onListen = null } = {}) {
   async function designSystemBrowseRoute({ json }) {
     const { marketplaceDesignSystems, designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
     const { markedSources } = await import('./theme-refs.mjs');
-    const { systems, stale } = marketplaceDesignSystems();
+    const { systems, stale, unfetched } = marketplaceDesignSystems();
     const html = readDeck();
     const sources = markedSources(html);
     // what the deck references, as THIS machine names the catalog
@@ -2008,7 +2008,7 @@ export async function editMain(args, { onListen = null } = {}) {
       const hit = resolveDesignSystemRef(r, undefined, { source: sources[r.marketplace] ?? null });
       return `${r.name}@${hit.local ?? r.marketplace}`;
     }));
-    return json(200, { ok: true, systems: systems.map((s) => ({ ...s, used: used.has(s.qualified) })), stale, cacheOnly: true });
+    return json(200, { ok: true, systems: systems.map((s) => ({ ...s, used: used.has(s.qualified) })), stale, unfetched, cacheOnly: true });
   }
 
   /**

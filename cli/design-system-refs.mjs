@@ -336,14 +336,20 @@ export function setDesignSystem(html, ref, on, { source = null } = {}) {
 /**
  * Every design system every registered marketplace offers, from the cache —
  * what `design-system list` and the "Design systems…" palette show — and the
- * marketplaces it could not read, named so `marketplace update` can be said.
+ * marketplaces it could not list, named so `marketplace update` can be said:
+ * `unfetched`, registered but never fetched (the first-party one, on every
+ * install that has not asked — nothing is fetched unasked), and `stale`, a
+ * cached catalog that no longer reads. The two are told apart because "could
+ * not be read" about a catalog nobody has fetched yet sounds like a fault.
  */
 export function marketplaceDesignSystems(home = configHome()) {
   const systems = [];
   const stale = [];
+  const unfetched = [];
   for (const market of Object.keys(loadRegistry(home).marketplaces ?? {})) {
     const catalog = loadCatalog(market, home);
-    if (!catalog?.ok) { stale.push(market); continue; }
+    if (!catalog) { unfetched.push(market); continue; }
+    if (!catalog.ok) { stale.push(market); continue; }
     for (const entry of catalog.manifest.entries ?? []) {
       if (entry.type !== 'design-system') continue;
       const r = resolveDesignSystemRef({ name: entry.name, marketplace: market, ref: `${entry.name}@${market}` }, home);
@@ -355,5 +361,5 @@ export function marketplaceDesignSystems(home = configHome()) {
       });
     }
   }
-  return { systems, stale };
+  return { systems, stale, unfetched };
 }

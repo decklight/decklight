@@ -86,11 +86,16 @@ test('a reference resolves to its package directory, or says why it cannot — a
 
 test('the catalog listing: every design system on offer, the ones this machine cannot use named', (t) => {
   const { home: h } = home(t);
-  const { systems, stale } = marketplaceDesignSystems(h);
+  const { systems, stale, unfetched } = marketplaceDesignSystems(h);
   assert.deepEqual(systems.map((s) => s.qualified), ['acme@acme-mkt', 'future@acme-mkt']);
   assert.equal(systems[0].group, 'Acme');
   assert.match(systems[1].missing, /needs a newer decklight/);
-  assert.ok(stale.includes('decklight'), 'the first-party catalog, registered not fetched, is named');
+  assert.ok(unfetched.includes('decklight'), 'the first-party catalog, registered not fetched, is named as not fetched yet');
+  assert.ok(!stale.includes('decklight'), '— not as a catalog that could not be read');
+  // a cached catalog that no longer validates is the one that is stale
+  writeFileSync(path.join(h, 'marketplaces', 'acme-mkt.json'), '{ not json');
+  const broken = marketplaceDesignSystems(h);
+  assert.deepEqual([broken.stale, broken.systems.length], [['acme-mkt'], 0]);
 });
 
 // ── injection ─────────────────────────────────────────────────────────────

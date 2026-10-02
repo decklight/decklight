@@ -31,7 +31,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
     if (!c) return;
     if (state.loading) { c.innerHTML = '<div class="narr-head">design systems</div><div class="rec-line">asking the author server…</div>'; return; }
     if (state.error) { c.innerHTML = `<div class="narr-head">design systems</div><div class="rec-line rec-warn">${escapeHtml(state.error)}</div><div class="rec-hint">Esc to close</div>`; return; }
-    const { systems, stale } = state;
+    const { systems, stale, unfetched = [] } = state;
     const groups = new Map();
     for (const s of systems) {
       if (!groups.has(s.group)) groups.set(s.group, []);
@@ -52,7 +52,10 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
       }
     }
     if (!systems.length) html += '<div class="rec-line">No registered marketplace offers a design system — decklight marketplace add &lt;owner/repo&gt;</div>';
-    for (const m of stale) html += `<div class="rec-line rec-warn">${escapeHtml(m)} could not be read — decklight marketplace update ${escapeHtml(m)}</div>`;
+    // never fetched is not a fault — nothing is fetched unasked — so it is
+    // said plainly, and only a cached catalog that no longer reads is a warning
+    for (const m of unfetched) html += `<div class="rec-line">${escapeHtml(m)} has not been fetched yet — decklight marketplace update ${escapeHtml(m)}</div>`;
+    for (const m of stale) html += `<div class="rec-line rec-warn">${escapeHtml(m)}'s cached catalog could not be read — decklight marketplace update ${escapeHtml(m)}</div>`;
     html += '<div class="rec-hint">↑/↓ · Space or ⏎ toggles · Esc closes</div>';
     c.innerHTML = html;
     c.querySelectorAll('.ds-row').forEach((r) => {
@@ -81,7 +84,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
       const r = await fetch(`${base()}/edit/design-system/browse`);
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error(j.error ?? `the author server answered ${r.status}`);
-      render({ systems: j.systems ?? [], stale: j.stale ?? [] });
+      render({ systems: j.systems ?? [], stale: j.stale ?? [], unfetched: j.unfetched ?? [] });
     } catch (e) {
       render({ error: `could not list design systems — ${e.message ?? e}` });
     }
@@ -101,7 +104,11 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
       if (!r.ok || !j.ok) throw new Error([j.error, ...(j.problems ?? []).slice(0, 2)].filter(Boolean).join(' · ') || `the author server answered ${r.status}`);
       debugLog('design-system', `${j.used ? 'referenced' : 'dropped'} ${j.ref}`);
       // the server links it in; the reload the write causes brings it back applied
-      toast(j.changed ? `${j.used ? '● this deck now uses' : '○ dropped'} ${j.ref} — Z takes it back` : `${j.ref}: nothing to change`, 3200);
+      // Referencing changes nothing on screen by itself — a design system styles
+      // only the slides that name its layouts — so the toast says what to do next.
+      toast(!j.changed ? `${j.ref}: nothing to change`
+        : j.used ? `● this deck now uses ${j.ref} — its layouts are in / → Use design-system layout… · Z takes it back`
+          : `○ dropped ${j.ref} — Z takes it back`, j.used && j.changed ? 6000 : 3200);
       close();
     } catch (e) {
       toast(`${s.qualified} — ${e.message ?? e}`, 7000);

@@ -191,7 +191,7 @@
       if (HARNESS_MODE === 'designsystems') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/design-system/browse')) {
-          return json({ ok: true, cacheOnly: true, stale: ['decklight'], systems: [
+          return json({ ok: true, cacheOnly: true, unfetched: ['decklight'], stale: ['old-mkt'], systems: [
             { name: 'acme', marketplace: 'acme-mkt', qualified: 'acme@acme-mkt', group: 'Acme', version: '1.2.0', description: 'Acme Brand', used: false },
             { name: 'globex', marketplace: 'acme-mkt', qualified: 'globex@acme-mkt', group: 'Acme', version: '2.0.0', description: 'Globex', used: true },
             { name: 'future', marketplace: 'acme-mkt', qualified: 'future@acme-mkt', group: 'Acme', missing: 'future@acme-mkt needs a newer decklight', used: false },
@@ -2387,12 +2387,15 @@
         r.listed = labels.length === 3 && /^○ acme@acme-mkt/.test(labels[0]) && /^● globex@acme-mkt/.test(labels[1]);
         r.grouped = /Acme/.test(list?.querySelector('.narr-group')?.textContent ?? '');
         r.unusableSaidWhy = /needs a newer decklight/.test(list?.querySelectorAll('.ds-row')[2]?.textContent ?? '');
-        r.staleNamed = /decklight could not be read — decklight marketplace update decklight/.test(list?.textContent ?? '');
+        // never fetched is said plainly; only a cached catalog that no longer reads warns
+        const lines = [...(list?.querySelectorAll('.rec-line') ?? [])];
+        r.staleNamed = lines.some((n) => /decklight has not been fetched yet — decklight marketplace update decklight/.test(n.textContent) && !n.classList.contains('rec-warn'))
+          && lines.some((n) => /old-mkt's cached catalog could not be read — decklight marketplace update old-mkt/.test(n.textContent) && n.classList.contains('rec-warn'));
         press(' ');                                     // Space on the first row
         await settle(); await settle();
         const sent = CALLS.post.filter((c) => c.u.includes('/edit/design-system/mark')).pop()?.body;
         r.toggled = sent?.ref === 'acme@acme-mkt' && sent?.used === true;
-        r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — Z takes it back/.test(n.textContent));
+        r.said = [...document.querySelectorAll('.decklight-toast')].some((n) => /● this deck now uses acme@acme-mkt — its layouts are in \/ → Use design-system layout… · Z takes it back/.test(n.textContent));
         r.closed = !document.querySelector('.decklight-design-systems');
         r.PASS = r.paletteRow && r.listed && r.grouped && r.unusableSaidWhy && r.staleNamed && r.toggled && r.said && r.closed;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);

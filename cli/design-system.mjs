@@ -253,12 +253,13 @@ async function listMain(args) {
     }
     return 0;
   }
-  const { systems, stale } = marketplaceDesignSystems();
+  const { systems, stale, unfetched } = marketplaceDesignSystems();
   if (!systems.length) console.log('no registered marketplace offers a design system');
   for (const s of systems) {
     console.log(`${s.qualified}${s.version ? `  ${s.version}` : ''}${s.description ? ` — ${s.description}` : ''}${s.missing ? `  (${s.missing})` : ''}`);
   }
-  for (const m of stale) console.log(`  ${m} could not be read — decklight marketplace update ${m}`);
+  for (const m of unfetched) console.log(`  ${m} has not been fetched yet — decklight marketplace update ${m}`);
+  for (const m of stale) console.log(`  ${m}'s cached catalog could not be read — decklight marketplace update ${m}`);
   return 0;
 }
 
