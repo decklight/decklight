@@ -25,7 +25,7 @@
 //
 // Nothing here fetches: registry, catalog cache and checkouts only.
 
-import { configHome, loadRegistry, loadCatalog, MarketplaceError } from './marketplace.mjs';
+import { configHome, loadRegistry, loadCatalog, loadLedger, MarketplaceError } from './marketplace.mjs';
 import { configBlock } from './runtime-link.mjs';
 import {
   parseRef, resolveThemeRef, stillValid, refForDeck, setMarked, markedEntries, shippedThemes, withKey,
@@ -67,7 +67,9 @@ function qualify(rec, type, dsLocal, cats) {
  * What every recommendation of a design system would do to this deck.
  * `ds` is `{ manifest, local }` — the package's manifest and what this
  * machine calls its marketplace. Each item: `{ kind: 'theme'|'font', rec,
- * status: 'add'|'already'|'stack'|'skip', ref, name, version, why, cmd }`.
+ * status: 'add'|'already'|'stack'|'skip', ref, name, version, why, cmd }` —
+ * an `already` one carries `same` when the deck has THIS entry, not another
+ * marketplace's of the same name.
  */
 export function planRecommended(html, ds, home = configHome()) {
   const cats = catalogs(home);
@@ -91,9 +93,10 @@ export function planRecommended(html, ds, home = configHome()) {
     const valid = stillValid(r.file);
     if (!valid.ok) { items.push({ kind: 'theme', rec, status: 'skip', why: valid.why, cmd }); continue; }
     const ref = refForDeck(html, r.name, r.local, r.source ?? null);
+    const same = marked.some((m) => m.ref === ref);
     items.push({
       kind: 'theme', rec, name: r.name, ref, source: r.source ?? null, local: r.local, version: r.entry?.version ?? null,
-      status: marked.some((m) => m.ref === ref || (m.name === r.name && !m.shipped)) ? 'already' : 'add',
+      status: same || marked.some((m) => m.name === r.name && !m.shipped) ? 'already' : 'add', same,
     });
   }
   for (const rec of (ds.manifest?.recommendedFonts ?? []).filter((t) => typeof t === 'string')) {
@@ -111,9 +114,10 @@ export function planRecommended(html, ds, home = configHome()) {
       continue;
     }
     const ref = refForDeck(html, r.name, r.local, r.source ?? null);
+    const same = fonts.some((f) => f.ref === ref);
     items.push({
       kind: 'font', rec, name: r.name, ref, source: r.source ?? null, local: r.local, version: r.entry?.version ?? null,
-      family: verdict.manifest.family, status: fonts.some((f) => f.ref === ref || f.name === r.name) ? 'already' : 'add',
+      family: verdict.manifest.family, status: same || fonts.some((f) => f.name === r.name) ? 'already' : 'add', same,
     });
   }
   return { items, title: ds.manifest?.title || ds.manifest?.name || '' };
@@ -138,11 +142,23 @@ export function writePlan(html, plan) {
   return out;
 }
 
-/** What `installed.json` remembers for each addable recommendation, as a separate add would. */
+/**
+ * What `installed.json` remembers for each recommendation, as a separate add
+ * would: every one added, AND every one the deck already has — re-running
+ * `theme add` / `font add` on a marked one records the catalog's version now
+ * (#616), so bringing it again does the same, or `marketplace list` keeps
+ * calling it out of date (#653). Never a shipped theme or a stack, and never
+ * one the deck has from another marketplace's entry of that name. An
+ * `already` item whose record this changes gets `recorded`, for its line.
+ */
 export function plannedInstalls(plan, home = configHome()) {
   const reg = loadRegistry(home).marketplaces ?? {};
-  return plan.items.filter((it) => it.status === 'add' && !it.shipped)
-    .map((it) => ({ type: it.kind, name: it.name, marketplace: it.local, version: it.version ?? null, commit: reg[it.local]?.commit ?? null }));
+  const had = loadLedger(home).installs;
+  const taken = plan.items.filter((it) => !it.shipped && (it.status === 'add' || (it.status === 'already' && it.same)));
+  for (const it of taken) {
+    if (it.status === 'already' && it.version && had[`${it.kind}:${it.name}@${it.local}`]?.version !== it.version) it.recorded = it.version;
+  }
+  return taken.map((it) => ({ type: it.kind, name: it.name, marketplace: it.local, version: it.version ?? null, commit: reg[it.local]?.commit ?? null }));
 }
 
 /**
@@ -183,7 +199,7 @@ export function planLines(plan) {
     const what = it.kind === 'theme' ? 'theme' : 'font';
     const v = it.version ? ` ${it.version}` : '';
     if (it.status === 'add') return `  + ${what} ${it.ref}${v}${it.shipped ? ' (shipped)' : ''}`;
-    if (it.status === 'already') return `  = ${what} ${it.ref ?? it.rec} — already there`;
+    if (it.status === 'already') return `  = ${what} ${it.ref ?? it.rec} — already there${it.recorded ? `, recorded ${it.recorded}` : ''}`;
     if (it.status === 'stack') return `  · font ${it.rec} — a picker stack: applied, nothing to carry`;
     return `  ⚠ ${what} ${it.rec} — ${it.why}\n      ${it.cmd}`;
   });

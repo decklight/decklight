@@ -360,12 +360,20 @@ async function applyMain(args) {
   const plan = deps.planRecommended(d.html, { manifest: verdict.manifest, local: r.local });
   let html = deps.writePlan(d.html, plan);
   const look = deps.lookOf(html, plan);
+  // recorded even when the deck is left as it is: one already there may be
+  // one the catalog has a newer version of, and the ledger is where that goes
+  for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
+  // "already there" is noise here, unless it just recorded a newer version
+  const lines = deps.planLines({ ...plan, items: plan.items.filter((it) => it.status !== 'already' || it.recorded) });
   if (!look.theme && !look.font) { console.log(`${hit.ref} recommends no theme or font this deck can apply`); return 0; }
-  if (!look.differs && html === d.html) { console.log(`${deck} already wears ${look.title}'s look`); return 0; }
+  if (!look.differs && html === d.html) {
+    for (const line of lines) console.log(line);
+    console.log(`${deck} already wears ${look.title}'s look`);
+    return 0;
+  }
   html = deps.applyLook(html, look);
   writeFileAtomic(d.path, html);
-  for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
-  for (const line of deps.planLines(plan).filter((l) => !/^\s+=/.test(l))) console.log(line);
+  for (const line of lines) console.log(line);
   console.log(look.differs ? `applied ${look.title}'s look — ${deps.lookPhrase(look, plan)}` : `${deck} already wore ${look.title}'s look`);
   return 0;
 }

@@ -163,3 +163,89 @@ test('the author server: mark brings them (⇧ — recommended: false — does n
   const alone = await post('/edit/design-system/mark', { ref: 'acme@acme-mkt', used: true, recommended: false });
   assert.deepEqual([alone.pulled, config(file).markedThemes, config(file).fonts], [[], undefined, undefined]);
 });
+
+// #653: a dependency the deck already has is recorded at the catalog's
+// version now — as re-running `theme add` / `font add` would — or
+// `marketplace list` keeps calling it out of date though the deck renders it.
+const ledger = (h) => JSON.parse(readFileSync(path.join(h, 'installed.json'), 'utf8')).installs;
+const versions = (h) => [ledger(h)['theme:nord@acme-mkt']?.version, ledger(h)['font:sample@acme-mkt']?.version];
+function bump(acme, env, nord, sample) {
+  const m = path.join(acme, '.decklight/marketplace.json');
+  const j = JSON.parse(readFileSync(m, 'utf8'));
+  for (const e of j.entries) {
+    if (e.name === 'nord') e.version = nord;
+    if (e.name === 'sample') e.version = sample;
+  }
+  writeFileSync(m, JSON.stringify(j));
+  execFileSync(process.execPath, [CLI, 'marketplace', 'update', 'acme-mkt'], { env, stdio: 'ignore' });
+}
+/** A deck that already marks nord (and the shipped paper) and references sample, recorded at 2.0.0 / 1.0.0 — then the catalog moves on. */
+function marked(t, look = false) {
+  const { dir, h, env, acme } = home(t);
+  const file = path.join(dir, 'talk.html');
+  writeFileSync(file, deck({ decklight: '0.9.0', theme: look ? 'nord' : 'aurora', ...(look ? { font: 'sample' } : {}), markedThemes: ['paper'] }));
+  for (const [kind, ref] of [['theme', 'nord@acme-mkt'], ['font', 'sample@acme-mkt']]) {
+    const r = spawnSync(process.execPath, [CLI, kind, 'add', ref, file], { encoding: 'utf8', env });
+    assert.equal(r.status, 0, r.stderr);
+  }
+  assert.deepEqual(versions(h), ['2.0.0', '1.0.0']);
+  bump(acme, env, '3.0.0', '1.1.0');
+  return { dir, h, env, acme, file };
+}
+
+test('design-system add records a dependency already there at the catalog\'s version now; --no-recommended records none (#653)', (t) => {
+  const { dir, h, env, file } = marked(t);
+  const alone = path.join(dir, 'alone.html');
+  writeFileSync(alone, readFileSync(file, 'utf8'));
+  const a = spawnSync(process.execPath, [CLI, 'design-system', 'add', 'acme@acme-mkt', alone, '--no-recommended'], { encoding: 'utf8', env });
+  assert.equal(a.status, 0, a.stderr);
+  assert.deepEqual(versions(h), ['2.0.0', '1.0.0'], '--no-recommended records nothing for dependencies');
+  const r = spawnSync(process.execPath, [CLI, 'design-system', 'add', 'acme@acme-mkt', file, '--no-apply'], { encoding: 'utf8', env });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(versions(h), ['3.0.0', '1.1.0']);
+  assert.match(r.stdout, /^ {2}= theme nord@acme-mkt — already there, recorded 3\.0\.0$/m);
+  assert.match(r.stdout, /^ {2}= font sample@acme-mkt — already there, recorded 1\.1\.0$/m);
+  assert.equal(readFileSync(file, 'utf8'), readFileSync(alone, 'utf8'), 'the deck gains the design-system reference and nothing else');
+  assert.doesNotMatch(spawnSync(process.execPath, [CLI, 'marketplace', 'list'], { encoding: 'utf8', env }).stdout, /→ (3\.0\.0|1\.1\.0)/);
+  // already current: the plain line
+  const again = spawnSync(process.execPath, [CLI, 'design-system', 'add', 'acme@acme-mkt', file, '--no-apply'], { encoding: 'utf8', env });
+  assert.match(again.stdout, /^ {2}= theme nord@acme-mkt — already there$/m);
+});
+
+test('design-system apply records a dependency already there, even when the deck already wears the look (#653)', (t) => {
+  const { h, env, file } = marked(t, true);
+  spawnSync(process.execPath, [CLI, 'design-system', 'add', 'acme@acme-mkt', file, '--no-recommended'], { env });
+  const before = readFileSync(file, 'utf8');
+  const ap = spawnSync(process.execPath, [CLI, 'design-system', 'apply', 'acme', file], { encoding: 'utf8', env });
+  assert.equal(ap.status, 0, ap.stderr);
+  assert.match(ap.stdout, /already wears Acme Brand's look/);
+  assert.match(ap.stdout, /= theme nord@acme-mkt — already there, recorded 3\.0\.0/);
+  assert.deepEqual(versions(h), ['3.0.0', '1.1.0']);
+  assert.equal(readFileSync(file, 'utf8'), before, 'the ledger only: the deck is untouched');
+});
+
+test('the author server records a dependency already there: on mark (not with ⇧), and on an apply that changes nothing (#653)', async (t) => {
+  const { dir, h, env, acme, file } = marked(t, true);
+  const proc = spawn(process.execPath, [EDIT, 'talk.html', '--port', '0', '--no-git'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => stop(proc));
+  let log = '';
+  proc.stdout.on('data', (c) => { log += c; });
+  const base = await new Promise((resolve, reject) => {
+    const scan = setInterval(() => { const m = log.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    setTimeout(() => { clearInterval(scan); reject(new Error(log)); }, 10000);
+  });
+  const post = async (route, body) => (await fetch(`${base}${route}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
+  const alone = await post('/edit/design-system/mark', { ref: 'acme@acme-mkt', used: true, recommended: false });
+  assert.equal(alone.ok, true, JSON.stringify(alone));
+  assert.deepEqual(versions(h), ['2.0.0', '1.0.0'], '⇧: the design system alone, nothing recorded for its dependencies');
+  await post('/edit/design-system/mark', { ref: 'acme@acme-mkt', used: false });
+  const m = await post('/edit/design-system/mark', { ref: 'acme@acme-mkt', used: true });
+  assert.equal(m.ok, true, JSON.stringify(m));
+  assert.deepEqual(versions(h), ['3.0.0', '1.1.0']);
+  bump(acme, env, '4.0.0', '1.2.0');
+  const before = readFileSync(file, 'utf8');
+  const ap = await post('/edit/design-system/apply', { ref: 'acme' });
+  assert.equal(ap.changed, false, 'the deck already wears the look');
+  assert.equal(readFileSync(file, 'utf8'), before);
+  assert.deepEqual(versions(h), ['4.0.0', '1.2.0']);
+});

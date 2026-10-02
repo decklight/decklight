@@ -2116,10 +2116,12 @@ export async function editMain(args, { onListen = null } = {}) {
     const look = deps.lookOf(html, plan);
     if (look.differs) html = deps.applyLook(html, look);
     look.phrase = deps.lookPhrase(look, plan);
+    // recorded even when the deck is unchanged: a dependency already there
+    // takes the catalog's version now, as `design-system apply` does (#653)
+    for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
     if (html !== before) {
       history.record(before);
       writeFileAtomic(deckPath, html);
-      for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
       console.log(`  design system: applied ${look.title}'s look — ${look.phrase || 'already worn'}`);
     }
     return json(200, { ok: true, ref: hit.ref, changed: html !== before, look, ...history.counts() });
