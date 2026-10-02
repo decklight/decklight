@@ -19,5 +19,5 @@
   color: #fff;
 }
 .decklight .acme-divider { padding: var(--acme-divider-pad); font-family: "Acme Sans", var(--font-heading); }
-.decklight .acme-divider [data-slot="kicker"] { color: var(--acme-coral); letter-spacing: .08em; }
+.decklight .acme-divider [data-ds-injected][data-slot="kicker"] { color: var(--acme-coral); letter-spacing: .08em; }
 .decklight .acme-statement { border-left: .4em solid var(--acme-blue); padding-left: 1em; }
