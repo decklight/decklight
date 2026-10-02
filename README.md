@@ -29,13 +29,13 @@ specified and implemented by agents, and a human approves what ships.
 npx decklight@latest init "My Talk" --dir my-talk
 ```
 
-That writes a `deck.html` in `my-talk/` — slides plus a two-line configuration
-block, nothing else — plus a
+That writes a `deck.html` in `my-talk/` (slides plus a two-line configuration
+block, nothing else) plus a
 `.claude/skills/decklight/` skill and an `AGENTS.md`, so Claude Code (or any
 agent that reads `AGENTS.md`) has the real authoring contract on hand instead of
 guessing from Reveal.js memory. Then it asks whether to open the deck in author
 mode: live reload, edits from the browser, an AI agent on `A`, and git
-underneath — your work snapshotted as you go, committed when you press `K`.
+underneath: your work snapshotted as you go, committed when you press `K`.
 Say yes. Leave out `--dir` to start the deck in the current directory. Keep the
 `@latest`: npx resolves it against the registry on every run, so you always
 get the current release, whereas a bare `npx decklight` runs any decklight
@@ -61,8 +61,8 @@ decklight doctor          # what this machine can do, and how to get the rest
 ```
 
 Type a command wrong and it tells you which one you meant. Or skip the scaffold
-and write the HTML yourself. A deck you author is *data* — slides and a JSON
-configuration block — and `author`/`present` add the runtime as they serve it;
+and write the HTML yourself. A deck you author is *data* (slides and a JSON
+configuration block) and `author`/`present` add the runtime as they serve it;
 `bundle` embeds it when you hand the file over. This is the whole anatomy:
 
 ```html
@@ -91,13 +91,13 @@ configuration block — and `author`/`present` add the runtime as they serve it;
 ```
 
 Nothing in that file executes. A deck that prefers to load the runtime
-itself — `<script src="decklight/dist/decklight.js">` and a
-`Decklight.init({ … })` call — is served exactly as written.
+itself (`<script src="decklight/dist/decklight.js">` and a
+`Decklight.init({ … })` call) is served exactly as written.
 
 ## What's in the box
 
-- **Editing in the browser.** In author mode, double-click any text — or a
-  code block, edited as plain source — to change it, drop a picture onto a
+- **Editing in the browser.** In author mode, double-click any text (or a
+  code block, edited as plain source) to change it, drop a picture onto a
   slide to add it, recolour a shape from the element menu, and add, duplicate,
   move or delete slides from the palette or the right-click menu. The notes
   editor and the agent ask dock beside the slide, wherever you left them.
@@ -107,7 +107,7 @@ itself — `<script src="decklight/dist/decklight.js">` and a
   the builds.
 - **Take slides from another deck.** `/` → *Insert from a template…* lists the
   decks you have installed, renders each slide in *your* theme, and takes one
-  — or applies just its look to a slide you already wrote — with the CSS it
+  (or applies just its look to a slide you already wrote) with the CSS it
   depends on. `data-module` marks chapters, and `G` shows the outline.
 - **Builds.** `data-build` on a container makes each child a step. The layout
   never jumps.
@@ -126,17 +126,17 @@ itself — `<script src="decklight/dist/decklight.js">` and a
 - **Narration.** Text-to-speech reads your notes in sync with the builds, or you
   record your own voice one beat at a time. Captions and auto-advance come with
   it. The notes are the script, and a script's own markers work as written:
-  `[pause]` holds a beat, `[long pause]` two, `[click]` cuts a beat — in any
+  `[pause]` holds a beat, `[long pause]` two, `[click]` cuts a beat, in any
   spelling. ElevenLabs v4 (the default model) acts on audio tags
   like `[whispers]` or `[laughs]`; any other voice leaves them out. Your agent
-  can add those tags, or write terse notes for the ear — as sentences a person
-  would say — and the notes editor shows before and after until you save.
+  can add those tags, or write terse notes for the ear, as sentences a person
+  would say, and the notes editor shows before and after until you save.
   ElevenLabs voices are listed by language, and the voice library finds a
   native one for a translated deck. A synthesized recording tells you what it
   cost: clips reused against clips sent to the engine.
 - **A face for the voice.** `V` → Character: a 2D narrator whose lips follow
-  the voice, or a talking head made from your photo — or from a few seconds of
-  you filmed in the deck — lip-synced with Wav2Lip on your own machine, set up
+  the voice, or a talking head made from your photo (or from a few seconds of
+  you filmed in the deck) lip-synced with Wav2Lip on your own machine, set up
   once with `decklight lipsync … --save`.
 - **Video.** `decklight video` renders the deck to mp4, mov or webm, narrated
   by its track with subtitles in the file or beside it, and re-voices a slide
@@ -144,11 +144,11 @@ itself — `<script src="decklight/dist/decklight.js">` and a
   range with the live voice first.
 - **Review.** Reviewers comment on slides, the review travels as a git branch,
   and a comment finds its slide again after the deck has moved. The author
-  answers from inside the deck, and `I` shows what a slide is standing on —
+  answers from inside the deck, and `I` shows what a slide is standing on:
   its sources, written from inside the deck too.
 - **In and out.** PowerPoint, Keynote and Google Slides come in, with charts as
-  data, SmartArt as diagrams, and what somebody drew — shapes, lines, groups,
-  rotation — as the drawing it was. PDF and PowerPoint go out for whoever
+  data, SmartArt as diagrams, and what somebody drew (shapes, lines, groups,
+  rotation) as the drawing it was. PDF and PowerPoint go out for whoever
   still asks, in the theme on screen.
 - **Safe to receive.** `decklight present` plays a deck you didn't write
   read-only under a CSP and prints what the file will execute. `publish` signs
@@ -180,10 +180,10 @@ Every item above has a SPEC section behind it. The index at the top of
 | `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
 | `pptx deck.html` | a PowerPoint file, every slide a picture, notes as notes |
-| `video deck.html` | a narrated video — mp4, mov or webm, with subtitles in it or beside it (`--format`, `--quality`, `--subtitles`; `--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette, which can voice it with the live voice first) |
+| `video deck.html` | a narrated video: mp4, mov or webm, with subtitles in it or beside it (`--format`, `--quality`, `--subtitles`; `--slides 5-9` for part of it, `--voiceover` synthesizes first; also **Export a video…** in the deck's palette, which can voice it with the live voice first) |
 | `voiceover deck.html` | batch-synthesize the narration into a folder |
-| `enhance deck.html --slides 3` | add ElevenLabs v4 audio tags to the notes with the prompt ElevenLabs publishes — your agent drafts, decklight checks no word changed (`--all`, `--dry-run`) |
-| `enhance deck.html --spoken --slides 3` | write terse notes for the ear, as sentences a person would say — your agent rewrites, decklight checks every `[click]` and `[pause]` survived |
+| `enhance deck.html --slides 3` | add ElevenLabs v4 audio tags to the notes with the prompt ElevenLabs publishes: your agent drafts, decklight checks no word changed (`--all`, `--dry-run`) |
+| `enhance deck.html --spoken --slides 3` | write terse notes for the ear, as sentences a person would say: your agent rewrites, decklight checks every `[click]` and `[pause]` survived |
 
 | Keeping track | |
 |---|---|
@@ -198,8 +198,8 @@ Every item above has a SPEC section behind it. The index at the top of
 | `import talk.pptx` | convert PowerPoint, Keynote or Google Slides (`--theme template` keeps its palette, `--shapes strict` draws only snapped diagrams) |
 | `theme check\|add` | validate a theme against the token contract, or install one |
 | `marketplace add owner/repo` | register a catalog; it is cloned with your git credentials, then read from disk |
-| `design-system add acme@acme-mkt talk.html` | reference a company's design system — its tokens, art and slide layouts, served from the marketplace on this machine (`list`, `layouts`, and `check`, the gate a catalog runs) |
-| `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace — its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
+| `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide layouts, served from the marketplace on this machine (`list`, `layouts`, and `check`, the gate a catalog runs) |
+| `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
 | `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
 | `plugin add <name>` | presenter chrome for your machine only. `present` loads it, `bundle` never does |
 | `template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
@@ -221,8 +221,8 @@ the CLI only.
 | Key | Action |
 |---|---|
 | `→` `←` `Space` | next / previous build or slide |
-| `S` | this slide's speaker notes — editable under `decklight author`, read-only under `present` / `review` |
-| `⌥⏎` / `Alt+Enter` | speaker view — a second window with notes, next slide and timer (again: rehearse cue cards) |
+| `S` | this slide's speaker notes: editable under `decklight author`, read-only under `present` / `review` |
+| `⌥⏎` / `Alt+Enter` | speaker view: a second window with notes, next slide and timer (again: rehearse cue cards) |
 | `T` | theme picker, `⌃T` generate a theme |
 | `⎵` | play / pause the voice once one is chosen; otherwise it advances |
 | `V` | everything about the voice: tracks, live voice, character, record, captions, speed |
@@ -243,7 +243,7 @@ npm run verify       # build + headless render assertions, needs Chrome
 
 A deck you author carries no runtime: `author` and `present` reference
 `dist/decklight.js`, `dist/decklight.css` and one theme file into it as they
-serve it. To hand it over, `bundle` — one file, and nothing else to copy.
+serve it. To hand it over, `bundle`: one file, and nothing else to copy.
 
 <p align="center">
   <img src="docs/architecture.svg" width="860" alt="Decklight architecture: one deck.html and a theme.css feed a zero-dependency browser runtime; the CLI, the author server, the tts bridge and the review server run beside it on localhost; a verification band of contrast gates, palette rules and headless render assertions holds everything to SPEC.md.">

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Decklight: the presentation library that presents itself</title>
-  <meta name="description" content="Single-file decks, Keynote-grade motion, 46 themes through WCAG contrast gates, truthful terminal recordings, narration in a synthesized voice or your own, review comments carried by git — and your old PowerPoint, imported with its charts as data and its diagrams as diagrams. Authored by humans and AI agents alike.">
+  <meta name="description" content="Single-file decks, Keynote-grade motion, 46 themes through WCAG contrast gates, truthful terminal recordings, narration in a synthesized voice or your own, review comments carried by git, and your old PowerPoint, imported with its charts as data and its diagrams as diagrams. Authored by humans and AI agents alike.">
   <link rel="stylesheet" href="dist/decklight.css">
   <style>
     :root {
@@ -153,7 +153,7 @@
     <section class="traits" aria-label="Top characteristics">
       <div class="trait">
         <h3>One file, zero build</h3>
-        <p>Author a single HTML file that is nothing but your slides &mdash; <code>author</code> and <code>present</code> add the runtime as they serve it, and <code>bundle</code> embeds it into the one file you send.</p>
+        <p>Author a single HTML file that is nothing but your slides: <code>author</code> and <code>present</code> add the runtime as they serve it, and <code>bundle</code> embeds it into the one file you send.</p>
       </div>
       <div class="trait">
         <h3>Agent-native authoring</h3>
@@ -165,11 +165,11 @@
       </div>
       <div class="trait">
         <h3>Take slides from another deck</h3>
-        <p><code>/</code> &rarr; Insert from a template&hellip; renders another deck&rsquo;s slides in <em>your</em> theme and takes one &mdash; or applies just its look to a slide you already wrote &mdash; with the CSS it depends on. <code>data-module</code> marks chapters, and <kbd>G</kbd> shows the outline.</p>
+        <p><code>/</code> &rarr; Insert from a template&hellip; renders another deck&rsquo;s slides in <em>your</em> theme and takes one (or applies just its look to a slide you already wrote) with the CSS it depends on. <code>data-module</code> marks chapters, and <kbd>G</kbd> shows the outline.</p>
       </div>
       <div class="trait">
         <h3>Diagrams &amp; graphics</h3>
-        <p>Not only bullet lists: shapes, diagrams, charts and full graphics, all native SVG &mdash; declared, theme-aware, and never a screenshot.</p>
+        <p>Not only bullet lists: shapes, diagrams, charts and full graphics, all native SVG: declared, theme-aware, and never a screenshot.</p>
       </div>
       <div class="trait">
         <h3>Animation</h3>
@@ -185,31 +185,31 @@
       </div>
       <div class="trait">
         <h3>Live narration</h3>
-        <p>Live text-to-speech, on the fly or cached, presents the deck by itself, perfectly in sync. Captions and pop quiz included. Or record it in your own voice, one beat at a time, and your voice steps the builds the same way. The notes are the script: <code>[pause]</code> holds a beat, <code>[click]</code> cuts a beat, and with ElevenLabs v4 a tag like <code>[whispers]</code> is direction the voice performs &mdash; your agent can add them, or rewrite terse notes as sentences a person would say. Give it a face, too: a 2D character, or a few seconds of you filmed in the deck, lip-synced on your own machine.</p>
+        <p>Live text-to-speech, on the fly or cached, presents the deck by itself, perfectly in sync. Captions and pop quiz included. Or record it in your own voice, one beat at a time, and your voice steps the builds the same way. The notes are the script: <code>[pause]</code> holds a beat, <code>[click]</code> cuts a beat, and with ElevenLabs v4 a tag like <code>[whispers]</code> is direction the voice performs, and your agent can add them, or rewrite terse notes as sentences a person would say. Give it a face, too: a 2D character, or a few seconds of you filmed in the deck, lip-synced on your own machine.</p>
       </div>
       <div class="trait">
         <h3>A film of the talk</h3>
-        <p><code>decklight video</code> renders the deck to mp4, mov or webm, narrated by its track with subtitles in the file or beside it &mdash; and re-voices a slide whose notes moved since it was recorded. Also a palette row, which can voice it with the live voice first.</p>
+        <p><code>decklight video</code> renders the deck to mp4, mov or webm, narrated by its track with subtitles in the file or beside it, and re-voices a slide whose notes moved since it was recorded. Also a palette row, which can voice it with the live voice first.</p>
       </div>
       <div class="trait">
         <h3>Reviewed like code</h3>
-        <p>Reviewers comment on slides and git carries it back — no accounts, no service. A comment remembers which slide it was on, so it still finds it after you insert three above. Submitting pushes the review as a branch of its own &mdash; one file, never the reviewer&rsquo;s commits &mdash; and the author is told a review is waiting, and answers from inside the deck. <kbd>I</kbd> shows what a slide is standing on: its sources, written from inside the deck too.</p>
+        <p>Reviewers comment on slides and git carries it back: no accounts, no service. A comment remembers which slide it was on, so it still finds it after you insert three above. Submitting pushes the review as a branch of its own (one file, never the reviewer&rsquo;s commits), and the author is told a review is waiting, and answers from inside the deck. <kbd>I</kbd> shows what a slide is standing on: its sources, written from inside the deck too.</p>
       </div>
       <div class="trait">
         <h3>Bring your old deck</h3>
-        <p><code>decklight import talk.pptx</code> brings a PowerPoint, Keynote or Google Slides deck across &mdash; bullets, tables, images, speaker notes, <strong>charts as data</strong> because the numbers were in the file all along, and <strong>diagrams as diagrams</strong>: SmartArt, the boxes-and-arrows somebody dragged onto a slide, and what they drew by hand &mdash; shapes, loose lines, groups, rotation &mdash; all arrive as themed SVG. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts.</p>
+        <p><code>decklight import talk.pptx</code> brings a PowerPoint, Keynote or Google Slides deck across: bullets, tables, images, speaker notes, <strong>charts as data</strong> because the numbers were in the file all along, and <strong>diagrams as diagrams</strong>: SmartArt, the boxes-and-arrows somebody dragged onto a slide, and what they drew by hand (shapes, loose lines, groups, rotation) all arrive as themed SVG. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts.</p>
       </div>
       <div class="trait">
         <h3>&hellip; and hand a file back</h3>
-        <p>For the people around you who still ask for &ldquo;the file&rdquo;: <code>decklight pptx</code> writes a PowerPoint &mdash; every slide a picture, the notes real notes, your hidden slides not in it &mdash; and <code>decklight pdf</code> prints the presenter&rsquo;s copy (<code>--notes</code>) or a three-a-page handout with ruled lines (<code>--handout</code>). Every one of them is a palette row too, so you never leave the deck to produce a file &mdash; and each renders in the theme on screen, a generated one included.</p>
+        <p>For the people around you who still ask for &ldquo;the file&rdquo;: <code>decklight pptx</code> writes a PowerPoint (every slide a picture, the notes real notes, your hidden slides not in it), and <code>decklight pdf</code> prints the presenter&rsquo;s copy (<code>--notes</code>) or a three-a-page handout with ruled lines (<code>--handout</code>). Every one of them is a palette row too, so you never leave the deck to produce a file, and each renders in the theme on screen, a generated one included.</p>
       </div>
       <div class="trait">
         <h3>Backup slides, and a stopwatch</h3>
-        <p><code>data-hidden</code> keeps a slide in the file and out of the talk &mdash; it keeps its number, and <code>?all</code> presents it anyway. The speaker view records how long each slide actually took and writes it back onto the deck, so the next run has a pace to hold.</p>
+        <p><code>data-hidden</code> keeps a slide in the file and out of the talk: it keeps its number, and <code>?all</code> presents it anyway. The speaker view records how long each slide actually took and writes it back onto the deck, so the next run has a pace to hold.</p>
       </div>
       <div class="trait">
         <h3>Publish anywhere</h3>
-        <p>GitHub Pages in one command, signed by default; Netlify and Vercel install as targets. Or <code>--target folder</code>, which writes the whole site into a directory for any host that serves files &mdash; a share, a bucket, a box you rsync to.</p>
+        <p>GitHub Pages in one command, signed by default; Netlify and Vercel install as targets. Or <code>--target folder</code>, which writes the whole site into a directory for any host that serves files: a share, a bucket, a box you rsync to.</p>
       </div>
       <div class="trait">
         <h3>Everything is text</h3>
@@ -217,20 +217,20 @@
       </div>
       <div class="trait">
         <h3>The deck remembers</h3>
-        <p>decklight commits as you write. <kbd>H</kbd> reads the history back inside the deck &mdash; every version with a live preview, what each one changed, and one keystroke to restore it.</p>
+        <p>decklight commits as you write. <kbd>H</kbd> reads the history back inside the deck: every version with a live preview, what each one changed, and one keystroke to restore it.</p>
       </div>
       <div class="trait">
         <h3>Command palette</h3>
-        <p>Press <strong>/</strong> for a Claude-style palette: every command with its shortcut, type to filter, Enter runs it. Type a number to jump to that slide. Authoring, it also writes every file you can hand over &mdash; and publishes, after showing you the URL and waiting for a second press.</p>
+        <p>Press <strong>/</strong> for a Claude-style palette: every command with its shortcut, type to filter, Enter runs it. Type a number to jump to that slide. Authoring, it also writes every file you can hand over, and publishes, after showing you the URL and waiting for a second press.</p>
       </div>
     </section>
 
     <aside class="egg" id="egg-thocky">
-      <strong>You found the lab note.</strong> The thocky sound — the default you are hearing —
+      <strong>You found the lab note.</strong> The thocky sound, the default you are hearing,
       was tuned strike by strike against its own reference board. Each keystroke is a dark contact
       click bandpassed to 680-1250Hz and rolled off above 1.8kHz, gone within 12 to 17ms: gentle
       and click-forward, a pop rather than a boom. Under it sits a woody case thump that rings only
-      5 to 9ms, and here is the detail that sells it as a real board — the thump has two pitches.
+      5 to 9ms, and here is the detail that sells it as a real board: the thump has two pitches.
       Most strikes land woody at 130 to 185Hz, and about one in five drops to a deep 58 to 85Hz
       thock, the way a real board mixes bottom-outs with lighter keys. A second, lighter click
       follows 35 to 80ms later, which is the key release, and loudness spreads ~4x between a grazed
@@ -239,7 +239,7 @@
 
     <section class="start" aria-label="Create a deck">
       <h2>Create a deck</h2>
-      <p>No install needed: <code>npx</code> runs the CLI straight from npm. <code>init</code> scaffolds a deck &mdash; your slides plus a two-line configuration block, nothing else &mdash; and an agent skill, so Claude Code knows the authoring contract. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
+      <p>No install needed: <code>npx</code> runs the CLI straight from npm. <code>init</code> scaffolds a deck (your slides plus a two-line configuration block, nothing else) and an agent skill, so Claude Code knows the authoring contract. This terminal is Decklight's own player, replaying a recorded session (press ▶ to run it again).</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-init" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="8" data-title="create a deck"></div>
       </div>
@@ -247,7 +247,7 @@
 
     <section class="start after-deck" aria-label="Bring an existing deck across">
       <h2>Or bring the deck you already have</h2>
-      <p><code>import</code> reads a PowerPoint, Keynote or Google Slides file and writes a decklight deck: bullets, tables, images, speaker notes, and <strong>charts as data</strong> &mdash; the numbers were in the file all along, so a chart arrives as an editable, theme-aware element rather than a picture of one. <strong>Diagrams come as diagrams</strong> too: SmartArt is read from its data model, not its drawing, and the boxes-and-arrows somebody dragged onto a slide are rebuilt as one themed SVG with the arrows still between the right boxes. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts, a hidden slide stays hidden, and anything that cannot cross is named with its slide number. Going the other way, <code>pptx</code> hands a file back to whoever still asks for one &mdash; without the slides you were keeping back.</p>
+      <p><code>import</code> reads a PowerPoint, Keynote or Google Slides file and writes a decklight deck: bullets, tables, images, speaker notes, and <strong>charts as data</strong>, since the numbers were in the file all along, so a chart arrives as an editable, theme-aware element rather than a picture of one. <strong>Diagrams come as diagrams</strong> too: SmartArt is read from its data model, not its drawing, and the boxes-and-arrows somebody dragged onto a slide are rebuilt as one themed SVG with the arrows still between the right boxes. <code>--theme template</code> derives the deck&rsquo;s theme from your own template&rsquo;s palette and fonts, a hidden slide stays hidden, and anything that cannot cross is named with its slide number. Going the other way, <code>pptx</code> hands a file back to whoever still asks for one, without the slides you were keeping back.</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-import" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="11" data-title="from powerpoint, and back"></div>
       </div>
@@ -255,14 +255,14 @@
 
     <section class="start after-deck" aria-label="Borrow from a deck template">
       <h2>Or borrow from a deck somebody already made</h2>
-      <p>A <strong>deck template</strong> is somebody&rsquo;s whole talk, installed from a marketplace. <code>init --from</code> starts a new deck from one &mdash; but the more common case is a deck that already exists and wants three slides out of it. In author mode, <code>/</code> &rarr; <strong>Insert from a template&hellip;</strong> lists what you have installed and what a registered catalog offers, and <strong>renders the slide beside the list</strong>, because a template is a deck somebody designed and its headings are the least of what you are choosing between.</p>
-      <p>Two modes decide what <kbd>Enter</kbd> does with the slide under the cursor. <strong>Insert</strong> takes it, landing after the slide you are on as one undo entry. <strong>Apply</strong> keeps every word of yours and takes only the <em>shape</em> &mdash; layout, backdrop, classes &mdash; and previews <em>your</em> slide wearing it before anything is written.</p>
-      <p>A slide is markup <em>and</em> the rules that shape it, so the CSS a borrowed slide depends on comes with it: <code>.breaks</code> is a stack of bordered cards in the deck it came from, not a bare list in yours. What cannot follow is said before you take it, not after &mdash; a cast or an image the slide points at and your deck has not, and a class your deck already means something else by, which keeps <em>your</em> rules rather than quietly restyling slides you never touched.</p>
+      <p>A <strong>deck template</strong> is somebody&rsquo;s whole talk, installed from a marketplace. <code>init --from</code> starts a new deck from one, but the more common case is a deck that already exists and wants three slides out of it. In author mode, <code>/</code> &rarr; <strong>Insert from a template&hellip;</strong> lists what you have installed and what a registered catalog offers, and <strong>renders the slide beside the list</strong>, because a template is a deck somebody designed and its headings are the least of what you are choosing between.</p>
+      <p>Two modes decide what <kbd>Enter</kbd> does with the slide under the cursor. <strong>Insert</strong> takes it, landing after the slide you are on as one undo entry. <strong>Apply</strong> keeps every word of yours and takes only the <em>shape</em> (layout, backdrop, classes) and previews <em>your</em> slide wearing it before anything is written.</p>
+      <p>A slide is markup <em>and</em> the rules that shape it, so the CSS a borrowed slide depends on comes with it: <code>.breaks</code> is a stack of bordered cards in the deck it came from, not a bare list in yours. What cannot follow is said before you take it, not after: a cast or an image the slide points at and your deck has not, and a class your deck already means something else by, which keeps <em>your</em> rules rather than quietly restyling slides you never touched.</p>
     </section>
 
     <section class="start after-deck" aria-label="Describe the rest to your agent">
       <h2>Describe the rest to your agent</h2>
-      <p><code>init</code> dropped the authoring contract next to the deck, so any agent that can edit a file can author slides — builds, SVG diagrams, animation and all. Here, Claude Code gets one prompt and edits the same HTML file:</p>
+      <p><code>init</code> dropped the authoring contract next to the deck, so any agent that can edit a file can author slides: builds, SVG diagrams, animation and all. Here, Claude Code gets one prompt and edits the same HTML file:</p>
       <div class="term-wrap">
         <div class="terminal" data-cast-inline="#cast-claude" data-mode="play" data-speed="2" data-type-sound="thocky" data-rows="10" data-title="one prompt later"></div>
       </div>

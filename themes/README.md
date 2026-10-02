@@ -1,6 +1,6 @@
 # Decklight themes
 
-46 themes, one contract. A theme is **a single CSS file that defines tokens on `.decklight`** — the
+46 themes, one contract. A theme is **a single CSS file that defines tokens on `.decklight`**; the
 runtime (`dist/decklight.css`) owns all structure; themes own only color, type, and mood. Link exactly
 one theme per deck:
 
@@ -21,7 +21,7 @@ Every theme must define **all** of these on `.decklight`:
 | Type | `--font-body` `--font-heading` `--font-mono` `--heading-color` `--heading-weight` `--link` | font stacks must degrade offline |
 | Accent | `--accent` `--accent-contrast` | contrast = text placed *on* the accent |
 | Blocks | `--block-bg` `--block-border` `--block-radius` `--shadow` | `--block-border` is a full border value |
-| Code | `--code-bg` `--code-fg` `--hl-keyword` `--hl-string` `--hl-number` `--hl-comment` `--hl-function` `--hl-type` `--hl-punct` | no separate highlighter themes — these are it |
+| Code | `--code-bg` `--code-fg` `--hl-keyword` `--hl-string` `--hl-number` `--hl-comment` `--hl-function` `--hl-type` `--hl-punct` | no separate highlighter themes: these are it |
 | Diagram | `--d-stroke` `--d-text` `--d-muted` `--d-accent` `--d-fill-1…6` | inline SVGs authored with `var(--d-*)` restyle across all themes |
 | Terminal | `--term-bg` `--term-fg` `--term-prompt` `--term-cursor` `--term-selection` + 16 × `--ansi-*` | the 16 ANSI names map recorded output to the theme |
 | Builds (optional) | `--build-duration` `--dim-opacity` `--term-chrome` | `--term-chrome: none` hides the window chrome |
@@ -32,7 +32,7 @@ Every theme must define **all** of these on `.decklight`:
 
 - `--fg`/`--bg` ≥ 4.5 · `--muted`, `--heading-color`, `--link`, `--d-text` ≥ 3.0 (gradient canvases: **every stop** must pass)
 - `--code-fg` and all `--hl-*` ≥ 4.5 on `--code-bg` (`--hl-comment` ≥ 3.0)
-- `--term-fg`, `--term-prompt`, and **all 16** `--ansi-*` ≥ 3.0 on `--term-bg` — yes, including `--ansi-black` on dark terminals: recorded output must stay readable on a projector, so "black" is a visible gray
+- `--term-fg`, `--term-prompt`, and **all 16** `--ansi-*` ≥ 3.0 on `--term-bg`, yes, including `--ansi-black` on dark terminals: recorded output must stay readable on a projector, so "black" is a visible gray
 - `--accent-contrast` ≥ 4.5 on `--accent`
 
 A PR that adds or edits a theme must keep the validator green.
@@ -40,7 +40,7 @@ A PR that adds or edits a theme must keep the validator green.
 ## Authoring a new theme
 
 1. Copy the closest existing theme (dark → `fjord`, light → `porcelain`, gradient → `aurora`).
-2. Rework **every** group — hue-rotating one palette produces a clone, not a theme. Decide the
+2. Rework **every** group: hue-rotating one palette produces a clone, not a theme. Decide the
    personality first (one line, like the taglines below), then pick canvas → type → accent →
    code mood → terminal mood in that order.
 3. Fonts: system stacks preferred. A Google-font `@import` is allowed if the stack degrades
@@ -53,12 +53,12 @@ A PR that adds or edits a theme must keep the validator green.
 
 **Dark (16):** aurora · graphite · obsidian · midnight · fjord · cosmos · ember · moss · velvet · carbon · synthwave · ink · eclipse · storm · ibm-modern · yamabuki
 **Light (16):** porcelain · paper · meadow · glacier · citrus · dune · orchid · harvest · coastal · linen · berry · slate · latte · peony · mint · sepia
-Plus the Classics pack (`packs.json` is the authoritative roster). The novelty and homage packs —
-Old Machines, TV Series, Movies — moved to the marketplace (`decklight marketplace add
+Plus the Classics pack (`packs.json` is the authoritative roster). The novelty and homage packs (
+Old Machines, TV Series, Movies) moved to the marketplace (`decklight marketplace add
 decklight/decklight-plugins-official`, MARKETPLACE.md `THEME_BROWSE#SPLIT`). While authoring they
 are packs under `T` like any other; Space marks one for the deck to carry (SPEC `THEME_DISTRIBUTION`).
 
 Serif-headed: moss, velvet, porcelain, dune, peony, sepia. Gradient canvases:
 aurora, cosmos, synthwave, storm, coastal. Webfont-enhanced (all with offline fallbacks): carbon,
 synthwave, porcelain, paper, peony, mint. Deliberately corporate-safe:
-slate (and arguably graphite) — the rest have opinions.
+slate (and arguably graphite); the rest have opinions.

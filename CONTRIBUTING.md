@@ -2,27 +2,27 @@
 
 Thanks for your interest in contributing! Decklight is free and open source
 under the [Apache License 2.0](LICENSE), and contributions of all kinds are
-welcome — bug reports, themes, docs, and code.
+welcome: bug reports, themes, docs, and code.
 
 ## Development setup
 
 Decklight is plain JavaScript (ESM) with no runtime dependencies.
 
 - Node.js >= 20
-- `npm install` — dev dependencies (esbuild, highlight.js, temml), and
+- `npm install`: dev dependencies (esbuild, highlight.js, temml), and
   it builds `dist/` for you via the `prepare` script
-- `npm test` — run the test suite (`node --test`)
-- `npm run build` — bundle `src/index.js` → `dist/decklight.js`
-- `npm run verify` — build, then the render/lint harnesses (needs Chrome)
-- `npm run soak` — one end-to-end pass as a *user*, before a release (below)
-- `npm run test:impact` — which tests **this** change needs (below)
+- `npm test`: run the test suite (`node --test`)
+- `npm run build`: bundle `src/index.js` → `dist/decklight.js`
+- `npm run verify`: build, then the render/lint harnesses (needs Chrome)
+- `npm run soak`: one end-to-end pass as a *user*, before a release (below)
+- `npm run test:impact`: which tests **this** change needs (below)
 
 A new CLI command is one row in `cli/commands.mjs` (which module, which
 exported main) plus its paragraph in the help text in the same file;
 `test/commands.test.mjs` fails when the two disagree, or when a row names a
 module or an export that does not exist.
 
-### `npm run test:impact` — the edit-run loop
+### `npm run test:impact`: the edit-run loop
 
 `npm run verify` is ~200s and strictly serial: one headless browser at a time,
 and `narration-render` alone is a third of it. While you are iterating on one
@@ -35,21 +35,21 @@ npm run test:impact -- --since main # compare against another ref
 npm run test:impact -- src/core/review.js   # ask about explicit paths
 ```
 
-Editing `src/core/review.js` selects `review-render` alone — **8s instead of
+Editing `src/core/review.js` selects `review-render` alone: **8s instead of
 200s**. The map lives in `tools/test-impact.mjs`; add a rule when you add a
 harness, and `test/test-impact.test.mjs` will tell you if the two lists drift.
 
 Two things it deliberately does **not** do. It never picks unit tests: `npm test`
 is ~48s because node runs the 85 files in parallel, 38 of them finish under
 0.3s, and selecting a subset would save seconds while risking the one file that
-mattered — so the unit suite always runs whole. And a path the map does not
+mattered, so the unit suite always runs whole. And a path the map does not
 recognise selects **every** harness, loudly: a picker that guesses "probably
 nothing" on an unfamiliar path turns an unrun suite into a green line.
 
 It is a developer shortcut, not a gate. CI runs everything, because the map is a
 claim about the code and the full suite is what notices when the claim is wrong.
 
-### `npm run soak` — the release gate
+### `npm run soak`: the release gate
 
 `npm test` and `npm run verify` both drive `cli/decklight.mjs` out of the working
 tree, so neither can see a bug in the **package**. 0.3.0 shipped three that were
@@ -60,12 +60,12 @@ failed because `init` scaffolds an already-self-contained deck.
 
 `npm run soak` is the missing shape. It runs `npm pack`, installs the tarball
 into an empty project **whose path contains a space**, and drives the installed
-`decklight` bin through one full journey — init, import, marketplace, author
+`decklight` bin through one full journey: init, import, marketplace, author
 (adding and editing slides over the HTTP API, and watching the commits land),
-present, bundle, `--check`, and opening the result in a real browser — 50 steps,
+present, bundle, `--check`, and opening the result in a real browser (50 steps,
 asserting
 at each step, most importantly that every deck it produces reads `identical to
-this install`.
+this install`).
 
 `import` is a leg of its own because two of those three bugs lived there, and
 `test/import-render.mjs` could not see either: it renders an imported deck from
@@ -73,8 +73,8 @@ the working tree, and neither bug was about rendering.
 
 Beyond the journey it also covers the paths that are hard to reach any other
 way: a **pinned transform** installed from a `file://` marketplace and actually
-run by `bundle --transform` — with `UNIT_PINNING`'s two refusals (no pin, wrong
-pin) asserted either side of it — **`publish`** against a local bare repo, which
+run by `bundle --transform`, with `UNIT_PINNING`'s two refusals (no pin, wrong
+pin) asserted either side of it, and **`publish`** against a local bare repo, which
 exercises the whole git plumbing offline and proves your working tree, index and
 checked-out branch are untouched, and a **roster sweep**: every command answers
 `--help` with exit 0, and a bad input is a refusal that names itself. That sweep
@@ -82,7 +82,7 @@ found two bugs on its first run (#294, #295), both of them one command sitting
 quietly outside a convention everything else follows.
 
 The **library** is walked end to end (#311): all six unit kinds install from
-that same `file://` catalog, and each is then `list`ed and `remove`d — the two
+that same `file://` catalog, and each is then `list`ed and `remove`d, the two
 verbs a user reaches for when something is wrong, and the ones only `add`
 covered before. `extension check` runs as the marketplace's own admission gate,
 asserting that the digest it prints is the same `sha256` the catalog entry pins,
@@ -91,8 +91,8 @@ plugin** proves the boundary that has no package-level test anywhere else: it
 installs into `~/.decklight/plugins/`, `present` layers it onto what it SERVES
 while the file on disk keeps its mtime, and a bundle made a moment later carries
 no byte of it. A **theme** is marked for the deck through the author server
-(`POST /edit/theme/mark`) — the one marketplace consumer the rest of the journey
-skips — which writes a reference into the config block and never CSS; the leg
+(`POST /edit/theme/mark`), the one marketplace consumer the rest of the journey
+skips, which writes a reference into the config block and never CSS; the leg
 checks the served page links it from the marketplace and that `bundle --theme`
 carries it, then takes the mark back with `Z`, which is both the route's own
 claim and how the leg leaves the deck as the twenty steps after it expect it.
@@ -100,15 +100,15 @@ claim and how the leg leaves the deck as the twenty steps after it expect it.
 back to what `init` wrote, then forward again, asserting the old commit is still
 there, since restoring writes a new commit rather than rewriting. And the
 **agent skill** installed into the project has its front matter checked against
-the installed package — its theme count has gone stale twice.
+the installed package (its theme count has gone stale twice).
 
 It also covers the two capabilities that need more than Node: **`cast`** records a
 cast in a real PTY (after asserting that, without the optional deps, the refusal
 names the package *and* the command that installs it), and **`video`** renders a
-deck to an mp4 that `ffprobe` — not decklight — vouches for, **twice**: once
+deck to an mp4 that `ffprobe`, not decklight, vouches for, **twice**: once
 silent, once narrated. The narrated pass supplies its own `voiceover/` directory
 (the seam `video --voiceover` leaves behind) so it needs no TTS engine, no key
-and no network, and it asserts the thing that distinguishes the two — a narrated
+and no network, and it asserts the thing that distinguishes the two: a narrated
 slide holds for the audio's *real* duration plus the tail, and the film measures
 around -23 dB where the silent one measures -91.
 
@@ -120,11 +120,11 @@ entirely and exits 0. `DECKLIGHT_SOAK_KEEP=1` leaves its temp dirs for a
 post-mortem.
 
 One leg reaches across releases: it installs a **published** decklight from npm,
-scaffolds a deck with it, and upgrades that deck with the build under test — the
+scaffolds a deck with it, and upgrades that deck with the build under test: the
 only check that `upgrade` does what it exists for, since everything else in the
 repo tests one version against itself.
 
-It runs on macOS, Linux and — **written but never executed** — Windows: the
+It runs on macOS, Linux and (**written but never executed**) Windows: the
 platform decisions live in `test/soak-platform.mjs`, pure over an injected
 `platform` and covered by `npm test`, so the Windows branches are checked from
 any machine even though no Windows machine has run them. A run on Windows says
@@ -132,13 +132,13 @@ so on its own banner rather than implying it is proven.
 
 A full-fat run needs: Chrome, network, ffmpeg + ffprobe, and a C toolchain. It
 takes about 77s with all of them, ~12s without Chrome and ffmpeg (the two video
-legs are 55% of a full run — one Chrome launch per frame, and builds have frames
+legs are 55% of a full run: one Chrome launch per frame, and builds have frames
 now).
 
-### `npm run cross-engine` — the browsers the audience has
+### `npm run cross-engine`: the browsers the audience has
 
 Every harness in `verify` drives Chrome, so for a long time nothing here checked
-that a deck works in **Gecko or WebKit** — a strange gap for a product whose
+that a deck works in **Gecko or WebKit**, a strange gap for a product whose
 promise is that you send someone one HTML file and they double-click it, in
 whichever browser is already open. Safari is the default on every Mac and iPad
 in the room.
@@ -160,7 +160,7 @@ npx playwright install firefox webkit
 npm run cross-engine
 ```
 
-`CROSS_ENGINE_STRICT=1` turns those skips into failures — CI sets it, because a
+`CROSS_ENGINE_STRICT=1` turns those skips into failures: CI sets it, because a
 job that skipped silently would be a green tick for nothing at all. It runs on
 Ubuntu, because this is about the *engine* and not the platform.
 
@@ -181,23 +181,23 @@ against a sleeping one sits pending for hours and then fails. Ask for it before
 a release, or after a change that touches rendering.
 
 The last row is a fact about GitHub's runner, not about decklight or about macOS
-(#309) — the self-hosted row above it is the same operating system, passing.
+(#309): the self-hosted row above it is the same operating system, passing.
 Chrome finds its child processes over a Mach port registered in the session
 bootstrap namespace, and a hosted macOS runner's session does not permit the
 lookup, so no renderer ever spawns and every harness hangs until it is killed.
-**Five flag variants were probed and all five fail identically** — with
+**Five flag variants were probed and all five fail identically**: with
 `--no-sandbox`, without it, bare `--headless`, `--headless=new`, and with a
-private `--user-data-dir` — so it is not a flag. `--version` answers fine, which
+private `--user-data-dir`, so it is not a flag. `--version` answers fine, which
 is why it looks like a working browser until something asks it to render. Making
 it work with a real Chrome would mean a GUI session (`launchctl asuser`).
 
-**One build does work there**: `chrome-headless-shell` — the old headless
-implementation, headless by construction rather than by flag — dumps a DOM on
+**One build does work there**: `chrome-headless-shell` (the old headless
+implementation, headless by construction rather than by flag) dumps a DOM on
 the hosted runner in **0.4s**, because it never goes through the multi-process
 rendezvous the other two die in. Chromium proper fails like Chrome does.
 
 That is what `verify · macos-hosted` drives, so macOS rendering is checked on
-every PR without anyone's laptop — in ~30s, because old headless is markedly
+every PR without anyone's laptop, in ~30s, because old headless is markedly
 faster than the full browser. **Two harnesses are skipped there, by name.** Old
 headless refuses `fetch()` over `file://` whatever `--allow-file-access-from-
 files` says, and both are about exactly that: `player-render` loads its cast
@@ -210,12 +210,12 @@ layout or font regression on the PR that causes it, and the self-hosted one
 drives the browser a presenter actually uses, on demand.
 
 Attempting it was worth it anyway: Windows found `contrast` and `palette-rules`
-resolving `themes/` through `new URL(…).pathname` — the trap #273 swept out of
+resolving `themes/` through `new URL(…).pathname`, the trap #273 swept out of
 `cli/` and `tools/`, wearing its Windows face (`D:\D:\a\decklight\themes`).
 Both had never run anywhere but Ubuntu. The sweep that guards against it now
 covers `test/` too.
 
-`dist/` is build output and is **not** in git — it is derived from `src/`, so
+`dist/` is build output and is **not** in git; it is derived from `src/`, so
 versioning it would only buy unreviewable minified diffs and source/dist drift.
 `npm install` builds it, `npm publish`/`npm pack` rebuild it, and CI rebuilds it
 before both the npm release and the site deploy. It is still shipped in the npm
@@ -259,42 +259,42 @@ controls: apply one by hand at any point to route, re-run, or skip a step.
 ```
 
 **Nothing is built without a human.** Every path to `ready-to-dev` runs through
-someone with write access applying that label — the loops before it only ever
+someone with write access applying that label: the loops before it only ever
 research, propose, and gather evidence.
 
-### issue-analyzer — triage
+### issue-analyzer: triage
 
-Every new issue gets read against the code and answered. It renders a verdict —
-bug, feature, or question — applies the routing label, and starts the next loop.
+Every new issue gets read against the code and answered. It renders a verdict (
+bug, feature, or question), applies the routing label, and starts the next loop.
 Bug reports also get the checklist: which version, what error, is the repro
 enough for someone else to follow, and which files are likely involved.
 
-### bug-repro — evidence
+### bug-repro: evidence
 
 A **`bug`** ticket gets tried, not just discussed: Claude builds current `main`,
-follows the repro steps in a real browser, and reports what actually happened —
+follows the repro steps in a real browser, and reports what actually happened:
 verbatim failing output, screenshots, and a hypothesis of the cause. The verdict
 lands as `repro-confirmed` or `cannot-repro`. It never fixes anything; the fix is
 your decision, taken with the evidence in the thread.
 
-### spec-refine — the proposal
+### spec-refine: the proposal
 
 A **`needs-spec`** ticket gets turned into something reviewable. The loop asks
 first whether the ask *already exists* (decklight is small; half of all asks are
 a keypress away from something shipped), and if it doesn't, rewrites the ticket
-in the house style — outcome, user flow, acceptance criteria, prior art with file
-paths — and renders **mockups** of the proposed UI as real screenshots.
+in the house style (outcome, user flow, acceptance criteria, prior art with file
+paths) and renders **mockups** of the proposed UI as real screenshots.
 
 It ends at **`needs-po-review`**: the ticket is yours. Edit the body however you
-like, then label `ready-to-dev` to queue the build — or leave your notes in a
+like, then label `ready-to-dev` to queue the build, or leave your notes in a
 comment and cycle `needs-spec` for another pass; the loop reads the thread and
 revises rather than starting over.
 
-### ready-to-dev — the build
+### ready-to-dev: the build
 
 A ticket labelled **`ready-to-dev`** is picked up automatically:
 
-1. **Claude implements it** on `ticket/<n>`, having read `SPEC.md` first — a change
+1. **Claude implements it** on `ticket/<n>`, having read `SPEC.md` first: a change
    that contradicts the spec is a change *to* it, and updates it in the same commit.
 2. **`npm test` and `npm run verify` must pass.** `verify` drives a real headless
    browser; a test that would pass without the change is treated as a bug.
@@ -306,7 +306,7 @@ A ticket labelled **`ready-to-dev`** is picked up automatically:
    Owner ([@gphilipp](https://github.com/gphilipp)).
 5. **It merges itself.** Auto-merge is armed when the PR opens, so it lands as
    soon as CI goes green. A green suite says the code does what its tests say;
-   only a picture says the feature is the one the ticket asked for — which is why
+   only a picture says the feature is the one the ticket asked for, which is why
    the screenshots stay in the PR for him to look at, before or after it lands.
 
 Write the ticket so step 3 is possible: the issue template asks *"how would you demo
@@ -315,26 +315,26 @@ it?"* precisely because that answer becomes the screenshot.
 Kicking it off by hand: label an issue `ready-to-dev`, or run the workflow with an
 issue number (`gh workflow run ready-to-dev.yml -f issue=42`).
 
-Screenshots live on an orphan `shots` branch — evidence, never source — so a year of
+Screenshots live on an orphan `shots` branch (evidence, never source) so a year of
 PNGs never lands in the history everyone clones. Each loop keeps its own corner:
 `issue-<n>/` for implementation shots, `spec-<n>/` for mockups, `bug-<n>/` for
 repro evidence.
 
-### pr-babysitter and pr-fix — after the PR opens
+### pr-babysitter and pr-fix: after the PR opens
 
 Every hour, **pr-babysitter** looks at the open agent PRs and comments when one
 is stuck: CI red (with the error, not just the fact), a conflict with `main`, or
-review comments nobody answered. A quiet hour costs nothing — no agent runs. It
+review comments nobody answered. A quiet hour costs nothing: no agent runs. It
 only ever comments.
 
 When a finding is worth acting on, label the PR **`fix-it`** and **pr-fix**
 attempts it: it reproduces the failure on the branch, fixes the cause, and pushes
-one signed-off commit. One label, one attempt — the label comes off afterwards,
+one signed-off commit. One label, one attempt: the label comes off afterwards,
 so a wrong fix leaves the PR no worse than it was. It fixes the failure, never
 the ticket, and never makes a test pass by weakening it.
 
 > **Why the split?** The babysitter runs on a schedule, so nothing gates it, and
-> the text it reads — comments, review threads, CI logs — is writable by anyone
+> the text it reads (comments, review threads, CI logs) is writable by anyone
 > with a browser. Giving *that* trigger a shell and a push token would let a
 > stranger's comment steer a commit into the repo. `fix-it` costs write access to
 > apply. The schedule has no hands; the hands have no schedule.
@@ -347,7 +347,7 @@ the ticket, and never makes a test pass by weakening it.
 | `needs-spec` | Feature ask queued for spec refinement |
 | `repro-confirmed` / `cannot-repro` | What the repro loop found |
 | `needs-po-review` | A spec is drafted and waiting on the Product Owner |
-| `ready-to-dev` | Spec'd and approved — the build loop implements it |
+| `ready-to-dev` | Spec'd and approved: the build loop implements it |
 | `in-dev` | The build loop is working on it |
 | `fix-it` | Ask the pr-fix loop to attempt a fix on this PR |
 
