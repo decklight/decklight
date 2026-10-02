@@ -57,7 +57,7 @@ export function scrubLayout(fragment) {
 
 /**
  * The design systems the page carries, by name, in the order the deck uses
- * them: `{ name, version, title, palette, layouts: Map<id, HTMLTemplateElement> }`. Read from the meta block and the layouts template
+ * them: `{ name, version, title, palette, recommendedThemes, layouts: Map<id, HTMLTemplateElement> }`. Read from the meta block and the layouts template
  * the server injected (or a bundle copied in). A system whose meta is
  * unreadable is left out, and its slides fall back to plain content.
  */
@@ -73,7 +73,12 @@ export function pageDesignSystems(doc = document) {
       const id = t.getAttribute('data-layout');
       if (NAME_RE.test(id) && !layouts.has(id)) layouts.set(id, t);
     }
-    out.set(name, { name, version: info?.version ?? '', title: info?.title ?? name, palette: Array.isArray(info?.palette) ? info.palette : [], layouts });
+    out.set(name, {
+      name, version: info?.version ?? '', title: info?.title ?? name,
+      palette: Array.isArray(info?.palette) ? info.palette : [],
+      recommendedThemes: Array.isArray(info?.recommendedThemes) ? info.recommendedThemes.filter((t) => typeof t === 'string') : [],
+      layouts,
+    });
   }
   return out;
 }

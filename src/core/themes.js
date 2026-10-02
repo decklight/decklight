@@ -14,6 +14,7 @@ import { generateTheme, tokensToCss, luminance } from './themegen.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { createPreview } from './preview.js';
 import { readPref, readJson, writePref, writeJson } from './prefs.js';
+import { pageDesignSystems } from './design-system.js';
 
 /**
  * Wire the theme system to a deck.
@@ -238,7 +239,10 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // A marketplace pack's label comes from the deck (or, while authoring, from
   // the catalog), so it is looked up by pack id rather than living in a constant.
   const mktLabel = (p) => [...themeSource.values()].find((v) => v.pack === p)?.label;
-  const packLabel = (p) => mktLabel(p) ?? PACKS?.labels?.[p] ?? DYNAMIC_LABELS[p] ?? p;
+  // short in the list (it sits beside a count and the current-theme mark);
+  // the caption under the preview says whose recommendation it is
+  const packLabel = (p) => (p === 'recommended' ? '★ Recommended'
+    : mktLabel(p) ?? PACKS?.labels?.[p] ?? DYNAMIC_LABELS[p] ?? p);
   function packOf(name) {
     if (customThemes[name]) return 'custom';
     if (genTheme && name === genTheme.name) return 'generated';
@@ -280,9 +284,29 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     }
     return list;
   };
-  // [ [packName, [themes…]] … ] for the available list, dynamic packs last
+  // The themes the deck's design systems are made to sit on (SPEC
+  // DESIGN_SYSTEMS `recommendedThemes`): the page is the theme's, so a design
+  // system names the themes it was drawn for, and the picker lists those
+  // first. Only names this deck can apply right now — a recommendation that
+  // does nothing when chosen is worse than none. A `name@marketplace` form is
+  // read by its name: the picker lists one row per name.
+  function recommendation(list) {
+    const names = [];
+    const by = [];
+    for (const sys of pageDesignSystems().values()) {
+      const mine = (sys.recommendedThemes ?? []).map((t) => String(t).split('@')[0]).filter((n) => list.includes(n));
+      if (mine.length) by.push(sys.title || sys.name);
+      for (const n of mine) if (!names.includes(n)) names.push(n);
+    }
+    return { names, by };
+  }
+  const RECOMMENDED = 'recommended';
+  // [ [packName, [themes…]] … ] for the available list, dynamic packs last —
+  // and, when a design system recommends themes, those first
   function packEntries(list) {
     const out = [];
+    const rec = recommendation(list);
+    if (rec.names.length) out.push([RECOMMENDED, rec.names]);
     for (const p of PACKS.order) {
       const names = (PACKS.packs[p] ?? []).filter((n) => list.includes(n));
       if (names.length) out.push([p, names]);
@@ -649,10 +673,14 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const listBox = pickerEl.querySelector('.tp-list');
     const cur = currentTheme();
     const list = themeList();
+    const recommended = new Set(recommendation(list).names);
     if (pickerFilter) {
       pickerEntries = list.filter((n) => n.includes(pickerFilter));
     } else if (!PACKS || pickerView === 'all') {
-      pickerEntries = PACKS ? [GEN_ROW, BACK_ROW, ...list] : [GEN_ROW, ...list];
+      // flattened, the recommended themes still come first
+      const rec = recommendation(list).names;
+      const flat = [...rec, ...list.filter((n) => !rec.includes(n))];
+      pickerEntries = PACKS ? [GEN_ROW, BACK_ROW, ...flat] : [GEN_ROW, ...flat];
     } else if (pickerView === 'packs') {
       pickerEntries = [GEN_ROW, ...packEntries(list).map(([p]) => PACK_ROW + p), ALL_ROW];
     } else {
@@ -701,7 +729,10 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
           : themeSource.has(name) ? themeSource.get(name).label
           : addedThemes.has(name) ? 'added'
           : pickerFilter && PACKS ? packLabel(packOf(name)) : null;
-        const text = [mark, extra].filter(Boolean).join(' ');
+        // ★ in every view — the flat list, a filter, another pack — so a
+        // recommended theme is recognisable wherever it is met
+        const star = recommended.has(name) ? '★' : '';
+        const text = [star, mark, extra].filter(Boolean).join(' ');
         if (text) tag(row, text);
       }
       row.addEventListener('mouseenter', () => selectPickerRow(i, false));
@@ -795,6 +826,8 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const caption = name === GEN_ROW ? (pickerCandidate ? `✨ ${pickerCandidate.name}` : 'generate new')
       : name === BACK_ROW ? (homeView() === 'packs' ? 'back to packs' : 'back to the theme list')
       : name === ALL_ROW ? `all ${list.length} themes, flattened`
+      : name === PACK_ROW + RECOMMENDED
+        ? `recommended by ${recommendation(list).by.join(', ')} — the themes it was drawn for`
       : name.startsWith(PACK_ROW)
         ? `${packLabel(name.slice(PACK_ROW.length))} · ${packEntries(list).find(([q]) => q === name.slice(PACK_ROW.length))?.[1].length ?? 0} themes`
       : authoring() && refOf(name) ? markCaption(name)
@@ -802,7 +835,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const captionEl = pickerEl.querySelector('.tp-caption');
     captionEl.textContent = caption;
     // a reference and a sentence, not a theme name to title-case
-    captionEl.classList.toggle('tp-plain', authoring() && !!refOf(name));
+    captionEl.classList.toggle('tp-plain', (authoring() && !!refOf(name)) || name === PACK_ROW + RECOMMENDED);
     clearTimeout(pickerDebounce);
     // Navigation rows keep the current preview; only theme/gen rows swap it.
     // So does a marketplace theme whose bytes are not on this machine yet.

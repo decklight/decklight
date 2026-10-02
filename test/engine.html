@@ -815,6 +815,48 @@
           && r.filtersToThemes && r.enterCommitsAndCloses;
       }
 
+      if (mode === 'dsrecommended') {
+        // A design system's recommendedThemes (SPEC DESIGN_SYSTEMS): the theme
+        // picker lists them first, as a pack of their own, starred wherever
+        // they appear — only the ones this deck can apply.
+        const P = '.decklight-theme-picker';
+        const rows = () => [...document.querySelectorAll(`${P} .tp-row`)];
+        const meta = document.createElement('script');
+        meta.type = 'application/json';
+        meta.setAttribute('data-design-system-meta', 'acme');
+        meta.textContent = JSON.stringify({ name: 'acme', version: '1.2.0', title: 'Acme', palette: [], layouts: [],
+          recommendedThemes: ['paper', 'nope', 'midnight@elsewhere', 'paper'] });
+        document.head.appendChild(meta);
+        press('t');
+        const packRow = rows()[1];
+        r.firstPackIsRecommended = /^▸ ★ Recommended/.test(packRow?.textContent ?? '') && /2$/.test(packRow?.textContent ?? '');
+        press('ArrowUp');   // from the home row to the generate row, then onto the pack
+        while (document.querySelector(`${P} .tp-selected`) !== rows()[1]) press('ArrowDown');
+        r.captionSaysWhose = /recommended by Acme/.test(document.querySelector(`${P} .tp-caption`)?.textContent ?? '')
+          && document.querySelector(`${P} .tp-caption`).classList.contains('tp-plain');   // a sentence, not a name to title-case
+        packRow?.click();
+        const inside = rows().map((n) => n.firstChild?.textContent);
+        r.listsWhatCanBeApplied = JSON.stringify(inside.slice(1)) === JSON.stringify(['paper', 'midnight']);
+        r.starred = rows().slice(1).every((n) => /★/.test(n.querySelector('.tp-tag')?.textContent ?? ''));
+        press('Escape');
+        rows().find((n) => /all themes/.test(n.textContent))?.click();
+        const flat = rows().map((n) => n.firstChild?.textContent);
+        r.firstInTheFlatList = flat[2] === 'paper' && flat[3] === 'midnight';
+        r.notTwiceInTheFlatList = flat.filter((n) => n === 'paper').length === 1;
+        press('Escape'); press('Escape');
+        press('t');
+        for (const ch of 'mid') press(ch);
+        r.starredWhenFiltered = rows().some((n) => n.firstChild?.textContent === 'midnight' && /★/.test(n.textContent));
+        press('Escape'); press('Escape');
+        // no design system, no recommendation: the picker as it always was
+        meta.remove();
+        press('t');
+        r.goneWithoutOne = !rows().some((n) => /Recommended/.test(n.textContent));
+        press('Escape');
+        r.PASS = r.firstPackIsRecommended && r.captionSaysWhose && r.listsWhatCanBeApplied && r.starred && r.firstInTheFlatList
+          && r.notTwiceInTheFlatList && r.starredWhenFiltered && r.goneWithoutOne;
+      }
+
       if (mode === 'palette') {
         const Q = '.decklight-palette', ROW = '.pal-row', SEL = 'narr-sel';
         press('/');

@@ -127,6 +127,8 @@ export function designSystemMeta(verdict) {
   return {
     name: m.name, version: m.version, title: m.title,
     palette: Array.isArray(m.palette) ? m.palette : [],
+    // the themes it is made to sit on — the theme picker lists them first
+    recommendedThemes: Array.isArray(m.recommendedThemes) ? m.recommendedThemes.filter((t) => typeof t === 'string') : [],
     layouts: (verdict.summary?.layouts ?? []).map(({ id, title, slots }) => ({ id, title, slots })),
   };
 }

@@ -111,6 +111,7 @@ test('every server injects the stylesheet (always on), the meta and the layouts 
   assert.deepEqual({ name: meta.name, version: meta.version, title: meta.title }, { name: 'acme', version: '1.2.0', title: 'Acme Brand' });
   assert.deepEqual(meta.palette.map((p) => p.token), ['--acme-blue', '--acme-coral', '--acme-ink']);
   assert.deepEqual(meta.layouts.map((l) => l.id), ['section-divider', 'statement']);
+  assert.deepEqual(meta.recommendedThemes, ['aurora'], 'the themes it was drawn for — the theme picker lists them first');
   assert.deepEqual(meta.layouts[0].slots.find((s) => s.name === 'title'), { name: 'title', hint: 'h1,h2', required: true, default: false });
   assert.match(out, /<template data-design-system-layouts="acme">\s*<!-- Acme Brand layouts[\s\S]*<template data-layout="statement"[\s\S]*<\/template>\s*<\/template>/);
   assert.ok(out.indexOf('data-design-system="acme"') < out.indexOf('</head>'), 'in the head');
