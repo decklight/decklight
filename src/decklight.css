@@ -2530,3 +2530,8 @@
 .decklight-font-picker .fp-tag { flex: none; font-size: .72em; opacity: .6; white-space: nowrap; }
 .decklight-font-picker .fp-rec { opacity: .8; }
 .decklight-font-picker .fp-foot { margin: 10px 12px 2px; font-size: .72em; opacity: .55; }
+
+/* ---------- a design system's look, offered (SPEC DESIGN_SYSTEMS) — the slide behind is the preview ---------- */
+.decklight-narr.decklight-look-offer { background: rgba(0, 0, 0, .12); backdrop-filter: none; align-items: flex-end; padding-bottom: 6vh; }
+.decklight-look-offer .narr-card { width: min(520px, 90vw); }
+.decklight-ds-layouts .dsl-look .narr-row-label { color: #f5d77a; }

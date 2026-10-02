@@ -2029,7 +2029,7 @@ export async function editMain(args, { onListen = null } = {}) {
     const { MarketplaceError, recordInstall, loadRegistry, configHome } = await import('./marketplace.mjs');
     if (!parseRef(ref)) return json(400, { ok: false, error: 'which design system? — name@marketplace' });
     const before = readDeck();
-    let deckRef = ref, source = null;
+    let deckRef = ref, source = null, manifest = null, local = null;
     if (on) {
       const r = resolveDesignSystemRef(ref);
       if (!r.dir) {
@@ -2042,6 +2042,8 @@ export async function editMain(args, { onListen = null } = {}) {
         return json(400, { ok: false, error: `${r.ref} fails the design-system check`, problems: verdict.problems.map((p) => `${p.file}${p.line ? ` line ${p.line}` : ''}: ${p.msg}`) });
       }
       source = r.source ?? null;
+      manifest = verdict.manifest;
+      local = r.local;
       deckRef = refForDeck(before, r.name, r.local, source);
       if (!designSystemRefs(before).some((x) => x.ref === deckRef)) {
         recordInstall({ type: 'design-system', name: r.name, marketplace: r.local, version: r.entry.version ?? null,
@@ -2058,13 +2060,66 @@ export async function editMain(args, { onListen = null } = {}) {
       if (e instanceof MarketplaceError) return json(409, { ok: false, error: e.message });
       throw e;
     }
-    if (out.changed) {
+    // Its themes and fonts come with it (SPEC DESIGN_SYSTEMS, #642) — in the
+    // same write, so the whole thing is ONE undo — unless the author held ⇧
+    // (recommended: false). The look is offered, and applied only when asked.
+    let html = out.html, plan = null, look = null;
+    if (on && manifest) {
+      const deps = await import('./design-system-deps.mjs');
+      plan = deps.planRecommended(html, { manifest, local });
+      if (req.recommended !== false) {
+        html = deps.writePlan(html, plan);
+        for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
+      }
+      look = deps.lookOf(html, req.recommended !== false ? plan
+        : { ...plan, items: plan.items.filter((it) => it.status === 'already' || it.status === 'stack') });
+      if (req.apply === true && look.differs) html = deps.applyLook(html, look);
+      look.phrase = deps.lookPhrase(look, plan);
+    }
+    const changed = html !== before;
+    if (changed) {
       history.record(before);   // Z takes it back like any other edit
-      if (req.quiet === true) quietWrite = out.html;
-      writeFileAtomic(deckPath, out.html);
+      if (req.quiet === true) quietWrite = html;
+      writeFileAtomic(deckPath, html);
       console.log(`  design system: ${on ? 'referenced' : 'dropped'} ${deckRef}`);
     }
-    return json(200, { ok: true, ref: deckRef, used: on, changed: out.changed, ...history.counts() });
+    const pulled = plan && req.recommended !== false ? plan.items.map(({ kind, rec, ref: r2, status, why, cmd, family }) => ({ kind, rec, ref: r2, status, why, cmd, family })) : [];
+    return json(200, { ok: true, ref: deckRef, used: on, changed, pulled, look, ...history.counts() });
+  }
+
+  /**
+   * Give the deck the look a design system it uses was drawn for (SPEC
+   * DESIGN_SYSTEMS, #642): its first recommended theme and font, bringing any
+   * that are missing — one edit, one undo, so Z puts the old look back and
+   * keeps the design system. The twin of `decklight design-system apply`.
+   */
+  async function designSystemApplyRoute({ body, json }) {
+    const req = JSON.parse(body || '{}');
+    const { designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+    const { markedSources, parseRef } = await import('./theme-refs.mjs');
+    const { checkDir } = await import('./design-system.mjs');
+    const { recordInstall } = await import('./marketplace.mjs');
+    const deps = await import('./design-system-deps.mjs');
+    const before = readDeck();
+    const p = parseRef(String(req.ref ?? ''));
+    const hit = designSystemRefs(before).find((x) => x.ref === req.ref || x.name === (p?.name ?? req.ref));
+    if (!hit) return json(404, { ok: false, error: `this deck does not use ${req.ref}` });
+    const r = resolveDesignSystemRef(hit, undefined, { source: markedSources(before)[hit.marketplace] ?? null });
+    if (!r.dir) return json(409, { ok: false, error: r.missing });
+    const verdict = checkDir(r.dir);
+    if (!verdict.ok) return json(409, { ok: false, error: `${hit.ref} no longer passes its check` });
+    const plan = deps.planRecommended(before, { manifest: verdict.manifest, local: r.local });
+    let html = deps.writePlan(before, plan);
+    const look = deps.lookOf(html, plan);
+    if (look.differs) html = deps.applyLook(html, look);
+    look.phrase = deps.lookPhrase(look, plan);
+    if (html !== before) {
+      history.record(before);
+      writeFileAtomic(deckPath, html);
+      for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
+      console.log(`  design system: applied ${look.title}'s look — ${look.phrase || 'already worn'}`);
+    }
+    return json(200, { ok: true, ref: hit.ref, changed: html !== before, look, ...history.counts() });
   }
 
   // Every font every registered marketplace offers (SPEC FONTS), each saying
@@ -3022,6 +3077,7 @@ export async function editMain(args, { onListen = null } = {}) {
     'POST /edit/theme/mark': themeMarkRoute,
     'GET /edit/design-system/browse': designSystemBrowseRoute,
     'POST /edit/design-system/mark': designSystemMarkRoute,
+    'POST /edit/design-system/apply': designSystemApplyRoute,
     'GET /edit/font/browse': fontBrowseRoute,
     'POST /edit/font/mark': fontMarkRoute,
     'GET /edit/wizard': wizardSchemaRoute,

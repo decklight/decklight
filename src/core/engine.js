@@ -34,8 +34,8 @@ import { createDebugLog } from './debuglog.js';
 import { createLayoutCycler } from './layout.js';
 import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
-import { createDesignSystemsPicker, createSystemLayoutPicker } from './design-systems.js';
-import { setupSystemLayouts, isSystemLayout } from './design-system.js';
+import { createDesignSystemsPicker, createSystemLayoutPicker, createLookOffer } from './design-systems.js';
+import { setupSystemLayouts, isSystemLayout, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
 import { readPref, writePref } from './prefs.js';
 
@@ -565,9 +565,50 @@ export function init(userConfig = {}) {
   overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
   // Use design-system layout…: this slide into a layout, to another, out of
   // one, or a new slide in one — written by the author server
+  // The look a design system was drawn for (SPEC DESIGN_SYSTEMS): offered
+  // after an add, previewed live on the slide — the theme and the font
+  // applied without being kept — and written only on ⏎.
+  const lookOffer = createLookOffer({
+    root, toast,
+    base: () => (editmode?.available() ? editmode.base() : ''),
+    debugLog: (...a) => debugLog(...a),
+    preview: (look) => {
+      const was = { theme: themes.currentTheme(), font: fonts.current() };
+      if (look.themeChanges && look.theme) themes.applyTheme(look.theme, true, { persist: false });
+      if (look.fontChanges && look.font) fonts.apply(look.font, { silent: true, persist: false });
+      return was;
+    },
+    restore: (was) => {
+      if (was?.theme) themes.applyTheme(was.theme, true, { persist: false });
+      if (was?.font) fonts.apply(was.font, { silent: true, persist: false });
+    },
+    keep: (look) => {
+      if (look.themeChanges && look.theme) themes.applyTheme(look.theme, true);
+      if (look.fontChanges && look.font) fonts.apply(look.font, { silent: true });
+    },
+  });
+  overlays.register({ isOpen: lookOffer.isOpen, close: lookOffer.close, keydown: lookOffer.keydown });
+  /** A design system the deck uses whose look the deck does not wear — the layout picker's one-line offer. */
+  function lookHint() {
+    const themeNames = themes.themeList();
+    const fontIds = fonts.list().map((f) => f.id);
+    for (const sys of pageDesignSystems().values()) {
+      const theme = (sys.recommendedThemes ?? []).map((t) => t.split('@')[0]).find((t) => themeNames.includes(t)) ?? null;
+      const fontRow = (sys.recommendedFonts ?? []).map((t) => t.split('@')[0]).map((id) => fonts.list().find((f) => f.id === id))
+        .find(Boolean) ?? null;
+      const font = fontRow && fontIds.includes(fontRow.id) ? fontRow.id : null;
+      const themeChanges = !!theme && config.theme !== theme;
+      const fontChanges = !!font && config.font !== font;
+      if (themeChanges || fontChanges) {
+        return { ref: sys.name, title: sys.title || sys.name, theme, font, fontLabel: fontRow?.label, themeChanges, fontChanges };
+      }
+    }
+    return null;
+  }
   const systemLayouts = createSystemLayoutPicker({
     root, toast, deck: () => instance,
     base: () => (editmode?.available() ? editmode.base() : null),
+    lookHint, offerLook: (o) => lookOffer.show(o),
     debugLog: (...a) => debugLog(...a),
   });
   overlays.register({ isOpen: systemLayouts.isOpen, close: systemLayouts.close, keydown: systemLayouts.keydown });
@@ -2393,6 +2434,9 @@ export function init(userConfig = {}) {
     // what a preview frame looks like — the history's included — the same
     previewQuery: () => themes.previewQuery(),
   });
+  // an add left a look to offer, before the reload it caused (SPEC
+  // DESIGN_SYSTEMS): offered once the page knows it is authoring
+  editmode.settled().then(() => { if (editmode.available()) lookOffer.resume(); });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
 
   // A design-system slide that could not be expanded, or a design system the

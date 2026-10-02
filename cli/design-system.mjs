@@ -29,13 +29,22 @@ import { checkPackage, DESIGN_SYSTEM_API_VERSION, ASSET_EXTENSIONS } from '../to
 
 const USAGE = `usage: decklight design-system <add|remove|list|layouts|check> …
 
-  decklight design-system add <name@marketplace> <deck.html>
+  decklight design-system add <name@marketplace> <deck.html> [--no-recommended] [--apply|--no-apply]
     reference a design system from a deck — after the package passes check;
-    the deck gains one entry in its configuration block, never the package
+    the deck gains one entry in its configuration block, never the package.
+    The themes and fonts it recommends come with it, in the same edit, each
+    through its own gate (--no-recommended: the design system alone). Then
+    it offers to APPLY its look — the deck's theme and font — asking on a
+    terminal, suggesting --apply otherwise; --apply / --no-apply decide.
     EXAMPLE: decklight design-system add acme@acme-mkt talk.html
 
+  decklight design-system apply <name@marketplace> <deck.html>
+    give a deck the look a design system it uses was drawn for: its first
+    recommended theme and font (bringing any that are missing)
+
   decklight design-system remove <name@marketplace> <deck.html>
-    drop the reference; the package stays in its marketplace
+    drop the reference; the package stays in its marketplace, and so do the
+    themes and fonts it brought — other slides may use them (it lists them)
 
   decklight design-system list [<deck.html>]
     what a deck references (and the version it took against the catalog's);
@@ -203,6 +212,17 @@ async function addMain(args, on) {
       const out = setDesignSystem(d.html, hit.ref, false);
       if (out.changed) writeFileAtomic(d.path, out.html);
       console.log(out.changed ? `dropped ${hit.ref} from ${deck} — the package stays in its marketplace` : `${hit.ref} was not referenced by ${deck}`);
+      // what it brought stays: other slides, or another design system, may use it
+      const r = resolveDesignSystemRef(hit);
+      const manifest = r.dir ? checkDir(r.dir).manifest : null;
+      if (manifest) {
+        const { planRecommended } = await import('./design-system-deps.mjs');
+        const kept = planRecommended(out.html, { manifest, local: r.local }).items.filter((it) => it.status === 'already');
+        if (kept.length) {
+          console.log('  still in the deck — the themes and fonts it brought (the deck\'s theme and font are unchanged):');
+          for (const it of kept) console.log(`    ${it.kind} ${it.ref}  — decklight ${it.kind} remove ${it.ref} ${deck}`);
+        }
+      }
       return 0;
     }
     let qualified = ref;
@@ -218,13 +238,44 @@ async function addMain(args, on) {
     }
     const deckRef = refForDeck(d.html, r.name, r.local, r.source ?? null);
     const out = setDesignSystem(d.html, deckRef, true, { source: r.source ?? null });
-    if (out.changed) writeFileAtomic(d.path, out.html);
+    // its themes and fonts, in the SAME string — one write, one edit
+    const recommended = !args.includes('--no-recommended');
+    const deps = await import('./design-system-deps.mjs');
+    const plan = deps.planRecommended(out.html, { manifest: verdict.manifest, local: r.local });
+    let html = recommended ? deps.writePlan(out.html, plan) : out.html;
+    let look = deps.lookOf(html, recommended ? plan : { ...plan, items: plan.items.filter((it) => it.status === 'already' || it.status === 'stack') });
+    const decide = args.includes('--apply') ? true : args.includes('--no-apply') || !recommended ? false : null;
+    if (decide && look.differs) html = deps.applyLook(html, look);
+    if (html !== d.html) writeFileAtomic(d.path, html);
     const commit = loadRegistry(configHome()).marketplaces?.[r.local]?.commit ?? null;
     recordInstall({ type: 'design-system', name: r.name, marketplace: r.local, version: r.entry.version ?? null, commit });
+    if (recommended) for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
     const v = verdict.summary.version ? ` ${verdict.summary.version}` : '';
     console.log(out.changed
       ? `${deck} now uses ${deckRef}${v} — ${verdict.summary.title}; every server links it from the marketplace on this machine`
       : `${deck} already uses ${deckRef} — recorded${v} as the version you have`);
+    if (recommended) for (const line of deps.planLines(plan)) console.log(line);
+    else if (plan.items.some((it) => it.status === 'add')) {
+      console.log('  --no-recommended: not added — what it recommends:');
+      for (const it of plan.items.filter((x) => x.status === 'add')) console.log(`    ${it.kind} ${it.ref}  — decklight ${it.kind} add ${it.ref} ${deck}`);
+    }
+    if (look.differs) {
+      const phrase = deps.lookPhrase(look, plan);
+      if (decide) console.log(`applied ${look.title}'s look — ${phrase}`);
+      else if (decide === null && process.stdin.isTTY && process.stdout.isTTY) {
+        const { createInterface } = await import('node:readline/promises');
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        const answer = (await rl.question(`Apply ${look.title}'s look — ${phrase}? [Y/n] `)).trim().toLowerCase();
+        rl.close();
+        if (answer === '' || answer === 'y' || answer === 'yes') {
+          writeFileAtomic(d.path, deps.applyLook(readFileSync(d.path, 'utf8'), look));
+          console.log(`applied — ${phrase}`);
+        } else console.log(`kept the deck's look — decklight design-system apply ${deckRef} ${deck} applies it later`);
+      } else if (decide === null) {
+        console.log(`${look.title} was drawn for ${phrase} — add --apply to switch, or: decklight design-system apply ${deckRef} ${deck}`);
+      }
+    }
+    // a recommendation that could not come is a warning, never a failure: the layouts work without it
     return 0;
   } catch (e) {
     if (e instanceof MarketplaceError) { console.error(`decklight design-system ${cmd}: ${e.message}`); return 1; }
@@ -285,6 +336,40 @@ async function layoutsMain(args) {
   return 0;
 }
 
+/**
+ * `design-system apply`: the look a design system the deck already uses was
+ * drawn for — its recommended theme and font, bringing any that are missing,
+ * in one edit. Idempotent: a deck already wearing it is left as it is.
+ */
+async function applyMain(args) {
+  const [ref, deck] = args.filter((a) => !a.startsWith('-'));
+  if (!ref) { console.error(`decklight design-system apply: needs a design system and a deck\n\n${USAGE}`); return 1; }
+  const d = readDeckArg('apply', deck);
+  if (!d) return 1;
+  const { designSystemRefs, resolveDesignSystemRef } = await import('./design-system-refs.mjs');
+  const { markedSources } = await import('./theme-refs.mjs');
+  const { writeFileAtomic } = await import('../tools/atomic-write.mjs');
+  const { recordInstall } = await import('./marketplace.mjs');
+  const hit = designSystemRefs(d.html).find((r) => r.ref === ref || r.name === ref);
+  if (!hit) { console.error(`decklight design-system apply: ${deck} does not use ${ref} — decklight design-system add ${ref} ${deck}`); return 1; }
+  const r = resolveDesignSystemRef(hit, undefined, { source: markedSources(d.html)[hit.marketplace] ?? null });
+  if (!r.dir) { console.error(`decklight design-system apply: ${hit.ref} — ${r.missing}`); return 1; }
+  const verdict = checkDir(r.dir);
+  if (!verdict.ok) { console.error(`decklight design-system apply: ${hit.ref} no longer passes its check — decklight design-system check ${r.dir}`); return 1; }
+  const deps = await import('./design-system-deps.mjs');
+  const plan = deps.planRecommended(d.html, { manifest: verdict.manifest, local: r.local });
+  let html = deps.writePlan(d.html, plan);
+  const look = deps.lookOf(html, plan);
+  if (!look.theme && !look.font) { console.log(`${hit.ref} recommends no theme or font this deck can apply`); return 0; }
+  if (!look.differs && html === d.html) { console.log(`${deck} already wears ${look.title}'s look`); return 0; }
+  html = deps.applyLook(html, look);
+  writeFileAtomic(d.path, html);
+  for (const inst of deps.plannedInstalls(plan)) recordInstall(inst);
+  for (const line of deps.planLines(plan).filter((l) => !/^\s+=/.test(l))) console.log(line);
+  console.log(look.differs ? `applied ${look.title}'s look — ${deps.lookPhrase(look, plan)}` : `${deck} already wore ${look.title}'s look`);
+  return 0;
+}
+
 export async function designSystemMain(args = []) {
   const sub = args[0];
   if (!sub || sub === '--help' || sub === '-h' || sub === 'help') { console.log(USAGE); return sub ? 0 : 1; }
@@ -296,7 +381,8 @@ export async function designSystemMain(args = []) {
   if (sub === 'remove') return addMain(rest, false);
   if (sub === 'list') return listMain(rest);
   if (sub === 'layouts') return layoutsMain(rest);
-  console.error(`decklight design-system: unknown subcommand "${sub}" — add, remove, list, layouts, check\n\n${USAGE}`);
+  if (sub === 'apply') return applyMain(rest);
+  console.error(`decklight design-system: unknown subcommand "${sub}" — add, remove, apply, list, layouts, check\n\n${USAGE}`);
   return 1;
 }
 

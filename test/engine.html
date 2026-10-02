@@ -54,7 +54,7 @@
     // lose them the moment it gains an added one.
     // The exports are told the theme on screen (#547), so they run on a deck
     // that HAS one — linked, the way a data-only deck is served.
-    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'restore') {
+    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'restore' || HARNESS_MODE === 'dslook') {
       document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="../themes/aurora.css">');
     }
     if (HARNESS_MODE === 'added') {
@@ -333,6 +333,25 @@
         }
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // A design system's look (SPEC DESIGN_SYSTEMS, #642): an author server
+      // that adds one with its recommended theme and font, and applies its look
+      if (HARNESS_MODE === 'dslook') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/design-system/browse')) {
+          return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], systems: [
+            { name: 'acme', marketplace: 'acme-mkt', qualified: 'acme@acme-mkt', group: 'Acme', version: '1.2.0', description: 'Acme Brand', used: false },
+          ] });
+        }
+        if (u.includes('/edit/design-system/mark')) {
+          return json({ ok: true, ref: 'acme@acme-mkt', used: true, changed: true, undo: 1, redo: 0,
+            pulled: [{ kind: 'theme', rec: 'paper', ref: 'paper', status: 'add' }, { kind: 'font', rec: 'humanist', status: 'stack' }],
+            look: { title: 'Acme', theme: 'paper', font: 'humanist', themeChanges: true, fontChanges: true, differs: true, phrase: 'theme paper, font humanist' } });
+        }
+        if (u.includes('/edit/design-system/apply')) {
+          return json({ ok: true, ref: 'acme@acme-mkt', changed: true, undo: 2, redo: 0,
+            look: { title: 'Acme', theme: 'paper', font: 'humanist', themeChanges: true, fontChanges: true, differs: true, phrase: 'theme paper, font humanist' } });
+        }
+      }
       // Fonts while authoring (SPEC FONTS): an author server whose marketplaces
       // offer one font package, which Space references from the deck
       if (HARNESS_MODE === 'fontsauthor') {
@@ -545,6 +564,12 @@
     // Fonts (SPEC FONTS): the deck references a font package — its faces and
     // meta as a server links them — and a design system recommends a stack and
     // that font. A 0.9.0 pick was an index; fontslegacy stores one.
+    // a deck that uses a design system recommending the shipped paper theme
+    // and the humanist stack — and wears neither
+    if (HARNESS_MODE === 'dslook') {
+      try { localStorage.removeItem('decklight-font:' + location.pathname); localStorage.removeItem('decklight-theme:' + location.pathname); sessionStorage.clear(); } catch {}
+      document.head.insertAdjacentHTML('beforeend', `<script type="application/json" data-design-system-meta="acme">${JSON.stringify({ name: 'acme', title: 'Acme', layouts: [], palette: [], recommendedThemes: ['paper'], recommendedFonts: ['humanist'] })}<\/script>`);
+    }
     if (HARNESS_MODE.startsWith('fonts')) {
       try { localStorage.removeItem('decklight-font:' + location.pathname); } catch {}
       if (HARNESS_MODE === 'fontslegacy') try { localStorage.setItem('decklight-font:' + location.pathname, '7'); } catch {}
@@ -884,6 +909,55 @@
         press('Escape');
         r.PASS = r.firstPackIsRecommended && r.captionSaysWhose && r.listsWhatCanBeApplied && r.starred && r.firstInTheFlatList
           && r.notTwiceInTheFlatList && r.starredWhenFiltered && r.goneWithoutOne;
+      }
+
+      if (mode === 'dslook') {
+        // Adding a design system brings its recommended theme and font; its
+        // LOOK is offered — previewed live, ⏎ applies, Esc keeps (#642).
+        const fromPalette = async (label) => {
+          press('/');
+          for (const ch of label.toLowerCase().slice(0, 12)) press(ch);
+          [...document.querySelectorAll('.decklight-palette .pal-row')].find((n) => n.textContent.startsWith(label))?.click();
+          await settle();
+        };
+        const body = () => getComputedStyle(document.querySelector('.decklight')).getPropertyValue('--font-body');
+        await settle();   // the ping: authoring
+        await fromPalette('Design systems');
+        await settle();
+        press(' ', { shiftKey: true });   // ⇧ Space: the design system alone
+        await settle(); await settle();
+        const sent = CALLS.post.find((c) => c.u.includes('/edit/design-system/mark'))?.body;
+        r.shiftIsAlone = sent?.ref === 'acme@acme-mkt' && sent?.recommended === false;
+        r.toastSaysWhatCame = [...document.querySelectorAll('.decklight-toast')].some((n) => /now uses acme@acme-mkt — with theme paper/.test(n.textContent));
+        r.offerKeptForTheReload = /"theme":"paper"/.test(sessionStorage.getItem('decklight-look-offer:' + location.pathname) ?? '');
+        const themeBefore = Decklight.instance?.currentTheme?.() ?? document.querySelector('.decklight').dataset.theme;
+        const fontBefore = body();
+        await fromPalette('Use design-system layout');
+        const hint = document.querySelector('.decklight-ds-layouts .dsl-look');
+        r.layoutPickerHints = /Not in Acme's look — apply\?/.test(hint?.textContent ?? '') && /theme paper · font humanist/.test(hint?.textContent ?? '');
+        hint?.click();
+        await settle();
+        const dialog = () => document.querySelector('.decklight-look-offer');
+        r.dialogAsks = /apply Acme's look\?/i.test(dialog()?.textContent ?? '') && /⏎ Apply · Esc Keep current/.test(dialog()?.textContent ?? '');
+        // the theme and the font, on screen — not yet the viewer's pick
+        r.previewsLive = /Seravek/.test(body()) && [...document.querySelectorAll('link[rel="stylesheet"]')].some((n) => /themes\/paper\.css/.test(n.href))
+          && !localStorage.getItem('decklight-theme:' + location.pathname);
+        press('Escape');
+        await settle(); await settle();   // the theme link swapped back: let its stylesheet arrive
+        r.escDialogGone = !dialog();
+        r.escFontBack = body() === fontBefore;
+        r.escThemeBack = [...document.querySelectorAll('link[rel="stylesheet"]')].some((n) => /themes\/aurora\.css/.test(n.href));
+        r.escNoApply = !CALLS.post.some((c) => c.u.includes('/edit/design-system/apply'));
+        r.escKeeps = r.escDialogGone && r.escFontBack && r.escThemeBack && r.escNoApply;
+        await fromPalette('Use design-system layout');
+        document.querySelector('.decklight-ds-layouts .dsl-look')?.click();
+        await settle();
+        press('Enter');
+        await settle(); await settle();
+        r.enterApplies = !dialog() && CALLS.post.some((c) => c.u.includes('/edit/design-system/apply') && c.body.ref === 'acme')
+          && localStorage.getItem('decklight-font:' + location.pathname) === 'humanist' && /Seravek/.test(body());
+        r.PASS = r.shiftIsAlone && r.toastSaysWhatCame && r.offerKeptForTheReload && r.layoutPickerHints && r.dialogAsks
+          && r.previewsLive && r.escKeeps && r.enterApplies;
       }
 
       if (mode === 'fonts' || mode === 'fontslegacy' || mode === 'fontsauthor') {

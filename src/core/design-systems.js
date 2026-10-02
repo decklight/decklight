@@ -56,11 +56,11 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
     // said plainly, and only a cached catalog that no longer reads is a warning
     for (const m of unfetched) html += `<div class="rec-line">${escapeHtml(m)} has not been fetched yet — decklight marketplace update ${escapeHtml(m)}</div>`;
     for (const m of stale) html += `<div class="rec-line rec-warn">${escapeHtml(m)}'s cached catalog could not be read — decklight marketplace update ${escapeHtml(m)}</div>`;
-    html += '<div class="rec-hint">↑/↓ · Space or ⏎ toggles · Esc closes</div>';
+    html += '<div class="rec-hint">↑/↓ · Space or ⏎ toggles — with its recommended themes and fonts (⇧ for the design system alone) · Esc closes</div>';
     c.innerHTML = html;
     c.querySelectorAll('.ds-row').forEach((r) => {
       r.addEventListener('mouseenter', () => select(Number(r.dataset.i)));
-      r.addEventListener('click', () => { select(Number(r.dataset.i)); toggle(); });
+      r.addEventListener('click', (e) => { select(Number(r.dataset.i)); toggle(e.shiftKey); });
     });
     select(Math.min(sel, Math.max(0, rows.length - 1)));
   }
@@ -90,15 +90,17 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
     }
   }
 
-  async function toggle() {
+  async function toggle(alone = false) {
     const s = rows[sel];
     if (!s || busy) return;
     if (s.missing && !s.used) { toast(`${s.qualified}: ${s.missing}`, 6000); return; }
     busy = true;
     try {
+      // its recommended themes and fonts come with it unless ⇧ is held — the
+      // UI's --no-recommended (SPEC DESIGN_SYSTEMS)
       const r = await fetch(`${base()}/edit/design-system/mark`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ref: s.qualified, used: !s.used }),
+        body: JSON.stringify({ ref: s.qualified, used: !s.used, recommended: !alone }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error([j.error, ...(j.problems ?? []).slice(0, 2)].filter(Boolean).join(' · ') || `the author server answered ${r.status}`);
@@ -106,9 +108,16 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
       // the server links it in; the reload the write causes brings it back applied
       // Referencing changes nothing on screen by itself — a design system styles
       // only the slides that name its layouts — so the toast says what to do next.
+      const came = (j.pulled ?? []).filter((x) => x.status === 'add');
+      const withIt = came.length ? ` — with ${came.map((x) => `${x.kind} ${x.family ?? x.ref}`).join(', ')}` : '';
+      const lost = (j.pulled ?? []).filter((x) => x.status === 'skip');
       toast(!j.changed ? `${j.ref}: nothing to change`
-        : j.used ? `● this deck now uses ${j.ref} — its layouts are in / → Use design-system layout… · Z takes it back`
-          : `○ dropped ${j.ref} — Z takes it back`, j.used && j.changed ? 6000 : 3200);
+        : j.used ? `● this deck now uses ${j.ref}${withIt}${lost.length ? ` · ⚠ not added: ${lost.map((x) => `${x.rec} (${x.why})`).join('; ')}` : ''}`
+          + ' — its layouts are in / → Use design-system layout… · Z takes it back'
+          : `○ dropped ${j.ref} — Z takes it back`, j.used && j.changed ? 7000 : 3200);
+      // the look it was drawn for is OFFERED after the reload this write brings
+      // — by then the page has the theme and font it would switch to
+      if (j.used && j.look?.differs) rememberOffer({ ref: j.ref, ...j.look });
       close();
     } catch (e) {
       toast(`${s.qualified} — ${e.message ?? e}`, 7000);
@@ -127,11 +136,90 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
     if (e.key === 'Escape') { close(); return true; }
     if (e.key === 'ArrowDown') { select(Math.min(rows.length - 1, sel + 1)); return true; }
     if (e.key === 'ArrowUp') { select(Math.max(0, sel - 1)); return true; }
-    if (e.key === ' ' || e.key === 'Enter') { toggle(); return true; }
+    if (e.key === ' ' || e.key === 'Enter') { toggle(e.shiftKey); return true; }
     return true;   // the list holds the keyboard while it is open
   }
 
   return { open, close, keydown, isOpen: () => !!el };
+}
+
+// ── the look a design system was drawn for ─────────────────────────────────
+// Adding a design system brings its recommended themes and fonts; APPLYING
+// them — the deck's theme and font — is offered, never automatic (SPEC
+// DESIGN_SYSTEMS): one dialog, the slide previewing the look live behind it,
+// ⏎ applies (POST /edit/design-system/apply, one undo), Esc keeps the current
+// look. The offer survives the reload the add causes, in sessionStorage.
+
+const OFFER_KEY = () => 'decklight-look-offer:' + location.pathname;
+function rememberOffer(offer) {
+  try { sessionStorage.setItem(OFFER_KEY(), JSON.stringify(offer)); } catch { /* private mode: no offer */ }
+}
+function takeOffer() {
+  try {
+    const raw = sessionStorage.getItem(OFFER_KEY());
+    sessionStorage.removeItem(OFFER_KEY());
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+/**
+ * `preview(look)` puts the look on screen without keeping it and returns what
+ * was there; `restore(was)` puts that back; `keep(look)` makes it the viewer's
+ * own pick too, so the screen matches the deck after the write.
+ */
+export function createLookOffer({ root, base, toast, preview, restore, keep, debugLog = () => {} }) {
+  let el = null, offer = null, was = null, busy = false;
+
+  function show(o) {
+    if (el || !o || (!o.theme && !o.font)) return;
+    offer = o;
+    was = preview(o);
+    el = document.createElement('div');
+    el.className = 'decklight-narr decklight-look-offer';
+    const what = o.phrase || [o.themeChanges && `theme ${o.theme}`, o.fontChanges && `font ${o.font}`].filter(Boolean).join(', ');
+    el.innerHTML = '<div class="narr-card" role="dialog" aria-label="Apply the design system\'s look">'
+      + `<div class="narr-head">apply ${escapeHtml(o.title || o.ref)}'s look?</div>`
+      + `<div class="rec-line">${escapeHtml(what)} — the slide shows it now</div>`
+      + '<div class="rec-hint">⏎ Apply · Esc Keep current</div></div>';
+    closeOnBackdrop(el, decline);
+    root.appendChild(el);
+  }
+  function shut() { el?.remove(); el = null; }
+  function decline() {
+    if (!el) return;
+    restore(was);
+    shut();
+    toast(`kept the current look — Use design-system layout… offers ${offer.title || offer.ref}'s again`, 3600);
+  }
+  async function accept() {
+    if (!el || busy) return;
+    busy = true;
+    try {
+      const r = await fetch(`${base()}/edit/design-system/apply`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ref: offer.ref }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the author server answered ${r.status}`);
+      keep(j.look ?? offer);
+      shut();
+      toast(`${offer.title || offer.ref}'s look applied${j.look?.phrase ? ` — ${j.look.phrase}` : ''} · Z puts the old look back`, 4200);
+      debugLog('design-system', `applied ${offer.ref}'s look`);
+    } catch (e) {
+      restore(was);
+      shut();
+      toast(`could not apply the look — ${e.message ?? e}`, 6000);
+    } finally { busy = false; }
+  }
+  function keydown(e) {
+    if (e.key === 'Enter') { accept(); return true; }
+    if (e.key === 'Escape') { decline(); return true; }
+    return true;
+  }
+  /** After a reload: the offer an add left behind, if any. */
+  function resume() { const o = takeOffer(); if (o) show(o); }
+
+  return { show, resume, keydown, close: decline, isOpen: () => !!el };
 }
 
 // ── Use design-system layout… ───────────────────────────────────────────────
@@ -143,7 +231,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
 // undo entry, and a sentence saying what went where.
 
 
-export function createSystemLayoutPicker({ root, base, toast, deck, debugLog = () => {} }) {
+export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = () => null, offerLook = () => {}, debugLog = () => {} }) {
   let el = null, rows = [], sel = 0, view = 'layouts', chosen = null, busy = false;
   const card = () => el?.querySelector('.narr-card');
 
@@ -189,9 +277,16 @@ export function createSystemLayoutPicker({ root, base, toast, deck, debugLog = (
       const all = listed();
       html += `<div class="narr-head">use a design-system layout — slide ${slide}${isSystemLayout(current) ? ` is ${escapeHtml(current)}` : ''}</div>`;
       html += '<div class="dsl-split"><div class="dsl-list">';
+      // a design system the deck uses, whose look was declined: one line to offer it again
+      const hint = lookHint();
+      if (hint) {
+        rows.push({ look: hint });
+        html += `<div class="narr-row dsl-row dsl-look" data-i="${rows.length - 1}"><span class="narr-row-label">✦ Not in ${escapeHtml(hint.title || hint.ref)}'s look — apply?`
+          + ` <span class="narr-flavor">${escapeHtml([hint.themeChanges && `theme ${hint.theme}`, hint.fontChanges && `font ${hint.fontLabel ?? hint.font}`].filter(Boolean).join(' · '))}</span></span></div>`;
+      }
       if (isSystemLayout(current)) {
         rows.push({ remove: true });
-        html += `<div class="narr-row dsl-row" data-i="0"><span class="narr-row-label">↩ Take slide ${slide} out of ${escapeHtml(current)} <span class="narr-flavor">back to a plain slide</span></span></div>`;
+        html += `<div class="narr-row dsl-row" data-i="${rows.length - 1}"><span class="narr-row-label">↩ Take slide ${slide} out of ${escapeHtml(current)} <span class="narr-flavor">back to a plain slide</span></span></div>`;
       }
       let group = null;
       for (const l of all) {
@@ -253,6 +348,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, debugLog = (
     const row = rows[sel];
     if (!row) return;
     if (view === 'layouts') {
+      if (row.look) { close(); return offerLook(row.look); }
       if (row.remove) return send({ slide, layout: null }, 'could not take the slide out');
       chosen = row;
       view = 'actions';
