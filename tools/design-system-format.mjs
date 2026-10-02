@@ -212,7 +212,60 @@ function styleProblems(css, { file, prefix, files }) {
       push(t.line, 'unprefixed-token', `${t.name} does not start with this package's tokenPrefix ${prefix}`);
     }
   }
-  return { problems, tokens, exceptions };
+  const warnings = pageRules(css).map((r) => ({
+    file, line: r.line, rule: 'paints-the-page',
+    msg: `${r.selector} sets ${r.prop}: ${r.value} — the slide's page, text and type are the theme's (--bg, --fg, --font-body…); painting them here decides every theme's look on these slides, and the chrome on top keeps the theme's. Use the theme's tokens, or ship a theme beside the design system and name it in recommendedThemes`,
+  }));
+  return { problems, warnings, tokens, exceptions };
+}
+
+// ── the page is the theme's ────────────────────────────────────────────────
+
+/** Selectors whose subject is the slide itself, or the deck around it. */
+const PAGE_SUBJECT = /^(?:section(?=$|[.[:#])|\.decklight(?=$|[[:])|\.decklight-stage(?=$|[[:]))/i;
+/** A colour that is not a theme token: a literal, a function, a name, or another custom property. */
+const OWN_COLOUR = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|color-mix)\(|\bvar\(--|\b(?:white|black|red|green|blue|gray|grey|silver|navy|teal|olive|maroon|purple|orange|yellow|ivory|beige|whitesmoke|snow|gainsboro)\b/i;
+const CONTRACT_REF = /var\(\s*(--[a-z0-9-]+)\s*(?:,[^()]*)?\)/gi;
+
+/**
+ * Does a declaration paint the page, text or type with something other than
+ * the theme's own tokens? A background IMAGE alone is art — a design system's
+ * to bring — so only a colour counts there.
+ */
+function ownsThePage(prop, value) {
+  const v = value.replace(/url\([^)]*\)/gi, ' ')
+    .replace(CONTRACT_REF, (whole, token) => (CONTRACT.has(token) ? ' ' : whole));
+  if (/^(?:background|background-color|color)$/.test(prop)) return OWN_COLOUR.test(v);
+  if (/^(?:font|font-family)$/.test(prop)) return !/^\s*(?:inherit|initial|unset)?\s*$/i.test(v.replace(/!important/i, ''));
+  return false;
+}
+
+/**
+ * The stylesheet's rules that paint the slide itself — its background, its
+ * text colour, its type — with the design system's own values rather than
+ * the theme's tokens. Not refused: a brand page may be the point. But the
+ * page is what a THEME owns (THEMING), and a design system that paints it
+ * decides every theme's look on its slides, chrome left clashing on top; so
+ * it is said, with the way out.
+ */
+export function pageRules(css) {
+  const text = String(css ?? '');
+  const bare = text.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' '));
+  const out = [];
+  for (const rule of bare.matchAll(/([^{}]*)\{([^{}]*)\}/g)) {
+    const selector = rule[1].trim().replace(/\s+/g, ' ');
+    const onPage = selector.split(',').some((part) => PAGE_SUBJECT.test(part.trim().split(/[\s>+~]+/).filter(Boolean).pop() ?? ''));
+    if (!onPage) continue;
+    let at = rule.index + rule[1].length + 1;
+    for (const decl of rule[2].split(';')) {
+      const m = /^\s*([a-z-]+)\s*:\s*([\s\S]*?)\s*$/i.exec(decl);
+      if (m && ownsThePage(m[1].toLowerCase(), m[2])) {
+        out.push({ selector, prop: m[1].toLowerCase(), value: m[2], line: lineAt(text, at + decl.search(/\S/)) });
+      }
+      at += decl.length + 1;
+    }
+  }
+  return out;
 }
 
 // ── the layouts ────────────────────────────────────────────────────────────
@@ -391,6 +444,7 @@ export function checkPackage(pkg) {
       stylesRead = true;
       const r = styleProblems(f.text ?? '', { file: stylesPath, prefix, files });
       problems.push(...r.problems);
+      warnings.push(...r.warnings);
       tokens = r.tokens;
       summary.exceptions = r.exceptions;
     }

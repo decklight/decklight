@@ -135,7 +135,7 @@ test('css: a theme-contract token needs a ds-exception, and a declared one is pr
   const bg = only(checkPackage(edit(okPkg(), 'design-system.css', '--acme-ink: #14213d;', '--acme-ink: #14213d;\n  --bg: #000;')), 'contract-token');
   assert.match(bg.msg, /^--bg /);
   // a token READ through var() is not a declaration
-  assert.equal(checkPackage(edit(okPkg(), 'design-system.css', 'color: #fff;', 'color: var(--fg);')).ok, true);
+  assert.equal(checkPackage(edit(okPkg(), 'design-system.css', 'color: var(--acme-coral);', 'color: var(--fg);')).ok, true);
 });
 
 test('css: a custom tokenPrefix is the one held to', () => {
@@ -184,6 +184,23 @@ test('svg: no script, no handlers, nothing outside the file — #fragments stay 
   assert.deepEqual(svgProblems('<svg><foreignObject/></svg>').map((p) => p.rule), ['svg-script']);
   assert.deepEqual(svgProblems('<svg><image href="https://x.example/a.png"/></svg>').map((p) => p.rule), ['svg-external-href']);
   assert.deepEqual(svgProblems('<svg><use xlink:href="other.svg#g"/></svg>').map((p) => p.rule), ['svg-external-href']);
+});
+
+test('a stylesheet that paints the slide itself — page, text, type — is warned about, not refused; art and theme tokens are not', () => {
+  assert.deepEqual(checkPackage(okPkg()).warnings, [], 'the fixture leaves the page to the theme');
+  const painted = checkPackage(edit(okPkg(), 'design-system.css', '.decklight .acme-statement',
+    `.decklight-stage > section[data-layout^="acme/"] { padding: 0; background: #fff; color: var(--acme-ink); font-family: "Trebuchet MS", sans-serif }
+.decklight section.acme { background: url(assets/divider.svg) no-repeat; color: var(--fg); font-family: var(--font-body) }
+.decklight .acme-card { background: #fff; color: #222 }
+.decklight .acme-statement`));
+  assert.equal(painted.ok, true, 'a warning, never a refusal');
+  assert.deepEqual(painted.warnings.map((w) => [w.rule, w.msg.split(' — ')[0]]), [
+    ['paints-the-page', '.decklight-stage > section[data-layout^="acme/"] sets background: #fff'],
+    ['paints-the-page', '.decklight-stage > section[data-layout^="acme/"] sets color: var(--acme-ink)'],
+    ['paints-the-page', '.decklight-stage > section[data-layout^="acme/"] sets font-family: "Trebuchet MS", sans-serif'],
+  ], 'background art, theme tokens and elements inside the slide are not the page');
+  assert.match(painted.warnings[0].msg, /ship a theme beside the design system and name it in recommendedThemes/);
+  assert.ok(painted.warnings.every((w) => w.file === 'design-system.css' && Number.isInteger(w.line)));
 });
 
 test('assets: the allowlisted kinds only; an oversized one is a warning, not a refusal; papers and dotfiles are not assets', () => {

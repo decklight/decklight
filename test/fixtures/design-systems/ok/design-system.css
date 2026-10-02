@@ -14,9 +14,9 @@
   --heading-weight: 600;
 }
 
+/* the divider's art on the slide; its page and text stay the theme's */
 .decklight section[data-layout="acme/section-divider"] {
-  background: var(--acme-ink) url(assets/divider.svg) no-repeat right bottom / 40%;
-  color: #fff;
+  background: url(assets/divider.svg) no-repeat right bottom / 40%;
 }
 .decklight .acme-divider { padding: var(--acme-divider-pad); font-family: "Acme Sans", var(--font-heading); }
 .decklight .acme-divider [data-ds-injected][data-slot="kicker"] { color: var(--acme-coral); letter-spacing: .08em; }
