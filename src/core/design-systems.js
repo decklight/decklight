@@ -16,7 +16,11 @@ import { escapeHtml } from './escape.js';
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { pageDesignSystems, setupSystemLayouts, isSystemLayout } from './design-system.js';
 
-/** `base()` is the author server's URL, or null when there is none. */
+/**
+ * `base()` is the author server's URL, or null when there is none — and `''`
+ * when the deck is served BY the author server, every fetch same-origin, so
+ * only `null` means "no server": an empty base is the commonest one.
+ */
 export function createDesignSystemsPicker({ root, base, toast, debugLog = () => {} }) {
   let el = null, rows = [], sel = 0, busy = false;
 
@@ -65,7 +69,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
 
   async function open() {
     if (el) return;
-    if (!base()) { toast('design systems are referenced while authoring — decklight author <deck.html>', 3200); return; }
+    if (base() === null) { toast('design systems are referenced while authoring — decklight author <deck.html>', 3200); return; }
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-record decklight-design-systems';
     el.innerHTML = '<div class="narr-card" role="listbox" aria-label="Design systems"></div>';
@@ -254,7 +258,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, debugLog = (
 
   function open() {
     if (el) return;
-    if (!base()) { toast('design-system layouts are chosen while authoring — decklight author <deck.html>', 3200); return; }
+    if (base() === null) { toast('design-system layouts are chosen while authoring — decklight author <deck.html>', 3200); return; }
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-record decklight-ds-layouts';
     el.innerHTML = '<div class="narr-card" role="listbox" aria-label="Use design-system layout"></div>';
