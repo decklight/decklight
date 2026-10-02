@@ -22,6 +22,7 @@ import { rangeLabel } from './ranges.js';
 import { agentChipText, boundedFetch, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
+import { readPref, writePref } from './prefs.js';
 import { createDock } from './dock.js';
 import { thinking } from './thinking.js';
 import { authoredTop, authoredIndex, pageDesignSystems } from './design-system.js';
@@ -1504,6 +1505,25 @@ export function createEditMode({
   // commit), but "recoverable" is not the same as "intended", and the whole
   // point of a history is that you were looking rather than deciding.
   let restoreArmed = false;
+  // The caption under the preview — hash · age · subject · counts — is the
+  // selected row said again in a sentence. Useful when the rail is too narrow
+  // to read, noise when it is not, and it sits right under the slide you are
+  // trying to judge, so it is off until asked for. Per BROWSER, not per deck:
+  // it is how you like this overlay, not a fact about any one deck.
+  const HISTORY_CAPTIONS_KEY = 'decklight-history-captions';
+  const historyCaptionsOn = () => readPref(HISTORY_CAPTIONS_KEY) === '1';
+  function applyHistoryCaptions() {
+    if (!restoreEl) return;
+    const on = historyCaptionsOn();
+    restoreEl.querySelector('.tp-caption').hidden = !on;
+    const b = restoreEl.querySelector('.hs-cc');
+    b.setAttribute('aria-pressed', String(on));
+    b.title = `${on ? 'hide' : 'show'} captions (C)`;
+  }
+  function toggleHistoryCaptions() {
+    writePref(HISTORY_CAPTIONS_KEY, historyCaptionsOn() ? '0' : '1');
+    applyHistoryCaptions();
+  }
 
   // Stroke icons in the shape of the transport controls everyone already
   // knows. Constant markup, so innerHTML is the same call the touch chrome
@@ -1540,7 +1560,7 @@ export function createEditMode({
     // work — they just cannot know where the end is, so none of them is greyed
     // out. Guessing a limit would strand somebody one slide short of it.
     nav.querySelector('.hs-pos').textContent = total ? `${previewSlide} / ${total}` : `${previewSlide}`;
-    for (const b of nav.querySelectorAll('.hs-btn')) {
+    for (const b of nav.querySelectorAll('.hs-btn[data-go]')) {
       const at = b.dataset.go;
       b.disabled = (previewSlide <= 1 && (at === 'first' || at === 'prev'))
         || (!!total && previewSlide >= total && (at === 'next' || at === 'last'));
@@ -1623,6 +1643,7 @@ export function createEditMode({
           ['first', 'prev'].map((k) => navBtn(k)).join('') +
           '<span class="hs-pos" aria-live="polite"></span>' +
           ['next', 'last'].map((k) => navBtn(k)).join('') +
+          '<button type="button" class="hs-btn hs-cc" aria-label="captions (C)">CC</button>' +
         '</div>' +
         '<div class="tp-caption"></div></div></div>';
     // textContent for both: a branch name is arbitrary text, and the title is
@@ -1631,15 +1652,17 @@ export function createEditMode({
     // rail's min-content width — the long version of this string is literally
     // what collapsed the preview to 57px. The keys it drops are all on screen:
     // the transport draws ←→, and ⏎/Esc are in the confirmation card.
-    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ preview · ⏎ restore';
+    restoreEl.querySelector('.tp-filter').textContent = 'History — ↑↓ browse · ←→ preview · ⏎ restore · C\u00a0captions';
     const remoteEl = restoreEl.querySelector('.hs-remote');
     // The server sends the sentence ready-made — cli/git.mjs spawns git and the
     // runtime cannot import it, so the words live in one place on that side.
     if (remote?.line) remoteEl.textContent = remote.line;
     else remoteEl.remove();
-    for (const b of restoreEl.querySelectorAll('.hs-btn')) {
+    for (const b of restoreEl.querySelectorAll('.hs-btn[data-go]')) {
       b.addEventListener('click', () => navTo(b.dataset.go));
     }
+    restoreEl.querySelector('.hs-cc').addEventListener('click', toggleHistoryCaptions);
+    applyHistoryCaptions();
     // Built as nodes, not innerHTML: a commit subject is somebody else's text
     // and may contain anything — textContent escapes it by construction.
     const list = restoreEl.querySelector('.tp-list');
@@ -1829,6 +1852,8 @@ export function createEditMode({
         case 'ArrowRight': navTo('next'); break;
         case 'Home': navTo('first'); break;
         case 'End': navTo('last'); break;
+        // the deck's own captions key, meaning the same thing one layer up
+        case 'c': case 'C': toggleHistoryCaptions(); break;
         // Two steps, and the first one is not a write: ⏎ asks, ⏎ again does it.
         case 'Enter': restoreArmed ? commitRestore() : armRestore(); break;
         // Esc backs out of the question before it backs out of the overlay —

@@ -628,6 +628,23 @@
 }
 .decklight-history .hs-btn:hover:not(:disabled) { background: rgba(128, 128, 128, .18); }
 .decklight-history .hs-btn:disabled { opacity: 0.3; cursor: default; }
+/* The captions toggle closes the transport row: a text glyph rather than an
+   icon, because CC is the mark everyone already reads as "captions". Lit when
+   on, the way a pressed toggle looks everywhere else. */
+.decklight-history .hs-cc {
+  width: auto;
+  padding: 0 6px;
+  margin-left: 0.6em;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: .04em;
+  opacity: .6;
+}
+.decklight-history .hs-cc[aria-pressed="true"] {
+  opacity: 1;
+  background: rgba(128, 128, 128, .22);
+}
 .decklight-history .hs-pos {
   min-width: 4.5em;
   text-align: center;

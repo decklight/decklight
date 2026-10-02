@@ -54,7 +54,8 @@
     // lose them the moment it gains an added one.
     // The exports are told the theme on screen (#547), so they run on a deck
     // that HAS one — linked, the way a data-only deck is served.
-    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'restore' || HARNESS_MODE === 'dslook') {
+    if (HARNESS_MODE === 'exportvideo' || HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'restore' || HARNESS_MODE === 'dslook'
+        || HARNESS_MODE === 'historycaptions') {
       document.head.insertAdjacentHTML('beforeend', '<link rel="stylesheet" href="../themes/aurora.css">');
     }
     if (HARNESS_MODE === 'added') {
@@ -116,7 +117,7 @@
       const u = String(url);
       if (init?.method === 'POST') CALLS.post.push({ u, body: JSON.parse(init.body ?? '{}') });
       else CALLS.get.push(u);
-      if (HARNESS_MODE === 'restore') {
+      if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historycaptions') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
         if (u.includes('/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
@@ -2948,6 +2949,47 @@
           && r.downMoves && r.wrapsAround && r.escapeCloses && r.reopens
           && r.backdropCloses && r.paletteUp && r.restoreUp && r.paletteGone
           && r.hasApi && r.apiLists && r.apiCloses;
+      }
+
+      if (mode === 'historycaptions') {
+        // The caption under the history preview is off until asked for, C or
+        // the CC button turns it on, and the choice outlives the overlay.
+        const O = '.decklight-history', KEY = 'decklight-history-captions';
+        const caption = () => document.querySelector(`${O} .tp-caption`);
+        const shown = () => !!caption() && !caption().hidden && caption().offsetHeight > 0;
+        const cc = () => document.querySelector(`${O} .hs-cc`);
+        try { localStorage.removeItem(KEY); } catch { /* no storage: the default is the test */ }
+        await settle();                       // let /edit/ping resolve
+        press('h');
+        await settle();                       // let /edit/history resolve
+        r.opens = !!document.querySelector(O);
+        r.hiddenByDefault = !!caption() && !shown();
+        r.stillWritten = /aaaaaaa/.test(caption()?.textContent ?? '');
+        r.buttonSaysOff = cc()?.getAttribute('aria-pressed') === 'false';
+        r.hintNamesKey = /C\scaptions/.test(document.querySelector(`${O} .tp-filter`)?.textContent ?? '');
+        press('c');
+        r.keyShows = shown();
+        r.buttonSaysOn = cc()?.getAttribute('aria-pressed') === 'true';
+        r.keyStaysInOverlay = !!document.querySelector(O);
+        press('c');
+        r.keyHides = !shown();
+        cc()?.click();
+        r.buttonShows = shown();
+        r.persisted = localStorage.getItem(KEY) === '1';
+        r.escapeCloses = escapeUntilClosed(O);
+        press('h');
+        await settle();
+        r.reopensShown = shown() && cc()?.getAttribute('aria-pressed') === 'true';
+        cc()?.click();
+        r.buttonHides = !shown();
+        escapeUntilClosed(O);
+        press('h');
+        await settle();
+        r.reopensHidden = !!document.querySelector(O) && !shown();
+        escapeUntilClosed(O);
+        r.PASS = r.opens && r.hiddenByDefault && r.stillWritten && r.buttonSaysOff && r.hintNamesKey
+          && r.keyShows && r.buttonSaysOn && r.keyStaysInOverlay && r.keyHides && r.buttonShows
+          && r.persisted && r.escapeCloses && r.reopensShown && r.buttonHides && r.reopensHidden;
       }
 
       if (mode === 'wizard') {

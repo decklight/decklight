@@ -78,7 +78,7 @@ const ENGINE_GROUPS = {
   themes: ['themepicker', 'dsrecommended', 'fonts', 'fontslegacy', 'fontsauthor', 'dslook', 'added', 'browse', 'nobrowse', 'wizard'],
   palette: ['palette', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'designsystems', 'skeys', 'skeys&nosrv'],
   narration: ['narration', 'nonarration', 'panel'],
-  navigation: ['restore', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
+  navigation: ['restore', 'historycaptions', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'publish'],
   templates: ['template', 'templatelook'],
   sources: ['sources', 'sourcesedit'],
