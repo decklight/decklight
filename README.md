@@ -37,8 +37,9 @@ guessing from Reveal.js memory. Then it asks whether to open the deck in author
 mode: live reload, edits from the browser, an AI agent on `A`, and git
 underneath — your work snapshotted as you go, committed when you press `K`.
 Say yes. Leave out `--dir` to start the deck in the current directory. Keep the
-`@latest`: a bare `npx decklight` can reuse whatever version npx cached the
-first time you ran it.
+`@latest`: npx resolves it against the registry on every run, so you always
+get the current release, whereas a bare `npx decklight` runs any decklight
+already installed in the project or globally, however old.
 
 Prefer npm's own scaffolding command? This does the same thing, naming the
 deck after its folder ("My Talk"):
