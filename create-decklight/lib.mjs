@@ -32,3 +32,16 @@ export function npxCommand(platform = process.platform) {
     ? { cmd: 'npx.cmd', shell: true }
     : { cmd: 'npx', shell: false };
 }
+
+/**
+ * The environment the inner npx runs in: ours, minus what the OUTER `npm exec`
+ * left in it. `npm create decklight` runs this shim through `npm exec
+ * --package=create-decklight`, which exports that as `npm_config_package` —
+ * and an npx that inherits it runs inside create-decklight again, where
+ * `decklight@latest` is not a package to fetch but a command to look for:
+ * "sh: decklight@latest: command not found". `npm_config_call` is the same
+ * kind of leftover. Matched without case: Windows environments are.
+ */
+export function childEnv(env = process.env) {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !/^npm_config_(package|call)$/i.test(k)));
+}

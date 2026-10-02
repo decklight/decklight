@@ -9,9 +9,9 @@
 // README had to explain `@latest` to every newcomer.
 
 import { spawnSync } from 'node:child_process';
-import { initArgs, npxCommand } from './lib.mjs';
+import { childEnv, initArgs, npxCommand } from './lib.mjs';
 
 const { cmd, shell } = npxCommand();
 const r = spawnSync(cmd, ['--yes', 'decklight@latest', ...initArgs(process.argv.slice(2))],
-  { stdio: 'inherit', shell });
+  { stdio: 'inherit', shell, env: childEnv() });
 process.exit(r.status ?? 1);

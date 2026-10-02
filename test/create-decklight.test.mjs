@@ -7,7 +7,7 @@
 // nothing here needs to run.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { initArgs, npxCommand, titleFromDir } from '../create-decklight/lib.mjs';
+import { childEnv, initArgs, npxCommand, titleFromDir } from '../create-decklight/lib.mjs';
 
 test('the directory names the title: kebab, snake and nested paths all read as words', () => {
   assert.equal(titleFromDir('my-talk'), 'My Talk');
@@ -37,4 +37,13 @@ test('npm’s `--` separator is dropped, not handed to init as an argument', () 
 test('on Windows npx is a .cmd shim and needs a shell; elsewhere it does not', () => {
   assert.deepEqual(npxCommand('win32'), { cmd: 'npx.cmd', shell: true });
   assert.deepEqual(npxCommand('linux'), { cmd: 'npx', shell: false });
+});
+
+test('the inner npx does not inherit the outer npm exec — or it looks for decklight@latest as a command', () => {
+  const env = childEnv({
+    PATH: '/usr/bin', HOME: '/h', npm_config_yes: 'true', npm_config_registry: 'https://r',
+    npm_config_package: 'create-decklight', NPM_CONFIG_PACKAGE: 'create-decklight', npm_config_call: 'x',
+  });
+  assert.deepEqual(env, { PATH: '/usr/bin', HOME: '/h', npm_config_yes: 'true', npm_config_registry: 'https://r' },
+    'only the exec leftovers go; the registry, the user’s own settings and everything else stay');
 });
