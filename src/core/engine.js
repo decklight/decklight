@@ -37,6 +37,7 @@ import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSystemLayoutPicker, createLookOffer } from './design-systems.js';
 import { setupSystemLayouts, isSystemLayout, pageDesignSystems } from './design-system.js';
 import { createFonts } from './fonts.js';
+import { createBleed } from './bleed.js';
 import { readPref, writePref } from './prefs.js';
 
 /**
@@ -1430,6 +1431,7 @@ export function init(userConfig = {}) {
       // an edit can replace the very elements being watched (dev mode re-renders
       // a slide in place), so re-aim at whatever is on stage now
       watchOverflow(printMode ? this._sections : [this._sections[this.state.slide - 1]]);
+      this._afterSync?.();
     },
 
     _rescanFor(el) {
@@ -2277,12 +2279,26 @@ export function init(userConfig = {}) {
   // `section.active` gating alone only hides the element — a display:none
   // <video> keeps decoding. Play the active slide's clip, pause the rest for
   // real. Print mode never creates a <video>, so there is nothing to drive.
+  // ----- bleed (SPEC DECK_ANATOMY, #643) ---------------------------------------
+  // The current slide's background art on a layer behind the stage, at
+  // screen size — so a 16:9 deck's art fills a 16:10 or 4:3 screen. Never in
+  // print or an embedded preview, and not when the deck says "bleed": false.
+  const bleed = createBleed({ root, enabled: !printMode && !params.has('embedded') && config.bleed !== false });
+  const bleedNow = (ms = 0) => bleed.update(instance._sections[instance.state.slide - 1], { ms });
+  instance.on('slide', () => {
+    const to = instance._sections[instance.state.slide - 1];
+    const name = transitionName(to?.getAttribute('data-transition'), instance.config.transition);
+    bleedNow(name === 'none' ? 0 : cssDurationMs(getComputedStyle(root).getPropertyValue('--transition-duration'), 350));
+  });
+  instance._afterSync = () => bleedNow(0);   // a re-sync may have changed the art (a live edit)
+
   if (!printMode) {
     const syncBgVideos = () => {
       instance._sections.forEach((s, i) => {
         const v = s.querySelector(':scope > .slide-bg > video');
         if (!v) return;
-        if (i === instance.state.slide - 1) v.play()?.catch?.(() => {});
+        // a bled slide's clip plays on the bleed layer: the on-stage copy is hidden, and paused for real
+        if (i === instance.state.slide - 1 && !s.hasAttribute('data-bled')) v.play()?.catch?.(() => {});
         else if (!v.paused) v.pause();
       });
     };

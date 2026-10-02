@@ -25,7 +25,7 @@ const page = path.join(here, 'engine.html');
 let bad = 0;
 /** Every mode this harness drives, grouped by concern (see test/verify.mjs). */
 export const MODES = [
-  'themepicker', 'dsrecommended', 'fonts', 'fontslegacy', 'fontsauthor', 'dslook', 'added', 'browse', 'nobrowse', 'wizard',
+  'themepicker', 'dsrecommended', 'fonts', 'fontslegacy', 'fontsauthor', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard',
   'palette', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'designsystems', 'skeys', 'skeys&nosrv',
   'narration', 'nonarration', 'panel',
   'restore', 'historycaptions', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',

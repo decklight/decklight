@@ -203,6 +203,12 @@ test('a stylesheet that paints the slide itself — page, text, type — is warn
   assert.ok(painted.warnings.every((w) => w.file === 'design-system.css' && Number.isInteger(w.line)));
 });
 
+test('data-ds-bleed marks the layout\'s top-level element, once — the element whose art fills the screen', () => {
+  assert.deepEqual(layoutProblems('<template data-layout="a"><div data-ds-bleed><p data-slot="t"></p><img src="#x"></div></template>'), []);
+  assert.deepEqual(layoutProblems('<template data-layout="a"><div><p data-ds-bleed></p></div></template>').map((p) => p.rule), ['bleed-placement']);
+  assert.deepEqual(layoutProblems('<template data-layout="a"><div data-ds-bleed></div><div data-ds-bleed></div></template>').map((p) => p.rule), ['bleed-twice']);
+});
+
 test('assets: the allowlisted kinds only; an oversized one is a warning, not a refusal; papers and dotfiles are not assets', () => {
   const js = okPkg();
   js.files.set('assets/tracker.js', { size: 10 });

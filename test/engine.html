@@ -571,6 +571,18 @@
       try { localStorage.removeItem('decklight-font:' + location.pathname); localStorage.removeItem('decklight-theme:' + location.pathname); sessionStorage.clear(); } catch {}
       document.head.insertAdjacentHTML('beforeend', `<script type="application/json" data-design-system-meta="acme">${JSON.stringify({ name: 'acme', title: 'Acme', layouts: [], palette: [], recommendedThemes: ['paper'], recommendedFonts: ['humanist'] })}<\/script>`);
     }
+    // Bleed (#643): a background-image slide, a plain one, and a design-system
+    // layout whose root is marked data-ds-bleed — first in the deck
+    if (HARNESS_MODE === 'bleed' || HARNESS_MODE === 'bleedoff') {
+      document.head.insertAdjacentHTML('beforeend', `
+        <style>.decklight .bl-art { background: #00ff00 linear-gradient(90deg, #ff00ff 0 10%, transparent 10%); position: absolute; inset: 0; }</style>
+        <script type="application/json" data-design-system-meta="bl">${JSON.stringify({ name: 'bl', version: '1.0.0', title: 'Bleed', layouts: [], palette: [] })}<\/script>
+        <template data-design-system-layouts="bl"><template data-layout="cover"><div class="bl-art" data-ds-bleed><div data-slot="title" data-slot-default></div></div></template></template>`);
+      document.querySelector('.decklight').insertAdjacentHTML('afterbegin', `
+        <section data-background-image="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='9'%3E%3Crect width='16' height='9' fill='red'/%3E%3C/svg%3E"><h2>Art</h2></section>
+        <section><h2>Plain</h2></section>
+        <section data-layout="bl/cover"><h2 data-slot="title">Layout art</h2></section>`);
+    }
     if (HARNESS_MODE.startsWith('fonts')) {
       try { localStorage.removeItem('decklight-font:' + location.pathname); } catch {}
       if (HARNESS_MODE === 'fontslegacy') try { localStorage.setItem('decklight-font:' + location.pathname, '7'); } catch {}
@@ -594,7 +606,8 @@
         ? { playlist: { modules: [{ title: 'Part one', href: 'a.html' }, { title: 'Part two', href: 'b.html' }], index: 0 } }
         // the deck's own default font: a referenced package, by name
         : HARNESS_MODE === 'fonts' ? { font: 'sample' }
-          : {});
+          : HARNESS_MODE === 'bleedoff' ? { bleed: false }
+            : {});
 
     const press = (k, opts = {}) => document.body.dispatchEvent(
       new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
@@ -959,6 +972,43 @@
           && localStorage.getItem('decklight-font:' + location.pathname) === 'humanist' && /Seravek/.test(body());
         r.PASS = r.shiftIsAlone && r.toastSaysWhatCame && r.offerKeptForTheReload && r.layoutPickerHints && r.dialogAsks
           && r.previewsLive && r.escKeeps && r.enterApplies;
+      }
+
+      if (mode === 'bleed' || mode === 'bleedoff') {
+        // A slide's background art fills the screen, not just the stage
+        // (#643): one layer behind the stage, the current slide's art only.
+        const layer = () => document.querySelector('.decklight > .decklight-bleed');
+        const pieces = () => [...document.querySelectorAll('.decklight-bleed .bleed-piece')];
+        const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+        await settle();
+        deck.goto(1); await wait(600);
+        if (mode === 'bleedoff') {
+          r.noLayer = !layer() && !document.querySelector('section[data-bled]');
+          r.artStaysOnStage = getComputedStyle(document.querySelector('.decklight-stage > section.active > .slide-bg')).visibility === 'visible';
+          r.PASS = r.noLayer && r.artStaysOnStage;
+        } else {
+          const s1 = document.querySelector('.decklight-stage > section.active');
+          r.layerBehindTheStage = !!layer()
+            && Number(getComputedStyle(layer()).zIndex) < Number(getComputedStyle(document.querySelector('.decklight-stage')).zIndex)
+            && layer().getBoundingClientRect().height === document.querySelector('.decklight').getBoundingClientRect().height;
+          r.mediaBleeds = pieces().length === 1 && /data:image\/svg\+xml/.test(pieces()[0].style.backgroundImage) && pieces()[0].style.backgroundSize === 'cover';
+          r.stageCopyHidden = s1.hasAttribute('data-bled') && getComputedStyle(s1.querySelector(':scope > .slide-bg')).visibility === 'hidden';
+          deck.goto(2); await wait(700);
+          r.plainSlideClears = pieces().length === 0 && !s1.hasAttribute('data-bled');
+          deck.goto(3); await wait(700);
+          const s3 = document.querySelector('.decklight-stage > section.active');
+          const art = s3.querySelector('[data-ds-bleed]');
+          r.layoutArtBleeds = pieces().length === 1 && /rgb\(0, 255, 0\)/.test(pieces()[0].style.backgroundColor)
+            && /linear-gradient/.test(pieces()[0].style.backgroundImage);
+          r.layoutStageCopyHidden = s3.hasAttribute('data-bled') && getComputedStyle(art).backgroundImage === 'none';
+          // the overview's thumbnails are clones elsewhere: they keep their art
+          press('o'); await settle();
+          const thumb = [...document.querySelectorAll('.decklight-overview-grid .ov-clone')].find((c) => c.querySelector('[data-ds-bleed]'));
+          r.thumbnailsKeepTheirArt = !thumb || getComputedStyle(thumb.querySelector('[data-ds-bleed]')).backgroundImage !== 'none';
+          press('Escape');
+          r.PASS = r.layerBehindTheStage && r.mediaBleeds && r.stageCopyHidden && r.plainSlideClears && r.layoutArtBleeds
+            && r.layoutStageCopyHidden && r.thumbnailsKeepTheirArt;
+        }
       }
 
       if (mode === 'fonts' || mode === 'fontslegacy' || mode === 'fontsauthor') {

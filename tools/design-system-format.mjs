@@ -309,6 +309,9 @@ function walkLayouts(html) {
   const push = (line, rule, msg) => problems.push({ line, rule, msg });
   let current = null;
   let depth = 0;
+  // element nesting inside the current layout — where data-ds-bleed may sit
+  let el = 0;
+  const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
   // one finding per stray run outside the templates, not one per tag and text in it
   let strayed = false;
   const stray = (line, msg) => { if (!strayed) { strayed = true; push(line, 'layout-outside-template', msg); } };
@@ -338,8 +341,9 @@ function walkLayouts(html) {
       const id = attrs.find((a) => a.name === 'data-layout')?.value;
       if (id === undefined) { push(line, 'layout-outside-template', '<template> without data-layout — every template is a layout, named by data-layout'); }
       else if (!NAME_RE.test(id)) push(line, 'layout-id', `data-layout="${id}" — a lowercase word: letters, digits and -, starting with a letter`);
-      current = { id: id ?? '', title: attrs.find((a) => a.name === 'data-title')?.value || id || '', slots: [], line };
+      current = { id: id ?? '', title: attrs.find((a) => a.name === 'data-title')?.value || id || '', slots: [], line, bleed: false };
       depth = 0;
+      el = 0;
       strayed = false;
       continue;
     }
@@ -348,7 +352,7 @@ function walkLayouts(html) {
       if (!closing) stray(line, `<${tag}> outside a <template data-layout> block — everything in layouts.html sits inside one`);
       continue;
     }
-    if (closing) continue;
+    if (closing) { el = Math.max(0, el - 1); continue; }
     if (FORBIDDEN_TAGS.has(tag)) push(line, 'layout-forbidden-tag', `<${tag}> is refused in a layout — a layout is inert structure: no script, style, frames or embedded documents`);
     for (const a of attrsOf(m[3].replace(/\/\s*$/, ''))) {
       if (/^on/.test(a.name)) push(line, 'layout-forbidden-attr', `${a.name}= on <${tag}> is refused — a layout runs nothing`);
@@ -372,7 +376,15 @@ function walkLayouts(html) {
         default: isDefault,
       });
     }
-    if (selfClosing) continue;
+    // data-ds-bleed: the element whose background art fills the screen, not
+    // just the stage (SPEC DESIGN_SYSTEMS) — the layout's own root, and one
+    if (attrs.some((a) => a.name === 'data-ds-bleed')) {
+      if (el !== 0) push(line, 'bleed-placement', `data-ds-bleed on <${tag}> in ${current.id} — it marks the layout's top-level element, whose background is the slide's art`);
+      else if (current.bleed) push(line, 'bleed-twice', `${current.id} marks data-ds-bleed twice — one element's art bleeds`);
+      current.bleed = true;
+    }
+    if (selfClosing || VOID.has(tag)) continue;
+    el++;
   }
   const tail = text.slice(last);
   if (current) push(current.line, 'layout-outside-template', `<template data-layout="${current.id}"> is never closed`);

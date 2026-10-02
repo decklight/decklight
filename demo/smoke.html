@@ -513,7 +513,12 @@ $$\sum_{i=1}^{n} i = \frac{n(n+1)}{2}$$
       recs.push(rec('bgvidle', !!bgv && bgv.paused));
       const back = { ...deck.state };
       deck.goto(18, 0);
-      recs.push(rec('bgvplays', !!bgv && !bgv.paused));
+      // a bled slide (#643) plays its clip on the screen-sized bleed layer —
+      // the on-stage copy is hidden and paused, never decoded twice
+      const bled = bgv?.closest('section')?.hasAttribute('data-bled');
+      const shown = bled ? document.querySelector('.decklight-bleed .bleed-piece:last-child > video') : bgv;
+      recs.push(rec('bgvplays', !!shown && !shown.paused));
+      recs.push(rec('bgvnotdouble', !bled || (!!bgv && bgv.paused)));
       deck.goto(17, 0);
       recs.push(rec('bgvrepaused', !!bgv && bgv.paused));
       // background slides must not trip the overflow guardrail (runs on a rAF

@@ -122,6 +122,7 @@ const deckUrl = 'file://' + resolve(here, '../demo/smoke.html');
   check('an out-of-flow badge before the heading still pins the title', s.badgepinned, 'true');
   check('background video idle until its slide', s.bgvidle, 'true');
   check('background video plays while its slide is active', s.bgvplays, 'true');
+  check('a bled background video is not decoded twice (the stage copy paused)', s.bgvnotdouble, 'true');
   check('background video paused on deactivation (not just hidden)', s.bgvrepaused, 'true');
   check('background slides do not trip the overflow guardrail', s.bgoverflow, 'true');
   check('full-bleed img: absolute + object-fit cover', s.fullbleed, 'true');

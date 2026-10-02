@@ -2552,3 +2552,16 @@
 .decklight-narr.decklight-look-offer { background: rgba(0, 0, 0, .12); backdrop-filter: none; align-items: flex-end; padding-bottom: 6vh; }
 .decklight-look-offer .narr-card { width: min(520px, 90vw); }
 .decklight-ds-layouts .dsl-look .narr-row-label { color: #f5d77a; }
+
+/* ---------- bleed (SPEC DECK_ANATOMY) — the current slide's background art, at screen size ----------
+   A layer behind the stage, covering the viewport, so a 16:9 slide's art
+   fills a 16:10 or 4:3 screen while its content stays on the stage. While a
+   slide bleeds, its on-stage copy of the art is hidden — never drawn twice at
+   two scales. Only the stage's own sections: overview and finder thumbnails
+   are clones elsewhere, and keep their art. */
+.decklight-bleed { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.decklight-bleed .bleed-piece { position: absolute; inset: 0; background-repeat: no-repeat; }
+.decklight-bleed .bleed-piece > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.decklight-bleed .bleed-dim { position: absolute; inset: 0; }
+.decklight-stage > section[data-bled] > .slide-bg { visibility: hidden; }
+.decklight-stage > section[data-bled] [data-ds-bleed] { background: none !important; }
