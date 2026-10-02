@@ -68,9 +68,12 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   function notesRoute({ body, json }) {
     const { slide, text } = JSON.parse(body);
     if (!Number.isInteger(slide) || slide < 1 || typeof text !== 'string') throw new Error('bad payload');
-    applyEdit((html) => setSlideNotes(html, slide, notesTextToAside(text)));
-    console.log(`  notes saved: slide ${slide} (${text.length} chars)`);
-    return json(200, { ok: true, ...history.counts() });
+    // `changed` says whether a byte was written: an edit that normalises to
+    // the same notes writes nothing, so no reload follows — the page must
+    // not sit waiting for one (#646)
+    const changed = applyEdit((html) => setSlideNotes(html, slide, notesTextToAside(text)));
+    if (changed) console.log(`  notes saved: slide ${slide} (${text.length} chars)`);
+    return json(200, { ok: true, changed: !!changed, ...history.counts() });
   }
 
   // Where a slide got what it says, written back (SLIDE_SOURCES). One

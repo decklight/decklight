@@ -21,7 +21,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { registerSlideRoutes } from '../cli/edit-slides.mjs';
-import { createHistory } from '../cli/edit.mjs';
+import { createHistory, setSlideNotes, setSlideSources, notesTextToAside } from '../cli/edit.mjs';
 import { tmp } from './helpers.mjs';
 
 const DECK = `<!doctype html>
@@ -111,6 +111,33 @@ test('POST /edit/notes writes the aside and leaves one undo entry behind', async
   assert.match(html, /<p>say this<\/p>/);
   assert.match(html, /<p>\[click\]<\/p>/, 'the click marker is its own paragraph, written in brackets (SPEC PRESENTING)');
   assert.equal(history.counts().redo, 0, 'a fresh edit clears the redo stack');
+});
+
+test('POST /edit/notes says whether it wrote: the same notes again is `changed: false`, and no undo entry (#646)', async (t) => {
+  const { routes, history } = harness(t);
+  const first = await call(routes, 'POST /edit/notes', { body: { slide: 1, text: 'Say this.' } });
+  assert.equal(first.body.changed, true);
+  const again = await call(routes, 'POST /edit/notes', { body: { slide: 1, text: 'Say this.  ' } });
+  assert.deepEqual([again.code, again.body.ok, again.body.changed], [200, true, false], 'normalises to the same bytes: nothing written, so no reload is coming');
+  assert.equal(history.counts().undo, 1, 'a write that did not happen is not an undo step');
+});
+
+test('notes and sources are the author\'s text: $1, $&, $` and $\' are written literally, never as replacement patterns (#646)', () => {
+  const text = 'Costs $1 per call, $& more, $` before and $\' after — $12,000 in all.';
+  const deckWith = '<div class="decklight">\n    <section><h2>A</h2>\n      <aside class="notes"><p>Old notes, once.</p></aside>\n    </section>\n</div>';
+  const deckWithout = '<div class="decklight">\n    <section><h2>A</h2>\n    </section>\n</div>';
+  for (const html of [deckWith, deckWithout]) {
+    const out = setSlideNotes(html, 1, notesTextToAside(text));
+    assert.ok(out.includes('Costs $1 per call, $&amp; more') || out.includes('Costs $1 per call, $& more'), out);
+    assert.match(out, /\$` before and \$' after — \$12,000 in all\./);
+    assert.equal((out.match(/Old notes, once\./g) ?? []).length, 0, 'the old notes are replaced, never spliced back in where $1 was typed');
+    assert.equal((out.match(/<aside class="notes">/g) ?? []).length, 1);
+  }
+  const src = setSlideSources(deckWithout, 1, `<ul><li>Revenue grew $1M — see $& and $' and $\`</li></ul>`);
+  assert.match(src, /Revenue grew \$1M — see \$& and \$' and \$`/);
+  const again = setSlideSources(src, 1, '<ul><li>Now $1 and $&</li></ul>');
+  assert.match(again, /Now \$1 and \$&/);
+  assert.doesNotMatch(again, /Revenue grew/, 'replaced, not spliced');
 });
 
 test('POST /edit/notes keeps the paragraphs: a blank line is a new <p>, never merged away', async (t) => {

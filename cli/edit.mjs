@@ -170,8 +170,11 @@ export function setSlideNotes(html, slide, asideInner) {
   const aside = `<aside class="notes">\n        ${asideInner}\n      </aside>`;
   const seg = parts[idx];
   parts[idx] = NOTES_ASIDE.test(seg)
-    ? seg.replace(NOTES_ASIDE, aside)
-    : seg.replace(/<\/section>/, `  ${aside}\n    </section>`);
+    // FUNCTION replacers: the notes are the author's text, and a string
+    // replacement would read `$1`, `$&`, `` $` `` and `$'` in it as patterns —
+    // "$1M" spliced the slide's whole old notes in where it was typed (#646)
+    ? seg.replace(NOTES_ASIDE, () => aside)
+    : seg.replace(/<\/section>/, () => `  ${aside}\n    </section>`);
   return parts.join('');
 }
 
@@ -218,8 +221,8 @@ export function setSlideSources(html, slide, asideInner) {
   }
   const aside = `<aside class="sources">\n        ${asideInner}\n      </aside>`;
   parts[idx] = existing.test(seg)
-    ? seg.replace(existing, `\n      ${aside}`)
-    : seg.replace(/<\/section>/, `  ${aside}\n    </section>`);
+    ? seg.replace(existing, () => `\n      ${aside}`)   // the author's text: never a replacement pattern (#646)
+    : seg.replace(/<\/section>/, () => `  ${aside}\n    </section>`);
   return parts.join('');
 }
 

@@ -816,6 +816,7 @@ export function createEditMode({
   }
 
   let editEl = null;
+  let notesSave = null;      // the open card's save, when it can save — what ⌘⏎ reaches from anywhere (#646)
   let unmountEditor = null;
   let notesFollow = null;   // re-points a clean notes card at the slide on screen
   let notesReadOnly = false; // the card opened with no author server behind it
@@ -831,7 +832,7 @@ export function createEditMode({
   // stays with the slide it was written for, and its heading still says which.
   instance.on('slide', () => notesFollow?.());
   function toggleEditor() {
-    if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; return; }
+    if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; return; }
     // With no author server behind the deck — `present`, `review`, a file —
     // the same card opens READ-ONLY: the notes to read, following the slide,
     // and nothing that could look like it saves. `decklight author` edits them.
@@ -867,13 +868,24 @@ export function createEditMode({
           body: JSON.stringify({ slide: sl, text: ta.value }),
         });
         if (!res.ok) throw new Error(await res.text());
+        const j = await res.json().catch(() => ({}));
+        // nothing written (the box matches the file once normalised) means no
+        // reload is coming: say so, rather than "reloading" forever (#646)
+        if (j.changed === false) {
+          loaded = ta.value;
+          syncChanged();
+          toast('nothing to save — the notes already match the file', 2600);
+          return;
+        }
         debugLog('edit', `notes saved — slide ${sl}`);
         toast('notes saved — reloading');
         // the server's watcher broadcasts the reload; nothing else to do
       } catch (e) {
-        toast(`save failed: ${String(e.message || e).slice(0, 60)}`);
+        // long enough to read: the save did NOT happen, and the box still holds the text
+        toast(`save failed: ${String(e.message || e).slice(0, 90)}`, 6000);
       }
     };
+    if (!readOnly) notesSave = save;
     ta.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { if (!readOnly) save(); e.preventDefault(); }
       else if (e.key === 'Escape') { toggleEditor(); e.preventDefault(); }
@@ -1830,6 +1842,8 @@ export function createEditMode({
     // written, so → and the rest go on to the deck, floating or docked
     modal: () => !notesReadOnly && notesDock.isFloat(),
     keydown: (e) => e.key === 'Escape' && (toggleEditor(), true),
+    // ⌘⏎ from anywhere while the card is up (engine.js); the read-only card has none
+    save: () => (notesSave ? (notesSave(), true) : false),
   });
   overlays.register({
     isOpen: () => !!agentEl,

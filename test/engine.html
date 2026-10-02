@@ -322,6 +322,15 @@
         }
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
+      // ⌘⏎ saves the notes card from anywhere (#646): an author server whose
+      // notes route answers `changed` — false when the box matches the file
+      if (HARNESS_MODE === 'notessave') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/notes')) {
+          const text = JSON.parse(init?.body ?? '{}').text;
+          return json({ ok: true, changed: text !== 'Same as the file.', undo: 1, redo: 0 });
+        }
+      }
       if (HARNESS_MODE === 'typingdock') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true,
           agents: [{ name: 'claude', label: 'Claude Code', installed: true }] });
@@ -1842,6 +1851,49 @@
       }
 
       // Double-click a code block: its SOURCE text, plain, not the highlighted DOM.
+      if (mode === 'notessave') {
+        // ⌘⏎ / ⌃⏎ saves the open notes card wherever the focus is — a button
+        // in it, the background, the slide — and a box's own ⌘⏎ stays its own
+        // (#646). A save the server says wrote nothing says so.
+        await settle();   // the ping: authoring
+        deck.goto(2, 0); await settle();
+        press('/');
+        for (const ch of 'speaker notes') press(ch);
+        [...document.querySelectorAll('.decklight-palette .pal-row')].find((n) => /Edit speaker notes/.test(n.textContent))?.click();
+        await settle();
+        const box = document.querySelector('.decklight-editor textarea');
+        r.opens = !!box;
+        if (box) box.value = 'Edited from anywhere.';
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/edit/notes'));
+        const chord = (target, mod = 'metaKey') => target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', [mod]: true, bubbles: true, cancelable: true }));
+        const button = document.querySelector('.decklight-editor .notes-reset') ?? document.querySelector('.decklight-editor button');
+        button?.focus();
+        chord(button); await settle();
+        r.fromAButtonInTheCard = posts().length === 1 && posts()[0].body.text === 'Edited from anywhere.' && posts()[0].body.slide === 2;
+        chord(document.body); await settle();
+        r.fromTheBackground = posts().length === 2;
+        chord(document.querySelector('.decklight-stage > section.active h2') ?? document.querySelector('.decklight-stage > section.active'), 'ctrlKey'); await settle();
+        r.fromTheSlideWithCtrl = posts().length === 3;
+        // a box of its own: its ⌘⏎ is its own, never the notes card's
+        const other = document.createElement('textarea');
+        document.querySelector('.decklight').appendChild(other);
+        other.focus();
+        chord(other); await settle();
+        r.anotherBoxKeepsItsOwn = posts().length === 3;
+        other.remove();
+        // nothing written: said, not "reloading" forever
+        box.value = 'Same as the file.';
+        chord(document.body); await settle(); await settle();
+        r.nothingToSaveIsSaid = posts().length === 4
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /nothing to save/.test(n.textContent));
+        press('Escape'); await settle();
+        r.closes = !document.querySelector('.decklight-editor');
+        chord(document.body); await settle();
+        r.closedCardSavesNothing = posts().length === 4;
+        r.PASS = r.opens && r.fromAButtonInTheCard && r.fromTheBackground && r.fromTheSlideWithCtrl && r.anotherBoxKeepsItsOwn
+          && r.nothingToSaveIsSaid && r.closes && r.closedCardSavesNothing;
+      }
+
       if (mode === 'editor') {
         // The element content editor (#529): a highlighted <pre> painted BEHIND
         // a transparent textarea, which only works while the two agree on

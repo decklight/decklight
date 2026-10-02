@@ -2111,6 +2111,15 @@ export function init(userConfig = {}) {
       e.preventDefault();
       return;
     }
+    // ⌘⏎ / ⌃⏎ saves the open card that can save — the speaker notes card —
+    // wherever the focus is: a button in it, its background, or (docked) the
+    // slide beside it (#646). Below the typing guard, so a box's own ⌘⏎ (the
+    // agent ask, the commit window, the content editor) is the one you get,
+    // and before the modifier early-return below, which swallowed it.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key === 'Enter' && overlays.active()?.save?.()) {
+      e.preventDefault();
+      return;
+    }
     // The undo chord is the one modifier combination that goes on: BELOW the
     // typing guard on purpose, so in a text box the browser's own undo is the
     // one you get, and past the overlays below, so an open dialog still owns it.
