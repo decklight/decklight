@@ -12,8 +12,11 @@ title taken from the directory name ("My Talk"). Anything after `--` goes to
 npm create decklight q3-review -- --no-git --themes fjord
 ```
 
-Why a separate package: `npx decklight` reuses whatever version npx unpacked
-the first time you ran it, so the first version you try is the one you keep.
-`npm create` always fetches the latest `create-*` package, and this one is a
-one-line shim that runs `decklight@latest`. Nothing else lives here; the
-project is [decklight](https://github.com/decklight/decklight).
+Why a separate package: `npm create` is the command people already reach for
+to start a project, and this is a one-line shim behind it. It always runs
+`decklight@latest`, a tag npx re-resolves against the registry on every run,
+so a decklight installed in your project or globally never stands in for the
+current release (a bare `npx decklight` would run that installed copy, however
+old). And one folder name does what `npx decklight@latest init "My Talk" --dir
+my-talk` spells out. Nothing else lives here; the project is
+[decklight](https://github.com/decklight/decklight).
