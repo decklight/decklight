@@ -26,7 +26,7 @@ specified and implemented by agents, and a human approves what ships.
 ## Quick start
 
 ```sh
-npm create decklight my-talk
+npx decklight@latest init "My Talk" --dir my-talk
 ```
 
 That writes a `deck.html` in `my-talk/` — slides plus a two-line configuration
@@ -36,8 +36,16 @@ agent that reads `AGENTS.md`) has the real authoring contract on hand instead of
 guessing from Reveal.js memory. Then it asks whether to open the deck in author
 mode: live reload, edits from the browser, an AI agent on `A`, and git
 underneath — your work snapshotted as you go, committed when you press `K`.
-Say yes. (`npx decklight@latest init "My Talk"` does the same
-in the current directory.)
+Say yes. Leave out `--dir` to start the deck in the current directory. Keep the
+`@latest`: a bare `npx decklight` can reuse whatever version npx cached the
+first time you ran it.
+
+Prefer npm's own scaffolding command? This does the same thing, naming the
+deck after its folder ("My Talk"):
+
+```sh
+npm create decklight my-talk
+```
 
 After that you rarely need a command name:
 
