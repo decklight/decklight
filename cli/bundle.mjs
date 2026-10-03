@@ -656,8 +656,9 @@ html = html.replace(
 // 50–150 MB), same posture as playlist links.
 {
   const seen = new Set();
+  // `dir: 'voices'` in a boot call, `"dir": "voices"` in a configuration block
   const narrDirs = [...new Set(
-    [...html.matchAll(/\b(?:dir|files)\s*:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))];
+    [...html.matchAll(/\b(?:dir|files)["']?\s*:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))];
   for (const d of narrDirs) {
     const abs = path.resolve(deckDir, d);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) continue;
@@ -701,8 +702,9 @@ html = html.replace(
 // the manifest, and inlining it would undo the feature.
 {
   let n = 0;
+  // `manifest: '…'` in a boot call, `"manifest": "…"` in a configuration block
   const manifests = [...new Set(
-    [...html.matchAll(/\bmanifest\s*:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))];
+    [...html.matchAll(/\bmanifest["']?\s*:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))];
   for (const rel of manifests) {
     const abs = path.resolve(deckDir, rel);
     if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
