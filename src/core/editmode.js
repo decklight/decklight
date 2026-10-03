@@ -2138,6 +2138,26 @@ export function createEditMode({
     bundle: 'one file',
   };
   let exportRun = null;
+  // what `audio` a bundle carries its narration as, when it is not as recorded
+  const AUDIO_HOW = { aac: 'AAC', opus: 'Opus' };
+  /**
+   * How big the bundle would be (GET /edit/bundle/estimate): the file without
+   * its audio, and what each way of carrying the audio adds. Null when the
+   * server cannot say; the reason is toasted, since bundling would hit it too.
+   */
+  async function bundleEstimate() {
+    try {
+      // in the theme on screen, which is what the export will bundle in
+      const { theme } = renderTheme() ?? {};
+      const r = await fetch(editBase + '/edit/bundle/estimate' + (theme ? `?theme=${encodeURIComponent(theme)}` : ''));
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      return j;
+    } catch (e) {
+      toast(`could not bundle — ${e.message}`, 5200);
+      return null;
+    }
+  }
   // The voice picked on the export card, as the route spells it. No choice at
   // all sends none, which leaves the command's own default: a voiceover/ beside
   // the deck if there is one.
@@ -2224,7 +2244,7 @@ export function createEditMode({
     if (markConfirmed(theme, { kind, opts: { slides, voice, format, quality, subtitles, audio } })) return;
     const doing = kind === 'video'
       ? `${voicing ? 'voicing and rendering' : 'rendering'} a video of ${rangeLabel(slides)}${older}`
-      : `exporting to ${what}${audio === 'small' ? ', with small narration audio' : audio ? ', with the narration audio' : ''}`;
+      : `exporting to ${what}${audio ? `, with the narration audio${AUDIO_HOW[audio] ? ` as ${AUDIO_HOW[audio]}` : ''}` : ''}`;
     const run = progress(`${doing} — this takes a moment…`);
     exportRun = { run, what, doing };
     try {
@@ -2234,7 +2254,7 @@ export function createEditMode({
           kind,
           ...(theme ? { theme } : gen ? { gen } : {}),
           ...(kind === 'video' ? { slides, format, quality, subtitles, ...videoVoice(voice) } : {}),
-          ...(kind === 'bundle' && audio ? { audio: audio === 'small' ? 'small' : true } : {}),
+          ...(kind === 'bundle' && audio ? { audio } : {}),
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -2450,6 +2470,7 @@ export function createEditMode({
     commit: { open: openCommit, close: closeCommit, state: () => commitNow },
     /** The palette's hand-over rows: 'pptx' | 'pdf' | 'pdf-notes' | 'pdf-handout'. */
     exportDeck,
+    bundleEstimate,
     enhanceScript,
     moduleOf,
     /** The Publish row: the first call asks and arms, the second publishes. */

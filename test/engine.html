@@ -168,6 +168,13 @@
         if (HARNESS_MODE === 'exportvideo' && u.endsWith('/ping')) {
           return json({ ok: true, engine: 'piper', model: 'en_US-ryan-high', stylable: false, voices: [['en_US-ryan-high', 'local']] });
         }
+        // the bundle card's figures: 12 files, ten minutes of voice; this
+        // machine's ffmpeg has AAC and no Opus, so Opus is shown blocked
+        if (u.includes('/edit/bundle/estimate')) {
+          return json({ ok: true, base: 800000, audio: {
+            files: 12, bytes: 40e6, seconds: 600, folders: 'voices/t/ (12)',
+            original: 53e6, aac: 3.2e6, opus: null, why: { opus: 'needs ffmpeg with libopus' } } });
+        }
         if (u.includes('/edit/export')) {
           const kind = JSON.parse(init?.body ?? '{}').kind;
           return HARNESS_MODE === 'exportfail'
@@ -1381,54 +1388,76 @@
         let themedOk = true;
         if (mode === 'exportpptx') {
           // The bundle is a hand-over row like the others: found by what people
-          // call it, posted with the theme on screen, and the file named.
+          // call it, posted with the theme on screen, and the file named. This
+          // deck has a recorded voice, so the row first asks what the file
+          // carries of it, each answer with the size the file comes out at.
+          try { localStorage.removeItem('decklight:bundle-audio'); } catch { /* fine */ }
+          const card = () => document.querySelector('.decklight-choice');
+          const cardRows = () => [...(card()?.querySelectorAll('.narr-row') ?? [])];
+          const selected = () => cardRows().find((n) => n.classList.contains('narr-sel'))?.textContent ?? '';
+          const openBundle = async () => {
+            if (document.querySelector(Q)) press('Escape');
+            press('/');
+            for (const ch of 'standalone') press(ch);
+            press('Enter');
+            await settle();
+            await settle();
+          };
+          const lastPost = () => CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
           if (document.querySelector(Q)) press('Escape');
           press('/');
           for (const ch of 'standalone') press(ch);
-          r.bundleRowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Bundle into one file/.test(n.textContent));
-          press('Enter');
-          await settle();
-          await settle();
-          const bundled = CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
-          r.bundlePostsTheThemeOnScreen = bundled.kind === 'bundle' && bundled.theme === 'aurora';
-          r.bundleSaysWhereTheFileIs = said().some((t) => /wrote deck-standalone\.html/.test(t));
-          r.plainBundleLeavesTheAudio = bundled.kind === 'bundle' && !('audio' in bundled);
-          // …and a deck with a recorded voice gets a second row that carries it
-          if (document.querySelector(Q)) press('Escape');
-          press('/');
-          for (const ch of 'narration audio') press(ch);
-          const top = document.querySelector(`${Q} ${ROW}`)?.textContent ?? '';
-          r.audioRowIsThere = /Bundle into one file, with the narration audio/.test(top);
+          r.bundleRowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].filter((n) => /Bundle into one file/.test(n.textContent)).length === 1;
+          press('Escape');
+          await openBundle();
+          r.estimatedInTheThemeOnScreen = CALLS.get.some((u) => u.includes('/edit/bundle/estimate?theme=aurora'));
+          r.cardAsks = /and the narration audio\?/.test(card()?.textContent ?? '')
+            && /12 recorded files, 10:00 of voice, 38\.1 MB in voices\/t\/ \(12\)/.test(card()?.textContent ?? '');
+          const texts = cardRows().map((n) => n.textContent);
+          r.eachWithItsSize = texts.length === 4
+            && /Leave it beside the deck.*781 KB/.test(texts[0]) && /As recorded.*51\.3 MB/.test(texts[1])
+            && /AAC, mono 32 kbps.*≈ 3\.8 MB/.test(texts[2]) && /Opus, mono 24 kbps.*needs ffmpeg with libopus/.test(texts[3]);
+          r.opusShownBlocked = cardRows()[3]?.classList.contains('narr-blocked');
+          r.startsOnAac = /AAC/.test(selected());
+          r.nothingPostedYet = lastPost().kind !== 'bundle';
+          press('ArrowDown');                       // past the blocked Opus, round to the top
+          r.skipsTheBlockedRow = /Leave it beside/.test(selected());
+          press('ArrowDown');
           press('Enter');
           // read BEFORE yielding: the stand-in server's answer rewrites the row
-          r.audioRowSaysSo = said().some((t) => /exporting to one file, with the narration audio/.test(t));
+          r.saysWhatItCarries = said().some((t) => /exporting to one file, with the narration audio/.test(t));
           await settle();
           await settle();
-          const voiced = CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
-          r.audioRowAsksForTheAudio = voiced.kind === 'bundle' && voiced.audio === true && voiced.theme === 'aurora';
-          // …and one that re-encodes it small for sending
-          if (document.querySelector(Q)) press('Escape');
-          press('/');
-          for (const ch of 'small narration') press(ch);
-          r.smallRowIsThere = /Bundle into one file, with small narration audio/.test(document.querySelector(`${Q} ${ROW}`)?.textContent ?? '');
+          const original = lastPost();
+          r.postsTheChoice = original.kind === 'bundle' && original.audio === 'original' && original.theme === 'aurora';
+          r.bundleSaysWhereTheFileIs = said().some((t) => /wrote deck-standalone\.html/.test(t));
+          await openBundle();
+          r.remembersTheChoice = /As recorded/.test(selected());
+          press('Escape');
+          r.escPostsNothing = !card() && lastPost() === original;
+          await openBundle();
+          press('ArrowUp');
           press('Enter');
-          r.smallRowSaysSo = said().some((t) => /exporting to one file, with small narration audio/.test(t));
           await settle();
           await settle();
-          const small = CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body ?? {};
-          r.smallRowAsksForSmall = small.kind === 'bundle' && small.audio === 'small';
-          themedOk = r.bundleRowIsThere && r.bundlePostsTheThemeOnScreen && r.bundleSaysWhereTheFileIs
-            && r.plainBundleLeavesTheAudio && r.audioRowIsThere && r.audioRowAsksForTheAudio && r.audioRowSaysSo
-            && r.smallRowIsThere && r.smallRowSaysSo && r.smallRowAsksForSmall;
+          r.leavingItBesidePostsNoAudio = lastPost().kind === 'bundle' && !('audio' in lastPost());
+          themedOk = r.bundleRowIsThere && r.estimatedInTheThemeOnScreen && r.cardAsks && r.eachWithItsSize
+            && r.opusShownBlocked && r.startsOnAac && r.nothingPostedYet && r.skipsTheBlockedRow
+            && r.saysWhatItCarries && r.postsTheChoice && r.bundleSaysWhereTheFileIs && r.remembersTheChoice
+            && r.escPostsNothing && r.leavingItBesidePostsNoAudio;
         }
         if (mode === 'exportfail') {
-          // no recorded voice, no audio to carry: the row is not offered
+          // no recorded voice, no audio to carry: the row bundles straight
+          // away, with no estimate to wait on and no card to answer
           if (document.querySelector(Q)) press('Escape');
           press('/');
-          for (const ch of 'bundle') press(ch);
-          const rows = [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
-          r.noAudioRowWithoutAVoice = rows.some((t) => /Bundle into one file/.test(t)) && !rows.some((t) => /narration audio/.test(t));
-          press('Escape');
+          for (const ch of 'standalone') press(ch);
+          press('Enter');
+          await settle();
+          await settle();
+          r.noAudioRowWithoutAVoice = !document.querySelector('.decklight-choice')
+            && !CALLS.get.some((u) => u.includes('/edit/bundle/estimate'))
+            && CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body?.kind === 'bundle';
           themedOk = r.noAudioRowWithoutAVoice;
         }
         if (mode === 'exportpptx') {

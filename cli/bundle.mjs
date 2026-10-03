@@ -29,8 +29,8 @@
  *                    (SPEC DESIGN_SYSTEMS), so layouts expand from file://.
  *   - audio        : with --audio, every recorded narration file (a track's
  *                    folder, a local manifest's files) as a data: URI the
- *                    runtime plays in place of the path; --small-audio
- *                    re-encodes each to mono AAC 32 kbps first. Off by default.
+ *                    runtime plays in place of the path; `--audio aac|opus`
+ *                    re-encodes each small first. Off by default.
  *   - fonts        : every font package the deck references ("fonts") — its
  *                    faces as data: URIs in @font-face rules, and its meta
  *                    (SPEC FONTS), so the type is the same from file://.
@@ -43,7 +43,6 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { makeFail, scriptSafe, runMain } from './util.mjs';
 import { inlineRuntime, packageAsset, PKG, THEMES_DIR } from './pkg.mjs';
@@ -52,10 +51,9 @@ import { addedThemeStyle, markedRefs, markedShipped, markedSources, resolveTheme
 import { bundleDesignSystem, designSystemRefs, packageVerdict, resolveDesignSystemRef } from './design-system-refs.mjs';
 import { bundleFont, fontRefs, fontVerdict, resolveFontRef } from './font-refs.mjs';
 import { MarketplaceError } from './marketplace.mjs';
-import { configuredTrackDirs } from './edit.mjs';
 import { escapeHtml } from '../tools/escape.mjs';
 import { isMain } from '../tools/args.mjs';
-import { runAsync, CODEC_MS } from '../tools/exec.mjs';
+import { AUDIO_CHOICES, CODECS, estimateAudio, inlineAudio, narrationAudio, sizeLabel } from './bundle-audio.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
 
 const fail = makeFail('bundle');
@@ -207,13 +205,13 @@ function mergeDecks(jobs, baseDir, notices) {
 // ---------------------------------------------------------------- arguments
 
 /** `client` is the sigstore seam — see publishMain; omitted, the real one is used. */
-export async function bundleMain(argv = process.argv.slice(2), { client } = {}) {
+export async function bundleMain(argv = process.argv.slice(2), { client, estimate = false } = {}) {
 
 if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
   process.stdout.write(`decklight bundle — flatten deck(s) into one self-contained HTML file
 
 Usage:
-  decklight bundle <deck.html> [-o out.html] [--audio|--small-audio] [--sign] [--deck] [--themes current|all|…]
+  decklight bundle <deck.html> [-o out.html] [--audio [original|aac|opus]] [--sign] [--deck] [--themes current|all|…]
   decklight bundle <deck.html> --all [-o out.html] [--title "…"] [--themes …]
   decklight bundle <a.html> <b.html> … [-o out.html] [--title "…"] [--themes …]
 
@@ -247,14 +245,17 @@ Options:
                    well, whichever you choose
   --theme <name>   the theme the bundle opens on — a shipped theme (embedded
                    alongside the others) or one the deck marks
-  --audio          carry the narration's recorded audio inside the file, so
-                   it plays from disk with nothing beside it. Off by default:
-                   a talk's audio is tens of MB, so it stays beside the deck
-                   and the bundle names the folder to send with it
+  --audio [how]    carry the narration's recorded audio inside the file, so
+                   it plays from disk with nothing beside it:
+                     original      the files as recorded (the default)
+                     aac           mono AAC at 32 kbps, ~4 KB a second of
+                                   voice, plays in every browser
+                     opus          mono Opus at 24 kbps, ~3 KB a second,
+                                   the smallest (Safari from 17)
+                   aac and opus need ffmpeg and cost some quality. Off by
+                   default: a talk's audio is tens of MB, so it stays beside
+                   the deck and the bundle names the folder to send with it
                    (--no-audio says so explicitly)
-  --small-audio    --audio, re-encoded small for sending: mono AAC at
-                   32 kbps, about 4 KB a second of voice (a recorder WAV is
-                   ~40× that), at the cost of some quality. Needs ffmpeg
   --allow-missing-design-systems
                    bundle even when a design system the deck uses cannot be
                    read on this machine: it is left out, and the slides that
@@ -271,8 +272,7 @@ const inputs = [];
 let outPath = null, themesSel = 'current', all = false, mergedTitle = null, sign = false, deckFile = false, openOn = null;
 let allowMissingSystems = false;
 let allowMissingFonts = false;
-let bundleAudio = false;
-let smallAudio = false;
+let audioChoice = null;
 const transformNames = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
@@ -289,9 +289,9 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--title') mergedTitle = argv[++i];
   else if (a === '--allow-missing-design-systems') allowMissingSystems = true;
   else if (a === '--allow-missing-fonts') allowMissingFonts = true;
-  else if (a === '--audio') bundleAudio = true;
-  else if (a === '--no-audio') { bundleAudio = false; smallAudio = false; }
-  else if (a === '--small-audio') { bundleAudio = true; smallAudio = true; }
+  // `--audio` alone is the files as recorded; a codec after it re-encodes them
+  else if (a === '--audio') audioChoice = AUDIO_CHOICES.includes(argv[i + 1]) ? argv[++i] : 'original';
+  else if (a === '--no-audio') audioChoice = null;
   else if (!a.startsWith('-')) inputs.push(a);
   else fail(`unknown argument: ${a}`);
 }
@@ -740,90 +740,25 @@ html = html.replace(
 
 // A recorded track's audio is the one part of a deck too big to carry by
 // default: a slide's clip is half a megabyte to a few, a talk's worth tens,
-// and base64 adds a third. So it stays beside the deck unless asked for —
-// `--audio` carries it inside as data-decklight-audio blocks, keyed by the
-// exact URL the runtime would play (`<dir>/slide-NN[-KK].<ext>`, or a
-// manifest's own folder plus an entry's `file`), which it looks up before
-// it plays. Either way the bundle says which files it left out or took in.
-// A manifest entry with a `url` is a bucket's (often a signature): that is
-// left where it is, as the manifest's whole point.
+// and base64 adds a third. So it stays beside the deck unless asked for:
+// `--audio` carries it inside as recorded, `--audio aac` / `--audio opus`
+// re-encoded small (cli/bundle-audio.mjs). Either way the bundle says which
+// files it left out or took in.
+let audioEstimate = null;
 {
-  const AUDIO_MIME = {
-    m4a: 'audio/mp4', mp4: 'audio/mp4', aac: 'audio/aac', mp3: 'audio/mpeg', wav: 'audio/wav',
-    ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', webm: 'audio/webm', flac: 'audio/flac',
-  };
-  const AUDIO_FILE = /^slide-\d+(?:-\d+)?\.(m4a|mp4|aac|mp3|wav|ogg|oga|opus|webm|flac)$/i;
-  const ABSOLUTE = /^[a-z][a-z0-9+.-]*:|^\/\//i;
-  const found = new Map(); // the URL the runtime plays → the file on disk
-  const where = new Map(); // the folder it is in → how many
-  const add = (key, abs) => {
-    if (found.has(key) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) return;
-    found.set(key, abs);
-    const folder = path.posix.dirname(key);
-    where.set(folder, (where.get(folder) ?? 0) + 1);
-  };
-  for (const d of configuredTrackDirs(html)) {
-    if (ABSOLUTE.test(d)) continue; // a public bucket's prefix: nothing on this disk
-    const abs = path.resolve(deckDir, d);
-    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) continue;
-    for (const f of fs.readdirSync(abs).sort()) if (AUDIO_FILE.test(f)) add(`${d.replace(/\/+$/, '')}/${f}`, path.join(abs, f));
-  }
-  let remote = 0;
-  // `manifest: '…'` in a boot call, `"manifest": "…"` in a configuration block
-  for (const rel of new Set([...html.matchAll(/\bmanifest["']?\s*:\s*['"]([^'"]+)['"]/g)].map((m) => m[1]))) {
-    const abs = path.resolve(deckDir, rel);
-    let data = null;
-    try { data = JSON.parse(fs.readFileSync(abs, 'utf8')); } catch { continue; }
-    const clean = rel.replace(/[?#].*$/, '');
-    const base = clean.slice(0, clean.lastIndexOf('/') + 1); // voicetrack.js manifestBase
-    const entries = (data?.slides ?? []).flatMap((e) => (e ? [e, ...(e.segments ?? []).filter(Boolean)] : []));
-    for (const e of entries) {
-      if (e.url) { remote++; continue; }
-      if (typeof e.file !== 'string' || ABSOLUTE.test(e.file)) continue;
-      add(base + e.file, path.resolve(path.dirname(abs), e.file));
-    }
-  }
-  const folders = [...where].map(([f, n]) => `${f}/ (${n})`).join(', ');
-  const mb = (n) => (n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
-  if (found.size && bundleAudio) {
-    // --small-audio trades quality for size: a voice needs neither stereo nor
-    // a music bitrate, and mono AAC at 32 kbps is about 4 KB a second (a
-    // recorder WAV is ~40× that). AAC rather than Opus, which is a quarter
-    // smaller, because a file that is sent must play in every browser.
-    const scratch = smallAudio ? fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-audio-')) : null;
-    let bytes = 0, before = 0, nth = 0;
-    try {
-      for (const [key, abs] of found) {
-        let buf = fs.readFileSync(abs);
-        let mime = AUDIO_MIME[path.extname(abs).slice(1).toLowerCase()];
-        before += buf.length;
-        if (smallAudio) {
-          const out = path.join(scratch, `${++nth}.m4a`);
-          try {
-            await runAsync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', abs, '-vn',
-              '-ac', '1', '-ar', '24000', '-c:a', 'aac', '-b:a', '32k', '-movflags', '+faststart', out],
-            { timeout: CODEC_MS, why: `re-encoding ${key}` });
-          } catch (e) {
-            if (e.code === 'ENOENT') fail('--small-audio re-encodes the narration with ffmpeg, which is not installed — install it, or bundle with --audio to carry the files as they are');
-            fail(`--small-audio could not re-encode ${key}: ${String(e.stderr || e.message).trim().split('\n')[0]}`);
-          }
-          const small = fs.readFileSync(out);
-          // an already-small file stays as it was: re-encoding it again only loses
-          if (small.length < buf.length) { buf = small; mime = 'audio/mp4'; }
-        }
-        bytes += buf.length;
-        embeds.push(`<script type="application/json" data-decklight-audio="${key.replace(/"/g, '&quot;')}">`
-          + `${JSON.stringify(`data:${mime};base64,${buf.toString('base64')}`)}</script>`);
-      }
-    } finally {
-      if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
-    }
-    notices.push(`narration audio: inlined ${found.size} file(s), ${mb(bytes)}`
-      + `${smallAudio ? ` (re-encoded from ${mb(before)}, mono AAC 32 kbps)` : ''}, from ${folders}`);
+  const { found, remote, folders } = narrationAudio(html, deckDir);
+  if (estimate) {
+    if (found.size) audioEstimate = { ...(await estimateAudio(found)), folders };
+  } else if (found.size && audioChoice) {
+    let carried;
+    try { carried = await inlineAudio(found, audioChoice); } catch (e) { fail(e.message); }
+    embeds.push(...carried.blocks);
+    notices.push(`narration audio: inlined ${found.size} file(s), ${sizeLabel(carried.bytes)}`
+      + `${CODECS[audioChoice] ? ` (re-encoded from ${sizeLabel(carried.before)}, ${CODECS[audioChoice].label})` : ''}, from ${folders}`);
   } else if (found.size) {
-    notices.push(`narration audio: ${found.size} file(s) stay beside the deck, in ${folders} — ship them next to the bundle, or bundle with --audio to carry them inside`);
+    notices.push(`narration audio: ${found.size} file(s) stay beside the deck, in ${folders} — ship them next to the bundle, or bundle with --audio [original|aac|opus] to carry them inside`);
   }
-  if (remote && bundleAudio) notices.push(`narration audio: ${remote} manifest file(s) live at a URL and stay there`);
+  if (remote && audioChoice) notices.push(`narration audio: ${remote} manifest file(s) live at a URL and stay there`);
 }
 
 // -------------------------------------------------------- design systems
@@ -876,6 +811,10 @@ if (!jobs) {
 // (INTEGRITY#SIGNING): a failed signature must leave no artifact behind, or
 // the unsigned file sitting there afterwards gets picked up later and sent as
 // though it were finished. Bytes, not a path, for exactly this reason.
+// An estimate (the author server's bundle card) stops here: the file as it
+// would be without its audio, and what each way of carrying the audio adds.
+if (estimate) return { base: Buffer.byteLength(html, 'utf8'), audio: audioEstimate };
+
 let bundleSig = null;
 if (sign) {
   const { signBytes } = await import('./sign.mjs');

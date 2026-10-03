@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { have, tmp as scratch } from './helpers.mjs';
@@ -54,7 +54,7 @@ test('bundle leaves the recorded audio beside the deck by default, and says wher
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(audioBlocks(readFileSync(out, 'utf8')), {}, 'no audio inside');
   assert.match(r.stdout, /narration audio: 3 file\(s\) stay beside the deck, in voices\/ \(2\), cloud\/ \(1\)/);
-  assert.match(r.stdout, /--audio to carry them inside/, 'and names the option that would');
+  assert.match(r.stdout, /--audio \[original\|aac\|opus\] to carry them inside/, 'and names the option that would');
   // --no-audio is the default said out loud
   const r2 = run(file, '-o', out, '--no-audio');
   assert.equal(r2.status, 0, r2.stderr);
@@ -104,7 +104,8 @@ function wav(seconds = 2) {
   return Buffer.concat([h, data]);
 }
 
-test('bundle --small-audio re-encodes the voice small, keyed by the same URL', { skip: !have('ffmpeg') && 'needs ffmpeg' }, (t) => {
+/** A deck whose one track is a WAV, the size the recorder writes. */
+function wavDeck(t) {
   const dir = scratch('bundle-audio', t);
   mkdirSync(path.join(dir, 'voices'));
   const original = wav();
@@ -112,23 +113,69 @@ test('bundle --small-audio re-encodes the voice small, keyed by the same URL', {
   const file = path.join(dir, 'talk.html');
   writeFileSync(file, '<!doctype html><html><head></head><body><div class="decklight"><section><h2>One</h2></section></div>'
     + `<script type="application/json" data-decklight-config>${JSON.stringify({ narration: { files: 'voices', ext: 'wav' } })}</script></body></html>`);
-  const out = path.join(dir, 'out.html');
-  const r = run(file, '-o', out, '--small-audio');
-  assert.equal(r.status, 0, r.stderr);
-  const blocks = audioBlocks(readFileSync(out, 'utf8'));
-  assert.deepEqual(Object.keys(blocks), ['voices/slide-01.wav'], 'the URL the track plays, whatever the bytes became');
-  const m = /^data:audio\/mp4;base64,(.*)$/.exec(blocks['voices/slide-01.wav']);
-  assert.ok(m, 'AAC in an MP4 container');
-  const small = Buffer.from(m[1], 'base64');
-  assert.ok(small.length * 10 < original.length, `a tenth of the WAV at most (${small.length} of ${original.length} bytes)`);
-  assert.match(r.stdout, /inlined 1 file\(s\), [\d.]+ KB \(re-encoded from 344\.6 KB, mono AAC 32 kbps\), from voices\/ \(1\)/);
+  return { dir, file, original };
+}
+
+for (const [codec, mime] of [['aac', 'audio/mp4'], ['opus', 'audio/webm']]) {
+  test(`bundle --audio ${codec} re-encodes the voice small, keyed by the same URL`, { skip: !have('ffmpeg') && 'needs ffmpeg' }, (t) => {
+    const { dir, file, original } = wavDeck(t);
+    const out = path.join(dir, 'out.html');
+    const r = run(file, '-o', out, '--audio', codec);
+    assert.equal(r.status, 0, r.stderr);
+    const blocks = audioBlocks(readFileSync(out, 'utf8'));
+    assert.deepEqual(Object.keys(blocks), ['voices/slide-01.wav'], 'the URL the track plays, whatever the bytes became');
+    const m = new RegExp(`^data:${mime.replace('/', '\\/')};base64,(.*)$`).exec(blocks['voices/slide-01.wav']);
+    assert.ok(m, mime);
+    const small = Buffer.from(m[1], 'base64');
+    assert.ok(small.length * 10 < original.length, `a tenth of the WAV at most (${small.length} of ${original.length} bytes)`);
+    assert.match(r.stdout, new RegExp(`inlined 1 file\\(s\\), [\\d.]+ KB \\(re-encoded from 344\\.6 KB, ${codec === 'aac' ? 'AAC' : 'Opus'}, mono \\d+ kbps\\), from voices/ \\(1\\)`));
+  });
+}
+
+test('the estimate says what each choice adds, close to what the bundle then writes', { skip: !have('ffmpeg') && 'needs ffmpeg' }, async (t) => {
+  const { bundleMain } = await import('../cli/bundle.mjs');
+  const { dir, file, original } = wavDeck(t);
+  const { base, audio } = await bundleMain([file], { estimate: true });
+  assert.equal(audio.files, 1);
+  assert.equal(audio.bytes, original.length);
+  assert.ok(Math.abs(audio.seconds - 2) < 0.05, `two seconds of voice (${audio.seconds})`);
+  assert.ok(!readdirSync(dir).some((f) => f.endsWith('-standalone.html')), 'an estimate writes nothing');
+  for (const how of ['original', 'aac', 'opus']) {
+    const out = path.join(dir, `${how}.html`);
+    assert.equal(run(file, '-o', out, '--audio', how).status, 0);
+    const actual = statSync(out).size;
+    const est = base + audio[how];
+    // `original` is exact; a re-encode is estimated from its bitrate
+    const slack = how === 'original' ? 0 : 0.15 * audio[how];
+    assert.ok(Math.abs(actual - est) <= slack, `${how}: estimated ${est}, wrote ${actual}`);
+  }
+  const plain = path.join(dir, 'plain.html');
+  assert.equal(run(file, '-o', plain).status, 0);
+  assert.equal(statSync(plain).size, base, 'and the base is the file with no audio, exactly');
 });
 
-test('bundle --small-audio without ffmpeg says what to install, or how to carry the files as they are', (t) => {
+test('bundle --audio aac without ffmpeg says what to install, or how to carry the files as they are', (t) => {
   const { dir, file } = deck(t, TRACKS);
-  const r = spawnSync(process.execPath, [CLI, 'bundle', file, '-o', path.join(dir, 'out.html'), '--small-audio'],
+  const r = spawnSync(process.execPath, [CLI, 'bundle', file, '-o', path.join(dir, 'out.html'), '--audio', 'aac'],
     // every spelling of PATH emptied: Windows keeps it as `Path`
     { encoding: 'utf8', env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'PATH')), PATH: '' } });
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /--small-audio re-encodes the narration with ffmpeg, which is not installed — install it, or bundle with --audio/);
+  assert.match(r.stderr, /--audio aac re-encodes the narration with ffmpeg, which is not installed — install it, or bundle with --audio original/);
+});
+
+test('the estimate without ffmpeg still knows the original, and says why the others are missing', async (t) => {
+  const { estimateAudio, narrationAudio } = await import('../cli/bundle-audio.mjs');
+  const { dir } = deck(t, TRACKS);
+  const html = readFileSync(path.join(dir, 'talk.html'), 'utf8');
+  const keep = process.env.PATH;
+  process.env.PATH = '';
+  try {
+    const est = await estimateAudio(narrationAudio(html, dir).found);
+    assert.equal(est.files, 3);
+    assert.ok(est.original > est.bytes, 'base64 and the block around it');
+    assert.equal(est.aac, null);
+    assert.equal(est.opus, null);
+    assert.equal(est.why.aac, 'needs ffmpeg with aac');
+    assert.equal(est.why.opus, 'needs ffmpeg with libopus');
+  } finally { process.env.PATH = keep; }
 });

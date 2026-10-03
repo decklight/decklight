@@ -27,6 +27,7 @@ import { needsDevMode } from './devmode.js';
 import { createOverflowWatch } from './overflow.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker } from './ranges.js';
+import { createChoiceCard } from './choice.js';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES } from '../../tools/video-options.mjs';
 import { buildIndex, rankMatches, slideTitle, slideBody } from './finder.js';
 import { createReview } from './review.js';
@@ -1032,19 +1033,8 @@ export function init(userConfig = {}) {
       // HTML file that opens from disk. It carries every marked theme and opens
       // on the one on screen — asking first when that one is not marked.
       editmode.available() && { label: 'Bundle into one file… (dev)',
-        alias: 'bundle standalone single file offline html send share email attach hand over export',
-        run: () => editmode.exportDeck('bundle') },
-      // The recorded voice is tens of MB, so it rides along only when asked:
-      // the row above leaves it beside the deck, this one carries it inside.
-      editmode.available() && narrationTracks(config.narration).length > 0
-        && { label: 'Bundle into one file, with the narration audio… (dev)',
-          alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound',
-          run: () => editmode.exportDeck('bundle', { audio: true }) },
-      // …or re-encoded small for sending: mono AAC 32 kbps, some quality lost
-      editmode.available() && narrationTracks(config.narration).length > 0
-        && { label: 'Bundle into one file, with small narration audio… (dev)',
-          alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound small compressed compress low size light',
-          run: () => editmode.exportDeck('bundle', { audio: 'small' }) },
+        alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound compressed small aac opus',
+        run: () => openBundle() },
       // Minutes rather than seconds, and usually of PART of the deck — the
       // chapter you just re-recorded — so it asks which slides before it starts.
       editmode.available() && { label: 'Export a video… (dev)',
@@ -2378,6 +2368,7 @@ export function init(userConfig = {}) {
   // on top of it, and overlapping overlays give the keyboard to the one
   // registered first.
   const rangePicker = createRangePicker({ root, overlays });
+  const choiceCard = createChoiceCard({ root, overlays });
   const narration = createNarration({
     root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
     // where the hash sends this load: past the first build of the first slide
@@ -2523,6 +2514,39 @@ export function init(userConfig = {}) {
     });
   }
 
+
+  // The bundle (DECK_ANATOMY): a deck with a recorded voice is asked what the
+  // file carries of it, each answer with the size the file would come out at,
+  // so "small enough to email?" is answered before anything is written. The
+  // answer is remembered here, not per deck: it is a habit of the person
+  // sending. A deck with no recorded audio bundles straight away.
+  const BUNDLE_AUDIO = 'decklight:bundle-audio';
+  async function openBundle() {
+    if (!narrationTracks(config.narration).length) return editmode.exportDeck('bundle');
+    const est = await editmode.bundleEstimate();
+    if (!est) return;
+    if (!est.audio) return editmode.exportDeck('bundle');
+    const { base, audio: a } = est;
+    const mb = (n) => (n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1048576).toFixed(1)} MB`);
+    const mins = a.seconds == null ? null : `${Math.floor(a.seconds / 60)}:${String(Math.round(a.seconds % 60)).padStart(2, '0')}`;
+    let last = null;
+    try { last = localStorage.getItem(BUNDLE_AUDIO); } catch { /* private mode */ }
+    choiceCard.open({
+      title: 'bundle into one file — and the narration audio?',
+      lines: [`${a.files} recorded file${a.files === 1 ? '' : 's'}${mins ? `, ${mins} of voice` : ''}, ${mb(a.bytes)} in ${a.folders}`],
+      rows: [
+        { value: 'none', label: 'Leave it beside the deck', note: 'send the folder with the file', figure: mb(base) },
+        { value: 'original', label: 'As recorded', note: 'nothing lost', figure: mb(base + a.original) },
+        { value: 'aac', label: 'AAC, mono 32 kbps', note: 'plays in every browser', figure: a.aac == null ? '' : `≈ ${mb(base + a.aac)}`, blocked: a.aac == null ? a.why.aac : null },
+        { value: 'opus', label: 'Opus, mono 24 kbps', note: 'smallest, Safari from 17', figure: a.opus == null ? '' : `≈ ${mb(base + a.opus)}`, blocked: a.opus == null ? a.why.opus : null },
+      ],
+      current: last ?? 'aac',
+      onPick: (how) => {
+        try { localStorage.setItem(BUNDLE_AUDIO, how); } catch { /* private mode */ }
+        editmode.exportDeck('bundle', how === 'none' ? {} : { audio: how });
+      },
+    });
+  }
 
   // R programmatically — and what the headless overlay harness drives, since
   // it cannot reach a git server to populate the real list.

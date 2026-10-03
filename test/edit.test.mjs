@@ -9,7 +9,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, mkdirSync, rmSync, existsSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1642,27 +1642,58 @@ test('the bundle row asks first when the theme on screen is not marked — a shi
   for (const n of ['ember', 'midnight']) assert.match(out, new RegExp(`<style data-theme="${n}"`));
 });
 
-test('the bundle row carries the narration audio only when asked', async (t) => {
+test('the bundle row carries the narration audio only when asked, and estimates each way first', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DATA_DECK({ decklight: '0.9.0', theme: 'aurora', narration: { files: 'voices' } }));
   mkdirSync(path.join(dir, 'voices'));
   writeFileSync(path.join(dir, 'voices', 'slide-01.m4a'), 'one');
   const { base } = await startEdit(t, dir);
-  const audioIn = () => /data-decklight-audio="voices\/slide-01\.m4a"/.test(readFileSync(path.join(dir, 'deck-standalone.html'), 'utf8'));
+  const standalone = path.join(dir, 'deck-standalone.html');
+  const audioIn = () => /data-decklight-audio="voices\/slide-01\.m4a"/.test(readFileSync(standalone, 'utf8'));
+
+  // the card's figures, before anything is written
+  const est = await (await fetch(base + '/edit/bundle/estimate?theme=aurora')).json();
+  assert.equal(est.ok, true, est.error);
+  assert.equal(est.audio.files, 1);
+  assert.equal(est.audio.folders, 'voices/ (1)');
+  assert.ok(est.audio.original > 0 && est.base > 0);
+  assert.ok(!existsSync(standalone), 'an estimate writes nothing');
 
   const plain = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora' })).json();
   assert.equal(plain.ok, true, plain.error);
-  assert.equal(audioIn(), false, 'the plain row leaves the audio beside the deck');
-  const voiced = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora', audio: true })).json();
+  assert.equal(audioIn(), false, 'with no audio asked for, it stays beside the deck');
+  assert.equal(statSync(standalone).size, est.base, 'and the file is the size the card said');
+  const voiced = await (await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora', audio: 'original' })).json();
   assert.equal(voiced.ok, true, voiced.error);
-  assert.equal(audioIn(), true, 'the audio row carries it inside');
-  // 'small' is --small-audio: here the file is not audio, so ffmpeg refuses it,
+  assert.equal(audioIn(), true, 'asked, it is carried inside');
+  assert.equal(statSync(standalone).size, est.base + est.audio.original, 'at exactly the size the card said');
+  // 'aac' is --audio aac: here the file is not audio, so ffmpeg refuses it,
   // and that refusal is the proof the route asked for the re-encode
   if (have('ffmpeg')) {
-    const small = await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora', audio: 'small' });
+    const small = await post(base, '/edit/export', { kind: 'bundle', theme: 'aurora', audio: 'aac' });
     assert.equal(small.status, 500);
-    assert.match((await small.json()).error, /--small-audio could not re-encode voices\/slide-01\.m4a/);
+    assert.match((await small.json()).error, /--audio aac could not re-encode voices\/slide-01\.m4a/);
   }
+});
+
+test('the bundle estimate says there is no audio to carry, and why it cannot bundle', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
+  const { base } = await startEdit(t, dir);
+  const none = await (await fetch(base + '/edit/bundle/estimate')).json();
+  assert.equal(none.ok, true, none.error);
+  assert.equal(none.audio, null, 'no recorded audio, no question to ask');
+  // a theme on screen the bundle cannot carry yet is estimated in the deck's own
+  const elsewhere = await (await fetch(base + '/edit/bundle/estimate?theme=nosuchtheme')).json();
+  assert.equal(elsewhere.ok, true, elsewhere.error);
+  assert.equal(elsewhere.base, none.base);
+  const { execFileSync: run } = await import('node:child_process');
+  run(process.execPath, [path.resolve(here, '../cli/decklight.mjs'), 'bundle', 'deck.html', '-o', 'one.html'], { cwd: dir, stdio: 'ignore' });
+  writeFileSync(deck, readFileSync(path.join(dir, 'one.html')));
+  const one = await fetch(base + '/edit/bundle/estimate');
+  assert.equal(one.status, 409);
+  assert.match((await one.json()).error, /already self-contained/);
 });
 
 test('the bundle row refuses what it cannot bundle, with a sentence', async (t) => {

@@ -86,7 +86,7 @@ const startup = (key, text, human) => {
   else console.log(human);
 };
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
-import { runMain } from './util.mjs';
+import { runMain, CommandError } from './util.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
 // was missing, so `edit.mjs --git-mode agent deck.html` refused a deck called
@@ -2131,6 +2131,34 @@ export async function editMain(args, { onListen = null } = {}) {
   // Every font every registered marketplace offers (SPEC FONTS), each saying
   // whether this deck references it, with the faces a preview needs — the
   // font picker's marketplace rows. Cache-only, like the theme browse.
+  /**
+   * GET /edit/bundle/estimate — how big the bundle would be, before it is
+   * written: the file without its audio (`base`), and what each way of
+   * carrying the narration's recorded audio would add (cli/bundle-audio.mjs),
+   * so the bundle card can say "Opus — ≈ 2.1 MB" before anybody chooses.
+   * `audio` is null for a deck with no recorded audio on this disk.
+   */
+  async function bundleEstimateRoute({ url, json }) {
+    const theme = url.searchParams.get('theme');
+    if (theme != null && !THEME_NAME.test(theme)) return json(400, { ok: false, error: 'the theme is a theme name' });
+    const { bundleMain } = await import('./bundle.mjs');
+    const estimate = (argv) => bundleMain([deckPath, ...argv], { estimate: true });
+    try {
+      // in the theme on screen, as the export will be — or, when that one
+      // cannot be bundled yet (the export asks to mark it first), in the
+      // deck's own: an estimate a theme's stylesheet away is still one
+      let r;
+      try { r = await estimate(theme ? ['--theme', theme] : []); } catch (e) {
+        if (!theme || !(e instanceof CommandError)) throw e;
+        r = await estimate([]);
+      }
+      return json(200, { ok: true, base: r.base, audio: r.audio });
+    } catch (e) {
+      if (!(e instanceof CommandError)) throw e;
+      return json(409, { ok: false, error: e.message.split('\n')[0] });
+    }
+  }
+
   async function fontBrowseRoute({ json }) {
     const { marketplaceFonts, fontRefs, resolveFontRef } = await import('./font-refs.mjs');
     const { markedSources } = await import('./theme-refs.mjs');
@@ -2765,13 +2793,15 @@ export async function editMain(args, { onListen = null } = {}) {
         }
       } else if (kind === 'bundle') {
         // The CLI's own name for the file, beside the deck, so the row and
-        // `decklight bundle` write the same one; `audio` is its --audio (true)
-        // or --small-audio ('small'), the recorded voice carried inside. bundleMain returns nothing on
-        // success and throws a sentence on a refusal — the catch below says it.
+        // `decklight bundle` write the same one; `audio` is its --audio
+        // ('original', 'aac' or 'opus'), the recorded voice carried inside.
+        // bundleMain returns nothing on success and throws a sentence on a
+        // refusal — the catch below says it.
         const { bundleMain } = await import('./bundle.mjs');
+        const { AUDIO_CHOICES } = await import('./bundle-audio.mjs');
         out = join(dirname(deckPath), `${basename(deckPath).replace(/\.html?$/i, '')}-standalone.html`);
         code = (await bundleMain([deckPath, '-o', out, ...(req.theme ? ['--theme', req.theme] : []),
-          ...(req.audio === 'small' ? ['--small-audio'] : req.audio === true ? ['--audio'] : [])])) ?? 0;
+          ...(AUDIO_CHOICES.includes(req.audio) ? ['--audio', req.audio] : [])])) ?? 0;
       } else if (kind === 'pptx') {
         const { pptxMain, pptxOut } = await import('./pptx-export.mjs');
         out = pptxOut(deckPath);
@@ -3087,6 +3117,7 @@ export async function editMain(args, { onListen = null } = {}) {
     'POST /edit/design-system/mark': designSystemMarkRoute,
     'POST /edit/design-system/apply': designSystemApplyRoute,
     'GET /edit/font/browse': fontBrowseRoute,
+    'GET /edit/bundle/estimate': bundleEstimateRoute,
     'POST /edit/font/mark': fontMarkRoute,
     'GET /edit/wizard': wizardSchemaRoute,
     'POST /edit/wizard': wizardConfigureRoute,

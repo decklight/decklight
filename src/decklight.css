@@ -1427,6 +1427,11 @@
 .decklight-narr .narr-engine-bar.narr-sel .eb-go { opacity: 1; }
 .decklight-narr .narr-row.narr-toggle { margin-top: 8px; border-top: 1px solid rgba(255, 255, 255, .12); border-radius: 0 0 8px 8px; opacity: .75; }
 .decklight-narr .narr-row-label { flex: 1 1 auto; min-width: 0; }
+/* one answer out of a few (src/core/choice.js): what each costs, on the right */
+.decklight-choice .narr-card { width: min(540px, 90vw); }
+.decklight-choice .narr-row { align-items: baseline; }
+.decklight-choice .choice-figure { margin-left: auto; padding-left: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; opacity: .85; }
+.decklight-choice .narr-row.narr-blocked .choice-figure { opacity: .45; }
 /* the range picker's own-range box (src/core/ranges.js) */
 .decklight-range .range-custom input { flex: 0 0 7em; min-width: 0; font: inherit; padding: 2px 8px; border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, .25); background: rgba(0, 0, 0, .25); color: inherit; }
@@ -1567,8 +1572,8 @@
   font-size: .78em;
 }
 .decklight-record .narr-card { width: min(400px, 82vw); }
-.decklight-record .rec-line, .decklight-range .rec-line { padding: 4px 12px; opacity: .85; }
-.decklight-record .rec-hint, .decklight-range .rec-hint { padding: 10px 12px 2px; opacity: .5; font-size: 12px; }
+.decklight-record .rec-line, .decklight-range .rec-line, .decklight-choice .rec-line { padding: 4px 12px; opacity: .85; }
+.decklight-record .rec-hint, .decklight-range .rec-hint, .decklight-choice .rec-hint { padding: 10px 12px 2px; opacity: .5; font-size: 12px; }
 .decklight-record .rec-bar {
   height: 6px;
   margin: 10px 12px 4px;
