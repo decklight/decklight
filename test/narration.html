@@ -589,7 +589,10 @@
           const first = window.__audioSrcs.find((u) => u) ?? '';
           r.first = first;
           r.playedTheCarriedCopy = first === 'blob:carried-1';
-          r.sameBytes = blobs.length === 1 && blobs[0].type === 'audio/mp4' && (await blobs[0].text()) === 'one';
+          // the blob's size and type, read synchronously: awaiting a Blob read
+          // under the virtual clock never returned on the hosted macOS runner,
+          // and the page ended with no verdict at all
+          r.sameBytes = blobs.length === 1 && blobs[0].type === 'audio/mp4' && blobs[0].size === 3;
           deck.goto(3, 0);                        // nothing carried for slide 3
           await new Promise((ok) => setTimeout(ok, 400));
           r.otherSlidePlaysItsPath = window.__audioSrcs.includes('voices/slide-03.m4a');
