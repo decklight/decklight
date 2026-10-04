@@ -1091,15 +1091,27 @@
 
           // Poll for the done card rather than sleeping a guessed interval: a
           // slide is several bridge round-trips and a blob stitch, and under a
-          // virtual clock those take real time the page cannot predict. Every
-          // tick spends the run's virtual-time budget, so the interval is short
-          // and the ceiling is generous — a run that needs the whole 60s is
-          // still under a second of wall clock.
+          // virtual clock those take real time the page cannot predict.
+          //
+          // The ceiling counts POLLS, and a poll is not a unit of progress:
+          // each one fires the moment the page idles, so how many a take
+          // spans depends on how often it idles, not on how far along it is.
+          // Measured on recordseg&pause, every run finished in ~1.4s of wall
+          // clock while spanning anywhere from 87 to 5,614 polls, and the old
+          // ceiling of 1,200 failed about one run in six. So the ceiling is
+          // set far past that tail, and the interval kept short enough that
+          // reaching it (100s of virtual time) still ends inside the mode's
+          // own budget (narration-render.mjs BUDGET): a take that truly never
+          // finishes reads as finished=false, and the runner's wall clock
+          // stays the guard against a page that hangs.
+          const untilRecorded = async (c) => {
+            for (let i = 0; i < 20000 && !/recording done/.test(c?.textContent ?? ''); i++) {
+              await new Promise((ok) => setTimeout(ok, 5));
+            }
+            return /recording done/.test(c?.textContent ?? '');
+          };
           const card = document.querySelector('.decklight-record .narr-card');
-          for (let i = 0; i < 1200 && !/recording done/.test(card?.textContent ?? ''); i++) {
-            await new Promise((ok) => setTimeout(ok, 50));
-          }
-          r.finished = /recording done/.test(card?.textContent ?? '');
+          r.finished = await untilRecorded(card);
           if (mode === 'reccount') {
             // What this take cost (#565): first run synthesizes everything,
             // and a second run over the same notes pays for nothing.
@@ -1116,9 +1128,7 @@
             await until(() => document.querySelector('.decklight-record .rec-dir'), 3000);
             document.querySelector('.decklight-record .narr-card .narr-row')?.click();
             const card2 = document.querySelector('.decklight-record .narr-card');
-            for (let i = 0; i < 1200 && !/recording done/.test(card2?.textContent ?? ''); i++) {
-              await new Promise((ok) => setTimeout(ok, 50));
-            }
+            await untilRecorded(card2);
             r.second = clipLine(card2?.textContent)?.slice(1) ?? null;
             const [n1, reused1, sent1, engine1, spend1] = r.first ?? [];
             const [n2, reused2, sent2, , spend2] = r.second ?? [];
@@ -1190,6 +1200,10 @@
           // that plays it.
           const useBtn = card?.querySelector('.rec-use');
           r.offeredToUseIt = !!useBtn;
+          // nothing written until the button is pressed: a take that never
+          // finished has no button, and its verdict must read finished=false
+          // rather than throw on a list that was never filled
+          r.wroteTheConfig = [];
           if (useBtn) {
             // The KEYBOARD path, not a click: Enter on the done card used to
             // close it — walking straight past this offer, with a hint that
