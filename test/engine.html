@@ -307,7 +307,7 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
-      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups') {
+      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'authortour' || HARNESS_MODE === 'authortourwelcome') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -481,6 +481,9 @@
     // PRESENTING), and tips off so no toast lands in the middle of a dump.
     try {
       localStorage.setItem('decklight-onboarded', '1');
+      // …and the editing tour, which would otherwise take every author-mode
+      // mode's first key; the two tour modes clear it again
+      localStorage.setItem('decklight-onboarded-author', '1');
       localStorage.setItem('decklight-tips-off', '1');
       // agentlog: the agent card docked right, as the author left it
       if (mode === 'agentlog') localStorage.setItem('decklight-agent-dock:' + location.pathname, JSON.stringify({ mode: 'right' }));
@@ -2366,6 +2369,55 @@
         r.PASS = r.overviewOpens && r.cellsCarryTools && r.plusAddsAfterThatSlide && r.toolClickDoesNotLeaveTheOverview
           && r.overviewComesBackAfterTheReload && r.dragShowsWhereItLands && r.dragMovesTheSlide && r.dragBackwards
           && r.dropInPlaceAsksNothing && r.deleteKeyDeletesTheSelected && r.nKeyAddsAfterTheSelected && r.dKeyDuplicatesTheSelected;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'authortour' || mode === 'authortourwelcome') {
+        // Author mode's own first run (onboarding.js): once the author server
+        // has answered, a card of the four gestures and the keys that matter
+        // when the file is yours; any key dismisses it and does nothing else;
+        // once per browser; never over the welcome, and reopenable from /.
+        const TOUR = 'decklight-onboarded-author', SEEN = 'decklight-onboarded';
+        const card = () => document.querySelector('.decklight-welcome.wel-author');
+        const welcome = () => document.querySelector('.decklight-welcome:not(.wel-author)');
+        if (mode === 'authortourwelcome') {
+          // the welcome itself is due: one card a load, and it is the welcome
+          localStorage.removeItem(SEEN); localStorage.removeItem(TOUR);
+          deck.showWelcome();
+          await settle(); await settle();
+          r.welcomeIsUp = !!welcome();
+          r.tourWaitsItsTurn = !card();
+          press('ArrowRight');
+          r.keyDismissesOnlyTheWelcome = !welcome() && !card() && deck.state.slide === 1;
+          r.tourStillDue = localStorage.getItem(TOUR) !== '1';
+          r.PASS = r.welcomeIsUp && r.tourWaitsItsTurn && r.keyDismissesOnlyTheWelcome && r.tourStillDue;
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+        // the flag cleared before the ping answers: the tour shows by itself
+        // on this load (every other author-mode mode runs with it set, and
+        // none of them meets the card: that is the other half of the proof)
+        localStorage.removeItem(TOUR);
+        await settle(); await settle();
+        r.cardShows = !!card();
+        const text = card()?.textContent ?? '';
+        r.namesTheGestures = /double-click/.test(text) && /drop/.test(text) && /Editing/.test(text) && /notes drawer/.test(text)
+          && /Describe a change/.test(text) && /commits what changed/.test(text);
+        r.saysWhereToReopen = /Editing tour/.test(text);
+        press('ArrowRight');
+        r.anyKeyDismissesAndDoesNothingElse = !card() && deck.state.slide === 1;
+        r.remembered = localStorage.getItem(TOUR) === '1';
+        // reopened from the palette, and the button closes it
+        press('/');
+        for (const ch of 'editing tour') press(ch);
+        press('Enter');
+        await settle();
+        r.paletteReopensIt = !!card();
+        card().querySelector('.wel-go').click();
+        r.buttonCloses = !card();
+        r.PASS = r.cardShows && r.namesTheGestures && r.saysWhereToReopen
+          && r.anyKeyDismissesAndDoesNothingElse && r.remembered && r.paletteReopensIt && r.buttonCloses;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

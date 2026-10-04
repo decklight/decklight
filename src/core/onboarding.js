@@ -53,6 +53,7 @@ export const TIPS = [
 ];
 
 const SEEN_KEY = 'decklight-onboarded';   // the welcome card, once per browser
+const AUTHOR_SEEN_KEY = 'decklight-onboarded-author';   // the editing tour, once per browser
 const TIPS_SEEN_KEY = 'decklight-tips-seen';
 const TIPS_OFF_KEY = 'decklight-tips-off';
 
@@ -119,6 +120,65 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     debugLog?.('nav', 'welcome shown');
   }
 
+  // ----- the editing tour: author mode's own first run ------------------------
+  // The welcome explains presenting and says author mode exists; the first
+  // load that IS author mode gets a card of its own, the four gestures and
+  // the keys that matter when the file is yours to change. Once per browser,
+  // never on top of the welcome (one card a load), and never where no author
+  // server answers: the tour is about what this deck can do, not what some
+  // other deck could.
+  let authorEl = null;
+  function dismissAuthorWelcome() {
+    if (!authorEl) return;
+    authorEl.remove();
+    authorEl = null;
+    write(AUTHOR_SEEN_KEY, '1');
+    debugLog?.('nav', 'editing tour dismissed');
+  }
+  function showAuthorWelcome() {
+    if (authorEl || cardEl || printMode) return;
+    authorEl = document.createElement('div');
+    authorEl.className = 'decklight-welcome wel-author';
+    authorEl.innerHTML = `<div class="wel-card">
+      <h3>Editing this deck</h3>
+      <p class="wel-lead">This deck is served by <code>decklight author</code>: what you change here is written to the file, snapshotted, and taken back with <b>Z</b>.</p>
+      <table>
+        <tr><td>double-click</td><td><b>Edit any text</b> in place; <b>⏎</b> keeps it, <b>Esc</b> gives it up.</td></tr>
+        <tr><td>drop</td><td><b>Add a picture</b> by dropping a file onto the slide.</td></tr>
+        <tr><td>E</td><td><b>Editing</b>: a bar names every door (Text, Picture, Layout, Notes, Slide…); a click selects an element, ⌫ removes it.</td></tr>
+        <tr><td>S · O</td><td><b>S</b> opens the notes drawer, which saves itself; <b>O</b> is the overview, where slides are dragged, added and deleted.</td></tr>
+        <tr><td>A</td><td><b>Describe a change</b> and an AI agent makes it; Z takes it back too.</td></tr>
+        <tr><td>K · /</td><td><b>K</b> commits what changed (the chip at the corner keeps count); <b>/</b> lists everything else.</td></tr>
+      </table>
+      <div class="wel-foot">
+        <span>Press any key to dismiss — reopen anytime from the <code>/</code> palette (Editing tour).</span>
+        <button type="button" class="wel-go">Got it</button>
+      </div>
+    </div>`;
+    authorEl.addEventListener('click', (e) => { e.stopPropagation(); dismissAuthorWelcome(); });
+    closeOnBackdrop(authorEl, dismissAuthorWelcome);
+    root.appendChild(authorEl);
+    debugLog?.('nav', 'editing tour shown');
+  }
+  /**
+   * The author-mode load's teaching moment, once the author server has
+   * answered: the tour, the first time, on the deck's first slide, and not
+   * over a welcome that is already up. Nothing on a load that teaches nobody.
+   */
+  /** Both cards, for the advance that retires whichever is up. */
+  function dismissCards() { dismissWelcome(); dismissAuthorWelcome(); }
+  function startAuthor(target) {
+    if (quiet || cardEl || authorEl) return;
+    if (target.slide !== 1 || target.step !== 0) return;
+    if (read(AUTHOR_SEEN_KEY) === '1') return;
+    showAuthorWelcome();
+  }
+  overlays.register({
+    isOpen: () => !!authorEl,
+    close: dismissAuthorWelcome,
+    keydown: () => (dismissAuthorWelcome(), true),
+  });
+
   // The card owns the keyboard while it is up, and spends it on one job: the
   // first key clears the card and does NOTHING else. A newcomer reaching for →
   // dismisses, then advances on the next press — no surprise navigation out
@@ -179,8 +239,8 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     // on-screen chevrons and a programmatic next() all land on these events,
     // so it cannot survive into a talk that has already started. Armed here,
     // after the deck's opening goto has already fired its own pair.
-    deck().on('slide', dismissWelcome);
-    deck().on('build', dismissWelcome);
+    deck().on('slide', dismissCards);
+    deck().on('build', dismissCards);
     if (target.slide !== 1 || target.step !== 0) return;
     if (read(SEEN_KEY) !== '1') { showWelcome(); return; }
     if (tipsEnabled()) showTip();
@@ -188,8 +248,11 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
 
   return {
     start,
+    startAuthor,
     showWelcome,
     dismissWelcome,
+    showAuthorWelcome,
+    dismissAuthorWelcome,
     showTip,
     setTips,
     resetTips,

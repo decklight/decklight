@@ -1066,6 +1066,7 @@ export function init(userConfig = {}) {
         run: openSettings },
       { label: 'Keyboard help', hint: '?', run: toggleHelp },
       { label: 'Welcome to Decklight', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
+      editmode.available() && { label: 'Editing tour (dev)', alias: 'onboarding intro getting started first run tour how do I edit author mode gestures', run: onboarding.showAuthorWelcome },
       { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
       // Contextual: with every tip read there is nothing to reset to, and a row
       // that does nothing visible is a row that reads as broken.
@@ -2446,6 +2447,7 @@ export function init(userConfig = {}) {
   instance.toggleMessages = toggleMessages;                 // I, programmatic
   instance.messages = messages;                             // [{ at, text }] — every message shown
   instance.showWelcome = onboarding.showWelcome;            // first-run card, palette / programmatic
+  instance.showAuthorWelcome = onboarding.showAuthorWelcome; // the editing tour, palette / programmatic
   instance.settings = {                                     // palette → Settings…, programmatic
     open: openSettings,
     close: closeSettings,
@@ -2759,5 +2761,7 @@ export function init(userConfig = {}) {
   // that reads where the hash SENT the deck, and a load that landed on slide 12
   // is a talk in progress, not a first run.
   onboarding.start(target);
+  // …and author mode's own, once the author server has answered (one card a load)
+  editmode.settled?.().then(() => { if (editmode.available()) onboarding.startAuthor(target); });
   return instance;
 }
