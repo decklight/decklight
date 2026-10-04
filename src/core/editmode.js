@@ -19,7 +19,7 @@
 import { closeOnBackdrop, selectInList } from './overlay.js';
 import { colorTargets, openColorPicker } from './colorpicker.js';
 import { rangeLabel } from './ranges.js';
-import { agentChipText, boundedFetch, commitChipText, needsDevMode, pushToastText, shortAge } from './devmode.js';
+import { agentChipText, boundedFetch, commitChipText, commitChipTone, needsDevMode, pushToastText, shortAge } from './devmode.js';
 import { dedentHtml } from './htmlfmt.js';
 import { createPreview } from './preview.js';
 import { readPref, writePref } from './prefs.js';
@@ -96,7 +96,9 @@ export function createEditMode({
   // The deck no longer commits itself on a clock; a snapshot does the saving
   // and this does the asking. The chip is a statement, not a modal: it never
   // takes the keyboard, and clicking it (or K) opens the window where the
-  // message is written.
+  // message is written. It is also the ONE place the state of the work is
+  // read: on screen, quietly, the whole time the deck differs from its last
+  // commit (what changed, and the key), louder once the server asks.
   let commitNow = null;   // last {dirty, lines, sinceMs, nag, canWrite, messages}
   let commitChip = null;
   function paintCommitChip() {
@@ -116,7 +118,8 @@ export function createEditMode({
       root.appendChild(commitChip);
     }
     commitChip.textContent = `⌥ ${text}`;
-    commitChip.title = 'commit this — the work is snapshotted either way';
+    commitChip.dataset.tone = commitChipTone(commitNow);
+    commitChip.title = 'what has changed since the last commit — click or K to commit it; the work is snapshotted either way';
   }
   /** Ask the server what is uncommitted, then paint. */
   async function refreshCommit() {

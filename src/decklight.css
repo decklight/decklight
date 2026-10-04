@@ -1179,6 +1179,9 @@
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, .16);
 }
+/* a statement until the server asks: quieter, so it reads as status, not a nag */
+.decklight-commit-chip[data-tone="quiet"] { opacity: .62; border-color: rgba(255, 255, 255, .1); }
+.decklight-commit-chip[data-tone="quiet"]:hover { opacity: 1; }
 .decklight-commit-chip:hover { background: rgba(0, 0, 0, .85); }
 .decklight-commit-chip:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: 2px; }
 

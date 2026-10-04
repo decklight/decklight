@@ -150,13 +150,23 @@ export function pushToastText(remote, { shown = false, threshold = 10 } = {}) {
  * people turn off.
  */
 export function commitChipText(state) {
-  if (!state || !state.nag || !state.dirty || !state.canWrite) return null;
+  if (!state || !state.dirty || !state.canWrite) return null;
+  const n = Number(state.lines) || 0;
+  const what = n ? `${n} line${n === 1 ? '' : 's'}` : 'changes';
+  // Before the server decides to ask, the chip is a STATEMENT, quiet: what
+  // has changed since the last commit, and the key. It stays on screen the
+  // whole time the deck differs from its last commit, so "did that save?"
+  // and "what have I changed?" are answered without opening anything.
+  if (!state.nag) return `${what} since the last commit — K commits`;
   const mins = Math.floor((Number(state.sinceMs) || 0) / 60000);
   const age = mins >= 60 ? ` · ${Math.floor(mins / 60)}h`
     : mins >= 1 ? ` · ${mins}m` : '';
-  const n = Number(state.lines) || 0;
-  const what = n ? `${n} line${n === 1 ? '' : 's'}` : 'changes';
   return `${what} uncommitted${age} — K commits`;
+}
+
+/** 'asking' once the server's nag rule fired, 'quiet' while the chip merely states the case. */
+export function commitChipTone(state) {
+  return state?.nag ? 'asking' : 'quiet';
 }
 
 // ── a fetch that gives up ────────────────────────────────────────────────────

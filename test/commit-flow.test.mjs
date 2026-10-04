@@ -169,14 +169,19 @@ test('the startup line names the ref and how to read it', () => {
 
 // ── what the deck says (src/core/devmode.js) ─────────────────────────────
 
-test('the chip speaks only when the server decided to ask', async () => {
-  const { commitChipText } = await import('../src/core/devmode.js');
+test('the chip states the case quietly, and asks only when the server decided to', async () => {
+  const { commitChipText, commitChipTone } = await import('../src/core/devmode.js');
   const asking = { dirty: true, nag: true, canWrite: true, lines: 12, sinceMs: 0 };
   assert.match(commitChipText(asking), /12 lines uncommitted — K commits/);
-  // every one of these is a reason to stay silent, and the chip must not
-  // second-guess any of them: the once-per-episode rule lives server-side.
-  assert.equal(commitChipText({ ...asking, nag: false }), null, 'it spoke before being asked to');
-  assert.equal(commitChipText({ ...asking, dirty: false }), null);
+  assert.equal(commitChipTone(asking), 'asking');
+  // before the ask it is a statement: what changed since the last commit, and
+  // the key — on screen the whole time the deck differs from its last commit
+  assert.equal(commitChipText({ ...asking, nag: false }), '12 lines since the last commit — K commits');
+  assert.equal(commitChipTone({ ...asking, nag: false }), 'quiet');
+  assert.equal(commitChipText({ ...asking, nag: false, lines: 1 }), '1 line since the last commit — K commits');
+  // and every one of these is a reason to say nothing: the chip must not
+  // second-guess them, the rules live server-side
+  assert.equal(commitChipText({ ...asking, dirty: false }), null, 'nothing has changed');
   assert.equal(commitChipText({ ...asking, canWrite: false }), null, 'it offered to commit with no git');
   assert.equal(commitChipText(null), null);
 });
