@@ -28,9 +28,47 @@
  * `makeGotoRow(n)` and `makeSearchRow(text)` build the two synthetic rows, so
  * this file never needs to know how to move a deck or open the finder.
  */
-export function paletteRows({ commands, query = '', totalSlides = 0, makeGotoRow, makeSearchRow }) {
+/**
+ * A command's label, with the `(dev)` suffix that marked author-mode rows
+ * turned into a flag: the suffix was jargon on thirty rows, and a tag says
+ * the same thing once.
+ */
+export function normalizeCommand(c) {
+  const m = /^(.*?)\s*\(dev\)$/.exec(c.label ?? '');
+  return m ? { ...c, label: m[1], dev: true } : c;
+}
+
+/**
+ * A ROW can be a header (`{ header }`, not selectable), a group row
+ * (`{ groupRow }`, which opens its group), a back row, or a command.
+ *
+ * With no query the list is the deck's doors, not its every command: rows
+ * that name a `group` fold into one row per group (`Export & share…`), and
+ * the author-mode rows sit together under one header. Typing searches every
+ * command flat, groups included, so "handout" still finds the PDF handout in
+ * one step; `group` shows that group's rows under a back row.
+ */
+export function paletteRows({ commands: given, query = '', group = null, totalSlides = 0, makeGotoRow, makeSearchRow }) {
+  const commands = given.map(normalizeCommand);
   const q = String(query).toLowerCase();
-  const rows = commands.filter((c) => !q || (c.label + ' ' + (c.alias ?? '')).toLowerCase().includes(q));
+  if (!q && group) {
+    return [{ label: '← back', back: true, hint: '⌫' }, ...commands.filter((c) => c.group === group)];
+  }
+  let rows;
+  if (q) rows = commands.filter((c) => (c.label + ' ' + (c.alias ?? '') + ' ' + (c.group ?? '')).toLowerCase().includes(q));
+  else {
+    const seen = new Set();
+    const top = [];
+    for (const c of commands) {
+      if (!c.group) { top.push(c); continue; }
+      if (seen.has(c.group)) continue;
+      seen.add(c.group);
+      top.push({ label: `${c.group}…`, groupRow: c.group, hint: '▸', dev: c.dev });
+    }
+    const plain = top.filter((c) => !c.dev);
+    const dev = top.filter((c) => c.dev);
+    rows = dev.length ? [...plain, { header: 'author mode' }, ...dev] : plain;
+  }
 
   const g = String(query).trim().match(/^(?:goto\s*)?(\d+)$/i);
   if (g && makeGotoRow) {
@@ -38,7 +76,7 @@ export function paletteRows({ commands, query = '', totalSlides = 0, makeGotoRow
     rows.unshift(makeGotoRow(n, totalSlides));
   }
 
-  if (q && !g && makeSearchRow && !rows.some((c) => c.label.toLowerCase().startsWith(q))) {
+  if (q && !g && makeSearchRow && !rows.some((c) => !c.header && c.label.toLowerCase().startsWith(q))) {
     rows.push(makeSearchRow(query));
   }
   return rows;

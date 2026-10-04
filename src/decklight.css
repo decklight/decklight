@@ -1896,6 +1896,13 @@
   font-size: 12px;
   white-space: nowrap;
 }
+/* the palette's shape (palette.js): groups fold the hand-over rows and the
+   like into one row each, the author-mode rows sit under one header, and a
+   row found by typing says it is author mode with a tag */
+.decklight-palette .pal-right { display: inline-flex; align-items: center; gap: 8px; }
+.decklight-palette .pal-head { margin: 8px 12px 2px; font-size: .68em; letter-spacing: .14em; text-transform: uppercase; opacity: .5; }
+.decklight-palette .pal-tag { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 5px; border-radius: 4px; background: rgba(255, 255, 255, .1); opacity: .7; }
+.decklight-palette .pal-back { opacity: .75; }
 
 /* blackout / help */
 .decklight-blackout { position: absolute; inset: 0; background: #000; z-index: 90; }

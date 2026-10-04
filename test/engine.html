@@ -307,7 +307,7 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
-      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar') {
+      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -1124,6 +1124,58 @@
           press('Escape');
           r.PASS = r.offeredListed && r.saysSpaceAdds && r.previewLinksItsFaces && r.spaceReferencesIt && r.rowSaysSo && r.staysOpen;
         }
+      }
+
+      if (mode === 'palettegroups' || mode === 'paletteplain') {
+        // The palette's shape (palette.js): with no query the list is the
+        // deck's doors, the hand-over rows and the like folded into one row
+        // per group, the author-mode rows under one header and no "(dev)"
+        // anywhere; typing searches every command flat, in one step.
+        await settle();   // the ping, when there is one
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+        const heads = () => [...document.querySelectorAll(`${Q} .pal-head`)].map((n) => n.textContent);
+        press('/');
+        const top = rows();
+        r.noDevSuffix = !top.some((t) => /\(dev\)/.test(t)) && !heads().some((t) => /\(dev\)/.test(t));
+        if (mode === 'paletteplain') {
+          // the rows that need the author server are not offered without one;
+          // the few author-mode rows that explain themselves without it still
+          // sit under their header
+          r.noAuthorSectionWithoutAServer = !top.some((t) => /^Export & share…|^Slide…|^Write for the ear…|^Add audio tags…/.test(t));
+          r.printFolds = top.some((t) => /^Print…/.test(t)) && !top.some((t) => /Print handout/.test(t));
+          press('Escape');
+          r.PASS = r.noDevSuffix && r.noAuthorSectionWithoutAServer && r.printFolds;
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+        r.groupsFold = ['Export & share…', 'Slide…', 'Print…', 'Write for the ear…', 'Add audio tags…'].every((g) => top.some((t) => t.startsWith(g)))
+          && !top.some((t) => /Export to PDF…|Export a PDF handout…|Delete this slide|Print handout/.test(t));
+        r.authorRowsUnderOneHeader = heads().join('|') === 'author mode'
+          && top.indexOf(top.find((t) => /Edit this deck…/.test(t))) > top.indexOf(top.find((t) => /^Theme…/.test(t)));
+        // into a group, and back
+        const exportRow = [...document.querySelectorAll(`${Q} ${ROW}`)].find((n) => /^Export & share…/.test(n.textContent));
+        exportRow.click();
+        await settle();
+        const inGroup = rows();
+        r.groupOpensItsRows = !!document.querySelector(Q) && inGroup[0] === '← back⌫'
+          && ['Export to PowerPoint…', 'Export to PDF…', 'Export a PDF handout…', 'Export a video…', 'Bundle into one file…', 'Publish this deck…'].every((l) => inGroup.some((t) => t.startsWith(l)))
+          && !inGroup.some((t) => /^Theme…/.test(t));
+        r.groupSaysWhereYouAre = /Export & share › /.test(document.querySelector(`${Q} .pal-input`)?.textContent ?? '');
+        press('Backspace');
+        r.backspaceLeavesTheGroup = rows().some((t) => /^Export & share…/.test(t)) && !!document.querySelector(Q);
+        // typing searches every command flat, in one step, with the tag
+        for (const ch of 'handout') press(ch);
+        const found = rows();
+        r.typingSearchesFlat = found.some((t) => /^Export a PDF handout…/.test(t)) && found.some((t) => /^Print handout/.test(t)) && !heads().length;
+        r.foundRowsTagged = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Export a PDF handout…/.test(n.textContent) && n.querySelector('.pal-tag')?.textContent === 'author');
+        for (const ch of 'handout') press('Backspace');
+        r.emptyQueryIsTheTopAgain = rows().some((t) => /^Export & share…/.test(t));
+        press('Escape');
+        r.PASS = r.noDevSuffix && r.groupsFold && r.authorRowsUnderOneHeader && r.groupOpensItsRows && r.groupSaysWhereYouAre
+          && r.backspaceLeavesTheGroup && r.typingSearchesFlat && r.foundRowsTagged && r.emptyQueryIsTheTopAgain;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
       }
 
       if (mode === 'palette') {
@@ -2172,7 +2224,7 @@
         // the palette calls it what it is
         press('/');
         for (const ch of 'edit this deck') press(ch);
-        r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /Edit this deck… \(dev\)/.test(n.textContent));
+        r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /Edit this deck…/.test(n.textContent));
         press('Escape');
         r.PASS = r.noBarUntilE && r.eOpensTheBar && r.barNamesEveryDoor && r.barShowsTheKeys && r.clickSelects
           && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects

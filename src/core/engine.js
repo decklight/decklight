@@ -842,6 +842,7 @@ export function init(userConfig = {}) {
   // (theme, font, narration, module, slide finder). Text that matches no
   // command falls back to a "search slides for …" row.
   let palEl = null, palSel = 0, palQuery = '', palRows = [], palCommands = [];
+  let palGroup = null;   // the group whose rows the palette shows, with no query
   // ── HIDDEN_SLIDES from the palette ──────────────────────────────────────
   const hasHiddenSlides = () => (instance._sections ?? []).some((s) => s.hasAttribute('data-hidden'));
   const currentHidden = () => !!instance._sections?.[instance.state.slide - 1]?.hasAttribute('data-hidden');
@@ -914,11 +915,11 @@ export function init(userConfig = {}) {
       { label: 'Cycle slide layout (dev)', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
       // The slide as a whole. Author mode only, like every row that writes the
       // file — and absent rather than greyed out when there is no server.
-      editmode.available() && { label: 'New slide after this one (dev)', alias: 'add slide insert blank create page', run: () => editmode.slideOp('new') },
-      editmode.available() && { label: 'Duplicate this slide (dev)', alias: 'copy slide clone', run: () => editmode.slideOp('duplicate') },
-      editmode.available() && { label: 'Move slide up (dev)', alias: 'reorder earlier before swap', run: () => editmode.slideOp('up') },
-      editmode.available() && { label: 'Move slide down (dev)', alias: 'reorder later after swap', run: () => editmode.slideOp('down') },
-      editmode.available() && { label: 'Delete this slide (dev)', alias: 'remove slide drop', run: () => editmode.slideOp('delete') },
+      editmode.available() && { label: 'New slide after this one (dev)', group: 'Slide', alias: 'add slide insert blank create page', run: () => editmode.slideOp('new') },
+      editmode.available() && { label: 'Duplicate this slide (dev)', group: 'Slide', alias: 'copy slide clone', run: () => editmode.slideOp('duplicate') },
+      editmode.available() && { label: 'Move slide up (dev)', group: 'Slide', alias: 'reorder earlier before swap', run: () => editmode.slideOp('up') },
+      editmode.available() && { label: 'Move slide down (dev)', group: 'Slide', alias: 'reorder later after swap', run: () => editmode.slideOp('down') },
+      editmode.available() && { label: 'Delete this slide (dev)', group: 'Slide', alias: 'remove slide drop', run: () => editmode.slideOp('delete') },
       { label: 'Undo deck edit (dev)', hint: `Z · ${UNDO_CHORD}`, alias: 'revert back history', run: () => deckHistory('undo') },
       { label: 'Redo deck edit (dev)', hint: '⇧Z', alias: 'forward history repeat', run: () => deckHistory('redo') },
       { label: 'Ask agent… (dev)', hint: 'A', alias: 'ai claude codex bob gemini prompt edit', run: toggleAgentAsk },
@@ -958,11 +959,11 @@ export function init(userConfig = {}) {
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
       { label: editmode.elementEditOn() ? 'Stop editing (dev)' : 'Edit this deck… (dev)', hint: 'E', alias: 'element edit mode right-click remove delete html content build animation entrance effect context menu toolbar select', run: toggleElementEdit },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
-      { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
+      { label: 'Print view (all slides, new tab)', group: 'Print', hint: '', run: () => window.open(location.pathname + '?print') },
       // The two print variants the runtime already had (PRINTING) — reachable
       // from here, not only from `decklight pdf --notes/--handout`.
-      { label: 'Print with notes (one slide per page, new tab)', alias: 'pdf print speaker notes script handout pages', run: () => window.open(location.pathname + '?print=notes') },
-      { label: 'Print handout (three per page, new tab)', alias: 'pdf print handout thumbnails audience note-taking lines', run: () => window.open(location.pathname + '?print=handout') },
+      { label: 'Print with notes (one slide per page, new tab)', group: 'Print', alias: 'pdf print speaker notes script handout pages', run: () => window.open(location.pathname + '?print=notes') },
+      { label: 'Print handout (three per page, new tab)', group: 'Print', alias: 'pdf print handout thumbnails audience note-taking lines', run: () => window.open(location.pathname + '?print=handout') },
       // ── the hand-over rows (PRESENTING) ─────────────────────────────
       // The print rows above open a print VIEW in a tab: the same pages, and
       // not a file anybody can be sent. These write the file, by asking the
@@ -999,51 +1000,51 @@ export function init(userConfig = {}) {
         run: () => templates.open('apply') },
       // the voiceover script, given ElevenLabs v4's audio tags — the agent
       // drafts, decklight checks no word or beat moved (cli/enhance.mjs)
-      editmode.available() && { label: 'Enhance this slide\'s voiceover script… (dev)',
+      editmode.available() && { label: 'Enhance this slide\'s voiceover script… (dev)', group: 'Add audio tags',
         alias: 'enhance elevenlabs v4 audio tags expressive emotion notes narration voice script improve direction',
         run: () => editmode.enhanceScript('slide') },
-      editmode.available() && { label: 'Enhance this module\'s voiceover script… (dev)',
+      editmode.available() && { label: 'Enhance this module\'s voiceover script… (dev)', group: 'Add audio tags',
         alias: 'enhance module chapter section elevenlabs v4 audio tags expressive emotion notes narration voice script',
         run: () => editmode.enhanceScript('module') },
-      editmode.available() && { label: 'Enhance every slide\'s voiceover script… (dev)',
+      editmode.available() && { label: 'Enhance every slide\'s voiceover script… (dev)', group: 'Add audio tags',
         alias: 'enhance all slides whole deck elevenlabs v4 audio tags expressive emotion notes narration voice script',
         run: () => editmode.enhanceScript('all') },
       // …and written for the ear: terse notes as sentences a person would say
-      editmode.available() && { label: 'Write this slide\'s notes for the ear… (dev)',
+      editmode.available() && { label: 'Write this slide\'s notes for the ear… (dev)', group: 'Write for the ear',
         alias: 'spoken conversational natural sentences rewrite notes voiceover script say aloud human speakable ear',
         run: () => editmode.enhanceScript('slide', { kind: 'spoken' }) },
-      editmode.available() && { label: 'Write this module\'s notes for the ear… (dev)',
+      editmode.available() && { label: 'Write this module\'s notes for the ear… (dev)', group: 'Write for the ear',
         alias: 'spoken conversational natural sentences rewrite module chapter notes voiceover script say aloud human speakable ear',
         run: () => editmode.enhanceScript('module', { kind: 'spoken' }) },
-      editmode.available() && { label: 'Write every slide\'s notes for the ear… (dev)',
+      editmode.available() && { label: 'Write every slide\'s notes for the ear… (dev)', group: 'Write for the ear',
         alias: 'spoken conversational natural sentences rewrite all slides whole deck notes voiceover script say aloud human speakable ear',
         run: () => editmode.enhanceScript('all', { kind: 'spoken' }) },
-      editmode.available() && { label: 'Export to PowerPoint… (dev)',
+      editmode.available() && { label: 'Export to PowerPoint… (dev)', group: 'Export & share',
         alias: 'pptx powerpoint keynote google slides export file office send share hand over',
         run: () => editmode.exportDeck('pptx') },
-      editmode.available() && { label: 'Export to PDF… (dev)',
+      editmode.available() && { label: 'Export to PDF… (dev)', group: 'Export & share',
         alias: 'pdf export file save send share hand over slides acrobat',
         run: () => editmode.exportDeck('pdf') },
-      editmode.available() && { label: 'Export a PDF with notes… (dev)',
+      editmode.available() && { label: 'Export a PDF with notes… (dev)', group: 'Export & share',
         alias: 'pdf notes script speaker one slide per page export file send rehearse',
         run: () => editmode.exportDeck('pdf-notes') },
-      editmode.available() && { label: 'Export a PDF handout… (dev)',
+      editmode.available() && { label: 'Export a PDF handout… (dev)', group: 'Export & share',
         alias: 'pdf handout three per page audience note-taking export file send print',
         run: () => editmode.exportDeck('pdf-handout') },
       // The file most often sent: the deck and everything it needs in one
       // HTML file that opens from disk. It carries every marked theme and opens
       // on the one on screen — asking first when that one is not marked.
-      editmode.available() && { label: 'Bundle into one file… (dev)',
+      editmode.available() && { label: 'Bundle into one file… (dev)', group: 'Export & share',
         alias: 'bundle standalone single file offline html send share email attach hand over export audio voice narration recorded track sound compressed small aac opus',
         run: () => openBundle() },
       // Minutes rather than seconds, and usually of PART of the deck — the
       // chapter you just re-recorded — so it asks which slides before it starts.
-      editmode.available() && { label: 'Export a video… (dev)',
+      editmode.available() && { label: 'Export a video… (dev)', group: 'Export & share',
         alias: 'video mp4 movie film render narrated voiceover export range chapter share upload youtube',
         run: () => openVideoExport() },
       // The last one is a URL rather than a file, so it asks first: one press
       // shows where it would go, the next one sends it.
-      editmode.available() && { label: 'Publish this deck… (dev)',
+      editmode.available() && { label: 'Publish this deck… (dev)', group: 'Export & share',
         alias: 'publish share url link web site pages gh-pages github deploy send hand over',
         run: () => editmode.publishDeck() },
       // HIDDEN_SLIDES — contextual: a deck with nothing hidden has nothing to
@@ -1079,9 +1080,10 @@ export function init(userConfig = {}) {
     // Which rows a query leaves, the inline "goto 27" argument and the
     // search fallback all live in palette.js; the commands themselves stay
     // here, where each one closes over what it runs.
-    palRows = paletteRows({
+    const rows = paletteRows({
       commands: palCommands,
       query: palQuery,
+      group: palGroup,
       totalSlides: instance.state.totalSlides,
       makeGotoRow: (n, total) => ({
         label: `Go to slide ${n} / ${total}`, hint: '⏎', run: () => instance.goto(n, 0),
@@ -1091,26 +1093,50 @@ export function init(userConfig = {}) {
         run: () => { openSlideFinder(); setFinderQuery(text); },
       }),
     });
+    // a group row opens its group and a back row leaves it; neither closes
+    // the palette, and the headers are not rows at all
+    palRows = rows.filter((c) => !c.header).map((c) => (c.groupRow
+      ? { ...c, keepOpen: true, run: () => { palGroup = c.groupRow; renderPalette(); } }
+      : c.back ? { ...c, keepOpen: true, run: () => { palGroup = null; renderPalette(); } } : c));
     const bar = document.createElement('div');
     bar.className = 'pal-input' + (palQuery ? ' tp-active' : '');
-    bar.textContent = palQuery || 'type a command…';
+    bar.textContent = palQuery || (palGroup ? `${palGroup} › type a command…` : 'type a command…');
     card.appendChild(bar);
-    palRows.forEach((c, i) => {
+    let i = 0;
+    for (const c of rows) {
+      if (c.header) {
+        const head = document.createElement('div');
+        head.className = 'pal-head';
+        head.textContent = c.header;
+        card.appendChild(head);
+        continue;
+      }
+      const at = i++;
       const el = document.createElement('div');
-      el.className = 'narr-row pal-row';
+      el.className = 'narr-row pal-row' + (c.groupRow ? ' pal-group' : '') + (c.back ? ' pal-back' : '');
       const label = document.createElement('span');
       label.textContent = c.label;
       el.appendChild(label);
+      const right = document.createElement('span');
+      right.className = 'pal-right';
+      // the author-mode tag, only where the rows are not already under their header
+      if (c.dev && (palQuery || palGroup)) {
+        const tag = document.createElement('span');
+        tag.className = 'pal-tag';
+        tag.textContent = 'author';
+        right.appendChild(tag);
+      }
       if (c.hint) {
         const kbd = document.createElement('span');
         kbd.className = 'pal-kbd';
         kbd.textContent = c.hint;
-        el.appendChild(kbd);
+        right.appendChild(kbd);
       }
-      el.addEventListener('mouseenter', () => selectPalRow(i));
-      el.addEventListener('click', () => { selectPalRow(i); commitPalRow(); });
+      if (right.childNodes.length) el.appendChild(right);
+      el.addEventListener('mouseenter', () => selectPalRow(at));
+      el.addEventListener('click', () => { selectPalRow(at); commitPalRow(); });
       card.appendChild(el);
-    });
+    }
     if (!palRows.length) {
       const none = document.createElement('div');
       none.className = 'tp-none';
@@ -1133,6 +1159,7 @@ export function init(userConfig = {}) {
     if (palEl) return closePalette();
     overlays.opening();
     palQuery = '';
+    palGroup = null;
     // built once per open, not once per keystroke: the list consults a dozen
     // modules for their state and scans the deck for hidden slides, and none
     // of that changes while the palette is up
@@ -2078,7 +2105,8 @@ export function init(userConfig = {}) {
       onMove: (d) => selectPalRow(palSel + d),
       onCommit: commitPalRow,
       onType: (ch) => { palQuery += ch; renderPalette(); },
-      onBackspace: () => { palQuery = palQuery.slice(0, -1); renderPalette(); },
+      // ⌫ on an empty query leaves the group, the way the back row does
+      onBackspace: () => { if (!palQuery && palGroup) palGroup = null; else palQuery = palQuery.slice(0, -1); renderPalette(); },
       onClear: () => { palQuery = ''; renderPalette(); },
       onClose: closePalette,
     }),
