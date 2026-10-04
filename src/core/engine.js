@@ -20,6 +20,7 @@ import { createHud } from './hud.js';
 import { setupMedia } from './media.js';
 import { createEditMode } from './editmode.js';
 import { createAuthoring } from './authoring.js';
+import { createEditBar } from './editbar.js';
 import { createTemplates } from './templates.js';
 import { createSources } from './sources.js';
 import { createOnboarding, TIPS } from './onboarding.js';
@@ -955,7 +956,7 @@ export function init(userConfig = {}) {
       { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
-      { label: `Element edit mode ${editmode.elementEditOn() ? 'off' : 'on'} (dev)`, hint: 'E', alias: 'right-click remove delete html content build animation entrance effect context menu', run: toggleElementEdit },
+      { label: editmode.elementEditOn() ? 'Stop editing (dev)' : 'Edit this deck… (dev)', hint: 'E', alias: 'element edit mode right-click remove delete html content build animation entrance effect context menu toolbar select', run: toggleElementEdit },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', hint: '', run: () => window.open(location.pathname + '?print') },
       // The two print variants the runtime already had (PRINTING) — reachable
@@ -2153,6 +2154,8 @@ export function init(userConfig = {}) {
     }
     // positional, so it cannot be a `case` in a switch over e.key
     if (isMsgKey(e)) { toggleMessages(); e.preventDefault(); return; }
+    // something selected on the slide answers ⏎, ⌫ and Esc first (editbar.js)
+    if (editbar.keydown(e)) { e.preventDefault(); return; }
     switch (e.key) {
       // ⎵ belongs to the voice only WHILE THE VOICE IS IN PLAY — pausing it,
       // resuming it — and to the deck at every other moment, including on a
@@ -2558,6 +2561,13 @@ export function init(userConfig = {}) {
   // Double-click text to edit it, drop a picture to add it (authoring.js):
   // the two gestures every editor teaches, on top of the routes above.
   const authoring = createAuthoring({ root, instance, toast, editmode, debugLog });
+  // Editing's face (editbar.js): the bar E opens, and click-to-select on the
+  // slide. A surface over the gestures and keys above, never a second path.
+  const editbar = createEditBar({
+    root, instance, editmode, authoring, toast, debugLog,
+    toggleEditor, cycleLayout, deckHistory,
+    enabled: () => !printMode && !params.has('embedded') && !captureMode,
+  });
 
   // `hasTracks`, not `track`: narration is OFF until somebody picks, so a deck
   // that ships audio has no chosen track to test for — and `?voiceover` is

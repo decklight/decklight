@@ -320,7 +320,15 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       ?? sectionOf(instance._sections[instance.state.slide - 1]);
     if (!where) return;
     const under = topLevelChild(where.sec, document.elementFromPoint(e.clientX, e.clientY));
-    let index = under && !under.matches('aside') ? authoredIndex(where.sec, under) : null;
+    const index = under && !under.matches('aside') ? authoredIndex(where.sec, under) : null;
+    await placePictures(files, where, index);
+  });
+  /**
+   * Upload each picture and place it on the slide after element `index`
+   * (last on the slide when null) — the drop, and the editing bar's Picture
+   * button, which has no cursor to place by.
+   */
+  async function placePictures(files, where, index) {
     const job = (async () => { for (const file of files) {
       try {
         const up = await fetch(base() + '/edit/asset', {
@@ -339,10 +347,30 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     // the whole drop — upload, then place — is one write as far as Z is concerned
     editmode.trackWrite?.(job);
     await job;
-  });
+  }
 
   return {
     /** Is an inline edit in progress? The deck's shortcuts stand aside while one is. */
     editing: () => !!editing,
+    /** Edit `el` in place as a double-click would — text, or a code block as its source. False when it is neither. */
+    editInline(el) {
+      if (!available()) return false;
+      const where = sectionOf(el);
+      if (!where || where.sec.hasAttribute('data-markdown-removed')) return false;
+      const code = el.closest?.(CODE_EDITABLE);
+      if (code && where.sec.contains(code) && !code.closest('.terminal, aside, [data-chart]')) { beginCode(code, where); return true; }
+      const text = editableTarget(el, where.sec);
+      if (!text) return false;
+      beginInline(text, where);
+      return true;
+    },
+    /** Add pictures to the current slide, after element `afterIndex` (last when null) — the bar's Picture button. */
+    addPictures(files, { afterIndex = null } = {}) {
+      if (!available()) return Promise.resolve();
+      const list = imageFiles(files);
+      if (!list.length) { toast('that is not a picture — PNG, JPEG, GIF, WebP, SVG or AVIF', 3000); return Promise.resolve(); }
+      const where = sectionOf(instance._sections[instance.state.slide - 1]);
+      return where ? placePictures(list, where, afterIndex) : Promise.resolve();
+    },
   };
 }

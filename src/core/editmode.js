@@ -1168,15 +1168,40 @@ export function createEditMode({
   const TEXT_EFFECTS = ['fade', 'fade-up', 'fade-down', 'zoom', 'pop', 'draw', 'highlight'];
   let elementEditOn = false;
   let menuEl = null, menuRows = [], menuSel = 0, menuView = 'main', menuTarget = null;
+  // who wants to know when E turns editing on or off: the editing bar (editbar.js)
+  const elementEditListeners = new Set();
 
   function toggleElementEdit() {
     if (!editAvailable) {
-      toast(needsDevMode('editing an element', location), 3200);
+      toast(needsDevMode('editing', location), 3200);
       return;
     }
     elementEditOn = !elementEditOn;
     closeElementMenu();
-    toast(elementEditOn ? 'element edit mode on — right-click a slide element' : 'element edit mode off', 2200);
+    toast(elementEditOn ? 'editing — click to select, double-click text to change it, E when finished' : 'editing finished', 2600);
+    for (const fn of elementEditListeners) fn(elementEditOn);
+  }
+
+  /**
+   * What a click on `node` addresses (SPEC PRESENTING, element edit mode):
+   * the slide, the authored top-level element containing the click (`top`,
+   * null on the bare background) and its index in the FILE. Null off a
+   * slide, and on a slide with no per-element source mapping, which is told.
+   */
+  function elementTargetOf(node) {
+    const sec = node?.closest?.('section');
+    const slide = sec ? instance._sections.indexOf(sec) + 1 : 0;
+    if (!sec || !slide) return null;
+    // No per-element source mapping exists for a markdown-authored slide (its
+    // content lived in a <script type="text/template"> the browser never
+    // parsed) — same reason a removed-markdown slide has nothing for the
+    // notes editor to key off either.
+    if (sec.hasAttribute('data-markdown-removed')) {
+      toast('this slide has no per-element source mapping (data-markdown, removed in 0.3.0) — edit the file directly', 3400);
+      return null;
+    }
+    const child = topLevelChild(sec, node);
+    return { sec, slide, index: child ? authoredIndex(sec, child) : null, top: child, clicked: node };
   }
 
   /** The direct child of `sec` that contains `target`, or null for the bare background (target IS sec). */
@@ -1187,22 +1212,12 @@ export function createEditMode({
 
   root.addEventListener('contextmenu', (e) => {
     if (!elementEditOn) return;
-    const sec = e.target.closest('section');
-    const slide = sec ? instance._sections.indexOf(sec) + 1 : 0;
-    if (!sec || !slide) return; // not a real slide section — leave the OS menu alone
+    if (!e.target.closest('section')) return; // not a real slide section — leave the OS menu alone
     e.preventDefault();
-    // No per-element source mapping exists for a markdown-authored slide (its
-    // content lived in a <script type="text/template"> the browser never
-    // parsed) — same reason a removed-markdown slide has nothing for the
-    // notes editor to key off either.
-    if (sec.hasAttribute('data-markdown-removed')) {
-      toast('this slide has no per-element source mapping (data-markdown, removed in 0.3.0) — edit the file directly', 3400);
-      return;
-    }
-    const child = topLevelChild(sec, e.target);
-    const index = child ? authoredIndex(sec, child) : null;
+    const target = elementTargetOf(e.target);
+    if (!target) return;
     overlays.opening();
-    openElementMenu(e.clientX, e.clientY, { sec, slide, index, top: child, clicked: e.target });
+    openElementMenu(e.clientX, e.clientY, target);
   });
 
   function closeElementMenu() {
@@ -1223,7 +1238,8 @@ export function createEditMode({
       rows.push({ label: 'none (instant)', run: () => commitEffect('none') });
       rows.push({ label: 'remove effect', run: () => commitEffect(null) });
     } else if (menuView === 'slide') {
-      rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
+      // opened from the bar's Slide ▾ there is nothing to go back to
+      if (!menuTarget.fromBar) rows.push({ label: '← back', back: true, run: () => { menuView = 'main'; renderElementMenu(); } });
       rows.push({ label: 'New slide after this one', run: () => { closeElementMenu(); slideOp('new'); } });
       rows.push({ label: 'Duplicate this slide', run: () => { closeElementMenu(); slideOp('duplicate'); } });
       rows.push({ label: 'Move slide up', run: () => { closeElementMenu(); slideOp('up'); } });
@@ -1234,7 +1250,7 @@ export function createEditMode({
       rows.push({ label: 'Slide ▸', run: () => { menuView = 'slide'; renderElementMenu(); } });
     } else {
       rows.push({ label: 'Edit speaker notes', run: () => { closeElementMenu(); toggleEditor(); } });
-      rows.push({ label: 'Remove element', run: commitRemove });
+      rows.push({ label: 'Remove element', run: () => commitRemove() });
       rows.push({ label: 'Edit content (HTML)', run: () => { closeElementMenu(); openElementContentEditor(menuTarget); } });
       rows.push({ label: 'Colors…', run: openColors });
       rows.push({ label: 'Add text effect ▸', run: () => { menuView = 'effects'; renderElementMenu(); } });
@@ -1259,9 +1275,9 @@ export function createEditMode({
     menuSel = selectInList(rows, i, 'cm-selected', { scroll });
   }
 
-  function openElementMenu(x, y, target) {
+  function openElementMenu(x, y, target, view = 'main', { above = false } = {}) {
     menuTarget = target;
-    menuView = 'main';
+    menuView = view;
     menuEl = document.createElement('div');
     menuEl.className = 'decklight-ctxmenu';
     const card = document.createElement('div');
@@ -1278,7 +1294,8 @@ export function createEditMode({
     // that opens partway off-screen is not "cursor-anchored", it is broken.
     const rect = root.getBoundingClientRect();
     const left = Math.min(x - rect.left, rect.width - card.offsetWidth - 4);
-    const top = Math.min(y - rect.top, rect.height - card.offsetHeight - 4);
+    // `above`: the point is the menu's bottom edge, for a menu that opens up from the editing bar
+    const top = Math.min(y - rect.top - (above ? card.offsetHeight : 0), rect.height - card.offsetHeight - 4);
     card.style.left = Math.max(4, left) + 'px';
     card.style.top = Math.max(4, top) + 'px';
     closeOnBackdrop(menuEl, closeElementMenu);
@@ -1316,9 +1333,10 @@ export function createEditMode({
     }
   }
 
-  async function commitRemove() {
-    const { slide, index } = menuTarget;
+  async function commitRemove(target = menuTarget) {
+    const { slide, index } = target;
     closeElementMenu();
+    if (index === null) { toast('nothing selected to remove', 2000); return; }
     try {
       const res = await writeFetch(editBase + '/edit/element/remove', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -2436,8 +2454,16 @@ export function createEditMode({
     toggleAgentAsk,
     /** E — arm/disarm the right-click element menu (#112). Refuses outside author mode. */
     toggleElementEdit,
-    /** Is element edit mode currently armed? The palette's own on/off label asks. */
+    /** Is editing on? The palette's own on/off label and the editing bar ask. */
     elementEditOn: () => elementEditOn,
+    /** Be told when E turns editing on or off. */
+    onElementEditChange: (fn) => { elementEditListeners.add(fn); },
+    /** What a click addresses: `{ sec, slide, index, top, clicked }`, or null. */
+    elementTargetOf,
+    /** The element menu, opened at a point by something other than a right-click: the bar's ⋯ handle and Slide ▾. */
+    openElementMenuAt: (x, y, target, view = 'main', opts = {}) => { if (!elementEditOn) return; overlays.opening(); openElementMenu(x, y, target, view, opts); },
+    /** Remove the element a target names: ⌫ on a selection. */
+    removeElement: (target) => commitRemove(target),
     /** New / duplicate / delete / up / down on the current slide — the palette's rows. */
     slideOp,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside author mode. */

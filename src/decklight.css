@@ -2544,6 +2544,49 @@
   pointer-events: none;
 }
 
+/* ── editing's face (src/core/editbar.js): the bar E opens, and the selection ── */
+.decklight-editbar {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  z-index: 41;
+  display: flex; align-items: center; gap: 2px;
+  padding: 4px;
+  border-radius: 14px;
+  border: 1px solid rgba(160, 160, 160, .28);
+  background: rgba(20, 20, 22, .72);
+  color: #e6e6e6;
+  font: 500 13px/1 system-ui, sans-serif;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+}
+.decklight-editbar .eb-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 8px 11px;
+  border: 0; border-radius: 10px;
+  background: none; color: inherit;
+  font: inherit; cursor: pointer; white-space: nowrap;
+}
+.decklight-editbar .eb-btn:hover { background: rgba(255, 255, 255, .12); }
+.decklight-editbar .eb-btn:active { background: rgba(255, 255, 255, .2); }
+.decklight-editbar .eb-key {
+  font: 600 10px/1 system-ui, sans-serif;
+  padding: 3px 5px; border-radius: 5px;
+  background: rgba(255, 255, 255, .12); color: rgba(255, 255, 255, .7);
+}
+.decklight-editbar .eb-done { margin-left: 4px; border-left: 1px solid rgba(255, 255, 255, .14); border-radius: 0 10px 10px 0; }
+.decklight-editbar .eb-file { display: none; }
+/* while editing: what the pointer is over, and what was chosen */
+.decklight.dl-editmode .decklight-stage section .dl-hover:not(.dl-selected):not(.dl-editing) { outline: 1px dashed color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 4px; border-radius: 2px; }
+.decklight .dl-selected { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+.decklight .dl-handle {
+  position: absolute; z-index: 42;
+  width: 22px; height: 22px; padding: 0;
+  border-radius: 999px; border: 0;
+  background: var(--accent); color: var(--accent-contrast, #fff);
+  font: 700 14px/22px system-ui, sans-serif; text-align: center;
+  cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
+}
+@media print { .decklight-editbar, .decklight .dl-handle { display: none; } }
+
 /* ---------- font picker (SPEC FONTS) — each row in its own face, its source on the right ---------- */
 /* the slide behind IS the preview: no blur, a light dim, the card off to the side */
 .decklight-narr.decklight-font-picker { background: rgba(0, 0, 0, .12); backdrop-filter: none; justify-content: flex-end; padding-right: 3vw; }

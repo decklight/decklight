@@ -298,9 +298,12 @@
       // Mouse editing (authoring.js): a double-click saves through the SOURCE
       // of the element and the content route, and the slide operations are one
       // POST each answering with the slide to land on.
-      if (HARNESS_MODE === 'authoring') {
+      // `editbar` is the same server, driven from the bar and the selection
+      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+        if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/edit/layout')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         // Slow on purpose: a real save reads the source, then writes. Undo must
         // queue behind a write still in flight, and these markers say when each
         // one actually landed.
@@ -2068,6 +2071,107 @@
         r.closedCardSavesNothing = posts().length === 4;
         r.PASS = r.opens && r.fromAButtonInTheCard && r.fromTheBackground && r.fromTheSlideWithCtrl && r.anotherBoxKeepsItsOwn
           && r.nothingToSaveIsSaid && r.closes && r.closedCardSavesNothing;
+      }
+
+      if (mode === 'editbar') {
+        // Editing has a face (editbar.js): E opens a bar that names every
+        // door, a click selects an element, and the keys a selection answers
+        // go through the same routes the gestures and the menu already use.
+        await settle();                       // /edit/ping: editAvailable
+        deck.goto(1, 0);
+        await settle();
+        const bar = () => document.querySelector('.decklight-editbar');
+        const labels = () => [...(bar()?.querySelectorAll('.eb-btn .eb-label') ?? [])].map((n) => n.textContent);
+        const keys = () => [...(bar()?.querySelectorAll('.eb-key') ?? [])].map((n) => n.textContent);
+        const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        const h1 = () => document.querySelector('.decklight-stage > section.active h1');
+        const rows = () => [...document.querySelectorAll('.decklight-ctxmenu .cm-row')].map((n) => n.textContent);
+        const sec1 = document.querySelector('.decklight-stage > section');
+        r.noBarUntilE = !bar();
+        press('e');
+        await settle();
+        r.eOpensTheBar = !!bar() && document.querySelector('.decklight').classList.contains('dl-editmode');
+        r.barNamesEveryDoor = labels().join('|') === 'Text|Picture|Layout · auto|Notes|Slide ▾|Undo|Redo|Done';
+        r.barShowsTheKeys = ['⏎', 'L', 'S', 'Z', '⇧Z', 'E'].every((k) => keys().includes(k));
+        // a click selects: outlined, with a ⋯ handle at its corner
+        click(h1());
+        r.clickSelects = h1().classList.contains('dl-selected') && !!document.querySelector('.dl-handle');
+        // moving on lets the selection go, and the arrows still move
+        press('ArrowRight');
+        await settle();
+        r.arrowsStillNavigate = deck.state.slide === 2 && !document.querySelector('.dl-selected');
+        deck.goto(1, 0);
+        await settle();
+        // ⏎ on selected text edits it in place, exactly as a double-click does
+        click(h1());
+        press('Enter');
+        r.enterEditsText = h1().isContentEditable && h1().classList.contains('dl-editing') && !h1().classList.contains('dl-selected');
+        h1().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        await settle();
+        r.escapeGivesTheEditUp = !h1().isContentEditable;
+        // Esc on a selection lets it go
+        click(h1());
+        press('Escape');
+        r.escDeselects = !h1().classList.contains('dl-selected') && !document.querySelector('.dl-handle');
+        // ⌫ with nothing selected removes nothing (it is the ink tool's clear)…
+        press('Backspace');
+        await settle();
+        r.backspaceAloneRemovesNothing = !CALLS.post.some((c) => c.u.includes('/edit/element/remove'));
+        // …and on a selection it removes the element, through the menu's own route
+        click(h1());
+        press('Backspace');
+        await settle();
+        await settle();
+        const removed = CALLS.post.find((c) => c.u.includes('/edit/element/remove'));
+        r.backspaceRemoves = !!removed && removed.body.slide === 1 && removed.body.index === 0 && !document.querySelector('.dl-selected');
+        // the ⋯ handle opens the element's menu by left-click
+        click(h1());
+        document.querySelector('.dl-handle').click();
+        await settle();
+        r.handleOpensTheMenu = rows().includes('Remove element') && rows().includes('Colors…') && rows().includes('Slide ▸');
+        press('Escape');
+        await settle();
+        // Slide ▾ opens straight onto the slide's own actions
+        bar().querySelector('.eb-slide').click();
+        await settle();
+        r.slideButtonOpensTheSlideMenu = rows().includes('Duplicate this slide') && rows().includes('Delete this slide');
+        press('Escape');
+        await settle();
+        // Layout cycles the slide and says where it landed
+        bar().querySelector('.eb-layout').click();
+        await settle();
+        r.layoutButtonCycles = sec1.getAttribute('data-layout') === 'centered' && labels().includes('Layout · centered');
+        // Notes opens the notes editor; the same button closes it
+        bar().querySelector('.eb-notes').click();
+        await settle();
+        r.notesButtonOpensTheNotes = !!document.querySelector('.decklight-editor');
+        bar().querySelector('.eb-notes').click();
+        await settle();
+        // Picture is a file chooser for pictures, several at once
+        const file = bar().querySelector('input[type="file"]');
+        r.pictureButtonTakesPictures = !!file && file.accept === 'image/*' && file.multiple;
+        // Undo and Redo go through the deck's history
+        bar().querySelector('.eb-undo').click();
+        await settle();
+        bar().querySelector('.eb-redo').click();
+        await settle();
+        r.undoRedoButtonsWork = CALLS.post.some((c) => c.u.includes('/edit/undo')) && CALLS.post.some((c) => c.u.includes('/edit/redo'));
+        // Done is E
+        bar().querySelector('.eb-done').click();
+        await settle();
+        r.doneCloses = !bar() && !document.querySelector('.decklight').classList.contains('dl-editmode') && !document.querySelector('.dl-handle');
+        // the palette calls it what it is
+        press('/');
+        for (const ch of 'edit this deck') press(ch);
+        r.paletteOffersEditing = [...document.querySelectorAll('.decklight-palette .pal-row')].some((n) => /Edit this deck… \(dev\)/.test(n.textContent));
+        press('Escape');
+        r.PASS = r.noBarUntilE && r.eOpensTheBar && r.barNamesEveryDoor && r.barShowsTheKeys && r.clickSelects
+          && r.arrowsStillNavigate && r.enterEditsText && r.escapeGivesTheEditUp && r.escDeselects
+          && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
+          && r.layoutButtonCycles && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
+          && r.doneCloses && r.paletteOffersEditing;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
       }
 
       if (mode === 'editor') {
