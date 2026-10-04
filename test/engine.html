@@ -353,9 +353,14 @@
         }
       }
       // notes saved IN PLACE: no reload; every page is sent the new notes
-      if (HARNESS_MODE === 'notesinplace') {
+      if (HARNESS_MODE === 'notesinplace' || HARNESS_MODE === 'notesauto') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+      }
+      // a save that fails: the drawer must keep what was typed rather than close on it
+      if (HARNESS_MODE === 'notesautofail') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/notes')) return json({ ok: false, error: 'disk full' }, 500);
       }
       if (HARNESS_MODE === 'notessave') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -2047,6 +2052,55 @@
         }
       }
 
+      if (mode === 'notesauto' || mode === 'notesautofail') {
+        // The notes are a drawer that saves itself: open along the bottom,
+        // written when the author leaves the box, moves to another slide or
+        // closes the card — and kept open, still unsaved, when a save fails.
+        await settle();   // the ping: authoring
+        try { localStorage.removeItem('decklight-notes-dock:' + location.pathname); } catch { /* fine */ }
+        deck.goto(2, 0); await settle();
+        press('s'); await settle();
+        const card = () => document.querySelector('.decklight-editor');
+        const box = () => document.querySelector('.decklight-editor textarea.edit-notes');
+        const mark = () => document.querySelector('.decklight-editor .notes-dirty-mark');
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/edit/notes')).map((c) => c.body);
+        const type = (t) => { box().value = t; box().dispatchEvent(new Event('input', { bubbles: true })); };
+        r.opensAsADrawerAtTheBottom = card()?.dataset.dock === 'bottom';
+        r.headingSaysItSavesItself = /notes — slide 2 · saves itself/.test(card()?.textContent ?? '');
+        if (mode === 'notesautofail') {
+          box().focus(); type('Will not save.');
+          press('Escape'); await settle(); await settle();
+          r.aFailedSaveKeepsTheCard = !!card() && box().value === 'Will not save.' && !mark().hidden && posts().length === 1;
+          r.PASS = r.opensAsADrawerAtTheBottom && r.aFailedSaveKeepsTheCard;
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+        // focus moving to a button in the card is not leaving it
+        box().focus(); type('Typed, then clicked away.');
+        document.querySelector('.decklight-editor .notes-reset')?.focus();
+        await settle();
+        r.cardButtonsDoNotSave = posts().length === 0 && !mark().hidden;
+        // leaving the box does
+        box().focus(); box().blur();
+        await settle(); await settle();
+        r.leavingTheBoxSaves = posts().length === 1 && posts()[0].slide === 2 && posts()[0].text === 'Typed, then clicked away.' && mark().hidden;
+        // moving on with edits writes them to the slide they were written for, then follows
+        box().focus(); type('Written on two.');
+        deck.goto(3, 0);
+        await settle(); await settle(); await settle();
+        r.movingOnSavesThenFollows = posts().length === 2 && posts()[1].slide === 2 && posts()[1].text === 'Written on two.'
+          && /notes — slide 3/.test(card()?.textContent ?? '') && box().value !== 'Written on two.' && mark().hidden;
+        // closing with edits writes them first
+        type('Written on three.');
+        press('Escape');
+        await settle(); await settle();
+        r.closingSaves = posts().length === 3 && posts()[2].slide === 3 && posts()[2].text === 'Written on three.' && !card();
+        r.PASS = r.opensAsADrawerAtTheBottom && r.headingSaysItSavesItself && r.cardButtonsDoNotSave && r.leavingTheBoxSaves
+          && r.movingOnSavesThenFollows && r.closingSaves;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
       if (mode === 'notesinplace') {
         // A notes save is not a reload: the page that saved keeps its card
         // exactly as it was, and every page is sent the slide's new notes to
@@ -2423,10 +2477,11 @@
         press('ArrowRight'); await settle();
         r.notesDeckNavigable = deck.state.slide === 2;
         r.notesFollowsTheSlide = /slide 2/.test(heading());
-        // a draft stays with its slide
+        // a draft is written to the slide it was written for, and the card follows
         n.ta.value = 'a half-written note';
-        press('ArrowRight'); await settle();
-        r.notesDraftStays = deck.state.slide === 3 && /slide 2/.test(heading()) && n.ta.value === 'a half-written note';
+        press('ArrowRight'); await settle(); await settle();
+        r.notesDraftSavedThenFollows = deck.state.slide === 3 && /slide 3/.test(heading())
+          && CALLS.post.some((c) => c.u.includes('/edit/notes') && c.body.slide === 2 && c.body.text === 'a half-written note');
         n.ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle();
         r.notesSavesItsOwnSlide = CALLS.post.some((c) => c.u.includes('/edit/notes') && c.body.slide === 2);

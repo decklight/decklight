@@ -871,19 +871,36 @@ export function createEditMode({
   let unmountEditor = null;
   let notesFollow = null;   // re-points a clean notes card at the slide on screen
   let notesReadOnly = false; // the card opened with no author server behind it
+  // A DRAWER, not a dialog: the notes open docked along the bottom, the deck
+  // stays navigable above them, and they save themselves (below). The dock
+  // buttons still move it anywhere, remembered per deck.
   const notesDock = createDock({
     root,
     reflow: () => instance._reflow?.(),
     key: 'decklight-notes-dock:' + location.pathname,
     getEl: () => editEl,
     closeLabel: 'close (esc)',
+    defaultMode: 'bottom',
   });
+  let notesDirty = null;     // does the open card hold edits the file does not have?
+  let notesClosing = false;  // a close that is saving first
   // Docked, the deck stays navigable beside the notes card, so the card
   // follows the slide — but only while it holds nothing unsaved: a draft
   // stays with the slide it was written for, and its heading still says which.
   instance.on('slide', () => notesFollow?.());
   function toggleEditor() {
-    if (editEl) { unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; forgetNotesOpen(); return; }
+    if (editEl) {
+      // A card holding edits saves them on the way out, and closes once they
+      // are written; a save that fails leaves it open, still marked unsaved,
+      // because closing would be the one way to lose what was typed.
+      if (!notesClosing && notesSave && notesDirty?.()) {
+        notesClosing = true;
+        notesSave().then(() => { notesClosing = false; if (editEl && !notesDirty?.()) toggleEditor(); });
+        return;
+      }
+      unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; notesDirty = null; forgetNotesOpen();
+      return;
+    }
     // With no author server behind the deck — `present`, `review`, a file —
     // the same card opens READ-ONLY: the notes to read, following the slide,
     // and nothing that could look like it saves. `decklight author` edits them.
@@ -891,7 +908,7 @@ export function createEditMode({
     let sl = instance.state.slide;
     const heading = () => (readOnly
       ? `notes — slide ${sl} · read-only (decklight author edits them)`
-      : `edit notes — slide ${sl} · ⌘⏎ saves`);
+      : `notes — slide ${sl} · saves itself`);
     const { el, card, title } = typingCard('notes', notesDock, heading(), toggleEditor);
     editEl = el;
     const ta = document.createElement('textarea');
@@ -905,8 +922,16 @@ export function createEditMode({
     if (readOnly) ta.classList.add('edit-notes-readonly');
     let syncChanged = () => {};   // the reset / before-after buttons, once they exist (not read-only)
     let saving = false;           // a save in flight: the mark says "saving…" 
+    if (!readOnly) notesDirty = () => ta.value !== loaded;
     notesFollow = () => {
-      if (ta.value !== loaded || instance.state.slide === sl) return;
+      if (instance.state.slide === sl) return;
+      // Edits go to the slide they were written for, and the card moves on
+      // once they are written. A save that fails leaves it where it was,
+      // marked unsaved, with the slide it belongs to in its heading.
+      if (ta.value !== loaded) {
+        if (!readOnly && !saving) save().then(() => { if (ta.value === loaded) notesFollow?.(); });
+        return;
+      }
       sl = instance.state.slide;
       loaded = ta.value = notesText();
       title.textContent = heading();
@@ -972,12 +997,19 @@ export function createEditMode({
       unmountEditor = mountTypingCard(el, notesDock);
       return;
     }
+    // Leaving the card saves it: a click on the slide, another window, the
+    // next thing. Focus moving within the card (its buttons, the diff) is not
+    // leaving, and a box that matches the file has nothing to write.
+    el.addEventListener('focusout', (e) => {
+      if (el.contains(e.relatedTarget) || saving || ta.value === loaded) return;
+      save();
+    });
     const actions = document.createElement('div');
     actions.className = 'tr-actions';
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'narr-prev-btn';
-    btn.textContent = '💾 save to file';
+    btn.textContent = '💾 save now';
     btn.addEventListener('click', save);
     actions.appendChild(btn);
     // ↺ reset and ⇄ before / after: both against the notes AS LAST SAVED
@@ -1024,7 +1056,8 @@ export function createEditMode({
     };
     // ● unsaved beside the heading while the box differs from the file —
     // at full strength, the heading itself dimmed — and saving… in flight
-    const mark = Object.assign(document.createElement('span'), { className: 'notes-dirty-mark' });
+    const mark = Object.assign(document.createElement('span'), { className: 'notes-dirty-mark',
+      title: 'saved when you leave the box, move to another slide, or close the card — ⌘⏎ saves now' });
     title.after(mark);
     syncChanged = () => {
       const changed = ta.value !== loaded;

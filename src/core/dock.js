@@ -32,10 +32,12 @@ const MODES = ['float', 'left', 'right', 'bottom'];
  * the panel opens and closes, and one of these panels is built before the deck
  * exists — naming it here would read it inside its own dead zone.
  */
-export function createDock({ root, reflow, key, getEl, closeLabel = 'close' }) {
-  const dock = { mode: 'float', x: null, y: null };
+export function createDock({ root, reflow, key, getEl, closeLabel = 'close', defaultMode = 'float' }) {
+  // `defaultMode` is where the panel opens the FIRST time, before anyone has
+  // chosen: a drawer (the notes) belongs at the bottom, a tool card afloat
+  const dock = { mode: MODES.includes(defaultMode) ? defaultMode : 'float', x: null, y: null };
   {
-    // first run, or storage denied — either way the default float is fine
+    // first run, or storage denied — either way the default placement is fine
     const s = readJson(key);
     if (s?.mode) { dock.mode = s.mode; dock.x = s.x ?? null; dock.y = s.y ?? null; }
   }
