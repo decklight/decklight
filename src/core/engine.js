@@ -1799,6 +1799,69 @@ export function init(userConfig = {}) {
       f.style.transform = `scale(${scale})`;
     });
   }
+  // The overview is where a deck is REARRANGED (PRESENTING, author mode): a
+  // cell drags to a new place, and each cell carries new / duplicate / delete.
+  // Every one is the same `POST /edit/slide` the palette's rows and the
+  // element menu's Slide ▸ make, through editmode.slideOp, so one undo entry
+  // each. The write reloads the page; the overview reopens on the slide the
+  // server named, so a second drag follows the first without pressing O again.
+  const OVERVIEW_OPEN_KEY = 'decklight-overview-open:' + location.pathname;
+  let ovDrag = null;   // the index of the cell being dragged
+  function ovOp(op, i, to = null) {
+    if (!editmode.available()) return;
+    try { sessionStorage.setItem(OVERVIEW_OPEN_KEY, '1'); } catch { /* no storage: the overview closes on reload, as before */ }
+    editmode.slideOp(op, { slide: i + 1, to }).catch(() => {
+      try { sessionStorage.removeItem(OVERVIEW_OPEN_KEY); } catch { /* nothing to clear */ }
+    });
+  }
+  /** Where a drop over cell `i` would put the dragged slide: before it on the left half, after it on the right. */
+  function ovDropAt(cell, i, e) {
+    const r = cell.getBoundingClientRect();
+    const before = e.clientX < r.left + r.width / 2;
+    return { before, to: before ? i + 1 : i + 2 };
+  }
+  function ovClearDrop() {
+    overviewEl?.querySelectorAll('.ov-drop-before, .ov-drop-after').forEach((c) => c.classList.remove('ov-drop-before', 'ov-drop-after'));
+  }
+  function ovEditable(cell, i) {
+    const tools = document.createElement('div');
+    tools.className = 'ov-tools';
+    for (const [op, glyph, title] of [['new', '+', 'new slide after this one'], ['duplicate', '⧉', 'duplicate this slide'], ['delete', '🗑', 'delete this slide (Z takes it back)']]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `ov-tool ov-${op}`;
+      b.title = title;
+      b.textContent = glyph;
+      b.addEventListener('click', (e) => { e.stopPropagation(); ovOp(op, i); });
+      tools.appendChild(b);
+    }
+    cell.appendChild(tools);
+    cell.draggable = true;
+    cell.addEventListener('dragstart', (e) => {
+      ovDrag = i;
+      cell.classList.add('ov-dragging');
+      try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i + 1)); } catch { /* a synthetic drag */ }
+    });
+    cell.addEventListener('dragend', () => { ovDrag = null; cell.classList.remove('ov-dragging'); ovClearDrop(); });
+    cell.addEventListener('dragover', (e) => {
+      if (ovDrag === null || ovDrag === i) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch { /* a synthetic drag */ }
+      const { before } = ovDropAt(cell, i, e);
+      ovClearDrop();
+      cell.classList.add(before ? 'ov-drop-before' : 'ov-drop-after');
+    });
+    cell.addEventListener('drop', (e) => {
+      if (ovDrag === null || ovDrag === i) return;
+      e.preventDefault();
+      const from = ovDrag;
+      const { to } = ovDropAt(cell, i, e);
+      ovClearDrop();
+      // the slot after a later cell, or before an earlier one, counts the moved slide's own hole
+      const dest = from + 1 < to ? to - 1 : to;
+      if (dest !== from + 1) ovOp('move', from, dest);
+    });
+  }
   function toggleOverview() {
     if (overviewEl) {
       window.removeEventListener('resize', layoutOverview);
@@ -1808,6 +1871,8 @@ export function init(userConfig = {}) {
     }
     overviewEl = document.createElement('div');
     overviewEl.className = 'decklight-overview-grid';
+    const editable = editmode.available();
+    overviewEl.classList.toggle('ov-editable', editable);
     instance._sections.forEach((s, i) => {
       const cell = document.createElement('div');
       cell.className = 'ov-cell' + (i === instance.state.slide - 1 ? ' ov-current' : '')
@@ -1834,6 +1899,7 @@ export function init(userConfig = {}) {
       num.textContent = String(i + 1);
       cell.appendChild(num);
       cell.addEventListener('click', () => { toggleOverview(); instance.goto(i + 1, 0, { force: true }); });
+      if (editable) ovEditable(cell, i);
       overviewEl.appendChild(cell);
     });
     root.classList.add('decklight-overview');
@@ -2057,6 +2123,10 @@ export function init(userConfig = {}) {
         case 'ArrowUp': ovSelect(ovSel - ovColumns()); break;
         case 'Enter': case ' ': ovCommit(); break;
         case 'o': case 'O': case 'Escape': toggleOverview(); break;
+        // the selected cell, rearranged from the keyboard (author mode)
+        case 'Backspace': case 'Delete': if (editmode.available()) ovOp('delete', ovSel); break;
+        case 'n': case 'N': if (editmode.available()) ovOp('new', ovSel); break;
+        case 'd': case 'D': if (editmode.available()) ovOp('duplicate', ovSel); break;
         default: return false;
       }
       return true;
@@ -2467,6 +2537,12 @@ export function init(userConfig = {}) {
   // an add left a look to offer, before the reload it caused (SPEC
   // DESIGN_SYSTEMS): offered once the page knows it is authoring
   editmode.settled().then(() => { if (editmode.available()) lookOffer.resume(); });
+  // the overview an edit reloaded out from under: back, on the slide the server named
+  editmode.settled().then(() => {
+    let again = false;
+    try { again = sessionStorage.getItem(OVERVIEW_OPEN_KEY) === '1'; sessionStorage.removeItem(OVERVIEW_OPEN_KEY); } catch { /* no storage */ }
+    if (again && editmode.available() && !overviewEl) toggleOverview();
+  });
   const { deckHistory, toggleEditor, toggleAgentAsk, toggleElementEdit } = editmode;
 
   // A design-system slide that could not be expanded, or a design system the

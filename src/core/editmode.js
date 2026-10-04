@@ -1309,13 +1309,12 @@ export function createEditMode({
    * answers with the slide to be on afterwards, and the hash is moved there
    * before the file watcher's reload lands, so the reload opens on it.
    */
-  async function slideOp(op) {
+  async function slideOp(op, { slide = instance.state.slide, to = null } = {}) {
     if (!editAvailable) { toast(needsDevMode('editing slides', location), 3200); return; }
-    const slide = instance.state.slide;
     try {
       const res = await writeFetch(editBase + '/edit/slide', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ op, slide }),
+        body: JSON.stringify({ op, slide, ...(op === 'move' ? { to } : {}) }),
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || String(res.status));
@@ -1325,11 +1324,13 @@ export function createEditMode({
         delete: `slide ${slide} deleted — Z takes it back`,
         up: `slide ${slide} moved up`,
         down: `slide ${slide} moved down`,
+        move: `slide ${slide} moved to ${to}`,
       }[op] ?? 'done';
       toast(`${said} — reloading`, 2000);
       if (Number.isInteger(j.slide)) location.hash = `#/${j.slide}/0`;
     } catch (e) {
       toast(`could not ${op === 'new' ? 'add a slide' : `${op} the slide`}: ${String(e.message || e).slice(0, 80)}`, 3000);
+      throw e;
     }
   }
 
@@ -2464,7 +2465,7 @@ export function createEditMode({
     openElementMenuAt: (x, y, target, view = 'main', opts = {}) => { if (!elementEditOn) return; overlays.opening(); openElementMenu(x, y, target, view, opts); },
     /** Remove the element a target names: ⌫ on a selection. */
     removeElement: (target) => commitRemove(target),
-    /** New / duplicate / delete / up / down on the current slide — the palette's rows. */
+    /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
     slideOp,
     /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside author mode. */
     wizard: openWizard,

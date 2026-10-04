@@ -31,7 +31,7 @@ export const MODES = [
   'restore', 'historycaptions', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'template', 'templatelook', 'sources', 'sourcesedit',
-  'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock',
+  'overviewedit', 'overviewplain', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock',
   'linedraw', 'nestedfills', 'dslayouts', 'dsedit',
 ];
 

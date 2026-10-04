@@ -343,6 +343,22 @@ test('POST /edit/slide moves a slide up and down, and refuses at the two ends', 
   assert.equal(bottom.code, 409);
   assert.equal(bottom.body.error, 'already the last slide');
   assert.equal(history.counts().undo, 2, 'neither refusal spent an undo entry');
+
+  // `move` is what a drag in the overview asks for: the slide ends up AT `to`
+  const far = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 1, to: 3 } });
+  assert.deepEqual([far.body.slide, far.body.total], [3, 3], 'you follow the slide to where it landed');
+  assert.deepEqual(titles(readDeck()), ['Beta', 'Gamma', 'Alpha']);
+  const back = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 3, to: 1 } });
+  assert.deepEqual(titles(readDeck()), ['Alpha', 'Beta', 'Gamma'], 'and back');
+  assert.equal(back.body.slide, 1);
+  const there = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 2, to: 2 } });
+  assert.equal(there.code, 409);
+  assert.equal(there.body.error, 'slide 2 is already there');
+  const past = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 2, to: 9 } });
+  assert.equal(past.code, 404);
+  const noTo = await call(routes, 'POST /edit/slide', { body: { op: 'move', slide: 2 } });
+  assert.equal(noTo.code, 400);
+  assert.equal(history.counts().undo, 4, 'a move is one undo entry however far it went, and a refusal none');
 });
 
 test('POST /edit/slide counts hidden slides like any other section', async (t) => {

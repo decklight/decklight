@@ -298,6 +298,14 @@
       // Mouse editing (authoring.js): a double-click saves through the SOURCE
       // of the element and the content route, and the slide operations are one
       // POST each answering with the slide to land on.
+      // the overview rearranging slides (overviewedit): the slide route, answering where to land
+      if (HARNESS_MODE === 'overviewedit') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/edit/slide')) {
+          const b = JSON.parse(init?.body ?? '{}');
+          return json({ ok: true, slide: b.op === 'move' ? b.to : b.op === 'delete' ? b.slide : b.slide + 1, total: 5, undo: 1, redo: 0 });
+        }
+      }
       // `editbar` is the same server, driven from the bar and the selection
       if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -651,6 +659,7 @@
           : HARNESS_MODE === 'bleedoff' ? { bleed: false }
             : {});
 
+    const ovSelected = () => [...document.querySelectorAll('.decklight-overview-grid .ov-cell')].findIndex((c) => c.classList.contains('ov-selected'));
     const press = (k, opts = {}) => document.body.dispatchEvent(
       new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts }));
 
@@ -2170,6 +2179,80 @@
           && r.backspaceAloneRemovesNothing && r.backspaceRemoves && r.handleOpensTheMenu && r.slideButtonOpensTheSlideMenu
           && r.layoutButtonCycles && r.notesButtonOpensTheNotes && r.pictureButtonTakesPictures && r.undoRedoButtonsWork
           && r.doneCloses && r.paletteOffersEditing;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'overviewedit' || mode === 'overviewplain') {
+        // The overview rearranges the deck in author mode (engine.js
+        // ovEditable): tools on every cell, a drag that moves a slide, keys
+        // on the selected cell — each the slide route, one undo entry. With
+        // no author server (overviewplain) it is the picture it always was.
+        await settle();                       // /edit/ping, when there is one
+        try { sessionStorage.removeItem('decklight-overview-open:' + location.pathname); } catch { /* fine */ }
+        press('o');
+        await settle();
+        const grid = () => document.querySelector('.decklight-overview-grid');
+        const cells = () => [...(grid()?.querySelectorAll('.ov-cell') ?? [])];
+        const ops = () => CALLS.post.filter((c) => c.u.includes('/edit/slide')).map((c) => c.body);
+        r.overviewOpens = !!grid() && cells().length === deck.state.totalSlides;
+        if (mode === 'overviewplain') {
+          r.noToolsWithoutAServer = !grid().classList.contains('ov-editable') && !cells().some((c) => c.querySelector('.ov-tools'))
+            && !cells().some((c) => c.draggable);
+          press('Delete');
+          await settle();
+          r.deleteDoesNothing = ops().length === 0 && !!grid();
+          press('Escape');
+          r.PASS = r.overviewOpens && r.noToolsWithoutAServer && r.deleteDoesNothing;
+          sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+          return;
+        }
+        r.cellsCarryTools = grid().classList.contains('ov-editable')
+          && cells().every((c) => c.draggable && c.querySelector('.ov-new') && c.querySelector('.ov-duplicate') && c.querySelector('.ov-delete'));
+        // + on the second cell: a new slide after 2, and the overview is to come back
+        cells()[1].querySelector('.ov-new').click();
+        await settle();
+        r.plusAddsAfterThatSlide = ops().at(-1)?.op === 'new' && ops().at(-1)?.slide === 2;
+        r.toolClickDoesNotLeaveTheOverview = !!grid();
+        r.overviewComesBackAfterTheReload = sessionStorage.getItem('decklight-overview-open:' + location.pathname) === '1';
+        // a drag: cell 1 dropped on the right half of cell 3 lands at 3
+        const drag = (from, onto, side) => {
+          const a = cells()[from], b = cells()[onto];
+          const rect = b.getBoundingClientRect();
+          const x = side === 'after' ? rect.right - 2 : rect.left + 2;
+          a.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true }));
+          b.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: x, clientY: rect.top + 5 }));
+          const marked = b.classList.contains(side === 'after' ? 'ov-drop-after' : 'ov-drop-before');
+          b.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: x, clientY: rect.top + 5 }));
+          a.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true }));
+          return marked;
+        };
+        const n = ops().length;
+        r.dragShowsWhereItLands = drag(0, 2, 'after');
+        r.dragMovesTheSlide = ops().length === n + 1 && ops().at(-1).op === 'move' && ops().at(-1).slide === 1 && ops().at(-1).to === 3;
+        // dropped before an earlier cell: 4 onto the left half of 2 lands at 2
+        drag(3, 1, 'before');
+        r.dragBackwards = ops().at(-1).op === 'move' && ops().at(-1).slide === 4 && ops().at(-1).to === 2;
+        // onto its own place, nothing is asked
+        const m = ops().length;
+        drag(1, 0, 'after');
+        r.dropInPlaceAsksNothing = ops().length === m;
+        // the selected cell from the keyboard: Delete, N, D
+        press('ArrowRight');
+        press('Delete');
+        await settle();
+        r.deleteKeyDeletesTheSelected = ops().at(-1).op === 'delete' && ops().at(-1).slide === ovSelected() + 1;
+        press('n');
+        await settle();
+        r.nKeyAddsAfterTheSelected = ops().at(-1).op === 'new' && ops().at(-1).slide === ovSelected() + 1;
+        press('d');
+        await settle();
+        r.dKeyDuplicatesTheSelected = ops().at(-1).op === 'duplicate' && ops().at(-1).slide === ovSelected() + 1;
+        r.undoEntryEach = ops().every((o) => Number.isInteger(o.slide));
+        press('Escape');
+        r.PASS = r.overviewOpens && r.cellsCarryTools && r.plusAddsAfterThatSlide && r.toolClickDoesNotLeaveTheOverview
+          && r.overviewComesBackAfterTheReload && r.dragShowsWhereItLands && r.dragMovesTheSlide && r.dragBackwards
+          && r.dropInPlaceAsksNothing && r.deleteKeyDeletesTheSelected && r.nKeyAddsAfterTheSelected && r.dKeyDuplicatesTheSelected;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

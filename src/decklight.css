@@ -1300,6 +1300,25 @@
 .decklight-overview > .decklight-stage { visibility: hidden; }
 .decklight-overview-grid .ov-cell.ov-current { border-color: var(--accent, #6af); }
 .decklight-overview-grid .ov-cell.ov-selected { outline: 3px solid var(--accent, #6af); outline-offset: 2px; }
+/* the overview edits slides in author mode (engine.js ovEditable): a cell's
+   tools show on hover, a drag shows where the slide would land */
+.decklight-overview-grid .ov-tools {
+  position: absolute; right: 6px; top: 6px; z-index: 3;
+  display: none; gap: 4px;
+}
+.decklight-overview-grid .ov-cell:hover .ov-tools, .decklight-overview-grid .ov-cell.ov-selected .ov-tools { display: flex; }
+.decklight-overview-grid .ov-tool {
+  width: 26px; height: 26px; padding: 0;
+  border: 1px solid rgba(255, 255, 255, .2); border-radius: 7px;
+  background: rgba(20, 20, 22, .82); color: #e6e6e6;
+  font: 600 13px/24px system-ui, sans-serif; text-align: center; cursor: pointer;
+}
+.decklight-overview-grid .ov-tool:hover { background: rgba(255, 255, 255, .22); }
+.decklight-overview-grid .ov-tool.ov-delete:hover { background: rgba(229, 83, 61, .85); }
+.decklight-overview-grid.ov-editable .ov-cell { cursor: grab; }
+.decklight-overview-grid .ov-cell.ov-dragging { opacity: .4; }
+.decklight-overview-grid .ov-cell.ov-drop-before { box-shadow: -8px 0 0 -2px var(--accent, #6af); }
+.decklight-overview-grid .ov-cell.ov-drop-after { box-shadow: 8px 0 0 -2px var(--accent, #6af); }
 .decklight-overview-grid .ov-frame { transform-origin: top left; position: absolute; top: 0; left: 0; pointer-events: none; }
 .decklight-overview-grid .ov-clone *, .decklight-overview-grid .ov-clone { animation: none !important; transition: none !important; }
 /* clones live outside .decklight-stage, so the slide base styles must be

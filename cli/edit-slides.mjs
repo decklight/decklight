@@ -304,11 +304,24 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
 
   // ── whole slides: the slide bar's new · duplicate · delete · reorder ──────
 
-  const SLIDE_OPS = new Set(['new', 'duplicate', 'delete', 'up', 'down']);
+  const SLIDE_OPS = new Set(['new', 'duplicate', 'delete', 'up', 'down', 'move']);
 
   /**
-   * `POST /edit/slide` — `{ op, slide }`, one section moved, copied, made or
-   * taken away.
+   * Slide `from` moved so that it ends up at position `to` — what a drag in
+   * the overview asks for. One swap per step, each the same reindenting swap
+   * `up` and `down` make, so the moved section and every one it passes keep
+   * their indentation; the whole thing is still ONE applyEdit for the caller.
+   */
+  function moveSlide(html, from, to) {
+    let out = html;
+    for (let at = from; at < to; at++) out = swapSlides(out, at, at + 1);
+    for (let at = from; at > to; at--) out = swapSlides(out, at - 1, at);
+    return out;
+  }
+
+  /**
+   * `POST /edit/slide` — `{ op, slide }` (`{ op: 'move', slide, to }` for a
+   * drag), one section moved, copied, made or taken away.
    *
    * Every op is ONE applyEdit, so `Z` takes the whole thing back in one press:
    * a reorder is two sections changing places, and an undo that put one of
@@ -324,10 +337,11 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * is how comments, review anchors and history already number them.
    */
   function slideRoute({ body, json }) {
-    const { op, slide } = JSON.parse(body || '{}');
+    const { op, slide, to } = JSON.parse(body || '{}');
     if (!SLIDE_OPS.has(op) || !Number.isInteger(slide) || slide < 1) {
       return json(400, { ok: false, error: 'bad payload' });
     }
+    if (op === 'move' && (!Number.isInteger(to) || to < 1)) return json(400, { ok: false, error: 'bad payload' });
     const before = readDeck();
     const total = sectionBodies(before).length;
     if (slide > total) return json(404, { ok: false, error: `no slide ${slide} (deck has ${total})` });
@@ -336,14 +350,17 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     if (op === 'delete' && total === 1) return json(409, { ok: false, error: 'a deck needs at least one slide' });
     if (op === 'up' && slide === 1) return json(409, { ok: false, error: 'already the first slide' });
     if (op === 'down' && slide === total) return json(409, { ok: false, error: 'already the last slide' });
+    if (op === 'move' && to > total) return json(404, { ok: false, error: `no position ${to} (deck has ${total})` });
+    if (op === 'move' && to === slide) return json(409, { ok: false, error: `slide ${slide} is already there` });
 
-    const after = op === 'delete' ? total - 1 : (op === 'up' || op === 'down') ? total : total + 1;
+    const after = op === 'delete' ? total - 1 : (op === 'up' || op === 'down' || op === 'move') ? total : total + 1;
     const show = {
       new: slide + 1,
       duplicate: slide + 1,
       delete: Math.min(slide, after),   // deleting the last slide leaves you on the new last
       up: slide - 1,
       down: slide + 1,
+      move: to,
     }[op];
     applyEdit((html) => {
       switch (op) {
@@ -351,10 +368,11 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
         case 'duplicate': return duplicateSlide(html, slide);
         case 'delete': return deleteSlide(html, slide);
         case 'up': return swapSlides(html, slide - 1, slide);
+        case 'move': return moveSlide(html, slide, to);
         default: return swapSlides(html, slide, slide + 1);
       }
     }, before);
-    console.log(`  slide ${op}: ${slide} → ${after} slide${after === 1 ? '' : 's'}`);
+    console.log(`  slide ${op}: ${slide}${op === 'move' ? ` → ${to}` : ''} → ${after} slide${after === 1 ? '' : 's'}`);
     return json(200, { ok: true, slide: show, total: after, ...history.counts() });
   }
 
