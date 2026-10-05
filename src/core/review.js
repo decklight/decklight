@@ -115,6 +115,12 @@ export function createReview({
    */
   async function reviewBase() {
     if (probed !== null) return probed || (probed === '' ? '' : null);
+    // The author server answers the review routes too now (a review can be
+    // left in write mode), but under it the overlay is still the OWNER's:
+    // what is waiting, and resolving it. The reviewer's shape is the
+    // read-only server's.
+    await authorReady();
+    if (authorBase() != null) { probed = false; return null; }
     try {
       const r = await fetch('/review/ping');
       const j = r.ok ? await r.json() : null;

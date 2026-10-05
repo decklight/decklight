@@ -646,7 +646,7 @@ removed, not collapsed**, because the browser reads it through the DOM and a too
 the two disagree about spacing in endless invisible ways; notes are excluded, so an author polishing their own
 speaker notes does not orphan every comment on the slide.
 
-**`decklight review <deck.html>`** serves the deck over `http://127.0.0.1` and opens it at `?review`. It
+**The review routes are the one server's, in both of its modes** (`cli/review-routes.mjs`): `GET /review/ping` (which says `mode`), `GET`/`POST /review/comments` and `POST /review/submit` are registered by the read-only server and by the edit server alike, so a review can be left on a deck opened either way; the sidecar is appended in both, committed by itself as it lands in read-only mode (not with `--no-git`) and left to the deck's own commits in write mode; under the edit server the player keeps the owner's overlay (what is waiting, and resolving it). **`decklight review <deck.html>`** serves the deck over `http://127.0.0.1` and opens it at `?review`. It
 registers `GET /review/ping`, `GET /review/comments` and `POST /review/comments`, opens the deck **read-only**,
 and the one path it will ever write is the sidecar. It is a third command with a third route namespace rather
 than a flag on `present` (which registers no `/edit/*` to have refused) or on `author` (which would hand a

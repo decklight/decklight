@@ -51,7 +51,8 @@ import { verifyFile, verifyBytes, formatSignature, isVerified, UNSIGNED, TAMPERE
 import {
   SAFE_CONFIG, canPull, checkUpstream, resolveInterval, resolveUpstream, runGit, upstreamSuppressed,
 } from './upstream.mjs';
-import { oneline } from './git.mjs';
+import { oneline, inGitRepo, gitAvailable } from './git.mjs';
+import { createReviewRoutes, REVIEW_BODY_MAX } from './review-routes.mjs';
 import { isContainer, readContainer, formatManifest } from './deckfile.mjs';
 
 /**
@@ -628,6 +629,13 @@ export async function presentMain(args, { client } = {}) {
     return checking;
   }
 
+  // The review routes (SPEC REVIEW): a reviewer reads a deck the safe way and
+  // still gets to say something. The sidecar beside the deck is the ONE file
+  // this process writes, committed by itself as each comment lands when the
+  // deck sits in a repository (`--no-git` leaves the committing to you).
+  const inRepo = gitAvailable(dirname(deckPath)) && inGitRepo(dirname(deckPath));
+  const review = createReviewRoutes(deckPath, { inRepo, gitOn: inRepo && !args.includes('--no-git'), mode: 'read-only' });
+
   const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
     // Loopback always; off-loopback only /remote/* carrying the per-run token,
     // and only when --remote asked for a listener at all. Every other path is
@@ -656,6 +664,13 @@ export async function presentMain(args, { client } = {}) {
     // it is being presented rather than authored, and the answer deliberately
     // carries no agent roster and no edit capability — there is nothing here to
     // report about editing, because there is nothing here that edits.
+    if (review.matches(req, url)) {
+      // a comment is prose, so its cap is the comment's, not the remote's
+      if (req.method !== 'POST') { review.handle(req, res, url, ''); return; }
+      readBody(req, { max: REVIEW_BODY_MAX }).then((bytes) => review.handle(req, res, url, bytes.toString()))
+        .catch(() => { /* too large: destroyed by the reader */ });
+      return;
+    }
     if (req.method === 'GET' && url.pathname === '/present/ping') {
       res.writeHead(200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-cache' });
       res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, present: true }));

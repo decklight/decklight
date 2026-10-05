@@ -112,6 +112,7 @@ import { registerSlideRoutes } from './edit-slides.mjs';
 // about which <script> is the init call
 import { classifyScripts } from './audit.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
+import { createReviewRoutes } from './review-routes.mjs';
 // The arbiters of what a comment IS, shared with the review server so two
 // writers cannot put two shapes into one union-merged file.
 import { commentProblem, reviewRecord } from './review.mjs';
@@ -3183,6 +3184,15 @@ export async function editMain(args, { onListen = null } = {}) {
     { method: 'GET', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
     { method: 'POST', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
   ];
+
+  // The review routes (SPEC REVIEW), the same four every server that opens a
+  // deck registers: a review can be left in write mode too. The sidecar is
+  // appended, never the deck; here it is not committed by itself, because the
+  // deck's own commits (the snapshot, K) are what this server keeps.
+  const review = createReviewRoutes(deckPath, { inRepo: inGitRepo(root), gitOn: false, mode: 'write' });
+  for (const key of ['GET /review/ping', 'GET /review/comments', 'POST /review/comments', 'POST /review/submit']) {
+    routes.set(key, ({ req, res, url, body }) => review.handle(req, res, url, body ?? ''));
+  }
 
   const files = staticFiles(root, { index: deckUrl });
   const server = createServer(async (req, res) => {

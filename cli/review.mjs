@@ -38,16 +38,17 @@
 // that same code behind the same explicit gesture.
 
 import { createServer } from 'node:http';
-import { existsSync, readFileSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, resolve, relative, sep } from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
 import { deckFromUrl } from './clone-deck.mjs';
 import { runMain } from './util.mjs';
 import { staticFiles, allowEditRequest, listenTakingOverIfNeeded } from './serve.mjs';
-import { inGitRepo, gitAutocommit, gitAvailable, commitSubject, oneline } from './git.mjs';
-import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
+import { inGitRepo, gitAvailable } from './git.mjs';
+import { reviewPathFor, parseReview } from './review-store.mjs';
+import { createReviewRoutes, REVIEW_BODY_MAX } from './review-routes.mjs';
+export { reviewerIdentity, reviewRecord, commentProblem } from './review-routes.mjs';
 import { openUrl } from './open-browser.mjs';
 import { exitWhenOrphaned } from './supervise.mjs';
 
@@ -81,62 +82,6 @@ const USAGE = `usage: decklight review <deck.html|repository url> [--port 8790] 
 
   when you are done, send them:   decklight review submit <deck.html>
 `;
-
-/**
- * Who is speaking, from git's own answer — the only identity decklight has.
- *
- * `publish.mjs` reads it exactly this way, degrading to '' rather than failing,
- * and a comment with no name is still a comment worth keeping: an unsigned
- * remark from a machine with no git identity beats refusing to take it.
- */
-export function reviewerIdentity(cwd, exec = execFileSync) {
-  const cfg = (key) => {
-    try { return exec('git', ['config', key], { cwd, encoding: 'utf8' }).trim(); } catch { return ''; }
-  };
-  const name = cfg('user.name');
-  const email = cfg('user.email');
-  if (name && email) return `${name} <${email}>`;
-  return name || email || '';
-}
-
-/**
- * The record a posted comment becomes.
- *
- * Pure, so the shape is testable without a server: the browser sends what it
- * knows about the slide (its number, title and fingerprint) and the server adds
- * what only it knows (who, when, and which commit of the deck was on screen).
- *
- * `body` is the reviewer's own prose and is stored verbatim — it is data here,
- * never an argument to anything. The one place it could reach a command line is
- * a commit subject, and that goes through `commitSubject`.
- */
-export function reviewRecord(input, { by, at, deck, id }) {
-  const rec = { id, at, ...(by ? { by } : {}), ...(deck ? { deck } : {}) };
-  if (input.re) rec.re = String(input.re);
-  else {
-    rec.slide = Number(input.slide);
-    if (input.title) rec.title = String(input.title).slice(0, 200);
-    if (input.fp) rec.fp = String(input.fp).slice(0, 32);
-  }
-  rec.body = String(input.body);
-  return rec;
-}
-
-/** What a posted comment must carry to be worth storing, or the reason it is not. */
-export function commentProblem(input) {
-  if (!input || typeof input !== 'object') return 'not a comment';
-  const body = typeof input.body === 'string' ? input.body.trim() : '';
-  if (!body) return 'a comment needs something in it';
-  if (body.length > 4000) return 'that comment is longer than 4000 characters';
-  if (input.re !== undefined && (typeof input.re !== 'string' || !/^[a-z0-9]{1,12}$/.test(input.re))) {
-    return 'bad reply target';
-  }
-  if (input.re === undefined) {
-    const n = Number(input.slide);
-    if (!Number.isInteger(n) || n < 1 || n > 9999) return 'a comment belongs to a slide';
-  }
-  return null;
-}
 
 const SUBMIT_USAGE = `usage: decklight review submit <deck.html> [--pr] [--remote origin] [--dry-run]
   push the comments you left to a branch of their own, for the author to read
@@ -223,7 +168,8 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
   // Whether THIS session pushed. Read by the Ctrl-C line below: a reviewer who
   // wrote comments and never submitted should hear so on the way out.
   let submitted = false;
-  const by = inRepo ? reviewerIdentity(deckDir) : '';
+  const review = createReviewRoutes(deckPath, { inRepo, gitOn, mode: 'read-only', out, onSubmitted: () => { submitted = true; } });
+  const by = review.by;
   /**
    * WHICH VERSION OF THE DECK this comment is about.
    *
@@ -235,17 +181,7 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
    *
    * `--short`, because it is read by people and lives in a line somebody scans.
    */
-  const deckHead = () => {
-    if (!inRepo) return null;
-    try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: deckDir, encoding: 'utf8' }).trim(); }
-    catch { return null; }
-  };
-
   const files = staticFiles(deckDir, { knownTypesOnly: true });
-  const json = (res, code, body) => {
-    res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-    res.end(JSON.stringify(body));
-  };
 
   const server = createServer(async (req, res) => {
     // The same origin gate the edit server uses, for the same reason: binding
@@ -253,70 +189,16 @@ export async function reviewMain(args, { open = openUrl, out = process.stdout, o
     // in the reviewer's own browser.
     if (!allowEditRequest(req)) { res.writeHead(403); res.end('this server answers this machine only'); return; }
     const url = new URL(req.url, 'http://127.0.0.1');
-
-    if (req.method === 'GET' && url.pathname === '/review/ping') {
-      return json(res, 200, { ok: true, name, review: true, git: gitOn, by: by || null, store: storeName });
-    }
-
-    if (req.method === 'GET' && url.pathname === '/review/comments') {
-      const text = existsSync(storePath) ? readFileSync(storePath, 'utf8') : '';
-      const { records, skipped } = parseReview(text);
-      // `skipped` travels rather than being swallowed: a reader showing fewer
-      // comments than the file holds should be able to say so.
-      return json(res, 200, { ok: true, records, skipped });
-    }
-
-    if (req.method === 'POST' && url.pathname === '/review/comments') {
+    if (review.matches(req, url)) {
       let body = '';
-      try {
-        for await (const chunk of req) { body += chunk; if (body.length > 1e5) throw new Error('too large'); }
-      } catch { return json(res, 413, { ok: false, error: 'that comment is too large' }); }
-      let input;
-      try { input = JSON.parse(body || '{}'); } catch { return json(res, 400, { ok: false, error: 'bad payload' }); }
-      const bad = commentProblem(input);
-      if (bad) return json(res, 400, { ok: false, error: bad });
-
-      const rec = reviewRecord(input, {
-        by, at: new Date().toISOString(), deck: deckHead(), id: newId(),
-      });
-      try {
-        // Append, never rewrite — that is what makes `merge=union` work and a
-        // second reviewer harmless.
-        appendFileSync(storePath, `${serializeRecord(rec)}\n`);
-      } catch (e) { return json(res, 500, { ok: false, error: oneline(e) }); }
-
-      let committed = false;
-      if (gitOn) {
-        // The reviewer's own prose reaching a command line, so it goes through
-        // the sanitizer every other untrusted subject does: one line, capped,
-        // never leading `-`.
-        const subject = commitSubject(`review: ${rec.body}`, `review: a comment on ${name}`);
-        committed = gitAutocommit(storePath, deckDir, subject);
+      if (req.method === 'POST') {
+        try {
+          for await (const chunk of req) { body += chunk; if (body.length > REVIEW_BODY_MAX) throw new Error('too large'); }
+        } catch { res.writeHead(413, { 'content-type': 'application/json' }); res.end(JSON.stringify({ ok: false, error: 'that comment is too large' })); return; }
       }
-      out.write(`  comment on slide ${rec.slide ?? '—'} → ${storeName}${committed ? ' (committed)' : ''}\n`);
-      return json(res, 200, { ok: true, id: rec.id, committed });
+      await review.handle(req, res, url, body);
+      return;
     }
-
-    if (req.method === 'POST' && url.pathname === '/review/submit') {
-      // The browser NEVER runs git: it asks, and this server — the only thing
-      // in the room holding a capability — does the pushing, with the same
-      // code the typed `review submit` runs. Dynamically imported like the
-      // subcommand, so review-submit's static import of reviewerIdentity from
-      // this file never becomes a cycle.
-      try {
-        const { submitReview } = await import('./review-submit.mjs');
-        const lines = [];
-        const r = submitReview(deckPath, { out: { write: (t) => lines.push(t) } });
-        out.write(lines.join(''));   // the terminal is a log of what happened
-        submitted = true;
-        return json(res, 200, { ok: true, branch: r.branch, comments: r.comments, resubmit: r.resubmit });
-      } catch (e) {
-        // A refusal (no remote, nothing to send) arrives with its way forward
-        // in the message — the browser toasts it verbatim.
-        return json(res, 500, { ok: false, error: String(e?.message ?? e) });
-      }
-    }
-
     if (files(req, res, url)) return;
     // Everything else — including every /edit/* path — lands here. There is no
     // route to have refused, which is the point.
