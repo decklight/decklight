@@ -472,6 +472,7 @@
     // tip never lands in the message log these assertions read (SPEC PRESENTING).
     try {
       localStorage.setItem('decklight-onboarded', '1');
+      localStorage.setItem('decklight-onboarded-author', '1');   // nor the editing tour, which takes the first key
       localStorage.setItem('decklight-tips-off', '1');
       const capKey = 'decklight-captions:' + location.pathname;
       if (mode === 'captions' || mode === 'pausemark' || mode === 'aliases' || mode === 'audiotags' || mode === 'audiotagsv4') localStorage.setItem(capKey, '1');
