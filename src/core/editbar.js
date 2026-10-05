@@ -19,7 +19,8 @@
 //   its corner that opens the element's menu by left-click). With something
 //   selected, ⏎ edits it in place when it is text and opens its menu when it
 //   is not, ⌫ removes it (Z takes it back), Esc lets it go. The right-click
-//   menu, the double-click and the drop still work exactly as before: the bar
+//   menu and the drop still work exactly as before, and the double-click
+//   edits only while editing is on: the bar
 //   is a surface over them, not a replacement.
 //
 // Nothing here writes to the file. Every action goes through the route the

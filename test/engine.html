@@ -1906,6 +1906,12 @@
         await settle();
         const h1 = document.querySelector('.decklight-stage > section.active h1');
         const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        // outside editing a double-click changes nothing and says the key
+        dbl(h1);
+        r.noEditUntilE = !h1.isContentEditable
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /press E to edit/.test(n.textContent));
+        press('e');                           // editing on: the double-click edits
+        await settle();
         dbl(h1);
         r.becomesEditable = h1.isContentEditable && h1.classList.contains('dl-editing');
         // the deck's shortcuts stand aside while a word is being fixed
@@ -1943,7 +1949,7 @@
         r.saysWhatItDid = [...document.querySelectorAll('.decklight-toast')].some((n) => /slide 1 duplicated/.test(n.textContent));
 
         // and from the right-click menu on the slide background
-        press('e');                           // arm element edit mode
+        // editing is already on (above): the right-click menu is armed with it
         const sec = document.querySelector('.decklight-stage > section.active');
         sec.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
         await settle();
@@ -2012,7 +2018,7 @@
         const help = (() => { press('?'); const t = document.querySelector('.help-card')?.textContent ?? ''; press('?'); return t; })();
         r.helpNamesTheChord = help.includes(mac ? '⌘Z' : 'Ctrl+Z');
 
-        r.PASS = r.chordUndoes && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes
+        r.PASS = r.noEditUntilE && r.chordUndoes && r.otherPlatformsChordLeftAlone && r.shiftChordRedoes
           && r.chordInTextIsTheBrowsers && r.helpNamesTheChord
           && r.undoWaitsForTheTextSave && r.undoWaitsForTheSlideOp
           && r.becomesEditable && r.keysStayInTheText && r.enterSaves && r.savedIntoTheSource
@@ -2658,6 +2664,8 @@
         await settle();
         const code = document.querySelector('.decklight-stage > section.active pre > code');
         const dbl = (el) => el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+        press('e');                           // editing on: the double-click edits
+        await settle();
         const key = (k, o = {}) => code.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...o }));
         const contentPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/element/content'));
         const firstLine = code.querySelector('.code-line');

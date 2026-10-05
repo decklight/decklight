@@ -48,7 +48,7 @@ export const TIPS = [
   { id: 'messages', text: 'press ` (left of 1) for the message log — every message the deck has shown' },
   { id: 'fullscreen', text: 'press F for fullscreen, B to black out the screen mid-talk' },
   { id: 'author', text: 'decklight <deck.html> turns this player into an editor — A asks an AI agent, E edits' },
-  { id: 'inline', text: 'in author mode, double-click any text to edit it in place, and drop a picture onto a slide to add it' },
+  { id: 'inline', text: 'in write mode, press E, then double-click any text to edit it in place; drop a picture onto a slide to add it' },
   { id: 'editbar', text: 'in author mode, press E to edit: a bar names every editing door, and a click selects an element' },
 ];
 
@@ -143,7 +143,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
       <h3>Editing this deck</h3>
       <p class="wel-lead">This deck is open in write mode (<code>decklight &lt;deck.html&gt;</code>): what you change here is written to the file, snapshotted, and taken back with <b>Z</b>. Lock editing from the <code>/</code> palette to avoid a change by mistake.</p>
       <table>
-        <tr><td>double-click</td><td><b>Edit any text</b> in place; <b>⏎</b> keeps it, <b>Esc</b> gives it up.</td></tr>
+        <tr><td>E · double-click</td><td><b>Edit any text</b> in place, once editing is on; <b>⏎</b> keeps it, <b>Esc</b> gives it up.</td></tr>
         <tr><td>drop</td><td><b>Add a picture</b> by dropping a file onto the slide.</td></tr>
         <tr><td>E</td><td><b>Editing</b>: a bar names every door (Text, Picture, Layout, Notes, Slide…); a click selects an element, ⌫ removes it.</td></tr>
         <tr><td>S · O</td><td><b>S</b> opens the notes drawer, which saves itself; <b>O</b> is the overview, where slides are dragged, added and deleted.</td></tr>
