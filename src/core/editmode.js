@@ -48,6 +48,9 @@ export function createEditMode({
   // own loopback origin, a file:// deck's is `null`, and both are admitted
   // while a foreign tab's fetch is refused server-side (#222, cli/serve.mjs).
   let editAvailable = false;
+  let served = false;     // a server answered the probe, read-only or not
+  let readOnly = false;   // …and it was the read-only one
+  let locked = false;     // write mode, with changes turned off
   let editBase = '';
   let editAgents = [];   // [{name, label, installed}] the dev machine can run
   let preferredAgent = null; // the one A reaches for, remembered server-side (#125)
@@ -329,8 +332,22 @@ export function createEditMode({
             debugLog('edit', `server edits ${j.name}, this deck is ${here} — not wiring up`);
             continue;
           }
+          // The one server, read-only: nothing here edits, and the page wires
+          // up what a presented deck gets (the clicker, the upstream readout)
+          // and nothing else. Every affordance gated on `available()` keeps
+          // saying it needs write mode, because it does.
+          if (j.readOnly) {
+            served = true;
+            readOnly = true;
+            probeSettled();
+            await wirePresentRemote(base, j);
+            return;
+          }
+          served = true;
           editBase = base;
-          editAvailable = true;
+          locked = j.locked === true;
+          editAvailable = !locked;
+          paintLockChip();
           // The speaker view saves rehearsal timings through this (PRESENTING
           // REHEARSAL_TIMINGS); with no author server it is undefined and the
           // timings stay in the browser instead.
@@ -369,6 +386,10 @@ export function createEditMode({
           // A notes save is not a reload: every open view of the deck gets
           // the slide's new notes and puts them in place (narration, the
           // speaker view, a notes card left open in another tab)
+          // the lock turned, in this tab or another: every page follows
+          es.addEventListener('lock', (ev) => {
+            try { setLocked(JSON.parse(ev.data).locked === true); } catch { /* malformed */ }
+          });
           es.addEventListener('notes', (ev) => {
             try { const { slide, aside, from } = JSON.parse(ev.data); patchNotes(slide, aside, from); } catch { /* malformed: the next reload settles it */ }
           });
@@ -438,13 +459,55 @@ export function createEditMode({
         } catch { /* not served by the edit server */ }
       }
       probeSettled();   // asked everything, wired up nothing
-      // Not authored, but possibly PRESENTED (PRESENT#REMOTE): `decklight
-      // present --remote` hosts the phone remote with no edit surface at all, so
-      // the deck wires up the clicker and the position readout and NOTHING else.
-      // `editAvailable` stays false on purpose — every affordance gated on it (E,
-      // A, Z, layout picks) must still say it needs author mode, because it does.
-      await wirePresentRemote();
     })();
+  }
+
+  // ── the editing lock (PRESENTING) ─────────────────────────────────────────
+  // Started in write mode, the author can turn changes off to avoid making
+  // one by mistake, and back on. The state is the SERVER's (POST /edit/lock),
+  // so every tab and the agent see the same thing; this is what the page
+  // shows of it: a chip while locked, and every author affordance gone, since
+  // `available()` is false until it is lifted.
+  let lockChip = null;
+  function paintLockChip() {
+    if (!locked || !served || readOnly) { lockChip?.remove(); lockChip = null; return; }
+    if (!lockChip) {
+      lockChip = document.createElement('div');
+      lockChip.className = 'decklight-lock-chip';
+      lockChip.setAttribute('role', 'status');
+      lockChip.tabIndex = 0;
+      lockChip.title = 'editing is locked: nothing you do here changes the file — click to unlock';
+      const flip = () => toggleLock();
+      lockChip.addEventListener('click', flip);
+      lockChip.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); flip(); } });
+      root.appendChild(lockChip);
+    }
+    lockChip.textContent = '🔒 read-only — click to unlock';
+  }
+  function setLocked(on) {
+    if (on === locked) return;
+    locked = on;
+    editAvailable = served && !readOnly && !locked;
+    // the editing bar and its selection go with the capability
+    if (locked && elementEditOn) toggleElementEdit({ force: true });
+    paintLockChip();
+    for (const fn of lockListeners) fn(locked);
+    toast(locked ? 'editing locked — nothing changes the file until you unlock it' : 'editing unlocked', 2600);
+  }
+  const lockListeners = new Set();
+  /** Flip the lock on the server; every page, this one included, follows the channel. */
+  async function toggleLock(want = !locked) {
+    if (!served || readOnly) { toast('this deck was opened read-only — there is no editing to unlock', 3000); return; }
+    try {
+      const r = await fetch(editBase + '/edit/lock', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ locked: want }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
+      setLocked(j.locked === true);
+    } catch (e) {
+      toast(`could not ${want ? 'lock' : 'unlock'} editing — ${e.message}`, 4000);
+    }
   }
 
   /**
@@ -555,18 +618,8 @@ export function createEditMode({
     keydown: (e) => e.key === 'Escape' && (closeUpstream(), true),
   });
 
-  async function wirePresentRemote() {
-    const base = /^https?:$/.test(location.protocol) ? '' : 'http://127.0.0.1:8790';
+  async function wirePresentRemote(base, j) {
     try {
-      const r = await fetch(base + '/present/ping');
-      if (!r.ok) return;
-      const j = await r.json();
-      if (!j?.ok || !j.present) return;
-      const here = decodeURIComponent(location.pathname.split('/').pop() || '');
-      if (here && j.name && here !== j.name) {
-        debugLog('present', `server presents ${j.name}, this deck is ${here} — not wiring up`);
-        return;
-      }
       instance.__remoteQr = j.remote ? `${base || location.origin}/remote/qr.svg` : null;
       // H in present mode. The routes only exist when the deck is a tracked
       // file in a clone with an upstream, so this base is enough to tell: a
@@ -1225,12 +1278,13 @@ export function createEditMode({
   // who wants to know when E turns editing on or off: the editing bar (editbar.js)
   const elementEditListeners = new Set();
 
-  function toggleElementEdit() {
-    if (!editAvailable) {
-      toast(needsDevMode('editing', location), 3200);
+  function toggleElementEdit({ force = false } = {}) {
+    if (force) { if (!elementEditOn) return; }
+    else if (!editAvailable) {
+      toast(locked ? 'editing is locked — unlock it from the palette or the lock chip' : needsDevMode('editing', location), 3200);
       return;
     }
-    elementEditOn = !elementEditOn;
+    elementEditOn = force ? false : !elementEditOn;
     closeElementMenu();
     toast(elementEditOn ? 'editing — click to select, double-click text to change it, E when finished' : 'editing finished', 2600);
     for (const fn of elementEditListeners) fn(elementEditOn);
@@ -2541,12 +2595,19 @@ export function createEditMode({
       list: () => restoreRows.slice(),
     },
     restore: { open: openHistory, close: closeRestore, list: () => restoreRows.slice() },
-    /** Is a dev server actually serving this deck? Layout cycling asks too. */
+    /** Can this page change the deck? False with no server, under the read-only server, and while locked. */
     available: () => editAvailable,
+    /** Did a server answer at all, and was it the read-only one? The lock row and chip ask. */
+    served: () => served,
+    readOnly: () => readOnly,
+    /** The editing lock (PRESENTING): its state, flipping it, and being told. */
+    locked: () => locked,
+    toggleLock,
+    onLockChange: (fn) => { lockListeners.add(fn); },
     /** Resolves once the probe has an answer either way — see `settled`. */
     settled: () => { if (printMode || params.has('embedded')) probeSettled(); return settled; },
-    /** Its origin ('' when the deck is served BY the edit server). */
-    base: () => editBase,
+    /** Its origin ('' when the deck is served BY the edit server); null under the read-only one. */
+    base: () => (readOnly ? null : editBase),
     /** K: the commit window — what changed, what to call it, one button. */
     commit: { open: openCommit, close: closeCommit, state: () => commitNow },
     /** The palette's hand-over rows: 'pptx' | 'pdf' | 'pdf-notes' | 'pdf-handout'. */

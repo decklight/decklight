@@ -1165,6 +1165,16 @@
    up at the same time (an agent edit is exactly what leaves work uncommitted).
    Clickable, because a statement you can act on should be actionable where it
    is, and the deck's own keyboard help is one key away. */
+/* the editing lock (editmode.js): a statement at the other corner, while changes are off */
+.decklight-lock-chip {
+  position: absolute; left: 16px; bottom: 16px; z-index: 42;
+  background: rgba(0, 0, 0, .72); color: #fff;
+  font: 500 13px/1 var(--font-mono, monospace);
+  padding: 7px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, .16);
+}
+.decklight-lock-chip:hover { background: rgba(0, 0, 0, .85); }
+.decklight-lock-chip:focus-visible { outline: 2px solid var(--accent, #6af); outline-offset: 2px; }
 .decklight-commit-chip {
   position: absolute;
   right: 16px;

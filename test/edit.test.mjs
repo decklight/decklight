@@ -407,6 +407,45 @@ const post = (base, ep, body) => fetch(base + ep, {
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 
+test('the editing lock: locked, no edit route writes; the ping and the channel say so; unlock lifts it', async (t) => {
+  const dir = tmp(t);
+  const deck = path.join(dir, 'deck.html');
+  writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
+  const before = readFileSync(deck, 'utf8');
+  const { base } = await startEdit(t, dir);
+  const ping = async () => (await (await fetch(base + '/edit/ping')).json());
+  assert.equal((await ping()).readOnly, false, 'write mode says so');
+  assert.equal((await ping()).locked, false, 'and starts unlocked');
+
+  // the channel hears the lock turn
+  const events = [];
+  const es = await fetch(base + '/edit/events');
+  const reader = es.body.getReader();
+  const pump = (async () => { for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(new TextDecoder().decode(value)); } })();
+  t.after(() => reader.cancel().catch(() => {}));
+
+  const lock = await (await post(base, '/edit/lock', { locked: true })).json();
+  assert.equal(lock.ok, true);
+  assert.equal(lock.locked, true);
+  assert.equal((await ping()).locked, true);
+  const refused = await post(base, '/edit/notes', { slide: 1, text: 'should not land' });
+  assert.equal(refused.status, 423);
+  assert.match((await refused.json()).error, /editing is locked/);
+  assert.equal(readFileSync(deck, 'utf8'), before, 'nothing was written');
+  const op = await post(base, '/edit/slide', { op: 'duplicate', slide: 1 });
+  assert.equal(op.status, 423, 'every edit route, not one');
+  await new Promise((r) => setTimeout(r, 200));
+  assert.ok(events.join('').includes('event: lock') && events.join('').includes('"locked":true'), 'every open page is told');
+
+  const unlock = await (await post(base, '/edit/lock', { locked: false })).json();
+  assert.equal(unlock.locked, false);
+  const saved = await post(base, '/edit/notes', { slide: 1, text: 'lands now' });
+  assert.equal(saved.status, 200, 'unlocked, the same route writes');
+  const bad = await post(base, '/edit/lock', { locked: 'yes' });
+  assert.equal(bad.status, 400);
+  void pump;
+});
+
 test('layout, undo, and redo write the deck FILE — and share one history', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');

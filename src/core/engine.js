@@ -957,6 +957,9 @@ export function init(userConfig = {}) {
       { label: 'Commit…', hint: 'K', alias: 'git save commit message history', run: () => editmode.commit.open() },
       { label: `Progress bar ${hud.status().progressOn ? 'off' : 'on'}`, hint: 'J', alias: 'bar bottom edge position how far through shape of the talk', run: toggleProgress },
       { label: 'Transcript…', alias: 'notes script export text markdown spoken', run: toggleTranscript },
+      // the editing lock: changes off to avoid one by mistake, and back on
+      editmode.served() && !editmode.readOnly() && { label: editmode.locked() ? 'Unlock editing (dev)' : 'Lock editing — read-only until unlocked (dev)',
+        alias: 'read only readonly lock unlock protect freeze avoid changes by mistake', run: () => editmode.toggleLock() },
       { label: editmode.elementEditOn() ? 'Stop editing (dev)' : 'Edit this deck… (dev)', hint: 'E', alias: 'element edit mode right-click remove delete html content build animation entrance effect context menu toolbar select', run: toggleElementEdit },
       { label: 'Fullscreen', hint: 'F', run: () => toggleFullscreen() },
       { label: 'Print view (all slides, new tab)', group: 'Print', hint: '', run: () => window.open(location.pathname + '?print') },

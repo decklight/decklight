@@ -299,11 +299,24 @@ test('no /edit/* route is registered — the source never mentions one', () => {
   const src = readFileSync(SRC, 'utf8');
   // Only the prose may say "/edit/*"; no string literal may route one.
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.doesNotMatch(code, /['"`]\/edit/, 'no /edit path literal survives outside comments');
+  // `/edit/ping` is the one exception: the probe every served deck makes,
+  // a GET that REPORTS the server is read-only. No write route may be named.
+  assert.doesNotMatch(code, /['"`]\/edit\/(?!ping['"`])/, 'no /edit path literal but the ping survives outside comments');
   // The relay DOES live here now (PRESENT#REMOTE) — that is the whole point of
   // moving it: a clicker should not require an editing server. What must stay
   // true is that it arrived without one, which the /edit/* assertion above and
   // the route tests below cover.
+});
+
+test('the one probe answers here too, and says read-only', async (t) => {
+  const { base } = await startPresent(t, deckDir());
+  const j = await (await fetch(base + '/edit/ping')).json();
+  assert.equal(j.ok, true);
+  assert.equal(j.readOnly, true, 'what the player gates every author affordance on');
+  assert.equal(j.locked, true, 'and a lock that cannot be lifted');
+  assert.equal(j.name, 'talk.html');
+  assert.equal(j.present, true);
+  assert.equal(j.agents, undefined, 'no roster, nothing to edit with');
 });
 
 test('a POST to /edit/notes is as unknown as a POST to anything else', async (t) => {
@@ -444,7 +457,7 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
 
   // the presenting control channel exists…
   const ping = await (await fetch(base + '/present/ping')).json();
-  assert.deepEqual(ping, { ok: true, name: 'talk.html', remote: true, present: true });
+  assert.deepEqual(ping, { ok: true, name: 'talk.html', remote: true, present: true, readOnly: true, locked: true });
   assert.equal(ping.agents, undefined, 'and reports no agent roster — there is nothing here that runs one');
 
   // …the controller and its QR are served…
@@ -463,7 +476,10 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
     const res = await fetch(base + p, { method: 'POST', body: '{}' });
     assert.equal(res.status, 405, `${p} is unknown, not refused`);
   }
-  assert.equal((await fetch(base + '/edit/ping')).status, 404, 'not even a ping to identify an editor');
+  // the one probe answers, and what it identifies is a READ-ONLY server, not an editor
+  const probe = await (await fetch(base + '/edit/ping')).json();
+  assert.equal(probe.readOnly, true, 'the ping says read-only');
+  assert.equal(probe.agents, undefined, 'and names nothing that edits');
 
   assert.match(log(), /ONLY \/remote\/\* answers/i);
   assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK, 'and nothing was written');

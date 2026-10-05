@@ -242,8 +242,8 @@ test('author --read-only is the read-only server: no edit route exists, the CSP 
   assert.ok(page.headers.get('content-security-policy')?.startsWith("default-src 'none'"), 'the policy, as an HTTP header');
   const edit = await fetch(base + '/edit/notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
   assert.equal(edit.status, 405, 'a write route does not exist to refuse');
-  const ping = await fetch(base + '/edit/ping');
-  assert.notEqual(ping.status, 200, 'and no edit server answers');
+  const ping = await (await fetch(base + '/edit/ping')).json();
+  assert.equal(ping.readOnly, true, 'the one probe answers, and says read-only');
 });
 
 test('the agent roster is part of the plan — the big three included', () => {

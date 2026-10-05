@@ -1548,9 +1548,26 @@ export async function editMain(args, { onListen = null } = {}) {
   const ttsProxy = proxyTo(ttsPort, 'voice');
   const lipsyncProxy = proxyTo(lipsyncPort, 'lip-sync', (p) => p.slice('/lipsync'.length));
 
+  // The editing LOCK (PRESENTING): started in write mode, the author can turn
+  // changes off to avoid making one by mistake, and back on. It lives here,
+  // not in a page, so every tab and the agent see the same state: locked,
+  // every POST to /edit/* but this one answers 423, the ping says so, and the
+  // live-reload channel tells every open page. A server started --read-only
+  // has no lock to turn, because it has no write route to lock.
+  let locked = false;
+  function lockRoute({ body, json }) {
+    const { locked: want } = JSON.parse(body || '{}');
+    if (typeof want !== 'boolean') return json(400, { ok: false, error: 'locked is true or false' });
+    if (want !== locked) {
+      locked = want;
+      console.log(locked ? '  editing locked — nothing is written until it is unlocked' : '  editing unlocked');
+      broadcast('lock', { locked });
+    }
+    return json(200, { ok: true, locked });
+  }
   async function pingRoute({ json }) {
     return json(200, {
-      ok: true, deck: deckUrl, name: basename(deckPath),
+      ok: true, deck: deckUrl, name: basename(deckPath), readOnly: false, locked,
       ...history.counts(), git: gitOn,
       // What the player's one push nudge reads. Computed once, like everything
       // else on ping: the toast is threshold-driven, not live.
@@ -3087,6 +3104,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // (`BEFORE_BODY`, and the prefix list below).
   const routes = new Map(Object.entries({
     'GET /edit/ping': pingRoute,
+    'POST /edit/lock': lockRoute,
     // the voice bridge, on this origin (#520): the runtime derives every one
     // of these from `/tts`, exactly as it derives them from the bridge's URL
     'POST /tts': ttsProxy, 'GET /ping': ttsProxy, 'GET /engines': ttsProxy,
@@ -3217,6 +3235,11 @@ export async function editMain(args, { onListen = null } = {}) {
         res.end(JSON.stringify(obj));
       };
       if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
+      // locked: no edit route writes, whatever it was aimed at — the one
+      // POST that still answers is the lock itself, so it can be lifted
+      if (locked && req.method === 'POST' && url.pathname.startsWith('/edit/') && url.pathname !== '/edit/lock') {
+        return json(423, { ok: false, locked: true, error: 'editing is locked — unlock it from the palette or the lock chip' });
+      }
       const key = `${req.method} ${url.pathname}`;
       const prefixed = routes.has(key) ? null
         : PREFIX_ROUTES.find((r) => r.method === req.method && url.pathname.startsWith(r.prefix));

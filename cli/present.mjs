@@ -671,9 +671,13 @@ export async function presentMain(args, { client } = {}) {
         .catch(() => { /* too large: destroyed by the reader */ });
       return;
     }
-    if (req.method === 'GET' && url.pathname === '/present/ping') {
+    // The one probe every served deck makes (PRESENTING): this server answers
+    // it too, saying it is read-only. A GET that reports; the write routes it
+    // reports the absence of are as absent as ever. /present/ping stays for a
+    // page built before the probe was one.
+    if (req.method === 'GET' && (url.pathname === '/present/ping' || url.pathname === '/edit/ping')) {
       res.writeHead(200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-cache' });
-      res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, present: true }));
+      res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, present: true, readOnly: true, locked: true }));
       return;
     }
     if (req.method === 'GET' && url.pathname === '/present/events') { decks.add(req, res, CORS); return; }

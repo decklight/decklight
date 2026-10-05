@@ -126,6 +126,16 @@
       // editAvailable, plus the two routes it actually calls. `messages:false`
       // so no agent is asked to draft a subject — the shortcut is what is under
       // test here, not the drafting.
+      // the editing lock (lockmode): write mode, unlocked; the lock route answers
+      if (HARNESS_MODE === 'lockmode') {
+        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], readOnly: false, locked: false });
+        if (u.includes('/edit/lock')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
+        if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
+      }
+      // the read-only server (readonlymode): the one probe says so, and nothing edits
+      if (HARNESS_MODE === 'readonlymode') {
+        if (u.includes('/edit/ping')) return json({ ok: true, name: 'engine.html', present: true, readOnly: true, locked: true, remote: false });
+      }
       if (HARNESS_MODE === 'commit') {
         if (u.includes('/edit/ping')) {
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
@@ -2418,6 +2428,70 @@
         r.buttonCloses = !card();
         r.PASS = r.cardShows && r.namesTheGestures && r.saysWhereToReopen
           && r.anyKeyDismissesAndDoesNothingElse && r.remembered && r.paletteReopensIt && r.buttonCloses;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'lockmode') {
+        // The editing lock (PRESENTING): the server's state, flipped from the
+        // palette or the chip, and every author affordance gone while it is on.
+        await settle();   // the ping: write mode, unlocked
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+        const chip = () => document.querySelector('.decklight-lock-chip');
+        const locks = () => CALLS.post.filter((c) => c.u.includes('/edit/lock')).map((c) => c.body.locked);
+        r.startsUnlocked = deck.editmode?.available?.() !== false && !chip();
+        press('/');
+        for (const ch of 'lock editing') press(ch);
+        r.paletteOffersTheLock = rows().some((t) => /^Lock editing/.test(t));
+        press('Enter');
+        await settle(); await settle();
+        r.lockIsPosted = locks().at(-1) === true;
+        r.chipSaysSo = !!chip() && /read-only/.test(chip().textContent);
+        // E, the bar, is refused while locked
+        press('e');
+        await settle();
+        r.editingRefusedWhileLocked = !document.querySelector('.decklight-editbar')
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /editing is locked/.test(n.textContent));
+        // the author rows are gone from the palette, the unlock row is there
+        press('/');
+        const locked = rows();
+        // the rows that would write are gone; the ones that explain themselves (E's) stay
+        r.authorRowsGone = !locked.some((t) => /^Export & share…|^Slide…/.test(t)) && locked.some((t) => /^Unlock editing/.test(t));
+        press('Escape');
+        // another tab turned it off: the channel says so, the chip goes
+        window.__es.emit('lock', { locked: false });
+        await settle();
+        r.channelUnlocks = !chip();
+        // …and the chip, clicked, asks the server
+        window.__es.emit('lock', { locked: true });
+        await settle();
+        chip()?.click();
+        await settle(); await settle();
+        r.chipUnlocks = locks().at(-1) === false && !chip();
+        r.PASS = r.startsUnlocked && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingRefusedWhileLocked
+          && r.authorRowsGone && r.channelUnlocks && r.chipUnlocks;
+        sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
+        return;
+      }
+
+      if (mode === 'readonlymode') {
+        // The read-only server answers the one probe: no author affordance,
+        // no lock to lift, and what a presented deck gets wired up.
+        await settle(); await settle();
+        const Q = '.decklight-palette', ROW = '.pal-row';
+        const rows = () => [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
+        r.notAvailable = !document.querySelector('.decklight-lock-chip');
+        press('e');
+        await settle();
+        r.eSaysWriteMode = !document.querySelector('.decklight-editbar')
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /needs author mode/.test(n.textContent));
+        press('/');
+        const top = rows();
+        r.noLockRow = !top.some((t) => /Lock editing|Unlock editing/.test(t)) && !top.some((t) => /^Export & share…/.test(t));
+        press('Escape');
+        r.presentedChannelWired = CALLS.get.some((u) => u.includes('/present/events')) || !!window.__es;
+        r.PASS = r.notAvailable && r.eSaysWriteMode && r.noLockRow;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
