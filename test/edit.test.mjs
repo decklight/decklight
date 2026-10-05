@@ -421,7 +421,11 @@ test('the editing lock: locked, no edit route writes; the ping and the channel s
   const events = [];
   const es = await fetch(base + '/edit/events');
   const reader = es.body.getReader();
-  const pump = (async () => { for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(new TextDecoder().decode(value)); } })();
+  // the stream ends when the server does, at teardown: that is not a failure
+  const pump = (async () => {
+    try { for (;;) { const { value, done } = await reader.read(); if (done) break; events.push(new TextDecoder().decode(value)); } }
+    catch { /* terminated with the server */ }
+  })();
   t.after(() => reader.cancel().catch(() => {}));
 
   const lock = await (await post(base, '/edit/lock', { locked: true })).json();
@@ -443,7 +447,8 @@ test('the editing lock: locked, no edit route writes; the ping and the channel s
   assert.equal(saved.status, 200, 'unlocked, the same route writes');
   const bad = await post(base, '/edit/lock', { locked: 'yes' });
   assert.equal(bad.status, 400);
-  void pump;
+  await reader.cancel().catch(() => {});
+  await pump;
 });
 
 test('layout, undo, and redo write the deck FILE — and share one history', async (t) => {
