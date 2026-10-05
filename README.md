@@ -52,7 +52,8 @@ After that you rarely need a command name:
 
 ```sh
 decklight                 # in a folder: start a deck, or pick one to open
-decklight talk.html       # open a deck in author mode
+decklight talk.html       # open a deck: write mode, live reload, an AI agent on A
+decklight talk.html --read-only   # open one you did not write: no way to change it
 decklight https://github.com/you/talk  # clone a deck's repository and open it
 decklight talk.pptx       # bring a PowerPoint, Keynote or Slides deck across
 decklight talk.decklight  # play somebody else's deck, read-only
@@ -96,7 +97,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
 
 ## What's in the box
 
-- **Editing in the browser.** In author mode, double-click any text (or a
+- **Editing in the browser.** In write mode, double-click any text (or a
   code block, edited as plain source) to change it, drop a picture onto a
   slide to add it, recolour a shape from the element menu, and add, duplicate,
   move or delete slides from the palette or the right-click menu. The notes
@@ -150,7 +151,7 @@ itself (`<script src="decklight/dist/decklight.js">` and a
   data, SmartArt as diagrams, and what somebody drew (shapes, lines, groups,
   rotation) as the drawing it was. PDF and PowerPoint go out for whoever
   still asks, in the theme on screen.
-- **Safe to receive.** `decklight present` plays a deck you didn't write
+- **Safe to receive.** `decklight <deck> --read-only` plays a deck you didn't write
   read-only under a CSP and prints what the file will execute. `publish` signs
   what it ships.
 - **Extensible without shipping code to the audience.** Themes, templates,
@@ -166,7 +167,7 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Writing | |
 |---|---|
-| `init ["Title"]` | scaffold a deck and the agent skill, then offer author mode (`--author`, `--from <template>`) |
+| `init ["Title"]` | scaffold a deck and the agent skill, then offer to open it (`--author`, `--from <template>`) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob |
 | `author deck.html` | live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser: double-click text to edit it, drop a picture onto a slide, right-click for the slide menu |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
@@ -221,7 +222,7 @@ the CLI only.
 | Key | Action |
 |---|---|
 | `→` `←` `Space` | next / previous build or slide |
-| `S` | this slide's speaker notes: editable under `decklight author`, read-only under `present` / `review` |
+| `S` | this slide's speaker notes: editable in write mode, read-only under `--read-only` |
 | `⌥⏎` / `Alt+Enter` | speaker view: a second window with notes, next slide and timer (again: rehearse cue cards) |
 | `T` | theme picker, `⌃T` generate a theme |
 | `⎵` | play / pause the voice once one is chosen; otherwise it advances |

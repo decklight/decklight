@@ -3,7 +3,7 @@
 Status: **draft for review**. Not filed as an issue yet.
 
 This is the consolidated record of the marketplace design, including the two
-late additions that absorbed most of its safety burden: `decklight present` and
+late additions that absorbed most of its safety burden: `--read-only` (once `decklight present`) and
 the `.decklight` container. Where a later decision supersedes an earlier one, the
 earlier one is marked rather than deleted: the reasoning matters.
 
@@ -128,7 +128,7 @@ The decision that resolves the safety problem.
 | | Runs where | Trust model | Travels? |
 |---|---|---|---|
 | **Build-time transform** (default) | Node, on the author's machine, during `bundle` | Installer is the risk-bearer: Claude's model, defensible for the same reason | **No**: only its output does |
-| **Presenter-library plugin** | The presenter's own machine, via `decklight present` | Installer is the risk-bearer | **No**: lives with the presenter, not the deck |
+| **Presenter-library plugin** | The presenter's own machine, via `decklight <deck> --read-only` | Installer is the risk-bearer | **No**: lives with the presenter, not the deck |
 | **In-deck runtime** (deferred) | The audience's browser | Recipient consented to nothing | Yes, which is the problem |
 
 A transform takes the deck's HTML and returns HTML. That covers nearly
@@ -300,9 +300,9 @@ at `theme add`; templates and skills execute nothing), and a hand-placed unit
 still runs: the pin governs what an *install* writes, `EXTENSIONS`' trust
 model still governs running it.
 
-### PRESENT · `decklight present`, the trusted local viewer
+### PRESENT · `--read-only`, the trusted local viewer
 
-`decklight present <deck>` serves a deck read-only over localhost and is the
+`decklight <deck> --read-only` serves a deck read-only over localhost and is the
 safe way to play a deck you did not author.
 
 - **The audit runs because it is the only way in.** A standalone `verify` is a
@@ -363,7 +363,7 @@ association hands the loser's users a confusing double-click. `.dck` is
 Forge/XMage Magic decks. `.decklight` is verbose, collision-proof and
 self-describing: the verbosity is the feature.
 
-- `decklight present talk.decklight` verifies **before** rendering.
+- `decklight talk.decklight` (read-only by nature) verifies **before** rendering.
 - The manifest (runtime version, extensions, origin repo, commit SHA) sits
   *outside* the payload, where a tamperer cannot edit it in the same pass,
   which also puts it outside the signature: the sidecar attests to the payload
@@ -401,10 +401,19 @@ decklight author  talk.html    # the whole authoring loop (was: dev)
 decklight present talk.decklight    # play it, verified, read-only
 ```
 
-- `dev` stays as a **permanent hidden alias**: one dispatcher line, never
-  documented, never punished.
-- `open` is an alias landing in `present`: the verb the OS uses on
-  double-click of a `.decklight`. One implementation, two doors.
+**Superseded (one command, 0.9.0)**: the deck is the command. `decklight
+talk.html` opens it in write mode and `decklight talk.html --read-only` with
+no way to change it; a `.decklight` is read-only by nature. `author`,
+`present`, `review` and `dev` are no longer commands; typed, each points at
+the line with the deck filled in, and `review submit` is `comments submit`.
+The two servers underneath are unchanged in what they can do: the read-only
+one still registers no `/edit/*` route, and the review routes are both
+servers' (SPEC REVIEW). The text below is kept as the record it was.
+
+- ~~`dev` stays as a **permanent hidden alias**: one dispatcher line, never
+  documented, never punished.~~
+- ~~`open` is an alias landing in `present`: the verb the OS uses on
+  double-click of a `.decklight`. One implementation, two doors.~~
 - **`edit` is removed.** It existed only because `dev` cost something to start;
   with engines resolved on demand (ENGINES) `author` has zero startup cost by
   construction. ~~Per the #165 precedent it refuses out loud (`renamed: use
@@ -456,14 +465,14 @@ than this", never "you can't do anything yet".
 1. **The wizard framework is core; a plugin supplies only a declarative
    schema**: questions, field types, a validation endpoint. Plugins never
    paint arbitrary UI into the deck; core owns the rendering, so "wizard only
-   in author mode" stays enforceable.
+   in write mode" stays enforceable.
 2. **Credentials:** pasted in the player → posted to the author server →
    stored under `~/.decklight/` restricted to the account that pasted them
    (`0600` on POSIX, an explicit ACL on Windows, decklight prints which, read
    back off the file). Loopback-only by construction
    (`allowRemote` refuses `/edit/*` off-loopback unconditionally). Never
    logged, never written into the deck, never picked up by `bundle`.
-3. **Never outside author mode.** In `present` or a bundled deck, `V` with no
+3. **Never outside write mode.** In `present` or a bundled deck, `V` with no
    engine says so and stops. A credential prompt in a deck you were emailed is
    a phishing primitive.
 4. **Install and configure are one flow with two named failures**: "couldn't
@@ -701,7 +710,7 @@ to play someone else's deck is a single command.
       is never logged, and never appears in the deck or a `bundle` of it
 - [ ] The wizard never triggers in `present` or in a deck opened from `file://`:
       `V` with no engine says so and stops
-- [ ] `decklight author` starts instantly with no engines installed: no bridge
+- [ ] `decklight <deck>` starts instantly with no engines installed: no bridge
       processes, no network
 - [ ] ~~`decklight edit` refuses out loud with the new command named~~ →
       superseded (COMMANDS): `edit` is simply not a command, and says so the
@@ -710,7 +719,7 @@ to play someone else's deck is a single command.
 
 **Safety and integrity**
 
-- [ ] `decklight present <deck>` serves read-only over localhost with **no
+- [ ] `decklight <deck> --read-only` serves read-only over localhost with **no
       `/edit/*` routes registered**, and sets a `Content-Security-Policy` HTTP
       header
 - [ ] `present` prints an ingredients label (runtime version and hash, script
@@ -739,7 +748,7 @@ to play someone else's deck is a single command.
 Add a marketplace, press `T` under `dev`, Browse, preview a theme live, Enter to
 install; it appears under Added and survives a reload. Bundle the deck; the
 output is signed. Append a `<script>alert(1)</script>` to the bundled file and
-run `decklight present`: it names one unaccounted script block; `--strict`
+run `decklight <deck> --read-only`: it names one unaccounted script block; `--strict`
 plays the deck with that block stripped and everything else intact. Wrap it as
 `.decklight`, tamper with it, double-click: verification fails and it does not
 render. Then pull the network cable and press `T`: all 46 shipped themes and
@@ -779,7 +788,7 @@ Depends column cites tickets by mnemonic, never by position.
 
 | Ticket | Scope | Depends on |
 |---|---|---|
-| `PRESENT_SERVER` | `decklight present`: read-only server, CSP header, no `/edit/*` | — |
+| `PRESENT_SERVER` | `decklight <deck> --read-only`: read-only server, CSP header, no `/edit/*` | — |
 | `PRESENT#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `PRESENT_SERVER` |
 | `PRESENT#STRICT` | strip unverified script, prove the deck still plays | `PRESENT#AUDIT` |
 | `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `present` | `PRESENT#AUDIT` |

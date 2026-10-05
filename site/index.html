@@ -161,7 +161,7 @@
       </div>
       <div class="trait">
         <h3>Or edit it yourself</h3>
-        <p>In author mode, double-click text to change it, a code block to edit its source, drop a picture onto a slide, recolour a shape from its menu, and drag slides around from the palette. Every edit lands in the file and <kbd>Z</kbd> takes it back.</p>
+        <p>In write mode, double-click text to change it, a code block to edit its source, drop a picture onto a slide, recolour a shape from its menu, and drag slides around from the palette. Every edit lands in the file and <kbd>Z</kbd> takes it back.</p>
       </div>
       <div class="trait">
         <h3>Take slides from another deck</h3>
@@ -255,7 +255,7 @@
 
     <section class="start after-deck" aria-label="Borrow from a deck template">
       <h2>Or borrow from a deck somebody already made</h2>
-      <p>A <strong>deck template</strong> is somebody&rsquo;s whole talk, installed from a marketplace. <code>init --from</code> starts a new deck from one, but the more common case is a deck that already exists and wants three slides out of it. In author mode, <code>/</code> &rarr; <strong>Insert from a template&hellip;</strong> lists what you have installed and what a registered catalog offers, and <strong>renders the slide beside the list</strong>, because a template is a deck somebody designed and its headings are the least of what you are choosing between.</p>
+      <p>A <strong>deck template</strong> is somebody&rsquo;s whole talk, installed from a marketplace. <code>init --from</code> starts a new deck from one, but the more common case is a deck that already exists and wants three slides out of it. In write mode, <code>/</code> &rarr; <strong>Insert from a template&hellip;</strong> lists what you have installed and what a registered catalog offers, and <strong>renders the slide beside the list</strong>, because a template is a deck somebody designed and its headings are the least of what you are choosing between.</p>
       <p>Two modes decide what <kbd>Enter</kbd> does with the slide under the cursor. <strong>Insert</strong> takes it, landing after the slide you are on as one undo entry. <strong>Apply</strong> keeps every word of yours and takes only the <em>shape</em> (layout, backdrop, classes) and previews <em>your</em> slide wearing it before anything is written.</p>
       <p>A slide is markup <em>and</em> the rules that shape it, so the CSS a borrowed slide depends on comes with it: <code>.breaks</code> is a stack of bordered cards in the deck it came from, not a bare list in yours. What cannot follow is said before you take it, not after: a cast or an image the slide points at and your deck has not, and a class your deck already means something else by, which keeps <em>your</em> rules rather than quietly restyling slides you never touched.</p>
     </section>
@@ -451,11 +451,11 @@
  },
  "steps": [
   {
-   "cmd": "npx decklight author paper-planes.html",
+   "cmd": "npx decklight paper-planes.html",
    "output": [
     [
      0.6,
-     "\u001b[32mdecklight author\u001b[m on http://127.0.0.1:8788/paper-planes.html \u2014 E edits notes, saves reload the deck\r\n"
+     "\u001b[32mdecklight \u001b[2m·\u001b[m paper-planes.html on http://127.0.0.1:8788/paper-planes.html \u2014 E edits notes, saves reload the deck\r\n"
     ]
    ],
    "exit": 0,

@@ -762,7 +762,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       <h2>Somebody Else&rsquo;s Two Cents</h2>
       <p><strong>M</strong> leaves a comment on a slide &mdash; git carries it back to you</p>
       <ul data-build>
-        <li><strong>decklight review</strong> &mdash; they comment; your deck is never touched</li>
+        <li><strong>decklight &lt;deck&gt; --read-only</strong> &mdash; they comment with M; your deck is never touched</li>
         <li><code>M</code> on a slide, and the comment remembers <em>which</em> slide</li>
         <li>Insert three slides above it and the comment still finds it</li>
         <li>Changed? Moved? Gone? It says which, instead of guessing</li>
@@ -774,7 +774,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
       </aside>
       <aside class="rehearse">
         <p>Reviewing a deck had nowhere to put remarks</p>
-        <p>&#10216;CLICK&#10217;</p><p>decklight review &mdash; read, never rewrite</p>
+        <p>&#10216;CLICK&#10217;</p><p>--read-only &mdash; read and comment, never rewrite</p>
         <p>&#10216;CLICK&#10217;</p><p>M &rarr; remembers the slide, not the number</p>
         <p>&#10216;CLICK&#10217;</p><p>Insert slides above &mdash; still finds it</p>
         <p>&#10216;CLICK&#10217;</p><p>Unsure? Says which. One line each, no conflicts</p>
@@ -784,7 +784,7 @@ decklight publish deck.html         # → gh-pages, signed by default</code></pr
 
     <section>
       <h2>Playing a Deck You Didn't Write</h2>
-      <p><code>decklight present</code> — read-only over localhost, under a real CSP <em>header</em></p>
+      <p><code>decklight &lt;deck&gt; --read-only</code> — read-only over localhost, under a real CSP <em>header</em></p>
       <ul data-build>
         <li>An <strong>ingredients label</strong> before the first slide: the runtime's hash against the build you have, and <strong>every unaccounted script by line number</strong></li>
         <li>An <em>inventory, never a verdict</em> — no green check, because a check promises more than a heuristic can keep</li>
