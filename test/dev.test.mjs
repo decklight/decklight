@@ -212,11 +212,38 @@ test('--remote and --host are reported as gone, never passed to the edit child',
 test('author refuses --remote out loud and names the command that replaced it', () => {
   const r = spawnSync('node', [CLI, 'author', 'deck.html', '--remote'], { encoding: 'utf8' });
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /no longer takes --remote/);
-  assert.match(r.stderr, /decklight present deck\.html --remote/,
+  assert.match(r.stderr, /does not take --remote in write mode/);
+  assert.match(r.stderr, /decklight author deck\.html --read-only --remote/,
     'and names it with the deck already filled in');
   // it must not have started anything before deciding
   assert.doesNotMatch(r.stdout, DECK_URL_RE);
+});
+
+test('author --read-only is the read-only server: no edit route exists, the CSP rides on every response', async (t) => {
+  // One command, two ways in (PRESENTING): the flag does not refuse writes on
+  // the edit server, it starts the server that has no write route to refuse.
+  const dir = mkdtempSync(path.join(tmpdir(), 'decklight-ro-'));
+  writeFileSync(path.join(dir, 'deck.html'), '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div><script>Decklight.init()</script></body></html>');
+  const home = mkdtempSync(path.join(tmpdir(), 'decklight-ro-home-'));
+  const child = spawn(process.execPath, [CLI, 'author', 'deck.html', '--read-only', '--port', '0'],
+    { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
+  t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
+  let out = '';
+  child.stdout.on('data', (c) => { out += c; });
+  child.stderr.on('data', (c) => { out += c; });
+  const base = await new Promise((resolve, reject) => {
+    const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
+    child.on('exit', () => { clearInterval(scan); reject(new Error('exited early:\n' + out)); });
+    setTimeout(() => { clearInterval(scan); reject(new Error('timeout:\n' + out)); }, 10000);
+  });
+  assert.match(out, /read-only, CSP enforced/, 'it says what it is');
+  const page = await fetch(base + '/deck.html');
+  assert.equal(page.status, 200);
+  assert.ok(page.headers.get('content-security-policy')?.startsWith("default-src 'none'"), 'the policy, as an HTTP header');
+  const edit = await fetch(base + '/edit/notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
+  assert.equal(edit.status, 405, 'a write route does not exist to refuse');
+  const ping = await fetch(base + '/edit/ping');
+  assert.notEqual(ping.status, 200, 'and no edit server answers');
 });
 
 test('the agent roster is part of the plan — the big three included', () => {
@@ -245,7 +272,8 @@ test('author is routed and documented by the dispatcher', () => {
   // is a promise to honour it, and author refuses both
   assert.doesNotMatch(authorHelp, /^\s+--remote\b/m, 'the LAN opt-in is gone');
   assert.doesNotMatch(authorHelp, /^\s+--host\b/m, 'and so is the bind address');
-  assert.match(authorHelp, /decklight present --remote/, 'but the help says where it went');
+  assert.match(authorHelp, /--read-only --remote/, 'but the help says where it went');
+  assert.match(authorHelp, /^\s+--read-only\b/m, 'the read-only way in is a flag of the same command');
 });
 
 test('`dev` still works, as a permanent hidden alias — same command, no nag', () => {

@@ -50,7 +50,7 @@ const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 // run directly. The dispatcher would refuse `edit` out loud.
 const EDIT = fileURLToPath(new URL('./edit.mjs', import.meta.url));
 
-const USAGE = `usage: decklight author <deck.html | git url> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+const USAGE = `usage: decklight author <deck.html | git url> [--read-only] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
@@ -85,7 +85,12 @@ const USAGE = `usage: decklight author <deck.html | git url> [--port 8788] [--tt
                     machine, which may pass them to its provider
   --agent <name>    preferred AI agent for A (default: first detected)
 
-  every server binds 127.0.0.1; for a phone remote: decklight present --remote
+  --read-only       open the deck without any way to change it: no edit routes
+                    exist in the process, the deck is served from its own
+                    directory under a Content-Security-Policy header, and the
+                    ingredients label runs first. The way to open a deck you did
+                    not write; --remote, --strict, --check and --root apply here
+  every server binds 127.0.0.1; for a phone remote: decklight author <deck> --read-only --remote
 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
                     chirp   Cloud TTS Chirp 3: HD — same voices, ~1s, 1M chars/month free
@@ -323,14 +328,23 @@ const RESET = '\x1b[0m';
 
 export async function devMain(args) {
   if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
+  // --read-only: the same command, the read-only server (PRESENTING). It is
+  // present's serving core, not the edit server with the writes refused: no
+  // /edit/* route exists in that process, the deck is served from its own
+  // directory under the CSP, and the ingredients label runs first. The one
+  // door to a deck, whichever way it is opened.
+  if (args.includes('--read-only')) {
+    const { presentMain } = await import('./present.mjs');
+    return presentMain(args.filter((a) => a !== '--read-only'));
+  }
 
   let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   if (plan.gone.length) {
-    console.error(`decklight author no longer takes ${plan.gone.join(' or ')} — the phone remote moved to \`decklight present\`.`);
+    console.error(`decklight author does not take ${plan.gone.join(' or ')} in write mode — the phone remote is a read-only thing.`);
     console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
-    console.error('  /edit/agent were reachable from the same run you were not watching. present has no edit');
-    console.error('  surface to widen, so that is where it lives.');
-    console.error(`\n  decklight present ${plan.deck ?? '<deck.html>'} --remote`);
+    console.error('  /edit/agent were reachable from the same run you were not watching. The read-only server');
+    console.error('  has no edit surface to widen, so that is where it lives.');
+    console.error(`\n  decklight author ${plan.deck ?? '<deck.html>'} --read-only --remote`);
     process.exitCode = 2;
     return;
   }
