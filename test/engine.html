@@ -2075,28 +2075,35 @@
           sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
           return;
         }
-        // focus moving to a button in the card is not leaving it
+        // a press on the card's own buttons is not leaving it
+        const pressOn = (el) => el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
         box().focus(); type('Typed, then clicked away.');
-        document.querySelector('.decklight-editor .notes-reset')?.focus();
+        pressOn(document.querySelector('.decklight-editor .notes-reset'));
+        box().blur();   // nor is focus merely moving: the card's own machinery does that
         await settle();
         r.cardButtonsDoNotSave = posts().length === 0 && !mark().hidden;
-        // leaving the box does
-        box().focus(); box().blur();
+        // a press on the slide is
+        pressOn(document.querySelector('.decklight-stage'));
         await settle(); await settle();
         r.leavingTheBoxSaves = posts().length === 1 && posts()[0].slide === 2 && posts()[0].text === 'Typed, then clicked away.' && mark().hidden;
+        // and so is the window going behind another
+        type('Then switched apps.');
+        window.dispatchEvent(new Event('blur'));
+        await settle(); await settle();
+        r.leavingTheWindowSaves = posts().length === 2 && posts()[1].text === 'Then switched apps.' && mark().hidden;
         // moving on with edits writes them to the slide they were written for, then follows
         box().focus(); type('Written on two.');
         deck.goto(3, 0);
         await settle(); await settle(); await settle();
-        r.movingOnSavesThenFollows = posts().length === 2 && posts()[1].slide === 2 && posts()[1].text === 'Written on two.'
+        r.movingOnSavesThenFollows = posts().length === 3 && posts()[2].slide === 2 && posts()[2].text === 'Written on two.'
           && /notes — slide 3/.test(card()?.textContent ?? '') && box().value !== 'Written on two.' && mark().hidden;
         // closing with edits writes them first
         type('Written on three.');
         press('Escape');
         await settle(); await settle();
-        r.closingSaves = posts().length === 3 && posts()[2].slide === 3 && posts()[2].text === 'Written on three.' && !card();
+        r.closingSaves = posts().length === 4 && posts()[3].slide === 3 && posts()[3].text === 'Written on three.' && !card();
         r.PASS = r.opensAsADrawerAtTheBottom && r.headingSaysItSavesItself && r.cardButtonsDoNotSave && r.leavingTheBoxSaves
-          && r.movingOnSavesThenFollows && r.closingSaves;
+          && r.leavingTheWindowSaves && r.movingOnSavesThenFollows && r.closingSaves;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }
