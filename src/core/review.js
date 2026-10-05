@@ -294,7 +294,7 @@ export function createReview({
       list.append(el_('div', 'rv-none', `could not read the comments — ${state.error}`));
     } else if (!comments.length) {
       list.append(el_('div', 'rv-none', state.can === 'none'
-        ? 'no comments, and nothing here can take one — a reviewer leaves them with: decklight review <deck>'
+        ? 'no comments, and nothing here can take one — open the deck with decklight to leave one'
         : 'no comments yet'));
     }
     if (state.skipped) {
@@ -560,7 +560,7 @@ export function createReview({
   /** Push the review — armed, then confirmed, then the SERVER does the git. */
   async function submitAll() {
     const base = await reviewBase();
-    if (base === null) { toast('nothing here can submit — run: decklight review <deck>'); return; }
+    if (base === null) { toast('nothing here can submit — open the deck with decklight <deck> --read-only'); return; }
     if (!armedSubmit) { armedSubmit = true; render(await load()); return; }
     armedSubmit = false;
     try {
@@ -601,7 +601,7 @@ export function createReview({
     const base = await reviewBase();
     const author = authorBase();
     if (base === null && author == null) {
-      toast('nothing here can take a comment — decklight author, or decklight review');
+      toast('nothing here can take a comment — open the deck with decklight <deck>');
       return;
     }
     overlays.opening();

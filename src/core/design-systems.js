@@ -72,7 +72,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
 
   async function open() {
     if (el) return;
-    if (base() === null) { toast('design systems are referenced while authoring — decklight author <deck.html>', 3200); return; }
+    if (base() === null) { toast('design systems are referenced in write mode — decklight <deck.html>', 3200); return; }
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-record decklight-design-systems';
     el.innerHTML = '<div class="narr-card" role="listbox" aria-label="Design systems"></div>';
@@ -361,7 +361,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
 
   function open() {
     if (el) return;
-    if (base() === null) { toast('design-system layouts are chosen while authoring — decklight author <deck.html>', 3200); return; }
+    if (base() === null) { toast('design-system layouts are chosen in write mode — decklight <deck.html>', 3200); return; }
     el = document.createElement('div');
     el.className = 'decklight-narr decklight-record decklight-ds-layouts';
     el.innerHTML = '<div class="narr-card" role="listbox" aria-label="Use design-system layout"></div>';

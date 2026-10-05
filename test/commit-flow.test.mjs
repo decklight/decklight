@@ -295,12 +295,12 @@ test('author survives a deck git has never seen, with commit-messages on', async
 
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline
-    && !/decklight author on http/.test(out)
+    && !/decklight · \S+ on http/.test(out)
     && child.exitCode === null) await new Promise((r) => setTimeout(r, 100));
 
   assert.doesNotMatch(out, /ReferenceError/, `the server crashed on startup:\n${out}`);
   assert.equal(child.exitCode, null, `the server exited (${child.exitCode}):\n${out}`);
-  assert.match(out, /decklight author on http/, `the server never came up:\n${out}`);
+  assert.match(out, /decklight · \S+ on http/, `the server never came up:\n${out}`);
   // and the opening commit it was in the middle of is really there
   assert.match(g('log', '--oneline'), /decklight: add talk-pt\.html/);
 

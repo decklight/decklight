@@ -38,6 +38,6 @@ for (const [name, create] of [['Design systems…', createDesignSystemsPicker], 
     assert.equal((await opens(create, 'http://127.0.0.1:8788')).opened, true);
     const none = await opens(create, null);
     assert.equal(none.opened, false);
-    assert.match(none.said[0], /while authoring/);
+    assert.match(none.said[0], /in write mode/);
   });
 }

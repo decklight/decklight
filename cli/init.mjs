@@ -356,7 +356,7 @@ export function epilogue({ deckPath, tty = false, noColor = false }) {
   return [
     '',
     `  ${a('open to present')}   ${color ? osc8(url) : url}`,
-    `  ${a('start editing')}     decklight author ${deck}`,
+    `  ${a('start editing')}     decklight ${deck}`,
     '',
   ].join('\n') + '\n';
 }
@@ -732,7 +732,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     const rel = path.relative(root, deckPath);
     const cli = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
     // the banner has been printed once, by this run; the child is the same version
-    const r = spawnSync(process.execPath, [cli, 'author', rel, '--open'],
+    const r = spawnSync(process.execPath, [cli, rel, '--open'],
       { stdio: 'inherit', cwd: root, env: { ...process.env, DECKLIGHT_BANNER: '1' } });
     return r.status ?? 0;
   }
@@ -744,7 +744,7 @@ unless --no-skill is given. The deck file is only touched with --force.
   // alone shows unstyled slides — said before the tab opens, with the command
   // that plays it.
   if (openAfter && !inline && !from) {
-    note('  --open: this deck plays through decklight — as a file it is unstyled slides; `decklight author deck.html` plays it');
+    note('  --open: this deck plays through decklight — as a file it is unstyled slides; `decklight deck.html` plays it');
   }
   if (openAfter) await openDeck(deckPath);
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `decklight present` — the read-only deck server (MARKETPLACE.md
+// `decklight <deck> --read-only` — the read-only deck server (MARKETPLACE.md
 // PRESENT_SERVER). The claims worth testing are negative ones: no editing
 // route exists, nothing is written, nothing off-loopback is answered — so most
 // of these assert the ABSENCE of a capability, against a real server.
@@ -16,7 +16,7 @@ import path from 'node:path';
 import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
-import { CSP } from '../cli/present.mjs';
+import { CSP } from '../cli/read-only.mjs';
 import { allowRemote } from '../cli/serve.mjs';
 import { createRemoteRelay } from '../cli/remote.mjs';
 
@@ -33,7 +33,7 @@ const noSignals = process.platform === 'win32'
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
-const SRC = path.resolve(here, '../cli/present.mjs');
+const SRC = path.resolve(here, '../cli/read-only.mjs');
 
 const DECK = `<!doctype html>
 <html><head><link rel="stylesheet" href="theme.css"></head><body>
@@ -69,7 +69,7 @@ async function startPresent(t, dir, { deck = 'talk.html', cwd = dir, extraArgs =
   // file:// remote this fixture created.
   const childEnv = { ...process.env, DECKLIGHT_HOME: home, ...env };
   for (const k of Object.keys(childEnv)) if (childEnv[k] === undefined) delete childEnv[k];
-  const child = spawn(process.execPath, [CLI, 'present', deck, '--port', '0', ...extraArgs],
+  const child = spawn(process.execPath, [CLI, deck, '--read-only', '--port', '0', ...extraArgs],
     { cwd, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv });
   t.after(async () => { await stop(child); rmTemp(dir); });
   let out = '';
@@ -200,7 +200,7 @@ test('a deck outside the chosen --root is refused, not silently rooted elsewhere
   const cwd = mkdtempSync(path.join(tmpdir(), 'decklight-cwd-'));
   let code = 0; let out = '';
   try {
-    execFileSync(process.execPath, [CLI, 'present', path.join(outer, 'talk.html'), '--port', '0', '--root', '.'],
+    execFileSync(process.execPath, [CLI, path.join(outer, 'talk.html'), '--read-only', '--port', '0', '--root', '.'],
       { cwd, encoding: 'utf8', stdio: 'pipe', timeout: 8000 });
   } catch (e) { code = e.status; out = String(e.stderr); }
   rmTemp(outer);
@@ -208,7 +208,7 @@ test('a deck outside the chosen --root is refused, not silently rooted elsewhere
   assert.equal(code, 1);
   // Named, like every other command's refusals: a bare message in a terminal
   // running several tools cannot be traced back to what printed it.
-  assert.match(out, /^decklight present: deck must live under --root/m);
+  assert.match(out, /^decklight: deck must live under --root/m);
 });
 
 test('a deck presents from any cwd — the root travels with the deck, not the shell', async (t) => {
@@ -399,8 +399,8 @@ test('the module imports no filesystem writer at all', () => {
 
 test('--help prints the policy it will enforce, and exits 0', async () => {
   const { execFileSync } = await import('node:child_process');
-  const out = execFileSync(process.execPath, [CLI, 'present', '--help'], { encoding: 'utf8' });
-  assert.match(out, /usage: decklight present/);
+  const out = execFileSync(process.execPath, [CLI, 'deck.html', '--read-only', '--help'], { encoding: 'utf8' });
+  assert.match(out, /usage: decklight <deck\.html\|deck\.decklight\|repository url> --read-only/);
   assert.match(out, /default-src 'none'/, 'the actual policy, not a description of one');
   assert.match(out, /--port/);
 });
@@ -420,7 +420,7 @@ test('--port binds the port asked for, and Ctrl-C exits clean', { skip: noSignal
   t.after(() => rmTemp(dir));
   const port = await freePort();
 
-  const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', String(port)],
+  const child = spawn(process.execPath, [CLI, 'talk.html', '--read-only', '--port', String(port)],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(child));
   let out = '';
@@ -443,10 +443,10 @@ test('a deck that is not there is named, not stack-traced', async () => {
   const { execFileSync } = await import('node:child_process');
   let code = 0; let out = '';
   try {
-    execFileSync(process.execPath, [CLI, 'present', 'nope.html'], { encoding: 'utf8', stdio: 'pipe' });
+    execFileSync(process.execPath, [CLI, 'nope.html', '--read-only'], { encoding: 'utf8', stdio: 'pipe' });
   } catch (e) { code = e.status; out = String(e.stderr); }
   assert.equal(code, 1);
-  assert.match(out, /^decklight present: deck not found: .*nope\.html/m);
+  assert.match(out, /^decklight: deck not found: .*nope\.html/m);
 });
 
 // ── the phone remote lives here now (PRESENT#REMOTE) ───────────────────────

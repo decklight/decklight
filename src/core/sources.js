@@ -241,7 +241,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
   }
 
   function startEditing() {
-    if (!canEdit()) { toast('sources are written through the author server — decklight author'); return; }
+    if (!canEdit()) { toast('sources are written in write mode — decklight <deck.html>'); return; }
     const data = read() ?? { facts: [], links: [] };
     draft = {
       facts: data.facts.map(([k, v]) => [k, v]),

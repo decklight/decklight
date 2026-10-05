@@ -681,7 +681,7 @@ try {
   });
 
   await step('the ingredients label vouches for the runtime', () => {
-    const r = dl(['present', 'deck.html', '--check']);
+    const r = dl(['deck.html', '--read-only', '--check']);
     must(vouchesForRuntime(r.all), `the label does not vouch for the runtime (the 0.3.0 near-miss): ${r.all}`);
     must(/0 unaccounted script blocks/.test(r.all), 'the deck carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the deck carries inline handlers');
@@ -717,7 +717,7 @@ try {
     // the runtime through its own copy of a transform which escaped `</script`
     // but not `<!--`, so every imported deck rendered perfectly and hashed
     // differently. Only the label can see that.
-    const r = dl(['present', 'q3-review.html', '--check']);
+    const r = dl(['q3-review.html', '--read-only', '--check']);
     must(vouchesForRuntime(r.all),
       `an imported deck reports a runtime that is not this install — the 0.3.0 bug, exactly: ${r.all}`);
     must(/0 unaccounted script blocks/.test(r.all), 'the imported deck carries unaccounted script');
@@ -861,7 +861,7 @@ try {
   // ── author ───────────────────────────────────────────────────────────────
   await step('author starts and takes the repo', async () => {
     authorSrv = await startServer(
-      ['author', 'deck.html', '--port', '0', '--git', '--commit-every', '5'],
+      ['deck.html', '--port', '0', '--git', '--commit-every', '5'],
       DECK_URL_RE,
     );
     const ping = await (await get(authorSrv.base, '/edit/ping')).json();
@@ -1126,7 +1126,7 @@ try {
   // ── present ──────────────────────────────────────────────────────────────
   let presentSrv = null;
   await step('present serves the deck and nothing else', async () => {
-    presentSrv = await startServer(['present', 'deck.html', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
+    presentSrv = await startServer(['deck.html', '--read-only', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
       { timeoutMs: 15000 });
     await until('the ingredients label', () => /ingredients/.test(presentSrv.log()), { ms: 5000 });
     must(vouchesForRuntime(presentSrv.log()), `the label does not vouch for the runtime: ${presentSrv.log()}`);
@@ -1231,7 +1231,7 @@ try {
     must(stale !== read(), 'the runtime block marker was not found — has it been renamed?');
     writeFileSync(aged, stale);
 
-    const before = dl(['present', 'aged.html', '--check'], { allowFail: true });
+    const before = dl(['aged.html', '--read-only', '--check'], { allowFail: true });
     must(/DIFFERS from this install/.test(before.all),
       'the label did not notice a runtime that is not this install — the 0.3.0 near-miss, undetected');
 
@@ -1240,7 +1240,7 @@ try {
     dl(['upgrade', 'aged.html']);
     must(existsSync(`${aged}.bak`), 'upgrade did not write a backup');
 
-    const after = dl(['present', 'aged.html', '--check']);
+    const after = dl(['aged.html', '--read-only', '--check']);
     must(after.all.includes('identical to this install'), 'the upgraded runtime still is not this install');
     locateSlide(read(), 3);   // throws if the added slide did not survive
     must(read().includes('edited by the soak'), 'the element edit did not survive the upgrade');
@@ -1280,12 +1280,12 @@ try {
     must(themesThen > 0, 'the older deck inlined no themes');
 
     // This install must SEE that the deck is not its own.
-    const before = dl(['present', 'from-an-older-decklight.html', '--check'], { allowFail: true });
+    const before = dl(['from-an-older-decklight.html', '--read-only', '--check'], { allowFail: true });
     must(/DIFFERS from this install/.test(before.all),
       `a deck from ${OLDER_RELEASE} was not reported as differing from this build: ${before.all}`);
 
     const up = dl(['upgrade', 'from-an-older-decklight.html']);
-    const after = dl(['present', 'from-an-older-decklight.html', '--check']);
+    const after = dl(['from-an-older-decklight.html', '--read-only', '--check']);
     must(after.all.includes('identical to this install'),
       `upgrade did not bring a ${OLDER_RELEASE} deck up to this build: ${after.all}`);
 
@@ -1343,7 +1343,7 @@ try {
     // SERVES — the file on disk is untouched — and a bundle made a moment later
     // does not carry a byte of it.
     const before = statSync(join(PROJECT, 'linked.html'));
-    const srv = await startServer(['present', 'linked.html', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
+    const srv = await startServer(['linked.html', '--read-only', '--port', '0'], /http:\/\/127\.0\.0\.1:(\d+)/,
       { timeoutMs: 15000 });
     await until('the chrome line', () => /chrome: soak-timer/.test(srv.log()), { ms: 5000 });
     must(/chrome: soak-timer \(corner-br\) — yours, not in the deck/.test(srv.log()),
@@ -1625,7 +1625,7 @@ try {
     // while the sidecar stays exactly as it was. Through the installed binary,
     // over HTTP, which is the only place this path runs whole.
     const asrv = await startServer(
-      ['author', 'reviewed.html', '--port', '0', '--no-git'],
+      ['reviewed.html', '--port', '0', '--no-git'],
       DECK_URL_RE, { cwd: author2 });
     // CI=1 (the runner's env) silences only the UNASKED startup line — this
     // route is behind the keypress that opens M, and must answer anywhere
@@ -1707,7 +1707,7 @@ try {
     }
     for (const [args, want] of [
       [['voiceover'], /decklight voiceover: name the deck/],
-      [['present', 'nope.html'], /present:/],
+      [['nope.html', '--read-only'], /present:/],
       [['import', 'deck.html'], /import:/],
       [['marketplace', 'add', SPACE], /marketplace add:/],
       [['theme', 'check', 'nope.css'], /theme check:/],
@@ -1721,7 +1721,7 @@ try {
   });
 
   await step('present --check validates the bundle', () => {
-    const r = dl(['present', 'linked bundle.html', '--check']);
+    const r = dl(['linked bundle.html', '--read-only', '--check']);
     must(r.all.includes('identical to this install'), 'the bundled runtime is not this install');
     must(/0 unaccounted script blocks/.test(r.all), 'the bundle carries unaccounted script');
     must(/0 inline handlers/.test(r.all), 'the bundle carries inline handlers');
@@ -1732,7 +1732,7 @@ try {
     // injectBeforeBodyEnd, not a replace: the inlined runtime carries a literal
     // </body> in its speaker-view template.
     writeFileSync(join(PROJECT, 'tampered.html'), injectBeforeBodyEnd(src, '<script>window.__soak = 1;</script>'));
-    const r = dl(['present', 'tampered.html', '--check'], { allowFail: true });
+    const r = dl(['tampered.html', '--read-only', '--check'], { allowFail: true });
     must(r.code === 1, `--check passed a tampered deck (exit ${r.code}) — the gate is decoration`);
     must(/1 unaccounted script block/.test(r.all), 'the report does not name the spliced script');
   });

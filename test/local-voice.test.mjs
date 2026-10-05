@@ -17,7 +17,7 @@ import {
   detectLocalVoice, onPath, probe,
   withoutSupersededPlain, plainName, baseName, PLAIN_TIER,
 } from '../tools/local-voice.mjs';
-import { planServices, voiceModelOffer } from '../cli/dev.mjs';
+import { planServices, voiceModelOffer } from '../cli/open.mjs';
 import { ENGINES, NATIVE_ENGINES } from '../tools/tts-engines.mjs';
 
 // real `say -v '?'` output: names carry spaces and a parenthesised tier

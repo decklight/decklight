@@ -25,7 +25,7 @@ export function cameraUnavailable(win = globalThis) {
   if (!win.MediaRecorder) return 'this browser cannot record video (no MediaRecorder)';
   if (win.navigator?.mediaDevices?.getUserMedia) return null;
   return win.location?.protocol === 'file:'
-    ? 'a browser will not open the camera for a page loaded from a file — run decklight author'
+    ? 'a browser will not open the camera for a page loaded from a file — run decklight <deck.html>'
     : 'this browser exposes no camera (getUserMedia needs http://127.0.0.1 or https://)';
 }
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `decklight present <deck>` — play a deck you did not author.
+ * `decklight <deck> --read-only` — play a deck you did not author.
  *
  * The asymmetry this answers (MARKETPLACE.md WHY): a plugin runs on the
  * machine of the person who chose to install it, but a DECK travels — emailed,
@@ -147,12 +147,12 @@ export async function serveForRender(root, { html = null } = {}) {
   };
 }
 
-const USAGE = `usage: decklight present <deck.html|deck.decklight|repository url> [--port 8790] [--strict]
+const USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --read-only [--port 8790] [--strict]
                         [--root <dir>] [--remote] [--host <addr>] [--check]
                         [--no-plugins] [--branch <ref>] [--into <dir>]
 
-  plays a deck read-only over localhost — the safe way to open one you did not
-  author. Serves ONLY GET, only under the deck's own directory — refusing
+  opens a deck read-only over localhost — the safe way in for one you did not
+  write, and the only way a .decklight container opens. Serves ONLY GET, only under the deck's own directory — refusing
   dotfiles and every file type a deck cannot use — and writes nothing.
 
   A .decklight container (bundle --deck) is unwrapped in memory and treated
@@ -275,14 +275,14 @@ const USAGE = `usage: decklight present <deck.html|deck.decklight|repository url
  * not, so a bare `deck not found:` in a terminal running several tools was the
  * one message that could not be traced back to what printed it.
  */
-const fail = (msg) => { console.error(`decklight present: ${msg}`); return 1; };
+const fail = (msg) => { console.error(`decklight: ${msg}`); return 1; };
 
 // The flags that take a value, so the deck can be found past them:
 // `present --port 8790 talk.html` used to read "8790" as the deck and refuse a
 // file nobody named (the case tools/args.mjs firstPositional exists for).
 const VALUE_FLAGS = ['--port', '--host', '--root', '--branch', '--into'];
 
-export async function presentMain(args, { client } = {}) {
+export async function readOnlyMain(args, { client } = {}) {
   const deckArg = firstPositional(args, VALUE_FLAGS);
   if (args.includes('--help') || args.includes('-h') || deckArg === undefined) {
     console.log(USAGE);
@@ -748,7 +748,7 @@ export async function presentMain(args, { client } = {}) {
 
   const actual = await listenTakingOverIfNeeded(server, port, host);
   actualPort = actual;
-  console.log(`decklight present on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
+  console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — read-only, CSP enforced. Ctrl-C stops`);
   console.log(`  serving ${root} — ${rootArg ? '--root as given' : "the deck's own directory"};`
     + ' dotfiles and non-deck file types refused; no /edit/* routes, nothing is written');
   if (token) {
@@ -823,4 +823,7 @@ export async function presentMain(args, { client } = {}) {
   return 0;
 }
 
-if (isMain(import.meta.url)) process.exitCode = await presentMain(process.argv.slice(2));
+/** The pre-rename name, for anything still calling it. */
+export const presentMain = (...a) => readOnlyMain(...a);
+
+if (isMain(import.meta.url)) process.exitCode = await readOnlyMain(process.argv.slice(2));

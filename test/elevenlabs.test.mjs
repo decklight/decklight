@@ -15,7 +15,7 @@ import {
 } from '../tools/elevenlabs-tts.mjs';
 import { createEngine, ENGINES } from '../tools/tts-engines.mjs';
 import { suggestEngine } from '../tools/tts-setup.mjs';
-import { planServices } from '../cli/dev.mjs';
+import { planServices } from '../cli/open.mjs';
 
 const VOICES = {
   voices: [

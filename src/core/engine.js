@@ -2053,7 +2053,7 @@ export function init(userConfig = {}) {
       <tr><td>← / PageUp</td><td>previous</td></tr>
       <tr><td>Home / End</td><td>first / last slide</td></tr>
       <tr><td>O</td><td>overview</td></tr>
-      <tr><td>S</td><td>this slide's speaker notes — editable under decklight author, read-only elsewhere</td></tr>
+      <tr><td>S</td><td>this slide's speaker notes — editable in write mode, read-only elsewhere</td></tr>
       <tr><td>⌥⏎ / Alt+Enter</td><td>speaker view — a second window with notes, next slide, timer (again: rehearse mode)</td></tr>
       <tr><td>V</td><td>narration — track, voice, character, recording, captions, speed</td></tr>
       <tr><td>I</td><td>information — where this slide got what it says: named facts, and links to read</td></tr>

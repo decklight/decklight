@@ -2485,7 +2485,7 @@
         press('e');
         await settle();
         r.eSaysWriteMode = !document.querySelector('.decklight-editbar')
-          && [...document.querySelectorAll('.decklight-toast')].some((n) => /needs author mode/.test(n.textContent));
+          && [...document.querySelectorAll('.decklight-toast')].some((n) => /needs write mode/.test(n.textContent));
         press('/');
         const top = rows();
         r.noLockRow = !top.some((t) => /Lock editing|Unlock editing/.test(t)) && !top.some((t) => /^Export & share…/.test(t));

@@ -136,18 +136,18 @@ test('decklight author <url>: clones, then refuses before any server when it can
   t.after(() => rmTemp(root));
   const { url } = bareRepo(root, { 'a.html': DECK, 'b.html': DECK });
   const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
-  const r = spawnSync(process.execPath, [CLI, 'author', url], { cwd, encoding: 'utf8', timeout: 60_000 });
+  const r = spawnSync(process.execPath, [CLI, url], { cwd, encoding: 'utf8', timeout: 60_000 });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.match(r.stderr, /cloned file:.*talk\.git → talk/, 'it said what it did before it refused');
   assert.match(r.stderr, /2 decks in .* name one: append #<path> to the URL/);
   assert.ok(fs.existsSync(path.join(cwd, 'talk', '.git')), 'the clone is left for the next try');
   // a bad ref is refused before anything is cloned
-  const bad = spawnSync(process.execPath, [CLI, 'author', url, '--branch', '--upload-pack=x'], { cwd: path.join(root), encoding: 'utf8', timeout: 60_000 });
+  const bad = spawnSync(process.execPath, [CLI, url, '--branch', '--upload-pack=x'], { cwd: path.join(root), encoding: 'utf8', timeout: 60_000 });
   assert.equal(bad.status, 1);
-  assert.match(bad.stderr, /decklight author: --branch --upload-pack=x is not a branch or tag name/);
+  assert.match(bad.stderr, /decklight: --branch --upload-pack=x is not a branch or tag name/);
   assert.ok(!fs.existsSync(path.join(root, 'talk')), 'nothing cloned');
   // a path that does not exist is still just that
-  const missing = spawnSync(process.execPath, [CLI, 'author', 'slides/q3.html'], { cwd, encoding: 'utf8' });
+  const missing = spawnSync(process.execPath, [CLI, 'slides/q3.html'], { cwd, encoding: 'utf8' });
   assert.match(missing.stderr, /no such deck: slides\/q3\.html/);
 });
 
@@ -156,7 +156,7 @@ test('decklight author <url>: the clone IS the working directory — git runs th
   t.after(() => rmTemp(root));
   const { url } = bareRepo(root, { 'deck.html': DECK });
   const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
-  const child = spawn(process.execPath, [CLI, 'author', url, '--no-tts', '--no-lipsync', '--port', '0'],
+  const child = spawn(process.execPath, [CLI, url, '--no-tts', '--no-lipsync', '--port', '0'],
     { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(child));
   let out = '';
@@ -200,17 +200,17 @@ test('present and review open a repository URL — into the one clone author mad
   const { url } = bareRepo(root, { 'deck.html': DECK });
   const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
 
-  const first = await serveFrom(t, ['present', url], cwd);
+  const first = await serveFrom(t, [url, '--read-only'], cwd);
   assert.match(first, /cloned file:.*talk\.git → talk/);
-  assert.match(first, /decklight present on http:\/\/127\.0\.0\.1:\d+\/deck\.html/, 'and plays the deck inside');
+  assert.match(first, /decklight · deck\.html on http:\/\/127\.0\.0\.1:\d+\/deck\.html — read-only/, 'and plays the deck inside');
 
-  const second = await serveFrom(t, ['review', url, '--no-open', '--no-git'], cwd);
+  const second = await serveFrom(t, [url, '--read-only', '--no-git'], cwd);
   assert.match(second, /already cloned — opening talk/);
   assert.doesNotMatch(second, /cloned file:/, 'no second clone');
-  assert.match(second, /decklight review on http:\/\/127\.0\.0\.1:\d+\/deck\.html\?review/);
+  assert.match(second, /decklight · deck\.html on http:\/\/127\.0\.0\.1:\d+\/deck\.html — read-only/);
 
   // from INSIDE the clone, the clone is this directory — not talk/talk
-  const third = await serveFrom(t, ['present', url], path.join(cwd, 'talk'));
+  const third = await serveFrom(t, [url, '--read-only'], path.join(cwd, 'talk'));
   assert.match(third, /already cloned — opening \./);
   assert.ok(!fs.existsSync(path.join(cwd, 'talk', 'talk')), 'nothing nested');
   assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'one clone, all three times');
@@ -221,13 +221,14 @@ test('present --check works on a repository URL, and a URL that is no repository
   t.after(() => rmTemp(root));
   const { url } = bareRepo(root, { 'deck.html': DECK });
   const cwd = path.join(root, 'here'); fs.mkdirSync(cwd);
-  const ok = spawnSync(process.execPath, [CLI, 'present', url, '--check'], { cwd, encoding: 'utf8', timeout: 60_000 });
+  const ok = spawnSync(process.execPath, [CLI, url, '--read-only', '--check'], { cwd, encoding: 'utf8', timeout: 60_000 });
   assert.equal(ok.status, 0, ok.stderr);
   assert.match(ok.stderr, /cloned file:.*talk\.git → talk/);
-  for (const cmd of ['present', 'review']) {
-    const bad = spawnSync(process.execPath, [CLI, cmd, `file://${root}/nowhere.git`], { cwd, encoding: 'utf8', timeout: 60_000 });
+  for (const flags of [[], ['--read-only']]) {
+    const cmd = flags.join(' ') || 'write';
+    const bad = spawnSync(process.execPath, [CLI, `file://${root}/nowhere.git`, ...flags], { cwd, encoding: 'utf8', timeout: 60_000 });
     assert.notEqual(bad.status, 0, cmd);
-    assert.match(bad.stderr, new RegExp(`decklight ${cmd}: git clone file:.*nowhere\\.git failed`), cmd);
+    assert.match(bad.stderr, /decklight: git clone file:.*nowhere\.git failed/, cmd);
     assert.doesNotMatch(bad.stderr, /file:\/[^/]/, `${cmd}: no URL mangled into a path`);
   }
 });

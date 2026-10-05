@@ -160,7 +160,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
       }) } : {}),
     };
     const { engines, problems } = videoSetup(next);
-    console.log(`saved to ${saveLipsyncConfig(next)} — decklight author starts the lip-sync bridge with it from now on`);
+    console.log(`saved to ${saveLipsyncConfig(next)} — decklight <deck> starts the lip-sync bridge with it from now on`);
     console.log(engines.length ? `  neural video: ${engines.join(', ')} ready` : '  neural video: not ready yet');
     for (const p of problems) console.log(`  ${p}`);
     // saving is the whole job: `author` starts the bridge with it (and a second

@@ -19,7 +19,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { engineBlocker, engineMenu, engineStatus, ENGINES } from '../tools/tts-engines.mjs';
-import { planServices } from '../cli/dev.mjs';
+import { planServices } from '../cli/open.mjs';
 
 const NONE = () => false;                       // nothing on PATH
 const ALL = () => true;                         // everything on PATH

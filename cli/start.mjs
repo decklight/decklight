@@ -28,13 +28,14 @@ export function planStart({ decks = [], tty = false } = {}) {
 }
 
 /**
- * Which command a `[A/p/q]` answer picks. Enter is author — the deck in front
- * of you is far more often one you are working on than one you are showing.
+ * Which way in an `[Enter/r/q]` answer picks. Enter is write mode — the deck
+ * in front of you is far more often one you are working on than one you were
+ * sent; `r` (or `p`, for the fingers that remember "present") is read-only.
  */
 export function pickVerb(answer) {
   const a = String(answer ?? '').trim().toLowerCase();
-  if (!a || a.startsWith('a') || a.startsWith('e')) return 'author';
-  if (a.startsWith('p')) return 'present';
+  if (!a || a.startsWith('a') || a.startsWith('e') || a.startsWith('w') || a.startsWith('o')) return 'write';
+  if (a.startsWith('p') || a.startsWith('r')) return 'read-only';
   return null;
 }
 
@@ -76,8 +77,8 @@ export async function startMain(argv = [], {
   const yes = (a, dflt = true) => (a === null ? false : !a.trim() ? dflt : /^y/i.test(a.trim()));
   const launch = {
     init: run.init ?? (async (args) => (await import('./init.mjs')).initMain(args)),
-    author: run.author ?? (async (args) => (await import('./dev.mjs')).devMain(args)),
-    present: run.present ?? (async (args) => (await import('./present.mjs')).presentMain(args)),
+    write: run.write ?? (async (args) => (await import('./open.mjs')).openMain(args)),
+    'read-only': run['read-only'] ?? (async (args) => (await import('./open.mjs')).openMain(args)),
   };
 
   try {
@@ -98,11 +99,11 @@ export async function startMain(argv = [], {
     } else {
       out.write(`found ${deck}\n`);
     }
-    const a = await question('  a) author — edit it, live reload, an AI agent on A      p) present — play it read-only\n  [A/p/q] ');
+    const a = await question('  open it — live reload, edits from the browser, an AI agent on A      r) read-only — no way to change it\n  [Enter/r/q] ');
     const verb = a === null ? null : pickVerb(a);
     if (!verb) { out.write('nothing opened\n'); return 0; }
     rl?.close();
-    return (await launch[verb](verb === 'author' ? [deck, '--open'] : [deck])) ?? 0;
+    return (await launch[verb](verb === 'write' ? [deck, '--open'] : [deck, '--read-only'])) ?? 0;
   } finally {
     rl?.close();
   }

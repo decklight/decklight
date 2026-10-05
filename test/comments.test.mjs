@@ -73,7 +73,7 @@ test('no comments is an answer, and it names how to leave one', (t) => {
   const { code, out } = run();
   assert.equal(code, 0);
   assert.match(out, /no comments yet/);
-  assert.match(out, /decklight review talk\.html/);
+  assert.match(out, /decklight talk\.html --read-only/);
 });
 
 test('the three ways a deck moves on, in one read', async (t) => {

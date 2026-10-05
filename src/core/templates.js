@@ -346,7 +346,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
   }
 
   async function open(how = 'insert') {
-    if (!available()) { toast('templates install through the author server — decklight author'); return; }
+    if (!available()) { toast('templates install in write mode — decklight <deck.html>'); return; }
     overlays.opening();
     mode = how === 'apply' ? 'apply' : 'insert';
     listing = null;

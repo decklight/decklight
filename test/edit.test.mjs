@@ -829,8 +829,8 @@ test('--remote and --host are refused out loud, naming where the remote went', (
     const r = spawnSync(process.execPath, [EDIT, 'deck.html', flag, ...(flag === '--host' ? ['0.0.0.0'] : [])],
       { encoding: 'utf8' });
     assert.equal(r.status, 2, flag);
-    assert.match(r.stderr, new RegExp(`no longer takes \\${flag}`), flag);
-    assert.match(r.stderr, /decklight present .* --remote/, `${flag} names the command that does this now`);
+    assert.match(r.stderr, new RegExp(`write mode does not take \\${flag}`), flag);
+    assert.match(r.stderr, /decklight .* --read-only --remote/, `${flag} names the way in that does this now`);
   }
 });
 

@@ -246,6 +246,6 @@ export async function runSetupWizard({
 
   // 4. only a config that has spoken gets saved
   const file = saveTtsConfig(config, env);
-  log(`  saved to ${file} — decklight tts and decklight author read it from now on`);
+  log(`  saved to ${file} — decklight tts and decklight <deck> read it from now on`);
   return { config, engine };
 }

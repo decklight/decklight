@@ -1257,7 +1257,7 @@ export function createNarration({
   function liveFailure(err) {
     const s = String(err?.message ?? err);
     if (s.startsWith('429')) {
-      return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight author --tts-engine chirp';
+      return '🔇 voice quota exceeded (429) — auto-advance stopped · a free engine: decklight <deck> --tts-engine chirp';
     }
     if (/^\d{3}/.test(s)) {
       return `🔇 voice bridge error ${s.slice(0, 3)} — auto-advance stopped · press the key left of 1 for messages`;
@@ -2222,15 +2222,15 @@ export function createNarration({
       narrRows.push({
         text: '✨ Enhance the script — ElevenLabs audio tags…',
         flavor: enhanceScript() ? 'your agent adds them, nothing reworded' : '',
-        blocked: enhanceScript() ? null : 'needs decklight author — it writes the notes',
-        commit: () => (enhanceScript() ? renderNarr('enhance') : toast('enhancing the script needs decklight author — it writes the notes', 4000)),
+        blocked: enhanceScript() ? null : 'needs write mode — it writes the notes',
+        commit: () => (enhanceScript() ? renderNarr('enhance') : toast('enhancing the script needs write mode — it writes the notes', 4000)),
       });
       // …and written for the ear: terse notes as sentences a person would say
       narrRows.push({
         text: '🗣 Write the script for the ear…',
         flavor: enhanceScript() ? 'terse notes become sentences a person would say' : '',
-        blocked: enhanceScript() ? null : 'needs decklight author — it writes the notes',
-        commit: () => (enhanceScript() ? renderNarr('spoken') : toast('rewriting the script needs decklight author — it writes the notes', 4000)),
+        blocked: enhanceScript() ? null : 'needs write mode — it writes the notes',
+        commit: () => (enhanceScript() ? renderNarr('spoken') : toast('rewriting the script needs write mode — it writes the notes', 4000)),
       });
       narrRows.push({
         text: '🎙 Record this deck…',
@@ -2351,12 +2351,12 @@ export function createNarration({
       narrRows.push({
         text: `🎥 Neural video — local GPU${vids.length ? '…' : ''}`,
         flavor: vids.length ? '' : filmFirst ? 'no portrait yet — film yourself, below' : videoWhy,
-        blocked: vids.length ? null : filmFirst ? 'film yourself first — the row below' : `set it up once: ${LIPS_SETUP}, then restart decklight author`,
+        blocked: vids.length ? null : filmFirst ? 'film yourself first — the row below' : `set it up once: ${LIPS_SETUP}, then restart decklight`,
         cur: character.mode === 'video',
         commit: () => {
           if (vids.length) renderNarr('charvideo');
           else if (filmFirst) toast('neural video needs a portrait — 📹 Film yourself, below, makes one', 6000);
-          else toast(`neural video: ${videoWhy} — set it up once with ${LIPS_SETUP}, then restart decklight author`, 9000);
+          else toast(`neural video: ${videoWhy} — set it up once with ${LIPS_SETUP}, then restart decklight`, 9000);
         },
       });
       // Film yourself: the bridge says whether it can take a film (Wav2Lip
@@ -2410,7 +2410,7 @@ export function createNarration({
         narrRows.push({
           text: `⚡ ${liveEngine ?? 'the bridge'} — and it cannot be changed from here`,
           flavor: 'this voice bridge predates the engine picker',
-          blocked: 'restart it: decklight author',
+          blocked: 'restart it: decklight <deck>',
           cur: true,
           commit: () => {},
         });
@@ -2418,7 +2418,7 @@ export function createNarration({
         narrRows.push({
           text: 'another program is answering on the voice bridge\'s port',
           flavor: 'not decklight — the bridge could not start there',
-          blocked: 'stop that program, or restart decklight author (it moves the bridge)',
+          blocked: 'stop that program, or restart decklight (it moves the bridge)',
           cur: false,
           commit: () => {},
         });
@@ -2426,7 +2426,7 @@ export function createNarration({
         narrRows.push({
           text: 'no voice bridge is answering',
           flavor: 'the engine list comes from it',
-          blocked: 'decklight author',
+          blocked: 'decklight <deck>, write mode',
           cur: false,
           commit: () => {},
         });

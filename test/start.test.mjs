@@ -20,8 +20,8 @@ function harness(answers) {
   const calls = [];
   const run = {
     init: async (args) => { calls.push(['init', args]); return 0; },
-    author: async (args) => { calls.push(['author', args]); return 0; },
-    present: async (args) => { calls.push(['present', args]); return 0; },
+    write: async (args) => { calls.push(['write', args]); return 0; },
+    'read-only': async (args) => { calls.push(['read-only', args]); return 0; },
   };
   const ask = async (q) => { out.push(q); return answers.shift() ?? ''; };
   return { out: { write: (s) => out.push(s) }, ask, run, calls, log: () => out.join('') };
@@ -35,11 +35,12 @@ test('the plan reads the directory: nothing to open offers init, one deck offers
     'off a terminal there is nobody to ask — the short help, not a hang');
 });
 
-test('Enter means author; p means present; anything else opens nothing', () => {
-  assert.equal(pickVerb(''), 'author', 'the deck in front of you is one you are working on, more often than not');
-  assert.equal(pickVerb('a'), 'author');
-  assert.equal(pickVerb('edit'), 'author');
-  assert.equal(pickVerb('P'), 'present');
+test('Enter means write mode; r or p means read-only; anything else opens nothing', () => {
+  assert.equal(pickVerb(''), 'write', 'the deck in front of you is one you are working on, more often than not');
+  assert.equal(pickVerb('a'), 'write');
+  assert.equal(pickVerb('edit'), 'write');
+  assert.equal(pickVerb('r'), 'read-only');
+  assert.equal(pickVerb('P'), 'read-only', 'for the fingers that remember present');
   assert.equal(pickVerb('q'), null);
 });
 
@@ -68,22 +69,22 @@ test('declining the offer prints the short help instead', async (t) => {
   assert.match(h.log(), /Commands:/);
 });
 
-test('one deck is found and opened in author mode with the browser, on Enter', async (t) => {
+test('one deck is found and opened in write mode with the browser, on Enter', async (t) => {
   const dir = tmp('start', t);
   writeFileSync(path.join(dir, 'talk.html'), DECK);
   writeFileSync(path.join(dir, 'notes.html'), '<p>not a deck</p>');
   const h = harness(['']);
   assert.equal(await startMain([], { cwd: dir, tty: true, ...h }), 0);
   assert.match(h.log(), /found talk\.html/);
-  assert.deepEqual(h.calls, [['author', ['talk.html', '--open']]]);
+  assert.deepEqual(h.calls, [['write', ['talk.html', '--open']]]);
 });
 
-test('p presents the deck instead, and q opens nothing', async (t) => {
+test('p (or r) opens the deck read-only instead, and q opens nothing', async (t) => {
   const dir = tmp('start', t);
   writeFileSync(path.join(dir, 'talk.html'), DECK);
   const p = harness(['p']);
   await startMain([], { cwd: dir, tty: true, ...p });
-  assert.deepEqual(p.calls, [['present', ['talk.html']]]);
+  assert.deepEqual(p.calls, [['read-only', ['talk.html', '--read-only']]]);
   const q = harness(['q']);
   await startMain([], { cwd: dir, tty: true, ...q });
   assert.deepEqual(q.calls, []);
@@ -97,7 +98,7 @@ test('several decks are listed and one is chosen by number', async (t) => {
   const h = harness(['2', 'a']);
   await startMain([], { cwd: dir, tty: true, ...h });
   assert.match(h.log(), /2 decks here:\n {2}1\) a\.html\n {2}2\) b\.html/);
-  assert.deepEqual(h.calls, [['author', ['b.html', '--open']]]);
+  assert.deepEqual(h.calls, [['write', ['b.html', '--open']]]);
 });
 
 test('off a terminal the short help prints and nothing is asked', async (t) => {

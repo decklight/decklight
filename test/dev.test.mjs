@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `decklight author` (with `dev` as its permanent hidden alias): which
+// `decklight <deck>`, the one command (cli/open.mjs): which
 // services come up, which are skipped, and why.
 // planServices() is pure — no ports are bound here.
 
@@ -15,7 +15,7 @@ import path from 'node:path';
 import { rmTemp, stop } from './helpers.mjs';
 import { fileURLToPath } from 'node:url';
 
-import { planServices, inGitRepo, voiceSetupOffer, moveBridgesOffStrangers } from '../cli/dev.mjs';
+import { planServices, inGitRepo, voiceSetupOffer, moveBridgesOffStrangers } from '../cli/open.mjs';
 import { LEASH, onLeash, leashEnv, exitWhenOrphaned } from '../cli/supervise.mjs';
 import { isPortOpen } from '../cli/port-conflict.mjs';
 import { DECK_URL_RE } from '../cli/banner.mjs';
@@ -210,10 +210,10 @@ test('--remote and --host are reported as gone, never passed to the edit child',
 });
 
 test('author refuses --remote out loud and names the command that replaced it', () => {
-  const r = spawnSync('node', [CLI, 'author', 'deck.html', '--remote'], { encoding: 'utf8' });
+  const r = spawnSync('node', [CLI, 'deck.html', '--remote'], { encoding: 'utf8' });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /does not take --remote in write mode/);
-  assert.match(r.stderr, /decklight author deck\.html --read-only --remote/,
+  assert.match(r.stderr, /decklight deck\.html --read-only --remote/,
     'and names it with the deck already filled in');
   // it must not have started anything before deciding
   assert.doesNotMatch(r.stdout, DECK_URL_RE);
@@ -225,7 +225,7 @@ test('author --read-only is the read-only server: no edit route exists, the CSP 
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-ro-'));
   writeFileSync(path.join(dir, 'deck.html'), '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div><script>Decklight.init()</script></body></html>');
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-ro-home-'));
-  const child = spawn(process.execPath, [CLI, 'author', 'deck.html', '--read-only', '--port', '0'],
+  const child = spawn(process.execPath, [CLI, 'deck.html', '--read-only', '--port', '0'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
@@ -260,14 +260,15 @@ test('inGitRepo trusts git\'s answer and treats failure as "no repo"', () => {
   assert.equal(inGitRepo('/anywhere', () => { throw new Error('not a repo'); }), false);
 });
 
-test('author is routed and documented by the dispatcher', () => {
+test('the deck is the command: the global help opens with it, and no word for it is listed', () => {
   const help = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
-  assert.match(help, /^  author {2}/m, 'author is listed in the global help');
-  assert.doesNotMatch(help, /^  dev {5}/m, 'the alias is documented nowhere');
-  assert.doesNotMatch(help, /^  edit {4}/m, 'the removed command is not offered');
+  assert.match(help, /^  decklight <deck\.html \| repository url> \[--read-only\]/m, 'the one way to open a deck, first');
+  for (const word of ['author', 'dev', 'present', 'review', 'edit']) {
+    assert.doesNotMatch(help, new RegExp(`^  ${word} +\\S`, 'm'), `${word} is not a command`);
+  }
 
-  const authorHelp = execFileSync('node', [CLI, 'author', '--help'], { encoding: 'utf8' });
-  assert.match(authorHelp, /usage: decklight author/);
+  const authorHelp = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
+  assert.match(authorHelp, /usage: decklight <deck\.html \| git url> \[--read-only\]/);
   // neither is offered as an author flag any more — a flag listed in the help
   // is a promise to honour it, and author refuses both
   assert.doesNotMatch(authorHelp, /^\s+--remote\b/m, 'the LAN opt-in is gone');
@@ -276,17 +277,21 @@ test('author is routed and documented by the dispatcher', () => {
   assert.match(authorHelp, /^\s+--read-only\b/m, 'the read-only way in is a flag of the same command');
 });
 
-test('`dev` still works, as a permanent hidden alias — same command, no nag', () => {
-  const viaAlias = execFileSync('node', [CLI, 'dev', '--help'], { encoding: 'utf8' });
-  const direct = execFileSync('node', [CLI, 'author', '--help'], { encoding: 'utf8' });
-  assert.equal(viaAlias, direct, 'flag for flag the same command');
-  assert.doesNotMatch(viaAlias, /deprecat/i, 'an alias forever is not a deprecation');
-
-  // and it really routes to author, not to the unknown-command path
-  const missing = spawnSync('node', [CLI, 'dev', 'nope.html'], { encoding: 'utf8' });
-  assert.equal(missing.status, 1);
-  assert.match(missing.stderr, /no such deck/);
-  assert.doesNotMatch(missing.stderr, /unknown command/);
+test('the retired words point at the deck, with the deck already filled in', () => {
+  const cases = [
+    [['author', 'talk.html', '--port', '9000'], /^ {2}decklight talk\.html --port 9000$/m],
+    [['dev', 'talk.html'], /^ {2}decklight talk\.html$/m],
+    [['present', 'talk.html', '--remote'], /^ {2}decklight talk\.html --read-only --remote$/m],
+    [['review', 'talk.html'], /^ {2}decklight talk\.html --read-only/m],
+    [['review', 'submit', 'talk.html'], /^ {2}decklight comments submit talk\.html$/m],
+  ];
+  for (const [args, line] of cases) {
+    const r = spawnSync('node', [CLI, ...args], { encoding: 'utf8' });
+    assert.equal(r.status, 1, args.join(' '));
+    assert.match(r.stderr, /is no longer a command: the deck is the command/, args.join(' '));
+    assert.match(r.stderr, line, args.join(' '));
+    assert.doesNotMatch(r.stderr, /unknown command/);
+  }
 });
 
 test('`edit` is not a command, and says so the way any other unknown one does', () => {
@@ -300,7 +305,7 @@ test('`edit` is not a command, and says so the way any other unknown one does', 
   assert.match(r.stderr, /unknown command "edit"/);
   // the help still lists the command that does the job, which is how someone
   // who typed `edit` finds `author` now
-  assert.match(r.stdout, /^ {2}author /m);
+  assert.match(r.stdout, /^ {2}decklight <deck\.html \| url>/m, 'the deck is the command, first in the short help');
 });
 
 // ── the leash: a child outlives its parent for exactly as long as the pipe ──
@@ -416,7 +421,7 @@ test('SIGKILL to author takes the deck server with it — no orphan holding the 
     '<!doctype html><html><body><div class="decklight"><section><h2>One</h2></section></div></body></html>\n');
 
   const dev = spawn(process.execPath, [
-    CLI, 'author', 'deck.html', '--port', '0', '--no-tts', '--no-lipsync', '--no-git',
+    CLI, 'deck.html', '--port', '0', '--no-tts', '--no-lipsync', '--no-git',
   ], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(dev));
 
@@ -435,13 +440,13 @@ test('SIGKILL to author takes the deck server with it — no orphan holding the 
     async () => (await isPortOpen(port)) === false, () => out);
 });
 
-test('author without a deck, or with a missing one, fails with usage — not a stack trace', () => {
-  const bare = spawnSync('node', [CLI, 'author'], { encoding: 'utf8' });
+test('a missing deck fails by name — not a stack trace', () => {
+  const bare = spawnSync('node', [CLI, 'nope.html', '--read-only'], { encoding: 'utf8' });
   assert.equal(bare.status, 1);
-  assert.match(bare.stderr, /needs a deck/);
+  assert.match(bare.stderr, /deck not found/);
   assert.doesNotMatch(bare.stderr, /at .*\.mjs:\d+/, 'no stack trace');
 
-  const missing = spawnSync('node', [CLI, 'author', 'nope.html'], { encoding: 'utf8' });
+  const missing = spawnSync('node', [CLI, 'nope.html'], { encoding: 'utf8' });
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /no such deck/);
 });

@@ -37,7 +37,7 @@ test('a rename-replace does not kill live reload', async (t) => {
   child.stderr.on('data', (c) => { log += c; });
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => {
-      const m = log.match(/decklight author on (http:\/\/127\.0\.0\.1:\d+)/);
+      const m = log.match(/decklight · \S+ on (http:\/\/127\.0\.0\.1:\d+)/);
       if (m) { clearInterval(scan); resolve(m[1]); }
     }, 25);
     child.on('exit', () => { clearInterval(scan); reject(new Error('edit exited early:\n' + log)); });

@@ -80,7 +80,7 @@ test('a fact round-trips, and ordinary output is never mistaken for one', () => 
 
   // Everything a child might legitimately print stays a line to show someone.
   for (const line of [
-    'decklight author on http://127.0.0.1:8788/talk.html — E element edit mode',
+    'decklight · talk.html on http://127.0.0.1:8788/talk.html — E element edit mode',
     '  agents: claude — “Ask agent” (A) is live',
     '', '{"key":"voice"}', 'decklight:ready {"key":"x"}',
   ]) assert.equal(parseReady(line), null, `mistook a human line for a fact: ${line}`);

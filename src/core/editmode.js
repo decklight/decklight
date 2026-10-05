@@ -968,7 +968,7 @@ export function createEditMode({
     const readOnly = notesReadOnly = !editAvailable;
     let sl = instance.state.slide;
     const heading = () => (readOnly
-      ? `notes — slide ${sl} · read-only (decklight author edits them)`
+      ? `notes — slide ${sl} · read-only (write mode edits them)`
       : `notes — slide ${sl} · saves itself`);
     const { el, card, title } = typingCard('notes', notesDock, heading(), toggleEditor);
     editEl = el;

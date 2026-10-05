@@ -661,11 +661,11 @@ export function engineBlocker(status, { env = process.env } = {}) {
           { hasBin: (b) => binOnPath(b, env) })),
       };
     case 'no-key':
-      return { why: `needs $${ELEVENLABS_KEY_ENV}`, fix: 'export it, then restart decklight author' };
+      return { why: `needs $${ELEVENLABS_KEY_ENV}`, fix: 'export it, then restart decklight' };
     case 'no-project':
       return {
         why: 'needs a Google Cloud project',
-        fix: 'export GOOGLE_CLOUD_PROJECT=<id>, then restart decklight author',
+        fix: 'export GOOGLE_CLOUD_PROJECT=<id>, then restart decklight',
       };
     case 'bad-project':
       // Named rather than generic: this one is nearly always a copy-paste that

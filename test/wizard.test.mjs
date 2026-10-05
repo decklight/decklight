@@ -490,7 +490,7 @@ test('no credential can reach a deck: bundle never reads the credentials file', 
 });
 
 test('present registers nothing of this — a credential prompt in an emailed deck is phishing', () => {
-  const src = readFileSync(path.join(ROOT, 'cli/present.mjs'), 'utf8');
+  const src = readFileSync(path.join(ROOT, 'cli/read-only.mjs'), 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(code, /wizard|credential/i,
     'the read-only viewer has no wizard surface at all, which is why it cannot grow one by default');

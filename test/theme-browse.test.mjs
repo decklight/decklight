@@ -388,7 +388,7 @@ test('exporting in an unmarked marketplace theme asks first, naming it', async (
 // ── author mode only ───────────────────────────────────────────────────────
 
 test('present has no browse or mark surface at all', async () => {
-  const src = readFileSync(path.join(ROOT, 'cli/present.mjs'), 'utf8');
+  const src = readFileSync(path.join(ROOT, 'cli/read-only.mjs'), 'utf8');
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.doesNotMatch(code, /theme\/browse|theme\/add|theme\/mark|setMarked/,
     'marking is a deck edit, and the read-only viewer performs none');

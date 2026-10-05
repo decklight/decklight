@@ -11,7 +11,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { lipsyncConfigPath, loadLipsyncConfig, saveLipsyncConfig, parsePortrait, videoSetup, SETUP_HINT, withPortrait, portraitsDir } from '../tools/lipsync-config.mjs';
-import { planServices } from '../cli/dev.mjs';
+import { planServices } from '../cli/open.mjs';
 
 test('the setup lives beside tts.json, round-trips, and a missing file is "not set up", not an error', () => {
   const home = mkdtempSync(path.join(tmpdir(), 'dl-lips-'));

@@ -2,11 +2,11 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// decklight author — one command for the whole authoring loop: the edit
-// server plus whichever optional bridges this machine can actually run.
-// (`decklight dev` is its permanent hidden alias, from before the rename.)
+// decklight <deck> — THE command: open a deck. Write mode is the edit server
+// plus whichever optional bridges this machine can actually run; --read-only
+// is the read-only server, with no edit route in the process (read-only.mjs).
 //
-//   decklight author <deck.html> [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+//   decklight <deck.html | url> [--read-only] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
 //                    [--project <id>] [--rhubarb <bin>] [--portrait <name=img.png|clip.mp4>]…
 //                    [--no-tts] [--no-lipsync]
 //
@@ -50,7 +50,7 @@ const CLI = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
 // run directly. The dispatcher would refuse `edit` out loud.
 const EDIT = fileURLToPath(new URL('./edit.mjs', import.meta.url));
 
-const USAGE = `usage: decklight author <deck.html | git url> [--read-only] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
+const USAGE = `usage: decklight <deck.html | git url> [--read-only] [--port 8788] [--tts-port 8787] [--lipsync-port 8789]
                     [--tts-engine gemini|chirp|piper|elevenlabs] [--project <id>] [--no-tts]
                     [--git | --no-git] [--commit-every <s>] [--agent <name>]
   brings up the edit server plus every bridge this machine can run, under one Ctrl-C
@@ -90,7 +90,7 @@ const USAGE = `usage: decklight author <deck.html | git url> [--read-only] [--po
                     directory under a Content-Security-Policy header, and the
                     ingredients label runs first. The way to open a deck you did
                     not write; --remote, --strict, --check and --root apply here
-  every server binds 127.0.0.1; for a phone remote: decklight author <deck> --read-only --remote
+  every server binds 127.0.0.1; for a phone remote: decklight <deck> --read-only --remote
 
   --tts-engine E    gemini  Vertex AI, best delivery, honors a style — no free tier  [default]
                     chirp   Cloud TTS Chirp 3: HD — same voices, ~1s, 1M chars/month free
@@ -320,37 +320,42 @@ export const voiceSetupOffer = (plan) => {
 // inGitRepo lives in git.mjs now; re-exported so importers (and the tests) keep
 // finding it where dev grew it.
 export { inGitRepo } from './git.mjs';
+/** The pre-rename name, for anything still calling it. */
+export const devMain = (...a) => openMain(...a);
 import { inGitRepo } from './git.mjs';
 
 const COLORS = { deck: '\x1b[36m', voice: '\x1b[35m', lips: '\x1b[33m' };
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 
-export async function devMain(args) {
-  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
+export async function openMain(args) {
+  // --read-only first, --help after: the read-only way in prints its own usage
   // --read-only: the same command, the read-only server (PRESENTING). It is
   // present's serving core, not the edit server with the writes refused: no
   // /edit/* route exists in that process, the deck is served from its own
   // directory under the CSP, and the ingredients label runs first. The one
   // door to a deck, whichever way it is opened.
-  if (args.includes('--read-only')) {
-    const { presentMain } = await import('./present.mjs');
-    return presentMain(args.filter((a) => a !== '--read-only'));
+  const named = args.find((a) => !a.startsWith('-') && /\.decklight$/i.test(a));
+  if (args.includes('--read-only') || named) {
+    if (named && !args.includes('--read-only')) console.log('  a .decklight container is read-only by nature: nothing in it can be edited in place');
+    const { readOnlyMain } = await import('./read-only.mjs');
+    return readOnlyMain(args.filter((a) => a !== '--read-only'));
   }
+  if (args.includes('--help') || args.includes('-h')) { console.log(USAGE); return; }
 
   let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   if (plan.gone.length) {
-    console.error(`decklight author does not take ${plan.gone.join(' or ')} in write mode — the phone remote is a read-only thing.`);
+    console.error(`decklight does not take ${plan.gone.join(' or ')} in write mode — the phone remote is a read-only thing.`);
     console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
     console.error('  /edit/agent were reachable from the same run you were not watching. The read-only server');
     console.error('  has no edit surface to widen, so that is where it lives.');
-    console.error(`\n  decklight author ${plan.deck ?? '<deck.html>'} --read-only --remote`);
+    console.error(`\n  decklight ${plan.deck ?? '<deck.html>'} --read-only --remote`);
     process.exitCode = 2;
     return;
   }
   let deck = plan.deck;
   if (!deck) {
-    console.error('decklight author needs a deck: decklight author <deck.html>\n');
+    console.error('decklight needs a deck: decklight <deck.html>\n');
     console.error(USAGE);
     process.exitCode = 1;
     return;
@@ -361,7 +366,7 @@ export async function devMain(args) {
   const { opt } = argReader(args);
   let got = null;
   try { got = deckFromUrl(deck, { branch: opt('--branch'), into: opt('--into') }); } catch (e) {
-    console.error(`decklight author: ${e.message}`);
+    console.error(`decklight: ${e.message}`);
     process.exitCode = 1;
     return;
   }
@@ -378,7 +383,7 @@ export async function devMain(args) {
     plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   }
   if (!existsSync(deck)) {
-    console.error(`decklight author: no such deck: ${deck}`);
+    console.error(`decklight: no such deck: ${deck}`);
     process.exitCode = 1;
     return;
   }
@@ -628,7 +633,7 @@ export async function devMain(args) {
       // another already serves its port exits 0, seconds into startup.
       if (svc.name === 'edit') {
         // the deck server is the one service author cannot run without
-        say(`${paint(svc.tag)} exited (${code}) — stopping decklight author`);
+        say(`${paint(svc.tag)} exited (${code}) — stopping decklight`);
         flushBanner();
         shutdown(code ?? 1);
       } else {
@@ -663,7 +668,7 @@ export async function devMain(args) {
 
 if (isMain(import.meta.url)) {
   // devMain sets process.exitCode itself; only a throw runMain caught lands here
-  if (await runMain('author', () => devMain(process.argv.slice(2))) === 1) process.exitCode = 1;
+  if (await runMain('open', () => openMain(process.argv.slice(2))) === 1) process.exitCode = 1;
 }
 
 /**

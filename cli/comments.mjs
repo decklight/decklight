@@ -6,7 +6,7 @@
 //
 //   decklight comments <deck.html> [--unresolved] [--all] [--import <file>] [--incoming]
 //
-// The author's side of `decklight review`. Reads `<deck>.review.jsonl`, resolves
+// The author's side of a review. Reads `<deck>.review.jsonl`, resolves
 // every comment against the deck AS IT IS NOW, and prints it grouped by slide.
 //
 // Resolution is the whole job. A comment records the slide it was written on,
@@ -29,7 +29,48 @@ import { findDeck } from './history.mjs';
 import { gitAvailable, inGitRepo, gitAutocommit, oneline, git } from './git.mjs';
 import { deckAt } from './restore.mjs';
 
+const SUBMIT_USAGE = `usage: decklight comments submit <deck.html> [--pr] [--remote origin] [--dry-run]
+  push the comments you left to a branch of their own, for the author to read
+
+  the branch is review/<you>-<today>, and a second submit the same day lands on
+  the branch already there — a morning of reviewing is one branch, one PR
+
+  --pr             also open a pull request (needs gh, signed in)
+  --remote NAME    which remote to push to                          [origin]
+  --dry-run        build the commit and stop before pushing anything
+
+  this pushes ONE FILE: the comments. Your branch, your working tree and your
+  index are never touched, and none of your own commits come along.
+`;
+
+/**
+ * `decklight comments submit <deck>` — the reviewer's return path. Thin on
+ * purpose: everything that could be got wrong lives in cli/review-submit.mjs,
+ * where it is testable without a process. Here rather than a command of its
+ * own because it is the other half of comments: the same store, the same
+ * reviewer, and a person who typed one will look for the other here.
+ */
+async function submitSubcommand(args, { out = process.stdout } = {}) {
+  if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
+    out.write(SUBMIT_USAGE);
+    return 0;
+  }
+  const { opt } = argReader(args);
+  const deckArg = args.find((a) => !a.startsWith('-') && a !== opt('--remote'));
+  const deckPath = resolve(process.cwd(), deckArg);
+  if (!existsSync(deckPath)) { process.stderr.write(`decklight comments submit: no such deck: ${deckArg}\n`); return 1; }
+  const { submitReview } = await import('./review-submit.mjs');
+  try {
+    submitReview(deckPath, { out, pr: args.includes('--pr'), remote: opt('--remote', 'origin'), dryRun: args.includes('--dry-run') });
+    return 0;
+  } catch (e) {
+    process.stderr.write(`decklight comments submit: ${String(e?.message ?? e)}\n`);
+    return 1;
+  }
+}
+
 const HELP = `usage: decklight comments <deck.html> [--unresolved] [--all] [--import <file>] [--incoming]
+       decklight comments submit <deck.html> [--pr] [--remote origin] [--dry-run]
   what reviewers said, resolved against the deck as it is now
 
   --unresolved   only the ones nobody has closed off
@@ -38,14 +79,14 @@ const HELP = `usage: decklight comments <deck.html> [--unresolved] [--all] [--im
                  already there, and commit it — the return path for a reviewer
                  who was sent the deck and has no clone
   --incoming     ask the remote what reviews are WAITING — the branches
-                 \`decklight review submit\` pushed that you have not merged
+                 \`decklight comments submit\` pushed that you have not merged
                  (--remote NAME to ask a remote other than origin)
   --at ID        show what the slide SAID when comment ID was written, beside
                  what it says now — the point of recording which commit a
                  comment was made against
 
   comments live in <deck>.review.jsonl beside the deck; reviewers write them
-  with: decklight review <deck.html>
+  with: decklight <deck.html> --read-only   (then M)
 `;
 
 /**
@@ -157,7 +198,7 @@ async function listIncoming(deckPath, { remote, name, out, err }) {
     // The deck is the doorway: M shows these comments and T takes a review
     // in. Plain git still works — merging the branch brings the sidecar
     // through the union merge — for whoever prefers the terminal end to end.
-    out.write(`\ntake them in:  decklight author ${name}  then M in the deck`
+    out.write(`\ntake them in:  decklight ${name}  then M in the deck`
       + `   (or: git merge ${remote}/${r.reviews[0].branch})\n`);
     return 0;
   }
@@ -172,6 +213,9 @@ async function listIncoming(deckPath, { remote, name, out, err }) {
 }
 
 export function commentsMain(argv = process.argv.slice(2), { out = process.stdout, err = process.stderr } = {}) {
+  // `comments submit <deck>` is the reviewer's return path: the one-shot that
+  // pushes what is already written, dispatched here as the other half of comments
+  if (argv[0] === 'submit') return submitSubcommand(argv.slice(1), { out });
   const { opt } = argReader(argv);
   if (argv.includes('--help') || argv.includes('-h')) { out.write(HELP); return 0; }
 
@@ -294,7 +338,7 @@ export function commentsMain(argv = process.argv.slice(2), { out = process.stdou
     // Not an error: no comments is the state every deck starts in, and the
     // useful answer is how somebody would leave one.
     out.write(`${name} — no comments yet\n`);
-    out.write(`  a reviewer leaves them with:  decklight review ${relative(cwd, deckPath) || name}\n`);
+    out.write(`  a reviewer leaves them with:  decklight ${relative(cwd, deckPath) || name} --read-only   (then M)\n`);
     return 0;
   }
   const { records, skipped } = parseReview(read(storePath));

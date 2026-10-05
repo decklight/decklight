@@ -406,13 +406,13 @@ test('nothing on the deck-load or presenting path can FETCH from a marketplace',
   const files = [
     ...fs.readdirSync(path.join(root, 'src'), { recursive: true })
       .filter((f) => /\.(js|mjs)$/.test(f)).map((f) => path.join('src', f)),
-    'cli/serve.mjs', 'cli/edit.mjs', 'cli/dev.mjs', 'cli/bundle.mjs', 'cli/upgrade.mjs',
+    'cli/serve.mjs', 'cli/edit.mjs', 'cli/open.mjs', 'cli/bundle.mjs', 'cli/upgrade.mjs',
     // cli/plugin.mjs is on the presenting path (present injects presenter
     // chrome from the local library, PRESENT#PLUGINS). It reads the catalog
     // CACHE to resolve `plugin add`, which is the same considered read the
     // wizard makes; what it must never grow is a catalog fetch, and this is
     // where that is held.
-    'cli/present.mjs', 'cli/wizard.mjs', 'cli/plugin.mjs',
+    'cli/read-only.mjs', 'cli/wizard.mjs', 'cli/plugin.mjs',
     // Every server resolves a deck's marked themes (SPEC THEME_DISTRIBUTION)
     // through these two — from the catalog cache and the checkouts, never a
     // catalog fetch.

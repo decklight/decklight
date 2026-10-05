@@ -20,7 +20,7 @@ import { stripUnaccounted, classifyScripts } from '../cli/audit.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
-const SRC = path.resolve(here, '../cli/present.mjs');
+const SRC = path.resolve(here, '../cli/read-only.mjs');
 
 /** A deck with one of everything the label accounts for. */
 const CLEAN = `<!doctype html>
@@ -141,7 +141,7 @@ function deckDir(html = CLEAN, name = 'talk.html') {
 
 /** Start the server on an ephemeral port; resolve its base URL and its log. */
 async function startPresent(t, dir, { deck = 'talk.html', extraArgs = [] } = {}) {
-  const child = spawn(process.execPath, [CLI, 'present', deck, '--port', '0', ...extraArgs],
+  const child = spawn(process.execPath, [CLI, deck, '--read-only', '--port', '0', ...extraArgs],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(async () => { await stop(child); rmTemp(dir); });
   let out = '';
@@ -247,7 +247,7 @@ test('there is no way to turn it back off', async () => {
 
 test('--help documents the automatic degrade, not just the flag', async () => {
   const { execFileSync } = await import('node:child_process');
-  const out = execFileSync(process.execPath, [CLI, 'present', '--help'], { encoding: 'utf8' });
+  const out = execFileSync(process.execPath, [CLI, 'deck.html', '--read-only', '--help'], { encoding: 'utf8' });
   assert.match(out, /--strict/);
   assert.match(out, /turns itself on|turns ITSELF on/i, 'the behaviour someone will meet without asking for it');
 });

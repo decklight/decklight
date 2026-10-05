@@ -283,7 +283,7 @@ test('present --check fails a deck whose signature does not verify', () => {
 
   let code = 0; let out = '';
   try {
-    out = execFileSync(process.execPath, [CLI, 'present', deck, '--check'],
+    out = execFileSync(process.execPath, [CLI, deck, '--read-only', '--check'],
       { encoding: 'utf8', stdio: 'pipe', env: noIdentityEnv() });
   } catch (e) { code = e.status; out = String(e.stdout); }
   assert.equal(code, 1, 'a gate that passes what it could not stand behind is not a gate');
@@ -295,7 +295,7 @@ test('--check routes a nameless verified signature the same as unchecked', async
   // degrade — gate on the same `state !== UNSIGNED && !isVerified(signature)`
   // expression, so exercising --check through the injectable client covers the
   // one choke point they share.
-  const { presentMain } = await import('../cli/present.mjs');
+  const { presentMain } = await import('../cli/read-only.mjs');
   const dir = tmp();
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');
@@ -322,7 +322,7 @@ test('an unsigned deck passes --check — most decks are unsigned', () => {
   const dir = tmp();
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');
-  const out = execFileSync(process.execPath, [CLI, 'present', deck, '--check'],
+  const out = execFileSync(process.execPath, [CLI, deck, '--read-only', '--check'],
     { encoding: 'utf8', env: noIdentityEnv() });
   assert.doesNotMatch(out, /signature/, 'and nothing is said about a signature that was never claimed');
 });

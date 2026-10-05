@@ -58,9 +58,10 @@ export const COMMANDS = {
   tts: { module: '../tools/voiceover-server.mjs', main: 'ttsMain' },
   lipsync: { module: '../tools/lipsync-server.mjs', main: 'lipsyncMain' },
   video: { module: '../tools/video.mjs', main: 'videoMain' },
-  author: { module: './dev.mjs', main: 'devMain' },
-  // The pre-rename name. A permanent hidden alias: works forever, documented nowhere.
-  dev: { alias: 'author' },
+  // THE command: `decklight <deck.html | url> [--read-only]`. Reached through
+  // routeForPath, never typed as a word, and listed nowhere (`hidden`): the
+  // deck is the command.
+  open: { module: './open.mjs', main: 'openMain', hidden: true },
   record: { module: './record.mjs', main: 'recordMain' },
   // tools/voiceover.mjs arg-parses and exits at LOAD (it cannot be imported —
   // deck-html.mjs's note), so it is spawned, exactly as `video --voiceover`
@@ -68,9 +69,7 @@ export const COMMANDS = {
   // are the whole point of running it in a terminal.
   voiceover: { spawn: '../tools/voiceover.mjs' },
   enhance: { module: './enhance.mjs', main: 'enhanceMain' },
-  review: { module: './review.mjs', main: 'reviewMain' },
   comments: { module: './comments.mjs', main: 'commentsMain' },
-  present: { module: './present.mjs', main: 'presentMain' },
   associate: { module: './associate.mjs', main: 'associateMain' },
   'report-bug': { module: './report-bug.mjs', main: 'reportBugMain' },
   doctor: { module: './doctor.mjs', main: 'doctorMain' },
@@ -105,14 +104,12 @@ export function commandSummary(name) {
  * newcomer who typed the wrong thing does not need the other thirty commands
  * on screen to find the right one — they need these six and a way to the rest.
  */
-export const START_COMMANDS = ['init', 'author', 'check', 'present', 'import', 'bundle', 'publish', 'doctor'];
+export const START_COMMANDS = ['init', 'check', 'import', 'bundle', 'publish', 'doctor'];
 
 /** One line each, written to fit a terminal — GLOBAL_HELP's paragraphs wrap. */
 const SHORT = {
   init: 'start a deck here, plus the skill that teaches an AI agent to write it',
-  author: 'work on a deck: live reload, edits from the browser, an AI agent on A',
   check: 'lint one deck headlessly: what is clipped, missing or out of step, one exit code',
-  present: 'play a deck you did not write: read-only, under a CSP, what runs is listed',
   import: 'bring a PowerPoint, Keynote or Google Slides deck across',
   bundle: 'one self-contained HTML file to hand over',
   publish: 'bundle and push to GitHub Pages, Netlify, Vercel or a folder',
@@ -126,7 +123,8 @@ export function shortHelp() {
   return `decklight — author, record, and package Decklight presentations
 
 Usage:
-  decklight <deck.html>          open a deck in author mode: live reload, edits from the browser
+  decklight <deck.html | url>    open a deck: live reload, edits from the browser, an AI agent on A
+  decklight <deck> --read-only   open it with no way to change it: the safe way in for a deck you did not write
   decklight <talk.pptx>          bring a PowerPoint, Keynote or Google Slides deck across
   decklight                      in a directory: start a deck here, or pick one to open
   decklight <command> [options]  (decklight <command> --help for its flags)
@@ -169,12 +167,12 @@ export function isRepoUrl(arg) {
 export function routeForPath(arg) {
   const a = String(arg ?? '');
   if (/^https?:\/\/docs\.google\.com\/presentation\//i.test(a)) return 'import';
-  if (isRepoUrl(a)) return 'author';
+  if (isRepoUrl(a)) return 'open';
   if (a.startsWith('-')) return null;
   const ext = /\.([a-z0-9]+)$/i.exec(a)?.[1]?.toLowerCase();
   if (!ext) return null;
-  if (ext === 'html' || ext === 'htm') return 'author';
-  if (ext === 'decklight') return 'present';
+  if (ext === 'html' || ext === 'htm') return 'open';
+  if (ext === 'decklight') return 'open';   // a container is read-only by nature: open.mjs says so
   if (ext === 'pptx' || ext === 'key' || ext === 'keynote') return 'import';
   if (ext === 'yaml' || ext === 'yml') return 'cast';
   return null;
@@ -185,9 +183,9 @@ export function routeForPath(arg) {
  * is a guess somebody would plausibly type; the values are the roster's names.
  */
 export const SYNONYMS = {
-  edit: 'author', serve: 'author', start: 'author', run: 'author', watch: 'author', write: 'author',
+  edit: 'open', serve: 'open', run: 'open', watch: 'open', write: 'open', author: 'open', dev: 'open',
+  preview: 'open', play: 'open', show: 'open', view: 'open', open: 'open', present: 'open', review: 'open',
   new: 'init', create: 'init', scaffold: 'init', make: 'init',
-  preview: 'present', play: 'present', show: 'present', view: 'present', open: 'present',
   build: 'bundle', pack: 'bundle', flatten: 'bundle',
   deploy: 'publish', ship: 'publish', pages: 'publish',
   convert: 'import', pptx2html: 'import',
@@ -224,7 +222,7 @@ export function suggestCommand(name) {
   const n = String(name ?? '').toLowerCase();
   if (!n || COMMANDS[n]) return null;
   if (SYNONYMS[n]) return SYNONYMS[n];
-  const names = Object.keys(COMMANDS).filter((c) => !COMMANDS[c].alias);
+  const names = Object.keys(COMMANDS).filter((c) => !COMMANDS[c].alias && !COMMANDS[c].hidden);
   const prefixed = names.filter((c) => c.startsWith(n));
   if (n.length >= 2 && prefixed.length === 1) return prefixed[0];
   // How many slips a word can absorb depends on how long it is: two in
@@ -242,6 +240,16 @@ export function suggestCommand(name) {
 export const GLOBAL_HELP = `decklight — author, record, and package Decklight presentations
 
 Usage:
+  decklight <deck.html | repository url> [--read-only] [--port 8788] [--git | --no-git] [--agent <name>] …
+           open a deck. Write mode by default: live reload, every edit from the browser written
+           to the file, the bridges this machine can run, an AI agent on A, one Ctrl-C. Lock it
+           from the deck's / palette (Lock editing) to avoid a change by mistake, and unlock it.
+           --read-only opens it with no way to change it: no edit route exists in that process,
+           the deck is served from its own directory under a CSP header, and what the file will
+           execute is listed before it runs — the way in for a deck you did not write, and where
+           the phone remote (--remote), --strict and --check live. Comments (M) work either way.
+           A repository URL is cloned (in full) and the deck inside opened. A .decklight
+           container is read-only by nature. (decklight <deck> --help for every flag)
   decklight <command> [options]        (decklight <command> --help for full flags)
 
 Commands:
@@ -286,7 +294,7 @@ Commands:
            EXAMPLE: decklight marketplace add owner/repo   (or a git URL, or a local path)
            EXAMPLE: decklight marketplace list              (offline-safe: reads only the cache)
   plugin   install presenter chrome into YOUR library — present loads it, bundle never does
-           EXAMPLE: decklight plugin add timer      (then: decklight present talk.html)
+           EXAMPLE: decklight plugin add timer      (then: decklight talk.html --read-only)
            EXAMPLE: decklight plugin list           (says which ones read your speaker notes)
   template install deck templates from a marketplace — scaffold with: decklight init --from <name>
            EXAMPLE: decklight template add startup-pitch
@@ -325,10 +333,6 @@ Commands:
            EXAMPLE: decklight video deck.html -o deck.mp4   (add --voiceover to synthesize first)
            EXAMPLE: decklight video deck.html --slides 5-9 --voiceover   (just those slides, voiced)
            EXAMPLE: decklight video deck.html --format webm --quality high --subtitles file
-  author   one command for the whole authoring loop: live-reload editing + every bridge this
-           machine can run, one Ctrl-C; E in the player edits speaker notes back into the file
-           EXAMPLE: decklight author demo/showcase.html   (bridges without prerequisites are skipped)
-           EXAMPLE: decklight author https://github.com/you/talk   (clones it, opens the deck inside)
   record   capture the deck's narration in YOUR voice — the deck reads you its notes
            one [click] beat at a time, and → ends a beat AND reveals the next build
            (this records YOU — decklight cast records a terminal)
@@ -339,18 +343,14 @@ Commands:
   enhance  add ElevenLabs v4 audio tags ([thoughtful], [sighs]) to the voiceover script, with the
            prompt ElevenLabs publishes for it — your agent drafts, decklight checks no word changed
            EXAMPLE: decklight enhance talk.html --slides 3   (or --all; --dry-run to only look)
-  review   leave comments on somebody's deck, anchored to slides and carried by git
-           (writes <deck>.review.jsonl beside it; never touches the deck itself)
-           EXAMPLE: decklight review talk.html   (then M in the deck)
-           \`review submit\` pushes them to a review/<you>-<date> branch (--pr opens one)
   comments what reviewers said, resolved against the deck as it is now — a comment
-           whose slide moved is found anyway, and one whose slide is gone is still shown
+           whose slide moved is found anyway, and one whose slide is gone is still shown;
+           a reviewer leaves them with M in a deck opened either way (--read-only for one
+           they were sent), and \`comments submit\` pushes them to a review/<you>-<date> branch
            EXAMPLE: decklight comments talk.html   (--import to take in a reviewer's file,
            --incoming to see what reviews are waiting on the remote)
-  present  play a deck you did not author — read-only over localhost, under a CSP header;
-           prints what the file will execute, and strips what it cannot account for
-           EXAMPLE: decklight present talk.html   (no editing surface, nothing is written)
-  associate  wire double-clicking a .decklight file to decklight present
+           EXAMPLE: decklight comments submit talk.html   (--pr opens a pull request)
+  associate  wire double-clicking a .decklight file to decklight <file> (read-only by nature)
            EXAMPLE: decklight associate   (per-user, no admin rights; --uninstall undoes it)
   report-bug  gather the version + environment facts a Decklight bug report needs, and the issue URL
            EXAMPLE: decklight report-bug   (prints and exits — nothing is sent anywhere)

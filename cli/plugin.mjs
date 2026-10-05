@@ -582,7 +582,7 @@ async function addMain(args, home) {
   writeFileSync(join(dir, 'plugin.js'), files.source);
   recordInstall({ type: 'plugin', name: manifest.name, marketplace: hit.marketplace, version: hit.entry.version, commit: reg.marketplaces[hit.marketplace]?.commit }, home);
   console.log(`installed ${manifest.name}${hit.entry.version ? ` ${hit.entry.version}` : ''} from ${hit.qualified} — ${manifest.slot}, reads ${manifest.needs.join(' + ')}`);
-  console.log(`  it is yours, not the deck's: decklight present loads it, bundle never will`);
+  console.log(`  it is yours, not the deck's: decklight <deck> --read-only loads it, bundle never will`);
   if (manifest.needs.includes('notes')) console.log('  it reads your speaker notes — it asked, and plugin list says so');
   return 0;
 }

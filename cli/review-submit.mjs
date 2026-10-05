@@ -2,7 +2,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `decklight review submit` — send the comments back. SPEC REVIEW.
+// `decklight comments submit` — send the comments back. SPEC REVIEW.
 //
 // A review that never leaves the reviewer's laptop is a review that did not
 // happen. `decklight review` commits comments locally and then nothing happens:
@@ -44,7 +44,7 @@ import { refProblem } from './marketplace.mjs';
 import { putBlob, remoteHead } from './git-tree.mjs';
 import { reviewPathFor, parseReview } from './review-store.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
-import { reviewerIdentity } from './review.mjs';
+import { reviewerIdentity } from './review-routes.mjs';
 import { ghReady } from './init.mjs';
 
 const fail = makeFail('review submit');
@@ -136,7 +136,7 @@ export function submitReview(deckPath, {
   const storePath = reviewPathFor(resolve(deckPath));
   if (!existsSync(storePath)) {
     fail(`no comments to submit — ${basename(storePath)} does not exist yet`
-      + `\n  leave some first:  decklight review ${name}`);
+      + `\n  leave some first:  decklight ${name} --read-only   (then M)`);
   }
   const bytes = readFileSync(storePath, 'utf8');
   const { records } = parseReview(bytes);
@@ -273,7 +273,7 @@ export function submitReview(deckPath, {
           // comments, which is a pull request about the wrong thing.
           ...(base ? ['--base', base] : []),
           '--title', `Review: ${what} on ${name}`,
-          '--body', `Left with \`decklight review ${name}\`.\n\n`
+          '--body', `Left with \`decklight ${name} --read-only\` (M in the deck).\n\n`
             + `Read them with:\n\n    decklight comments ${name}\n`,
         ], { cwd, encoding: 'utf8', env: noPromptEnv(), timeout: 60_000 }).trim();
         out.write(`  ${prUrl}\n`);

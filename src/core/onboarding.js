@@ -47,7 +47,7 @@ export const TIPS = [
   { id: 'narrate', text: 'press V to have the deck narrate itself from its speaker notes' },
   { id: 'messages', text: 'press ` (left of 1) for the message log — every message the deck has shown' },
   { id: 'fullscreen', text: 'press F for fullscreen, B to black out the screen mid-talk' },
-  { id: 'author', text: 'author mode (decklight author <deck.html>) turns this player into an editor — A asks an AI agent' },
+  { id: 'author', text: 'decklight <deck.html> turns this player into an editor — A asks an AI agent, E edits' },
   { id: 'inline', text: 'in author mode, double-click any text to edit it in place, and drop a picture onto a slide to add it' },
   { id: 'editbar', text: 'in author mode, press E to edit: a bar names every editing door, and a click selects an element' },
 ];
@@ -103,7 +103,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
         <tr><td>?</td><td>All keyboard shortcuts.</td></tr>
         <tr><td>T · ⌃T</td><td>Browse themes with a live preview; <b>⌃T</b> generates a brand-new one.</td></tr>
         <tr><td>⌥⏎ · V</td><td>Speaker view with notes &amp; timer (<b>S</b> edits the notes); <b>V</b> narrates the deck aloud.</td></tr>
-        <tr><td>A · E · Z</td><td><b>Author mode</b> (<code>decklight author &lt;deck.html&gt;</code>): live-reload editing — ask an AI agent to change the deck, edit an element, undo.</td></tr>
+        <tr><td>A · E · Z</td><td><b>Write mode</b> (<code>decklight &lt;deck.html&gt;</code>): live-reload editing — ask an AI agent to change the deck, edit an element, undo.</td></tr>
       </table>
       <div class="wel-foot">
         <span>Press any key to dismiss — reopen anytime from the <code>/</code> palette.</span>
@@ -141,7 +141,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     authorEl.className = 'decklight-welcome wel-author';
     authorEl.innerHTML = `<div class="wel-card">
       <h3>Editing this deck</h3>
-      <p class="wel-lead">This deck is served by <code>decklight author</code>: what you change here is written to the file, snapshotted, and taken back with <b>Z</b>.</p>
+      <p class="wel-lead">This deck is open in write mode (<code>decklight &lt;deck.html&gt;</code>): what you change here is written to the file, snapshotted, and taken back with <b>Z</b>. Lock editing from the <code>/</code> palette to avoid a change by mistake.</p>
       <table>
         <tr><td>double-click</td><td><b>Edit any text</b> in place; <b>⏎</b> keeps it, <b>Esc</b> gives it up.</td></tr>
         <tr><td>drop</td><td><b>Add a picture</b> by dropping a file onto the slide.</td></tr>

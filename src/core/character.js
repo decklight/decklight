@@ -133,7 +133,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
   function warnOnce() {
     if (warned) return;
     warned = true;
-    toast('the lip-sync bridge is not running — the mouth follows the voice\'s loudness instead. decklight author starts it once rhubarb is installed or a talking head is set up (V → Character says how)', 6000);
+    toast('the lip-sync bridge is not running — the mouth follows the voice\'s loudness instead. decklight starts it once rhubarb is installed or a talking head is set up (V → Character says how)', 6000);
     debugLog('lipsync', 'bridge unreachable — amplitude fallback');
   }
 

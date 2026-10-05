@@ -74,7 +74,7 @@ export function renderBanner({ deck, url, keys, rows = [], color = false } = {})
     .map((r, i) => ({ ...r, i }))
     .sort((a, b) => rank(a.key) - rank(b.key) || a.i - b.i);
 
-  const out = [`decklight author${deck ? ` ${c('·', 'dim')} ${deck}` : ''}`];
+  const out = [`decklight${deck ? ` ${c('·', 'dim')} ${deck}` : ''}`];
   if (shown.length) {
     out.push('');
     const w = Math.max(...shown.map((r) => r.key.length));

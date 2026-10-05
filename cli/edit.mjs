@@ -115,7 +115,7 @@ import { reviewPathFor, parseReview, serializeRecord, newId } from './review-sto
 import { createReviewRoutes } from './review-routes.mjs';
 // The arbiters of what a comment IS, shared with the review server so two
 // writers cannot put two shapes into one union-merged file.
-import { commentProblem, reviewRecord } from './review.mjs';
+import { commentProblem, reviewRecord } from './review-routes.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
 import { recordingImpact, impactWarning, slidesFromFiles } from '../tools/recording-impact.mjs';
 import { indexDeckFile, slideTextOf, knowsCommit } from './comments.mjs';
@@ -915,7 +915,7 @@ export async function editMain(args, { onListen = null } = {}) {
                    timer  the old five-minute cadence, bookends included
                    off    never commit                                  [agent]
   --agent <name>   preferred AI agent for A (default: first one detected)
-  the server binds 127.0.0.1 only; for a phone remote use decklight present`);
+  the server binds 127.0.0.1 only; for a phone remote use decklight <deck> --read-only --remote`);
     return;
   }
   const { opt } = argReader(args);
@@ -930,18 +930,18 @@ export async function editMain(args, { onListen = null } = {}) {
   // why adding a SECOND deck to a repo was the way to find it.
   let agentPref = opt('--agent') ?? preferredAgent();
   const port = parsePort(opt('--port', 8788));
-  if (port === null) { console.error(`decklight author: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
+  if (port === null) { console.error(`decklight: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
   // Refused out loud, not ignored (PRESENT#REMOTE). Someone typing --remote
   // wants a clicker; silently binding loopback would leave them holding a phone
   // that never connects and no idea why. `present` is where the remote went,
   // and the reason it went is worth saying at the moment it is asked for.
   const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
   if (gone.length) {
-    console.error(`author no longer takes ${gone.join(' or ')} — the phone remote moved to \`decklight present\`.`);
+    console.error(`write mode does not take ${gone.join(' or ')} — the phone remote is a read-only thing.`);
     console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
-    console.error('  /edit/agent were reachable from the same run you were not watching. present has no edit');
-    console.error('  surface to widen, so that is where it lives.');
-    console.error(`\n  decklight present ${firstPositional(args, VALUE_FLAGS) ?? '<deck.html>'} --remote`);
+    console.error('  /edit/agent were reachable from the same run you were not watching. The read-only server');
+    console.error('  has no edit surface to widen, so that is where it lives.');
+    console.error(`\n  decklight ${firstPositional(args, VALUE_FLAGS) ?? '<deck.html>'} --read-only --remote`);
     process.exitCode = 2;
     return;
   }
@@ -3276,7 +3276,7 @@ export async function editMain(args, { onListen = null } = {}) {
       url: `http://127.0.0.1:${actual}${deckUrl}`,
       keys: 'E edit · L layouts · Z undo · A agent · Ctrl-C stops',
     }));
-  } else console.log(`decklight author on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
+  } else console.log(`decklight · ${basename(deckPath)} on http://127.0.0.1:${actual}${deckUrl} — E element edit mode, L layouts, Z undo, A agent. Ctrl-C stops`);
 
   // Did somebody review this deck? Asked ONCE, after the last startup line,
   // detached and never awaited — the update-check shape: nothing about it can
@@ -3308,7 +3308,7 @@ if (isMain(import.meta.url)) {
   exitWhenOrphaned();
   // Through the one error boundary: a throw used to surface as an unhandled
   // rejection with a raw stack, in a child whose parent's banner had scrolled by.
-  const code = await runMain('author', () => editMain(process.argv.slice(2)));
+  const code = await runMain('open', () => editMain(process.argv.slice(2)));
   // editMain sets process.exitCode itself on a refusal and resolves to the
   // server otherwise, so only a failure runMain reported is written here
   if (code === 1) process.exitCode = 1;

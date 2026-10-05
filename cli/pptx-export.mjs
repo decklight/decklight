@@ -18,7 +18,7 @@ import { renderThemeParams } from '../tools/render-theme.mjs';
 import { runAsync, CODEC_MS } from '../tools/exec.mjs';
 import { NOTES_ASIDE, cleanNotes, sectionBodies, isHiddenSection } from '../tools/deck-html.mjs';
 import { buildPptx } from '../tools/pptx-write.mjs';
-import { serveForRender } from './present.mjs';
+import { serveForRender } from './read-only.mjs';
 
 const USAGE = `usage: decklight pptx <deck.html> [-o out.pptx] [--theme <name> | --gen <b64url>] [--wait <ms>]
   writes a PowerPoint file: every slide as a picture, rendered at 1280×720 with

@@ -27,7 +27,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 
 const { writeSidecar } = await import(path.join(root, 'cli/sign.mjs'));
-const { presentMain } = await import(path.join(root, 'cli/present.mjs'));
+const { presentMain } = await import(path.join(root, 'cli/read-only.mjs'));
 
 // --- fixture: one deck, one sidecar, two verifier answers ---------------------
 

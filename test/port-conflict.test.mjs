@@ -62,7 +62,7 @@ async function startEdit(t, port = 0, extraArgs = []) {
   // NOT the banner's DECK_URL_RE: this is the edit server run bare, the way
   // `decklight edit` runs it, and a bare child still prints its own sentence.
   // The banner only exists when author is the one doing the printing.
-  const [, actual] = await waitFor(() => out, /decklight author on http:\/\/127\.0\.0\.1:(\d+)/);
+  const [, actual] = await waitFor(() => out, /decklight · \S+ on http:\/\/127\.0\.0\.1:(\d+)/);
   return { child, dir, port: Number(actual), log: () => out };
 }
 
@@ -318,7 +318,7 @@ test('`decklight author` bumps the edit port on conflict instead of crashing', a
   const devDir = tmp(t);
   writeFileSync(path.join(devDir, 'deck.html'), DECK);
   const dev = spawn(process.execPath, [
-    CLI, 'author', 'deck.html', '--port', String(a.port), '--no-tts', '--no-lipsync', '--no-git',
+    CLI, 'deck.html', '--port', String(a.port), '--no-tts', '--no-lipsync', '--no-git',
   ], { cwd: devDir, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(dev));
   let out = '';

@@ -27,7 +27,7 @@ import {
   SLOTS, NEEDS, MANIFEST_KEYS, validateManifest, readManifest, pluginLint,
   loadPlugin, loadLibrary, chromeMarkup, injectChrome, pluginsDir, PluginError,
 } from '../cli/plugin.mjs';
-import { CSP } from '../cli/present.mjs';
+import { CSP } from '../cli/read-only.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
@@ -238,7 +238,7 @@ function deckDir() {
 }
 
 async function startPresent(t, dir, home, extraArgs = []) {
-  const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', '0', ...extraArgs],
+  const child = spawn(process.execPath, [CLI, 'talk.html', '--read-only', '--port', '0', ...extraArgs],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
@@ -301,9 +301,9 @@ test('a plugin does not widen the CSP or register a route', async (t) => {
 
 test('the ingredients label does not count a plugin', async (t) => {
   const dir = deckDir();
-  const bare = execFileSync(process.execPath, [CLI, 'present', 'talk.html', '--check'],
+  const bare = execFileSync(process.execPath, [CLI, 'talk.html', '--read-only', '--check'],
     { cwd: dir, encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: tmp('plugin-empty-home') } });
-  const withPlugin = execFileSync(process.execPath, [CLI, 'present', 'talk.html', '--check'],
+  const withPlugin = execFileSync(process.execPath, [CLI, 'talk.html', '--read-only', '--check'],
     { cwd: dir, encoding: 'utf8', env: { ...process.env, DECKLIGHT_HOME: homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } }) } });
   // The label is an inventory of the FILE. A plugin is not in the file, so
   // installing one must not move a single number in it.
@@ -317,7 +317,7 @@ test('strict mode does not strip the chrome it was handed', async (t) => {
   const dir = tmp('plugin-strict');
   writeFileSync(path.join(dir, 'talk.html'), DECK.replace('</body>', '<script>window.x=1</script></body>'));
   const home = homeWith({ timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE } });
-  const child = spawn(process.execPath, [CLI, 'present', 'talk.html', '--port', '0'],
+  const child = spawn(process.execPath, [CLI, 'talk.html', '--read-only', '--port', '0'],
     { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';

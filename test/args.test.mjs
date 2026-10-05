@@ -78,7 +78,7 @@ test('the refusal names the flag and quotes what was typed', () => {
 // ── the regressions, end to end ────────────────────────────────────────────
 
 test('present --port <n> <deck> refuses the DECK by name, not the port number', () => {
-  const r = run('cli/present.mjs', ['--port', '8790', 'no-such-deck.html']);
+  const r = run('cli/read-only.mjs', ['--port', '8790', 'no-such-deck.html']);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /deck not found: .*no-such-deck\.html/);
   assert.doesNotMatch(r.stderr, /8790/, 'the port was read as the deck');
@@ -92,10 +92,10 @@ test('edit.mjs --git-mode <mode> <deck> refuses the DECK by name, not the mode',
 });
 
 test('a typo in --port is a one-line refusal, not a RangeError with a stack', () => {
-  for (const [rel, cmd] of [['cli/present.mjs', 'present'], ['cli/edit.mjs', 'author'], ['cli/review.mjs', 'review']]) {
+  for (const [rel, cmd] of [['cli/read-only.mjs', 'read-only'], ['cli/edit.mjs', 'edit']]) {
     const r = run(rel, ['--port', 'abc', script('demo/intro.html')]);
     assert.equal(r.status, 1, `${cmd}: ${r.stderr}`);
-    assert.match(r.stderr, new RegExp(`decklight ${cmd}: --port wants a port number`), cmd);
+    assert.match(r.stderr, /decklight: --port wants a port number/, cmd);
     assert.doesNotMatch(r.stderr, /ERR_SOCKET_BAD_PORT|at Server\.listen/, `${cmd} printed a stack`);
   }
 });

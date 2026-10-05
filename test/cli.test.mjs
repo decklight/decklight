@@ -116,7 +116,7 @@ test('an unknown command that has a name says which one, with the rest of the li
   const r = spawnSync('node', [CLI, 'edit', 'talk.html', '--port', '9000'], { encoding: 'utf8' });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /unknown command "edit"/);
-  assert.match(r.stderr, /did you mean: {2}decklight author talk\.html --port 9000/,
+  assert.match(r.stderr, /did you mean: {2}decklight talk\.html --port 9000/,
     'the corrected line can be copied, not reconstructed');
   const typo = spawnSync('node', [CLI, 'pubish'], { encoding: 'utf8' });
   assert.match(typo.stderr, /did you mean: {2}decklight publish/);
@@ -129,7 +129,7 @@ test('a file as the first argument runs the command it implies', () => {
   // from the right command, which is the whole point
   const html = spawnSync('node', [CLI, 'no-such-deck.html'], { encoding: 'utf8' });
   assert.equal(html.status, 1);
-  assert.match(html.stderr, /decklight author: no such deck: no-such-deck\.html/);
+  assert.match(html.stderr, /decklight: no such deck: no-such-deck\.html/);
   assert.doesNotMatch(html.stderr, /unknown command/);
   const pptx = spawnSync('node', [CLI, 'no-such.pptx'], { encoding: 'utf8' });
   assert.equal(pptx.status, 1);
@@ -141,7 +141,7 @@ test('bare decklight off a terminal prints the short help and exits 0', () => {
   const r = spawnSync('node', [CLI], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /^decklight — /);
-  assert.match(r.stdout, /^ {2}author /m);
+  assert.match(r.stdout, /^ {2}decklight <deck\.html \| url>/m, 'the deck is the command, first in the short help');
   assert.match(r.stdout, /decklight help/, 'and says where the rest is');
   assert.doesNotMatch(r.stdout, /^ {2}lipsync /m, 'the long list stays behind decklight help');
 });
@@ -474,7 +474,7 @@ test('epilogue: plain when piped, accent + OSC 8 on a TTY, NO_COLOR wins', () =>
 
   const plain = epilogue({ deckPath, tty: false, noColor: false });
   assert.ok(plain.includes(url), 'raw file:// URL present');
-  assert.ok(plain.includes('decklight author '), 'the way to start editing');
+  assert.match(plain, /decklight \S+\.html/, 'the way to start editing: the deck is the command');
   assert.doesNotMatch(plain, /\x1b/, 'piped output has zero escape codes');
 
   const colored = epilogue({ deckPath, tty: true, noColor: false });
@@ -523,7 +523,7 @@ test('init headless without a flag prints the authoring hint and touches no git'
   assert.equal(fs.existsSync(path.join(dir, '.git')), false);
   // the epilogue is present, plain — piped output carries zero escape codes
   assert.ok(out.includes(pathToFileURL(path.join(dir, 'deck.html')).href));
-  assert.match(out, /decklight author /);
+  assert.match(out, /decklight \S+\.html/);
   assert.doesNotMatch(out, /\x1b/);
   rmTemp(dir);
 });
@@ -554,7 +554,7 @@ test('init --git still succeeds when git is missing from PATH', () => {
   assert.equal(r.status, 0, 'the deck is the product — a git problem is not a failure');
   assert.equal(fs.existsSync(path.join(dir, 'deck.html')), true);
   assert.match(r.stdout, /git: init failed/);
-  assert.match(r.stdout, /decklight author /, 'the epilogue still prints');
+  assert.match(r.stdout, /decklight \S+\.html/, 'the epilogue still prints');
   rmTemp(dir);
   rmTemp(empty);
 });
@@ -568,7 +568,7 @@ test('init on a real TTY asks the git question; Y creates the repo and commits',
   assert.match(r.stdout, /create a git repository so every version of the deck is kept\? \[Y\/n\]/);
   // init prints the command instead of asking, or starting anything
   assert.doesNotMatch(r.stdout, /start editing now\?/);
-  assert.match(r.stdout, /decklight author /, 'the command that starts editing is printed');
+  assert.match(r.stdout, /decklight \S+\.html/, 'the command that starts editing is printed');
   assert.match(r.stdout, /\x1b\[36m/, 'the epilogue is accent-colored on a TTY');
   const log = execFileSync('git', ['-C', dir, 'log', '--format=%s'], { encoding: 'utf8', env: gitIdEnv });
   assert.equal(log.trim(), 'decklight init');
@@ -1852,7 +1852,7 @@ test('a flag value before the deck is never mistaken for the deck', async () => 
   assert.equal(firstPositional(['--no-open'], ['--port']), undefined);
 
   // and through the real dispatch: the refusal names the deck, not the port
-  const r = spawnSync(process.execPath, [CLI, 'review', '--port', '0', 'no-such-deck.html'],
+  const r = spawnSync(process.execPath, [CLI, '--port', '0', 'no-such-deck.html'],
     { encoding: 'utf8', env: childEnv() });
   assert.match(r.stderr + r.stdout, /no such deck: no-such-deck\.html/);
 });

@@ -12,7 +12,7 @@
 // Pure and location-injected so it is node-testable (the parseBackground
 // idiom); the engine passes the real `location`.
 
-const CMD = 'npx decklight author';
+const CMD = 'npx decklight';
 
 /**
  * Split a `file:` pathname into its folder and filename. Returns empty strings
@@ -43,7 +43,7 @@ export function needsDevMode(action, loc = {}) {
   const { dir, file } = splitFilePath(pathname);
   const deck = /\.html?$/i.test(file) ? file : '<deck.html>';
   const where = protocol === 'file:' && dir ? `from ${dir}, ` : '';
-  return `${action} needs author mode: ${where}run ${CMD} ${deck}, then reopen the URL it prints`;
+  return `${action} needs write mode: ${where}run ${CMD} ${deck}, then reopen the URL it prints`;
 }
 
 // ── "the agent is still working" ───────────────────────────────────────────

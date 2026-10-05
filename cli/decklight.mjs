@@ -115,7 +115,30 @@ try {
 // space in it, #275).
 // The file is the command: `decklight talk.html` opens it in author mode,
 // `decklight talk.pptx` imports it, `decklight talk.decklight` presents it.
+// The words that used to open a deck. The deck is the command now, and the
+// mode is a flag; someone whose fingers still type the word is told the
+// line, with the deck they named already in it.
+const RETIRED = {
+  author: (deck) => `decklight ${deck}`,
+  dev: (deck) => `decklight ${deck}`,
+  present: (deck) => `decklight ${deck} --read-only`,
+  review: (deck, sub) => (sub === 'submit' ? `decklight comments submit ${deck}` : `decklight ${deck} --read-only   (then M to comment)`),
+};
+if (RETIRED[cmd]) {
+  const sub = rest[0] === 'submit' ? 'submit' : null;
+  const deck = (sub ? rest[1] : rest.find((a) => !a.startsWith('-'))) ?? '<deck.html>';
+  const flags = rest.filter((a) => a !== deck && a !== 'submit' && a !== '--open').join(' ');
+  process.stderr.write(`decklight ${cmd} is no longer a command: the deck is the command, and the mode is a flag.\n`);
+  process.stderr.write(`  ${RETIRED[cmd](deck, sub)}${flags ? ` ${flags}` : ''}\n`);
+  process.exit(1);
+}
 let command = resolveCommand(cmd);
+if (!command && cmd.startsWith('-')) {
+  // `decklight --read-only talk.html`, `decklight --port 0 talk.html`: the deck
+  // is the command wherever it sits on the line, and the flags go with it
+  const deck = argv.find((a) => !a.startsWith('-') && routeForPath(a));
+  if (deck) { rest = argv; cmd = routeForPath(deck); command = resolveCommand(cmd); }
+}
 if (!command) {
   const verb = cmd === 'start' ? 'start' : routeForPath(cmd);
   if (verb) {
@@ -127,7 +150,12 @@ if (!command) {
 if (!command) {
   const meant = suggestCommand(cmd);
   process.stderr.write(`decklight: unknown command "${cmd}"\n`);
-  if (meant) process.stderr.write(`  did you mean:  decklight ${[meant, ...rest].join(' ')}\n`);
+  // `open` is not a word to type: the deck is the command
+  if (meant === 'open') {
+    const deck = rest.find((a) => !a.startsWith('-')) ?? '<deck.html>';
+    process.stderr.write(`  did you mean:  decklight ${[deck, ...rest.filter((a) => a !== deck)].join(' ')}\n`);
+  }
+  else if (meant) process.stderr.write(`  did you mean:  decklight ${[meant, ...rest].join(' ')}\n`);
   process.stderr.write('\n');
   process.stdout.write(shortHelp());
   process.exit(1);

@@ -50,7 +50,7 @@ Decklight decks are one HTML file of slides: no build step, no bundler. A deck
 is \`<div class="decklight">\` containing \`<section>\` slides, plus one JSON
 configuration block (\`<script type="application/json" data-decklight-config>\`)
 — and nothing that executes: no runtime in the file, no \`Decklight.init\` call.
-\`decklight author\` and \`decklight present\` add the installed runtime as they
+\`decklight <deck>\` (write mode or \`--read-only\`) adds the installed runtime as it
 serve it, and \`decklight bundle\` embeds it into one self-contained file to hand
 over. Write slides and configuration; never write boilerplate.
 
@@ -98,14 +98,14 @@ a claim worth attributing; leave it off when it does not:
 \`\`\`
 
 **CLI** (\`npx decklight@latest <command>\`, no install needed):
-- \`decklight author deck.html\` — the whole authoring loop: serve with live reload; **E** in the browser edits speaker notes back into the file
+- \`decklight deck.html\` — the whole authoring loop: serve with live reload; **E** in the browser edits speaker notes back into the file
 - \`decklight cast script.term.yaml\` — record a truthful terminal cast in a real PTY, for \`<div class="terminal">\` (this records a TERMINAL; \`decklight record\` records the author's voice)
 - \`decklight bundle deck.html --themes all\` — flatten into one self-contained file to hand off or publish
 - \`decklight pdf deck.html\` — render every slide to a PDF, and report the ones that overflow
 - \`decklight pptx deck.html\` — a PowerPoint file for whoever asks for one: every slide a picture, the notes real notes (lossy on purpose)
 - \`decklight tts\` — live voice bridge so the deck can narrate itself on the fly
 - \`decklight record deck.html\` — record the narration in the author's OWN voice: the deck shows one \`[click]\` beat at a time and \`→\` ends it, writing \`slide-NN-KK.wav\` per beat so the recording paces the builds (play it back with \`narration: { files: 'voiceover', ext: 'wav', segments: true }\`)
-- \`decklight review deck.html\` / \`decklight comments deck.html\` — reviewer comments on slides, stored append-only in \`<deck>.review.jsonl\` and carried by git; a comment records the slide's title and a fingerprint of its text, so it finds its slide again after the deck moves and says so when the slide changed or is gone; \`decklight review submit deck.html\` pushes the review to a \`review/<you>-<date>\` branch (one file, never the reviewer's own commits; \`--pr\` opens the pull request), and the author hears about waiting reviews at \`decklight author\` startup, in the M overlay, and via \`decklight comments deck.html --incoming\`
+- \`decklight deck.html --read-only\` (M to comment) / \`decklight comments deck.html\` — reviewer comments on slides, stored append-only in \`<deck>.review.jsonl\` and carried by git; a comment records the slide's title and a fingerprint of its text, so it finds its slide again after the deck moves and says so when the slide changed or is gone; \`decklight review submit deck.html\` pushes the review to a \`review/<you>-<date>\` branch (one file, never the reviewer's own commits; \`--pr\` opens the pull request), and the author hears about waiting reviews at \`decklight author\` startup, in the M overlay, and via \`decklight comments deck.html --incoming\`
 - \`decklight skills\` — regenerate this skill after upgrading Decklight
 
 **Render the deck before you call a slide done.** Content that exceeds a slide
@@ -268,7 +268,7 @@ On a deck with a design system, a slide fills a layout's slots
 recreates its structure by hand; \`decklight check deck.html\` names any slot
 or layout the design system does not have.
 
-When an authoring server is running (\`decklight author\`), commit each logical
+When the deck is open in write mode (\`decklight deck.html\`), commit each logical
 change you finish rather than leaving it to the timer's generic \`autosave\`:
 \`curl -sf -X POST localhost:8788/edit/commit -H 'content-type: application/json'
 -d '{"message":"what this change did"}'\`. No server listening means no

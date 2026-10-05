@@ -24,7 +24,7 @@ async function open(t, mode) {
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-review-routes-'));
   writeFileSync(path.join(dir, 'talk.html'), DECK);
   const home = mkdtempSync(path.join(tmpdir(), 'decklight-review-routes-home-'));
-  const args = ['author', 'talk.html', '--port', '0', '--no-git', ...(mode === 'read-only' ? ['--read-only'] : ['--no-open', '--no-tts', '--no-lipsync'])];
+  const args = ['talk.html', '--port', '0', '--no-git', ...(mode === 'read-only' ? ['--read-only'] : ['--no-open', '--no-tts', '--no-lipsync'])];
   const child = spawn(process.execPath, [CLI, ...args], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home } });
   t.after(async () => { await stop(child); rmTemp(dir); rmTemp(home); });
   let out = '';
