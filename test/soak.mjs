@@ -58,6 +58,7 @@ import {
   copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
   appendFileSync, rmSync, statSync, writeFileSync,
 } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -74,6 +75,7 @@ import { injectBeforeBodyEnd, locateSlide, sectionBodies } from '../tools/deck-h
 import { zipEntries, zipRead } from '../tools/zip.mjs';
 import { ffprobeArgs, SLIDE_PAUSE_DEFAULT, TAIL_SECONDS } from '../tools/video.mjs';
 import { DECK_URL_RE } from '../cli/banner.mjs';
+import { CODECS } from '../cli/bundle-audio.mjs';
 import {
   cliCommand, npmCommand, gitFileUrl, narrator, narrateArgs, unverifiedPlatform,
 } from './soak-platform.mjs';
@@ -101,7 +103,7 @@ const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
  * ships, which is the harder half of the upgrade.
  */
 const OLDER_RELEASE = '0.2.0';
-const TOTAL = 55;
+const TOTAL = 62;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -886,6 +888,16 @@ try {
       'author did not announce the commit policy it was given');
     must(/decklight\/wip/.test(authorSrv.log()),
       'author did not say where the work is snapshotted');
+    // The banner is ONE block: the title first, a row per service, and the
+    // deck's URL LAST with the keys under it (#423). Three processes used to
+    // print in whatever order they woke, and the URL you wanted landed under
+    // the bridge's. The rows are asserted by name above; what this pins is
+    // the shape — a title, and nothing between the url and its keys.
+    const lines = authorSrv.log().split('\n');
+    must(lines.some((l) => /^decklight · deck\.html$/.test(l)), 'the banner does not open with the deck\'s name');
+    const at = lines.findIndex((l) => DECK_URL_RE.test(l));
+    must(/^\s+▸ /.test(lines[at]), `the url line is not the arrow line: ${JSON.stringify(lines[at])}`);
+    must(/E edit · L layouts · Z undo/.test(lines[at + 1] ?? ''), `the keys do not sit under the url: ${JSON.stringify(lines[at + 1])}`);
   });
 
   await step('a slide is added by writing the file', async () => {
@@ -963,6 +975,99 @@ try {
     const redo = await postJson(authorSrv.base, '/edit/redo', {});
     must(redo.status === 200, `redo returned ${redo.status}`);
     must(deck().includes('data-build="zoom"'), 'redo did not step forward again');
+  });
+
+  await step('a slide moves to another place, and Z puts it back in one', async () => {
+    // What a drag in the overview asks for (PRESENTING, editing): one route,
+    // `{ op: 'move', slide, to }`, and ONE history entry however many sections
+    // it passes — an undo that put half a reorder back would be a deck nobody
+    // typed. The soak slide is last; it goes first.
+    const before = deck();
+    const titles = () => sectionBodies(deck()).map((s) => /Soak slide/.test(s) ? 'soak' : 'other');
+    must(titles()[2] === 'soak', `the soak slide is not third before the move: ${titles()}`);
+    const moved = await postJson(authorSrv.base, '/edit/slide', { op: 'move', slide: 3, to: 1 });
+    must(moved.status === 200 && moved.body.slide === 1, `move returned ${JSON.stringify(moved.body)}`);
+    must(titles()[0] === 'soak', `the slide did not land first: ${titles()}`);
+    must(sectionBodies(deck()).length === 3, 'a move changed the number of slides');
+    const bad = await post(authorSrv.base, '/edit/slide', { op: 'move', slide: 1 });
+    must(bad.status === 400, `a move with nowhere to go was accepted (${bad.status})`);
+    const undo = await postJson(authorSrv.base, '/edit/undo', {});
+    must(undo.status === 200 && deck() === before, 'Z did not take the whole move back in one press');
+  });
+
+  await step('editing locks from write mode, and unlocks', async () => {
+    // The lock the server holds (PRESENTING): write mode, switched to read-only
+    // to avoid a change by mistake, and back. Locked, every edit route refuses
+    // with 423 and the deck is not touched; the ping says so to every tab; the
+    // same route writes again the moment it is unlocked.
+    const ping = async () => (await get(authorSrv.base, '/edit/ping')).json();
+    must((await ping()).locked === false, 'a fresh session started locked');
+    const lock = await postJson(authorSrv.base, '/edit/lock', { locked: true });
+    must(lock.status === 200 && lock.body.locked === true, `lock returned ${JSON.stringify(lock.body)}`);
+    const probed = await ping();
+    must(probed.locked === true && probed.readOnly === false, `locked, the probe says ${JSON.stringify({ locked: probed.locked, readOnly: probed.readOnly })}`);
+    const before = deck();
+    const refused = await postJson(authorSrv.base, '/edit/notes', { slide: 3, text: 'typed while locked' });
+    must(refused.status === 423, `a locked server answered an edit with ${refused.status}`);
+    must(/editing is locked/.test(refused.body?.error ?? ''), `the refusal is not named: ${refused.body?.error}`);
+    must(deck() === before, 'a locked server wrote to the deck');
+    const undo = await post(authorSrv.base, '/edit/undo', {});
+    must(undo.status === 423, `locked, undo still answered ${undo.status}`);
+    await until('the server to say it locked', () => /editing locked/.test(authorSrv.log()), { ms: 5000 });
+    const bad = await post(authorSrv.base, '/edit/lock', { locked: 'yes' });
+    must(bad.status === 400, 'the lock took something other than true or false');
+    const unlock = await postJson(authorSrv.base, '/edit/lock', { locked: false });
+    must(unlock.body?.locked === false && (await ping()).locked === false, 'unlocking did not unlock');
+    const saved = await postJson(authorSrv.base, '/edit/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
+    must(saved.status === 200, `unlocked, the same route answered ${saved.status}`);
+  });
+
+  await step('a comment is left from write mode, beside the deck and outside it', async () => {
+    // ⇧M in write mode (REVIEW): the review routes are the one server's in
+    // both modes. The comment is an append to the sidecar, the deck is byte
+    // for byte what it was, and in write mode nothing is committed for it —
+    // the sidecar is one file among the deck's own, left to K.
+    const ping = await (await get(authorSrv.base, '/review/ping')).json();
+    must(ping.review === true && ping.mode === 'write', `the review ping says ${JSON.stringify(ping)}`);
+    const before = deck();
+    const commits = git(['rev-list', '--count', 'HEAD']).trim();
+    const said = await postJson(authorSrv.base, '/review/comments', { slide: 2, body: 'Tighten this one.' });
+    must(said.status === 200 && /^[a-z0-9]{1,12}$/.test(said.body?.id ?? ''), `the comment answered ${JSON.stringify(said.body)}`);
+    const store = join(PROJECT, 'deck.review.jsonl');
+    must(existsSync(store), 'no sidecar beside the deck');
+    must(readFileSync(store, 'utf8').trim().split('\n').length === 1, 'one line per comment');
+    must(deck() === before, 'a comment was written into the deck');
+    must(git(['rev-list', '--count', 'HEAD']).trim() === commits, 'write mode committed the comment by itself');
+    must(/^\?\? deck\.review\.jsonl$/m.test(git(['status', '--porcelain'])), 'the sidecar is not sitting untracked for the author\'s own commit');
+    const listed = await (await get(authorSrv.base, '/review/comments')).json();
+    must(listed.records?.length === 1 && listed.records[0].body === 'Tighten this one.', 'the comment does not list back');
+    must(/Tighten this one\./.test(dl(['comments', 'deck.html']).all), 'the typed listing cannot see the comment');
+    // left out of the rest of the journey: the commits below are about the deck
+    rmSync(store, { force: true });
+  });
+
+  await step('a second session on the same port is told, and moves', async () => {
+    // Two decks at once (#422, #424): an edit server may move, because it
+    // announces where it landed — the banner's URL is the one it bound, not
+    // the one asked for. Non-interactive here, so nobody is asked and the
+    // bump is the answer. (A bridge is the opposite: it may not move, because
+    // the deck assumes its port.)
+    const second = await startServer(
+      ['deck.html', '--port', String(authorSrv.port), '--no-git', '--no-tts', '--no-lipsync'],
+      DECK_URL_RE);
+    must(second.port !== authorSrv.port, 'the second session bound a port that was already taken');
+    const log = second.log();
+    must(new RegExp(`port ${authorSrv.port} is already in use — decklight is editing "deck\\.html" there; using a different port`).test(log),
+      `the second session did not name who has the port: ${log}`);
+    must(new RegExp(`→ using port ${second.port}`).test(log), 'the port it moved to is not the one announced');
+    for (const srv of [authorSrv, second]) {
+      const ping = await (await get(srv.base, '/edit/ping')).json();
+      must(ping.ok === true && ping.name === 'deck.html', `a session stopped answering: ${JSON.stringify(ping)}`);
+    }
+    second.child.kill('SIGTERM');
+    must(await waitExit(second.child, 8000), 'the second session did not exit on SIGTERM');
+    must((await isPortOpen(second.port)) === false, 'the second session left its port bound');
+    must(await isPortOpen(authorSrv.port), 'stopping the second session took the first one down');
   });
 
   await step('a marketplace theme is marked for the deck, served from the marketplace, and bundled', async () => {
@@ -1207,6 +1312,70 @@ try {
     must(deck() === before, 'bundling touched the deck');
     const sent = readFileSync(join(PROJECT, 'sent.html'), 'utf8');
     must(!/<script src="decklight\.js"/.test(sent) && /\/\*!\s*Decklight v/.test(sent) && /data-decklight-config/.test(sent), 'sent.html is not self-contained');
+  });
+
+  await step('bundle carries the narration\'s audio only when asked, as small as asked', async () => {
+    // The hand-over's audio choice (DECK_ANATOMY): a recorded track stays
+    // beside the deck unless `--audio` says otherwise, `original` carries it
+    // as recorded, `opus`/`aac` re-encode it to a fraction — and the write
+    // server's estimate (what the bundle card shows before anybody chooses)
+    // is near what the file then is. A WAV from ffmpeg's tone generator stands
+    // in for a recorder take: it is the shape a recorder leaves (slide-NN in a
+    // `narration.files` folder) and forty times what the codecs make of it.
+    if (!HAVE_FFMPEG) return { skip: 'no ffmpeg/ffprobe (apt install ffmpeg / brew install ffmpeg)' };
+    const encoders = sh(['ffmpeg', '-hide_banner', '-encoders']).stdout;
+    const codec = /\blibopus\b/.test(encoders) ? 'opus' : /\baac\b/.test(encoders) ? 'aac' : null;
+    if (!codec) return { skip: 'ffmpeg has neither libopus nor aac' };
+
+    const dir = join(PROJECT, 'narrated');
+    mkdirSync(join(dir, 'voices'), { recursive: true });
+    sh(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=3',
+      '-ac', '1', '-ar', '24000', join(dir, 'voices', 'slide-01.wav')]);
+    const wav = statSync(join(dir, 'voices', 'slide-01.wav')).size;
+    writeFileSync(join(dir, 'narrated.html'),
+      '<!doctype html><html><head><title>Narrated</title></head><body><div class="decklight">'
+      + '<section><h1>One</h1></section><section><h2>Two</h2></section></div>'
+      + '<script type="application/json" data-decklight-config>'
+      + JSON.stringify({ narration: { files: [{ label: 'Me', dir: 'voices' }] } })
+      + '</script></body></html>\n');
+    const blocks = (file) => [...readFileSync(file, 'utf8').matchAll(/<script type="application\/json" data-decklight-audio="([^"]+)">([^<]*)<\/script>/g)]
+      .map((m) => [m[1], JSON.parse(m[2])]);
+    const size = (file) => statSync(join(dir, file)).size;
+
+    // by default the audio stays where it is, and the bundle says so
+    const plain = dl(['bundle', 'narrated.html', '-o', 'plain.html'], { cwd: dir });
+    must(/narration audio: 1 file\(s\) stay beside the deck, in voices\/ \(1\)/.test(plain.all), `bundle did not say what it left behind: ${plain.all}`);
+    must(blocks(join(dir, 'plain.html')).length === 0, 'audio went into a bundle that was not asked to carry it');
+
+    // as recorded: one block, keyed by the URL the track plays, the WAV inside
+    const orig = dl(['bundle', 'narrated.html', '-o', 'original.html', '--audio', 'original'], { cwd: dir });
+    must(/narration audio: inlined 1 file\(s\)/.test(orig.all), `--audio original did not report the inlining: ${orig.all}`);
+    const [[key, block]] = blocks(join(dir, 'original.html'));
+    must(key === 'voices/slide-01.wav', `the block is keyed ${key}, not the URL the track plays`);
+    must(/^data:audio\/wav;base64,/.test(block), `the block is not a WAV data URL: ${String(block).slice(0, 40)}`);
+    must(size('original.html') > size('plain.html') + wav, 'the original bundle is too small to be carrying the WAV');
+
+    // re-encoded: a fraction of the recording, in a block that says its codec
+    const small = dl(['bundle', 'narrated.html', '-o', 'small.html', '--audio', codec], { cwd: dir });
+    must(/narration audio: inlined 1 file\(s\)/.test(small.all), `--audio ${codec} did not report the inlining: ${small.all}`);
+    const [[, enc]] = blocks(join(dir, 'small.html'));
+    must(enc.startsWith(`data:${CODECS[codec].mime};base64,`), `the ${codec} block is not ${CODECS[codec].mime}: ${enc.slice(0, 40)}`);
+    const carried = size('small.html') - size('plain.html');
+    must(carried < wav / 8, `--audio ${codec} added ${carried} B for a ${wav} B WAV — not re-encoded`);
+
+    // …and the estimate the bundle card shows is near what the file then is
+    const srv = await startServer(['narrated.html', '--port', '0', '--no-git', '--no-tts', '--no-lipsync'],
+      DECK_URL_RE, { cwd: dir });
+    const est = await (await get(srv.base, '/edit/bundle/estimate')).json();
+    must(est.ok === true && est.audio?.files === 1, `the estimate says ${JSON.stringify(est).slice(0, 200)}`);
+    must(Math.abs(est.base - size('plain.html')) < 2048, `the base estimate (${est.base}) is not the plain bundle (${size('plain.html')})`);
+    must(est.audio.original > wav, `the original estimate (${est.audio.original}) is under the WAV itself`);
+    must(est.audio[codec] < est.audio.original / 8, `the ${codec} estimate (${est.audio[codec]}) is not a fraction of the original (${est.audio.original})`);
+    must(Math.abs(est.audio[codec] - carried) < Math.max(carried, est.audio[codec]) * 0.5,
+      `the ${codec} estimate (${est.audio[codec]}) is not near what the bundle carried (${carried})`);
+    srv.child.kill('SIGTERM');
+    must(await waitExit(srv.child, 8000), 'the narrated deck\'s session did not exit on SIGTERM');
+    return undefined;
   });
 
   await step('upgrade is a no-op on a current deck', () => {
@@ -1722,6 +1891,49 @@ try {
       must(r.code !== 0, `decklight ${args.join(' ')} exited 0`);
       must(want.test(r.all), `the refusal for "${args.join(' ')}" is not named: ${r.all.slice(0, 200)}`);
     }
+  });
+
+  await step('the retired commands point at the one command', () => {
+    // The deck is the command (PRESENTING): `author`, `present` and `review`
+    // are retired, and a hand that still types them is shown the line to type
+    // instead — the deck with its flag — rather than a bare "unknown command".
+    for (const [args, want] of [
+      [['author', 'deck.html'], /^\s+decklight deck\.html$/m],
+      [['author', 'deck.html', '--port', '0'], /^\s+decklight deck\.html --port 0$/m],
+      [['present', 'deck.html'], /^\s+decklight deck\.html --read-only$/m],
+      [['review', 'deck.html'], /^\s+decklight deck\.html --read-only/m],
+      [['review', 'submit', 'deck.html'], /^\s+decklight comments submit deck\.html$/m],
+    ]) {
+      const r = dl(args, { allowFail: true });
+      must(r.code === 1, `decklight ${args.join(' ')} exited ${r.code}`);
+      must(/is no longer a command: the deck is the command/.test(r.stderr), `"${args[0]}" was not named as retired: ${r.all.slice(0, 200)}`);
+      must(want.test(r.stderr), `the pointer for "${args.join(' ')}" is wrong: ${r.stderr}`);
+    }
+  });
+
+  await step('a stranger on the bridge\'s port is named, and the bridge stands down', async () => {
+    // The other half of #422: the voice bridge may NOT move, because the deck
+    // calls 127.0.0.1:8787 and nowhere else — so a port held by somebody
+    // else's process gets named, with both ways out, and no crash. The soak
+    // is the stranger: a bare socket on an ephemeral port, nothing decklight
+    // could mistake for its own. `--engine say` so the check is the port's
+    // and not an engine's credentials; the engine never starts.
+    if (process.platform !== 'darwin') return { skip: 'the stand-down is checked with the say engine' };
+    const squat = createServer();
+    await new Promise((ok) => squat.listen(0, '127.0.0.1', ok));
+    const port = squat.address().port;
+    try {
+      const r = dl(['tts', '--port', String(port), '--engine', 'say'], { allowFail: true, timeout: 30000 });
+      must(r.code === 0, `the bridge crashed on a held port (exit ${r.code}): ${r.all}`);
+      must(new RegExp(`port ${port} is (?:held by \\S+ \\(pid \\d+\\) — not a decklight bridge|already in use)`).test(r.all),
+        `the occupant is not named: ${r.all}`);
+      must(/so it will not start\./.test(r.all), 'the bridge did not say it stands down');
+      must(/free the port \(kill \d+\)/.test(r.all), 'the way out is not named');
+      must(!/EADDRINUSE/.test(r.all), 'the held port surfaced as a bind error');
+    } finally {
+      await new Promise((ok) => squat.close(ok));
+    }
+    return undefined;
   });
 
   await step('present --check validates the bundle', () => {
