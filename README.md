@@ -33,7 +33,7 @@ That writes a `deck.html` in `my-talk/` (slides plus a two-line configuration
 block, nothing else) plus a
 `.claude/skills/decklight/` skill and an `AGENTS.md`, so Claude Code (or any
 agent that reads `AGENTS.md`) has the real authoring contract on hand instead of
-guessing from Reveal.js memory. Then it asks whether to open the deck in author
+guessing from Reveal.js memory. Then it asks whether to open the deck in write
 mode: live reload, edits from the browser, an AI agent on `A`, and git
 underneath: your work snapshotted as you go, committed when you press `K`.
 Say yes. Leave out `--dir` to start the deck in the current directory. Keep the
@@ -63,7 +63,7 @@ decklight doctor          # what this machine can do, and how to get the rest
 
 Type a command wrong and it tells you which one you meant. Or skip the scaffold
 and write the HTML yourself. A deck you author is *data* (slides and a JSON
-configuration block) and `author`/`present` add the runtime as they serve it;
+configuration block) and `decklight <deck>` adds the runtime as it serves it, in write mode and in `--read-only`;
 `bundle` embeds it when you hand the file over. This is the whole anatomy:
 
 ```html
@@ -167,16 +167,16 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Writing | |
 |---|---|
-| `init ["Title"]` | scaffold a deck and the agent skill, then offer to open it (`--author`, `--from <template>`) |
+| `init ["Title"]` | scaffold a deck and the agent skill, then offer to open it in write mode (`--author`, `--from <template>`) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob |
-| `author deck.html` | live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser: double-click text to edit it, drop a picture onto a slide, right-click for the slide menu |
+| `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser: `E` for the editing bar, double-click text to edit it, drop a picture onto a slide, `O` to rearrange slides; `Lock editing` in the palette turns changes off until you unlock |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
 | `record deck.html` | record the narration in your own voice, one [click] beat at a time |
 | `cast script.term.yaml` | record a terminal session in a real PTY (`refresh` re-runs, `export` writes asciicast) |
 
 | Sharing | |
 |---|---|
-| `present deck.html` | play a deck you didn't write: read-only, under a CSP, with an ingredients label (a repository URL clones it first, into the same clone `author` and `review` use) |
+| `<deck> --read-only` | open a deck you didn't write with no way to change it: no edit route exists, it is served under a CSP, and what it will execute is listed first (a repository URL clones it first, into the same clone write mode uses). Comments (`M`) work here too; a `.decklight` is read-only by nature |
 | `bundle deck.html` | one self-contained HTML file (`--all` merges a playlist, `--sign`, `--deck`) |
 | `publish deck.html` | bundle and push to GitHub Pages, Netlify, Vercel or a folder |
 | `pdf deck.html` | one slide per page (`--notes`, `--handout`) |
@@ -188,8 +188,7 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Keeping track | |
 |---|---|
-| `review deck.html` | comment on somebody's deck; `review submit` sends it back as a branch (a repository URL clones it first) |
-| `comments deck.html` | what reviewers said, resolved against the deck as it is now |
+| `comments deck.html` | what reviewers said, resolved against the deck as it is now; `comments submit` sends a reviewer's comments back as a branch |
 | `history deck.html` | what decklight committed and what is only on this machine |
 | `restore deck.html` | put the deck back to any commit that touched it |
 | `upgrade deck.html` | bring a bundled deck's inlined runtime up to this version (`--link` un-embeds it, so the deck is data again) |
@@ -202,14 +201,14 @@ Every item above has a SPEC section behind it. The index at the top of
 | `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide layouts, served from the marketplace on this machine (`list`, `layouts`, and `check`, the gate a catalog runs) |
 | `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
 | `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
-| `plugin add <name>` | presenter chrome for your machine only. `present` loads it, `bundle` never does |
+| `plugin add <name>` | presenter chrome for your machine only. `--read-only` loads it, `bundle` never does |
 | `template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
 | `extension check t.mjs` | the marketplace admission gate for a transform |
 
 | Odds and ends | |
 |---|---|
 | `tts` / `lipsync` | the live voice bridge and the lip-sync bridge the player talks to |
-| `associate` | make double-clicking a `.decklight` file open `present` |
+| `associate` | make double-clicking a `.decklight` file open it read-only |
 | `report-bug` | print the version and environment facts a bug report needs |
 | `doctor` | what this machine can do (Chrome, ffmpeg, git, agents…) and the install line for what it can't |
 
@@ -242,7 +241,7 @@ npm test             # unit tests
 npm run verify       # build + headless render assertions, needs Chrome
 ```
 
-A deck you author carries no runtime: `author` and `present` reference
+A deck you author carries no runtime: `decklight <deck>` references
 `dist/decklight.js`, `dist/decklight.css` and one theme file into it as they
 serve it. To hand it over, `bundle`: one file, and nothing else to copy.
 

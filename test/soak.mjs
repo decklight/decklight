@@ -4,7 +4,7 @@
 
 // decklight, end to end: pack this repo, install the tarball into an empty
 // project, and drive the INSTALLED `decklight` bin through one full user
-// journey — create, import, marketplace, author, edit, git, present, bundle,
+// journey — create, import, marketplace, write mode, edit, git, read-only, bundle,
 // transform, pdf, publish, validate, open — plus a sweep of the whole command
 // roster. Runnable manually — `npm run soak` — and NOT part of
 // `npm test` (the *.test.mjs glob) or `npm run verify`: it runs a real npm
@@ -201,7 +201,7 @@ const dl = (args, opts) => sh([DL.bin, ...args], { ...opts, shell: DL.shell });
  * out whether it is being authored (SPEC `DECK_ANATOMY`), and wires up when the
  * server there is editing a deck of the same BASENAME. The soak's deck is
  * `deck.html`, which is what `init` calls one — so a developer who happens to
- * have `decklight author deck.html` open on the default port is a server this
+ * have `decklight deck.html` open on the default port is a server this
  * dump will attach to. It then opens the live-reload EventSource on
  * `/edit/events`, that stream never ends, Chrome's virtual clock never
  * advances past it, and the dump HANGS FOREVER.
@@ -1145,11 +1145,15 @@ try {
     must(served.includes('<title>Soak Deck</title>'), 'the served page is not this deck');
     must(sectionBodies(served).length === sectionBodies(deck()).length, 'present served a different set of slides');
     must(/Decklight\.init|decklight\.js/.test(served), 'present served a deck with no runtime to play it');
-    must((await get(presentSrv.base, '/edit/ping')).status >= 400, '/edit/ping answered under present');
+    // the one probe answers read-only, and names nothing that edits (PRESENTING)
+    const probe = await get(presentSrv.base, '/edit/ping');
+    must(probe.status === 200, `/edit/ping answered ${probe.status} under --read-only`);
+    const probed = await probe.json();
+    must(probed.readOnly === true && probed.agents === undefined, 'the read-only probe did not say read-only');
     must((await post(presentSrv.base, '/edit/notes', { slide: 1, text: 'x' })).status >= 400,
-      'present accepted an edit');
+      '--read-only accepted an edit');
     const after = statSync(deckPath());
-    must(before.size === after.size && before.mtimeMs === after.mtimeMs, 'present touched the deck');
+    must(before.size === after.size && before.mtimeMs === after.mtimeMs, '--read-only touched the deck');
   });
 
   await step('the deck renders', () => {
@@ -1358,7 +1362,7 @@ try {
     const onDisk = readFileSync(join(PROJECT, 'linked.html'), 'utf8');
     must(!onDisk.includes('soak-timer'), 'present wrote the chrome into the deck');
     const after = statSync(join(PROJECT, 'linked.html'));
-    must(before.size === after.size && before.mtimeMs === after.mtimeMs, 'present touched the deck');
+    must(before.size === after.size && before.mtimeMs === after.mtimeMs, '--read-only touched the deck');
 
     srv.child.kill('SIGTERM');
     must(await waitExit(srv.child, 5000), 'present did not exit on SIGTERM');
@@ -1400,7 +1404,7 @@ try {
     // agreeing: one overwriting the other, or both printing the plain deck.
     // The same deck the plain PDF step prints — a BUNDLE, not deck.html, for
     // the reason dumpIsolated explains: a deck.html here would attach to a
-    // developer's stray `decklight author deck.html` on the default port.
+    // developer's stray `decklight deck.html` on the default port.
     const notes = dl(['pdf', 'linked bundle.html', '--notes'], { timeout: 180000 });
     const handout = dl(['pdf', 'linked bundle.html', '--handout'], { timeout: 180000 });
     const files = ['linked bundle.notes.pdf', 'linked bundle.handout.pdf'].map((f) => {
@@ -1509,7 +1513,7 @@ try {
       + '<section><h2>The claim</h2><p>because the numbers say so</p></section>'
       + '</div><script src="decklight.js"></script><script>Decklight.init({});</script></body></html>');
 
-    const srv = await startServer(['review', 'reviewed.html', '--port', '0', '--no-open'],
+    const srv = await startServer(['reviewed.html', '--read-only', '--port', '0'],
       /http:\/\/127\.0\.0\.1:(\d+)/, { timeoutMs: 15000 });
     const say = async (body) => {
       const r = await fetch(`${srv.base}/review/comments`, {
@@ -1587,13 +1591,13 @@ try {
       + '"title":"Opening","body":"One more before sending."}\n');
 
     // --dry-run first: everything built, no ref anywhere
-    const dry = dl(['review', 'submit', 'reviewed.html', '--remote', 'soakhub', '--dry-run']);
+    const dry = dl(['comments', 'submit', 'reviewed.html', '--remote', 'soakhub', '--dry-run']);
     must(/would push [0-9a-f]{7}/.test(dry.all), `--dry-run did not name the commit: ${dry.all}`);
     const dryRefs = spawnSync('git', ['for-each-ref', '--format=%(refname)', 'refs/heads/review/'],
       { cwd: hub, encoding: 'utf8' }).stdout.trim();
     must(dryRefs === '', `--dry-run pushed something: ${dryRefs}`);
 
-    const sub = dl(['review', 'submit', 'reviewed.html', '--remote', 'soakhub']);
+    const sub = dl(['comments', 'submit', 'reviewed.html', '--remote', 'soakhub']);
     must(/pushed 4 comments on reviewed\.html/.test(sub.all), `submit did not report the push: ${sub.all}`);
     const m = /review\/[a-z0-9._-]+-\d{4}-\d{2}-\d{2}/.exec(sub.all);
     must(m, `no review branch named in: ${sub.all}`);
@@ -1698,16 +1702,16 @@ try {
     // than a stack — the one failure convention (#278), across the whole
     // surface rather than the few paths this journey happens to walk. It found
     // `video` answering --help on stderr with exit 1 on its first run (#294).
-    for (const cmd of ['init', 'import', 'bundle', 'upgrade', 'pdf', 'present', 'author', 'publish',
+    for (const cmd of ['init', 'import', 'bundle', 'upgrade', 'pdf', 'publish',
       'theme', 'marketplace', 'plugin', 'template', 'skills', 'importer', 'transform', 'engine',
-      'voice', 'agent', 'extension', 'restore', 'cast', 'record', 'review', 'comments',
+      'voice', 'agent', 'extension', 'restore', 'cast', 'record', 'comments',
       'tts', 'lipsync', 'video', 'voiceover', 'report-bug', 'associate']) {
       const r = dl([cmd, '--help']);
       must(r.stdout.length > 40, `${cmd} --help printed almost nothing to stdout`);
     }
     for (const [args, want] of [
       [['voiceover'], /decklight voiceover: name the deck/],
-      [['nope.html', '--read-only'], /present:/],
+      [['nope.html', '--read-only'], /decklight: deck not found/],
       [['import', 'deck.html'], /import:/],
       [['marketplace', 'add', SPACE], /marketplace add:/],
       [['theme', 'check', 'nope.css'], /theme check:/],
