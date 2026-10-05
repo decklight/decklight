@@ -23,7 +23,7 @@
  *   messageFor(target) the postMessage payload when it is not
  *
  * State lives per frame element, so a panel that rebuilds its iframe on every
- * open starts clean, and a `load` from a document that was superseded before it
+ * `open` starts clean, and a `load` from a document that was superseded before it
  * finished is ignored rather than replaying a request about the wrong deck.
  */
 export function createPreview({ docOf, srcFor, messageFor }) {

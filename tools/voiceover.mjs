@@ -45,7 +45,7 @@
 //
 // Nothing here writes or rewrites the words. The notes ARE the script: a
 // deck's content — its notes included — is written by the author or by the
-// agent they ask (A in author mode, SPEC PRESENTING), and an agent that runs on
+// agent they ask (A in write mode, SPEC PRESENTING), and an agent that runs on
 // a local model brings that model with it. A second writer here, voicing words
 // nobody had read, was the wrong place for one.
 
@@ -171,7 +171,7 @@ try {
   process.exit(1);
 }
 
-// `· N to voice` closes the line because the author server reads it: an export
+// `· N to voice` closes the line because the edit server reads it: an export
 // that voices its slides first counts them off against this number.
 console.log(planLine(basename(deckPath), html, range, !!opt('--slides')));
 const reuseTextFrom = args.includes('--reuse-text')

@@ -1,9 +1,9 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Shared "the port's taken" resolution for `decklight author`'s edit server.
+// Shared "the port's taken" resolution for `decklight <deck>`'s edit server.
 // The occupant is usually a PAST edit server (you started one
-// yesterday, forgot, and now `init`/`author` wants the same default port) — so
+// yesterday, forgot, and now `init`/`open` wants the same default port) — so
 // rather than guess at a PID, ask it directly: every edit server answers
 // GET /edit/ping with the deck it's serving, and POST /edit/shutdown stops it
 // as cleanly as its own Ctrl-C (final autocommit included). That makes "kill
@@ -156,7 +156,7 @@ export async function nextFreePort(port, host = '127.0.0.1', tries = 64) {
  *   a BRIDGE hands its address to nobody. The deck does not discover the
  *   bridge, it ASSUMES it: served over http, `src/core/narration.js` asks its
  *   own origin for `/tts` (and derives /ping, /engines, /voices from it) and
- *   `src/core/character.js` for `/lipsync`, which the author server proxies
+ *   `src/core/character.js` for `/lipsync`, which the edit server proxies
  *   to the ports it gave the bridges (#520); opened from disk, both fall back
  *   to `127.0.0.1:8787` and `:8789`, and the only override is a
  *   `liveUrl`/`bridgeUrl` written into the deck itself. A bridge run alone
@@ -276,7 +276,7 @@ export async function resolvePortConflict(port, {
   }
 
   // Somebody else's, and a bridge cannot work anywhere but here. Say who has
-  // it and both ways out, then decline: author reports the bridge as gone and
+  // it and both ways out, then decline: `open` reports the bridge as gone and
   // the deck degrades honestly, which beats a live voice that fails silently.
   if (ending === 'refuse') {
     if (!named) {
@@ -286,8 +286,8 @@ export async function resolvePortConflict(port, {
     }
     log(`  the deck asks for this bridge on ${port} and nowhere else, so it will not start.`);
     log(`  free the port (kill ${other ? other.pid : 'the process holding it'}), or move BOTH sides:`);
-    log(`  run with --port N and set narration.liveUrl in the deck to match — or, under author,`);
-    log(`  author --tts-port N alone: the deck reaches the bridge on author's own origin (/tts).`);
+    log(`  run with --port N and set narration.liveUrl in the deck to match — or, in write mode,`);
+    log(`  --tts-port N alone: the deck reaches the bridge on the edit server's own origin (/tts).`);
     return null;
   }
 

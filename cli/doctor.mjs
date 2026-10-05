@@ -50,7 +50,7 @@ export function diagnose({
   const ffmpeg = bin('ffmpeg'), ffprobe = bin('ffprobe');
   row('ffmpeg', ffmpeg && ffprobe ? ffmpeg : null, 'video (a narrated mp4 of the deck)',
     installLine('ffmpeg', platform));
-  row('git', bin('git'), 'snapshots and commits in author mode · history · restore · publish · review submit',
+  row('git', bin('git'), 'snapshots and commits in write mode · history · restore · publish · review submit',
     installLine('git', platform));
   row('gh', bin('gh'), "init's GitHub remote offer · review submit --pr",
     installLine('gh', platform));
@@ -60,7 +60,7 @@ export function diagnose({
   row('sigstore', has('sigstore') ? 'installed' : null, 'bundle --sign · publish (signed by default)',
     'npm install -g decklight --include=optional');
   row('an AI agent', agents.length ? agents.join(', ') : null,
-    'A in author mode (ask an agent to edit the deck) · agent-written commit subjects',
+    'A in write mode (ask an agent to edit the deck) · agent-written commit subjects',
     'install one: claude (npm i -g @anthropic-ai/claude-code), codex, gemini, copilot, aider …');
   const local = platform === 'darwin' ? 'say (built in)' : platform === 'win32' ? 'Windows speech (built in)' : null;
   row('a local voice', local ?? (bin('piper') ? 'piper' : null), 'narration with no account and no network',

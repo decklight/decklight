@@ -116,7 +116,7 @@ jobs:
       # file one top-level test), and 120s was sized to the slowest test on a
       # HEALTHY runner (~12s). A loaded windows-latest runs the whole suite
       # several times slower: on 2026-08-24 three consecutive runs each killed
-      # a different, perfectly green file at exactly 120000ms (dev.test.mjs,
+      # a different, perfectly green file at exactly 120000ms (open.test.mjs,
       # local-voice.test.mjs among them) — a flake lottery that blocked four
       # PRs. Five minutes still converts a real hang into a named failure well
       # inside the job's 30, and no longer fails files for being slow somewhere

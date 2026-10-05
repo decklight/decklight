@@ -32,7 +32,7 @@ async function opens(create, base) {
 }
 
 for (const [name, create] of [['Design systems…', createDesignSystemsPicker], ['Use design-system layout…', createSystemLayoutPicker]]) {
-  test(`${name} opens on a same-origin author server (base '') and refuses only with no server (null)`, async () => {
+  test(`${name} opens on a same-origin edit server (base '') and refuses only with no server (null)`, async () => {
     const same = await opens(create, '');
     assert.equal(same.opened, true, `refused with: ${same.said.join(' · ')}`);
     assert.equal((await opens(create, 'http://127.0.0.1:8788')).opened, true);

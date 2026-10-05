@@ -96,7 +96,7 @@ export async function lipsyncMain(args) {
   // production, decisive under test: V8 writes a process's coverage only when
   // it exits through process.exit, so a bridge the suite stops with SIGKILL —
   // or an unhandled SIGTERM — reports NOTHING of the handler it ran. The edit
-  // and present servers already do this; voiceover-server does now too.
+  // and read-only servers already do this; voiceover-server does now too.
   process.on('SIGTERM', () => process.exit(0));
   if (args.includes('--help')) {
     console.log(`usage: decklight lipsync [--port 8789] [--rhubarb <bin>]
@@ -104,7 +104,7 @@ export async function lipsyncMain(args) {
   [--wav2lip-dir <repo> --wav2lip-ckpt <checkpoint.pth>]
   [--sadtalker-dir <repo>] [--python python3]
   [--cache-dir ~/.cache/decklight/lipsync]
-  [--save]                              remember these (lipsync.json) — author then needs no flags
+  [--save]                              remember these (lipsync.json) — the deck then opens with no flags
   [--veo] [--veo-project <id>] [--veo-model veo-3.1-lite-generate-001]
   [--veo-seconds 4|6|8] [--veo-prompt "..."] [--veo-location us-central1]
   [--veo-face-y 0.12]                   where the square crop starts, as a fraction of height
@@ -138,7 +138,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   const port = parsePort(opt('--port', 8789));
   if (port === null) { console.error(`decklight lipsync: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
   // Flags win; what `--save` remembered fills the rest (tools/lipsync-config.mjs),
-  // so a talking head set up once starts with every `decklight author`.
+  // so a talking head set up once starts with every `decklight <deck>`.
   const saved = loadLipsyncConfig() ?? {};
   const rhubarb = opt('--rhubarb', saved.rhubarb ?? 'rhubarb');
   const python = opt('--python', saved.python ?? 'python3');
@@ -163,8 +163,8 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     console.log(`saved to ${saveLipsyncConfig(next)} — decklight <deck> starts the lip-sync bridge with it from now on`);
     console.log(engines.length ? `  neural video: ${engines.join(', ')} ready` : '  neural video: not ready yet');
     for (const p of problems) console.log(`  ${p}`);
-    // saving is the whole job: `author` starts the bridge with it (and a second
-    // bridge here would only fight the one author runs for the port)
+    // saving is the whole job: `open` starts the bridge with it (and a second
+    // bridge here would only fight the one the edit server runs for the port)
     process.exitCode = problems.length && !engines.length ? 1 : 0;
     return;
   }
@@ -502,7 +502,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
   // it, so they were the one place the deck could still look broken.
   //
   // On a TTY it names the occupant and offers a choice; anywhere else — and
-  // author spawns these with a piped stdin, so that is the usual case — it
+  // `open` spawns these with a piped stdin, so that is the usual case — it
   // moves to the next free port and says so. The player finds the bridge by
   // probing, so a moved port costs nothing.
   // `canBind`, NOT `isPortOpen`: this file's own note says why, and getting it
@@ -524,7 +524,7 @@ photo puts the face lower in Veo's 9:16 frame — chin off the bottom. Nudge
     : port;
   // null is "stand down" — either a bridge is already serving this port, or
   // somebody else holds it and this one cannot move (the deck only ever calls
-  // the one number). Exiting is the honest outcome: author prints "carrying on
+  // the one number). Exiting is the honest outcome: `open` prints "carrying on
   // without it" and the deck degrades where you can see it, instead of a
   // bridge running somewhere nothing will ever knock.
   if (asked === null) process.exit(0);

@@ -12,7 +12,7 @@
 // could not read.
 //
 // This is the server half plus the source-shape claims about the player. The
-// player's BEHAVIOUR — marketplace rows appearing only in author mode, Space
+// player's BEHAVIOUR — marketplace rows appearing only in write mode, Space
 // marking, a presented deck listing only what it marks — needs a real browser
 // and lives in test/engine.html's `browse` and `nobrowse` modes.
 
@@ -95,7 +95,7 @@ async function startAuthor(t, h, { deck: body = DECK } = {}) {
       const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
       if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
     }, 25);
-    proc.on('exit', () => { clearInterval(scan); reject(new Error(`author exited early:\n${out}`)); });
+    proc.on('exit', () => { clearInterval(scan); reject(new Error(`open exited early:\n${out}`)); });
     setTimeout(() => { clearInterval(scan); reject(new Error(`timeout:\n${out}`)); }, 10000);
   });
   const deck = path.join(dir, 'deck.html');
@@ -385,7 +385,7 @@ test('exporting in an unmarked marketplace theme asks first, naming it', async (
   assert.equal(readFileSync(deck, 'utf8'), before, 'asking writes nothing');
 });
 
-// ── author mode only ───────────────────────────────────────────────────────
+// ── write mode only ───────────────────────────────────────────────────────
 
 test('present has no browse or mark surface at all', async () => {
   const src = readFileSync(path.join(ROOT, 'cli/read-only.mjs'), 'utf8');
@@ -394,9 +394,9 @@ test('present has no browse or mark surface at all', async () => {
     'marking is a deck edit, and the read-only viewer performs none');
 });
 
-test('the player reaches the author server for this and nowhere else', () => {
+test('the player reaches the edit server for this and nowhere else', () => {
   // The invariant the listing exists under: a deck never fetches a theme
-  // itself. Listing and marking are both requests to the author server, which
+  // itself. Listing and marking are both requests to the edit server, which
   // is the only party allowed to touch a marketplace — so nothing in the
   // picker may name a host, and a manifest's `source` must never reach the
   // player at all.
@@ -404,9 +404,9 @@ test('the player reaches the author server for this and nowhere else', () => {
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
   const urls = code.match(/https?:\/\/[^'"`\s]+/g) ?? [];
-  assert.deepEqual(urls, [], 'the picker addresses the author server by path, never by origin');
+  assert.deepEqual(urls, [], 'the picker addresses the edit server by path, never by origin');
 
-  // Every request it makes is built the same way: the author server's own
+  // Every request it makes is built the same way: the edit server's own
   // origin plus a literal path. Nothing a catalog supplied can become a URL
   // here, which is what keeps a manifest's `source` the server's to resolve.
   const fetches = [...code.matchAll(/fetch\(([^\n]*)/g)].map((m) => m[1].trim());

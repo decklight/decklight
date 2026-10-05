@@ -4,7 +4,7 @@
 // The engine wizard framework (MARKETPLACE.md ENGINES#WIZARD).
 //
 // Two claims carry this file. The first is that a plugin cannot paint UI into a
-// deck — which is what makes "author mode only" enforceable rather than merely
+// deck — which is what makes "write mode only" enforceable rather than merely
 // intended, so most of the schema tests are refusals. The second is that a
 // credential goes exactly one place: a 0600 file under the config home, never a
 // log line, never the deck, never a bundle.
@@ -62,7 +62,7 @@ test('a well-formed schema is normalized, not merely accepted', () => {
 });
 
 test('a plugin cannot ask core to render markup — the whole design in one refusal', () => {
-  // If a plugin could put HTML on a slide, "wizard only in author mode" would be
+  // If a plugin could put HTML on a slide, "wizard only in write mode" would be
   // a rule the plugin's own markup had to honour. The vocabulary is closed so
   // that it is core's rule instead.
   for (const type of ['html', 'script', 'markdown', 'iframe', 'template', 'raw']) {
@@ -505,7 +505,7 @@ test('the store is the config home ENGINES decided on, beside the registry', () 
   assert.ok(existsSync(path.join(home, 'credentials.json')), 'the two coexist — one directory, two files');
 });
 
-// ── the endpoints, against a real author server and a real catalog ─────────
+// ── the endpoints, against a real edit server and a real catalog ─────────
 
 const EDIT = path.join(ROOT, 'cli/edit.mjs');
 
@@ -551,13 +551,13 @@ async function startAuthor(t, home) {
       const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
       if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
     }, 25);
-    proc.on('exit', () => { clearInterval(scan); reject(new Error('author exited early:\n' + out)); });
+    proc.on('exit', () => { clearInterval(scan); reject(new Error('`open` exited early:\n' + out)); });
     setTimeout(() => { clearInterval(scan); reject(new Error(`timeout:\n${out}`)); }, 10000);
   });
   return { base, dir, log: () => out };
 }
 
-test('the author server hands the player a VETTED schema, or refuses to', async (t) => {
+test('the edit server hands the player a VETTED schema, or refuses to', async (t) => {
   const home = catalogHome({
     engine: 'elevenlabs', title: 'ElevenLabs', validate: '/validate',
     fields: [{ name: 'apiKey', type: 'secret', required: true }],
@@ -666,7 +666,7 @@ test('bad answers come back 400 with the schema\'s own complaint', async (t) => 
   assert.deepEqual(loadCredentials(home), {}, 'and nothing was stored');
 });
 
-test('the player gate: the overlay refuses without an author server', () => {
+test('the player gate: the overlay refuses without an edit server', () => {
   // The runtime asks editAvailable before it renders a single input, and the
   // refusal is the same needsDevMode line every other author-only affordance
   // uses. A prompt that collected a credential with nowhere to post it would be

@@ -405,7 +405,7 @@ export async function synthesizeSlides({
   return { manifest: manifestOf(entries), skipped, cost };
 }
 
-/** The plan line `decklight voiceover` prints — the author server reads its `· N to voice`. */
+/** The plan line `decklight voiceover` prints — the edit server reads its `· N to voice`. */
 export function planLine(name, html, range, ranged) {
   const texts = slideNotes(html).map((r) => (r ? cleanNotes(r) : ''));
   const span = range ?? { from: 1, to: texts.length };

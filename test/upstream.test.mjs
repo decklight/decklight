@@ -1,10 +1,10 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `present`'s upstream check — SPEC PRESENTING (PRESENT#UPSTREAM).
+// the read-only server's upstream check — SPEC PRESENTING (PRESENT#UPSTREAM).
 //
 // This file is mostly about what the feature REFUSES, because that is where its
-// safety lives. `present` gained its first route that acts, and the argument
+// safety lives. `--read-only` gained its first route that acts, and the argument
 // that this is still not an editing server rests on three things a test can
 // hold: the feature is unreachable for a deck that is not in a clone, the pull
 // takes no parameter of any kind, and a fetch that failed is never reported as

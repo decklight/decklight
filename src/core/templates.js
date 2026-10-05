@@ -10,7 +10,7 @@
  * installed (and what a registered marketplace offers), look inside one, pick
  * the slides you want, and they land after the slide you are on.
  *
- * Author mode only, and ABSENT rather than disabled outside it — the same rule
+ * Write mode only, and ABSENT rather than disabled outside it — the same rule
  * the theme browser keeps, for the same reason: inserting slides writes the
  * deck on disk, and a deck being PRESENTED has no server to write it and no
  * business reaching a marketplace.
@@ -337,9 +337,9 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
     try {
       const r = await fetch(`${base()}/edit/template/slides?name=${encodeURIComponent(name)}`);
       const j = await r.json().catch(() => ({}));
-      got = r.ok && j.ok ? { slides: j.slides ?? [] } : { error: j.error || `the author server said ${r.status}` };
+      got = r.ok && j.ok ? { slides: j.slides ?? [] } : { error: j.error || `the edit server said ${r.status}` };
     } catch {
-      got = { error: 'the author server did not answer' };
+      got = { error: 'the edit server did not answer' };
     }
     slideCache.set(name, got);
     return got;
@@ -358,9 +358,9 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
       const j = await r.json().catch(() => ({}));
       listing = r.ok && j.ok
         ? { installed: j.installed ?? [], offered: j.offered ?? [], stale: j.stale ?? [] }
-        : { error: j.error || `the author server said ${r.status}` };
+        : { error: j.error || `the edit server said ${r.status}` };
     } catch {
-      listing = { error: 'the author server did not answer' };
+      listing = { error: 'the edit server did not answer' };
     }
     if (el) render();
   }
@@ -389,7 +389,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ref: qualified }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error(j.error || `the edit server said ${r.status}`);
       toast(`installed ${j.name}`);
       slideCache.delete(j.name);
       await open(mode);
@@ -412,7 +412,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
         body: JSON.stringify({ name: opened.name, slides, after }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error(j.error || `the edit server said ${r.status}`);
       close();
       const st = j.styles ?? {};
       toast(`${j.inserted} slide${j.inserted === 1 ? '' : 's'} from ${j.name} after slide ${after} — Z takes it back`
@@ -445,7 +445,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
         body: JSON.stringify({ name: opened.name, slide: slide.n, to }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error(j.error || `the edit server said ${r.status}`);
       close();
       const named = Object.keys(j.applied ?? {});
       const st = j.styles ?? {};

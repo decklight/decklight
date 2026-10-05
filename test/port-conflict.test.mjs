@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Port-conflict resolution for `decklight author`'s edit server: who's on a
+// Port-conflict resolution for `decklight <deck>`'s edit server: who's on a
 // taken port, and the two ways out — take it over (POST /edit/shutdown) or
 // move to the next free port. planPortConflict() is pure and unit-tested
 // directly; identify/shutdown/bump are exercised against a real edit server.
@@ -47,7 +47,7 @@ function waitForExit(child, timeoutMs = 5000) {
   });
 }
 
-/** Spawn the edit server (through its module, as `author` does) in its own deck dir, on `port` (0 = OS picks one). */
+/** Spawn the edit server (through its module, as `open` does) in its own deck dir, on `port` (0 = OS picks one). */
 async function startEdit(t, port = 0, extraArgs = []) {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
@@ -61,7 +61,7 @@ async function startEdit(t, port = 0, extraArgs = []) {
   child.stderr.on('data', (c) => { out += c; });
   // NOT the banner's DECK_URL_RE: this is the edit server run bare, the way
   // `decklight edit` runs it, and a bare child still prints its own sentence.
-  // The banner only exists when author is the one doing the printing.
+  // The banner only exists when `open` is the one doing the printing.
   const [, actual] = await waitFor(() => out, /decklight · \S+ on http:\/\/127\.0\.0\.1:(\d+)/);
   return { child, dir, port: Number(actual), log: () => out };
 }
@@ -70,7 +70,7 @@ async function startEdit(t, port = 0, extraArgs = []) {
 
 test('planPortConflict: only asks when there is a TTY AND somebody to name', () => {
   const py = { pid: 123, command: 'Python' };
-  // NOTHING is ever killed unattended. author spawns its bridges with a piped
+  // NOTHING is ever killed unattended. `open` spawns its bridges with a piped
   // stdin, so these rows are the ones that matter most: no TTY, no question,
   // and certainly no signal.
   assert.equal(planPortConflict({ tty: false, identified: null }), 'bump');
@@ -89,7 +89,7 @@ test('a BRIDGE never bumps — the deck only ever knocks on the one port', () =>
   const bridge = { name: 'the say voice bridge', bridge: true };
   const b = (o) => planPortConflict({ ...o, kind: 'bridge' });
   // This is the whole point of `kind`. src/core/narration.js hardcodes
-  // 127.0.0.1:8787 and src/core/character.js hardcodes :8789; author passes
+  // 127.0.0.1:8787 and src/core/character.js hardcodes :8789; `open` passes
   // --tts-port to the bridge and never tells the deck. A bridge that moved
   // would bind a port nothing calls, and the deck would report "no live
   // voice" with nothing on screen to explain why — quieter than the crash
@@ -309,10 +309,10 @@ test('a second edit server on the same port bumps and says why (no TTY, no crash
   assert.equal(b.child.exitCode, null, 'never crashed');
 });
 
-// ── end to end: `decklight author` resolves the conflict itself — its edit
+// ── end to end: `decklight <deck>` resolves the conflict itself — its edit
 // child's stdin is piped, not a terminal, so IT could never ask ───────────
 
-test('`decklight author` bumps the edit port on conflict instead of crashing', async (t) => {
+test('`decklight <deck>` bumps the edit port on conflict instead of crashing', async (t) => {
   const a = await startEdit(t);
 
   const devDir = tmp(t);
@@ -328,5 +328,5 @@ test('`decklight author` bumps the edit port on conflict instead of crashing', a
   await waitFor(() => out, /already in use/);
   const [, bumped] = await waitFor(() => out, DECK_URL_RE);
   assert.notEqual(Number(bumped), a.port);
-  assert.equal(dev.exitCode, null, 'author never gave up');
+  assert.equal(dev.exitCode, null, 'the edit server never gave up');
 });

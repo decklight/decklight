@@ -2,18 +2,18 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Evidence for #239: every response `decklight present` writes carries the
+// Evidence for #239: every response `decklight <deck> --read-only` writes carries the
 // Content-Security-Policy header — the error pages and control channels
 // included, not only the deck — and `POST /remote/pos` answers the deck alone.
 // Nothing changes in the browser, so the shot is the CLI surface itself: this
-// script starts a REAL `decklight present deck.html --remote`, curls a 404 and
+// script starts a REAL `decklight deck.html --read-only --remote`, curls a 404 and
 // the control-channel ping over loopback to show the header riding on both,
 // then posts a fabricated position FROM THE LAN ADDRESS with the per-run token
 // in hand — refused — and the same post over loopback, which is the deck's own
 // path and still lands. The captured transcript renders as a terminal window
 // for tools/shot.mjs.
 //
-//   node shots/present-csp-transcript.mjs    → .shots/present-csp.png
+//   node shots/read-only-csp-transcript.mjs    → .shots/read-only-csp.png
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -39,7 +39,7 @@ fs.writeFileSync(path.join(dir, 'deck.html'), `<!doctype html>
 
 // --- run the real command, keep the real output --------------------------------
 
-const dev = spawn('node', [CLI, 'present', 'deck.html', '--remote'], {
+const dev = spawn('node', [CLI, 'deck.html', '--read-only', '--remote'], {
   cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';
@@ -83,7 +83,7 @@ const paintCurl = (s) => esc(s)
 const block = (cmd, body) => `<div class="run"><span class="prompt">~/talk $</span> ${esc(cmd)}\n${body}</div>`;
 
 const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>decklight present — CSP on every response</title><style>
+<html lang="en"><head><meta charset="utf-8"><title>decklight · read-only — CSP on every response</title><style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          background: linear-gradient(135deg, #1b2735, #090a0f); }
   .term { width: 1120px; background: #10141b; border-radius: 12px;
@@ -102,7 +102,7 @@ const html = `<!doctype html>
 </style></head><body>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-    <span class="t">decklight present — the CSP rides on EVERY response, and /remote/pos answers the deck alone (#239)</span></div>
+    <span class="t">decklight · read-only — the CSP rides on EVERY response, and /remote/pos answers the deck alone (#239)</span></div>
   <div class="body">${block('curl -si http://127.0.0.1:' + port + '/missing.html               # a 404 error page', paintCurl(notFound))}
 ${block('curl -si http://127.0.0.1:' + port + '/present/ping              # the control channel', paintCurl(ping))}
 ${block(`curl -si -X POST -d '{"i":99,"n":99}' http://${lan}:${port}/remote/pos?t=…   # fabricated, from the LAN, token in hand`, paintCurl(forged))}
@@ -111,10 +111,10 @@ ${block(`curl -si -X POST -d '{"i":2,"n":9}' http://127.0.0.1:${port}/remote/pos
 </body></html>
 `;
 
-const page = path.join(root, '.shots', 'present-csp-transcript.html');
+const page = path.join(root, '.shots', 'read-only-csp-transcript.html');
 fs.mkdirSync(path.dirname(page), { recursive: true });
 fs.writeFileSync(page, html);
 execFileSync('node', [path.join(root, 'tools', 'shot.mjs'), page,
-  '-o', path.join(root, '.shots', 'present-csp.png'), '--size', '1280x900', '--wait', '800'],
+  '-o', path.join(root, '.shots', 'read-only-csp.png'), '--size', '1280x900', '--wait', '800'],
   { stdio: 'inherit' });
 fs.rmSync(page, { force: true });

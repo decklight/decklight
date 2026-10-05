@@ -524,7 +524,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // ── marketplace themes, and marking (MARKETPLACE.md THEME_BROWSE#UI) ──
   // While AUTHORING, the overlay lists every theme of every registered
   // marketplace under that marketplace's heading — no separate Browse step.
-  // Any of them can be previewed and applied: the author server answers its
+  // Any of them can be previewed and applied: the edit server answers its
   // CSS from the marketplace's files on this machine. A theme only travels
   // with the deck once it is MARKED (Space on its row): the deck's config
   // gains a reference, and `bundle` carries every marked theme.
@@ -533,7 +533,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // marks and nothing else, so everyone who opens it sees the same list, and
   // it never reaches for a catalog — that is the invariant.
   //
-  // Listing is served from the author server's catalog CACHE. Offline, on a
+  // Listing is served from the edit server's catalog CACHE. Offline, on a
   // plane, air-gapped: it lists what has been fetched and NAMES the
   // marketplaces it could not read, rather than looking short.
   const authoring = () => editmode?.()?.available() === true;
@@ -559,11 +559,11 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
           themeSource.set(t.name, { pack: `mkt:${t.marketplace}`, label: t.title || t.marketplace });
         }
         next = { stale: j.stale ?? [] };
-      } else next = { error: j.error || `the author server said ${r.status}` };
+      } else next = { error: j.error || `the edit server said ${r.status}` };
     } catch {
-      // Fails instantly, no spinner to sit through: the author server is on
+      // Fails instantly, no spinner to sit through: the edit server is on
       // loopback, so not answering means it is gone, not that the link is slow.
-      next = { error: 'the author server did not answer' };
+      next = { error: 'the edit server did not answer' };
     }
     catalogs = next;
     if (pickerEl) setPickerView(pickerView);
@@ -581,7 +581,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   }
   /**
    * Space on a marketplace theme's row: mark it for the deck, or unmark it.
-   * The write is the author server's — one line in the config block, one undo
+   * The write is the edit server's — one line in the config block, one undo
    * entry. It is asked for QUIETLY: the picker is still open, the author is
    * still choosing, and a reload would close it under them — so the row turns
    * ● or ○ in place and the selection stays where it was. Marking changes what
@@ -615,7 +615,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) {
         const why = [j.error, ...(j.problems ?? [])].filter(Boolean).join(' · ');
-        if (caption) caption.textContent = why || `the author server said ${r.status}`;
+        if (caption) caption.textContent = why || `the edit server said ${r.status}`;
         toast(`${ref}: ${j.error || 'refused'}`, 3600);
         return;
       }
@@ -639,7 +639,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
         : `${name} unmarked — the bundle will leave it out`, 2800);
       debugLog('theme', `${ref} ${on ? 'marked' : 'unmarked'}`);
     } catch {
-      if (caption) caption.textContent = 'the author server did not answer';
+      if (caption) caption.textContent = 'the edit server did not answer';
     }
   }
 

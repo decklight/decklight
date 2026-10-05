@@ -379,7 +379,7 @@ test('every command that inlines the runtime produces bytes this install recogni
   // did exactly that: its local escape covered `</script` and `</style` but
   // not `<!--`, so every imported deck disagreed with the auditor by one
   // sequence — invisible in a render harness, and stated in the terminal to
-  // anyone who ran `decklight present` on the result.
+  // anyone who ran `decklight <deck> --read-only` on the result.
   //
   // Pinned as a property of the SHARED transform rather than of one command:
   // whatever `inlineRuntime` does, the auditor's model of it and the bytes a

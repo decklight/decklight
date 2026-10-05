@@ -190,7 +190,7 @@ export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${ba
 // therefore as fresh as your last fetch, and saying so is better than fetching
 // behind someone's back.
 //
-// ONE named exception: the review check at `decklight author` startup
+// ONE named exception: the review check at `decklight <deck>` startup
 // (cli/review-remote.mjs), which exists precisely because "somebody reviewed
 // your deck" is only useful unasked. It is once, detached, off by three
 // switches that each say why, and nowhere near a SIGINT handler — the shape
@@ -201,7 +201,7 @@ export function gitAutocommit(deckPath, cwd, message = `decklight: autosave ${ba
  * `owner/repo` from a GitHub remote URL, or null for anything else.
  *
  * THE one parser — `pagesUrl` (cli/publish.mjs) derives the Pages site from it
- * and `review submit` hands it to `gh --repo`. It lived in both files as the
+ * and `comments submit` hands it to `gh --repo`. It lived in both files as the
  * same regex for a while, which is exactly how one copy grows a spelling the
  * other refuses.
  */
@@ -382,7 +382,7 @@ export function remoteState(cwd, { run = git, exec = execFileSync } = {}) {
 // ── the words ──────────────────────────────────────────────────────────────
 //
 // Four places tell you about unpushed work — a toast while authoring, a line
-// when author mode exits, the history overlay's footer, and `decklight
+// when write mode exits, the history overlay's footer, and `decklight
 // history` — and they must not disagree. So none of them writes a sentence:
 // they all call one of the three functions below. A wording change is then a
 // diff in one file with a test beside it, rather than four strings that were
@@ -411,7 +411,7 @@ export function pushHint(s) {
 }
 
 /**
- * The line author mode prints on its way out, or null for a clean exit.
+ * The line write mode prints on its way out, or null for a clean exit.
  *
  * This one DOES speak up when there is no remote, unlike `pushHint` — the end
  * of a session is the moment when "this only exists here" is worth knowing, and

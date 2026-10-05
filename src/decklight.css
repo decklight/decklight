@@ -1067,7 +1067,7 @@
   user-select: none;
 }
 .decklight-clock .clk-elapsed { color: var(--accent, #6af); }
-/* The element content editor's highlighted layers (author mode). A textarea
+/* The element content editor's highlighted layers (write mode). A textarea
    cannot render markup, so the colour is a <pre> BEHIND a textarea whose own
    text is transparent.
 
@@ -1154,7 +1154,7 @@
    textarea shows its own text rather than an empty-looking box. */
 .decklight-narr .edit-code > textarea:disabled { color: var(--muted, #9aa); }
 
-/* "an agent is still working" — author mode only (src/core/editmode.js).
+/* "an agent is still working" — write mode only (src/core/editmode.js).
    BOTTOM CENTRE, which is the one piece of chrome nothing else claims: the
    logo takes a corner, the clock is top-right, the controls bottom-right and
    messages top-left, so this can be persistent without ever covering them.
@@ -1313,7 +1313,7 @@
 .decklight-overview > .decklight-stage { visibility: hidden; }
 .decklight-overview-grid .ov-cell.ov-current { border-color: var(--accent, #6af); }
 .decklight-overview-grid .ov-cell.ov-selected { outline: 3px solid var(--accent, #6af); outline-offset: 2px; }
-/* the overview edits slides in author mode (engine.js ovEditable): a cell's
+/* the overview edits slides in write mode (engine.js ovEditable): a cell's
    tools show on hover, a drag shows where the slide would land */
 .decklight-overview-grid .ov-tools {
   position: absolute; right: 6px; top: 6px; z-index: 3;
@@ -1910,8 +1910,8 @@
   white-space: nowrap;
 }
 /* the palette's shape (palette.js): groups fold the hand-over rows and the
-   like into one row each, the author-mode rows sit under one header, and a
-   row found by typing says it is author mode with a tag */
+   like into one row each, the write-mode rows sit under one header, and a
+   row found by typing says it is write mode with a tag */
 .decklight-palette .pal-right { display: inline-flex; align-items: center; gap: 8px; }
 .decklight-palette .pal-head { margin: 8px 12px 2px; font-size: .68em; letter-spacing: .14em; text-transform: uppercase; opacity: .5; }
 .decklight-palette .pal-tag { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 5px; border-radius: 4px; background: rgba(255, 255, 255, .1); opacity: .7; }
@@ -2214,7 +2214,7 @@
 .decklight-agent .agent-ask-out { white-space: pre-wrap; opacity: .8; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 11.5px; }
 .decklight-agent .agent-ask-running .agent-ask-out { opacity: .6; font-style: italic; }
 .decklight-agent .agent-ask-failed .agent-ask-out { color: #f3a3a3; }
-/* the notes card with no author server behind it (S under present/review):
+/* the notes card with no edit server behind it (S under present/review):
    the same box, read-only, and it looks it */
 .decklight-editor .edit-notes.edit-notes-readonly { cursor: default; opacity: .9; border-style: dashed; }
 .decklight-editor .edit-notes {
@@ -2566,7 +2566,7 @@
 }
 .decklight-sources .src-add:hover { opacity: 1; }
 
-/* ── author mode: double-click to edit, drop to add (src/core/authoring.js) ── */
+/* ── write mode: double-click to edit, drop to add (src/core/authoring.js) ── */
 .decklight .dl-editing {
   outline: 2px solid var(--accent);
   outline-offset: 3px;

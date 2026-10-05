@@ -107,7 +107,7 @@ export function snapshotWip(cwd, deckPath, deckRel, { exec = execFileSync, timeo
   //
   // EVERY call is bounded. This runs on a timer, on the server's event loop,
   // and `execFileSync` blocks it for as long as the child takes — so a git that
-  // never returns does not cost a snapshot, it costs the whole author server:
+  // never returns does not cost a snapshot, it costs the whole edit server:
   // still listening, answering nothing, until somebody kills it. That is not a
   // hypothetical. `git hash-object -w --stdin` was found wedged for eight hours
   // with the server dead behind it, and because a `file://` deck probes the
@@ -150,7 +150,7 @@ export function nagText({ lines = 0, sinceMs = 0 } = {}) {
   return `${size} uncommitted${mins >= 1 ? ` · ${age}` : ''}`;
 }
 
-/** The line author prints when the snapshot is what stands behind the nag. */
+/** The line `open` prints when the snapshot is what stands behind the nag. */
 export function wipLine(deckRel) {
   return `  git: committing ${deckRel} when you say so — a silent snapshot rides on`
     + ` ${WIP_REF.replace('refs/', '')} in between (git show decklight/wip:${deckRel})`;

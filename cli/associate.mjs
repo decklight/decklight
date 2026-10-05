@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `decklight associate` — make a double-clicked `.decklight` open in `present`
+ * `decklight associate` — make a double-clicked `.decklight` open in `--read-only`
  * (MARKETPLACE.md DECK_FILE#ASSOC).
  *
  * Without this, the container's whole point leaks away: the person who receives
  * a deck double-clicks it, the OS has no idea what it is, and they end up
  * either renaming it to `.html` (which works — the container degrades on
  * purpose — but skips every check) or looking at a download dialog. The file
- * association is what makes `present` the default way in rather than the way in
+ * association is what makes `--read-only` the default way in rather than the way in
  * for people who already read the docs.
  *
  * Three platforms, three unrelated mechanisms, and the honest summary is that
@@ -69,7 +69,7 @@ const USAGE = `usage: decklight associate [--uninstall] [--print]
 
 /**
  * The launcher runs the CLI through the same node that is running now.
- * `%f` (single local file) rather than `%F`: present takes one deck, and a
+ * `%f` (single local file) rather than `%F`: the read-only server takes one deck, and a
  * multi-select that silently presented the first would be worse than one that
  * opens two windows.
  */
@@ -153,13 +153,13 @@ export function darwinFiles(home = homedir(), node = process.execPath, cli = CLI
     {
       path: join(app, 'Contents/MacOS/decklight'),
       mode: 0o755,
-      // Through Terminal, because present is a server that prints the label and
+      // Through Terminal, because the read-only server is a server that prints the label and
       // then keeps running: launching it with no visible output would leave
       // someone staring at a bouncing icon while the thing they need to read
       // scrolls past in a log nobody opens.
       //
       // The deck path is the filename of a file someone *sent*, and this
-      // script runs before `present` checks a byte — so it must never be
+      // script runs before `--read-only` checks a byte — so it must never be
       // spliced into the `do script` text, where a quote in the name becomes
       // shell. It rides as an osascript argument the whole way and is quoted
       // by AppleScript's `quoted form of` at the last moment. The install

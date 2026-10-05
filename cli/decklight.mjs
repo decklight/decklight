@@ -84,7 +84,7 @@ if (cmd === 'help') {
 // every real command announces the version it runs as — on stderr, so piped
 // output (export, bundle) stays clean.
 //
-// EXCEPT under author, which spawns this same CLI two or three times: the
+// EXCEPT in write mode, which spawns this same CLI two or three times: the
 // parent has already said which version everything runs as, and repeating it
 // once per child was the first third of author's startup wall.
 if (!process.env.DECKLIGHT_BANNER) {
@@ -92,7 +92,7 @@ if (!process.env.DECKLIGHT_BANNER) {
   if (notice) process.stderr.write(`${notice}\n`);
 }
 
-// When a parent supervises us (author runs the deck server and the bridges), go when it
+// When a parent supervises us (the edit server runs the deck server and the bridges), go when it
 // goes — a SIGKILLed parent never gets to reap its children. No-op otherwise.
 const { exitWhenOrphaned } = await import('./supervise.mjs');
 exitWhenOrphaned();
@@ -113,25 +113,8 @@ try {
 // with the stack behind DECKLIGHT_DEBUG — never as the raw Node stack a user
 // used to get (`decklight import` did exactly that on any install path with a
 // space in it, #275).
-// The file is the command: `decklight talk.html` opens it in author mode,
+// The file is the command: `decklight talk.html` opens it in write mode,
 // `decklight talk.pptx` imports it, `decklight talk.decklight` presents it.
-// The words that used to open a deck. The deck is the command now, and the
-// mode is a flag; someone whose fingers still type the word is told the
-// line, with the deck they named already in it.
-const RETIRED = {
-  author: (deck) => `decklight ${deck}`,
-  dev: (deck) => `decklight ${deck}`,
-  present: (deck) => `decklight ${deck} --read-only`,
-  review: (deck, sub) => (sub === 'submit' ? `decklight comments submit ${deck}` : `decklight ${deck} --read-only   (then M to comment)`),
-};
-if (RETIRED[cmd]) {
-  const sub = rest[0] === 'submit' ? 'submit' : null;
-  const deck = (sub ? rest[1] : rest.find((a) => !a.startsWith('-'))) ?? '<deck.html>';
-  const flags = rest.filter((a) => a !== deck && a !== 'submit' && a !== '--open').join(' ');
-  process.stderr.write(`decklight ${cmd} is no longer a command: the deck is the command, and the mode is a flag.\n`);
-  process.stderr.write(`  ${RETIRED[cmd](deck, sub)}${flags ? ` ${flags}` : ''}\n`);
-  process.exit(1);
-}
 let command = resolveCommand(cmd);
 if (!command && cmd.startsWith('-')) {
   // `decklight --read-only talk.html`, `decklight --port 0 talk.html`: the deck

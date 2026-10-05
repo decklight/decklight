@@ -126,7 +126,7 @@
 
     try {
       localStorage.setItem('decklight-onboarded', '1');
-      localStorage.setItem('decklight-onboarded-author', '1');   // nor the editing tour, which takes the first key
+      localStorage.setItem('decklight-onboarded-tour', '1');   // nor the editing tour, which takes the first key
       localStorage.setItem('decklight-tips-off', '1');
     } catch (e) { /* private mode */ }
   </script>
@@ -442,7 +442,7 @@
           return;
         }
 
-        if (mode === 'author') {
+        if (mode === 'write') {
           // An author: the panel writes for them too (a note to self, as ⇧M
           // always could), and R resolves — armed, then confirmed.
           press('m');

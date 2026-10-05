@@ -29,7 +29,7 @@ import { resolveGitMode, shouldCommit, commitSubject } from '../cli/git.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // The server's entry since `edit` stopped being a dispatcher command: the
-// module itself, exactly as `decklight author` spawns it.
+// module itself, exactly as `decklight <deck>` spawns it.
 const EDIT = path.resolve(here, '../cli/edit.mjs');
 
 const DECK = `<!doctype html>
@@ -820,7 +820,7 @@ test('POST /edit/enhance with no agent on the machine is a 400 that says so', as
   assert.match((await r.json()).error, /no agent CLI|install one/);
 });
 
-// ── the author server is loopback-only, and has no remote (PRESENT#REMOTE) ─
+// ── the edit server is loopback-only, and has no remote (PRESENT#REMOTE) ─
 
 test('--remote and --host are refused out loud, naming where the remote went', () => {
   // Silently binding loopback would leave someone holding a phone that never
@@ -834,7 +834,7 @@ test('--remote and --host are refused out loud, naming where the remote went', (
   }
 });
 
-test('the author server binds 127.0.0.1 — the LAN cannot even connect', async (t) => {
+test('the edit server binds 127.0.0.1 — the LAN cannot even connect', async (t) => {
   const lan = lanAddress();
   if (!lan) return t.skip('no non-loopback IPv4 interface on this machine');
   const dir = tmp(t);
@@ -849,7 +849,7 @@ test('the author server binds 127.0.0.1 — the LAN cannot even connect', async 
 });
 
 test('no /remote/* route is registered here at all', async (t) => {
-  // The negative space, mirroring present.test.mjs's "no /edit/* route": a
+  // The negative space, mirroring read-only.test.mjs's "no /edit/* route": a
   // clicker must not cost you an editing server, so the two capabilities do not
   // live in one process. Absent, not refused.
   const dir = tmp(t);
@@ -869,9 +869,9 @@ test('no /remote/* route is registered here at all', async (t) => {
     'and the module does not import the relay it would need to serve them');
 });
 
-// ── CSRF: a foreign web origin cannot drive the author server (#222) ───────
+// ── CSRF: a foreign web origin cannot drive the edit server (#222) ───────
 //
-// The threat is the user's OWN browser: while `decklight author` runs on
+// The threat is the user's OWN browser: while `decklight <deck>` runs on
 // loopback, any page in any tab can fetch() this port. Binding 127.0.0.1 does
 // nothing about it, and the old wildcard `access-control-allow-origin: *`
 // waved the browser through. The gate is now the request's Origin.
@@ -1562,7 +1562,7 @@ test('/edit/export writes the PowerPoint and names the file it wrote', async (t)
 
   const r = await (await post(base, '/edit/export', { kind: 'pptx' })).json();
   assert.equal(r.ok, true, `export refused: ${r.error}`);
-  assert.equal(r.file, 'deck.pptx', 'the path is relative to where author is running');
+  assert.equal(r.file, 'deck.pptx', 'the path is relative to where the deck is open');
   assert.equal(typeof r.seconds, 'number');
   const out = path.join(dir, 'deck.pptx');
   assert.ok(existsSync(out), 'the file landed beside the deck');
@@ -1606,7 +1606,7 @@ test('/edit/export runs one export at a time, and the deck is told which', async
   assert.equal((await post(base, '/edit/export', { kind: 'pptx' })).status, 200);
 });
 
-test('an export that fails says so and leaves the author server serving', async (t) => {
+test('an export that fails says so and leaves the edit server serving', async (t) => {
   if (noFakeChrome) return t.skip('the stand-in Chrome is a script, and execFile will not spawn a .cmd');
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
@@ -2152,7 +2152,7 @@ const TEMPLATE_DECK = `<!doctype html><html><body>
 </div>
 </body></html>`;
 
-/** An author server whose unit library is this test's own temp directory. */
+/** An edit server whose unit library is this test's own temp directory. */
 async function startWithTemplate(t, dir, { install = true } = {}) {
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const home = path.join(dir, 'home');

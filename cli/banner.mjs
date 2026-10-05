@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * One banner for `decklight author`, and the deck's URL is the last thing on it.
+ * One banner for `decklight <deck>`, and the deck's URL is the last thing on it.
  *
- * author runs its servers as child processes and used to let each one print its
+ * the edit server runs its servers as child processes and used to let each one print its
  * own startup lines through a pipe that did nothing but prefix them. That gave
  * two problems no amount of rewording fixes:
  *
@@ -17,9 +17,9 @@
  *   together were a wall, because no single place could see them all and
  *   decide what mattered.
  *
- * So author prints the banner and the children stop printing startup lines —
+ * So `open` prints the banner and the children stop printing startup lines —
  * they hand author a FACT instead, on the same pipe, behind a sentinel
- * (`readyLine`). Only under author: with no `DECKLIGHT_BANNER` in the
+ * (`readyLine`). Only in write mode: with no `DECKLIGHT_BANNER` in the
  * environment every child prints exactly what it printed before, which is what
  * `decklight edit` and `decklight tts` run on their own still do.
  *
@@ -110,13 +110,13 @@ export function nextFlushDelay({ waiting = 0, elapsed = 0, cap = 5000, grace = 3
  * How anything WATCHING author's output finds the deck's url.
  *
  * Exported because six harnesses each carried their own copy of the old
- * `decklight author on http://…`, and the day that line changed shape all six
+ * `decklight · <deck> on http://…`, and the day that line changed shape all six
  * timed out for the same reason in six different files. A banner is a thing
  * people read, so its wording will change again; this is the part that is a
  * contract, and it lives next to the code that prints it.
  *
  * Group 1 is the port. Tolerant of the colour codes a terminal gets and a pipe
- * does not, so it matches whichever way author was run — and the escapes and
+ * does not, so it matches whichever way `open` was run — and the escapes and
  * the space INTERLEAVE: the reset that closes the ▸ lands between the arrow
  * and the space before the url. A pattern that expected the whitespace first
  * matched every piped harness and none of the ones driven through a pty,

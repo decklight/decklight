@@ -11,7 +11,7 @@
  * and exfiltrate it. That path runs on decks nobody vetted: a repro deck off an
  * issue (`.github/workflows/bug-repro.yml`), or one a user screenshots before
  * presenting it. The fix serves the deck over http://127.0.0.1 under the
- * `present` CSP instead (serveForRender), where an http origin cannot touch
+ * `--read-only` CSP instead (serveForRender), where an http origin cannot touch
  * file:// at all.
  *
  * A string test ("shot no longer passes the flag") would not prove the deck is

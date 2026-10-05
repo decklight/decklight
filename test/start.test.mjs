@@ -37,10 +37,9 @@ test('the plan reads the directory: nothing to open offers init, one deck offers
 
 test('Enter means write mode; r or p means read-only; anything else opens nothing', () => {
   assert.equal(pickVerb(''), 'write', 'the deck in front of you is one you are working on, more often than not');
-  assert.equal(pickVerb('a'), 'write');
-  assert.equal(pickVerb('edit'), 'write');
+    assert.equal(pickVerb('edit'), 'write');
   assert.equal(pickVerb('r'), 'read-only');
-  assert.equal(pickVerb('P'), 'read-only', 'for the fingers that remember present');
+  assert.equal(pickVerb('R'), 'read-only');
   assert.equal(pickVerb('q'), null);
 });
 
@@ -79,10 +78,10 @@ test('one deck is found and opened in write mode with the browser, on Enter', as
   assert.deepEqual(h.calls, [['write', ['talk.html', '--open']]]);
 });
 
-test('p (or r) opens the deck read-only instead, and q opens nothing', async (t) => {
+test('r opens the deck read-only instead, and q opens nothing', async (t) => {
   const dir = tmp('start', t);
   writeFileSync(path.join(dir, 'talk.html'), DECK);
-  const p = harness(['p']);
+  const p = harness(['r']);
   await startMain([], { cwd: dir, tty: true, ...p });
   assert.deepEqual(p.calls, [['read-only', ['talk.html', '--read-only']]]);
   const q = harness(['q']);
@@ -95,7 +94,7 @@ test('several decks are listed and one is chosen by number', async (t) => {
   const dir = tmp('start', t);
   writeFileSync(path.join(dir, 'a.html'), DECK);
   writeFileSync(path.join(dir, 'b.html'), DECK);
-  const h = harness(['2', 'a']);
+  const h = harness(['2', 'e']);
   await startMain([], { cwd: dir, tty: true, ...h });
   assert.match(h.log(), /2 decks here:\n {2}1\) a\.html\n {2}2\) b\.html/);
   assert.deepEqual(h.calls, [['write', ['b.html', '--open']]]);

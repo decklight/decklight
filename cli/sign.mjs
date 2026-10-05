@@ -49,7 +49,7 @@ export const INSTALL_HINT = 'run: npm install sigstore';
 /**
  * The sigstore client, or null when it is not installed.
  *
- * Lazy on purpose: an import at module load would make `present` — which needs
+ * Lazy on purpose: an import at module load would make `--read-only` — which needs
  * this only when a sidecar exists — pay for it on every start, and would make
  * the whole CLI unloadable on an install that skipped optional dependencies.
  */

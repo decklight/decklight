@@ -2,16 +2,16 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The live-editing deck server behind `decklight author` (SPEC PRESENTING
-// author mode). Not a command of its own anymore — the dispatcher refuses
-// `edit` out loud — author spawns this module directly:
+// The live-editing deck server behind `decklight <deck>` (SPEC PRESENTING
+// write mode). Not a command of its own anymore — the dispatcher refuses
+// `edit` out loud — `open` spawns this module directly:
 //
 //   node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
 //                     [--commit-every <seconds>] [--agent <name>] [--commit-messages]
 //
 // It binds 127.0.0.1 and nothing else. The phone remote used to be here behind
 // `--remote`, which meant a clicker cost you an editing server on the LAN;
-// `decklight present --remote` hosts it now, with no edit surface to widen
+// `decklight <deck.html> --read-only --remote` hosts it now, with no edit surface to widen
 // (PRESENT#REMOTE). Both flags are refused out loud rather than ignored.
 //
 // Serves the current working directory over localhost (so decks that
@@ -56,12 +56,12 @@
 // edit commits itself; --git-mode timer keeps the old commit-every-N-seconds
 // cadence with a final commit on Ctrl-C. --git also creates the repository when none
 // exists — seeded with a starter .gitignore (createRepo, below).
-// `decklight author` asks interactively before passing --git down.
+// `decklight <deck>` asks interactively before passing --git down.
 
 import { createServer, request as httpRequest } from 'node:http';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync, watch, existsSync } from 'node:fs';
 // Every write of the DECK goes through this rather than writeFileSync: the
-// author server rewrites the whole file on every small edit, and a truncate
+// edit server rewrites the whole file on every small edit, and a truncate
 // that is interrupted leaves a prefix of a talk where the talk was.
 import { writeFileAtomic } from '../tools/atomic-write.mjs';
 import { resolve, relative, dirname, sep, basename, join } from 'node:path';
@@ -75,7 +75,7 @@ import { readyLine } from './banner.mjs';
 /**
  * Say a startup fact.
  *
- * Under author (DECKLIGHT_BANNER) it becomes a row on the one banner author
+ * Under `open` (DECKLIGHT_BANNER) it becomes a row on the one banner author
  * prints, so it cannot land above the URL. Run standalone — `decklight edit` —
  * it prints the line it always printed, which is why every call passes both:
  * the SHORT text a banner row wants, and the full sentence a bare terminal
@@ -90,7 +90,7 @@ import { runMain, CommandError } from './util.mjs';
 
 // The flags that take a value, so the deck can be found past them. `--git-mode`
 // was missing, so `edit.mjs --git-mode agent deck.html` refused a deck called
-// "agent". (`decklight author` builds this argv itself and was never affected.)
+// "agent". (`decklight <deck>` builds this argv itself and was never affected.)
 const VALUE_FLAGS = ['--port', '--commit-every', '--agent', '--git-mode', '--tts-port', '--lipsync-port'];
 import { NOTES_ASIDE, locateSlide, sectionChildRanges, elementChildRanges, splitOpenTag } from '../tools/deck-html.mjs';
 import { canonMarks, writtenMarks, CLICK_MARK } from '../tools/sentences.mjs';
@@ -113,7 +113,7 @@ import { registerSlideRoutes } from './edit-slides.mjs';
 import { classifyScripts } from './audit.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
 import { createReviewRoutes } from './review-routes.mjs';
-// The arbiters of what a comment IS, shared with the review server so two
+// The arbiters of what a comment IS, shared with the read-only server so two
 // writers cannot put two shapes into one union-merged file.
 import { commentProblem, reviewRecord } from './review-routes.mjs';
 import { foldReview } from '../tools/review-anchor.mjs';
@@ -141,7 +141,7 @@ const corsHeadersFor = (origin) => ({
 });
 
 // ── remote access & static serving: extracted to serve.mjs / remote.mjs ────
-// (PRESENT_SERVER in MARKETPLACE.md: `decklight present` reuses the same core
+// (PRESENT_SERVER in MARKETPLACE.md: `decklight <deck> --read-only` reuses the same core
 // with the /edit/* routes ABSENT, not merely refused.) Re-exported here so
 // existing importers — the tests, init.mjs — and SPEC citations keep working.
 export { isLoopback, lanAddress, escapeHtml } from './serve.mjs';
@@ -650,7 +650,7 @@ export function narrationLiteral(cfg) {
  *
  * The recorder writes the files and then had to ask you to paste a config line
  * into the deck by hand — the one manual step in a flow that is otherwise a
- * key and an arrow. The author server already owns this file (it writes notes,
+ * key and an arrow. The edit server already owns this file (it writes notes,
  * layouts and element edits), so it can write this too, through the same
  * applyEdit door: Z undoes it, live-reload shows it.
  *
@@ -886,7 +886,7 @@ import { WIP_REF, deckDirty, nagText, planNag, snapshotWip, wipLine } from './co
 import { THEME_NAME, GEN_THEME } from '../tools/render-theme.mjs';
 export { inGitRepo, createRepo, STARTER_GITIGNORE, gitAutocommit };
 
-/** Who the author is, from git's own answer — see cli/review.mjs. */
+/** Who the author is, from git's own answer — see cli/review-routes.mjs. */
 function reviewerName(cwd = process.cwd()) {
   const cfg = (key) => {
     try { return execFileSync('git', ['config', key], { cwd, encoding: 'utf8' }).trim(); } catch { return ''; }
@@ -924,7 +924,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // `ownCommit` closes over it and editMain CALLS ownCommit synchronously —
   // the opening commit, taken when git has never seen this deck. Left where it
   // reads better, that call ran while this binding was still in its temporal
-  // dead zone and `decklight author` died on a ReferenceError before the
+  // dead zone and `decklight <deck>` died on a ReferenceError before the
   // server ever came up. It needed both halves to show: a deck git does not
   // know, and commit-messages on (only that path reads `agentPref`), which is
   // why adding a SECOND deck to a repo was the way to find it.
@@ -933,7 +933,7 @@ export async function editMain(args, { onListen = null } = {}) {
   if (port === null) { console.error(`decklight: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
   // Refused out loud, not ignored (PRESENT#REMOTE). Someone typing --remote
   // wants a clicker; silently binding loopback would leave them holding a phone
-  // that never connects and no idea why. `present` is where the remote went,
+  // that never connects and no idea why. the read-only server is where the remote went,
   // and the reason it went is worth saying at the moment it is asked for.
   const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
   if (gone.length) {
@@ -1521,7 +1521,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // routes the runtime derives from it) and its lip-sync at `/lipsync/*` —
   // the deck's own origin, never a port it would have to spell (SPEC
   // NARRATION). The bridges are separate processes on their own ports
-  // (`author --tts-port`, `--lipsync-port`); these forward to them, body and
+  // (`--tts-port`, `--lipsync-port`); these forward to them, body and
   // headers both ways, and answer 503 when the bridge is not there, which the
   // deck takes exactly as it takes no bridge at all.
   const ttsPort = parsePort(opt('--tts-port', 8787)) ?? 8787;
@@ -1625,7 +1625,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // `describeCommit`'s amend is for messages decklight authored, and this
   // one has an author.
   function commitRoute({ body, json }) {
-    if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — start author with --git' });
+    if (!gitOn) return json(409, { ok: false, error: 'this session is not committing — open the deck with --git' });
     let msg = '';
     try { msg = String(JSON.parse(body || '{}').message ?? '').trim(); } catch { /* below */ }
     if (!msg) return json(400, { ok: false, error: 'a commit needs a message' });
@@ -1754,7 +1754,7 @@ export async function editMain(args, { onListen = null } = {}) {
   }
 
   // ── review comments (SPEC REVIEW) ─────────────────────────────
-  // The author's side of `decklight review`. The same file, the same
+  // The author's side of `decklight <deck> --read-only`. The same file, the same
   // append-only rule: this server may add a line (a resolve, a reply) and
   // may not rewrite one, because `merge=union` is what keeps two reviewers
   // from conflicting and an edit in place is what would break it.
@@ -1844,13 +1844,13 @@ export async function editMain(args, { onListen = null } = {}) {
   function reviewWriteRoute({ body, json }) {
     const { op, re, body: text, slide, title, fp } = JSON.parse(body || '{}');
     // A NEW comment — no `op`, no `re`. The author leaving one on their own
-    // deck (⇧M), which until now only a `decklight review` server could
+    // deck (⇧M), which until now only a `decklight <deck> --read-only` server could
     // take: the composer was gated on one answering, so an author had to
     // start a second server on a second port, in a mode that would not let
     // them edit the slide they were commenting on.
     //
     // Same file, same append-only rule, same record shape — through
-    // `commentProblem` and `reviewRecord`, which review.mjs already exports
+    // `commentProblem` and `reviewRecord`, which review-routes.mjs already exports
     // and which are the arbiters of what a comment is. Two servers writing
     // two shapes into one union-merged file is how a store stops parsing.
     if (op === undefined && re === undefined) {
@@ -2292,7 +2292,7 @@ export async function editMain(args, { onListen = null } = {}) {
   }
 
   // Author-mode only, and that is structural rather than checked: this
-  // server answers loopback alone, and `present` registers nothing like
+  // server answers loopback alone, and `--read-only` registers nothing like
   // these at all. A credential prompt in a deck you were emailed has
   // nowhere to post.
   async function wizardConfigureRoute({ body, json }) {
@@ -2564,7 +2564,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // whatever folder the OS calls Downloads — never the deck's, and on
   // Windows not even near it. `bundle` only ever looks NEXT TO THE DECK, so
   // the recording was finished and in the wrong place, and the last step
-  // was moving files by hand. In author mode the server that already owns
+  // was moving files by hand. In write mode the server that already owns
   // the deck file writes them itself.
   //
   // Ahead of the shared body read below because this body is BINARY and
@@ -2720,7 +2720,7 @@ export async function editMain(args, { onListen = null } = {}) {
    * - it must not TAKE THE SERVER DOWN. `chromeBin` exits the process when
    *   there is no browser — correct for a one-shot command, fatal here, so
    *   Chrome is resolved with the non-fatal `findChrome` first and a machine
-   *   without one gets a sentence instead of a dead author server.
+   *   without one gets a sentence instead of a dead edit server.
    * - it must not run twice at once. Two exports write the same path
    *   through two browsers; the second caller is told to wait. ONE flag for
    *   every kind, deliberately: two different exports at once is still two
@@ -2836,7 +2836,7 @@ export async function editMain(args, { onListen = null } = {}) {
       const seconds = Math.round((Date.now() - started) / 100) / 10;
       if (code !== 0) {
         broadcast('export', { state: 'done', kind, ok: false });
-        return json(500, { ok: false, error: reason ?? 'the export refused — see the author server\'s output' });
+        return json(500, { ok: false, error: reason ?? 'the export refused — see the edit server\'s output' });
       }
       // A render with nothing spoken writes no subtitles and says so; the deck
       // is told of a file only when there is one to open.
@@ -2936,7 +2936,7 @@ export async function editMain(args, { onListen = null } = {}) {
    *
    * `GIT_TERMINAL_PROMPT=0` matters more here than anywhere else: publish
    * pushes with a synchronous git, so a credential prompt would not be
-   * asking anybody anything — it would hang the author session on a
+   * asking anybody anything — it would hang the write-mode session on a
    * terminal nobody is looking at.
    */
   async function publishPlanRoute({ json }) {
@@ -3270,7 +3270,7 @@ export async function editMain(args, { onListen = null } = {}) {
   if (onListen) onListen({ port: actual, deckUrl, server });
   else if (process.env.DECKLIGHT_BANNER) {
     // The port is reported rather than assumed: `listenTakingOverIfNeeded` can
-    // land somewhere other than the port author resolved, and the URL on the
+    // land somewhere other than the port `open` resolved, and the URL on the
     // banner has to be the one that actually answers.
     console.log(readyLine({
       url: `http://127.0.0.1:${actual}${deckUrl}`,
@@ -3303,7 +3303,7 @@ export async function editMain(args, { onListen = null } = {}) {
 
 
 if (isMain(import.meta.url)) {
-  // author spawns this module directly, so the leash the dispatcher used to
+  // `open` spawns this module directly, so the leash the dispatcher used to
   // arm is armed here — a no-op unless a supervising parent set it up.
   exitWhenOrphaned();
   // Through the one error boundary: a throw used to surface as an unhandled

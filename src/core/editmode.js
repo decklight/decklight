@@ -1,14 +1,14 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Everything the deck can only do while `decklight author`'s edit server is serving
+// Everything the deck can only do while `decklight <deck>`'s edit server is serving
 // it: live reload, the notes editor, asking an installed agent for an edit,
 // undo/redo over the server's history, and the R dialog that puts the deck back
 // to any commit.
 //
 // One module because they are one capability. All of it hangs off a single
 // probe — /edit/ping, answered once at startup — and everything here either
-// posts to that server or refuses with the same "you are not in author mode"
+// posts to that server or refuses with the same "you are not in write mode"
 // message. Nothing else in the engine needs to know the server exists; layout
 // cycling, the one other thing that saves through it, asks available()/base().
 //
@@ -57,7 +57,7 @@ export function createEditMode({
   let editWizards = [];  // [{name, qualified, title}] engines a marketplace declares a wizard for
   let agentBusy = null;  // {agent, prompt, startedAt} while a one-shot runs
   // This session's asks, oldest first, each with the slide it was asked from
-  // and what came of it — kept by the author server (an agent's edit reloads
+  // and what came of it — kept by the edit server (an agent's edit reloads
   // the page), mirrored here from /edit/ping and the 'agent' events.
   let agentAsks = [];
   let paintAsks = null;  // set while the agent card is open
@@ -67,7 +67,7 @@ export function createEditMode({
   // and the job does not. This lives as long as the run does, and ticks, so the
   // difference between "thinking" and "wedged" is visible without pressing A to
   // ask. Built lazily and removed outright — a deck that never asks an agent
-  // never grows the node, and `present` never reaches this code at all.
+  // never grows the node, and `--read-only` never reaches this code at all.
   let agentChip = null;
   let agentTick = 0;
   function paintAgentChip() {
@@ -154,7 +154,7 @@ export function createEditMode({
     if (commitEl) return closeCommit();
     if (!editAvailable) { toast(needsDevMode('committing', location), 3200); return; }
     const state = (await refreshCommit()) ?? commitNow;
-    if (!state?.canWrite) { toast('this session is not committing — start author with --git', 3000); return; }
+    if (!state?.canWrite) { toast('this session is not committing — open the deck with --git', 3000); return; }
     if (!state.dirty) { toast('nothing to commit — the deck matches its last commit', 2400); return; }
     overlays.opening();
     commitEl = document.createElement('div');
@@ -349,7 +349,7 @@ export function createEditMode({
           editAvailable = !locked;
           paintLockChip();
           // The speaker view saves rehearsal timings through this (PRESENTING
-          // REHEARSAL_TIMINGS); with no author server it is undefined and the
+          // REHEARSAL_TIMINGS); with no edit server it is undefined and the
           // timings stay in the browser instead.
           instance.__saveTimings = async (timings) => {
             const res = await writeFetch(editBase + '/edit/timings', {
@@ -361,7 +361,7 @@ export function createEditMode({
           editAgents = Array.isArray(j.agents) ? j.agents : [];
           preferredAgent = typeof j.preferredAgent === 'string' ? j.preferredAgent : null;
           editWizards = Array.isArray(j.wizards) ? j.wizards : [];
-          // No QR and no clicker on this path: the author server binds
+          // No QR and no clicker on this path: the edit server binds
           // 127.0.0.1 and serves no /remote/* at all (PRESENT#REMOTE). A deck
           // being AUTHORED has a keyboard in front of it; a deck being
           // PRESENTED is what wirePresentRemote wires up.
@@ -518,14 +518,14 @@ export function createEditMode({
    * ALLOWED to do, and a shared code path with a boolean in it is how a
    * presenting server quietly acquires an editing capability later.
    */
-  // ── the deck update overlay (H, present mode) — SPEC PRESENT#UPSTREAM ─────
+  // ── the deck update overlay (H, read-only mode) — SPEC PRESENT#UPSTREAM ─────
   //
   // The author's H is the deck's own history. A PRESENTED deck has no history
   // to show — there is no edit server and no /edit/at to preview a commit with
   // — so the same key answers the question that IS live there: has the person
   // who wrote this pushed anything since I cloned it?
   //
-  // It never draws on the slides. present.mjs is right that the audience cannot
+  // It never draws on the slides. read-only.mjs is right that the audience cannot
   // act on any of this, and this is an overlay somebody opened, not a banner.
   // `''` is a REAL value here — it is the base for a deck served over http,
   // where every fetch is same-origin — so a separate flag says whether we are
@@ -621,7 +621,7 @@ export function createEditMode({
   async function wirePresentRemote(base, j) {
     try {
       instance.__remoteQr = j.remote ? `${base || location.origin}/remote/qr.svg` : null;
-      // H in present mode. The routes only exist when the deck is a tracked
+      // H in read-only mode. The routes only exist when the deck is a tracked
       // file in a clone with an upstream, so this base is enough to tell: a
       // deck that is not one gets a 404/405 and H says so, rather than the
       // overlay existing and being permanently empty.
@@ -647,7 +647,7 @@ export function createEditMode({
       instance.on('slide', postPos);
       instance.on('build', postPos);
       postPos();
-      debugLog('present', `remote connected${base ? ` (${base})` : ''} — no edit surface`);
+      debugLog('remote', `remote connected${base ? ` (${base})` : ''} — no edit surface`);
     } catch { /* not served by present either */ }
   }
 
@@ -897,7 +897,7 @@ export function createEditMode({
   let notesSave = null;      // the open card's save, when it can save — what ⌘⏎ reaches from anywhere (#646)
   let notesRefresh = null;   // the open card, told its slide's notes changed under it (another tab saved)
   /**
-   * A slide's notes, replaced in this page as the author server wrote them
+   * A slide's notes, replaced in this page as the edit server wrote them
    * (the `notes` event). The aside is the server's own markup, built from
    * the saved text. Narration reads it fresh (its memo keys on the markup),
    * the speaker view is nudged to re-read it, and an open card on that
@@ -926,7 +926,7 @@ export function createEditMode({
   const forgetNotesOpen = () => { try { sessionStorage.removeItem(NOTES_OPEN_KEY); } catch { /* no storage */ } };
   let unmountEditor = null;
   let notesFollow = null;   // re-points a clean notes card at the slide on screen
-  let notesReadOnly = false; // the card opened with no author server behind it
+  let notesReadOnly = false; // the card opened with no edit server behind it
   // A DRAWER, not a dialog: the notes open docked along the bottom, the deck
   // stays navigable above them, and they save themselves (below). The dock
   // buttons still move it anywhere, remembered per deck.
@@ -962,9 +962,9 @@ export function createEditMode({
       unmountEditor(); editEl = null; unmountEditor = null; notesFollow = null; notesSave = null; notesRefresh = null; notesDirty = null; notesDrafted = null; forgetNotesOpen();
       return;
     }
-    // With no author server behind the deck — `present`, `review`, a file —
+    // With no edit server behind the deck — read-only, a file —
     // the same card opens READ-ONLY: the notes to read, following the slide,
-    // and nothing that could look like it saves. `decklight author` edits them.
+    // and nothing that could look like it saves. `decklight <deck>` edits them.
     const readOnly = notesReadOnly = !editAvailable;
     let sl = instance.state.slide;
     const heading = () => (readOnly
@@ -1411,7 +1411,7 @@ export function createEditMode({
 
   /**
    * The five things you do to a slide as a whole — new, duplicate, delete, up,
-   * down (SPEC PRESENTING, author mode). Until now every one of them meant
+   * down (SPEC PRESENTING, write mode). Until now every one of them meant
    * opening the HTML in a text editor; the starter deck's own notes said
    * "duplicate the section for more". One POST, one undo entry; the server
    * answers with the slide to be on afterwards, and the hash is moved there
@@ -2045,7 +2045,7 @@ export function createEditMode({
   overlays.register({
     isOpen: () => !!editEl,
     close: toggleEditor,
-    // read-only (no author server) it is never modal: nothing in it is being
+    // read-only (no edit server) it is never modal: nothing in it is being
     // written, so → and the rest go on to the deck, floating or docked
     modal: () => !notesReadOnly && notesDock.isFloat(),
     keydown: (e) => e.key === 'Escape' && (toggleEditor(), true),
@@ -2091,7 +2091,7 @@ export function createEditMode({
   //
   // Core renders; the plugin only declared. Everything below builds inputs from
   // a vetted schema with createElement and textContent — never innerHTML from
-  // anything a catalog supplied — which is what makes "the wizard is author-mode
+  // anything a catalog supplied — which is what makes "the wizard is write-mode
   // only" a rule core enforces rather than one a plugin's own markup would have
   // had to honour.
   let wizEl = null;
@@ -2099,7 +2099,7 @@ export function createEditMode({
 
   async function openWizard(engine) {
     if (wizEl) { closeWizard(); return; }
-    // The gate. In `present`, in a bundled deck, or on file:// with no author
+    // The gate. In `--read-only`, in a bundled deck, or on file:// with no author
     // server, there is nothing to post a credential TO — and a prompt that
     // collected one anyway would be a phishing form with a deck around it.
     if (!editAvailable) {
@@ -2122,7 +2122,7 @@ export function createEditMode({
       }
       schema = j.schema;
       prov = j.provenance;
-    } catch { toast('the author server did not answer', 2600); return; }
+    } catch { toast('the edit server did not answer', 2600); return; }
 
     overlays.opening();
     wizEl = document.createElement('div');
@@ -2228,7 +2228,7 @@ export function createEditMode({
         closeWizard();
         toast(`${schema.title} configured`, 2200);
       } catch (e) {
-        status.textContent = `could not reach the author server — ${String(e.message || e).slice(0, 50)}`;
+        status.textContent = `could not reach the edit server — ${String(e.message || e).slice(0, 50)}`;
         save.disabled = false;
       }
     }
@@ -2247,7 +2247,7 @@ export function createEditMode({
   // ── the hand-over exports (PRESENTING) ───────────────────────────────────
   //
   // `decklight pptx` and `decklight pdf` need Node and a headless Chrome, so
-  // the deck cannot write these files itself — it asks the author server to
+  // the deck cannot write these files itself — it asks the edit server to
   // run the command, the same door `A` uses for an agent, and what a row
   // writes is exactly what the command line writes.
   //
@@ -2561,7 +2561,7 @@ export function createEditMode({
     trackWrite,
     toggleEditor,
     toggleAgentAsk,
-    /** E — arm/disarm the right-click element menu (#112). Refuses outside author mode. */
+    /** E — arm/disarm the right-click element menu (#112). Refuses outside write mode. */
     toggleElementEdit,
     /** Is editing on? The palette's own on/off label and the editing bar ask. */
     elementEditOn: () => elementEditOn,
@@ -2575,7 +2575,7 @@ export function createEditMode({
     removeElement: (target) => commitRemove(target),
     /** New / duplicate / delete / up / down on a slide (the current one by default), and `move` to a position — the palette's rows, the menu, the overview. */
     slideOp,
-    /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside author mode. */
+    /** Open an engine's wizard (ENGINES#WIZARD). Refuses outside write mode. */
     wizard: openWizard,
     /** What the server's ping said a wizard can configure — the palette's Configure rows. */
     wizards: () => editWizards.slice(),

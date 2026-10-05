@@ -9,8 +9,8 @@
 // of the audience.
 //
 // Nothing about this feature is a browser pixel — the surfaces are the printed
-// label and the served bytes — so, like present-remote-transcript.mjs, the shot
-// is the CLI surface itself: a REAL `decklight present --check` naming the
+// label and the served bytes — so, like read-only-remote-transcript.mjs, the shot
+// is the CLI surface itself: a REAL `decklight --read-only --check` naming the
 // handler and the javascript: href and exiting 1, then a REAL `decklight
 // present` serving strict, with curl showing the attribute gone from the bytes
 // on the wire while the file on disk keeps it.
@@ -44,14 +44,14 @@ fs.writeFileSync(path.join(dir, 'talk.html'), `<!doctype html>
 
 // --- the label, as CI would see it ---------------------------------------------
 
-const check = spawnSync(process.execPath, [CLI, 'present', '--check', 'talk.html'],
+const check = spawnSync(process.execPath, [CLI, '--check', '--read-only', 'talk.html'],
   { cwd: dir, encoding: 'utf8' });
 const checkOut = (check.stdout + check.stderr).trimEnd()
   + `\n(exit ${check.status})`;
 
 // --- the server, and what actually goes over the wire --------------------------
 
-const dev = spawn(process.execPath, [CLI, 'present', 'talk.html'],
+const dev = spawn(process.execPath, [CLI, 'talk.html', '--read-only'],
   { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
 let out = '';
 dev.stdout.on('data', (c) => { out += c; });
@@ -113,8 +113,8 @@ const html = `<!doctype html>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
     <span class="t">the ingredients label names executable attributes — and strict mode strips them on the way out</span></div>
-  <div class="body">${block('decklight present --check talk.html        # a forwarded deck: no <script> added, just an onerror= and a javascript: href', paintLabel(checkOut))}
-${block('decklight present talk.html                # presenting it: strict turns itself on', paintLabel(out.trimEnd()))}
+  <div class="body">${block('decklight talk.html --read-only --check        # a forwarded deck: no <script> added, just an onerror= and a javascript: href', paintLabel(checkOut))}
+${block('decklight talk.html --read-only                # presenting it: strict turns itself on', paintLabel(out.trimEnd()))}
 ${block(`curl -s http://127.0.0.1:${port}/talk.html | grep -E '<img|<a'      # the bytes on the wire — attributes gone`, `<span class="ok">${esc(wire)}</span>`)}
 ${block(`grep -E '<img|<a' talk.html                # the file on disk — untouched`, `<span class="hint">${esc(disk)}</span>`)}</div>
 </div>

@@ -5,12 +5,12 @@
 // `decklight comments submit` — send the comments back. SPEC REVIEW.
 //
 // A review that never leaves the reviewer's laptop is a review that did not
-// happen. `decklight review` commits comments locally and then nothing happens:
+// happen. `decklight <deck> --read-only` commits comments locally and then nothing happens:
 // the reviewer presses Ctrl-C and walks away with commits nobody will ever see.
 //
 // WHAT THIS PUSHES, AND WHAT IT DOES NOT.
 //
-// Not the reviewer's branch. `review` commits each comment onto whatever branch
+// Not the reviewer's branch. `--read-only` commits each comment onto whatever branch
 // they happen to be on, so pushing that would drag every unrelated local commit
 // into somebody else's pull request. Instead this builds a commit the way
 // cli/publish.mjs does — one blob, one tree parented on what the REMOTE has,

@@ -60,7 +60,7 @@ failed because `init` scaffolds an already-self-contained deck.
 
 `npm run soak` is the missing shape. It runs `npm pack`, installs the tarball
 into an empty project **whose path contains a space**, and drives the installed
-`decklight` bin through one full journey: init, import, marketplace, author
+`decklight` bin through one full journey: init, import, marketplace, write mode
 (adding and editing slides over the HTTP API, and watching the commits land),
 present, bundle, `--check`, and opening the result in a real browser (50 steps,
 asserting
@@ -88,9 +88,9 @@ covered before. `extension check` runs as the marketplace's own admission gate,
 asserting that the digest it prints is the same `sha256` the catalog entry pins,
 and that a transform calling `fetch()` is refused by name. A **presenter
 plugin** proves the boundary that has no package-level test anywhere else: it
-installs into `~/.decklight/plugins/`, `present` layers it onto what it SERVES
+installs into `~/.decklight/plugins/`, `--read-only` layers it onto what it SERVES
 while the file on disk keeps its mtime, and a bundle made a moment later carries
-no byte of it. A **theme** is marked for the deck through the author server
+no byte of it. A **theme** is marked for the deck through the edit server
 (`POST /edit/theme/mark`), the one marketplace consumer the rest of the journey
 skips, which writes a reference into the config block and never CSS; the leg
 checks the served page links it from the marketplace and that `bundle --theme`

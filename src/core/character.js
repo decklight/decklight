@@ -85,7 +85,7 @@ export function lipCorrection(d, rate = 1) {
 
 export function createCharacter({ root, config, debugLog, toast }) {
   const cfg = config.narration?.character ?? {};
-  // Same origin by convention (#520), like the voice bridge: `author` proxies
+  // Same origin by convention (#520), like the voice bridge: `open` proxies
   // `/lipsync/*` to the lip-sync bridge it started; from disk, the bridge's
   // own default port. `narration.character.bridgeUrl` overrides both.
   const BRIDGE = cfg.bridgeUrl
@@ -403,7 +403,7 @@ export function createCharacter({ root, config, debugLog, toast }) {
     // A request that cannot even be made — fetch is blocked on file:// — is
     // not an answer: trust the file to be there, as this always has. Only a
     // server saying "no such file" sends the head to the bridge.
-    // GET, not HEAD — `decklight author` answers HEAD 405 — and the body
+    // GET, not HEAD — `decklight <deck>` answers HEAD 405 — and the body
     // dropped the moment the status is in.
     if (!sidecars.has(url)) {
       sidecars.set(url, fetch(url).then((r) => { r.body?.cancel?.().catch?.(() => {}); return r.ok; }).catch(() => true));

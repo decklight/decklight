@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Evidence for issue #234: a crafted .decklight that inflates to gigabytes no
-// longer OOMs `present` on double-click — it is refused by name, before any
+// longer OOMs `--read-only` on double-click — it is refused by name, before any
 // trust decision. Nothing changes in the browser, so the shot is the CLI
 // transcript surface: two hostile containers are built for real (a lying
 // entry that inflates past its declaration, and a directory that honestly
-// declares more than the archive cap), `decklight present` runs against each,
+// declares more than the archive cap), `decklight <deck> --read-only` runs against each,
 // and the refusals are rendered as a terminal window and screenshotted.
 //
 //   node shots/zip-bomb-refused.mjs        → .shots/zip-bomb-refused.png
@@ -73,13 +73,13 @@ const kb = (f) => {
 };
 const runs = [];
 const run = (label, file) => {
-  const r = spawnSync('node', [CLI, 'present', file], { cwd: dir, encoding: 'utf8' });
+  const r = spawnSync('node', [CLI, file, '--read-only'], { cwd: dir, encoding: 'utf8' });
   if (r.status !== 1) { process.stderr.write(`expected present to refuse ${file}\n`); process.exit(1); }
   runs.push({ label, out: (r.stderr + r.stdout).replaceAll(dir, '~') });
 };
 
-run(`decklight present bomb.decklight          # ${kb(bomb)} on disk — an entry lies, and inflates without limit`, bomb);
-run(`decklight present declared.decklight      # ${kb(declared)} on disk — the directory declares 6 GiB outright`, declared);
+run(`decklight bomb.decklight --read-only          # ${kb(bomb)} on disk — an entry lies, and inflates without limit`, bomb);
+run(`decklight declared.decklight --read-only      # ${kb(declared)} on disk — the directory declares 6 GiB outright`, declared);
 fs.rmSync(dir, { recursive: true, force: true });
 
 // --- render the transcript as a terminal window and shoot it ------------------

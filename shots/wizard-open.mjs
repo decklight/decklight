@@ -1,7 +1,7 @@
 // Evidence for #233, half two: committing the palette row mounts the wizard —
 // core rendering the server-vetted ElevenLabs schema. The key is typed in so
 // the shot shows the secret field masking it (input[type=password]).
-await sleep(300);                     // let the stub /edit/ping wire author mode up
+await sleep(300);                     // let the stub /edit/ping wire write mode up
 press('/');
 for (const c of 'configure') press(c);
 await sleep(150);

@@ -210,7 +210,7 @@ const blankInner = (html, re) =>
 /**
  * Executable ATTRIBUTES — what no `<script>` scan can see.
  *
- * `script-src 'unsafe-inline'` (which a bundled deck forces, cli/present.mjs)
+ * `script-src 'unsafe-inline'` (which a bundled deck forces, cli/read-only.mjs)
  * does not only permit script blocks: it is exactly what lets an inline
  * `onerror=` handler or a `javascript:` href run too. A deck's canonical shape
  * contains neither — content is markup, behaviour lives in the runtime — so
@@ -282,7 +282,7 @@ export function executableAttributes(html) {
 }
 
 /**
- * The whole label, as data. `present` prints it; `--check` exits on it.
+ * The whole label, as data. the read-only server prints it; `--check` exits on it.
  *
  * `runtime.state` is deliberately three-valued. A version this install does not
  * have cannot be hash-checked here at all, and saying so is the honest answer —
@@ -355,7 +355,7 @@ export function auditDeck(html, { installed = installedRuntime() } = {}) {
  * The same inventory, with the unaccounted blocks taken out (PRESENT#STRICT).
  *
  * Pure: it takes HTML and returns HTML. Nothing here touches the filesystem,
- * which is the whole design — `present` strips on the way OUT, so the deck you
+ * which is the whole design — the read-only server strips on the way OUT, so the deck you
  * were sent is still the deck you were sent, byte for byte, and you can hand
  * the same file to someone else or diff it against the original.
  *

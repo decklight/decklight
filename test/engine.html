@@ -68,7 +68,7 @@
         + ' media="not all">');
     }
     // Marketplace themes in the overlay (MARKETPLACE.md THEME_BROWSE#UI) need
-    // an author server to exist at all, so `browse` stands one up in
+    // an edit server to exist at all, so `browse` stands one up in
     // miniature — enough of /edit/ping, /edit/theme/browse and /edit/theme/mark
     // to drive them. `nobrowse` is the same deck with NO server, which is where
     // they must be absent.
@@ -89,7 +89,7 @@
         { name: 'dusk', marketplace: 'nord-pack', qualified: 'dusk@nord-pack', title: 'Nord Pack', marked: true },
       ],
     };
-    // The wizard (MARKETPLACE.md ENGINES#WIZARD) also needs an author server to
+    // The wizard (MARKETPLACE.md ENGINES#WIZARD) also needs an edit server to
     // exist, so `wizard` stands one up in miniature: a ping that advertises one
     // configurable engine, a GET that hands over a vetted schema covering every
     // renderable field type, and a POST that rejects the first answers so the
@@ -122,7 +122,7 @@
         if (u.includes('/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
         if (u.includes('/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
       }
-      // The commit window (K, and its ⌘K/⌃K alias) needs an author server for
+      // The commit window (K, and its ⌘K/⌃K alias) needs an edit server for
       // editAvailable, plus the two routes it actually calls. `messages:false`
       // so no agent is asked to draft a subject — the shortcut is what is under
       // test here, not the drafting.
@@ -158,7 +158,7 @@
             undo: 0, redo: 0, dirty: false, lines: 0, sinceMs: 0, nag: false, canWrite: true });
         }
       }
-      // The hand-over rows (PRESENTING) are author-mode only, so this mode
+      // The hand-over rows (PRESENTING) are write-mode only, so this mode
       // stands up the two routes they use: a ping so editAvailable is true,
       // and the export itself. `exportfail` is the same deck with a server
       // that refuses, which is the branch that must not leave the row looking
@@ -204,7 +204,7 @@
         }
         if (u.includes('/edit/agent')) return json({ ok: true, agent: 'claude', label: 'Claude Code' });
       }
-      // Design systems… (SPEC DESIGN_SYSTEMS): the author server lists what the
+      // Design systems… (SPEC DESIGN_SYSTEMS): the edit server lists what the
       // registered marketplaces offer and what the deck uses; marking toggles it
       if (HARNESS_MODE === 'designsystems') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -233,7 +233,7 @@
           return json({ ok: true, of: body.slides === 'all' ? 3 : 1, agent: 'claude', label: 'Claude Code' });
         }
       }
-      // S opens the notes editor, which needs an author server behind it
+      // S opens the notes editor, which needs an edit server behind it
       if (HARNESS_MODE === 'skeys' && !new URLSearchParams(location.search).has('nosrv') && u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
       // The Publish row (PRESENTING) is the one that reaches off the machine,
       // so it is two presses: the plan, shown, then the push. Both routes are
@@ -302,7 +302,7 @@
         }
       }
       // Element edit mode (E, then right-click a slide element — #112) needs
-      // an author server to exist at all, same as every other author-mode
+      // an edit server to exist at all, same as every other write-mode
       // feature here: enough of /edit/ping for editAvailable, plus the four
       // /edit/element/* routes the menu's actions actually call.
       // Mouse editing (authoring.js): a double-click saves through the SOURCE
@@ -350,7 +350,7 @@
         }
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
-      // ⌘⏎ saves the notes card from anywhere (#646): an author server whose
+      // ⌘⏎ saves the notes card from anywhere (#646): an edit server whose
       // notes route answers `changed` — false when the box matches the file
       // the card back open after a save's reload (#646): a slow save, so the
       // "saving…" mark can be seen, and the same no-op answer as notessave
@@ -391,7 +391,7 @@
         }
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
-      // A design system's look (SPEC DESIGN_SYSTEMS, #642): an author server
+      // A design system's look (SPEC DESIGN_SYSTEMS, #642): an edit server
       // that adds one with its recommended theme and font, and applies its look
       if (HARNESS_MODE === 'dslook') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -410,7 +410,7 @@
             look: { title: 'Acme', theme: 'paper', font: 'humanist', themeChanges: true, fontChanges: true, differs: true, phrase: 'theme paper, font humanist' } });
         }
       }
-      // Fonts while authoring (SPEC FONTS): an author server whose marketplaces
+      // Fonts while authoring (SPEC FONTS): an edit server whose marketplaces
       // offer one font package, which Space references from the deck
       if (HARNESS_MODE === 'fontsauthor') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -428,7 +428,7 @@
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
-      // Editing a design-system slide (SPEC DESIGN_SYSTEMS): an author server
+      // Editing a design-system slide (SPEC DESIGN_SYSTEMS): an edit server
       // that answers the element routes and the layout picker's write
       if (HARNESS_MODE === 'dsedit') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -491,9 +491,9 @@
     // PRESENTING), and tips off so no toast lands in the middle of a dump.
     try {
       localStorage.setItem('decklight-onboarded', '1');
-      // …and the editing tour, which would otherwise take every author-mode
+      // …and the editing tour, which would otherwise take every write-mode
       // mode's first key; the two tour modes clear it again
-      localStorage.setItem('decklight-onboarded-author', '1');
+      localStorage.setItem('decklight-onboarded-tour', '1');
       localStorage.setItem('decklight-tips-off', '1');
       // agentlog: the agent card docked right, as the author left it
       if (mode === 'agentlog') localStorage.setItem('decklight-agent-dock:' + location.pathname, JSON.stringify({ mode: 'right' }));
@@ -761,7 +761,7 @@
       if (mode === 'browse' || mode === 'nobrowse') {
         // Marketplace themes in the overlay (MARKETPLACE.md THEME_BROWSE#UI).
         // Both modes run the same deck; the only difference is whether an
-        // author server answered the ping.
+        // edit server answered the ping.
         const P = '.decklight-theme-picker', ROW = '.tp-row';
         const rows = () => [...document.querySelectorAll(`${P} ${ROW}`)];
         const find = (re) => rows().find((x) => re.test(x.textContent));
@@ -776,7 +776,7 @@
         r.paletteRow = !!palRow();
 
         if (mode === 'nobrowse') {
-          // ENGINES#WIZARD rides the same absence: no author server means no
+          // ENGINES#WIZARD rides the same absence: no edit server means no
           // Configure row — a credential prompt with nowhere to post is a
           // phishing form with a deck around it…
           r.noConfigureRow = ![...document.querySelectorAll('.decklight-palette .pal-row')]
@@ -1147,7 +1147,7 @@
       if (mode === 'palettegroups' || mode === 'paletteplain') {
         // The palette's shape (palette.js): with no query the list is the
         // deck's doors, the hand-over rows and the like folded into one row
-        // per group, the author-mode rows under one header and no "(dev)"
+        // per group, the write-mode rows under one header and no "(dev)"
         // anywhere; typing searches every command flat, in one step.
         await settle();   // the ping, when there is one
         const Q = '.decklight-palette', ROW = '.pal-row';
@@ -1157,8 +1157,8 @@
         const top = rows();
         r.noDevSuffix = !top.some((t) => /\(dev\)/.test(t)) && !heads().some((t) => /\(dev\)/.test(t));
         if (mode === 'paletteplain') {
-          // the rows that need the author server are not offered without one;
-          // the few author-mode rows that explain themselves without it still
+          // the rows that need the edit server are not offered without one;
+          // the few write-mode rows that explain themselves without it still
           // sit under their header
           r.noAuthorSectionWithoutAServer = !top.some((t) => /^Export & share…|^Slide…|^Write for the ear…|^Add audio tags…/.test(t));
           r.printFolds = top.some((t) => /^Print…/.test(t)) && !top.some((t) => /Print handout/.test(t));
@@ -1169,7 +1169,7 @@
         }
         r.groupsFold = ['Export & share…', 'Slide…', 'Print…', 'Write for the ear…', 'Add audio tags…'].every((g) => top.some((t) => t.startsWith(g)))
           && !top.some((t) => /Export to PDF…|Export a PDF handout…|Delete this slide|Print handout/.test(t));
-        r.authorRowsUnderOneHeader = heads().join('|') === 'author mode'
+        r.authorRowsUnderOneHeader = heads().join('|') === 'write mode'
           && top.indexOf(top.find((t) => /Edit this deck…/.test(t))) > top.indexOf(top.find((t) => /^Theme…/.test(t)));
         // into a group, and back
         const exportRow = [...document.querySelectorAll(`${Q} ${ROW}`)].find((n) => /^Export & share…/.test(n.textContent));
@@ -1186,7 +1186,7 @@
         for (const ch of 'handout') press(ch);
         const found = rows();
         r.typingSearchesFlat = found.some((t) => /^Export a PDF handout…/.test(t)) && found.some((t) => /^Print handout/.test(t)) && !heads().length;
-        r.foundRowsTagged = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Export a PDF handout…/.test(n.textContent) && n.querySelector('.pal-tag')?.textContent === 'author');
+        r.foundRowsTagged = [...document.querySelectorAll(`${Q} ${ROW}`)].some((n) => /Export a PDF handout…/.test(n.textContent) && n.querySelector('.pal-tag')?.textContent === 'write');
         for (const ch of 'handout') press('Backspace');
         r.emptyQueryIsTheTopAgain = rows().some((t) => /^Export & share…/.test(t));
         press('Escape');
@@ -1233,7 +1233,7 @@
         // PRINTING's two variants and REHEARSAL_TIMINGS are palette rows, not
         // only CLI flags / a button in a popup; a deck with nothing hidden has
         // no "Hidden slides" row (contextual — the hidden mode checks the
-        // other half), and without an author server no "Hide this slide".
+        // other half), and without an edit server no "Hide this slide".
         const printRows = labels('print');
         r.palettePrintsNotes = printRows.some((t) => /Print with notes/.test(t));
         r.palettePrintsHandout = printRows.some((t) => /Print handout/.test(t));
@@ -1241,7 +1241,7 @@
         const hiddenRows = labels('hidden');
         r.paletteNoHiddenRowWhenNoneHidden = !hiddenRows.some((t) => /Hidden slides/.test(t));
         r.paletteNoHideRowWithoutServer = !hiddenRows.some((t) => /Hide this slide/.test(t));
-        // …and none of the hand-over rows either: it is the author server that
+        // …and none of the hand-over rows either: it is the edit server that
         // runs `decklight pptx` and `decklight pdf`, so on a deck opened from a
         // file there is nothing behind any of them.
         r.paletteNoExportRowWithoutServer = !labels('export').some((t) => /Export (to|a) (PowerPoint|PDF)/.test(t))
@@ -1345,7 +1345,7 @@
       }
 
       // PRESENTING: exporting to PowerPoint from inside the deck. The deck
-      // cannot run Chrome, so the row asks the author server — what this
+      // cannot run Chrome, so the row asks the edit server — what this
       // asserts is the round trip: the row exists when a server does, it POSTs
       // to /edit/pptx, and the ANSWER reaches the presenter as a message
       // naming the file (or saying why not). A row that fires and reports
@@ -1899,7 +1899,7 @@
       }
 
       // Double-click to edit, and the slide as a whole from the palette and the
-      // right-click menu (authoring.js, SPEC PRESENTING author mode).
+      // right-click menu (authoring.js, SPEC PRESENTING write mode).
       if (mode === 'authoring') {
         await settle();                       // /edit/ping: editAvailable
         deck.goto(1, 0);
@@ -2316,10 +2316,10 @@
       }
 
       if (mode === 'overviewedit' || mode === 'overviewplain') {
-        // The overview rearranges the deck in author mode (engine.js
+        // The overview rearranges the deck in write mode (engine.js
         // ovEditable): tools on every cell, a drag that moves a slide, keys
         // on the selected cell — each the slide route, one undo entry. With
-        // no author server (overviewplain) it is the picture it always was.
+        // no edit server (overviewplain) it is the picture it always was.
         await settle();                       // /edit/ping, when there is one
         try { sessionStorage.removeItem('decklight-overview-open:' + location.pathname); } catch { /* fine */ }
         press('o');
@@ -2390,11 +2390,11 @@
       }
 
       if (mode === 'authortour' || mode === 'authortourwelcome') {
-        // Author mode's own first run (onboarding.js): once the author server
+        // Write mode's own first run (onboarding.js): once the edit server
         // has answered, a card of the four gestures and the keys that matter
         // when the file is yours; any key dismisses it and does nothing else;
         // once per browser; never over the welcome, and reopenable from /.
-        const TOUR = 'decklight-onboarded-author', SEEN = 'decklight-onboarded';
+        const TOUR = 'decklight-onboarded-tour', SEEN = 'decklight-onboarded';
         const card = () => document.querySelector('.decklight-welcome.wel-author');
         const welcome = () => document.querySelector('.decklight-welcome:not(.wel-author)');
         if (mode === 'authortourwelcome') {
@@ -2412,7 +2412,7 @@
           return;
         }
         // the flag cleared before the ping answers: the tour shows by itself
-        // on this load (every other author-mode mode runs with it set, and
+        // on this load (every other write-mode mode runs with it set, and
         // none of them meets the card: that is the other half of the proof)
         localStorage.removeItem(TOUR);
         await settle(); await settle();
@@ -3293,7 +3293,7 @@
 
       if (mode === 'designsystems') {
         // ⌘K → "Design systems…": every design system on offer, grouped by
-        // marketplace, ● used / ○ not; Space toggles through the author server
+        // marketplace, ● used / ○ not; Space toggles through the edit server
         const Q = '.decklight-palette', ROW = '.pal-row';
         await settle();
         press('/');
@@ -3436,7 +3436,7 @@
       }
 
       if (mode === 'skeys') {
-        const nosrv = params.has('nosrv');   // skeys&nosrv: no author server behind the deck
+        const nosrv = params.has('nosrv');   // skeys&nosrv: no edit server behind the deck
         // S opens this slide's notes in the notes editor — authoring's key; the
         // speaker view, for presenting, is ⌥⏎ and opens its own window.
         const E = '.decklight-editor.decklight-notes';

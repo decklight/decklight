@@ -179,7 +179,7 @@ async function printDeck({ src, out, url, bin, shared, variant, theme }) {
 
   // Chrome is AWAITED, never `run`: the in-process render server above has
   // to answer the browser it launched (the deadlock pptx documents), and the
-  // author server runs `pdfMain` in its own process for the palette's Export
+  // edit server runs `pdfMain` in its own process for the palette's Export
   // rows, where a synchronous child would freeze live reload, the SSE stream
   // and the page itself for the ten seconds Chrome takes to print.
   //

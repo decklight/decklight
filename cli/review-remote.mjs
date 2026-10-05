@@ -3,9 +3,9 @@
 
 // What reviews are waiting — SPEC REVIEW.
 //
-// `review submit` pushes a reviewer's comments to `review/<who>-<date>`. This is
+// `comments submit` pushes a reviewer's comments to `review/<who>-<date>`. This is
 // the other end: the one reader that finds those branches and says how many
-// comments are on each. Three surfaces share it — `decklight author` at startup,
+// comments are on each. Three surfaces share it — `decklight <deck>` at startup,
 // `M` in the deck, and `decklight comments --incoming` — and they share it so
 // that none of them can drift into a different answer.
 //

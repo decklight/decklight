@@ -55,8 +55,8 @@ import {
 // wants to read the same list. Splitting them into two overlays would have made
 // the common half twice.
 //
-//   a review server  → your comments go to it, and `review submit` can push them
-//   an author server → the same file, plus every review branch waiting on the
+//   a read-only server  → your comments go to it, and `comments submit` can push them
+//   an edit server → the same file, plus every review branch waiting on the
 //                      remote, and a reviewer's comment can be marked done here
 //   neither          → the list still reads, and says where comments come from
 //
@@ -84,7 +84,7 @@ export function createReview({
   let armedAnchor = null;  // the comment id a second A would move to this slide
   let incomingNow = [];    // every listed review, done ones included — T's targets
   let context = null;      // {id, data} — an orphan's "what it said", unfolded
-  let probed = null;       // the review server's base, '' for same-origin, null for none
+  let probed = null;       // the read-only server's base, '' for same-origin, null for none
   let engaged = false;     // last surface the user touched: the panel, or the deck
   let onResize = null;     // the viewport listener that re-sizes the gutter
   let onSurface = null;    // pointerdown/focusin router for `engaged`
@@ -107,7 +107,7 @@ export function createReview({
   const slidesNow = () => indexSlides(sections(), { titleOf, bodyOf });
 
   /**
-   * Is a review server answering? Asked once, lazily.
+   * Is a read-only server answering? Asked once, lazily.
    *
    * Its own probe rather than editmode's: `?review` is answered by neither
    * /edit/ping nor /present/ping, and a deck that never reviews should not pay
@@ -115,7 +115,7 @@ export function createReview({
    */
   async function reviewBase() {
     if (probed !== null) return probed || (probed === '' ? '' : null);
-    // The author server answers the review routes too now (a review can be
+    // The edit server answers the review routes too now (a review can be
     // left in write mode), but under it the overlay is still the OWNER's:
     // what is waiting, and resolving it. The reviewer's shape is the
     // read-only server's.
@@ -140,7 +140,7 @@ export function createReview({
       const state = { records: j.records ?? [], skipped: j.skipped ?? 0, can: base !== null ? 'comment' : 'resolve' };
       // The author also hears what reviews are WAITING on the remote — rows
       // the server reads on demand, behind this very keypress, and remembers
-      // for a minute. A reviewer's overlay has no author server and skips it.
+      // for a minute. A reviewer's overlay has no edit server and skips it.
       if (state.can === 'resolve') {
         try {
           const ir = await fetch(`${authorBase() ?? ''}/edit/review/incoming`);
@@ -427,11 +427,11 @@ export function createReview({
     // "the deck went somewhere", whether it was an arrow key or this jump.
   }
 
-  /** Unfold (or fold) an orphan's "what it said", from the author server. */
+  /** Unfold (or fold) an orphan's "what it said", from the edit server. */
   async function toggleContext(r) {
     if (context?.id === r.id) { context = null; render(await load()); return; }
     const base = authorBase();
-    if (base == null) { toast('only the author server can look that far back'); return; }
+    if (base == null) { toast('only the edit server can look that far back'); return; }
     try {
       const res = await fetch(`${base}/edit/review/at?id=${encodeURIComponent(r.id)}`);
       const j = await res.json();
@@ -583,7 +583,7 @@ export function createReview({
    * Its own overlay, and its own key, because reading and writing are different
    * moments. The composer used to live at the top of the list, which put a text
    * box above twenty comments you were trying to read, and — worse — only
-   * appeared when a `decklight review` server answered. An author leaving
+   * appeared when a `decklight <deck> --read-only` server answered. An author leaving
    * themselves a note had to start a second server on a second port, in a mode
    * that would not let them edit the slide they were commenting on.
    *
@@ -762,7 +762,7 @@ export function createReview({
     },
   });
 
-  // `?review` — `decklight review` opened this deck, so the reason it did is
+  // `?review` — `decklight <deck> --read-only` opened this deck, so the reason it did is
   // the first thing that should be on screen.
   if (params?.has?.('review')) setTimeout(() => { if (!overlays.active()) open(); }, 700);
 

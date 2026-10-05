@@ -4,7 +4,7 @@
 // Editing a design-system slide in the FILE (SPEC DESIGN_SYSTEMS, #624): the
 // guard that keeps an element in its slot, and the layout picker's writes —
 // convert, switch, remove, insert — as pure transforms, then through the
-// author server with its one undo.
+// edit server with its one undo.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -86,7 +86,7 @@ test('the guard: an edit on a design-system slide keeps the element\'s slot — 
   assert.equal(slotWriteProblem(deck(PLAIN), 1, 0, '<h2>x</h2>'), null, 'a plain slide is not guarded');
 });
 
-// ── through the author server ─────────────────────────────────────────────
+// ── through the edit server ─────────────────────────────────────────────
 
 function home(t) {
   const dir = scratch('ds-edit', t);
@@ -113,7 +113,7 @@ async function startAuthor(t, h, body) {
   proc.stderr.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 25);
-    proc.on('exit', () => { clearInterval(scan); reject(new Error(`author exited early:\n${out}`)); });
+    proc.on('exit', () => { clearInterval(scan); reject(new Error(`open exited early:\n${out}`)); });
     setTimeout(() => { clearInterval(scan); reject(new Error(`timeout:\n${out}`)); }, 10000);
   });
   return { base, deck: path.join(dir, 'deck.html') };

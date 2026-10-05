@@ -83,7 +83,7 @@ const run = (mode, extra = '') => resultsFrom(
 
 // ── the author's side ─────────────────────────────────────────────────────
 {
-  const r = run('author', '&seed');
+  const r = run('write', '&seed');
   const ok = r.PASS === true;
   if (!ok) bad++;
   console.log(`${ok ? 'ok  ' : 'FAIL'} author     the panel writes for an author too=${r.authorCanWrite}`

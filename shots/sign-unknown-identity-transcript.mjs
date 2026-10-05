@@ -5,7 +5,7 @@
 // Evidence for issue #231 (isVerified treated a nameless identity as fully
 // trusted). Nothing changes in the browser, so the shot is the CLI transcript
 // surface itself, the deckfile-provenance pattern: the same deck and sidecar
-// run through `present --check` twice — once with a verifier that resolves a
+// run through --read-only --check twice — once with a verifier that resolves a
 // named signer, once with one that resolves no name at all. The second run is
 // the case this ticket gates: the signature checks out, the certificate names
 // nobody, and the exit code now refuses it instead of waving it through.
@@ -13,7 +13,7 @@
 // The sigstore client is stubbed (the test suite's seam): producing a REAL
 // bundle whose certificate names nobody needs a live signing ceremony, which
 // the ticket explicitly scopes out. The stub drives the exact code path both
-// call sites share — verifyFile → isVerified — through presentMain itself.
+// call sites share — verifyFile → isVerified — through readOnlyMain itself.
 //
 //   node shots/sign-unknown-identity-transcript.mjs → .shots/sign-unknown-identity.png
 
@@ -27,7 +27,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 
 const { writeSidecar } = await import(path.join(root, 'cli/sign.mjs'));
-const { presentMain } = await import(path.join(root, 'cli/read-only.mjs'));
+const { readOnlyMain } = await import(path.join(root, 'cli/read-only.mjs'));
 
 // --- fixture: one deck, one sidecar, two verifier answers ---------------------
 
@@ -53,7 +53,7 @@ const check = async (client) => {
   const orig = console.log;
   console.log = (...a) => { lines.push(a.join(' ')); };
   try {
-    const code = await presentMain([deck, '--check'], { client });
+    const code = await readOnlyMain([deck, '--check'], { client });
     return { code, out: `${lines.join('\n')}\n(exit ${code})` };
   } finally { console.log = orig; }
 };
@@ -74,11 +74,11 @@ const paint = (s) => esc(s)
   .replace(/^(\(exit 0\))$/gm, '<span class="ok">$1</span>')
   .replace(/^(\(exit 1\))$/gm, '<span class="bad">$1</span>');
 const block = (note, out) => `<div class="run"><span class="hint"># ${esc(note)}</span>
-<span class="prompt">~/inbox $</span> decklight present talk.html --check
+<span class="prompt">~/inbox $</span> decklight talk.html --read-only --check
 ${paint(out)}</div>`;
 
 const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>decklight present — a nameless identity is not verified</title><style>
+<html lang="en"><head><meta charset="utf-8"><title>decklight · read-only — a nameless identity is not verified</title><style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          background: linear-gradient(135deg, #1b2735, #090a0f); }
   .term { width: 1060px; background: #10141b; border-radius: 12px;

@@ -7,7 +7,7 @@
 // The buffer starts recording at init and never stops, because the events
 // worth reading are the ones that already happened: by the time a presenter
 // notices the voice stopped and presses D, the reason is thirty seconds old.
-// A log that only records while its window is open would have nothing to show
+// A log that only records while its window is `open` would have nothing to show
 // exactly when it is opened.
 //
 // It has to exist before almost anything else in init — theme restoration logs

@@ -30,12 +30,12 @@ export function planStart({ decks = [], tty = false } = {}) {
 /**
  * Which way in an `[Enter/r/q]` answer picks. Enter is write mode — the deck
  * in front of you is far more often one you are working on than one you were
- * sent; `r` (or `p`, for the fingers that remember "present") is read-only.
+ * sent; `r` is read-only.
  */
 export function pickVerb(answer) {
   const a = String(answer ?? '').trim().toLowerCase();
-  if (!a || a.startsWith('a') || a.startsWith('e') || a.startsWith('w') || a.startsWith('o')) return 'write';
-  if (a.startsWith('p') || a.startsWith('r')) return 'read-only';
+  if (!a || a.startsWith('e') || a.startsWith('w') || a.startsWith('o')) return 'write';
+  if (a.startsWith('r')) return 'read-only';
   return null;
 }
 

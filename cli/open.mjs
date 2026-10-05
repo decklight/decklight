@@ -11,14 +11,14 @@
 //                    [--no-tts] [--no-lipsync]
 //
 // The bridges keep their OWN PROCESSES on their own ports, exactly as if you
-// had started them by hand — author only owns their lifetime, so one Ctrl-C
+// had started them by hand — `open` only owns their lifetime, so one Ctrl-C
 // stops everything. That split is the point: the edit server needs nothing (no
 // credentials, no cost), tts holds Google credentials and spends money per
 // call, lipsync pins a GPU. Folding them into one process would let a Wav2Lip
 // crash or an expired token take down the server you are editing through.
 //
 // A bridge whose prerequisites are missing is SKIPPED with the reason and the
-// fix, never a hard failure: `decklight author deck.html` on a bare machine
+// fix, never a hard failure: `decklight deck.html` on a bare machine
 // still gives you live reload and notes editing, and the player degrades on
 // its own (each bridge is probed via /ping).
 
@@ -74,7 +74,7 @@ const USAGE = `usage: decklight <deck.html | git url> [--read-only] [--port 8788
   --git / --no-git  keep the deck in git (snapshot + K commits) / never touch git
   --git-mode M      when to commit: agent (one per agent edit, and whenever you
                     press K), timer (the old five-minute cadence), off  [agent]
-                    (no repo + no flag: author ASKS whether to create one)
+                    (no repo + no flag: decklight ASKS whether to create one)
   --commit-every N  cadence in seconds, timer mode only                [300]
   --commit-messages an agent writes EVERY commit subject instead of the generic
                     "autosave" — reads each commit's diff and amends the subject
@@ -200,7 +200,7 @@ export function planServices({
   ];
   // The SAME readiness check the bridge runs when the deck asks what it may
   // switch to (SPEC NARRATION). Sharing the decision is the point: a picker
-  // that offered an engine `author` would have refused to start is a picker
+  // that offered an engine `open` would have refused to start is a picker
   // that lies. Only the phrasing differs — here there is a terminal, a
   // presenter still setting things up, and room for the whole answer.
   const ttsVoice = opt('--voice', saved?.voice ?? PIPER_DEFAULT_VOICE);
@@ -259,7 +259,7 @@ export function planServices({
   const lipPort = opt('--lipsync-port', '8789');
   const rhubarb = opt('--rhubarb', 'rhubarb');
   // A talking head set up and saved once (`decklight lipsync … --save`,
-  // lipsync.json) counts as configured: author starts the bridge for it with
+  // lipsync.json) counts as configured: `open` starts the bridge for it with
   // no flags, rhubarb or not — the bridge reads the same file.
   const savedLips = lipsync;
   const savedVideo = !!(savedLips?.wav2lipDir || savedLips?.sadtalkerDir);
@@ -291,9 +291,9 @@ export function planServices({
     });
   }
 
-  // Reported, not passed through. The phone remote moved to `present`
+  // Reported, not passed through. The phone remote moved to `--read-only`
   // (PRESENT#REMOTE), and a flag that quietly did nothing would leave someone
-  // holding a phone that never connects. devMain is what prints and exits —
+  // holding a phone that never connects. openMain is what prints and exits —
   // the plan stays pure so a test can ask what it decided.
   const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
   return { deck, run, skip, gone, agents: detectAgents({ env, hasBin }).map((a) => a.name) };
@@ -320,8 +320,6 @@ export const voiceSetupOffer = (plan) => {
 // inGitRepo lives in git.mjs now; re-exported so importers (and the tests) keep
 // finding it where dev grew it.
 export { inGitRepo } from './git.mjs';
-/** The pre-rename name, for anything still calling it. */
-export const devMain = (...a) => openMain(...a);
 import { inGitRepo } from './git.mjs';
 
 const COLORS = { deck: '\x1b[36m', voice: '\x1b[35m', lips: '\x1b[33m' };
@@ -331,7 +329,7 @@ const RESET = '\x1b[0m';
 export async function openMain(args) {
   // --read-only first, --help after: the read-only way in prints its own usage
   // --read-only: the same command, the read-only server (PRESENTING). It is
-  // present's serving core, not the edit server with the writes refused: no
+  // the read-only server's serving core, not the edit server with the writes refused: no
   // /edit/* route exists in that process, the deck is served from its own
   // directory under the CSP, and the ingredients label runs first. The one
   // door to a deck, whichever way it is opened.
@@ -361,7 +359,7 @@ export async function openMain(args) {
     return;
   }
   // A git URL: clone it (or open the clone already here), find the deck in
-  // it, and carry on as `decklight author <that path>` — in a repository, so
+  // it, and carry on as `decklight <that path>` — in a repository, so
   // `--git` is a fact rather than a question.
   const { opt } = argReader(args);
   let got = null;
@@ -373,7 +371,7 @@ export async function openMain(args) {
   if (got) {
     // The clone becomes the working directory. The edit server keeps its
     // git in `process.cwd()` — so does every bridge it starts — and without
-    // this, `--git` created a fresh repository in the directory author was
+    // this, `--git` created a fresh repository in the directory `open` was
     // run from, with the clone nested inside it.
     process.chdir(got.dir);
     const local = relative(got.dir, got.deckPath);
@@ -444,7 +442,7 @@ export async function openMain(args) {
         const result = await runSetupWizard({ ask: (q) => rl.question(q) });
         if (result) {
           // the wizard's test synthesis may hold a resident engine (piper);
-          // author runs the bridge as its own child process, so let it go
+          // the edit server runs the bridge as its own child process, so let it go
           result.engine.synth.close?.();
           plan = planServices({ args, saved: result.config, lipsync: loadLipsyncConfig() });
         }
@@ -480,7 +478,7 @@ export async function openMain(args) {
   let shuttingDown = false;
 
   // ── the startup banner ────────────────────────────────────────────────────
-  // Children report a row and author prints all of them at once, so the URL is
+  // Children report a row and `open` prints all of them at once, so the URL is
   // last no matter which server woke up first (cli/banner.mjs says why).
   //
   // WHEN to print is the only hard part. Waiting for every service is wrong —
@@ -510,7 +508,7 @@ export async function openMain(args) {
   const bannerRow = (key, text) => `  ${tty ? `${DIM}${key}${RESET}` : key}  ${text}`;
 
   /**
-   * A line from author itself. Held while the banner is still being assembled,
+   * A line from `open` itself. Held while the banner is still being assembled,
    * so nothing — an error included — can land above the URL; printed straight
    * away once it is out.
    */
@@ -609,7 +607,7 @@ export async function openMain(args) {
   };
 
   for (const svc of run) {
-    // stdin is a pipe author never writes to — it is the leash (see supervise.mjs).
+    // stdin is a pipe `open` never writes to — it is the leash (see supervise.mjs).
     // Holding it open is what tells the child we are still here; losing it is
     // how the child finds out we are not, even when we were SIGKILLed and
     // never reached shutdown() below.
@@ -632,7 +630,7 @@ export async function openMain(args) {
       // case, not a pathological one: a voice bridge that stands aside because
       // another already serves its port exits 0, seconds into startup.
       if (svc.name === 'edit') {
-        // the deck server is the one service author cannot run without
+        // the deck server is the one service `open` cannot run without
         say(`${paint(svc.tag)} exited (${code}) — stopping decklight`);
         flushBanner();
         shutdown(code ?? 1);
@@ -667,14 +665,14 @@ export async function openMain(args) {
 }
 
 if (isMain(import.meta.url)) {
-  // devMain sets process.exitCode itself; only a throw runMain caught lands here
+  // openMain sets process.exitCode itself; only a throw runMain caught lands here
   if (await runMain('open', () => openMain(process.argv.slice(2))) === 1) process.exitCode = 1;
 }
 
 /**
  * A bridge's port held by something that is NOT a decklight bridge — another
  * project's dev server on 8787 is the usual case. Alone, a bridge may not move
- * (port-conflict.mjs: a file:// deck assumes its literal port). Under author it
+ * (port-conflict.mjs: a file:// deck assumes its literal port). Under `open` it
  * may, and should: the deck is served by author and reaches the bridges on ITS
  * origin (/tts, /lipsync — #520), so the bridge takes the next free port that
  * no other service of this run will use, and the edit server is told where to

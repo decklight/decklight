@@ -882,7 +882,7 @@ export function adoptCheckout(home, name, checkout) {
  * A catalog is a file on this machine that changes only when `marketplace
  * update` fetches one — and `loadCatalog` is called in LOOPS: the theme
  * browser, the template list and the engine-wizard roster each walk every
- * registered marketplace, and the author server calls all three to answer one
+ * registered marketplace, and the edit server calls all three to answer one
  * `/edit/ping`. Every one of those calls re-read the JSON off disk and re-ran
  * validateManifest over it, which walks every entry and every field. So the
  * answer is remembered against the file's mtime and size: a catalog that has

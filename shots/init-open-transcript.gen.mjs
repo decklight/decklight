@@ -41,10 +41,10 @@ fs.writeFileSync(path.join(bin, 'xdg-open'), `#!/bin/sh\nprintf '%s' "$1" > "${l
 const run = (args, PATH) => spawnSync(process.execPath, [CLI, ...args],
   { encoding: 'utf8', cwd: demo, env: { ...process.env, PATH } });
 
-const ok = run(['init', 'Hello Decklight', '--open'], `${bin}:${process.env.PATH}`);
+const ok = run(['init', 'Hello Decklight', '--inline', '--open'], `${bin}:${process.env.PATH}`);
 const spawned = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '(launcher never ran!)';
 
-const skip = run(['init', 'Hello Decklight', '--open', '--dir', 'headless', '--no-skill'], path.join(demo, 'empty'));
+const skip = run(['init', 'Hello Decklight', '--inline', '--open', '--dir', 'headless', '--no-skill'], path.join(demo, 'empty'));
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 const block = (cmd, r, extra = '') => `<div class="run">

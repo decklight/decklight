@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The "needs write mode" message every author-mode-gated action shares (SPEC PRESENTING). The
+// The "needs write mode" message every write-mode-gated action shares (SPEC PRESENTING). The
 // point of the helper is that a deck opened by double-clicking it — the common
 // case — gets told the folder to run from, and that every action says the same
 // thing. The toasts themselves are DOM; this covers the text they carry.
@@ -37,7 +37,7 @@ test('every action shares the one phrasing, and it is always the deck', () => {
       assert.match(msg, /npx decklight /);
       // the inconsistency this replaced: the notes editor said `decklight edit`
       // — a command that no longer exists at all
-      assert.doesNotMatch(msg, /decklight edit|decklight dev/, `${action} must name only \`author\``);
+      assert.doesNotMatch(msg, /decklight edit|decklight dev/, `${action} must name the deck alone`);
     }
   }
 });

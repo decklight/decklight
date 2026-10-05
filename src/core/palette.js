@@ -29,7 +29,7 @@
  * this file never needs to know how to move a deck or open the finder.
  */
 /**
- * A command's label, with the `(dev)` suffix that marked author-mode rows
+ * A command's label, with the `(dev)` suffix that marked write-mode rows
  * turned into a flag: the suffix was jargon on thirty rows, and a tag says
  * the same thing once.
  */
@@ -44,7 +44,7 @@ export function normalizeCommand(c) {
  *
  * With no query the list is the deck's doors, not its every command: rows
  * that name a `group` fold into one row per group (`Export & share…`), and
- * the author-mode rows sit together under one header. Typing searches every
+ * the write-mode rows sit together under one header. Typing searches every
  * command flat, groups included, so "handout" still finds the PDF handout in
  * one step; `group` shows that group's rows under a back row.
  */
@@ -67,7 +67,7 @@ export function paletteRows({ commands: given, query = '', group = null, totalSl
     }
     const plain = top.filter((c) => !c.dev);
     const dev = top.filter((c) => c.dev);
-    rows = dev.length ? [...plain, { header: 'author mode' }, ...dev] : plain;
+    rows = dev.length ? [...plain, { header: 'write mode' }, ...dev] : plain;
   }
 
   const g = String(query).trim().match(/^(?:goto\s*)?(\d+)$/i);

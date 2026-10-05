@@ -134,7 +134,7 @@ test('design-system apply gives a deck the look later; remove leaves the themes,
   assert.match(rm.stdout, /font sample@acme-mkt {2}— decklight font remove sample@acme-mkt/);
 });
 
-test('the author server: mark brings them (⇧ — recommended: false — does not), one undo; apply is its own undo', async (t) => {
+test('the edit server: mark brings them (⇧ — recommended: false — does not), one undo; apply is its own undo', async (t) => {
   const { dir, h } = home(t);
   writeFileSync(path.join(dir, 'deck.html'), deck({ decklight: '0.9.0', theme: 'aurora' }));
   const file = path.join(dir, 'deck.html');
@@ -224,7 +224,7 @@ test('design-system apply records a dependency already there, even when the deck
   assert.equal(readFileSync(file, 'utf8'), before, 'the ledger only: the deck is untouched');
 });
 
-test('the author server records a dependency already there: on mark (not with ⇧), and on an apply that changes nothing (#653)', async (t) => {
+test('the edit server records a dependency already there: on mark (not with ⇧), and on an apply that changes nothing (#653)', async (t) => {
   const { dir, h, env, acme, file } = marked(t, true);
   const proc = spawn(process.execPath, [EDIT, 'talk.html', '--port', '0', '--no-git'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => stop(proc));

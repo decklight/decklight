@@ -4,7 +4,7 @@
 
 // Evidence for #235 (PRESENT#AUDIT): the audited bytes are the served bytes.
 // Nothing changes in the browser, so the shot is the seam itself: this script
-// starts a REAL `decklight present deck.html`, curls the deck, then edits the
+// starts a REAL `decklight deck.html --read-only`, curls the deck, then edits the
 // file on disk UNDER the running server — the way an attacker with local write
 // access would, after the verdict has already been printed and read — and
 // curls again. The second response is byte-identical to the first: the deck is
@@ -12,7 +12,7 @@
 // edit after startup never rides out under the stale verdict. The captured
 // transcript renders as a terminal window for tools/shot.mjs.
 //
-//   node shots/present-toctou-transcript.mjs    → .shots/present-toctou.png
+//   node shots/read-only-toctou-transcript.mjs    → .shots/read-only-toctou.png
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -38,7 +38,7 @@ fs.writeFileSync(path.join(dir, 'deck.html'), DECK);
 // --- run the real command, keep the real output --------------------------------
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-toctou-home-'));
-const dev = spawn('node', [CLI, 'present', 'deck.html', '--port', '0'], {
+const dev = spawn('node', [CLI, 'deck.html', '--read-only', '--port', '0'], {
   cwd: dir, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DECKLIGHT_HOME: home },
 });
 let out = '';
@@ -94,7 +94,7 @@ const block = (cmd, body, note = '') => `<div class="run"><span class="prompt">~
   + `${note ? `   <span class="hint"># ${esc(note)}</span>` : ''}\n${body}</div>`;
 
 const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>decklight present — audited bytes are the served bytes</title><style>
+<html lang="en"><head><meta charset="utf-8"><title>decklight · read-only — audited bytes are the served bytes</title><style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          background: linear-gradient(135deg, #1b2735, #090a0f); }
   .term { width: 1140px; background: #10141b; border-radius: 12px;
@@ -113,8 +113,8 @@ const html = `<!doctype html>
 </style></head><body>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-    <span class="t">decklight present — the deck serves from the audited bytes; a disk edit after the verdict never reaches the audience</span></div>
-  <div class="body">${block('decklight present deck.html', paintDev(out.trimEnd()))}
+    <span class="t">decklight · read-only — the deck serves from the audited bytes; a disk edit after the verdict never reaches the audience</span></div>
+  <div class="body">${block('decklight deck.html --read-only', paintDev(out.trimEnd()))}
 ${block(`curl -s http://127.0.0.1:${port}/deck.html`, paintDeck(before), 'the deck the label described')}
 ${block(`sed -i 's|</body>|${SMUGGLE.replace(/'/g, '')}</body>|' deck.html`,
     '<span class="bad">the deck on disk now carries a script the label never saw</span>',
@@ -124,10 +124,10 @@ ${block(`curl -s http://127.0.0.1:${port}/deck.html`, paintDeck(after), 'byte-id
 </body></html>
 `;
 
-const page = path.join(root, '.shots', 'present-toctou-transcript.html');
+const page = path.join(root, '.shots', 'read-only-toctou-transcript.html');
 fs.mkdirSync(path.dirname(page), { recursive: true });
 fs.writeFileSync(page, html);
 execFileSync('node', [path.join(root, 'tools', 'shot.mjs'), page,
-  '-o', path.join(root, '.shots', 'present-toctou.png'), '--size', '1280x900', '--wait', '800'],
+  '-o', path.join(root, '.shots', 'read-only-toctou.png'), '--size', '1280x900', '--wait', '800'],
   { stdio: 'inherit' });
 fs.rmSync(page, { force: true });

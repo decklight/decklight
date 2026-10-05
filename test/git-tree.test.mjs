@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Building a git tree without a checkout — the plumbing under `publish` and
-// `review submit` (SPEC PRESENTING, SPEC REVIEW).
+// `comments submit` (SPEC PRESENTING, SPEC REVIEW).
 //
 // Every bug this module can have is silent. A sibling dropped while rebuilding
 // an intermediate tree deletes files in the pushed commit with no error

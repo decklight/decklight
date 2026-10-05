@@ -17,7 +17,7 @@
 //   // shots/solo.mjs
 //   press('/'); for (const c of 'solo') press(c); await sleep(100); press('Enter');
 //
-// The deck is served over http://127.0.0.1 under the `present` CSP — NOT opened
+// The deck is served over http://127.0.0.1 under the `--read-only` CSP — NOT opened
 // over file:// with --allow-file-access-from-files (#229). That flag let a
 // deck's own JS read any local file it could name (.git/config, tokens, keys)
 // and exfiltrate it, and shot runs on decks you have not vetted — a repro deck
@@ -68,7 +68,7 @@ export async function shotMain(argv, { render = chromeShot } = {}) {
 
   // The served root is the directory you run from — the deck must sit inside it,
   // so a source deck's `../dist/decklight.js` and `themes/…` still resolve as
-  // relative URLs off the loopback origin. This is exactly `present`'s rule and
+  // relative URLs off the loopback origin. This is exactly the read-only server's rule and
   // for the same reason: exposure is chosen by where you run the command, and a
   // read cannot escape the served tree. `cd` to a directory containing the deck.
   const root = process.cwd();

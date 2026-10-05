@@ -2,7 +2,7 @@
 // slide element opens a menu anchored at the cursor — never a dimmed,
 // centered card like every other overlay, since dimming would hide the very
 // slide the menu is about. Driven against test/engine.html's own mocked
-// bridge (?mode=contextmenu&shot=1), so no author server, no file, no
+// bridge (?mode=contextmenu&shot=1), so no edit server, no file, no
 // network — the `shot=1` guard skips that page's own automated test so this
 // driver has the overlay to itself:
 //

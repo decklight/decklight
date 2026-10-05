@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The message every author-mode-gated action shows when there is no edit
+// The message every write-mode-gated action shows when there is no edit
 // server (SPEC PRESENTING). Layout cycling, undo/redo, ask-an-agent and the notes
 // editor each hand-wrote their own version of it, they disagreed on the
 // command — and none of them told you the thing you actually need: what to
@@ -110,7 +110,7 @@ export function agentChipText(job, now = Date.now()) {
 //
 // The fourth place that mentions unpushed work, and the only one that
 // interrupts. The other three are read when you go looking — `decklight
-// history`, the H overlay's footer, the line author mode prints on its way out
+// history`, the H overlay's footer, the line write mode prints on its way out
 // — so this one has to earn a toast, and the governing is most of the design.
 
 /**
@@ -184,7 +184,7 @@ export function commitChipTone(state) {
 /** How long an editor read or write may go unanswered before it fails visibly. */
 export const FETCH_TIMEOUT_MS = 8000;
 
-/** What the toast says when the author server was never even asked — under 60 chars, the toasts' slice. */
+/** What the toast says when the edit server was never even asked — under 60 chars, the toasts' slice. */
 export function stalledMessage(ms = FETCH_TIMEOUT_MS) {
   return `no answer in ${Math.round(ms / 1000)}s — close other tabs of this deck and retry`;
 }

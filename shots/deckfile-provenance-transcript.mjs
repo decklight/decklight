@@ -59,7 +59,7 @@ const run = (cmd, args) => {
   return (r.stderr + r.stdout).trimEnd();
 };
 const claim = run('unzip', ['-p', 'talk.decklight', 'manifest.json']);
-const check = run('node', [CLI, 'present', 'talk.decklight', '--check']);
+const check = run('node', [CLI, 'talk.decklight', '--read-only', '--check']);
 fs.rmSync(dir, { recursive: true, force: true });
 if (!claim.includes('trusted/repo')) throw new Error('fixture lost its point: the claim is not in the file');
 if (check.includes('trusted/repo')) throw new Error('the borrowed provenance printed — the fix this shot evidences is gone');
@@ -75,7 +75,7 @@ const paintCheck = (s) => esc(s)
 const block = (cmd, out) => `<div class="run"><span class="prompt">~/inbox $</span> ${esc(cmd)}\n${out}</div>`;
 
 const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>decklight present — provenance is a claim</title><style>
+<html lang="en"><head><meta charset="utf-8"><title>decklight · read-only — provenance is a claim</title><style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          background: linear-gradient(135deg, #1b2735, #090a0f); }
   .term { width: 1060px; background: #10141b; border-radius: 12px;
@@ -95,7 +95,7 @@ const html = `<!doctype html>
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
     <span class="t">a repacked .decklight claims a trusted repo — the manifest carries it, the terminal no longer prints it (#236)</span></div>
   <div class="body">${block('unzip -p talk.decklight manifest.json   # the claim rides inside the file', paintClaim(claim))}
-${block('decklight present talk.decklight --check', paintCheck(check))}</div>
+${block('decklight talk.decklight --read-only --check', paintCheck(check))}</div>
 </div>
 </body></html>
 `;

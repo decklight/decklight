@@ -6,7 +6,7 @@
 //
 // A newcomer opens a deck and sees a slide. The three things they cannot guess
 // are the three things that make Decklight — the deck is one HTML file an agent
-// can author, `/` is the way into everything, and author mode turns the player
+// can author, `/` is the way into everything, and write mode turns the player
 // into an editor. So the FIRST load a browser ever gives us gets a card that
 // says exactly that (WELCOME), and every load after it gets at most one line
 // through the message facility (TIPS) until the deck has taught its shortcuts
@@ -47,13 +47,13 @@ export const TIPS = [
   { id: 'narrate', text: 'press V to have the deck narrate itself from its speaker notes' },
   { id: 'messages', text: 'press ` (left of 1) for the message log — every message the deck has shown' },
   { id: 'fullscreen', text: 'press F for fullscreen, B to black out the screen mid-talk' },
-  { id: 'author', text: 'decklight <deck.html> turns this player into an editor — A asks an AI agent, E edits' },
+  { id: 'write', text: 'decklight <deck.html> turns this player into an editor — A asks an AI agent, E edits' },
   { id: 'inline', text: 'in write mode, press E, then double-click any text to edit it in place; drop a picture onto a slide to add it' },
-  { id: 'editbar', text: 'in author mode, press E to edit: a bar names every editing door, and a click selects an element' },
+  { id: 'editbar', text: 'in write mode, press E to edit: a bar names every editing door, and a click selects an element' },
 ];
 
 const SEEN_KEY = 'decklight-onboarded';   // the welcome card, once per browser
-const AUTHOR_SEEN_KEY = 'decklight-onboarded-author';   // the editing tour, once per browser
+const AUTHOR_SEEN_KEY = 'decklight-onboarded-tour';   // the editing tour, once per browser
 const TIPS_SEEN_KEY = 'decklight-tips-seen';
 const TIPS_OFF_KEY = 'decklight-tips-off';
 
@@ -120,9 +120,9 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     debugLog?.('nav', 'welcome shown');
   }
 
-  // ----- the editing tour: author mode's own first run ------------------------
-  // The welcome explains presenting and says author mode exists; the first
-  // load that IS author mode gets a card of its own, the four gestures and
+  // ----- the editing tour: write mode's own first run ------------------------
+  // The welcome explains presenting and says write mode exists; the first
+  // load that IS write mode gets a card of its own, the four gestures and
   // the keys that matter when the file is yours to change. Once per browser,
   // never on top of the welcome (one card a load), and never where no author
   // server answers: the tour is about what this deck can do, not what some
@@ -161,7 +161,7 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
     debugLog?.('nav', 'editing tour shown');
   }
   /**
-   * The author-mode load's teaching moment, once the author server has
+   * The write-mode load's teaching moment, once the edit server has
    * answered: the tour, the first time, on the deck's first slide, and not
    * over a welcome that is already up. Nothing on a load that teaches nobody.
    */

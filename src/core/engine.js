@@ -544,7 +544,7 @@ export function init(userConfig = {}) {
     editmode: () => editmode,
   });
 
-  // Deck templates, into the deck you already have (UNITS#REST). Author mode
+  // Deck templates, into the deck you already have (UNITS#REST). Write mode
   // only, and it consults `editmode` the same way the theme picker does — from
   // an open dialog, never during setup.
   const templates = createTemplates({
@@ -559,7 +559,7 @@ export function init(userConfig = {}) {
   });
 
   // Design systems… (SPEC DESIGN_SYSTEMS): the registered marketplaces'
-  // design systems, toggled for this deck through the author server
+  // design systems, toggled for this deck through the edit server
   const designSystems = createDesignSystemsPicker({
     root, toast,
     base: () => (editmode?.available() ? editmode.base() : null),
@@ -567,7 +567,7 @@ export function init(userConfig = {}) {
   });
   overlays.register({ isOpen: designSystems.isOpen, close: designSystems.close, keydown: designSystems.keydown });
   // Use design-system layout…: this slide into a layout, to another, out of
-  // one, or a new slide in one — written by the author server
+  // one, or a new slide in one — written by the edit server
   // The look a design system was drawn for (SPEC DESIGN_SYSTEMS): offered
   // after an add, previewed live on the slide — the theme and the font
   // applied without being kept — and written only on ⏎.
@@ -899,12 +899,12 @@ export function init(userConfig = {}) {
       { label: 'Generate a theme', hint: '⌃T', run: rollTheme },
       themes.hasGenerated() && { label: 'Save the generated theme…', hint: '⌃⇧T', run: () => saveGeneratedTheme() },
       // Contextual, like the save row above: marketplace themes are listed only
-      // while authoring, so without an author server the row is absent rather
+      // while authoring, so without an edit server the row is absent rather
       // than a promise the deck cannot keep (THEME_BROWSE#UI).
       editmode.available() && { label: 'Marketplace themes…', alias: 'browse marketplace install add mark third-party catalog', run: themes.browse },
       // Contextual for the same reason as Browse: each engine a registered
       // marketplace declares a wizard for gets its own row (ENGINES#WIZARD).
-      // Without an author server the list is empty — there is nowhere to post
+      // Without an edit server the list is empty — there is nowhere to post
       // a credential, so no row makes a promise the deck cannot keep.
       ...editmode.wizards().map((w) => ({
         label: `Configure ${w.title}… (dev)`,
@@ -913,7 +913,7 @@ export function init(userConfig = {}) {
       })),
       { label: 'Font…', hint: '[ · ]', run: openFontPicker },
       { label: 'Cycle slide layout (dev)', hint: 'L', alias: 'pin pinned centered top auto split columns two sides arrange', run: () => cycleLayout(1) },
-      // The slide as a whole. Author mode only, like every row that writes the
+      // The slide as a whole. Write mode only, like every row that writes the
       // file — and absent rather than greyed out when there is no server.
       editmode.available() && { label: 'New slide after this one (dev)', group: 'Slide', alias: 'add slide insert blank create page', run: () => editmode.slideOp('new') },
       editmode.available() && { label: 'Duplicate this slide (dev)', group: 'Slide', alias: 'copy slide clone', run: () => editmode.slideOp('duplicate') },
@@ -970,19 +970,19 @@ export function init(userConfig = {}) {
       // ── the hand-over rows (PRESENTING) ─────────────────────────────
       // The print rows above open a print VIEW in a tab: the same pages, and
       // not a file anybody can be sent. These write the file, by asking the
-      // author server to run the command — hence (dev), and hence contextual:
+      // edit server to run the command — hence (dev), and hence contextual:
       // without a server there is nothing to run it, and a row that cannot
       // keep its promise is worse than no row.
       // Only when this slide has any — a row that opens an empty panel is a
       // row that taught you nothing, and the key still says so if you press it.
-      // In author mode the row is always there, because opening it on a slide
+      // In write mode the row is always there, because opening it on a slide
       // with none is how you ADD them; a reader only sees it where there is
       // something to read.
       (sources.has() || sources.canEdit()) && {
         label: sources.has() ? 'Sources for this slide… (I)' : 'Add sources to this slide… (I)',
         alias: 'sources references links reading provenance where citation info information cite',
         run: () => sources.open() },
-      // Somebody else's slides, into this deck (UNITS#REST). Author mode only:
+      // Somebody else's slides, into this deck (UNITS#REST). Write mode only:
       // it writes the deck on disk, and a template comes from a marketplace.
       // Two rows, not one row with a mode in it. The panel used to open in
       // "insert" and let `i`/`l` switch — which meant the answer to "what will
@@ -1052,7 +1052,7 @@ export function init(userConfig = {}) {
         run: () => editmode.publishDeck() },
       // HIDDEN_SLIDES — contextual: a deck with nothing hidden has nothing to
       // show, and a row that reloads the deck for no visible change reads as
-      // broken. Author mode adds the verb that makes a slide hidden at all.
+      // broken. Write mode adds the verb that makes a slide hidden at all.
       (showHidden || hasHiddenSlides()) && { label: `Hidden slides ${showHidden ? 'skip' : 'show'}`,
         alias: 'all cut backup skipped unhide reveal present hidden ⊘', run: toggleShowHidden },
       editmode.available() && { label: `${currentHidden() ? 'Unhide' : 'Hide'} this slide (dev)`,
@@ -1069,7 +1069,7 @@ export function init(userConfig = {}) {
         run: openSettings },
       { label: 'Keyboard help', hint: '?', run: toggleHelp },
       { label: 'Welcome to Decklight', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
-      editmode.available() && { label: 'Editing tour (dev)', alias: 'onboarding intro getting started first run tour how do I edit author mode gestures', run: onboarding.showAuthorWelcome },
+      editmode.available() && { label: 'Editing tour (dev)', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showAuthorWelcome },
       { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
       // Contextual: with every tip read there is nothing to reset to, and a row
       // that does nothing visible is a row that reads as broken.
@@ -1123,11 +1123,11 @@ export function init(userConfig = {}) {
       el.appendChild(label);
       const right = document.createElement('span');
       right.className = 'pal-right';
-      // the author-mode tag, only where the rows are not already under their header
+      // the write-mode tag, only where the rows are not already under their header
       if (c.dev && (palQuery || palGroup)) {
         const tag = document.createElement('span');
         tag.className = 'pal-tag';
-        tag.textContent = 'author';
+        tag.textContent = 'write';
         right.appendChild(tag);
       }
       if (c.hint) {
@@ -1387,7 +1387,7 @@ export function init(userConfig = {}) {
 
   // ----- slide layout cycling (L / ⇧L) — SPEC PRESENTING -----------------------------
   // The ring, the skip rules and the debounced write-through live in layout.js;
-  // what stays here is the deck's answers to its questions. Author mode only:
+  // what stays here is the deck's answers to its questions. Write mode only:
   // the pick is a persisted deck edit (data-layout, written back through the
   // edit server), so without that server the key explains itself and changes
   // nothing rather than forking the deck from what is on disk.
@@ -1830,7 +1830,7 @@ export function init(userConfig = {}) {
       f.style.transform = `scale(${scale})`;
     });
   }
-  // The overview is where a deck is REARRANGED (PRESENTING, author mode): a
+  // The overview is where a deck is REARRANGED (PRESENTING, write mode): a
   // cell drags to a new place, and each cell carries new / duplicate / delete.
   // Every one is the same `POST /edit/slide` the palette's rows and the
   // element menu's Slide ▸ make, through editmode.slideOp, so one undo entry
@@ -2066,7 +2066,7 @@ export function init(userConfig = {}) {
       <tr><td>⇧W</td><td>laser pointer</td></tr>
       <tr><td>K</td><td>commit — what changed, and what to call it (⌘K / ⌃K also works while typing)</td></tr>
       <tr><td>J</td><td>progress bar — position in the deck, bottom edge</td></tr>
-      <tr><td>H / R</td><td>history — commits, slides and diff per version, ⏎ restores one (author mode)</td></tr>
+      <tr><td>H / R</td><td>history — commits, slides and diff per version, ⏎ restores one (write mode)</td></tr>
       <tr><td>M</td><td>comments — yours and every review's, grouped by who said them, ⏎ jumps</td></tr>
       <tr><td>⇧M</td><td>leave a comment on the slide you are looking at</td></tr>
       <tr><td>P</td><td>narration play / pause — ⎵'s alias</td></tr>
@@ -2074,12 +2074,12 @@ export function init(userConfig = {}) {
       <tr><td>T</td><td>theme picker (type to filter)</td></tr>
       <tr><td>/</td><td>command palette — find, themes, everything (“Welcome to Decklight” reopens the intro)</td></tr>
       <tr><td>G</td><td>slide finder (live preview)</td></tr>
-      <tr><td>E</td><td>element edit mode — right-click a slide element (author mode)</td></tr>
+      <tr><td>E</td><td>element edit mode — right-click a slide element (write mode)</td></tr>
       <tr><td>, / .</td><td>cycle theme</td></tr>
       <tr><td>[ / ]</td><td>cycle font</td></tr>
-      <tr><td>L / ⇧L</td><td>slide layout — writes the file (author mode)</td></tr>
-      <tr><td>Z / ⇧Z · ${UNDO_CHORD} / ${IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z'}</td><td>undo / redo deck edits (author mode)</td></tr>
-      <tr><td>A</td><td>ask an AI agent to edit the deck (author mode)</td></tr>
+      <tr><td>L / ⇧L</td><td>slide layout — writes the file (write mode)</td></tr>
+      <tr><td>Z / ⇧Z · ${UNDO_CHORD} / ${IS_MAC ? '⌘⇧Z' : 'Ctrl+⇧Z'}</td><td>undo / redo deck edits (write mode)</td></tr>
+      <tr><td>A</td><td>ask an AI agent to edit the deck (write mode)</td></tr>
       <tr><td>⌃T</td><td>generate a theme (repeat to re-roll)</td></tr>
       <tr><td>⌃⇧T</td><td>save the generated theme</td></tr>
       <tr><td>?</td><td>this help</td></tr></table></div>`;
@@ -2155,7 +2155,7 @@ export function init(userConfig = {}) {
         case 'ArrowUp': ovSelect(ovSel - ovColumns()); break;
         case 'Enter': case ' ': ovCommit(); break;
         case 'o': case 'O': case 'Escape': toggleOverview(); break;
-        // the selected cell, rearranged from the keyboard (author mode)
+        // the selected cell, rearranged from the keyboard (write mode)
         case 'Backspace': case 'Delete': if (editmode.available()) ovOp('delete', ovSel); break;
         case 'n': case 'N': if (editmode.available()) ovOp('new', ovSel); break;
         case 'd': case 'D': if (editmode.available()) ovOp('duplicate', ovSel); break;
@@ -2302,7 +2302,7 @@ export function init(userConfig = {}) {
       case 'f': case 'F': toggleFullscreen(); break;
       case 'v': case 'V': narration.openPicker(); break;   // everything about the voice
       case 'i': case 'I': sources.open(); break;           // (I)nformation: where this slide got that
-      // S — this slide's speaker notes, in the notes editor (author mode); the
+      // S — this slide's speaker notes, in the notes editor (write mode); the
       // speaker view, a second window for presenting, is ⌥⏎ above
       case 's': case 'S': toggleEditor(); break;
       case 't': case 'T': themes.openPicker(); break;
@@ -2445,7 +2445,7 @@ export function init(userConfig = {}) {
   instance.themePicker = { open: themes.openPicker, close: themes.closePicker };
   instance.generateTheme = rollTheme;                       // ⌃T, programmatic
   instance.cycleFont = cycleFont;                           // [ / ], programmatic (±1)
-  instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1); author mode only
+  instance.cycleLayout = cycleLayout;                       // L / ⇧L, programmatic (±1); write mode only
   instance.layoutRing = layoutRing;                         // the ring a slide would cycle (skips applied)
   instance.toggleMessages = toggleMessages;                 // I, programmatic
   instance.messages = messages;                             // [{ at, text }] — every message shown
@@ -2492,7 +2492,7 @@ export function init(userConfig = {}) {
     // …and the thing that makes reading it safe: false means "no server" only
     // AFTER this resolves. The recorder awaits it rather than guessing early.
     authorReady: () => editmode?.settled?.() ?? Promise.resolve(),
-    // V → Enhance the script…: author mode only, like every row that writes the deck
+    // V → Enhance the script…: write mode only, like every row that writes the deck
     enhanceScript: () => (editmode?.available() ? editmode.enhanceScript : null),
     // the data-module chapter a slide is in, for the rewrite scopes
     moduleOf: (n) => editmode?.moduleOf?.(n) ?? null,
@@ -2521,8 +2521,8 @@ export function init(userConfig = {}) {
 
   // ── review comments (review.js) — SPEC REVIEW ────────────────────────────
   // Somebody else's remarks on this deck, anchored to slides and carried by
-  // git. What M can do depends on which server answered: a review server takes
-  // a new comment, an author server resolves one, and with neither the list
+  // git. What M can do depends on which server answered: a read-only server takes
+  // a new comment, an edit server resolves one, and with neither the list
   // still reads and says where comments come from.
   const review = createReview({
     root,
@@ -2664,9 +2664,9 @@ export function init(userConfig = {}) {
   // it cannot reach a git server to populate the real list.
   instance.restore = editmode.restore;
   // The engine wizard (ENGINES#WIZARD), for drivers that cannot click the
-  // palette's Configure rows. Same author-mode gate either way.
+  // palette's Configure rows. Same write-mode gate either way.
   instance.wizard = editmode.wizard;
-  instance.toggleElementEdit = toggleElementEdit;           // E programmatically; author mode only
+  instance.toggleElementEdit = toggleElementEdit;           // E programmatically; write mode only
   // Double-click text to edit it, drop a picture to add it (authoring.js):
   // the two gestures every editor teaches, on top of the routes above.
   const authoring = createAuthoring({ root, instance, toast, editmode, debugLog });
@@ -2764,7 +2764,7 @@ export function init(userConfig = {}) {
   // that reads where the hash SENT the deck, and a load that landed on slide 12
   // is a talk in progress, not a first run.
   onboarding.start(target);
-  // …and author mode's own, once the author server has answered (one card a load)
+  // …and write mode's own, once the edit server has answered (one card a load)
   editmode.settled?.().then(() => { if (editmode.available()) onboarding.startAuthor(target); });
   return instance;
 }

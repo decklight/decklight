@@ -101,7 +101,7 @@ export async function ttsMain(args) {
   // coverage only when it exits through process.exit, so a bridge the suite
   // stops with SIGKILL — or with an unhandled SIGTERM — reports NOTHING, and
   // the request handler that is this file's whole point read as 27% covered
-  // while thirty tests drove it. The edit and present servers already do this.
+  // while thirty tests drove it. The edit and read-only servers already do this.
   process.on('SIGTERM', () => process.exit(0));
   if (args.includes('--help')) {
     console.log(`usage: decklight tts [--port 8787] [--engine ${ENGINES.join('|')}|<installed>] [--project <id>]
@@ -334,7 +334,7 @@ export async function ttsMain(args) {
   };
   const server = createServer(async (req, res) => {
     if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
-    // routes by PATH: `?engine=` rides the query (the author server forwards it)
+    // routes by PATH: `?engine=` rides the query (the edit server forwards it)
     const url = new URL(req.url, 'http://127.0.0.1');
     const asked = url.searchParams.get('engine') || null;
     if (req.method === 'GET' && url.pathname === '/ping') {
@@ -519,7 +519,7 @@ export async function ttsMain(args) {
   // it, so they were the one place the deck could still look broken.
   //
   // On a TTY it names the occupant and offers a choice; anywhere else — and
-  // author spawns these with a piped stdin, so that is the usual case — it
+  // `open` spawns these with a piped stdin, so that is the usual case — it
   // moves to the next free port and says so. The player finds the bridge by
   // probing, so a moved port costs nothing.
   // `canBind`, NOT `isPortOpen`: this file's own note says why, and getting it
@@ -541,7 +541,7 @@ export async function ttsMain(args) {
     : port;
   // null is "stand down" — either a bridge is already serving this port, or
   // somebody else holds it and this one cannot move (the deck only ever calls
-  // the one number). Exiting is the honest outcome: author prints "carrying on
+  // the one number). Exiting is the honest outcome: `open` prints "carrying on
   // without it" and the deck degrades where you can see it, instead of a
   // bridge running somewhere nothing will ever knock.
   if (asked === null) process.exit(0);
@@ -553,7 +553,7 @@ export async function ttsMain(args) {
     // `cost` is optional (SPEC ENGINE_UNITS) — an installed engine that
     // quotes no list price says nothing here rather than "(undefined)".
     const price = engine.cost ? ` (${engine.cost})` : '';
-    // Under author this is a banner ROW, not a line: author prints one block
+    // Under `open` this is a banner ROW, not a line: `open` prints one block
     // ending in the DECK's url, and a bridge url above it is the wrong thing
     // to click. Standalone, the bridge is the whole program and says so.
     if (process.env.DECKLIGHT_BANNER) {

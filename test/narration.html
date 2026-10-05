@@ -142,7 +142,7 @@
     // a change to what the real engine offers could never fail one of them.
     const REAL_BRIDGE = params.get('bridge');
     const BRIDGE = REAL_BRIDGE ?? 'http://127.0.0.1:8899';
-    // ── mock author server: only the `record` mode has one ──────────────────
+    // ── mock edit server: only the `record` mode has one ──────────────────
     // ⇧V writes its slide-NN.wav through the server that owns the deck file
     // (PRESENTING), so proving it stopped using the browser's download folder
     // means standing an /edit/ping and an /edit/record up in front of it. Gated
@@ -150,8 +150,8 @@
     // left pending would freeze Chrome's virtual clock and hang the page.
     const AUTHOR = 'http://127.0.0.1:8788';
     const recording = mode === 'record' || mode === 'recordseg' || mode === 'reccount';
-    // ?nosrv — no author server answers, which is a `file://` deck or one served
-    // read-only by `decklight present`: nothing here may write to disk, so the
+    // ?nosrv — no edit server answers, which is a `file://` deck or one served
+    // read-only by `decklight <deck> --read-only`: nothing here may write to disk, so the
     // browser's download folder is the honest fallback and must still work
     const authored = recording && !params.has('nosrv');
     const ttsSeen = new Set();   // sentences the mock bridge has synthesized once
@@ -472,7 +472,7 @@
     // tip never lands in the message log these assertions read (SPEC PRESENTING).
     try {
       localStorage.setItem('decklight-onboarded', '1');
-      localStorage.setItem('decklight-onboarded-author', '1');   // nor the editing tour, which takes the first key
+      localStorage.setItem('decklight-onboarded-tour', '1');   // nor the editing tour, which takes the first key
       localStorage.setItem('decklight-tips-off', '1');
       const capKey = 'decklight-captions:' + location.pathname;
       if (mode === 'captions' || mode === 'pausemark' || mode === 'aliases' || mode === 'audiotags' || mode === 'audiotagsv4') localStorage.setItem(capKey, '1');
@@ -1072,7 +1072,7 @@
           // The recorder used to hand every stitched slide to the browser, which
           // is how a recorded deck ended up as slide-NN.wav in the OS download
           // folder — never the deck's, and `bundle` reads no other. With an
-          // author server up, every file must go through it instead.
+          // edit server up, every file must go through it instead.
           //
           // Opened the way a person now reaches it: V → Record this deck… →
           // the synthesized voice. It had its own shortcut (⇧V) and nobody
@@ -1731,7 +1731,7 @@
         if (mode === 'xss') {
           // The N picker lists whatever the bridge said it can speak. A voice
           // named with markup must land in the rows as TEXT — the picker runs
-          // in the deck's origin, and in author mode that origin can reach the
+          // in the deck's origin, and in write mode that origin can reach the
           // edit server, so a parsed name would be code execution.
           deck.narration.openPicker('voices');       // the roster, as the palette opens it
           await new Promise((ok) => setTimeout(ok, 500));   // /ping answers, view repaints

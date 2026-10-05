@@ -2,9 +2,9 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Evidence for `decklight present --remote` (PRESENT#REMOTE). Nothing changes
+// Evidence for `decklight <deck.html> --read-only --remote` (PRESENT#REMOTE). Nothing changes
 // in the browser, so the shot is the CLI surface itself: this script starts a
-// REAL `decklight present deck.html --remote`, waits for it to print the LAN URL
+// REAL `decklight deck.html --read-only --remote`, waits for it to print the LAN URL
 // with the per-run token, then curls the server FROM ITS LAN ADDRESS — the deck
 // itself comes back 403 while the same request over loopback lands — and renders
 // the captured transcript as a terminal window for tools/shot.mjs.
@@ -13,7 +13,7 @@
 // clicker stopped costing an editing server on the LAN. There is no `/edit/*` to
 // refuse here: the seam is that `--remote` widens the LISTENER and nothing else.
 //
-//   node shots/present-remote-transcript.mjs    → .shots/present-remote.png
+//   node shots/read-only-remote-transcript.mjs    → .shots/read-only-remote.png
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -39,7 +39,7 @@ fs.writeFileSync(path.join(dir, 'deck.html'), `<!doctype html>
 
 // --- run the real command, keep the real output --------------------------------
 
-const dev = spawn('node', [CLI, 'present', 'deck.html', '--remote'], {
+const dev = spawn('node', [CLI, 'deck.html', '--read-only', '--remote'], {
   cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';
@@ -85,7 +85,7 @@ const paintCurl = (s) => esc(s)
 const block = (cmd, body) => `<div class="run"><span class="prompt">~/talk $</span> ${esc(cmd)}\n${body}</div>`;
 
 const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>decklight present --remote</title><style>
+<html lang="en"><head><meta charset="utf-8"><title>decklight <deck.html> --read-only --remote</title><style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          background: linear-gradient(135deg, #1b2735, #090a0f); }
   .term { width: 1120px; background: #10141b; border-radius: 12px;
@@ -105,18 +105,18 @@ const html = `<!doctype html>
 </style></head><body>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-    <span class="t">decklight present --remote — LAN listener + per-run token; only /remote/* answers off this machine</span></div>
-  <div class="body">${block('decklight present deck.html --remote', paintDev(out.trimEnd()))}
+    <span class="t">decklight <deck.html> --read-only --remote — LAN listener + per-run token; only /remote/* answers off this machine</span></div>
+  <div class="body">${block('decklight deck.html --read-only --remote', paintDev(out.trimEnd()))}
 ${block(`curl http://${lan}:${port}/deck.html                   # the deck itself, from the LAN`, paintCurl(lanRefused))}
 ${block(`curl http://127.0.0.1:${port}/present/ping             # the same server, over loopback`, paintCurl(loopbackOk))}</div>
 </div>
 </body></html>
 `;
 
-const page = path.join(root, '.shots', 'present-remote-transcript.html');
+const page = path.join(root, '.shots', 'read-only-remote-transcript.html');
 fs.mkdirSync(path.dirname(page), { recursive: true });
 fs.writeFileSync(page, html);
 execFileSync('node', [path.join(root, 'tools', 'shot.mjs'), page,
-  '-o', path.join(root, '.shots', 'present-remote.png'), '--size', '1280x860', '--wait', '800'],
+  '-o', path.join(root, '.shots', 'read-only-remote.png'), '--size', '1280x860', '--wait', '800'],
   { stdio: 'inherit' });
 fs.rmSync(page, { force: true });

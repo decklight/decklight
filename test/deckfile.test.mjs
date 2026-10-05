@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The .decklight container (MARKETPLACE.md DECK_FILE) and the file association
-// that makes double-clicking one land in `present` (DECK_FILE#ASSOC).
+// that makes double-clicking one land read-only (DECK_FILE#ASSOC).
 //
 // The claim that carries the most weight is the least obvious one: a container
 // renamed to .html still plays. That is what keeps the format from being a
@@ -224,7 +224,7 @@ test('--deck and --no-sign together are refused before anything happens', () => 
 
 // ── present on a container ─────────────────────────────────────────────────
 
-test('present --check reads a container like the deck it wraps', async () => {
+test('--read-only --check reads a container like the deck it wraps', async () => {
   const dir = tmp();
   const out = path.join(dir, 'out.html');
   const { bundleMain } = await import('../cli/bundle.mjs');

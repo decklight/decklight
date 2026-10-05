@@ -5,7 +5,7 @@
 //
 // `writeFileSync` truncates first and then copies: for the length of that copy
 // the file on disk is a PREFIX of what it is becoming, and a crash, a full
-// disk or a kill -9 in that window leaves it that way. The author server
+// disk or a kill -9 in that window leaves it that way. The edit server
 // rewrites the deck on every keystroke-level edit — a note, a layout, an undo
 // — so that window is open hundreds of times an authoring session, on the one
 // file the whole talk is. A half-written deck is not a lost edit; it is a lost

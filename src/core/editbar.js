@@ -1,9 +1,9 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Editing, as one thing you can see — SPEC PRESENTING, author mode.
+// Editing, as one thing you can see — SPEC PRESENTING, write mode.
 //
-// Author mode could edit a word (double-click), add a picture (drop a file),
+// Write mode could edit a word (double-click), add a picture (drop a file),
 // change a layout (L), edit the notes (S), act on an element (E, then a
 // right-click), act on the slide (five palette rows), and take it all back
 // (Z). Eight doors, each learnt separately, none of them on screen: the only

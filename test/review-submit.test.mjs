@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `decklight review submit`: the branch name (pure, and every result run back
+// `decklight comments submit`: the branch name (pure, and every result run back
 // through the same `refProblem` that guards it in production), and the plumbing
 // against a real bare origin.
 //

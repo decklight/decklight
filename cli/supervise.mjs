@@ -4,22 +4,22 @@
 /**
  * Outliving your parent is the one way a decklight server leaks.
  *
- * `author` runs the deck server and the bridges as child processes and reaps
+ * `open` runs the deck server and the bridges as child processes and reaps
  * them on its way out — but only for the signals it can catch. SIGKILL it (a
- * test harness, the OOM killer, an impatient `kill -9`) and author vanishes
+ * test harness, the OOM killer, an impatient `kill -9`) and `open` vanishes
  * with no chance to pass the signal on: the servers are reparented to init and
- * go on holding their ports, and the next `decklight author` finds a port
+ * go on holding their ports, and the next `decklight <deck>` finds a port
  * taken by something nobody remembers starting.
  *
- * The fix is a channel the OS closes for us. author opens a pipe to each
+ * The fix is a channel the OS closes for us. `open` opens a pipe to each
  * child's stdin and never writes a byte to it; the child reads it and exits at
- * EOF. However author dies, the write end dies with it and every child hears
+ * EOF. However `open` dies, the write end dies with it and every child hears
  * about it at once — no polling, no pid to watch, no signal to catch, and
  * nothing for a dying parent to remember to do.
  *
  * Opt-in, because stdin means something else to a server you started
  * yourself: `node cli/edit.mjs deck.html < /dev/null` would EOF immediately,
- * and a terminal never EOFs at all. author sets LEASH in the child's
+ * and a terminal never EOFs at all. `open` sets LEASH in the child's
  * environment; only then does anything here read stdin.
  */
 

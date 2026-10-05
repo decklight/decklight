@@ -7,7 +7,7 @@
 // business receiving position echoes of its own movement.
 //
 // The relay is mounted by whichever server owns the deck (edit today;
-// `present` after PRESENT#REMOTE in MARKETPLACE.md) and never touches the
+// `--read-only` after PRESENT#REMOTE in MARKETPLACE.md) and never touches the
 // deck file: the phone asks the deck to move, it never edits.
 
 import { qrSvg } from './qr.mjs';

@@ -191,8 +191,8 @@ test('git and agent flags ride along to the edit child', () => {
 });
 
 test('--remote and --host are reported as gone, never passed to the edit child', () => {
-  // The phone remote lives on `present` now (PRESENT#REMOTE). The plan REPORTS
-  // the refusal rather than performing it, so it stays pure and devMain is the
+  // The phone remote lives on `--read-only` now (PRESENT#REMOTE). The plan REPORTS
+  // the refusal rather than performing it, so it stays pure and openMain is the
   // one place that prints and exits.
   assert.deepEqual(plan(['deck.html', '--remote']).gone, ['--remote']);
   assert.deepEqual(plan(['deck.html', '--host', '192.168.1.5']).gone, ['--host']);
@@ -209,7 +209,7 @@ test('--remote and --host are reported as gone, never passed to the edit child',
   assert.equal(plan(['--host', '0.0.0.0', 'deck.html']).deck, '0.0.0.0');
 });
 
-test('author refuses --remote out loud and names the command that replaced it', () => {
+test('open refuses --remote out loud and names the command that replaced it', () => {
   const r = spawnSync('node', [CLI, 'deck.html', '--remote'], { encoding: 'utf8' });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /does not take --remote in write mode/);
@@ -219,7 +219,7 @@ test('author refuses --remote out loud and names the command that replaced it', 
   assert.doesNotMatch(r.stdout, DECK_URL_RE);
 });
 
-test('author --read-only is the read-only server: no edit route exists, the CSP rides on every response', async (t) => {
+test('--read-only is the read-only server: no edit route exists, the CSP rides on every response', async (t) => {
   // One command, two ways in (PRESENTING): the flag does not refuse writes on
   // the edit server, it starts the server that has no write route to refuse.
   const dir = mkdtempSync(path.join(tmpdir(), 'decklight-ro-'));
@@ -263,39 +263,22 @@ test('inGitRepo trusts git\'s answer and treats failure as "no repo"', () => {
 test('the deck is the command: the global help opens with it, and no word for it is listed', () => {
   const help = execFileSync('node', [CLI, '--help'], { encoding: 'utf8' });
   assert.match(help, /^  decklight <deck\.html \| repository url> \[--read-only\]/m, 'the one way to open a deck, first');
-  for (const word of ['author', 'dev', 'present', 'review', 'edit']) {
+  for (const word of ['edit', 'dev', 'open']) {
     assert.doesNotMatch(help, new RegExp(`^  ${word} +\\S`, 'm'), `${word} is not a command`);
   }
 
   const authorHelp = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
   assert.match(authorHelp, /usage: decklight <deck\.html \| git url> \[--read-only\]/);
   // neither is offered as an author flag any more — a flag listed in the help
-  // is a promise to honour it, and author refuses both
+  // is a promise to honour it, and `open` refuses both
   assert.doesNotMatch(authorHelp, /^\s+--remote\b/m, 'the LAN opt-in is gone');
   assert.doesNotMatch(authorHelp, /^\s+--host\b/m, 'and so is the bind address');
   assert.match(authorHelp, /--read-only --remote/, 'but the help says where it went');
   assert.match(authorHelp, /^\s+--read-only\b/m, 'the read-only way in is a flag of the same command');
 });
 
-test('the retired words point at the deck, with the deck already filled in', () => {
-  const cases = [
-    [['author', 'talk.html', '--port', '9000'], /^ {2}decklight talk\.html --port 9000$/m],
-    [['dev', 'talk.html'], /^ {2}decklight talk\.html$/m],
-    [['present', 'talk.html', '--remote'], /^ {2}decklight talk\.html --read-only --remote$/m],
-    [['review', 'talk.html'], /^ {2}decklight talk\.html --read-only/m],
-    [['review', 'submit', 'talk.html'], /^ {2}decklight comments submit talk\.html$/m],
-  ];
-  for (const [args, line] of cases) {
-    const r = spawnSync('node', [CLI, ...args], { encoding: 'utf8' });
-    assert.equal(r.status, 1, args.join(' '));
-    assert.match(r.stderr, /is no longer a command: the deck is the command/, args.join(' '));
-    assert.match(r.stderr, line, args.join(' '));
-    assert.doesNotMatch(r.stderr, /unknown command/);
-  }
-});
-
 test('`edit` is not a command, and says so the way any other unknown one does', () => {
-  // It used to carry a refusal stub naming `author`. That stub was a migration
+  // It used to carry a refusal stub naming `open`. That stub was a migration
   // aid, and there is nobody to migrate: decklight has no released users, so
   // every stub is a line of dispatch, a test and a paragraph of docs bought
   // for no one. Dropped along with `rec`'s (MARKETPLACE.md COMMANDS records
@@ -304,7 +287,7 @@ test('`edit` is not a command, and says so the way any other unknown one does', 
   assert.equal(r.status, 1);
   assert.match(r.stderr, /unknown command "edit"/);
   // the help still lists the command that does the job, which is how someone
-  // who typed `edit` finds `author` now
+  // who typed `edit` finds `open` now
   assert.match(r.stdout, /^ {2}decklight <deck\.html \| url>/m, 'the deck is the command, first in the short help');
 });
 
@@ -379,7 +362,7 @@ test('leashEnv adds the flag and keeps the rest of the environment', () => {
 });
 
 test('a real child on a real pipe exits when the pipe closes, and lets go of its port', async (t) => {
-  // The mechanism, end to end, in two processes and without `author` (#172).
+  // The mechanism, end to end, in two processes and without `open` (#172).
   //
   // This is the test that goes red the instant the leash is broken, and it says
   // so in milliseconds: closing the write end of a pipe is an OS event, so the
@@ -434,7 +417,7 @@ test('SIGKILL to author takes the deck server with it — no orphan holding the 
   const port = Number(spawned);
   assert.equal(await isPortOpen(port), true, 'the deck server is up');
 
-  // author never gets to run shutdown() — this is the crash it cannot handle
+  // `open` never gets to run shutdown() — this is the crash it cannot handle
   dev.kill('SIGKILL');
   await waitFor(`the orphan on port ${port} to notice and let go`,
     async () => (await isPortOpen(port)) === false, () => out);
@@ -451,9 +434,9 @@ test('a missing deck fails by name — not a stack trace', () => {
   assert.match(missing.stderr, /no such deck/);
 });
 
-// ── a bridge's port held by somebody else's program (author moves it) ────────
+// ── a bridge's port held by somebody else's program (`open` moves it) ────────
 
-test('author moves a bridge off a port another program holds — onto one no other service takes — and tells the edit server', async () => {
+test('open moves a bridge off a port another program holds — onto one no other service takes — and tells the edit server', async () => {
   const plan = { run: [
     { name: 'edit', args: ['deck.html', '--port', '8788'] },
     { name: 'tts', args: ['tts', '--port', '8787'], url: 'http://127.0.0.1:8787' },

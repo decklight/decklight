@@ -65,7 +65,7 @@ test('a design-system pick writes the token with what it is now as the fallback 
   assert.equal(tokenOf(' var(--accent) '), '--accent');
   assert.equal(tokenOf('#0056f9'), null);
   assert.equal(tokenOf('var(--a, var(--b))'), null);
-  // what the picker writes is what the author server accepts
+  // what the picker writes is what the edit server accepts
   const STYLE_VALUE = /^(?:var\(--[a-z][a-z0-9-]{0,40}(?:,\s?#[0-9a-f]{3,8})?\)|#[0-9a-f]{3,8})$/i;
   assert.match(fallbackValue('--acme-blue', { r: 255, g: 111, b: 97 }), STYLE_VALUE);
 });

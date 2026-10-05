@@ -4,7 +4,7 @@
 
 /**
  * `decklight plugin` — the presenter's own chrome, installed from a
- * marketplace and loaded by `present` (MARKETPLACE.md PRESENT#PLUGINS).
+ * marketplace and loaded by `--read-only` (MARKETPLACE.md PRESENT#PLUGINS).
  *
  *   decklight plugin add    <name[@marketplace]>
  *   decklight plugin list
@@ -56,7 +56,7 @@ import { isMain } from '../tools/args.mjs';
 import { injectBeforeBodyEnd } from '../tools/deck-html.mjs';
 // Cache reads only. `loadCatalog` and `resolveEntry` read JSON already on
 // disk; the fetching half of marketplace.mjs is deliberately not imported
-// here, because `present` imports this file and a presenting path that COULD
+// here, because `--read-only` imports this file and a presenting path that COULD
 // fetch a catalog breaks registered-not-fetched (SPEC MARKETPLACE_REGISTRY) —
 // a deck on a plane has to behave exactly like a deck at a desk. The one
 // network call in this module is `fetchPlugin`, which is an ARTIFACT fetch on
@@ -93,7 +93,7 @@ export const SLOTS = ['corner-tl', 'corner-tr', 'corner-bl', 'corner-br', 'edge-
  * determinism rule is about mutation, and the speaker view already puts these
  * exact words on this exact machine. What keeps it honest is that it is
  * DECLARED: a plugin gets notes only by asking for them in its manifest, and
- * both `plugin list` and the `present` startup line say which plugins read
+ * both `plugin list` and the `--read-only` startup line say which plugins read
  * them. A timer never sees a word of the talk.
  */
 export const NEEDS = ['position', 'notes'];
@@ -326,7 +326,7 @@ ${plugin.source}
  * them, and this way the shim needs no handle on a root that may not exist
  * yet when it runs.
  *
- * Nothing here is added to the runtime: `present` injects this, `bundle` never
+ * Nothing here is added to the runtime: `--read-only` injects this, `bundle` never
  * does, and a deck opened any other way has never heard of it.
  */
 function hostShim(plugins) {
@@ -408,7 +408,7 @@ const CHROME_CSS = `<style>
  * instead, and the presenting CSP already carries `script-src 'unsafe-inline'`
  * because a bundled deck IS inline script. So the chrome loads under exactly
  * the header the deck is served with, no route is registered for it, and
- * `present`'s policy string is untouched by a plugin being installed.
+ * the read-only server's policy string is untouched by a plugin being installed.
  *
  * `sandbox="allow-scripts"` without `allow-same-origin` is the load-bearing
  * attribute: it hands the frame an opaque origin, so `parent.document` throws.
@@ -426,11 +426,11 @@ export function chromeMarkup(plugins) {
 /**
  * Put the chrome into a served document, immediately before `</body>`.
  *
- * Called by `present` AFTER the audit has read the file and AFTER strict mode
+ * Called by `--read-only` AFTER the audit has read the file and AFTER strict mode
  * has run, which is the whole reason the ingredients label stays honest: the
  * label describes the bytes on disk, and these bytes were never on disk.
  * With no plugins installed this returns its input unchanged — byte for byte,
- * which is what keeps `present` on a machine with an empty library exactly the
+ * which is what keeps `--read-only` on a machine with an empty library exactly the
  * command it was before this existed.
  */
 export function injectChrome(html, plugins) {

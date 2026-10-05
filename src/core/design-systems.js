@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // "Design systems…" — the palette's list of every design system every
-// registered marketplace offers, author mode only (SPEC DESIGN_SYSTEMS).
+// registered marketplace offers, write mode only (SPEC DESIGN_SYSTEMS).
 //
 // Each row says whether this deck references it — ● uses, ○ does not — and
-// Space (or ⏎, or a click) toggles it through the author server
+// Space (or ⏎, or a click) toggles it through the edit server
 // (POST /edit/design-system/mark): one entry in the deck's config block, one
 // undo entry, and the reload that brings the deck back WITH the design system
 // linked, since linking is the server's job. Cache-only, like the theme
@@ -17,8 +17,8 @@ import { closeOnBackdrop, selectInList } from './overlay.js';
 import { pageDesignSystems, setupSystemLayouts, isSystemLayout } from './design-system.js';
 
 /**
- * `base()` is the author server's URL, or null when there is none — and `''`
- * when the deck is served BY the author server, every fetch same-origin, so
+ * `base()` is the edit server's URL, or null when there is none — and `''`
+ * when the deck is served BY the edit server, every fetch same-origin, so
  * only `null` means "no server": an empty base is the commonest one.
  */
 export function createDesignSystemsPicker({ root, base, toast, debugLog = () => {} }) {
@@ -29,7 +29,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
   function render(state) {
     const c = card();
     if (!c) return;
-    if (state.loading) { c.innerHTML = '<div class="narr-head">design systems</div><div class="rec-line">asking the author server…</div>'; return; }
+    if (state.loading) { c.innerHTML = '<div class="narr-head">design systems</div><div class="rec-line">asking the edit server…</div>'; return; }
     if (state.error) { c.innerHTML = `<div class="narr-head">design systems</div><div class="rec-line rec-warn">${escapeHtml(state.error)}</div><div class="rec-hint">Esc to close</div>`; return; }
     const { systems, stale, unfetched = [] } = state;
     const groups = new Map();
@@ -83,7 +83,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
     try {
       const r = await fetch(`${base()}/edit/design-system/browse`);
       const j = await r.json();
-      if (!r.ok || !j.ok) throw new Error(j.error ?? `the author server answered ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error(j.error ?? `the edit server answered ${r.status}`);
       render({ systems: j.systems ?? [], stale: j.stale ?? [], unfetched: j.unfetched ?? [] });
     } catch (e) {
       render({ error: `could not list design systems — ${e.message ?? e}` });
@@ -103,7 +103,7 @@ export function createDesignSystemsPicker({ root, base, toast, debugLog = () => 
         body: JSON.stringify({ ref: s.qualified, used: !s.used, recommended: !alone }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error([j.error, ...(j.problems ?? []).slice(0, 2)].filter(Boolean).join(' · ') || `the author server answered ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error([j.error, ...(j.problems ?? []).slice(0, 2)].filter(Boolean).join(' · ') || `the edit server answered ${r.status}`);
       debugLog('design-system', `${j.used ? 'referenced' : 'dropped'} ${j.ref}`);
       // the server links it in; the reload the write causes brings it back applied
       // Referencing changes nothing on screen by itself — a design system styles
@@ -200,7 +200,7 @@ export function createLookOffer({ root, base, toast, preview, restore, keep, deb
         body: JSON.stringify({ ref: offer.ref }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || `the author server answered ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error(j.error || `the edit server answered ${r.status}`);
       keep(j.look ?? offer);
       shut();
       toast(`${offer.title || offer.ref}'s look applied${j.look?.phrase ? ` — ${j.look.phrase}` : ''} · Z puts the old look back`, 4200);
@@ -226,7 +226,7 @@ export function createLookOffer({ root, base, toast, preview, restore, keep, deb
 // Put this slide into one of the deck's design-system layouts, move it to
 // another, take it out, or insert a new slide in one (SPEC DESIGN_SYSTEMS).
 // The layouts listed are the ones the PAGE carries (the meta block the server
-// injected); the write goes to the author server, which reads the layout from
+// injected); the write goes to the edit server, which reads the layout from
 // the package on disk, never from here — POST /edit/slide/system-layout, one
 // undo entry, and a sentence saying what went where.
 
@@ -332,7 +332,7 @@ export function createSystemLayoutPicker({ root, base, toast, deck, lookHint = (
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error ?? `the author server answered ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error(j.error ?? `the edit server answered ${r.status}`);
       debugLog('design-system', `slide ${body.slide}: ${j.said}`);
       toast(`${j.said} — Z takes it back`, 6000);
       close();

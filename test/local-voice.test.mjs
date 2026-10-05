@@ -307,7 +307,7 @@ test('piper with no voice model is caught before the bridge starts', () => {
     ['piper.download_voices', 'en_US-ryan-high', '--data-dir', join('/home/x', '.local/share/piper')]);
 });
 
-test('a present model just starts the bridge, and --voice/--data-dir are honored', () => {
+test('a read-only model just starts the bridge, and --voice/--data-dir are honored', () => {
   const seen = [];
   const plan = planServices({
     args: ['d.html', '--tts-engine', 'piper', '--voice', 'en_GB-alba-medium', '--data-dir', '/models'],

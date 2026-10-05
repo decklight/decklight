@@ -6,12 +6,12 @@
 // changes on a slide, so the shot is the CLI surface itself: this script lays
 // out a directory the way the attack found it — a deck in an inbox with `.env`
 // and `id_rsa` beside it, and a served-by-the-old-code secret in the cwd above —
-// starts a REAL `decklight present inbox/deck.html` from that cwd, then curls
+// starts a REAL `decklight inbox/deck.html --read-only` from that cwd, then curls
 // what a hostile deck's own script would fetch. The deck lands; the dotfile and
 // the key are refused; the file in the cwd is not in the served tree at all,
 // because the root travelled with the deck instead of the shell.
 //
-//   node shots/present-scope-transcript.mjs    → .shots/present-scope.png
+//   node shots/read-only-scope-transcript.mjs    → .shots/read-only-scope.png
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -37,7 +37,7 @@ fs.writeFileSync(path.join(inbox, 'id_rsa'), '-----BEGIN OPENSSH PRIVATE KEY----
 
 // --- run the real command, keep the real output --------------------------------
 
-const dev = spawn('node', [CLI, 'present', 'inbox/deck.html'], {
+const dev = spawn('node', [CLI, 'inbox/deck.html', '--read-only'], {
   cwd, stdio: ['ignore', 'pipe', 'pipe'],
 });
 let out = '';
@@ -83,7 +83,7 @@ const paintCurl = (s) => esc(s)
 const block = (cmd, body) => `<div class="run"><span class="prompt">~/work $</span> ${esc(cmd)}\n${body}</div>`;
 
 const html = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>decklight present — the served root is the deck's, not the cwd</title><style>
+<html lang="en"><head><meta charset="utf-8"><title>decklight · read-only — the served root is the deck's, not the cwd</title><style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          background: linear-gradient(135deg, #1b2735, #090a0f); }
   .term { width: 1120px; background: #10141b; border-radius: 12px;
@@ -101,9 +101,9 @@ const html = `<!doctype html>
 </style></head><body>
 <div class="term">
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-    <span class="t">decklight present — the served root is the deck's own directory; dotfiles and non-deck types refused (#226)</span></div>
+    <span class="t">decklight · read-only — the served root is the deck's own directory; dotfiles and non-deck types refused (#226)</span></div>
   <div class="body">${block('ls -A . inbox', esc(listing))}
-${block('decklight present inbox/deck.html', paintDev(out.trimEnd()))}
+${block('decklight inbox/deck.html --read-only', paintDev(out.trimEnd()))}
 ${block('curl http://127.0.0.1:PORT/deck.html         # the deck itself'.replace('PORT', port), paintCurl(deckOk))}
 ${block('curl http://127.0.0.1:PORT/.env              # the ticket’s exfiltration read'.replace('PORT', port), paintCurl(envRefused))}
 ${block('curl http://127.0.0.1:PORT/id_rsa            # not a type a deck can use'.replace('PORT', port), paintCurl(keyRefused))}
@@ -112,10 +112,10 @@ ${block('curl http://127.0.0.1:PORT/passwords.png     # in the cwd — no longer
 </body></html>
 `;
 
-const page = path.join(root, '.shots', 'present-scope-transcript.html');
+const page = path.join(root, '.shots', 'read-only-scope-transcript.html');
 fs.mkdirSync(path.dirname(page), { recursive: true });
 fs.writeFileSync(page, html);
 execFileSync('node', [path.join(root, 'tools', 'shot.mjs'), page,
-  '-o', path.join(root, '.shots', 'present-scope.png'), '--size', '1280x900', '--wait', '800'],
+  '-o', path.join(root, '.shots', 'read-only-scope.png'), '--size', '1280x900', '--wait', '800'],
   { stdio: 'inherit' });
 fs.rmSync(page, { force: true });

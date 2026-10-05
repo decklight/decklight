@@ -201,7 +201,7 @@ test('a deck with no HEAD to parent on reports the case that needs a real commit
   // The first commit is how the deck ENTERS git, not an autosave of it: without
   // it there is no HEAD for the snapshot to hang from and nothing in the
   // repository to recover. Removing the opening commit along with the rest of
-  // the bookends left `decklight author --git` creating an empty repository —
+  // the bookends left `decklight <deck> --git` creating an empty repository —
   // `git log` fatal, `snapshotWip` unable to run, the deck in git nowhere.
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dl-first-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -220,7 +220,7 @@ test('a deck with no HEAD to parent on reports the case that needs a real commit
 //
 // This runs on a timer, on the event loop, and execFileSync blocks that loop
 // for exactly as long as the child takes. A git that never returns therefore
-// costs the whole author server — still listening, answering nothing — and,
+// costs the whole edit server — still listening, answering nothing — and,
 // because a file:// deck probes the author port, every headless render on the
 // machine with it. Found for real: `git hash-object -w --stdin` wedged for
 // eight hours with a dead server behind it.
@@ -270,10 +270,10 @@ test('a git that hangs costs a tick, not the session', (t) => {
 
 // ── the opening commit actually runs ────────────────────────────────────────
 
-test('author survives a deck git has never seen, with commit-messages on', async (t) => {
+test('open survives a deck git has never seen, with commit-messages on', async (t) => {
   // THE BUG: `ownCommit` closes over `agentPref`, and editMain calls ownCommit
   // synchronously to make the opening commit for an untracked deck — while
-  // that binding was still in its temporal dead zone. `decklight author` died
+  // that binding was still in its temporal dead zone. `decklight <deck>` died
   // on a ReferenceError before the server came up.
   //
   // It needed BOTH halves to show, which is why it survived: a deck git does

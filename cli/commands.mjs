@@ -140,10 +140,10 @@ ${rows.join('\n')}
  * What a FILE means as the first argument — the verb the argument implies.
  *
  * `decklight talk.html` was "unknown command", which is the least useful
- * answer to the most natural thing to type. A deck opens in author mode, a
+ * answer to the most natural thing to type. A deck opens in write mode, a
  * `.decklight` container is somebody else's deck and plays read-only, an
  * Office file or a Slides URL is something to import, a YAML script is a
- * terminal cast to record. A REPOSITORY is a deck to open too: `author`
+ * terminal cast to record. A REPOSITORY is a deck to open too: `open`
  * clones it and opens the deck inside (#514), so `decklight <repo url>` is the
  * whole command. Unknown kinds return null and stay unknown commands; a file
  * that does not exist still routes, so the refusal names the file ("no such
@@ -183,8 +183,8 @@ export function routeForPath(arg) {
  * is a guess somebody would plausibly type; the values are the roster's names.
  */
 export const SYNONYMS = {
-  edit: 'open', serve: 'open', run: 'open', watch: 'open', write: 'open', author: 'open', dev: 'open',
-  preview: 'open', play: 'open', show: 'open', view: 'open', open: 'open', present: 'open', review: 'open',
+  edit: 'open', serve: 'open', run: 'open', watch: 'open', write: 'open', dev: 'open',
+  preview: 'open', play: 'open', show: 'open', view: 'open', open: 'open',
   new: 'init', create: 'init', scaffold: 'init', make: 'init',
   build: 'bundle', pack: 'bundle', flatten: 'bundle',
   deploy: 'publish', ship: 'publish', pages: 'publish',
@@ -212,7 +212,7 @@ function editDistance(a, b) {
 /**
  * The command somebody who typed `name` most likely meant, or null.
  *
- * Synonyms first — `edit` is not a typo of `author`, it is the word for it —
+ * Synonyms first — `edit` is not a typo of `open`, it is the word for it —
  * then a unique prefix (`pub` → publish), then a name within two edits. Two,
  * not three: `cast` and `past` are one apart, `cast` and `pdf` are four, and
  * the useful distance is the one that catches a slipped finger and never an

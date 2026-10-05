@@ -8,7 +8,7 @@
 // The first is that ONE readiness check answers for both callers. `decklight
 // author` uses it to decide whether to start the bridge at all; the bridge uses
 // it to tell the deck what it may switch to. If they ever drift, the picker
-// offers an engine author would have refused — which is a picker that lies, and
+// offers an engine `open` would have refused — which is a picker that lies, and
 // the presenter finds out on the next keypress.
 //
 // The second is that readiness is asked BEFORE anything is built. gemini and
@@ -73,9 +73,9 @@ test('an unknown name is a named state, never a throw', () => {
 
 const started = (plan) => !!plan.run.find((r) => r.name === 'tts');
 
-test('author starts the bridge for exactly the engines the check calls ready', () => {
+test('open starts the bridge for exactly the engines the check calls ready', () => {
   // The property the whole shared-check design exists for. If these two ever
-  // part company, the deck's picker starts recommending what author refuses.
+  // part company, the deck's picker starts recommending what `open` refuses.
   const cases = [
     { engine: 'piper', hasBin: ALL, exists: files, env: {} },
     { engine: 'piper', hasBin: ALL, exists: noFiles, env: {} },
@@ -97,11 +97,11 @@ test('author starts the bridge for exactly the engines the check calls ready', (
       hasBin: c.hasBin, exists: c.exists, detect: mac,
     });
     assert.equal(started(plan), status.ready,
-      `${c.engine} with ${JSON.stringify(c.env)}: author says ${started(plan)}, the check says ${status.ready}`);
+      `${c.engine} with ${JSON.stringify(c.env)}: open says ${started(plan)}, the check says ${status.ready}`);
   }
 });
 
-test('author still explains itself in its own words, not the picker\'s', () => {
+test('open still explains itself in its own words, not the picker\'s', () => {
   // Shared DECISION, separate phrasing: the terminal has room for the whole
   // answer (where to make a key, what this machine lacks instead), the row in
   // a deck has one line.

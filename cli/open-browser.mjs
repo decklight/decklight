@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Hand a URL to the platform's launcher. Lived in init.mjs, which meant
-// `record` and `review` imported the whole scaffolding module — the skill text,
+// `record` and `--read-only` imported the whole scaffolding module — the skill text,
 // the template machinery — to open one browser tab. Nothing here reads a file.
 
 import { spawn } from 'node:child_process';
@@ -36,7 +36,7 @@ export async function openDeck(deckPath, opts = {}) {
 }
 
 /**
- * The same launcher, for a URL that is not a file — the author server's, or
+ * The same launcher, for a URL that is not a file — the edit server's, or
  * `decklight record`'s, which serves the deck over http://127.0.0.1 precisely
  * because a browser will not open a microphone for a `file://` page.
  */

@@ -3,7 +3,7 @@
 Status: **draft for review**. Not filed as an issue yet.
 
 This is the consolidated record of the marketplace design, including the two
-late additions that absorbed most of its safety burden: `--read-only` (once `decklight present`) and
+late additions that absorbed most of its safety burden: `--read-only` (once a command of its own) and
 the `.decklight` container. Where a later decision supersedes an earlier one, the
 earlier one is marked rather than deleted: the reasoning matters.
 
@@ -342,7 +342,7 @@ safe way to play a deck you did not author.
 - **Architectural bonus:** the phone remote and its QR currently live in the
   *edit* server (`cli/edit.mjs`, gated by `allowRemote`), so getting a clicker
   today means running an editing server with `/edit/*` write endpoints against
-  your deck. `present` is the natural home for speaker view and the remote with
+  your deck. Read-only mode is the natural home for speaker view and the remote with
   **no edit surface registered at all**.
 
 ### DECK_FILE · `.decklight`, a signed container, not a relabel
@@ -367,13 +367,13 @@ self-describing: the verbosity is the feature.
 - The manifest (runtime version, extensions, origin repo, commit SHA) sits
   *outside* the payload, where a tamperer cannot edit it in the same pass,
   which also puts it outside the signature: the sidecar attests to the payload
-  alone, so the manifest stays a claim. `present` therefore never prints the
+  alone, so the manifest stays a claim. The read-only server therefore never prints the
   manifest's origin: provenance the signature does not cover is
   attacker-controlled even on a verified deck, and a claim nobody vouches for
   adds nothing beside a verified identity. It stays in the manifest for
   tooling to read.
 - A tampered `.decklight` fails verification instead of failing a heuristic scan.
-- OS file association makes double-click land in `present`, verified and
+- OS file association makes double-click land read-only, verified and
   CSP-locked, rather than in a raw browser.
 - `cli/zip.mjs` (from `skills --pack`) already provides the container plumbing.
 
@@ -382,50 +382,34 @@ self-describing: the verbosity is the feature.
 | Form | For | Promise |
 |---|---|---|
 | `.html` (canonical, unchanged) | publishing, links, `publish` → gh-pages | opens in any browser, offline, no software: the identity stays intact |
-| `.decklight` (new, optional) | handing a file to a person | verified on open, provenance attached, lands in `present` |
+| `.decklight` (new, optional) | handing a file to a person | verified on open, provenance attached, lands read-only |
 
 This maps onto the sharing guidance: **share the link** (HTTPS and repo
 ownership attest it) or **send a `.decklight`** (a signature attests it). An
 unattested emailed `.html` stops being the default way to hand someone a deck.
 
-### COMMANDS · The roster: `author` / `present`
+### COMMANDS · The deck is the command
 
-`dev` named the software's mode; `present` names the human's activity, and the
-repo's own vocabulary (7× "authoring contract", 6× "authoring skill",
-`cli/dev.mjs`'s own header: "one command for the whole authoring loop") had
-already voted. Renamed while it is cheap: npm `latest` is still 0.2.0, so no
-muscle memory exists yet.
+There is no word for opening a deck. `decklight talk.html` opens it in write
+mode, `decklight talk.html --read-only` opens it with no way to change it, and
+a `.decklight` is read-only by nature:
 
 ```
-decklight author  talk.html    # the whole authoring loop (was: dev)
-decklight present talk.decklight    # play it, verified, read-only
+decklight talk.html                  # write mode: live reload, edits from the browser, an agent on A
+decklight talk.html --read-only      # the same server, nothing written; M to comment
+decklight talk.decklight             # verified, read-only
 ```
 
-**Superseded (one command, 0.9.0)**: the deck is the command. `decklight
-talk.html` opens it in write mode and `decklight talk.html --read-only` with
-no way to change it; a `.decklight` is read-only by nature. `author`,
-`present`, `review` and `dev` are no longer commands; typed, each points at
-the line with the deck filled in, and `review submit` is `comments submit`.
-The two servers underneath are unchanged in what they can do: the read-only
-one still registers no `/edit/*` route, and the review routes are both
-servers' (SPEC REVIEW). The text below is kept as the record it was.
-
-- ~~`dev` stays as a **permanent hidden alias**: one dispatcher line, never
-  documented, never punished.~~
-- ~~`open` is an alias landing in `present`: the verb the OS uses on
-  double-click of a `.decklight`. One implementation, two doors.~~
-- **`edit` is removed.** It existed only because `dev` cost something to start;
-  with engines resolved on demand (ENGINES) `author` has zero startup cost by
-  construction. ~~Per the #165 precedent it refuses out loud (`renamed: use
-  decklight author`), not `unknown command`.~~ **Superseded**: the refusal stub
-  was dropped along with `rec`'s, and both now fall through to the ordinary
-  `unknown command` with the help. A refusal stub is a migration aid, and
-  decklight has no released users to migrate: every stub is a line of dispatch,
-  a test and a paragraph of docs bought for nobody. The #165 precedent stands
-  for a command people are *using*; that is the condition it was written under,
-  and it is not this one. **The `/edit/*` endpoints are the contract and are
-  unchanged**, only the way the server starts changes. `test/edit.test.mjs`'s
-  33 server tests move onto `author`.
+The words that used to open a deck in one mode or another were retired in
+0.9.0 and fall through to the ordinary `unknown command` with the help, like
+any other word that is not a command. A refusal stub naming the old word is a
+migration aid, and decklight has no released users to migrate: every stub is a
+line of dispatch, a test and a paragraph of docs bought for nobody. The two
+servers underneath are one command's two modes (`cli/open.mjs`,
+`cli/read-only.mjs`): the read-only one registers no `/edit/*` route, answers
+the one probe as read-only, and the review routes are both servers' (SPEC
+REVIEW). **The `/edit/*` endpoints are the contract and are unchanged**, only
+the way the server starts changed.
 
 ### ENGINES · On demand: core owns the affordance, the marketplace owns the engine
 
@@ -466,13 +450,13 @@ than this", never "you can't do anything yet".
    schema**: questions, field types, a validation endpoint. Plugins never
    paint arbitrary UI into the deck; core owns the rendering, so "wizard only
    in write mode" stays enforceable.
-2. **Credentials:** pasted in the player → posted to the author server →
+2. **Credentials:** pasted in the player → posted to the edit server →
    stored under `~/.decklight/` restricted to the account that pasted them
    (`0600` on POSIX, an explicit ACL on Windows, decklight prints which, read
    back off the file). Loopback-only by construction
    (`allowRemote` refuses `/edit/*` off-loopback unconditionally). Never
    logged, never written into the deck, never picked up by `bundle`.
-3. **Never outside write mode.** In `present` or a bundled deck, `V` with no
+3. **Never outside write mode.** Read-only, or in a bundled deck, `V` with no
    engine says so and stops. A credential prompt in a deck you were emailed is
    a phishing primitive.
 4. **Install and configure are one flow with two named failures**: "couldn't
@@ -487,7 +471,7 @@ than this", never "you can't do anything yet".
    label is the only thing visible: the same untrusted party wrote the
    question and receives the answer. Before the first input renders, the card
    therefore shows the entry's **qualified registry name** (`name@marketplace`,
-   resolved by the author server from the catalog, never read from the schema)
+   resolved by the edit server from the catalog, never read from the schema)
    and **where the answers go** (the declared bridge path(s) on this machine,
    then the credentials file, named with the protection this platform
    actually has). The wording is derived once, in
@@ -520,7 +504,7 @@ Verification therefore comes from outside the file.
 
 Named honestly: none of this reaches a recipient who double-clicks an
 emailed `.html` and runs nothing. That is why build-time-by-default remains the
-backstop. `present` protects those who opted into the tooling; `.decklight` and file
+backstop. Read-only mode protects those who opted into the tooling; `.decklight` and file
 association widen that population; share-the-link covers the rest.
 
 ### UNITS · What is distributed
@@ -555,7 +539,7 @@ Of that list, one is still deliberately out:
   Vercel**, `decklight publish --target <name>`. The token comes from that
   provider's own CLI env var (`NETLIFY_AUTH_TOKEN`, `VERCEL_TOKEN`), never a
   terminal prompt or the browser wizard: `publish` is a one-shot, often-
-  headless command with no author server to post a pasted key to, so it
+  headless command with no edit server to post a pasted key to, so it
   follows the ElevenLabs-key precedent (env, never written to disk) rather
   than `/edit/wizard`'s. The schema is still a real `ENGINES#WIZARD` schema,
   validated by the same `validateSchema`/`checkAnswers` every engine goes
@@ -653,7 +637,7 @@ third-party unreviewed with auto-update off.
   authoring-only; presenter plugins are chrome-only.
 - ~~All five units at once~~ → all five *data* units at once; the in-deck code
   surface is deferred until a live case justifies it.
-- ~~`decklight verify` as a standalone command~~ → a mode of `present`, where it
+- ~~`decklight verify` as a standalone command~~ → a mode of `--read-only`, where it
   actually runs.
 - ~~Eagerly-started TTS/lipsync bridges (and a lazy-start scheme to fix them)~~
   → engines are marketplace plugins resolved on first use (ENGINES); there is
@@ -708,7 +692,7 @@ to play someone else's deck is a single command.
 - [ ] A pasted credential lands under `~/.decklight/` restricted to the
       account that pasted it (`0600` on POSIX, an explicit ACL on Windows),
       is never logged, and never appears in the deck or a `bundle` of it
-- [ ] The wizard never triggers in `present` or in a deck opened from `file://`:
+- [ ] The wizard never triggers in `--read-only` or in a deck opened from `file://`:
       `V` with no engine says so and stops
 - [ ] `decklight <deck>` starts instantly with no engines installed: no bridge
       processes, no network
@@ -722,21 +706,21 @@ to play someone else's deck is a single command.
 - [ ] `decklight <deck> --read-only` serves read-only over localhost with **no
       `/edit/*` routes registered**, and sets a `Content-Security-Policy` HTTP
       header
-- [ ] `present` prints an ingredients label (runtime version and hash, script
+- [ ] `--read-only` prints an ingredients label (runtime version and hash, script
       blocks accounted and unaccounted) and never prints a safety verdict
-- [ ] `present --strict` strips every script block that is not the verified
+- [ ] `--read-only --strict` strips every script block that is not the verified
       runtime; the deck still presents faithfully: content, themes, layouts,
       charts and casts all work
 - [ ] `publish` signs by default; `bundle` signs with `--sign` and is never
-      silently unsigned offline; `present` verifies before rendering and names
+      silently unsigned offline; `--read-only` verifies before rendering and names
       the signer
-- [ ] On verification failure `present` degrades to `--strict` and reports what
+- [ ] On verification failure `--read-only` degrades to `--strict` and reports what
       it stripped in the terminal; it neither refuses outright nor runs the
       unaccounted script
 - [ ] `.decklight` is a container of deck + signature + manifest; a tampered `.decklight`
       fails verification and does not render
-- [ ] Double-clicking a `.decklight` opens `present` on macOS, Windows and Linux
-- [ ] Presenter-library plugins load only under `present`, may add chrome, and
+- [ ] Double-clicking a `.decklight` opens `--read-only` on macOS, Windows and Linux
+- [ ] Presenter-library plugins load only under `--read-only`, may add chrome, and
       **cannot modify slide content**, enforced, not documented
 - [ ] Build-time transforms run only during `bundle`; a transform cannot emit a
       `<script>` that is not declared in the manifest
@@ -762,7 +746,7 @@ every bundled one are still there, instantly.
   `</style>` hiding in somebody else's CSS.
 - `cli/bundle.mjs` inlines runtime, themes, casts and media today and is the
   correct chokepoint for signing and for refusing undeclared script.
-- `cli/edit.mjs` holds `allowRemote` and the remote/QR; `present` should reuse
+- `cli/edit.mjs` holds `allowRemote` and the remote/QR; `--read-only` should reuse
   the server plumbing with `/edit/*` **absent**, not merely refused.
 - `cli/zip.mjs` is the container plumbing from `skills --pack`.
 - `src/core/print.js` restructures once and never runs again: the `?print` and
@@ -791,7 +775,7 @@ Depends column cites tickets by mnemonic, never by position.
 | `PRESENT_SERVER` | `decklight <deck> --read-only`: read-only server, CSP header, no `/edit/*` | — |
 | `PRESENT#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `PRESENT_SERVER` |
 | `PRESENT#STRICT` | strip unverified script, prove the deck still plays | `PRESENT#AUDIT` |
-| `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `present` | `PRESENT#AUDIT` |
+| `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `--read-only` | `PRESENT#AUDIT` |
 | `DECK_FILE#ASSOC` | `.decklight` container + OS file association (macOS UTI, Windows registry, Linux desktop/MIME) | `INTEGRITY#SIGNING` |
 | `MARKETPLACES#CORE` | manifest, `add/list/update/remove`, cache, first-party registered-not-fetched | — |
 | `THEME_BROWSE#UI` | **Browse** in the picker, authoring-only, installing via `theme add` | `MARKETPLACES#CORE` |
@@ -800,13 +784,13 @@ Depends column cites tickets by mnemonic, never by position.
 | `EXTENSIONS#CHECK` | `extension check`: lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
 | `EXTENSIONS#ADAPTEREXEC` | wire the same loader into `cli/import.mjs`: an installed import adapter finally runs | `EXTENSIONS#LOADER` |
 | `PRESENT#PLUGINS` | presenter-library plugins, chrome-only, enforced | `PRESENT_SERVER`, `MARKETPLACES#CORE` |
-| `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` writes restricted to your account, author-mode-only | `MARKETPLACES#CORE` |
+| `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` writes restricted to your account, write-mode-only | `MARKETPLACES#CORE` |
 | `ENGINES#TTS` | TTS engines as marketplace plugins, the proving case for the wizard | `ENGINES#WIZARD` |
 | `ENGINES#LIPSYNC` | proves the framework generalizes (binary + venv + key, all three shapes) | `ENGINES#WIZARD` |
 | `ENGINES#AGENTS` | agent-ask roster via marketplace (closes #125) | `ENGINES#WIZARD` |
 | `UNITS#REST` | templates (`init --from`), skills, importers, publish targets, voices | `MARKETPLACES#CORE` |
-| `COMMANDS#RENAME` | `dev` → `author` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
-| `PRESENT#REMOTE` | move speaker view + phone remote off the edit server onto `present` | `PRESENT_SERVER` |
+| `COMMANDS#RENAME` | `dev` → `open` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
+| `PRESENT#REMOTE` | move speaker view + phone remote off the edit server onto `--read-only` | `PRESENT_SERVER` |
 | `THEME_BROWSE#SPLIT` | **landed**: `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme check` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
 | `EXTENSIONS#PIN` | **landed**: `sha256` on transform/importer entries; `add` refuses unpinned or mismatched, `extension check` prints the digest | `EXTENSIONS#CHECK`, `UNITS#REST` |
 
@@ -867,7 +851,7 @@ before 0.3.0 ships to npm.
    two calling conventions (`html, opts → html` vs `bytes, opts → html`) move
    on their own schedules.
 3. ~~Where the authoring-time library lives~~: **resolved: `~/.decklight/`**
-   (plugins and credentials both, ENGINES). How `author` and `present` resolve
+   (plugins and credentials both, ENGINES). How `open` and `--read-only` resolve
    a bare reference is implementation detail of `ENGINES#WIZARD`.
 4. ~~Which themes are core~~: **resolved: `themes/packs.json`'s existing
    `default` + `classics` groups (46 themes) are the graded/compat set that
@@ -921,7 +905,7 @@ before 0.3.0 ships to npm.
    `.deck` is Decker's native format: active, cross-platform, semantically
    adjacent (its decks also export as single HTML documents); `.dck` is
    Forge/XMage Magic decks. Zero-collision verbosity wins (DECK_FILE).
-8. ~~What `present` does when verification fails~~: **resolved: degrade to
+8. ~~What `--read-only` does when verification fails~~: **resolved: degrade to
    `--strict` and say so** in the terminal, never on the audience-facing page.
    Neither a refusal (a `--force` habit teaches the wrong reflex) nor a
    warn-and-run (PRESENT).

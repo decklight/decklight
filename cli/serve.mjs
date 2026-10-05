@@ -5,7 +5,7 @@
 // an editing endpoint: the loopback/token security classifier, static file
 // serving with a traversal guard, SSE fan-out, and port binding with takeover.
 //
-// Extracted from edit.mjs so `decklight present` (MARKETPLACE.md,
+// Extracted from edit.mjs so `decklight <deck> --read-only` (MARKETPLACE.md,
 // PRESENT_SERVER) can serve a deck read-only by reusing this core with the
 // /edit/* routes ABSENT — not merely refused. Nothing in this module writes a
 // file.
@@ -57,8 +57,8 @@ export function isLoopbackOrigin(origin) {
 }
 
 /**
- * The CSRF gate for the author server's `/edit/*` surface (#222). The attacker
- * is the user's OWN browser: while `decklight author` runs, any page in any tab
+ * The CSRF gate for the edit server's `/edit/*` surface (#222). The attacker
+ * is the user's OWN browser: while `decklight <deck>` runs, any page in any tab
  * can `fetch()` loopback, and a permissive `access-control-allow-origin` is no
  * defense — a "simple" `text/plain` POST is sent with NO preflight, so the
  * agent has already run by the time the browser consults CORS on the way back.
@@ -95,7 +95,7 @@ export function allowEditRequest(req) {
  * asked for. Pinning the port refuses another loopback dev server's page too,
  * which the edit gate admits by design.
  *
- * Used by the one route in `present` that ACTS. The looser gate is right for
+ * Used by the one route in `--read-only` that ACTS. The looser gate is right for
  * `/edit/*`, where the server exists to be written to and a curl from the
  * author's own machine is a feature; it is wrong here.
  */
@@ -160,7 +160,7 @@ export { escapeHtml } from '../tools/escape.mjs';
  * the deck, its assets, error pages, JSON, SSE, all of it. They are set
  * before the handler runs, and writeHead merges them under any headers a
  * route names itself, so a route can sharpen one but can never lose one by
- * not mentioning it. This is the seam the present server's
+ * not mentioning it. This is the seam the read-only server's
  * Content-Security-Policy arrives through (PRESENT): "every response
  * carries the header" holds by construction here, instead of by every
  * writeHead in every route remembering.
@@ -197,7 +197,7 @@ function rangeOf(header, size) {
  *
  * `html` rewrites the text of every text/html response on its way out and
  * leaves every other type alone; after it, a deck that carries no runtime
- * (#520) has the installed one referenced into its text (`linkRuntime`). It is how `present --strict` (PRESENT#STRICT)
+ * (#520) has the installed one referenced into its text (`linkRuntime`). It is how `--read-only --strict` (PRESENT#STRICT)
  * serves a deck with the unaccounted blocks removed while the file on disk
  * stays exactly as it arrived: the transform sits between the read and the
  * write, so there is no point in this path where the modified bytes could be
@@ -209,10 +209,10 @@ function rangeOf(header, size) {
  * read same-origin it can also send anywhere.
  *
  * `knownTypesOnly` additionally refuses every extension the MIME table does
- * not name. `present` passes it: the table is the set of types a deck can
+ * not name. `--read-only` passes it: the table is the set of types a deck can
  * actually use, and a file beside a travelled deck that is none of them —
  * `id_rsa`, a `.pem`, a database — is only ever fetched to be exfiltrated.
- * The author server does not, so an author's exotic asset still serves as
+ * The edit server does not, so an author's exotic asset still serves as
  * octet-stream from their own machine.
  *
  * The runtime a deck LINKS (#517) — `decklight.js`, `decklight.css`,

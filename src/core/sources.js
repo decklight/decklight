@@ -263,7 +263,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
         body: JSON.stringify({ slide: at, facts: draft.facts, links: draft.links }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error(j.error || `the edit server said ${r.status}`);
       close();
       const refused = j.dropped?.length
         ? `. ${j.dropped.join(', ')} was not written — a reference is a link somebody can follow, not something that runs`

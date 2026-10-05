@@ -103,7 +103,7 @@ export function themePalette(read) {
   })).filter((g) => g.items.length);
 }
 
-/** A token a style value may name — the same shape the author server accepts. */
+/** A token a style value may name — the same shape the edit server accepts. */
 const TOKEN = /^--[a-z][a-z0-9-]{0,40}$/i;
 
 /**

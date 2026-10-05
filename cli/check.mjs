@@ -526,12 +526,12 @@ export function staticFindings(html, { dir = '.', exists = existsSync, designSys
     const where = at(block.start);
     out.push(finding('warn', 'unaccounted-script', where.slide, where.title,
       `line ${block.line}: unaccounted script block (${block.src ? `src=${block.src}` : `${block.bytes} B`})`
-      + ' — present --strict would strip this'));
+      + ' — --read-only --strict would strip this'));
   }
   for (const h of report.handlers) {
     const where = at(h.start);
     out.push(finding('warn', 'executable-attribute', where.slide, where.title,
-      `line ${h.line}: ${h.kind} on <${h.tag}> (${h.attr}) — present --strict would strip this`));
+      `line ${h.line}: ${h.kind} on <${h.tag}> (${h.attr}) — --read-only --strict would strip this`));
   }
 
   return sortFindings(out);
@@ -644,7 +644,7 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
                       or stylesheet that is not on disk · a data-markdown slide
                       (removed in 0.3.0) · [click] segments that do not line up
                       with the slide's build steps · script blocks and inline
-                      handlers present --strict would strip
+                      handlers --read-only --strict would strip
     from a render     slides the overflow guardrail measured as clipped, split
                       layouts fighting their own flexbox, and a deck whose
                       runtime never mounted at all

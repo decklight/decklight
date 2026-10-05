@@ -14,7 +14,7 @@
  *
  * **Core renders; a plugin only declares.** A plugin supplies a schema —
  * questions, field types, a validation endpoint — and never paints UI into the
- * deck. That is not a stylistic preference. "The wizard only appears in author
+ * deck. That is not a stylistic preference. "The wizard only appears in write mode
  * mode" has to be *enforceable*, and it stops being enforceable the moment a
  * plugin can put arbitrary markup on a slide: whatever rule core writes, the
  * plugin's own HTML is the thing that would have to honour it. So the field
@@ -23,7 +23,7 @@
  *
  * ## Credentials
  *
- * Pasted in the player, posted to the author server, and stored under the
+ * Pasted in the player, posted to the edit server, and stored under the
  * config home RESTRICTED TO THE ACCOUNT THAT PASTED THEM — `0600` on POSIX,
  * and on Windows an explicit ACL granting only that user, because `0600` there
  * is a number with no meaning and inheriting whatever the profile hands out is
@@ -37,7 +37,7 @@
  * never picked up by `bundle` — a key that reached a deck would travel with it.
  *
  * A credential prompt in a deck you were *emailed* is a phishing primitive, so
- * `present` registers none of this and a bundled deck has nothing to post to.
+ * `--read-only` registers none of this and a bundled deck has nothing to post to.
  *
  * And the prompt itself names its asker and its destination (#232): every
  * string a schema puts on screen — the title, each field's label — was written
@@ -73,7 +73,7 @@ const NAME_RE = /^[A-Za-z][\w-]{0,63}$/;
  * Validate a plugin's declared wizard, returning a normalized copy.
  *
  * Deliberately strict, and deliberately explicit about *why* each rejection
- * happens: a plugin author reading the error should be able to fix the schema
+ * happens: a plugin write mode reading the error should be able to fix the schema
  * without reading this file. Unknown keys are refused rather than ignored —
  * silently dropping a key a plugin thought was doing something is how a plugin
  * ends up shipping a wizard that asks for less than its author believed.
@@ -260,7 +260,7 @@ export const BRIDGE_ADDR = '127.0.0.1:8787';
  * untrusted party chose the question and the recipient. So the card also says
  * who is asking and where the answer goes, in words the plugin did not write:
  * `qualified` is the entry's registry name (`name@marketplace`, resolved by
- * the author server from the catalog, never read from the schema), and the
+ * the edit server from the catalog, never read from the schema), and the
  * destination is derived from the *vetted* schema's endpoint declarations.
  * One function so the wording exists once; the player prints both strings
  * verbatim (as text, never markup) and refuses a schema that lacks them.

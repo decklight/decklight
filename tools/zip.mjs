@@ -15,7 +15,7 @@
 // than a wrong answer if it ever shows up.
 //
 // And deliberately bounded: everything this reads is something someone SENT —
-// a `.pptx` on import, a `.decklight` container that `present` must unzip
+// a `.pptx` on import, a `.decklight` container that `--read-only` must unzip
 // BEFORE it can even find the signature — so a few-KB archive that inflates to
 // gigabytes (a zip bomb) would detonate ahead of every trust decision. Two
 // caps, both far above anything Office or `bundle --deck` writes, and the

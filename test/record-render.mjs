@@ -101,7 +101,7 @@ const DECK = `<!doctype html>
   }
   try {
     localStorage.setItem('decklight-onboarded', '1');
-    localStorage.setItem('decklight-onboarded-author', '1');   // nor the editing tour: it takes the first key
+    localStorage.setItem('decklight-onboarded-tour', '1');   // nor the editing tour: it takes the first key
     localStorage.setItem('decklight-tips-off', '1');
   } catch (e) { /* private mode */ }
 </script>
@@ -201,7 +201,7 @@ process.on('exit', () => {
   try { rmSync(tmp, { recursive: true, force: true }); } catch { /* windows holds handles */ }
 });
 
-// ── the deck, the runtime beside it, and the real author server ────────────
+// ── the deck, the runtime beside it, and the real edit server ────────────
 if (!existsSync(path.join(root, 'dist', 'decklight.js'))) fail('dist/decklight.js is missing — run npm run build');
 writeFileSync(path.join(tmp, 'deck.html'), DECK);
 for (const f of ['decklight.js', 'decklight.css']) copyFileSync(path.join(root, 'dist', f), path.join(tmp, f));
@@ -222,8 +222,8 @@ const deckBase = await new Promise((resolve, reject) => {
     const m = log.match(/http:\/\/127\.0\.0\.1:(\d+)/);
     if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); }
   }, 25);
-  server.on('exit', () => { clearInterval(scan); reject(new Error(`the author server exited early:\n${log}`)); });
-  setTimeout(() => { clearInterval(scan); reject(new Error(`no author server after 20s:\n${log}`)); }, 20_000);
+  server.on('exit', () => { clearInterval(scan); reject(new Error(`the edit server exited early:\n${log}`)); });
+  setTimeout(() => { clearInterval(scan); reject(new Error(`no edit server after 20s:\n${log}`)); }, 20_000);
 }).catch((e) => fail(e.message));
 
 // ── the channel the page reports through ───────────────────────────────────

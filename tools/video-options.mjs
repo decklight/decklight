@@ -3,7 +3,7 @@
 
 // What a rendered video can be asked to be — its container, its quality and
 // where its subtitles go. ONE list, read by three places: the deck's export card
-// (the labels), the author server (what a request may say) and `decklight
+// (the labels), the edit server (what a request may say) and `decklight
 // video` (what its flags accept). Written separately, those drift, and a card
 // offering a format the command refuses is a row that fails four minutes in.
 //

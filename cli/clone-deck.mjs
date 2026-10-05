@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `decklight author <git url>` — open a deck straight from its repository.
+// `decklight <git url>` — open a deck straight from its repository.
 //
 // The URL is the one people actually paste: the repository, or a GitHub link
 // to the deck file itself. It is cloned IN FULL (history is what `H` shows and
@@ -60,9 +60,9 @@ const sameRemote = (a, b) => a.replace(/\.git$/, '').replace(/\/+$/, '') === b.r
  * Clone `source` into `into` (default: `./<repo name>`), or open it if it is
  * already there. Returns { dir, reused, ref }.
  *
- * ONE CLONE PER REPOSITORY, whichever command asked: `author`, `present` and
- * `review` all clone to the same `./<repo name>` and reuse it after. And a
- * command run from INSIDE that clone — `cd talk && decklight present <url>` —
+ * ONE CLONE PER REPOSITORY, whichever command asked: `open`, `--read-only` and
+ * `--read-only` all clone to the same `./<repo name>` and reuse it after. And a
+ * command run from INSIDE that clone — `cd talk && decklight <url> --read-only` —
  * means this clone, not `talk/talk`: the working directory is used when it is
  * already a clone of the same remote.
  *
@@ -70,7 +70,7 @@ const sameRemote = (a, b) => a.replace(/\.git$/, '').replace(/\/+$/, '') === b.r
  * remote — anything else is refused rather than written into: "talk" being
  * taken by an unrelated folder is a fact to report, not a reason to pick
  * `talk-2` on somebody's behalf. Opening an existing clone does no network
- * write and no pull: `present`'s upstream check is what says if it is behind.
+ * write and no pull: the read-only server's upstream check is what says if it is behind.
  */
 export function cloneDeck(source, { into = null, cwd = process.cwd(), exec = execFileSync, env = process.env } = {}) {
   const dir = resolve(cwd, into ?? source.name);
@@ -114,8 +114,8 @@ export function cloneDeck(source, { into = null, cwd = process.cwd(), exec = exe
 
 /**
  * A deck argument that is a repository URL, as the deck on disk — cloned, or
- * the clone already here — for every command that opens a deck: `author`,
- * `present`, `review`. Null when `spec` is not a git URL (a path: the caller
+ * the clone already here — for every command that opens a deck: `open`,
+ * `--read-only`, `--read-only`. Null when `spec` is not a git URL (a path: the caller
  * carries on as it always did). Throws with a sentence for anything that went
  * wrong; the caller prefixes its own name.
  *

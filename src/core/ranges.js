@@ -8,7 +8,7 @@
 //
 // The spelling is the commands' own: '5-9', or '7' for one slide, and null for
 // the whole deck. What the picker hands back is what `--slides` takes, so the
-// author server passes it straight through and the two can never disagree about
+// edit server passes it straight through and the two can never disagree about
 // what a range means.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';

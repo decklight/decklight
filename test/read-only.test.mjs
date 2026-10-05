@@ -485,7 +485,7 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
   assert.equal(readFileSync(path.join(dir, 'talk.html'), 'utf8'), DECK, 'and nothing was written');
 });
 
-// The classifier itself. It moved here with the remote: the author server used
+// The classifier itself. It moved here with the remote: the edit server used
 // to call it too, and now binds 127.0.0.1 with no flag that widens it, so this
 // is the only server whose requests it decides.
 const reqOf = (addr, url, headers = {}) => ({ socket: { remoteAddress: addr }, url, headers });
@@ -611,7 +611,7 @@ test('the remote never writes, and a malformed payload is refused not crashed', 
 
 // ── the upstream (PRESENT#UPSTREAM) — promised in #342, written in this review ─
 //
-// These are the only routes in `present` that ACT, and they shipped without
+// These are the only routes in `--read-only` that ACT, and they shipped without
 // route tests. The design's whole safety argument is a list of refusals —
 // structurally absent on a deck outside a clone, 403 on any origin that is not
 // exactly this server's own (a sandboxed plugin iframe's origin is `null`, and

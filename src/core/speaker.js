@@ -9,7 +9,7 @@
 import { readJson, writeJson } from './prefs.js';
 import { notesMarks, markAudioTags, CLICK_MARK, PAUSE_MARK } from '../../tools/sentences.mjs';
 
-/** Where a deck's rehearsal lives when no author server can write it into the file. */
+/** Where a deck's rehearsal lives when no edit server can write it into the file. */
 // `location` exists in the deck; the unit tests build speakerState without one
 const timingsKey = () => 'decklight-timings:' + (typeof location !== 'undefined' ? location.pathname : '');
 
@@ -211,7 +211,7 @@ export function openSpeakerView(instance) {
     $('#rec').classList.remove('on'); $('#rec').textContent = '⏱ rehearse timings';
     try {
       const where = api ? await api.saveTimings(rec.spent) : 'nowhere';
-      $('#pace').textContent = where === 'deck' ? 'timings saved onto the deck' : where === 'browser' ? 'timings kept in this browser (no author server to write the deck)' : 'timings not saved';
+      $('#pace').textContent = where === 'deck' ? 'timings saved onto the deck' : where === 'browser' ? 'timings kept in this browser (no edit server to write the deck)' : 'timings not saved';
       $('#pace').classList.remove('over');
     } catch (e) { $('#pace').textContent = 'could not save timings: ' + String(e.message || e); }
   };

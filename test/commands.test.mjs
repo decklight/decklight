@@ -46,7 +46,7 @@ test('every row names a module that exists and an export it defines', () => {
 });
 
 test('an alias resolves to the row it names, and stays out of the help', () => {
-  assert.equal(COMMANDS.dev, undefined, 'the pre-rename name of author is gone with author: the deck is the command');
+  assert.equal(COMMANDS.dev, undefined, 'the pre-rename name is gone: the deck is the command');
   assert.equal(suggestCommand('dev'), 'open', 'and the word points at the deck');
   assert.ok(!listedCommands().includes('dev'), 'the alias is documented nowhere, on purpose');
   assert.equal(resolveCommand('frobnicate'), null);
@@ -83,7 +83,7 @@ test('a file as the first argument implies its verb', () => {
   assert.equal(routeForPath('slides/Talk.HTM'), 'open');
   assert.equal(routeForPath('talk.decklight'), 'open', 'a container opens too: read-only by nature, which open.mjs says');
   assert.equal(routeForPath('Q3 Review.pptx'), 'import');
-  // a repository is a deck to open: author clones it (#514)
+  // a repository is a deck to open: `open` clones it (#514)
   for (const repo of [
     'https://github.com/owner/talk', 'https://github.com/owner/talk/', 'https://github.com/owner/talk.git',
     'https://github.com/owner/talk/tree/draft', 'https://github.com/owner/talk#slides/deck.html',
@@ -111,7 +111,6 @@ test('did-you-mean: the word for the command first, then a unique prefix, then a
   assert.equal(suggestCommand('pubish'), 'publish', 'one edit away');
   assert.equal(suggestCommand('bundel'), 'bundle', 'a transposition is two edits');
   assert.equal(suggestCommand('frobnicate'), null, 'nothing close: no guess is better than a wrong one');
-  assert.equal(suggestCommand('author'), 'open', 'the retired word points at the deck');
   assert.equal(suggestCommand('bundle'), null, 'a real command needs no suggestion');
   assert.equal(suggestCommand('p'), null, 'one letter matches too many to guess from');
 });

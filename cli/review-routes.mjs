@@ -9,7 +9,7 @@
 //   POST /review/comments    say one thing
 //   POST /review/submit      push what was said to a branch of its own
 //
-// They used to be the whole of `decklight review`'s server. A review is now
+// They used to be the whole of `decklight <deck> --read-only`'s server. A review is now
 // something you can do in either mode of the one server: read-only, where the
 // sidecar is the only file the process will ever write, and write mode, where
 // it is one file among the deck's own. What is written is the same either way:
@@ -137,7 +137,7 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
   const submit = async () => {
     // The browser NEVER runs git: it asks, and this server — the only thing
     // in the room holding a capability — does the pushing, with the same
-    // code the typed `review submit` runs.
+    // code the typed `comments submit` runs.
     try {
       const { submitReview } = await import('./review-submit.mjs');
       const lines = [];

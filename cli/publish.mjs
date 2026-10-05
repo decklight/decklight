@@ -269,7 +269,7 @@ if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 // fresh, so two machines publishing the same deck append to one history.
 const parent = remoteHead(git, remote, `refs/heads/${branch}`);
 
-// The tree builders live in cli/git-tree.mjs now — `review submit` needs the
+// The tree builders live in cli/git-tree.mjs now — `comments submit` needs the
 // same ones, and neither git's `name/` sort order nor the `--full-tree` scoping
 // bug is a thing to keep two copies of.
 const put = (treeish, parts_, blob) => putBlob(git, treeish, parts_, blob);

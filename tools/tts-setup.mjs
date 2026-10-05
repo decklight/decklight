@@ -4,7 +4,7 @@
 // First-run TTS setup (SPEC PRESENTING): the guided questions that turn "gemini needs
 // a GCP project" from a dead end into a working voice. Both entry points share
 // it — `decklight tts` runs it where it used to exit with that error (and on
-// `--setup`), `decklight author` offers it where it would otherwise skip the
+// `--setup`), `decklight <deck>` offers it where it would otherwise skip the
 // voice bridge.
 //
 // The questions ARE the engines' error strings turned around: everything the

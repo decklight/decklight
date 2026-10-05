@@ -53,7 +53,7 @@ function harness({ available = true, sections = [section()], conflict = false, p
     sectionAt: (i) => sections[i - 1],
     describe: () => ({ autoPins: false, hasSplitPair: true }),
     available: () => available,
-    unavailableMessage: () => 'run decklight author to change layouts',
+    unavailableMessage: () => 'run decklight <deck> to change layouts',
     apply: (sec, name) => {
       if (name === 'auto') sec.removeAttribute('data-layout');
       else sec.setAttribute('data-layout', name);
@@ -77,7 +77,7 @@ test('without the edit server the key explains itself and changes nothing', () =
   h.cycler.cycle(1);
   assert.equal(h.sections[0].getAttribute('data-layout'), null, 'no edit');
   assert.deepEqual(h.posted, [], 'and nothing sent anywhere');
-  assert.deepEqual(h.toasts, ['run decklight author to change layouts']);
+  assert.deepEqual(h.toasts, ['run decklight <deck> to change layouts']);
 });
 
 test('a pick applies instantly and is written back once the burst settles', () => {

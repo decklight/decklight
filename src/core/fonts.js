@@ -77,7 +77,7 @@ export function createFonts({
   let currentId = 'theme default';
   const find = (id) => list().find((f) => f.id === id);
 
-  /** An offered font's faces, linked into THIS page so it can be previewed (the author server answers them). */
+  /** An offered font's faces, linked into THIS page so it can be previewed (the edit server answers them). */
   function ensureFaces(f) {
     if (f.kind !== 'offered' || document.querySelector(`style[data-font-preview="${CSS.escape(f.id)}"]`)) return;
     const rules = (f.faces ?? []).filter((x) => FACE_URL_RE.test(x.url)).map((x) =>
@@ -136,7 +136,7 @@ export function createFonts({
     try {
       const r = await fetch(authorBase() + '/edit/font/browse');
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || `the author server said ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error(j.error || `the edit server said ${r.status}`);
       offered = (j.fonts ?? []).filter((f) => !f.missing && FAMILY_RE.test(f.family ?? '') && STACK_RE.test(f.stack ?? ''))
         .map((f) => ({ id: f.name, label: f.title || f.family, stack: f.stack, family: f.family, faces: f.faces ?? [], qualified: f.qualified, used: !!f.used, group: f.group, kind: 'offered' }));
       offeredState = { done: true, unfetched: j.unfetched ?? [], stale: j.stale ?? [] };
@@ -255,7 +255,7 @@ export function createFonts({
         body: JSON.stringify({ ref: f.qualified, used: !f.used, quiet: true }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error([j.error, ...(j.problems ?? []).slice(0, 1)].filter(Boolean).join(' · ') || `the author server said ${r.status}`);
+      if (!r.ok || !j.ok) throw new Error([j.error, ...(j.problems ?? []).slice(0, 1)].filter(Boolean).join(' · ') || `the edit server said ${r.status}`);
       f.used = j.used;
       toast(j.used ? `● the deck now uses ${j.ref} — its faces travel with it (bundle carries them) · Z takes it back`
         : `○ dropped ${j.ref}`, 3600);

@@ -152,7 +152,7 @@ test('bundle carries the faces as data: URIs, says so, and refuses — or, asked
   assert.match(allowed.stdout, /note: font sample@nowhere not carried — .*the theme's own font stack shows instead/);
 });
 
-test('the author server: browse lists what is offered and used; mark references it (quietly), one undo', async (t) => {
+test('the edit server: browse lists what is offered and used; mark references it (quietly), one undo', async (t) => {
   const { dir, home: h } = home(t);
   writeFileSync(path.join(dir, 'deck.html'), deck({ decklight: '0.9.0', theme: 'aurora' }));
   const proc = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', '--no-git'], { cwd: dir, env: { ...process.env, DECKLIGHT_HOME: h }, stdio: ['ignore', 'pipe', 'pipe'] });

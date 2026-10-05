@@ -6,7 +6,7 @@
 // what makes a stale one worse than none. Each sweep here caught a real
 // leftover — charts.js citing `initMarkdown` long after the markdown removal,
 // the subtitle notes still offering two authoring surfaces, speaker.js sending
-// a reader to `/edit/ping` for a QR the author server refuses to serve — and
+// a reader to `/edit/ping` for a QR the edit server refuses to serve — and
 // failing in one line under `npm test` beats a reader discovering the drift
 // wherever the pointer eventually misleads them.
 import { test } from 'node:test';
@@ -52,8 +52,8 @@ test('no src file still describes slides as markdown-or-HTML authored', () => {
 });
 
 test('speaker.js does not attribute the phone-remote QR to /edit/ping', () => {
-  // PRESENT#REMOTE moved the clicker to `decklight present`: the QR is set
-  // from /present/ping, and the author server deliberately serves no /remote/*
+  // PRESENT#REMOTE moved the clicker to `decklight <deck> --read-only`: the QR is set
+  // from /present/ping, and the edit server deliberately serves no /remote/*
   // at all — a comment pointing at /edit/ping sends a reader to the one server
   // that refuses to offer one.
   const [, speaker] = files.find(([file]) => file === path.join('core', 'speaker.js'));
@@ -170,7 +170,7 @@ test('no shipped file still names a key that was retired', () => {
 });
 
 test('no doc or deck still tells anyone to run a command that was removed', () => {
-  // `decklight edit` was folded into `author` (#182). The public site was still
+  // `decklight edit` was folded into `open` (#182). The public site was still
   // demonstrating it in its terminal cast, and docs/architecture.svg still
   // labelled a box with it — both of which a reader would reasonably copy.
   //

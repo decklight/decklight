@@ -7,7 +7,7 @@
 // The stakes are the reason this is a test file rather than three lines inline:
 // whatever the editor shows is what a save writes back over the deck. A
 // formatter that is merely usually right would silently edit slides, and the
-// author would find out at the worst possible moment. So the rule is narrow —
+// the author would find out at the worst possible moment. So the rule is narrow —
 // remove a common leading prefix, insert and delete nothing else — and these
 // pin both halves: that it tidies the case it exists for, and that it refuses
 // every case where a space is content.
@@ -44,7 +44,7 @@ test('a blank line does not count as zero indentation', () => {
 
 test('a blank line comes back genuinely empty, not full of spaces', () => {
   // Trailing whitespace on an otherwise empty line is invisible noise that the
-  // author would then be saving.
+  // the author would then be saving.
   const out = dedentHtml('<div>\n    <p>a</p>\n      \n    <p>b</p>\n  </div>');
   assert.ok(out.split('\n').includes(''), `no empty line in ${JSON.stringify(out)}`);
   assert.ok(!/\n +\n/.test(out), 'a line of only spaces survived');

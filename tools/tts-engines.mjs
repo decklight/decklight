@@ -588,10 +588,10 @@ export function binOnPath(bin, env = process.env) {
  * typed. Readiness is a question about the MACHINE (a binary, a model file, a
  * key, a project), and it has to be asked before anything is constructed.
  *
- * WHY IT LIVES HERE. Two callers now ask it: `decklight author`, deciding
+ * WHY IT LIVES HERE. Two callers now ask it: `decklight <deck>`, deciding
  * whether to start the bridge at all, and the bridge itself, listing what the
  * deck may switch to (SPEC `NARRATION`). They must not disagree — a picker
- * offering an engine that `author` would have refused is a picker that lies.
+ * offering an engine that `open` would have refused is a picker that lies.
  * So the DECISION is shared and only the presentation differs: `reason` is a
  * code the caller phrases for its own audience.
  *
@@ -638,7 +638,7 @@ export function engineStatus(name, {
  * A blocker in two short sentences: what is missing, and what fixes it.
  *
  * These are the PICKER's words — one line each, because they are drawn under a
- * greyed row in a deck. `decklight author` phrases the same codes at length
+ * greyed row in a deck. `decklight <deck>` phrases the same codes at length
  * (it has a terminal, and it is the place a presenter is still setting up).
  * Both read the same `reason`, so they can be worded for their audience
  * without being able to disagree about the facts.

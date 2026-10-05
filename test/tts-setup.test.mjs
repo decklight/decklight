@@ -411,7 +411,7 @@ test('`decklight <deck>` on a TTY offers the same setup where it would skip the 
       text += chunk;
       answer('offer', /set up live narration now\? \(V in the deck uses it\) \[Y\/n\]/, '\n');
       answer('engine', /engine \[1\]/, '\n');
-      // NOT the bridge's own line: under author it prints no sentence, it
+      // NOT the bridge's own line: in write mode it prints no sentence, it
       // reports a row. The banner's url is the signal that everything is
       // up, and being last is the one thing it is guaranteed to be.
       answer('int', DECK_URL_RE, '\x03');
@@ -424,14 +424,14 @@ test('`decklight <deck>` on a TTY offers the same setup where it would skip the 
 
   assert.match(out, /no voice engine configured — set up live narration now\?/);
   // ESCAPES INTERLEAVE WITH THE TEXT, so match a stripped copy rather than
-  // trying to spell them. author dims the banner's label and resets before the
+  // trying to spell them. `open` dims the banner's label and resets before the
   // value — `\x1b[2mvoice  \x1b[0m  piper · …` — so `/voice\s+piper/` cannot
   // match, and the assertion fails on a line a person reading the log would
   // swear says exactly that. This is the second time that shape bit here; the
   // first was the url pattern, and the answer there was to spell the escapes.
   // Stripping them is the answer that keeps working for the next assertion.
   const plain = out.replace(/\x1b\[[0-9;]*m/g, '');
-  assert.match(plain, /voice\s+piper · en_US-ryan-high/, 'the bridge joined the same author session');
+  assert.match(plain, /voice\s+piper · en_US-ryan-high/, 'the bridge joined the same write-mode session');
   assert.doesNotMatch(out, /voice\s+skipped/, 'no skip line once setup completed');
   assert.deepEqual(loadTtsConfig({ HOME: home }), { engine: 'piper', voice: 'en_US-ryan-high' });
 });

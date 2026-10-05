@@ -77,7 +77,7 @@ const USAGE = `usage: decklight theme <check|add|remove> …
  * An ABSOLUTE `https://` source is still fetched as written: an entry may
  * legitimately point at a gist or a release asset outside its own repo.
  *
- * This lives in theme.mjs rather than in the author server on purpose. Reading
+ * This lives in theme.mjs rather than in the edit server on purpose. Reading
  * an ARTIFACT on an explicit install is fine anywhere; fetching a CATALOG is
  * what `registered, not fetched` forbids on a deck-serving path, and keeping the
  * two in different files is what keeps the sweep in test/marketplace.test.mjs

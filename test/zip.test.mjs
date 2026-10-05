@@ -4,7 +4,7 @@
 // The ZIP reader against archives someone MADE hostile (issue #234).
 //
 // Everything tools/zip.mjs reads was sent by someone else — a .pptx on import,
-// a .decklight that `present` must unzip before it can even find the
+// a .decklight that `--read-only` must unzip before it can even find the
 // signature — and the classic attack on an eager unzipper is the zip bomb: a
 // few-KB file whose entries inflate to gigabytes, detonating ahead of every
 // trust decision. The happy-path reader tests live in import.test.mjs; these

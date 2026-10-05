@@ -68,7 +68,7 @@ test('a film from the deck becomes a portrait: prepared, kept, remembered, offer
   assert.ok(fs.existsSync(kept));
   const cfg = JSON.parse(fs.readFileSync(path.join(dir, 'config', 'decklight', 'lipsync.json'), 'utf8'));
   assert.deepEqual(cfg.portraits, [`filmed=${kept}`]);
-  assert.equal(cfg.wav2lipDir, path.join(dir, 'Wav2Lip'), 'the setup is saved with it, so a plain author finds it');
+  assert.equal(cfg.wav2lipDir, path.join(dir, 'Wav2Lip'), 'the setup is saved with it, so a plain write mode finds it');
   const ping = await (await fetch(`${base}/ping`)).json();
   assert.deepEqual(ping.engines.video, ['wav2lip'], 'video is on without a restart');
   assert.ok(ping.portraits.includes('filmed'));

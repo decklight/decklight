@@ -167,7 +167,7 @@ Every item above has a SPEC section behind it. The index at the top of
 
 | Writing | |
 |---|---|
-| `init ["Title"]` | scaffold a deck and the agent skill, then offer to open it in write mode (`--author`, `--from <template>`) |
+| `init ["Title"]` | scaffold a deck and the agent skill, then offer to open it in write mode (`--open`, `--from <template>`) |
 | `skills [agent…]` | install the authoring skill for Claude, Codex, OpenCode or IBM Bob |
 | `<deck.html \| url>` | the deck is the command. Write mode: live reload plus every bridge this machine can run, under one Ctrl-C (`--open` for the browser; a git URL clones the repo and opens the deck inside). In the browser: `E` for the editing bar, double-click text to edit it, drop a picture onto a slide, `O` to rearrange slides; `Lock editing` in the palette turns changes off until you unlock |
 | `check deck.html` | lint it headlessly: clipped slides, missing assets, [click] beats out of step with the builds (`--json`) |
@@ -201,7 +201,7 @@ Every item above has a SPEC section behind it. The index at the top of
 | `design-system add acme@acme-mkt talk.html` | reference a company's design system: its tokens, art and slide layouts, served from the marketplace on this machine (`list`, `layouts`, and `check`, the gate a catalog runs) |
 | `font add inter@type-mkt talk.html --use` | reference a typeface from a marketplace: its faces and licence travel with the deck and its bundle, offline; `--use` opens the deck in it (`list`, and `check`, the gate a catalog runs) |
 | `marketplace list` / `update <name>` | what each catalog offers, and what it now has newer than what you installed (`nord@acme 1.0.0 → 1.1.0`, and the command that takes it) |
-| `plugin add <name>` | presenter chrome for your machine only. `--read-only` loads it, `bundle` never does |
+| `plugin add <name>` | presenter chrome for your machine only; the read-only server loads it, `bundle` never does |
 | `template\|importer\|transform\|engine\|voice\|agent add …` | the rest of the unit library |
 | `extension check t.mjs` | the marketplace admission gate for a transform |
 
@@ -246,7 +246,7 @@ A deck you author carries no runtime: `decklight <deck>` references
 serve it. To hand it over, `bundle`: one file, and nothing else to copy.
 
 <p align="center">
-  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: one deck.html and a theme.css feed a zero-dependency browser runtime; the CLI, the author server, the tts bridge and the review server run beside it on localhost; a verification band of contrast gates, palette rules and headless render assertions holds everything to SPEC.md.">
+  <img src="docs/architecture.svg" width="860" alt="Decklight architecture: one deck.html and a theme.css feed a zero-dependency browser runtime; the CLI, the edit server, the tts bridge and the read-only server run beside it on localhost; a verification band of contrast gates, palette rules and headless render assertions holds everything to SPEC.md.">
 </p>
 
 Every commit needs a DCO sign-off (`git commit -s`). The rest of the process,

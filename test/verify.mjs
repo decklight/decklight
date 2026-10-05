@@ -29,7 +29,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
  *
  * Four of them spawn the CLI, and a command reads the unit library from the
  * config home: `import` resolves its adapter for a `.pptx` from there, and
- * `present` would load the plugin library. On an ephemeral CI runner that home
+ * `--read-only` would load the plugin library. On an ephemeral CI runner that home
  * is empty and none of this mattered — which is exactly why it went unnoticed
  * until `verify` ran on a real Mac (#309), where the home belongs to a person
  * and holds their marketplaces, plugins and credentials.

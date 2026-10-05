@@ -813,7 +813,7 @@ if (!jobs) {
 // (INTEGRITY#SIGNING): a failed signature must leave no artifact behind, or
 // the unsigned file sitting there afterwards gets picked up later and sent as
 // though it were finished. Bytes, not a path, for exactly this reason.
-// An estimate (the author server's bundle card) stops here: the file as it
+// An estimate (the edit server's bundle card) stops here: the file as it
 // would be without its audio, and what each way of carrying the audio adds.
 if (estimate) return { base: Buffer.byteLength(html, 'utf8'), audio: audioEstimate };
 

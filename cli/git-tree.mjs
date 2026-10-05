@@ -3,7 +3,7 @@
 
 // Building a git tree without touching the working tree.
 //
-// Lifted out of cli/publish.mjs, which invented this, when `review submit`
+// Lifted out of cli/publish.mjs, which invented this, when `comments submit`
 // turned out to need exactly the same thing. It is the mechanism behind every "push something without checking
 // anything out" in decklight: objects land in the repository's database,
 // nothing references them until the push, and neither the working tree, the

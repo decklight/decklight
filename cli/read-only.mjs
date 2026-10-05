@@ -88,7 +88,7 @@ import { isContainer, readContainer, formatManifest } from './deckfile.mjs';
  *
  * Deliberately absent: the local TTS/lipsync bridges (`127.0.0.1:8787/8789`).
  * Live synthesis is an authoring-path engine, and MARKETPLACE.md ENGINES is
- * explicit that engines never come up outside author mode — a deck you were
+ * explicit that engines never come up outside write mode — a deck you were
  * emailed asking to reach a local service is the shape of a probe. Recorded
  * narration needs no bridge and is unaffected.
  */
@@ -111,11 +111,11 @@ export const CSP = [
  * Serve files under `root` over http://127.0.0.1 with this module's CSP on
  * EVERY response, for the render tools (`tools/shot.mjs`, `tools/video.mjs`).
  *
- * It is `present`'s serving core with the audit/strict/remote/edit surface
+ * It is the read-only server's serving core with the audit/strict/remote/edit surface
  * stripped off: `withHeaders` for the policy, `staticFiles` for a
  * traversal-guarded GET, an ephemeral loopback port. A deck screenshotted or
  * filmed BEFORE anyone presents it therefore runs under the same policy
- * `present` gives it — instead of over `file://` with
+ * `--read-only` gives it — instead of over `file://` with
  * `--allow-file-access-from-files`, the flag that let a deck's own JS read any
  * local file it could name and ship it anywhere (#229). An http origin cannot
  * read `file://` at all, and the CSP bounds where the rest can reach; a read is
@@ -248,7 +248,7 @@ const USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --read
 
   There is no editing surface: the /edit/* routes are not registered at all, so
   a POST to one is as unknown as a POST to anything else. That is also why the
-  phone remote lives here rather than on the author server — getting a clicker
+  phone remote lives here rather than on the edit server — getting a clicker
   should not mean running write endpoints against your deck while you are on
   stage and not looking at it.
 
@@ -271,14 +271,14 @@ const USAGE = `usage: decklight <deck.html|deck.decklight|repository url> --read
 // lets a test drive the verification states without the network.
 /**
  * A refusal that says which command refused. Every other command names itself
- * — `decklight bundle: deck not found: …` — and present's three refusals did
+ * — `decklight bundle: deck not found: …` — and the read-only server's three refusals did
  * not, so a bare `deck not found:` in a terminal running several tools was the
  * one message that could not be traced back to what printed it.
  */
 const fail = (msg) => { console.error(`decklight: ${msg}`); return 1; };
 
 // The flags that take a value, so the deck can be found past them:
-// `present --port 8790 talk.html` used to read "8790" as the deck and refuse a
+// `talk.html --read-only --port 8790` used to read "8790" as the deck and refuse a
 // file nobody named (the case tools/args.mjs firstPositional exists for).
 const VALUE_FLAGS = ['--port', '--host', '--root', '--branch', '--into'];
 
@@ -297,7 +297,7 @@ export async function readOnlyMain(args, { client } = {}) {
   // running an editing server against your deck while you are on stage and not
   // looking at it — so this server still registers no /edit/* route, and the
   // only paths a caller off this machine can reach are /remote/*, with the
-  // per-run token. allowRemote is the same classifier the author server uses;
+  // per-run token. allowRemote is the same classifier the edit server uses;
   // one implementation, tested once.
   const remote = args.includes('--remote') || opt('--host') !== undefined;
   const host = remote ? opt('--host', '0.0.0.0') : '127.0.0.1';
@@ -439,7 +439,7 @@ export async function readOnlyMain(args, { client } = {}) {
   //   - it injects AFTER `stripUnaccounted`, so strict mode never strips the
   //     chrome as if the deck had smuggled it in.
   // With an empty library `injectChrome` returns its input, so this whole
-  // paragraph is a no-op and `present` is byte-for-byte the command it was.
+  // paragraph is a no-op and `--read-only` is byte-for-byte the command it was.
   const chrome = args.includes('--no-plugins') ? { plugins: [], refused: [] } : loadLibrary();
   // Consulted per request rather than decided once: after a pull, `strict` may
   // have RATCHETED ON, and the bytes served have to follow the verdict printed
@@ -479,7 +479,7 @@ export async function readOnlyMain(args, { client } = {}) {
   // precisely the file nobody meant to keep. Everything else about the
   // response is identical to any other file under the root: same strict
   // rewrite, same policy header, same GET-only server around it. If live
-  // reload of the deck under `present` is ever wanted, it must re-run the
+  // reload of the deck under `--read-only` is ever wanted, it must re-run the
   // audit and re-print the verdict — never silently serve new bytes.
   const servePayload = (req, res) => {
     if (req.method !== 'GET') return false;
@@ -525,7 +525,7 @@ export async function readOnlyMain(args, { client } = {}) {
   /**
    * Fast-forward, then re-read, re-audit and RE-PRINT.
    *
-   * SPEC's condition on live reload under `present` is exactly this: never new
+   * SPEC's condition on live reload under `--read-only` is exactly this: never new
    * bytes under the old verdict. So the label the presenter can see always
    * describes the bytes being served, and the two move together.
    */
@@ -564,7 +564,7 @@ export async function readOnlyMain(args, { client } = {}) {
 
     // STRICT RATCHETS: a pull may turn it on and can never turn it off. A deck
     // that could clear its own strict flag by pulling could disarm the one
-    // mitigation present applies without being asked.
+    // mitigation the read-only server applies without being asked.
     const wasStrict = deck.strict;
     deck = { ...next, strict: next.strict || wasStrict };
     const degraded = (next.report.counts.unaccounted > 0 || next.report.counts.handlers > 0)
@@ -822,8 +822,5 @@ export async function readOnlyMain(args, { client } = {}) {
   process.on('SIGTERM', stop);
   return 0;
 }
-
-/** The pre-rename name, for anything still calling it. */
-export const presentMain = (...a) => readOnlyMain(...a);
 
 if (isMain(import.meta.url)) process.exitCode = await readOnlyMain(process.argv.slice(2));

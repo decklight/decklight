@@ -20,7 +20,7 @@
 //     Windows profile with one). This repo lives at a space-free path — hence
 //     the space in both the temp dirs and the imported fixture's name below,
 //     which is load-bearing rather than decorative.
-//   · `present` reported `runtime — DIFFERS from this install's build` on a
+//   · `--read-only` reported `runtime — DIFFERS from this install's build` on a
 //     deck decklight had written seconds earlier — an IMPORTED one. Every
 //     render harness passed, because the deck renders perfectly: the
 //     divergence is a hash, not a behaviour. Hence the ingredients-label
@@ -103,7 +103,7 @@ const KEEP = process.env.DECKLIGHT_SOAK_KEEP === '1';
  * ships, which is the harder half of the upgrade.
  */
 const OLDER_RELEASE = '0.2.0';
-const TOTAL = 62;
+const TOTAL = 61;
 
 // ── the driver ─────────────────────────────────────────────────────────────
 
@@ -209,7 +209,7 @@ const dl = (args, opts) => sh([DL.bin, ...args], { ...opts, shell: DL.shell });
  * advances past it, and the dump HANGS FOREVER.
  *
  * That is not hypothetical — it is what this file did on a machine with one
- * stray author session, failing at step 30 with a bare Chrome ETIMEDOUT that
+ * stray write-mode session, failing at step 30 with a bare Chrome ETIMEDOUT that
  * named nothing and pointed at nothing. A suite whose result depends on which
  * processes a developer left running is not a suite, and the whole premise here
  * is that it exercises the INSTALLED bin in a clean project.
@@ -246,7 +246,7 @@ const ports = new Set();
 
 /**
  * Spawn a server on --port 0 and learn its port from the line it prints. The
- * port is never guessed: `author` plans its child's URL with a literal 0, so
+ * port is never guessed: `open` plans its child's URL with a literal 0, so
  * the caller passes the SPECIFIC line to match rather than a bare 127.0.0.1:N.
  */
 function startServer(args, re, { timeoutMs = 20000, cwd = PROJECT } = {}) {
@@ -382,7 +382,7 @@ const TRANSFORM_MJS = 'export default async function transform(html) {\n'
 /**
  * A presenter plugin (SPEC PRESENT#PLUGINS): two files, and the whole point is
  * where they do NOT go. It is chrome — it renders in a sandboxed frame with an
- * opaque origin, `present` layers it on at serve time, and `bundle` cannot see
+ * opaque origin, `--read-only` layers it on at serve time, and `bundle` cannot see
  * it, so a deck someone else opens is the same deck whatever this machine has
  * installed.
  */
@@ -478,7 +478,7 @@ function buildMarket() {
       source: './plugins/soak-timer',
       description: 'a timer in the corner',
     }, {
-      // The kind the author server installs into a DECK rather than into the
+      // The kind the edit server installs into a DECK rather than into the
       // library, and the one marketplace consumer #289 left untested.
       name: 'soak-theme',
       type: 'theme',
@@ -860,20 +860,20 @@ try {
     return undefined;
   });
 
-  // ── author ───────────────────────────────────────────────────────────────
-  await step('author starts and takes the repo', async () => {
+  // ── write mode ───────────────────────────────────────────────────────────────
+  await step('open starts and takes the repo', async () => {
     authorSrv = await startServer(
       ['deck.html', '--port', '0', '--git', '--commit-every', '5'],
       DECK_URL_RE,
     );
     const ping = await (await get(authorSrv.base, '/edit/ping')).json();
     must(ping.ok === true && ping.name === 'deck.html', `ping said ${JSON.stringify(ping)}`);
-    must(ping.git === true, 'author did not pick up the repository init created');
+    must(ping.git === true, 'the edit server did not pick up the repository init created');
     must(ping.undo === 0 && ping.redo === 0, 'a fresh session started with history');
     // Not asserted here: the `start editing` bookend. gitAutocommit no-ops on a
     // clean tree, and init has just committed — so the opening bookend
     // correctly commits nothing. What it means for git to be ON is the line
-    // author prints.
+    // `open` prints.
     //
     // That line changed when the cadence stopped writing history: it used to
     // say "auto-committing deck.html every 5s" and now names the snapshot and
@@ -885,9 +885,9 @@ try {
     // because the banner puts it beside every other fact about this session
     // rather than in a paragraph competing with the url.
     must(/commits on your word/.test(authorSrv.log()),
-      'author did not announce the commit policy it was given');
+      'the edit server did not announce the commit policy it was given');
     must(/decklight\/wip/.test(authorSrv.log()),
-      'author did not say where the work is snapshotted');
+      'the edit server did not say where the work is snapshotted');
     // The banner is ONE block: the title first, a row per service, and the
     // deck's URL LAST with the keys under it (#423). Three processes used to
     // print in whatever order they woke, and the URL you wanted landed under
@@ -932,7 +932,7 @@ try {
     writeFileSync(deckPath(), parts.join(''));
 
     must(sectionBodies(deck()).length === 3, `expected 3 slides, got ${sectionBodies(deck()).length}`);
-    must(await sse, 'the author server did not broadcast a reload for the file change');
+    must(await sse, 'the edit server did not broadcast a reload for the file change');
     const src = await until('the server could address the new slide', async () => {
       const r = await get(authorSrv.base, '/edit/element/source?slide=3&index=0');
       return r.status === 200 ? (await r.json()).html : null;
@@ -1154,7 +1154,7 @@ try {
     must(kept.body.committed === true, `the second commit returned ${JSON.stringify(kept.body)}`);
   });
 
-  await step('author exits cleanly and lets go', async () => {
+  await step('open exits cleanly and lets go', async () => {
     const hist = await (await get(authorSrv.base, '/edit/history')).json();
     // CONTENT, not a count. This asked for three entries back when the cadence
     // manufactured them; the log now holds only commits somebody meant, so the
@@ -1171,7 +1171,7 @@ try {
 
     const before = git(['rev-list', '--count', 'HEAD']).trim();
     await post(authorSrv.base, '/edit/shutdown', {}).catch(() => {});   // it hangs up as it exits
-    must(await waitExit(authorSrv.child, 8000), 'author did not exit after /edit/shutdown');
+    must(await waitExit(authorSrv.child, 8000), 'the edit server did not exit after /edit/shutdown');
     // Quitting no longer COMMITS what you did not commit — that was the cadence
     // wearing an exit for a hat, and it is where the wall of `decklight: stop
     // editing` came from. What must still be true is that nothing is LOST: the
@@ -1189,7 +1189,7 @@ try {
   });
 
   await step('restore walks the history back, and forward again', () => {
-    // The author leg built real history and nothing has used it. `restore` is
+    // The write-mode leg built real history and nothing has used it. `restore` is
     // the way back to any of it, and its promise is that going back is not
     // destructive: the version is written as a NEW commit on top, so
     // overshooting costs nothing — which is also what lets this step put the
@@ -1263,7 +1263,7 @@ try {
 
   await step('the deck renders', () => {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
-    // Rendered from FILE, not from the running present server — and that is a
+    // Rendered from FILE, not from the running read-only server — and that is a
     // constraint, not a preference: a deck SERVED BY PRESENT can never be
     // dumped under `--virtual-time-budget`, by design. `/present/ping` answers
     // `{present:true}`, so the runtime opens an EventSource on
@@ -1512,7 +1512,7 @@ try {
   });
 
   await step('present layers the chrome on, and bundle never sees it', async () => {
-    // The asymmetry in one step. `present` injects the plugin into what it
+    // The asymmetry in one step. `--read-only` injects the plugin into what it
     // SERVES — the file on disk is untouched — and a bundle made a moment later
     // does not carry a byte of it.
     const before = statSync(join(PROJECT, 'linked.html'));
@@ -1703,7 +1703,7 @@ try {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ slide: 1, text: 'rewritten by a reviewer' }),
     });
-    must(edit.status === 404 || edit.status === 405, `/edit/notes answered ${edit.status} on a review server`);
+    must(edit.status === 404 || edit.status === 405, `/edit/notes answered ${edit.status} on a read-only server`);
 
     srv.child.kill('SIGTERM');
     must(await waitExit(srv.child, 5000), 'review did not exit on SIGTERM');
@@ -1793,7 +1793,7 @@ try {
     must(!/no reviews/.test(heard.all), 'a waiting review rendered as none');
 
     // …and the author marks it DONE from the deck: the overlay's T is a POST
-    // to the author server that writes one git-config mark. Nothing is copied
+    // to the edit server that writes one git-config mark. Nothing is copied
     // — the whole point — so what this proves is that the review stops waiting
     // while the sidecar stays exactly as it was. Through the installed binary,
     // over HTTP, which is the only place this path runs whole.
@@ -1853,7 +1853,7 @@ try {
       `a done review vanished instead of being struck through: ${JSON.stringify(inc2).slice(0, 200)}`);
     must(inc2.state === 'none', `a done review kept nagging: ${JSON.stringify(inc2).slice(0, 120)}`);
     asrv.child.kill('SIGTERM');
-    must(await waitExit(asrv.child, 5000), 'author did not exit on SIGTERM');
+    must(await waitExit(asrv.child, 5000), 'the edit server did not exit on SIGTERM');
     const heardAfter = dl(['comments', 'reviewed.html', '--incoming'], { cwd: author2 });
     must(/no reviews waiting/.test(heardAfter.all), `--incoming still nags after the mark: ${heardAfter.all}`);
 
@@ -1893,24 +1893,6 @@ try {
     }
   });
 
-  await step('the retired commands point at the one command', () => {
-    // The deck is the command (PRESENTING): `author`, `present` and `review`
-    // are retired, and a hand that still types them is shown the line to type
-    // instead — the deck with its flag — rather than a bare "unknown command".
-    for (const [args, want] of [
-      [['author', 'deck.html'], /^\s+decklight deck\.html$/m],
-      [['author', 'deck.html', '--port', '0'], /^\s+decklight deck\.html --port 0$/m],
-      [['present', 'deck.html'], /^\s+decklight deck\.html --read-only$/m],
-      [['review', 'deck.html'], /^\s+decklight deck\.html --read-only/m],
-      [['review', 'submit', 'deck.html'], /^\s+decklight comments submit deck\.html$/m],
-    ]) {
-      const r = dl(args, { allowFail: true });
-      must(r.code === 1, `decklight ${args.join(' ')} exited ${r.code}`);
-      must(/is no longer a command: the deck is the command/.test(r.stderr), `"${args[0]}" was not named as retired: ${r.all.slice(0, 200)}`);
-      must(want.test(r.stderr), `the pointer for "${args.join(' ')}" is wrong: ${r.stderr}`);
-    }
-  });
-
   await step('a stranger on the bridge\'s port is named, and the bridge stands down', async () => {
     // The other half of #422: the voice bridge may NOT move, because the deck
     // calls 127.0.0.1:8787 and nowhere else — so a port held by somebody
@@ -1936,7 +1918,7 @@ try {
     return undefined;
   });
 
-  await step('present --check validates the bundle', () => {
+  await step('--read-only --check validates the bundle', () => {
     const r = dl(['linked bundle.html', '--read-only', '--check']);
     must(r.all.includes('identical to this install'), 'the bundled runtime is not this install');
     must(/0 unaccounted script blocks/.test(r.all), 'the bundle carries unaccounted script');

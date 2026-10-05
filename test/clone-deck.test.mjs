@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// `decklight author <git url>` (cli/clone-deck.mjs): the URL people paste,
+// `decklight <git url>` (cli/clone-deck.mjs): the URL people paste,
 // the clone, the deck found inside it. Every clone here is from a local bare
 // repository over file:// — real git, no network.
 
@@ -131,7 +131,7 @@ test('findDeck: the one deck, the named deck, and a refusal that lists the candi
   assert.throws(() => findDeck(root, '/etc/passwd'), /relative to the repository/);
 });
 
-test('decklight author <url>: clones, then refuses before any server when it cannot pick the deck', (t) => {
+test('decklight <url>: clones, then refuses before any server when it cannot pick the deck', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-author-url-'));
   t.after(() => rmTemp(root));
   const { url } = bareRepo(root, { 'a.html': DECK, 'b.html': DECK });
@@ -151,7 +151,7 @@ test('decklight author <url>: clones, then refuses before any server when it can
   assert.match(missing.stderr, /no such deck: slides\/q3\.html/);
 });
 
-test('decklight author <url>: the clone IS the working directory — git runs there, not where author was run from', async (t) => {
+test('decklight <url>: the clone IS the working directory — git runs there, not where the deck was opened from', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-author-url-cwd-'));
   t.after(() => rmTemp(root));
   const { url } = bareRepo(root, { 'deck.html': DECK });
@@ -164,15 +164,15 @@ test('decklight author <url>: the clone IS the working directory — git runs th
   child.stderr.on('data', (c) => { out += c; });
   const base = await new Promise((resolve, reject) => {
     const scan = setInterval(() => { const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/); if (m) { clearInterval(scan); resolve(`http://127.0.0.1:${m[1]}`); } }, 50);
-    child.on('exit', () => { clearInterval(scan); reject(new Error(`author exited early:\n${out}`)); });
+    child.on('exit', () => { clearInterval(scan); reject(new Error(`open exited early:\n${out}`)); });
     setTimeout(() => { clearInterval(scan); reject(new Error(`no URL in 20s:\n${out}`)); }, 20_000);
   });
   assert.match(out, /cloned file:.*talk\.git → talk/);
-  assert.ok(!fs.existsSync(path.join(cwd, '.git')), 'no repository was created where author was run from');
+  assert.ok(!fs.existsSync(path.join(cwd, '.git')), 'no repository was created where the deck was opened from');
   const ping = await (await fetch(`${base}/edit/ping`)).json();
   assert.equal(ping.git, true, 'git is on — a clone is a repository, not a question');
   assert.equal(ping.remote?.url, url, "the edit server's git is the clone's, with its origin");
-  assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'the only thing author left behind is the clone');
+  assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'the only thing left behind is the clone');
 });
 
 // ── one clone per repository, whichever command asked ──────────────────────
@@ -216,7 +216,7 @@ test('present and review open a repository URL — into the one clone author mad
   assert.equal(fs.readdirSync(cwd).join(','), 'talk', 'one clone, all three times');
 });
 
-test('present --check works on a repository URL, and a URL that is no repository is a sentence', (t) => {
+test('--read-only --check works on a repository URL, and a URL that is no repository is a sentence', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-url-check-'));
   t.after(() => rmTemp(root));
   const { url } = bareRepo(root, { 'deck.html': DECK });

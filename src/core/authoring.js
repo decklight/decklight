@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Editing a deck with a mouse — SPEC PRESENTING, author mode.
+ * Editing a deck with a mouse — SPEC PRESENTING, write mode.
  *
- * Author mode could edit notes, replace an element's HTML in a textarea, remove
+ * Write mode could edit notes, replace an element's HTML in a textarea, remove
  * an element and give it an effect — every one of them behind a right-click and
  * a menu. The two things a person does most to a slide, fixing a word and
  * adding a picture, had no gesture at all. This module gives them the two

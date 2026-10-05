@@ -17,7 +17,7 @@
  *                   load. The runtime vets every token before it becomes CSS.
  *
  * Checked here, because both arrive from argv — and from a page, through the
- * author server's export route, which checks them the same way.
+ * edit server's export route, which checks them the same way.
  */
 export const THEME_NAME = /^[\w-]{1,64}$/;
 export const GEN_THEME = /^[\w-]{1,16384}$/;

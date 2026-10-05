@@ -26,7 +26,7 @@
 // a cycle, deliberately and STATICALLY. Not dynamically: edit.mjs ends in a
 // top-level `await` (its isMain boot), so an `await import('./edit-slides.mjs')`
 // from inside editMain would be waiting on an evaluation that is waiting on it,
-// and the author server would come up to the agents line and hang there — which
+// and the edit server would come up to the agents line and hang there — which
 // is exactly what it did. A static cycle has no such moment: every binding on
 // both sides is a hoisted function declaration, and nothing is read until a
 // request arrives.
@@ -395,7 +395,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    *
    * Every character that could make this a PATH rather than a name is gone
    * before `resolve` ever sees it — a separator, a drive letter, a `..`, a
-   * leading dot that would hide the file from `present`'s dotfile rule. The
+   * leading dot that would hide the file from the read-only server's dotfile rule. The
    * containment check at the write is the second lock on the same door, not
    * the first.
    */
@@ -424,7 +424,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
    * SVG is accepted and NOTHING is stripped from it. A saved file is the
    * author's bytes, and an editor that silently rewrote them would be lying
    * about what is on the slide; if that SVG is ever inlined into the deck,
-   * `decklight present --check` names its scripts like any other block, which
+   * `decklight --read-only --check` names its scripts like any other block, which
    * is the mechanism that exists for this (SPEC PRESENTING, the ingredients
    * label). What is refused is an SVG that arrives with a script already in
    * it — that is not an author's picture, and saving it would be putting a

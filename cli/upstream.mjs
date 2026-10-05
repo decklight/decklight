@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * `present`'s upstream check — SPEC PRESENTING (`PRESENT#UPSTREAM`).
+ * the read-only server's upstream check — SPEC PRESENTING (`PRESENT#UPSTREAM`).
  *
- * A deck cloned before a talk goes stale silently: `present` reads the file
+ * A deck cloned before a talk goes stale silently: the read-only server reads the file
  * once and serves those bytes, so a fix the author pushed an hour ago is
  * invisible. This asks the upstream, and — with `--upstream-pull` — lets the
  * deck fast-forward to it.
  *
  * ## What makes this safe, in one place
  *
- * The feature is UNREACHABLE for the deck the rest of `present` is written
+ * The feature is UNREACHABLE for the deck the rest of `--read-only` is written
  * against. A deck you were emailed is a single file with no repository, no
  * remote and no upstream, so `resolveUpstream` returns `no-repo` and nothing —
  * not the routes, not the timer — is ever registered.

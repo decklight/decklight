@@ -230,7 +230,7 @@ test('the ingredients label rides along: a warning per item, with what strict wo
   for (const f of [...only(found, 'unaccounted-script'), ...only(found, 'executable-attribute')]) {
     assert.equal(f.level, 'warn', 'a deck may legitimately carry its own script — this is an inventory');
     assert.equal(f.slide, 1, 'attributed to the slide it sits on');
-    assert.match(f.message, /present --strict would strip this/);
+    assert.match(f.message, /--read-only --strict would strip this/);
   }
 });
 

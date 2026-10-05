@@ -580,7 +580,8 @@ test('init --help documents --git/--no-git/--open', () => {
   const out = execFileSync('node', [CLI, 'init', '--help'], { encoding: 'utf8' });
   assert.match(out, /--git\b/);
   assert.match(out, /--no-git\b/);
-  assert.match(out, /--open\s+open the scaffolded deck in your default browser/);
+  assert.match(out, /--open\s+open the deck once it is written/);
+  assert.match(out, /--no-open\s+scaffold and stop/);
 });
 
 // --- decklight init --open (issue #52) ----------------------------------------
@@ -623,7 +624,7 @@ test('openDeck survives a missing launcher: one line naming it, no throw', async
   assert.match(out.text, /--open: could not launch a browser \(xdg-open: ENOENT\)/);
 });
 
-test('init --open launches the platform launcher on the deck actually written', { skip: process.platform !== 'linux' && 'exercises the xdg-open path' }, async () => {
+test('init --inline --open launches the platform launcher on the deck actually written', { skip: process.platform !== 'linux' && 'exercises the xdg-open path' }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-'));
   // a PATH holding ONLY a logging xdg-open, so the test never opens a browser
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-bin-'));
@@ -636,7 +637,7 @@ test('init --open launches the platform launcher on the deck actually written', 
   assert.equal(fs.existsSync(log), false, 'init without --open must not launch anything');
 
   const out = execFileSync(process.execPath,
-    [CLI, 'init', '--open', '--dir', dir, '-o', 'talk.html', '--no-skill'],
+    [CLI, 'init', '--inline', '--open', '--dir', dir, '-o', 'talk.html', '--no-skill'],
     { encoding: 'utf8', env: { ...process.env, PATH: bin } });
   assert.match(out, /created .*talk\.html/);
   assert.match(out, /opening .*talk\.html in your default browser/);
@@ -650,10 +651,10 @@ test('init --open launches the platform launcher on the deck actually written', 
   rmTemp(dir);
 });
 
-test('init --open with no launcher on PATH: deck still created, exit 0, skip line', () => {
+test('init --inline --open with no launcher on PATH: deck still created, exit 0, skip line', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-'));
   const emptyBin = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-open-empty-'));
-  const r = spawnSync(process.execPath, [CLI, 'init', '--open', '--dir', dir, '--no-skill'],
+  const r = spawnSync(process.execPath, [CLI, 'init', '--inline', '--open', '--dir', dir, '--no-skill'],
     { encoding: 'utf8', env: { ...process.env, PATH: emptyBin } });
   assert.equal(r.status, 0, 'a failed launch is non-fatal — the deck was created');
   assert.match(r.stdout, /created .*deck\.html/);

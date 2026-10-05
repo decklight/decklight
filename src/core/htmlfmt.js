@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Making an element's source readable in the content editor (author mode),
+// Making an element's source readable in the content editor (write mode),
 // WITHOUT changing what it renders.
 //
 // The editor is handed the element's outerHTML sliced out of the deck FILE, so

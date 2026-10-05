@@ -242,7 +242,7 @@ export function setFont(html, ref, on, { source = null, use = false } = {}) {
 /**
  * Every font every registered marketplace offers, from the cache — what
  * `font list` and the font picker (authoring) show — with the faces a page
- * needs to PREVIEW one it does not reference yet (the author server answers
+ * needs to PREVIEW one it does not reference yet (the edit server answers
  * them under decklight-font/), and the marketplaces it could not list.
  */
 export function marketplaceFonts(home = configHome()) {

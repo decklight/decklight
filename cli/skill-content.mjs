@@ -105,7 +105,7 @@ a claim worth attributing; leave it off when it does not:
 - \`decklight pptx deck.html\` — a PowerPoint file for whoever asks for one: every slide a picture, the notes real notes (lossy on purpose)
 - \`decklight tts\` — live voice bridge so the deck can narrate itself on the fly
 - \`decklight record deck.html\` — record the narration in the author's OWN voice: the deck shows one \`[click]\` beat at a time and \`→\` ends it, writing \`slide-NN-KK.wav\` per beat so the recording paces the builds (play it back with \`narration: { files: 'voiceover', ext: 'wav', segments: true }\`)
-- \`decklight deck.html --read-only\` (M to comment) / \`decklight comments deck.html\` — reviewer comments on slides, stored append-only in \`<deck>.review.jsonl\` and carried by git; a comment records the slide's title and a fingerprint of its text, so it finds its slide again after the deck moves and says so when the slide changed or is gone; \`decklight review submit deck.html\` pushes the review to a \`review/<you>-<date>\` branch (one file, never the reviewer's own commits; \`--pr\` opens the pull request), and the author hears about waiting reviews at \`decklight author\` startup, in the M overlay, and via \`decklight comments deck.html --incoming\`
+- \`decklight deck.html --read-only\` (M to comment) / \`decklight comments deck.html\` — reviewer comments on slides, stored append-only in \`<deck>.review.jsonl\` and carried by git; a comment records the slide's title and a fingerprint of its text, so it finds its slide again after the deck moves and says so when the slide changed or is gone; \`decklight comments submit deck.html\` pushes the review to a \`review/<you>-<date>\` branch (one file, never the reviewer's own commits; \`--pr\` opens the pull request), and the author hears about waiting reviews at \`decklight author\` startup, in the M overlay, and via \`decklight comments deck.html --incoming\`
 - \`decklight skills\` — regenerate this skill after upgrading Decklight
 
 **Render the deck before you call a slide done.** Content that exceeds a slide
@@ -208,8 +208,8 @@ not "⌘"). To rewrite terse notes that way when asked, \`decklight enhance
 deck.html --spoken --slides 3\` does it with the same checks on the beats and
 the pauses.
 
-**Commit your own changes when an authoring server is running.** \`decklight
-author\` does not commit edits for anyone: it snapshots the deck silently on
+**Commit your own changes when an edit server is running.** The edit
+server does not commit edits for anyone: it snapshots the deck silently on
 \`decklight/wip\` and commits when told to — the person presses K; only an
 agent it started itself (A) commits on its own — and it did not start you. So
 when you finish one logical change, say so:
@@ -223,7 +223,7 @@ curl -sf -X POST localhost:8788/edit/commit \\
 One call per logical change, with a subject describing THAT change — not
 \"updated the deck\". It commits only the deck file, and does nothing when
 nothing changed, so an extra call is harmless. If the port is not listening
-there is no authoring server: skip it silently and carry on, never start one
+there is no edit server: skip it silently and carry on, never start one
 yourself. This is what makes a history someone can read afterwards, instead
 of a wall of identical timer commits.
 

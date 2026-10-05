@@ -6,10 +6,10 @@
  *
  * Neural video needs four things decklight cannot find on its own: a Wav2Lip
  * (or SadTalker) checkout, its checkpoint, the Python that has its packages,
- * and a portrait. Passing them as flags to every `decklight author` is how
+ * and a portrait. Passing them as flags to every `decklight <deck>` is how
  * nobody ends up using the feature — so `decklight lipsync … --save` writes
  * them here once, the way the voice setup lives in `tts.json`, and the
- * lip-sync bridge, `author` and `doctor` all read the same file.
+ * lip-sync bridge, `open` and `doctor` all read the same file.
  *
  * `~/.config/decklight/lipsync.json` ($XDG_CONFIG_HOME honored):
  *   { wav2lipDir, wav2lipCkpt, sadtalkerDir, python, portraits: ["name=path", …] }
@@ -33,7 +33,7 @@ export function portraitsDir(env = process.env) {
  * `config` with portrait `name` pointing at `file` — replacing one of that
  * name, else added — and the bridge's own `setup` (Wav2Lip, its checkpoint,
  * its Python) filled in where the saved file has none, so a portrait filmed
- * on a bridge started with flags still works on the next plain `author`. Pure.
+ * on a bridge started with flags still works on the next plain `open`. Pure.
  */
 export function withPortrait(config, name, file, setup = {}) {
   const next = { ...(config ?? {}) };

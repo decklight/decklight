@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The decidable half of mouse editing in author mode (src/core/authoring.js,
+// The decidable half of mouse editing in write mode (src/core/authoring.js,
 // SPEC PRESENTING): which element a double-click may edit, the path that finds
 // the same node in the element's SOURCE, and what a dropped file becomes. The
 // gestures themselves — contenteditable, drag and drop — need a browser and

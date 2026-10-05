@@ -51,7 +51,7 @@ const USAGE = `usage: decklight import <deck.pptx | deck.key | google-slides-url
                    text:   never; every shape's words cross as text
   --inline         write a self-contained deck (runtime and theme embedded)
                    instead of slides plus a configuration block, which
-                   author/present play with the installed runtime
+                   decklight plays it with the installed runtime, in either mode
   --force          overwrite an existing output file
   -v, --verbose    print every slide's line, not just the ones with drops
 

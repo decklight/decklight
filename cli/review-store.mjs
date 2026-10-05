@@ -21,7 +21,7 @@
 // prose, not the bookkeeping.
 //
 // Nothing here touches git or the filesystem. The store is the shape; who reads
-// and writes it is cli/review.mjs (the reviewer) and cli/comments.mjs (the
+// and writes it is cli/review-routes.mjs (the reviewer) and cli/comments.mjs (the
 // author).
 //
 // `foldReview` — turning the log into comments-with-replies — lives in

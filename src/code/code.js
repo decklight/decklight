@@ -120,7 +120,7 @@ function segmentLabel(seg, totalLines) {
 
 /**
  * The registered highlighter, for the one other place in the runtime that
- * highlights: the element content editor (author mode). Exported rather than
+ * highlights: the element content editor (write mode). Exported rather than
  * re-imported so there is ONE registration — the thirteen languages above are
  * already in the bundle, so reusing them costs nothing, and a second `hljs`
  * would cost all of it again.

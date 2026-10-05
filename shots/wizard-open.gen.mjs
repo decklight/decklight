@@ -4,7 +4,7 @@
 
 // Evidence for #233 — the engine wizard's player half is REACHABLE — and for
 // #232 — the mounted card names its asker and its destination. The wizard only
-// exists while an author server serves the deck, and tools/shot.mjs shoots
+// exists while an edit server serves the deck, and tools/shot.mjs shoots
 // file:// copies, so this generator bakes the same miniature server stand-in the
 // engine-render harness uses (ping advertising one configurable engine, GET
 // /edit/wizard handing over a vetted schema WITH its provenance — the player
@@ -36,7 +36,7 @@ fs.writeFileSync(path.join(shots, 'wizard-deck.html'), `<!doctype html>
   <title>engine wizard — #233 evidence</title>
   <link rel="stylesheet" href="../dist/decklight.css">
   <script>
-    // The author server, in miniature (as in test/engine.html mode=wizard):
+    // The edit server, in miniature (as in test/engine.html mode=wizard):
     // enough of /edit/ping and GET /edit/wizard for the palette to grow its
     // Configure row and the wizard to mount a vetted schema.
     const SCHEMA = {
@@ -75,7 +75,7 @@ fs.writeFileSync(path.join(shots, 'wizard-deck.html'), `<!doctype html>
       <h1>The engine wizard, reachable</h1>
       <p class="subtitle">/ → Configure ElevenLabs… (dev) — ENGINES#WIZARD, issue #233</p>
       <ul>
-        <li>The author server's ping advertises the engines a marketplace declares a wizard for</li>
+        <li>The edit server's ping advertises the engines a marketplace declares a wizard for</li>
         <li>Each gets a contextual palette row; core renders the vetted schema</li>
         <li>A secret is a password field; without a server there is no row at all</li>
         <li>The card names who is asking and where the answer goes — words the plugin did not write (#232)</li>

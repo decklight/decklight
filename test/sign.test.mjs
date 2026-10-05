@@ -275,7 +275,7 @@ test('plain bundle neither signs nor warns — offline-clean by default', () => 
   assert.doesNotMatch(log, /signed|signing|\.sig\b/i, 'no nag: the default is a choice, not an oversight');
 });
 
-test('present --check fails a deck whose signature does not verify', () => {
+test('--read-only --check fails a deck whose signature does not verify', () => {
   const dir = tmp();
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');
@@ -295,7 +295,7 @@ test('--check routes a nameless verified signature the same as unchecked', async
   // degrade — gate on the same `state !== UNSIGNED && !isVerified(signature)`
   // expression, so exercising --check through the injectable client covers the
   // one choke point they share.
-  const { presentMain } = await import('../cli/read-only.mjs');
+  const { readOnlyMain } = await import('../cli/read-only.mjs');
   const dir = tmp();
   const deck = path.join(dir, 'talk.html');
   writeFileSync(deck, '<html><body><script>Decklight.init()</script></body></html>');
@@ -305,7 +305,7 @@ test('--check routes a nameless verified signature the same as unchecked', async
     const lines = [];
     const orig = console.log;
     console.log = (...a) => { lines.push(a.join(' ')); };
-    try { return { code: await presentMain([deck, '--check'], { client }), out: lines.join('\n') }; }
+    try { return { code: await readOnlyMain([deck, '--check'], { client }), out: lines.join('\n') }; }
     finally { console.log = orig; }
   };
 

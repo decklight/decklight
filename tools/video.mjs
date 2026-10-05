@@ -22,7 +22,7 @@
 // Capture is the tools/shot.mjs mechanism: one one-shot headless Chrome per
 // frame against the deck served over http://127.0.0.1 at #/n/999 (an oversized
 // step clamps to the last build, so every slide renders fully built). The deck
-// is served under the `present` CSP, NOT opened over file:// with
+// is served under the `--read-only` CSP, NOT opened over file:// with
 // --allow-file-access-from-files (#229): that flag let a deck's own JS read any
 // local file and exfiltrate it, and video renders decks you may not have
 // vetted. No puppeteer, no CDP, no new deps — which is also the honest limit:
@@ -170,7 +170,7 @@ export function videoOptions({ out = null, format = null, quality = null, subtit
 /**
  * Read this command's own output as progress: the plan line names how many
  * slides the render covers, and each frame line names its slide. `onSlide(n, of)`
- * fires once per slide, when its first frame is done — the author server
+ * fires once per slide, when its first frame is done — the edit server
  * relays it to the deck's export row, which is how a render that takes minutes
  * keeps saying where it is.
  */
@@ -603,7 +603,7 @@ export async function revoiceStale({
   if (!engine || !ENGINES.includes(engine)) {
     return { ok: false, why: `${basename(dir)}/ names no engine it was voiced with — a take in somebody's own voice is re-recorded, not re-voiced` };
   }
-  // the engine's settings as the author server passes them to voiceover: the
+  // the engine's settings as the edit server passes them to voiceover: the
   // environment, then tts.json for THIS engine
   const saved = loadTtsConfig(env);
   const savedFor = saved?.engine === engine ? saved : null;
@@ -720,7 +720,7 @@ export async function videoMain(argv, { exec = run, log = console.log } = {}) {
 
   // The served root is the directory you run from — the deck must sit inside it
   // so its relative assets (`../dist/decklight.js`, `themes/…`) resolve as URLs
-  // off the loopback origin the frames are captured against. This is `present`'s
+  // off the loopback origin the frames are captured against. This is the read-only server's
   // rule, for the same reason (#229): the deck runs under the CSP, and a read
   // cannot escape the served tree. `cd` to a directory containing the deck.
   const root = process.cwd();

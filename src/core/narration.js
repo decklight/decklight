@@ -114,7 +114,7 @@ export const sentencePauseFor = (attr, cfg) => pauseFor(attr, cfg, SENTENCE_PAUS
  * D panel's status line). `downloadFromUrl` is the engine's download helper,
  * shared with the transcript.
  *
- * `authorBase` is a THUNK, not a string: the author server's URL is only known
+ * `authorBase` is a THUNK, not a string: the edit server's URL is only known
  * after editmode's probe answers, and editmode is built after this. It returns
  * the prefix to post to — **`''` for a same-origin server, which is the common
  * case and is not the same as absent** — or `null` when the deck is not being
@@ -284,7 +284,7 @@ export function floatToPcm16(samples) {
  *
  * The voice names the folder because it is the only thing that distinguishes
  * one take from another to the person doing it. `taken` is the folders that
- * already hold audio (the author server can see them; the deck cannot), and a
+ * already hold audio (the edit server can see them; the deck cannot), and a
  * collision takes the next free suffix rather than overwriting or refusing —
  * the proposal is editable on the card, so a wrong guess costs a keystroke.
  */
@@ -433,7 +433,7 @@ const notesCache = new WeakMap();
  * them — markup, not text, since a `<pause>` element changes what the notes
  * say without changing their text. A compare of one string is cheaper than
  * the walk and split it saves, and the
- * author server rewrites notes under a LIVE deck (dev mode re-renders a slide
+ * edit server rewrites notes under a LIVE deck (dev mode re-renders a slide
  * in place), so a cache that had to be told would be a cache that goes stale
  * exactly when someone is watching.
  *
@@ -570,7 +570,7 @@ export function createNarration({
   // that set instead of depending on the bridge.
   const narrKey = 'decklight-narration:' + location.pathname;
   // Same origin by convention (#520): a deck never spells a port. Served by
-  // `author`, `/tts` (and the sibling routes derived below) is proxied to the
+  // `open`, `/tts` (and the sibling routes derived below) is proxied to the
   // voice bridge author started; opened from disk there is no origin to speak
   // of, and the bridge's own default port is the one thing left to assume.
   // `narration.liveUrl` in the config still overrides both.
@@ -2218,7 +2218,7 @@ export function createNarration({
       // deck's narration, so it belongs beside the track it produces.
       // The script the voice reads, given ElevenLabs v4's audio tags — the
       // agent drafts, decklight checks no word or beat moved (cli/enhance.mjs).
-      // It writes the deck, so it needs the author server; said in place.
+      // It writes the deck, so it needs the edit server; said in place.
       narrRows.push({
         text: '✨ Enhance the script — ElevenLabs audio tags…',
         flavor: enhanceScript() ? 'your agent adds them, nothing reworded' : '',
@@ -2858,7 +2858,7 @@ export function createNarration({
    *
    * Remembered by THIS DECK, with its live voice (askBridge), and nowhere
    * else. `~/.config/decklight/tts.json` is what the CLI and the setup wizard
-   * write, and it decides what the NEXT `decklight author` starts with for
+   * write, and it decides what the NEXT `decklight <deck>` starts with for
    * every deck; an experiment two minutes before a talk must not quietly
    * become every deck's default, so it is never written from here.
    *
@@ -3143,8 +3143,8 @@ export function createNarration({
   // next to the deck: that is the one place `narration.files` can name and the
   // one place `decklight bundle` looks. The browser's download folder is
   // neither, so it is the FALLBACK — for a deck opened from a file:// or served
-  // read-only by `decklight present`, where nothing on this machine is allowed
-  // to write. In author mode the server that owns the deck file writes them.
+  // read-only by `decklight <deck> --read-only`, where nothing on this machine is allowed
+  // to write. In write mode the server that owns the deck file writes them.
   //
   // The folder is the deck's own `narration.files` when that names a plain
   // relative directory, so re-recording refreshes the track already configured
@@ -3155,7 +3155,7 @@ export function createNarration({
    *
    * The runtime cannot see the filesystem — that is why `segments: true` is
    * opt-in at all — so it cannot know `voices/rachel` is taken before
-   * proposing it. The author server can, and answers once per recorder open.
+   * proposing it. The edit server can, and answers once per recorder open.
    */
   async function knownTracks() {
     const base = authorBase();
@@ -3240,7 +3240,7 @@ export function createNarration({
     const f = config.narration?.files;
     const first = typeof f === 'string' ? f
       : Array.isArray(f) ? f.find((t) => typeof t?.dir === 'string')?.dir : null;
-    // a bucket URL and an absolute path are both somewhere the author server
+    // a bucket URL and an absolute path are both somewhere the edit server
     // will refuse to write, and rightly — fall back rather than fail per slide
     const ok = plainFolder(first);
     // configOnly: "what has this deck DECIDED", with no default standing in
@@ -3248,7 +3248,7 @@ export function createNarration({
     // "the fallback one".
     return ok ?? (configOnly ? null : RECORD_DIR);
   }
-  /** Write one recorded file, through the author server when there is one.
+  /** Write one recorded file, through the edit server when there is one.
    *  Resolves true when it landed on disk, false when the browser took it.
    *
    *  `seg` is the 1-based SEGMENT file number (`slide-NN-KK.wav`), null for the
@@ -3319,12 +3319,12 @@ export function createNarration({
    *
    * The recorder writes the files and then used to ask you to paste a line
    * into the deck by hand — the one manual step in a flow that is otherwise a
-   * key and an arrow. The author server already owns this file, so it can
+   * key and an arrow. The edit server already owns this file, so it can
    * write this too; Z undoes it like any other edit.
    *
    * A BUTTON, never automatic. Editing someone's deck the moment a recording
    * ends is the wrong default even with undo behind it, and the button is
-   * absent exactly where it could not work anyway — no author server means no
+   * absent exactly where it could not work anyway — no edit server means no
    * write, and the card falls back to printing the line.
    */
   async function useRecordedTrack(btn, dir, cfg) {
@@ -3386,7 +3386,7 @@ export function createNarration({
    * Why the files went to the download folder — the half the card never said.
    *
    * "Saved to your downloads" is where, and where is not something you can act
-   * on. There is exactly one cause (no author server owns this deck file) and
+   * on. There is exactly one cause (no edit server owns this deck file) and
    * three ways to arrive at it, and which one you are in decides what to do
    * next. The `?record` case is the loud one: that parameter means `decklight
    * record` opened this deck, so a server WAS started — finding none means it
@@ -3394,7 +3394,7 @@ export function createNarration({
    */
   function noServerReason() {
     if (params?.has?.('record')) {
-      return 'no author server answered, though <code>decklight record</code> started one'
+      return 'no edit server answered, though <code>decklight record</code> started one'
         + ' — something else is holding the port for another deck. Stop it and record again;'
         + ' press D for the log.';
     }
@@ -3402,7 +3402,7 @@ export function createNarration({
       return 'this deck was opened from a file, so nothing may write beside it.'
         + ' <code>decklight record deck.html</code> serves it and writes them for you.';
     }
-    return 'no author server owns this deck file — <code>decklight record deck.html</code>'
+    return 'no edit server owns this deck file — <code>decklight record deck.html</code>'
       + ' writes them next to the deck instead.';
   }
 
@@ -3418,7 +3418,7 @@ export function createNarration({
     // take ends up in the download folder for no reason at all.
     await authorReady();
     if (run !== recRun) return;
-    // `== null`, never falsy: the author server's prefix is '' when it is the
+    // `== null`, never falsy: the edit server's prefix is '' when it is the
     // origin serving this deck, which is most of the time.
     const base = authorBase();
     const target = recTarget ?? targetFor({ mine: false }, await knownTracks());
@@ -3540,7 +3540,7 @@ export function createNarration({
   // MediaRecorder (webm/opus is a format nothing else in this toolchain reads),
   // and not an AudioWorklet: a worklet's module has to be fetched from a URL,
   // which on a zero-dependency single-file runtime means a blob: URL, and
-  // `decklight present` serves `script-src 'self' 'unsafe-inline'` with no
+  // `decklight <deck> --read-only` serves `script-src 'self' 'unsafe-inline'` with no
   // blob:. A ScriptProcessorNode is deprecated and universally shipped, and
   // works under that policy today.
   let micEl = null, micView = 'intro', micRun = 0, micTarget = null;

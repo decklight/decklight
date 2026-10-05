@@ -3,7 +3,7 @@
 
 // The talking-head setup, remembered (tools/lipsync-config.mjs) — and the one
 // answer to "can neural video run, and if not why", shared by the bridge,
-// `author` and `doctor`.
+// `open` and `doctor`.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,7 +47,7 @@ test('videoSetup says which engines can run — and, when none can, exactly what
   assert.match(SETUP_HINT, /--save$/);
 });
 
-test('author starts the lip-sync bridge for a saved talking head — rhubarb or not — and says how to set one up otherwise', () => {
+test('open starts the lip-sync bridge for a saved talking head — rhubarb or not — and says how to set one up otherwise', () => {
   const noRhubarb = { args: ['deck.html', '--no-tts'], hasBin: () => false, env: {} };
   const saved = planServices({ ...noRhubarb, lipsync: { wav2lipDir: '/w', wav2lipCkpt: '/c', portraits: ['me=/p.jpg'] } });
   assert.ok(saved.run.some((s) => s.name === 'lipsync'), 'a saved setup starts it');

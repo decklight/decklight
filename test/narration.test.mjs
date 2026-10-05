@@ -486,7 +486,7 @@ test('the same notes are segmented once and handed back as the same list', () =>
 });
 
 test('notes rewritten under a live deck re-segment, with nobody telling the cache', () => {
-  // The author server re-renders a slide in place, so the aside a running deck
+  // The edit server re-renders a slide in place, so the aside a running deck
   // holds can be handed new words at any moment. The markup IS the validity
   // check, which is exactly why the editor needs to know nothing about this.
   const aside = asideOf('One.');

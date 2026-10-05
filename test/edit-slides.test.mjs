@@ -3,7 +3,7 @@
 
 // The slide-mutation routes (cli/edit-slides.mjs), called as functions.
 //
-// Every other test of this surface boots the whole author server, waits for a
+// Every other test of this surface boots the whole edit server, waits for a
 // URL to appear on its stdout and talks to it over a socket — ten seconds and
 // a spawned process to prove that `data-layout="centered"` reached the file.
 // These handlers were lifted out of editMain precisely so they would not need
@@ -97,7 +97,7 @@ test('every slide-mutation route the server dispatches is registered here', () =
     'POST /edit/slide/system-layout',
     'POST /edit/sources',
     'POST /edit/timings',
-  ], 'a route that leaves this list has left the author server too');
+  ], 'a route that leaves this list has left the edit server too');
 });
 
 test('POST /edit/notes writes the aside and leaves one undo entry behind', async (t) => {
@@ -484,7 +484,7 @@ test('POST /edit/asset takes an SVG as it is, but refuses one carrying a script'
   assert.equal(ok.code, 200);
   assert.equal(ok.body.src, 'assets/diagram.svg');
   assert.equal(readFileSync(path.join(dir, 'assets', 'diagram.svg'), 'utf8'), plain,
-    'nothing is stripped — decklight present --check names what a deck runs (SPEC PRESENTING), it does not edit it');
+    'nothing is stripped — decklight --read-only --check names what a deck runs (SPEC PRESENTING), it does not edit it');
 
   const armed = await upload(routes, {
     type: 'image/svg+xml',

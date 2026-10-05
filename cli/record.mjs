@@ -21,7 +21,7 @@
 // one command, one Ctrl-C, and the files land in the folder the deck already
 // plays from.
 //
-// Deliberately NOT `decklight author`: recording is not editing. Git is off,
+// Deliberately NOT `decklight <deck>`: recording is not editing. Git is off,
 // no bridge is started, nothing is spent. You are reading your own notes aloud.
 
 import { editMain } from './edit.mjs';

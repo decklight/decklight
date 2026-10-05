@@ -21,7 +21,7 @@
  *   xss     — the bridge's roster names a voice WITH MARKUP (an ElevenLabs
  *             voice is named by whoever shared it): the N picker must render
  *             it as text, never parse it
- *   record  — ⇧V with an author server up: every stitched slide goes THROUGH
+ *   record  — ⇧V with an edit server up: every stitched slide goes THROUGH
  *             that server into a folder beside the deck, and nothing reaches
  *             the browser's download path (`&dir`: the deck already names a
  *             narration folder, so the recording lands in that one;
