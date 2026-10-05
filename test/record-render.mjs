@@ -101,6 +101,7 @@ const DECK = `<!doctype html>
   }
   try {
     localStorage.setItem('decklight-onboarded', '1');
+    localStorage.setItem('decklight-onboarded-author', '1');   // nor the editing tour: it takes the first key
     localStorage.setItem('decklight-tips-off', '1');
   } catch (e) { /* private mode */ }
 </script>
