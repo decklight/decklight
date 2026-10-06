@@ -50,6 +50,8 @@ const ttyRun = await new Promise((resolve, reject) => {
   child.stdout.on('data', (chunk) => {
     out += chunk;
     answer('git', /create a git repository .*\[Y\/n\]/, 'y\n');
+    // the deck opens on its own once it is written; Ctrl-C once its banner is up
+    answer('server', /http:\/\/127\.0\.0\.1:\d+/, '\x03');
   });
   child.stderr.on('data', (c) => { out += c; });
   const kill = setTimeout(() => child.kill('SIGKILL'), 30_000);

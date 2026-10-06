@@ -252,11 +252,13 @@ const ptySkip = process.platform === 'linux' && fs.existsSync('/usr/bin/script')
   ? false : 'needs util-linux script(1)';
 test('init on a real TTY prompts and takes the typed title', { skip: ptySkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
-  // three answers typed ahead: the title, "n" to the git offer, "n" to the
-  // dev handoff — one readline serves all three, so none of them is dropped
+  // two answers typed ahead: the title, "n" to the git offer — one readline
+  // serves both, so neither is dropped. `--inline --no-open`: a self-contained
+  // deck opens as a file, and --no-open keeps the browser closed, so nothing
+  // is started that the test would have to stop.
   const r = spawnSync('/usr/bin/script',
-    ['-qec', `node "${CLI}" init --dir "${dir}" --no-skill`, '/dev/null'],
-    { encoding: 'utf8', input: 'Ship & Tell\nn\nn\n' });
+    ['-qec', `node "${CLI}" init --dir "${dir}" --no-skill --inline --no-open`, '/dev/null'],
+    { encoding: 'utf8', input: 'Ship & Tell\nn\n' });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /deck title \[My Deck\]:/);
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Ship &amp; Tell<\/title>/);
@@ -274,7 +276,7 @@ test('the runtime version and the package version are the same number', () => {
   // These drifted silently: src/index.js sat at 0.1.0 while package.json reached
   // 0.3.0, so every bundled deck carried a banner two releases stale — and the
   // banner is not decoration. `decklight init` quotes it back when it refuses a
-  // collision, `upgrade` locates the runtime by it, and since PRESENT#AUDIT the
+  // collision, `upgrade` locates the runtime by it, and since READ_ONLY#AUDIT the
   // ingredients label prints it to whoever opens a deck they did not author. A
   // stamped version nobody checks is read as a fact, which is what makes a wrong
   // one worse than none.
@@ -580,8 +582,7 @@ test('init --help documents --git/--no-git/--open', () => {
   const out = execFileSync('node', [CLI, 'init', '--help'], { encoding: 'utf8' });
   assert.match(out, /--git\b/);
   assert.match(out, /--no-git\b/);
-  assert.match(out, /--open\s+open the deck once it is written/);
-  assert.match(out, /--no-open\s+scaffold and stop/);
+  assert.match(out, /--no-open\s+start the deck without opening the browser/);
 });
 
 // --- decklight init --open (issue #52) ----------------------------------------

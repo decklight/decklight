@@ -453,8 +453,8 @@ export async function initMain(argv = process.argv.slice(2), { hasBin = onPath, 
 
 Usage:
   decklight init ["Deck Title"] [-o deck.html] [--dir path] [--inline [--themes …]]
-                 [--from <template>] [--git | --no-git] [--open] [--force]
-                 [--no-skill | --global-skill] [--open | --no-open]
+                 [--from <template>] [--git | --no-git] [--no-open] [--force]
+                 [--no-skill | --global-skill]
 
 Options:
   -o <file>       deck output path (default: deck.html)
@@ -480,13 +480,15 @@ Options:
                   commit everything init wrote
                   (outside a repo + no flag: init ASKS on a TTY)
   --no-git        never touch git
-  --open          open the deck once it is written. The default deck opens
-                  in write mode — live reload, edits from the browser, an AI
-                  agent on A; a self-contained --inline deck is the
-                  presentation and opens in your browser as a file. On a
-                  terminal init ASKS this; --open answers yes without asking,
-                  --no-open answers no.
-  --no-open       scaffold and stop; print the command instead
+  --no-open       start the deck without opening the browser. Once the deck
+                  is written, init opens it: the default deck in write mode
+                  (live reload, edits from the browser, an AI agent on A), a
+                  self-contained --inline deck as a file in your browser.
+                  --no-open starts the write-mode server and leaves the
+                  browser to you. Off a terminal init only prints the
+                  command (a server nobody can stop is never started), and
+                  opens a self-contained deck's file only when --open is
+                  typed.
   --force         overwrite an existing deck file (default: refuses)
   --no-skill      skip the agent skill entirely (project and global), and the
                   where-should-it-go question with it
@@ -510,7 +512,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     return 0;
   }
 
-  let title = null, outFile = 'deck.html', dir = '.', force = false, themesSel = 'all', openAfter = false, inline = false;
+  let title = null, outFile = 'deck.html', dir = '.', force = false, themesSel = 'all', inline = false;
   let from = null;
   const args = [...argv];
   for (let i = 0; i < args.length; i++) {
@@ -521,7 +523,7 @@ unless --no-skill is given. The deck file is only touched with --force.
     else if (a === '--themes') themesSel = args[++i];
     else if (a === '--inline') inline = true;
     else if (a === '--force') force = true;
-    else if (a === '--open' || a === '--no-open') ; // the handoff question, below
+    else if (a === '--open' || a === '--no-open') ; // the handoff, below (--open is the default)
     else if (a === '--no-skill' || a === '--global-skill') ; // consumed by planSkill below
     else if (a === '--git' || a === '--no-git') ; // consumed by planGit below
     else if (a === '--remote') i++;                // consumed by planRemote below
@@ -712,36 +714,33 @@ unless --no-skill is given. The deck file is only touched with --force.
 
   process.stdout.write(epilogue({ deckPath, tty: !!process.stdout.isTTY, noColor: !!process.env.NO_COLOR }));
 
-  // ── the handoff: write mode, offered ──────────────────────────────────────
-  // The epilogue names the command. On a terminal init also offers to run it,
-  // because the deck opened as a FILE is one where E, A and L all answer
-  // "needs decklight <deck>": the newcomer's first three keystrokes hit the one
-  // command they have not seen yet. A question with a default, not an action:
-  // Enter goes, `n` keeps init out of the way, and a run that cannot answer —
-  // no TTY, or stdin closed under it — never has a server started for it.
-  // Everything init printed stays on screen above author's banner.
-  // A self-contained --inline deck (or one from a template) IS the
-  // presentation: there is no server to hand it to, so --open opens the file.
-  const asFile = inline || !!from;
-  let handoff = argv.includes('--open') ? 'yes' : argv.includes('--no-open') || !tty ? 'no' : 'ask';
-  if (handoff === 'ask' && !asFile) {
-    const a = (await question('  open it in write mode now — live reload, edits from the browser? [Y/n] ')).trim();
-    handoff = (stdinGone && !a) || /^n/i.test(a) ? 'no' : 'yes';
-  }
+  // ── the handoff: the deck opens ───────────────────────────────────────────
+  // The epilogue names the command, and on a terminal init runs it, because
+  // the deck opened as a FILE is one where E, A and L all answer "needs
+  // decklight <deck>": the newcomer's first three keystrokes would hit the one
+  // command they have not seen yet. `--no-open` keeps the browser closed and
+  // nothing else: the server still starts. A run that is not on a terminal —
+  // a script, an agent, CI — never has a server started for it, since nobody
+  // is there to stop one; the epilogue is the whole handoff there. Everything
+  // init printed stays on screen above the deck's banner.
   rl?.close();
-  if (handoff === 'yes' && !asFile) {
-    const rel = path.relative(root, deckPath);
-    const cli = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
-    // the banner has been printed once, by this run; the child is the same version
-    const r = spawnSync(process.execPath, [cli, rel, '--open'],
-      { stdio: 'inherit', cwd: root, env: { ...process.env, DECKLIGHT_BANNER: '1' } });
-    return r.status ?? 0;
+  const noOpen = argv.includes('--no-open');
+  // A self-contained --inline deck (or one from a template) IS the
+  // presentation: there is no server to hand it to, so it opens as a file —
+  // last of the writes, so every "created/wrote" line is on screen before
+  // the browser steals focus. Off a terminal only a typed --open opens it:
+  // a browser nobody asked for is not what a script wants.
+  if (inline || from) {
+    if (!noOpen && (tty || argv.includes('--open'))) await openDeck(deckPath);
+    return undefined;
   }
-
-  // last of the writes, so every "created/wrote" line is on screen before the
-  // browser steals focus; opens the deck FILE, which for a self-contained
-  // deck is the presentation itself.
-  if (handoff === 'yes' && asFile) await openDeck(deckPath);
+  if (!tty) return undefined;
+  const rel = path.relative(root, deckPath);
+  const cli = fileURLToPath(new URL('./decklight.mjs', import.meta.url));
+  // the banner has been printed once, by this run; the child is the same version
+  const r = spawnSync(process.execPath, [cli, rel, ...(noOpen ? [] : ['--open'])],
+    { stdio: 'inherit', cwd: root, env: { ...process.env, DECKLIGHT_BANNER: '1' } });
+  return r.status ?? 0;
 }
 
 if (isMain(import.meta.url)) process.exitCode = await runMain('init', initMain);
