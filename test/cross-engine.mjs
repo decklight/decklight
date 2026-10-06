@@ -92,12 +92,11 @@ const check = (label, cond, detail = '') => {
 async function drive(browser, origin) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   // An uncaught exception is always the deck's fault. A console error is not:
-  // the runtime probes `/deck/ping` and `/deck/ping` to find out whether it
-  // is being authored or presented, and a deck opened without either server
-  // gets a 404 BY DESIGN — WebKit reports that as a console error and Gecko
+  // the runtime probes `/deck/ping` to find out whether a server is behind it
+  // and in which mode, and a deck opened without one gets a 404 BY DESIGN — WebKit reports that as a console error and Gecko
   // does not, which is a difference between engines' logging and not between
   // their rendering.
-  const benign = /\/(edit|present)\/ping/;
+  const benign = /\/deck\/ping/;
   const errors = [];
   page.on('console', (m) => {
     if (m.type() === 'error' && !benign.test(m.text() + m.location().url)) errors.push(m.text());
