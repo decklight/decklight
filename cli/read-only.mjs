@@ -33,7 +33,8 @@ import { resolve, sep, basename, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { argReader, firstPositional, isMain, parsePort, badPort } from '../tools/args.mjs';
 import { deckFromUrl } from './clone-deck.mjs';
-import { allowRemote, lanAddress, staticFiles, sseChannel, listenTakingOverIfNeeded, withHeaders, isOwnOrigin } from './serve.mjs';
+import { allowRemote, lanAddress, staticFiles, listenTakingOverIfNeeded, withHeaders, isOwnOrigin } from './serve.mjs';
+import { createDeckRoutes } from './deck-routes.mjs';
 import { createRemoteRelay } from './remote.mjs';
 import { corsHeaders, readBody } from '../tools/bridge.mjs';
 
@@ -499,12 +500,20 @@ export async function readOnlyMain(args, { client } = {}) {
     return resolve(root, '.' + rel) === deckPath;
   };
 
-  // Two one-way channels, kept apart on purpose. `decks` is what a deck served
-  // by this server subscribes to, and the ONLY event it ever carries is
-  // `remote` — no `reload`, no `agent`, because neither exists here and a
-  // presenting server that could tell a deck to reload would be an editing
-  // server with the writes left out. The phone's own stream lives in the relay.
-  const decks = sseChannel();
+  // The review routes (SPEC REVIEW): a comment lands in the sidecar, committed
+  // by itself as it lands (not with --no-git), and the deck is never touched.
+  const inRepo = gitAvailable(dirname(deckPath)) && inGitRepo(dirname(deckPath));
+  const review = createReviewRoutes(deckPath, { inRepo, gitOn: inRepo && !args.includes('--no-git'), mode: 'read-only' });
+  // The deck's channel (deck-routes.mjs): the probe, answered read-only and
+  // locked with no agent roster and no edit capability — there is nothing
+  // here that edits — and the stream. Two one-way channels, kept apart on
+  // purpose: `decks` is what a deck served by this server subscribes to, and
+  // the ONLY events it ever carries are `remote` and the upstream's — no
+  // `reload`, no `agent`, because neither exists here and a presenting
+  // server that could tell a deck to reload would be an editing server with
+  // the writes left out. The phone's own stream lives in the relay.
+  const deckRoutes = createDeckRoutes(deckPath, { readOnly: true, review, extras: () => ({ remote: !!token }) });
+  const decks = deckRoutes.channel;
   let actualPort = null;
   const relay = createRemoteRelay({
     deckName: basename(deckPath),
@@ -633,8 +642,42 @@ export async function readOnlyMain(args, { client } = {}) {
   // still gets to say something. The sidecar beside the deck is the ONE file
   // this process writes, committed by itself as each comment lands when the
   // deck sits in a repository (`--no-git` leaves the committing to you).
-  const inRepo = gitAvailable(dirname(deckPath)) && inGitRepo(dirname(deckPath));
-  const review = createReviewRoutes(deckPath, { inRepo, gitOn: inRepo && !args.includes('--no-git'), mode: 'read-only' });
+  // ── the route table ──────────────────────────────────────────────────
+  // Keyed `METHOD /path`, like the edit server's: the deck's channel and the
+  // shared review routes (both servers'), then what this mode alone has. The
+  // upstream routes are REGISTERED ONLY when the deck is a tracked file in a
+  // clone whose branch tracks something (READ_ONLY#UPSTREAM): on a deck you
+  // were emailed they are not refused, they do not exist — a POST lands on
+  // the same 405 as a POST to anything else, which is the argument the
+  // module header makes about /edit/*. No CORS on any of those: /deck/ping
+  // and /deck/events carry it because the phone's origin differs, and the
+  // phone has no business here in either direction.
+  const routes = new Map(deckRoutes.routes);
+  for (const key of ['GET /review/comments', 'POST /review/comments', 'POST /review/submit']) {
+    routes.set(key, ({ req, res, url, body }) => review.handle(req, res, url, body ?? ''));
+  }
+  if (upstream) {
+    routes.set('GET /deck/upstream', ({ json }) => json(200, { ok: true, ...upstreamStatus, pull: pullOffer() }));
+    routes.set('POST /deck/upstream/check', ({ req, res, json }) => {
+      if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
+      return refreshUpstream().then(() => json(200, { ok: true, ...upstreamStatus, pull: pullOffer() }));
+    });
+  }
+  if (pullArmed) {
+    routes.set('POST /deck/upstream/pull', ({ req, res, json }) => {
+      // The strict gate, not allowEditRequest: `null` is a sandboxed plugin
+      // frame's origin, and presenter chrome must not be able to fast-forward
+      // the presenter's repository.
+      if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
+      // The body is never read. Not validated — READ. No field of the request
+      // reaches git or the filesystem; the repository, the branch and
+      // `@{upstream}` are all constants resolved before the server existed.
+      return doPull().then((out) => json(out.ok ? 200 : (out.http ?? 409), out));
+    });
+  }
+  // How much of a POST's body a route reads: a comment is prose, so its cap
+  // is the comment's, not the remote's; every other route reads none.
+  const BODY_MAX = new Map([['POST /review/comments', REVIEW_BODY_MAX]]);
 
   const server = createServer(withHeaders({ 'content-security-policy': CSP }, (req, res) => {
     // Loopback always; off-loopback only /remote/* carrying the per-run token,
@@ -664,60 +707,18 @@ export async function readOnlyMain(args, { client } = {}) {
     // it is being presented rather than authored, and the answer deliberately
     // carries no agent roster and no edit capability — there is nothing here to
     // report about editing, because there is nothing here that edits.
-    if (review.matches(req, url)) {
-      // a comment is prose, so its cap is the comment's, not the remote's
-      if (req.method !== 'POST') { review.handle(req, res, url, ''); return; }
-      readBody(req, { max: REVIEW_BODY_MAX }).then((bytes) => review.handle(req, res, url, bytes.toString()))
+    const key = `${req.method} ${url.pathname}`;
+    const handler = routes.get(key);
+    if (handler) {
+      const json = (code, obj, headers = {}) => {
+        res.writeHead(code, { ...headers, 'content-type': 'application/json', 'cache-control': 'no-cache' });
+        res.end(JSON.stringify(obj));
+      };
+      const ctx = { req, res, url, json, CORS };
+      const max = BODY_MAX.get(key);
+      if (max === undefined) { handler(ctx); return; }
+      readBody(req, { max }).then((bytes) => handler({ ...ctx, body: bytes.toString() }))
         .catch(() => { /* too large: destroyed by the reader */ });
-      return;
-    }
-    // ── the deck's own channel: what both modes serve (PRESENTING) ───────
-    // /deck/ping is the one probe every served deck makes, and this server
-    // answers it saying it is read-only: a GET that reports, and the write
-    // routes it reports the absence of are as absent as ever. /deck/events is
-    // the stream every tab of the deck listens on (the remote's taps, the
-    // upstream's news). Neither is an /edit/ route: nothing under /edit/ is
-    // registered here, and the test pins that by the path literal.
-    if (req.method === 'GET' && url.pathname === '/deck/ping') {
-      res.writeHead(200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-cache' });
-      res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, readOnly: true, locked: true, review: review.ping() }));
-      return;
-    }
-    if (req.method === 'GET' && url.pathname === '/deck/events') { decks.add(req, res, CORS); return; }
-    // ── the upstream (READ_ONLY#UPSTREAM) ─────────────────────────────────
-    // REGISTERED ONLY when the deck is a tracked file in a clone whose branch
-    // tracks something. On a deck you were emailed these are not refused, they
-    // do not exist — a POST lands on the same 405 as a POST to anything else,
-    // which is the argument the module header already makes about /edit/*.
-    //
-    // No CORS on any: /deck/ping and /deck/events carry it because the
-    // phone's origin differs, and the phone has no business here in either
-    // direction.
-    if (upstream && req.method === 'GET' && url.pathname === '/deck/upstream') {
-      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-cache' });
-      res.end(JSON.stringify({ ok: true, ...upstreamStatus, pull: pullOffer() }));
-      return;
-    }
-    if (upstream && req.method === 'POST' && url.pathname === '/deck/upstream/check') {
-      if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
-      refreshUpstream().then(() => {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, ...upstreamStatus, pull: pullOffer() }));
-      });
-      return;
-    }
-    if (pullArmed && req.method === 'POST' && url.pathname === '/deck/upstream/pull') {
-      // The strict gate, not allowEditRequest: `null` is a sandboxed plugin
-      // frame's origin, and presenter chrome must not be able to fast-forward
-      // the presenter's repository.
-      if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
-      // The body is never read. Not validated — READ. No field of the request
-      // reaches git or the filesystem; the repository, the branch and
-      // `@{upstream}` are all constants resolved before the server existed.
-      doPull().then((out) => {
-        res.writeHead(out.ok ? 200 : (out.http ?? 409), { 'content-type': 'application/json' });
-        res.end(JSON.stringify(out));
-      });
       return;
     }
     // The phone remote: controller, QR, readout channel. These are the only

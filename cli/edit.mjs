@@ -113,6 +113,7 @@ import { registerSlideRoutes } from './edit-slides.mjs';
 import { classifyScripts } from './audit.mjs';
 import { reviewPathFor, parseReview, serializeRecord, newId } from './review-store.mjs';
 import { createReviewRoutes } from './review-routes.mjs';
+import { createDeckRoutes } from './deck-routes.mjs';
 // The arbiters of what a comment IS, shared with the read-only server so two
 // writers cannot put two shapes into one union-merged file.
 import { commentProblem, reviewRecord } from './review-routes.mjs';
@@ -120,7 +121,7 @@ import { foldReview } from '../tools/review-anchor.mjs';
 import { recordingImpact, impactWarning, slidesFromFiles } from '../tools/recording-impact.mjs';
 import { indexDeckFile, slideTextOf, knowsCommit } from './comments.mjs';
 import { deckHistory, decorateHistory, restoreDeck, deckAt, withBaseHref } from './restore.mjs';
-import { escapeHtml, sseChannel, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
+import { escapeHtml, staticFiles, listenTakingOverIfNeeded, allowEditRequest } from './serve.mjs';
 import { reviewsWaiting, reviewLine, reviewCheckSuppressed, setCommentDone } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 
@@ -1236,8 +1237,39 @@ export async function editMain(args, { onListen = null } = {}) {
 
   // ── live reload: watch the deck, broadcast SSE (debounced — editors fire
   // multiple fs events per save) ─────────────────────────────────────────
-  const clients = sseChannel();
-  const broadcast = (event, data) => clients.broadcast(event, data);
+  // The review routes (SPEC REVIEW), the same ones every server that opens a
+  // deck registers: a review can be left in write mode too. The sidecar is
+  // appended, never the deck; here it is not committed by itself, because the
+  // deck's own commits (the snapshot, K) are what this server keeps.
+  const review = createReviewRoutes(deckPath, { inRepo: inGitRepo(root), gitOn: false, mode: 'write' });
+  // The deck's channel (deck-routes.mjs): the probe and the stream, the same
+  // two routes the read-only server registers. What write mode adds to the
+  // probe is `extras`, computed on every ping like everything else on it: the
+  // toast is threshold-driven, not live.
+  const deck = createDeckRoutes(deckPath, {
+    readOnly: false,
+    locked: () => locked,
+    review,
+    extras: async () => ({
+      deck: deckUrl,
+      ...history.counts(), git: gitOn,
+      // What the player's one push nudge reads. Computed once, like everything
+      // else on ping: the toast is threshold-driven, not live.
+      remote: gitOn ? remoteState(root) : null,
+      agents: agents.map((a) => ({ name: a.name, label: a.label })),
+      // which one A reaches for, so the picker opens on it rather than
+      // defaulting to the first detected agent every session (#125)
+      preferredAgent: agentPref ?? null,
+      agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt, id: agentJob.id },
+      agentAsks,
+      wizards: await configurableEngines(),
+      // What is uncommitted, so a deck that loads mid-session shows the
+      // chip without waiting for the next tick to broadcast one.
+      commit: (gitOn && measureDirty(), commitState()),
+    }),
+  });
+  const clients = deck.channel;
+  const broadcast = deck.broadcast;
 
   // ── the catalogs, read from cache and never fetched ──────────────────────
   const catalogMap = async () => {
@@ -1565,34 +1597,6 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     return json(200, { ok: true, locked });
   }
-  async function pingRoute({ json }) {
-    return json(200, {
-      ok: true, deck: deckUrl, name: basename(deckPath), readOnly: false, locked,
-      ...history.counts(), git: gitOn,
-      // what a page needs to know before it comments (REVIEW): the one probe
-      // says it, in both modes
-      review: review.ping(),
-      // What the player's one push nudge reads. Computed once, like everything
-      // else on ping: the toast is threshold-driven, not live.
-      remote: gitOn ? remoteState(root) : null,
-      agents: agents.map((a) => ({ name: a.name, label: a.label })),
-      // which one A reaches for, so the picker opens on it rather than
-      // defaulting to the first detected agent every session (#125)
-      preferredAgent: agentPref ?? null,
-      agentBusy: agentJob && { agent: agentJob.agent, prompt: agentJob.prompt, startedAt: agentJob.startedAt, id: agentJob.id },
-      agentAsks,
-      wizards: await configurableEngines(),
-      // What is uncommitted, so a deck that loads mid-session shows the
-      // chip without waiting for the next tick to broadcast one.
-      commit: (gitOn && measureDirty(), commitState()),
-    });
-  }
-
-  function eventsRoute({ req, res, CORS }) {
-    clients.add(req, res, CORS);
-    return;
-  }
-
   function shutdownRoute({ res, json, CORS }) {
     res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
@@ -3012,12 +3016,10 @@ export async function editMain(args, { onListen = null } = {}) {
   // sequence DOES still matter say so out loud rather than by position
   // (`BEFORE_BODY`, and the prefix list below).
   const routes = new Map(Object.entries({
-    'GET /deck/ping': pingRoute,
     'POST /edit/lock': lockRoute,
     // the voice bridge, on this origin (#520): `/tts` speaks, and everything
     // else of the bridge's lives under `/tts/` (the prefix list below)
     'POST /tts': ttsProxy,
-    'GET /deck/events': eventsRoute,
     'POST /edit/shutdown': shutdownRoute,
     'POST /edit/undo': undoRedoRoute,
     'POST /edit/redo': undoRedoRoute,
@@ -3115,11 +3117,8 @@ export async function editMain(args, { onListen = null } = {}) {
     { method: 'POST', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
   ];
 
-  // The review routes (SPEC REVIEW), the same four every server that opens a
-  // deck registers: a review can be left in write mode too. The sidecar is
-  // appended, never the deck; here it is not committed by itself, because the
-  // deck's own commits (the snapshot, K) are what this server keeps.
-  const review = createReviewRoutes(deckPath, { inRepo: inGitRepo(root), gitOn: false, mode: 'write' });
+  // the deck's channel and the shared review routes, beside this server's own
+  for (const [key, handler] of deck.routes) routes.set(key, handler);
   for (const key of ['GET /review/comments', 'POST /review/comments', 'POST /review/submit']) {
     routes.set(key, ({ req, res, url, body }) => review.handle(req, res, url, body ?? ''));
   }
@@ -3142,8 +3141,8 @@ export async function editMain(args, { onListen = null } = {}) {
     }
     try {
       const url = new URL(req.url, 'http://x');
-      const json = (code, obj) => {
-        res.writeHead(code, { ...CORS, 'content-type': 'application/json' });
+      const json = (code, obj, headers = {}) => {
+        res.writeHead(code, { ...CORS, ...headers, 'content-type': 'application/json' });
         res.end(JSON.stringify(obj));
       };
       if (req.method === 'OPTIONS') { res.writeHead(204, CORS); return res.end(); }
