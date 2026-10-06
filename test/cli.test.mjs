@@ -239,7 +239,7 @@ test('init HTML-escapes the title where it lands (<title> and the h1)', () => {
 
 test('init without a title never prompts when stdio is not a TTY', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-'));
-  const r = spawnSync('node', [CLI, 'init', '--dir', dir, '--no-skill'], { encoding: 'utf8', input: '' });
+  const r = spawnSync('node', [CLI, 'init', '--dir', dir, '--no-skill'], { encoding: 'utf8', timeout: 60_000, input: '' });
   assert.equal(r.status, 0);
   assert.doesNotMatch(r.stdout + r.stderr, /deck title/);
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>My Deck<\/title>/);
@@ -258,7 +258,7 @@ test('init on a real TTY prompts and takes the typed title', { skip: ptySkip }, 
   // is started that the test would have to stop.
   const r = spawnSync('/usr/bin/script',
     ['-qec', `node "${CLI}" init --dir "${dir}" --no-skill --inline --no-open`, '/dev/null'],
-    { encoding: 'utf8', input: 'Ship & Tell\nn\n' });
+    { encoding: 'utf8', timeout: 60_000, input: 'Ship & Tell\nn\n' });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /deck title \[My Deck\]:/);
   assert.match(fs.readFileSync(path.join(dir, 'deck.html'), 'utf8'), /<title>Ship &amp; Tell<\/title>/);
@@ -564,11 +564,13 @@ test('init --git still succeeds when git is missing from PATH', () => {
 test('init on a real TTY asks the git question; Y creates the repo and commits', { skip: ptySkip }, () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-init-git-'));
   const r = spawnSync('/usr/bin/script',
-    ['-qec', `node "${CLI}" init "Repo Talk" --dir "${dir}" --no-skill`, '/dev/null'],
-    { encoding: 'utf8', input: 'y\n', env: gitIdEnv });
+    // `--inline --no-open`: a self-contained deck opens as a file and --no-open
+    // keeps the browser closed, so init starts nothing the test would have to stop
+    ['-qec', `node "${CLI}" init "Repo Talk" --dir "${dir}" --no-skill --inline --no-open`, '/dev/null'],
+    { encoding: 'utf8', timeout: 60_000, input: 'y\n', env: gitIdEnv });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /create a git repository so every version of the deck is kept\? \[Y\/n\]/);
-  // init prints the command instead of asking, or starting anything
+  // a self-contained deck is the presentation: nothing is started for it
   assert.doesNotMatch(r.stdout, /start editing now\?/);
   assert.match(r.stdout, /decklight \S+\.html/, 'the command that starts editing is printed');
   assert.match(r.stdout, /\x1b\[36m/, 'the epilogue is accent-colored on a TTY');
@@ -871,7 +873,7 @@ test('init --no-skill with --global-skill is an error', () => {
 
 test('init without a TTY never asks the skill question — the project install is untouched', () => {
   const dir = mkdir();
-  const r = spawnSync('node', [CLI, 'init', 'Quiet Deck', '--dir', dir], { encoding: 'utf8', input: '' });
+  const r = spawnSync('node', [CLI, 'init', 'Quiet Deck', '--dir', dir], { encoding: 'utf8', timeout: 60_000, input: '' });
   assert.equal(r.status, 0);
   assert.doesNotMatch(r.stdout + r.stderr, /where should the skill go/);
   assert.doesNotMatch(r.stdout + r.stderr, /agent skill teaches/, 'no scope explanation either — output is byte-identical to before');
@@ -884,7 +886,7 @@ test('init without a TTY never asks the skill question — the project install i
 test('init --global-skill with no agent on PATH falls back to Claude Code; the project stays skill-free', () => {
   const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
   const r = spawnSync(process.execPath, [CLI, 'init', 'Global Deck', '--dir', dir, '--global-skill'],
-    { encoding: 'utf8', input: '', env: { ...fakeHomeEnv(home), PATH: empty } });
+    { encoding: 'utf8', timeout: 60_000, input: '', env: { ...fakeHomeEnv(home), PATH: empty } });
   assert.equal(r.status, 0);
   assert.doesNotMatch(r.stdout, /where should the skill go/, 'the flag suppresses the question');
   assert.doesNotMatch(r.stdout, /detected on PATH/, 'nothing was detected — no lie about it');
@@ -903,7 +905,7 @@ test('init --global-skill targets the PATH-detected agents, like bare `decklight
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-skillbin-'));
   fs.writeFileSync(path.join(bin, 'codex'), '#!/bin/sh\n', { mode: 0o755 });
   const r = spawnSync(process.execPath, [CLI, 'init', '--dir', dir, '--global-skill'],
-    { encoding: 'utf8', input: '', env: { ...fakeHomeEnv(home), PATH: bin } });
+    { encoding: 'utf8', timeout: 60_000, input: '', env: { ...fakeHomeEnv(home), PATH: bin } });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /detected on PATH: OpenAI Codex/);
   assert.match(r.stdout, /globally for OpenAI Codex/);
@@ -930,8 +932,8 @@ test('init --global-skill refreshes an existing global skill without demanding -
 test('init on a real TTY asks the skill scope, naming both paths; g installs globally', { skip: ptySkip }, () => {
   const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
   const r = spawnSync('/usr/bin/script',
-    ['-qec', `"${process.execPath}" "${CLI}" init "Global Talk" --dir "${dir}"`, '/dev/null'],
-    { encoding: 'utf8', input: 'g\nn\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
+    ['-qec', `"${process.execPath}" "${CLI}" init "Global Talk" --dir "${dir}" --inline --no-open`, '/dev/null'],
+    { encoding: 'utf8', timeout: 60_000, input: 'g\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /where should the skill go\? \[P\/g\]/);
   assert.match(r.stdout, /\.claude\/skills\/decklight/, 'the project path is named');
@@ -946,8 +948,8 @@ test('init on a real TTY asks the skill scope, naming both paths; g installs glo
 test('init on a real TTY: Enter keeps the project install, byte-for-byte', { skip: ptySkip }, () => {
   const home = mkdir(); const dir = mkdir(); const empty = emptyPath();
   const r = spawnSync('/usr/bin/script',
-    ['-qec', `"${process.execPath}" "${CLI}" init "Local Talk" --dir "${dir}"`, '/dev/null'],
-    { encoding: 'utf8', input: '\nn\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
+    ['-qec', `"${process.execPath}" "${CLI}" init "Local Talk" --dir "${dir}" --inline --no-open`, '/dev/null'],
+    { encoding: 'utf8', timeout: 60_000, input: '\nn\n', env: { ...fakeHomeEnv(home), PATH: empty, SHELL: '/bin/sh' } });
   assert.equal(r.status, 0);
   assert.match(r.stdout, /where should the skill go\? \[P\/g\]/);
   assert.match(r.stdout, /wrote \.claude\/skills\/decklight\/\{SKILL\.md,reference\.md\}/);
