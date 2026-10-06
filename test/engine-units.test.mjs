@@ -99,7 +99,7 @@ test('the bridge speaks with an INSTALLED engine — /ping reports it like any b
     const { base, log } = await startBridge(t, home);
     assert.match(log(), /azure-tts/, 'the startup line names the installed engine');
 
-    const ping = await (await fetch(`${base}/ping`)).json();
+    const ping = await (await fetch(`${base}/tts/ping`)).json();
     assert.equal(ping.ok, true);
     assert.equal(ping.engine, 'azure-tts');
     assert.equal(ping.model, 'neural');

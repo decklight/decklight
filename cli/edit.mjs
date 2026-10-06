@@ -23,14 +23,14 @@
 //   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
 //   POST /edit/layout          → { slide, layout }         write data-layout to the file
 //   POST /edit/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
-//   GET  /edit/template/list   → deck templates installed here, and what a marketplace offers
+//   GET  /edit/template/browse   → deck templates installed here, and what a marketplace offers
 //   GET  /edit/template/slides → ?name=   that template's slides, numbered, with what each needs
 //   POST /edit/template/add    → { ref }  install a template from a marketplace (UNITS#REST)
 //   POST /edit/template/insert → { name, slides, after }  its slides into THIS deck, one undo entry
 //   POST /edit/export          → { kind }   write the deck out as a file (the palette's hand-over rows)
 //   GET  /edit/publish/plan    → where publishing would put this deck, without putting it there
 //   POST /edit/publish         → bundle the deck and push it (the palette's Publish row)
-//   POST /edit/pptx            → 0.8.1's name for the PowerPoint half of it, kept for decks that ask
+//   GET  /edit/export/estimate → ?kind=bundle&theme=  how big that file would be, before it is written
 //   GET  /edit/element/source  → ?slide=&index=            an element's outerHTML, fresh from the file
 //   POST /edit/element/remove  → { slide, index }          delete that element
 //   POST /edit/element/content → { slide, index, html }    replace its outerHTML
@@ -897,7 +897,7 @@ function reviewerName(cwd = process.cwd()) {
 }
 
 export async function editMain(args, { onListen = null } = {}) {
-  // /edit/review/incoming's answer, briefly remembered (see the route).
+  // /review/incoming's answer, briefly remembered (see the route).
   let incomingCache = null;
   if (args.includes('--help') || args.includes('-h') || !args.filter((a) => !a.startsWith('-')).length) {
     console.log(`usage: node cli/edit.mjs <deck.html> [--port 8788] [--git | --no-git]
@@ -1569,6 +1569,9 @@ export async function editMain(args, { onListen = null } = {}) {
     return json(200, {
       ok: true, deck: deckUrl, name: basename(deckPath), readOnly: false, locked,
       ...history.counts(), git: gitOn,
+      // what a page needs to know before it comments (REVIEW): the one probe
+      // says it, in both modes
+      review: review.ping(),
       // What the player's one push nudge reads. Computed once, like everything
       // else on ping: the toast is threshold-driven, not live.
       remote: gitOn ? remoteState(root) : null,
@@ -1758,13 +1761,6 @@ export async function editMain(args, { onListen = null } = {}) {
   // append-only rule: this server may add a line (a resolve, a reply) and
   // may not rewrite one, because `merge=union` is what keeps two reviewers
   // from conflicting and an edit in place is what would break it.
-  function reviewListRoute({ json }) {
-    const store = reviewPathFor(deckPath);
-    if (!existsSync(store)) return json(200, { ok: true, records: [], skipped: 0 });
-    const { records, skipped } = parseReview(readFileSync(store, 'utf8'));
-    return json(200, { ok: true, records, skipped });
-  }
-
   // What reviews are waiting on the remote — the M overlay's incoming
   // section. This one is a fetch the author DID ask for: it runs behind
   // the keypress that just opened the overlay, on demand and nowhere else.
@@ -1839,93 +1835,6 @@ export async function editMain(args, { onListen = null } = {}) {
     incomingCache = null;
     console.log(`  review: ${branch} ${id} ${done ? 'marked done' : 'reopened'}`);
     return json(200, { ok: true, branch, id, done: !!done });
-  }
-
-  function reviewWriteRoute({ body, json }) {
-    const { op, re, body: text, slide, title, fp } = JSON.parse(body || '{}');
-    // A NEW comment — no `op`, no `re`. The author leaving one on their own
-    // deck (⇧M), which until now only a `decklight <deck> --read-only` server could
-    // take: the composer was gated on one answering, so an author had to
-    // start a second server on a second port, in a mode that would not let
-    // them edit the slide they were commenting on.
-    //
-    // Same file, same append-only rule, same record shape — through
-    // `commentProblem` and `reviewRecord`, which review-routes.mjs already exports
-    // and which are the arbiters of what a comment is. Two servers writing
-    // two shapes into one union-merged file is how a store stops parsing.
-    if (op === undefined && re === undefined) {
-      const input = { body: text, slide, title, fp };
-      const bad = commentProblem(input);
-      if (bad) return json(400, { ok: false, error: bad });
-      let deckAt = null;
-      try { deckAt = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(); }
-      catch { deckAt = null; }
-      const rec = reviewRecord(input, {
-        by: reviewerName(), at: new Date().toISOString(), deck: deckAt, id: newId(),
-      });
-      const store_ = reviewPathFor(deckPath);
-      try { appendFileSync(store_, `${serializeRecord(rec)}\n`); }
-      catch (e) { return json(500, { ok: false, error: oneline(e) }); }
-      if (gitOn) {
-        gitAutocommit(store_, root,
-          commitSubject(`review: ${rec.body}`, `review: a comment on ${basename(deckPath)}`));
-      }
-      console.log(`  review: comment on slide ${rec.slide} → ${basename(store_)}`);
-      return json(200, { ok: true, id: rec.id });
-    }
-    if (typeof re !== 'string' || !/^[a-z0-9]{1,12}$/.test(re)) {
-      return json(400, { ok: false, error: 'bad comment id' });
-    }
-    if (op === 'anchor') {
-      // moving a comment to the slide the author is looking at — the
-      // reconciliation for a slide that was deleted or rewritten past
-      // what fingerprint + title can find
-      const n = Number(slide);
-      if (!Number.isInteger(n) || n < 1 || n > 9999) return json(400, { ok: false, error: 'an anchor needs a slide' });
-      if (title !== undefined && (typeof title !== 'string' || title.length > 500)) return json(400, { ok: false, error: 'bad title' });
-      if (fp !== undefined && (typeof fp !== 'string' || !/^[0-9a-f]{1,16}$/.test(fp))) return json(400, { ok: false, error: 'bad fingerprint' });
-    } else if (op !== 'resolve' && !(typeof text === 'string' && text.trim() && text.length <= 4000)) {
-      return json(400, { ok: false, error: 'a reply needs something in it' });
-    }
-    const store = reviewPathFor(deckPath);
-    // A reply is a new statement about the deck and carries which version it
-    // was made against, exactly as a comment does. A resolve does not: it is
-    // about the comment, not about the slide.
-    let at = null;
-    try { at = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(); }
-    catch { at = null; }
-    const rec = op === 'anchor'
-      ? {
-        op: 'anchor',
-        re,
-        slide: Number(slide),
-        ...(title !== undefined ? { title } : {}),
-        ...(fp !== undefined ? { fp } : {}),
-        at: new Date().toISOString(),
-        by: reviewerName(),
-      }
-      : op === 'resolve'
-        ? { op: 'resolve', re, at: new Date().toISOString(), by: reviewerName() }
-        : {
-        id: newId(),
-        at: new Date().toISOString(),
-        by: reviewerName(),
-        ...(at ? { deck: at } : {}),
-        re,
-        body: text,
-      };
-    try { appendFileSync(store, `${serializeRecord(rec)}\n`); }
-    catch (e) { return json(500, { ok: false, error: oneline(e) }); }
-    if (gitOn) {
-      gitAutocommit(store, root, op === 'anchor'
-        ? commitSubject(`review: move ${re} to slide ${rec.slide}`, 'review: re-anchor a comment')
-        : op === 'resolve'
-          ? commitSubject(`review: resolve ${re}`, 'review: resolve a comment')
-          : commitSubject(`review: reply to ${re}`, 'review: a reply'));
-    }
-    console.log(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}`
-      : op === 'resolve' ? `resolved ${re}` : `replied to ${re}`}`);
-    return json(200, { ok: true });
   }
 
   // ── marketplace themes, and marking (THEME_BROWSE#UI) ─────────────────
@@ -2150,13 +2059,16 @@ export async function editMain(args, { onListen = null } = {}) {
   // whether this deck references it, with the faces a preview needs — the
   // font picker's marketplace rows. Cache-only, like the theme browse.
   /**
-   * GET /edit/bundle/estimate — how big the bundle would be, before it is
-   * written: the file without its audio (`base`), and what each way of
-   * carrying the narration's recorded audio would add (cli/bundle-audio.mjs),
-   * so the bundle card can say "Opus — ≈ 2.1 MB" before anybody chooses.
-   * `audio` is null for a deck with no recorded audio on this disk.
+   * GET /edit/export/estimate?kind=bundle — how big an export would be, before
+   * it is written. Only the bundle has one today: the file without its audio
+   * (`base`), and what each way of carrying the narration's recorded audio
+   * would add (cli/bundle-audio.mjs), so the bundle card can say "Opus — ≈ 2.1
+   * MB" before anybody chooses. `audio` is null for a deck with no recorded
+   * audio on this disk.
    */
-  async function bundleEstimateRoute({ url, json }) {
+  async function exportEstimateRoute({ url, json }) {
+    const kind = url.searchParams.get('kind');
+    if (kind !== 'bundle') return json(400, { ok: false, error: `no estimate for ${kind ?? 'that'} — only a bundle has one` });
     const theme = url.searchParams.get('theme');
     if (theme != null && !THEME_NAME.test(theme)) return json(400, { ok: false, error: 'the theme is a theme name' });
     const { bundleMain } = await import('./bundle.mjs');
@@ -2735,11 +2647,8 @@ export async function editMain(args, { onListen = null } = {}) {
    *   chip rides, and the deck rewrites its one progress row from it.
    */
   async function exportRoute({ url, body, json }) {
-    // `/edit/pptx` was 0.8.1's name for the PowerPoint half. A deck carries
-    // its OWN copy of the runtime, so a deck written then and opened under
-    // this server still asks for that path; it costs one `||` to answer.
-    const req = url.pathname === '/edit/pptx' ? {} : JSON.parse(body || '{}');
-    const kind = url.pathname === '/edit/pptx' ? 'pptx' : (req.kind ?? 'pptx');
+    const req = JSON.parse(body || '{}');
+    const kind = req.kind ?? 'pptx';
     const job = EXPORT_KINDS[kind];
     if (!job) {
       return json(400, { ok: false, error: `not a file this server writes: ${kind} — try ${Object.keys(EXPORT_KINDS).join(', ')}` });
@@ -3105,11 +3014,9 @@ export async function editMain(args, { onListen = null } = {}) {
   const routes = new Map(Object.entries({
     'GET /deck/ping': pingRoute,
     'POST /edit/lock': lockRoute,
-    // the voice bridge, on this origin (#520): the runtime derives every one
-    // of these from `/tts`, exactly as it derives them from the bridge's URL
-    'POST /tts': ttsProxy, 'GET /ping': ttsProxy, 'GET /engines': ttsProxy,
-    'POST /engine': ttsProxy, 'GET /voices': ttsProxy, 'POST /voices/install': ttsProxy,
-    'GET /voices/library': ttsProxy, 'POST /voices/library/add': ttsProxy,
+    // the voice bridge, on this origin (#520): `/tts` speaks, and everything
+    // else of the bridge's lives under `/tts/` (the prefix list below)
+    'POST /tts': ttsProxy,
     'GET /deck/events': eventsRoute,
     'POST /edit/shutdown': shutdownRoute,
     'POST /edit/undo': undoRedoRoute,
@@ -3120,14 +3027,14 @@ export async function editMain(args, { onListen = null } = {}) {
     'POST /edit/commit/subject': commitSubjectRoute,
     'POST /edit/commit/dismiss': commitDismissRoute,
     'GET /edit/history': historyRoute,
-    'GET /edit/at': deckAtRoute,
+    'GET /edit/history/at': deckAtRoute,
     'POST /edit/restore': restoreRoute,
 
-    'GET /edit/review': reviewListRoute,
-    'POST /edit/review': reviewWriteRoute,
-    'GET /edit/review/incoming': reviewIncomingRoute,
-    'GET /edit/review/at': reviewAtRoute,
-    'POST /edit/review/done': reviewDoneRoute,
+    // the owner's half of a review (REVIEW): registered here alone, beside
+    // the routes both servers share
+    'GET /review/incoming': reviewIncomingRoute,
+    'GET /review/at': reviewAtRoute,
+    'POST /review/done': reviewDoneRoute,
 
     'GET /edit/theme/browse': themeBrowseRoute,
     'POST /edit/theme/add': themeAddRoute,
@@ -3136,13 +3043,12 @@ export async function editMain(args, { onListen = null } = {}) {
     'POST /edit/design-system/mark': designSystemMarkRoute,
     'POST /edit/design-system/apply': designSystemApplyRoute,
     'GET /edit/font/browse': fontBrowseRoute,
-    'GET /edit/bundle/estimate': bundleEstimateRoute,
     'POST /edit/font/mark': fontMarkRoute,
     'GET /edit/wizard': wizardSchemaRoute,
     'POST /edit/wizard': wizardConfigureRoute,
     'POST /edit/wizard/forget': wizardForgetRoute,
 
-    'GET /edit/template/list': templateListRoute,
+    'GET /edit/template/browse': templateListRoute,
     'GET /edit/template/slides': templateSlidesRoute,
     'GET /edit/template/preview': templatePreviewRoute,
     'POST /edit/template/apply': templateApplyRoute,
@@ -3153,7 +3059,7 @@ export async function editMain(args, { onListen = null } = {}) {
     'GET /edit/tracks': tracksRoute,
 
     'POST /edit/export': exportRoute,
-    'POST /edit/pptx': exportRoute,        // 0.8.1's name for it — see the handler
+    'GET /edit/export/estimate': exportEstimateRoute,
     'GET /edit/publish/plan': publishPlanRoute,
     'POST /edit/publish': publishRoute,
 
@@ -3185,7 +3091,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // different payload — an image dropped on the stage, read under its own
   // 25 MB limit. The other three carry no body, and never had one read for them.
   const BEFORE_BODY = new Set([
-    'POST /tts', 'POST /engine', 'POST /voices/install', 'POST /voices/library/add',
+    'POST /tts',
     'POST /edit/record', 'POST /edit/asset',
     'POST /edit/shutdown', 'POST /edit/undo', 'POST /edit/redo',
   ]);
@@ -3196,6 +3102,12 @@ export async function editMain(args, { onListen = null } = {}) {
   // first route that needs a prefix has somewhere to go other than the bottom
   // of the dispatcher, where the chain used to grow.
   const PREFIX_ROUTES = [   // { method, prefix, handler }
+    // the voice bridge's own routes, on this origin: /tts/ping, /tts/engines,
+    // /tts/voices… — forwarded as they are, since the bridge serves the same
+    // paths itself. Nothing of the bridge's sits at the root, where it would
+    // shadow a file beside the deck (`voices/` is the narration's folder).
+    { method: 'GET', prefix: '/tts/', handler: ttsProxy, beforeBody: true },
+    { method: 'POST', prefix: '/tts/', handler: ttsProxy, beforeBody: true },
     // the lip-sync bridge, on this origin (#520): `/lipsync/ping`, `/viseme`, `/video`
     // the audio a POST carries is binary and can pass the body cap, so it
     // streams through unread, like /edit/record's
@@ -3208,7 +3120,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // appended, never the deck; here it is not committed by itself, because the
   // deck's own commits (the snapshot, K) are what this server keeps.
   const review = createReviewRoutes(deckPath, { inRepo: inGitRepo(root), gitOn: false, mode: 'write' });
-  for (const key of ['GET /review/ping', 'GET /review/comments', 'POST /review/comments', 'POST /review/submit']) {
+  for (const key of ['GET /review/comments', 'POST /review/comments', 'POST /review/submit']) {
     routes.set(key, ({ req, res, url, body }) => review.handle(req, res, url, body ?? ''));
   }
 

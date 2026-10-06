@@ -40,16 +40,18 @@ export async function identifyEditServer(port, host = '127.0.0.1') {
 }
 
 /**
- * The same question for a BRIDGE — the voice and lip-sync servers answer
- * `/ping`, not `/deck/ping`, so an edit-server probe reports them as strangers
- * and the offer to take the port over never appears.
+ * The same question for a BRIDGE — the voice bridge answers `/tts/ping` and
+ * the lip-sync bridge `/ping`, not `/deck/ping`, so an edit-server probe
+ * reports them as strangers and the offer to take the port over never
+ * appears.
  *
  * Returns the same shape the caller already handles: something with a `name`
  * to put in a sentence.
  */
 export async function identifyBridge(port, host = '127.0.0.1') {
   try {
-    const res = await fetch(`http://${host}:${port}/ping`, { signal: AbortSignal.timeout(800) });
+    let res = await fetch(`http://${host}:${port}/tts/ping`, { signal: AbortSignal.timeout(800) });
+    if (!res.ok) res = await fetch(`http://${host}:${port}/ping`, { signal: AbortSignal.timeout(800) });
     if (!res.ok) return null;
     const d = await res.json();
     if (!d?.ok) return null;

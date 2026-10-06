@@ -4,12 +4,19 @@
 // The review routes — SPEC REVIEW — as one thing every server that opens a
 // deck registers, whichever way it was opened:
 //
-//   GET  /review/ping        who am I looking at, and whether comments commit
 //   GET  /review/comments    what has been said
-//   POST /review/comments    say one thing
+//   POST /review/comments    append one record: a comment, a reply (`re`),
+//                            a resolve or a re-anchor (`op`)
 //   POST /review/submit      push what was said to a branch of its own
 //
-// They used to be the whole of `decklight <deck> --read-only`'s server. A review is now
+// What a page needs to know before it comments (`review` on /deck/ping: the
+// mode, whether comments commit, who is writing, the store) comes from
+// `ping()` here too. The edit server adds the owner's routes beside these
+// (/review/incoming, /review/at, /review/done: a fetch, a look into git
+// history, a mark in git config), registered by it alone, the way the
+// read-only server alone registers /deck/upstream.
+//
+// A review is
 // something you can do in either mode of the one server: read-only, where the
 // sidecar is the only file the process will ever write, and write mode, where
 // it is one file among the deck's own. What is written is the same either way:
@@ -103,7 +110,8 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
     res.end(JSON.stringify(body));
   };
 
-  const ping = () => ({ ok: true, name, review: true, mode, git: gitOn, by: by || null, store: storeName });
+  /** The `review` block of /deck/ping: what a page needs to know before it comments. */
+  const ping = () => ({ mode, git: gitOn, by: by || null, store: storeName });
   const list = () => {
     const text = existsSync(storePath) ? readFileSync(storePath, 'utf8') : '';
     const { records, skipped } = parseReview(text);
@@ -111,28 +119,64 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
     // comments than the file holds should be able to say so.
     return { ok: true, records, skipped };
   };
-  /** Store one comment: `{ ok, id, committed }`, or `{ ok: false, error, code }`. */
-  const post = (body) => {
-    let input;
-    try { input = JSON.parse(body || '{}'); } catch { return { ok: false, code: 400, error: 'bad payload' }; }
-    const bad = commentProblem(input);
-    if (bad) return { ok: false, code: 400, error: bad };
-    const rec = reviewRecord(input, { by, at: new Date().toISOString(), deck: deckHead(), id: newId() });
+  /** Append one record, commit it when this mode commits; `{ ok, id?, committed }` or `{ ok: false, error, code }`. */
+  const append = (rec, subject) => {
     try {
       // Append, never rewrite — that is what makes `merge=union` work and a
       // second reviewer harmless.
       appendFileSync(storePath, `${serializeRecord(rec)}\n`);
     } catch (e) { return { ok: false, code: 500, error: oneline(e) }; }
-    let committed = false;
-    if (gitOn) {
-      // The reviewer's own prose reaching a command line, so it goes through
-      // the sanitizer every other untrusted subject does: one line, capped,
-      // never leading `-`.
-      const subject = commitSubject(`review: ${rec.body}`, `review: a comment on ${name}`);
-      committed = gitAutocommit(storePath, deckDir, subject);
+    // The reviewer's own prose reaching a command line, so it goes through
+    // the sanitizer every other untrusted subject does: one line, capped,
+    // never leading `-`.
+    const committed = gitOn ? gitAutocommit(storePath, deckDir, subject) : false;
+    return { ok: true, ...(rec.id ? { id: rec.id } : {}), committed };
+  };
+  /**
+   * Store one record: a NEW comment (no `op`, no `re`), a reply (`re`, with a
+   * body), a resolve (`op: 'resolve', re`) or a re-anchor (`op: 'anchor', re,
+   * slide`: a comment moved to the slide somebody is looking at, the
+   * reconciliation for a slide deleted or rewritten past what fingerprint and
+   * title can find). All four are appends: this file is never rewritten.
+   */
+  const post = (body) => {
+    let input;
+    try { input = JSON.parse(body || '{}'); } catch { return { ok: false, code: 400, error: 'bad payload' }; }
+    const { op, re, body: text, slide, title, fp } = input;
+    if (op === undefined && re === undefined) {
+      const bad = commentProblem(input);
+      if (bad) return { ok: false, code: 400, error: bad };
+      const rec = reviewRecord(input, { by, at: new Date().toISOString(), deck: deckHead(), id: newId() });
+      const r = append(rec, commitSubject(`review: ${rec.body}`, `review: a comment on ${name}`));
+      if (r.ok) out.write(`  comment on slide ${rec.slide} → ${storeName}${r.committed ? ' (committed)' : ''}\n`);
+      return r;
     }
-    out.write(`  comment on slide ${rec.slide ?? '—'} → ${storeName}${committed ? ' (committed)' : ''}\n`);
-    return { ok: true, id: rec.id, committed };
+    if (typeof re !== 'string' || !/^[a-z0-9]{1,12}$/.test(re)) return { ok: false, code: 400, error: 'bad comment id' };
+    if (op === 'anchor') {
+      const n = Number(slide);
+      if (!Number.isInteger(n) || n < 1 || n > 9999) return { ok: false, code: 400, error: 'an anchor needs a slide' };
+      if (title !== undefined && (typeof title !== 'string' || title.length > 500)) return { ok: false, code: 400, error: 'bad title' };
+      if (fp !== undefined && (typeof fp !== 'string' || !/^[0-9a-f]{1,16}$/.test(fp))) return { ok: false, code: 400, error: 'bad fingerprint' };
+    } else if (op !== 'resolve' && !(typeof text === 'string' && text.trim() && text.length <= 4000)) {
+      return { ok: false, code: 400, error: 'a reply needs something in it' };
+    }
+    const at = new Date().toISOString();
+    // A reply is a new statement about the deck and carries which version it
+    // was made against, exactly as a comment does. A resolve or an anchor does
+    // not: it is about the comment, not about the slide.
+    const head = deckHead();
+    const rec = op === 'anchor'
+      ? { op: 'anchor', re, slide: Number(slide), ...(title !== undefined ? { title } : {}), ...(fp !== undefined ? { fp } : {}), at, ...(by ? { by } : {}) }
+      : op === 'resolve'
+        ? { op: 'resolve', re, at, ...(by ? { by } : {}) }
+        : { id: newId(), at, ...(by ? { by } : {}), ...(head ? { deck: head } : {}), re, body: text };
+    const r = append(rec, op === 'anchor'
+      ? commitSubject(`review: move ${re} to slide ${rec.slide}`, 'review: re-anchor a comment')
+      : op === 'resolve'
+        ? commitSubject(`review: resolve ${re}`, 'review: resolve a comment')
+        : commitSubject(`review: reply to ${re}`, 'review: a reply'));
+    if (r.ok) out.write(`  review: ${op === 'anchor' ? `moved ${re} to slide ${rec.slide}` : op === 'resolve' ? `resolved ${re}` : `replied to ${re}`}${r.committed ? ' (committed)' : ''}\n`);
+    return r;
   };
   const submit = async () => {
     // The browser NEVER runs git: it asks, and this server — the only thing
@@ -153,11 +197,10 @@ export function createReviewRoutes(deckPath, { inRepo = false, gitOn = false, mo
   };
 
   /** Is `url` one of these routes? The caller reads the body (REVIEW_BODY_MAX) before `handle`. */
-  const matches = (req, url) => url.pathname === '/review/ping' || url.pathname === '/review/comments' || url.pathname === '/review/submit';
+  const matches = (req, url) => url.pathname === '/review/comments' || url.pathname === '/review/submit';
   /** Answer the request; true when it was one of these routes. `body` is the POST text. */
   async function handle(req, res, url, body = '') {
     if (!matches(req, url)) return false;
-    if (req.method === 'GET' && url.pathname === '/review/ping') { json(res, 200, ping()); return true; }
     if (req.method === 'GET' && url.pathname === '/review/comments') { json(res, 200, list()); return true; }
     if (req.method === 'POST' && url.pathname === '/review/comments') {
       const r = post(body);

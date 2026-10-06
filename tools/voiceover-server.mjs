@@ -337,7 +337,7 @@ export async function ttsMain(args) {
     // routes by PATH: `?engine=` rides the query (the edit server forwards it)
     const url = new URL(req.url, 'http://127.0.0.1');
     const asked = url.searchParams.get('engine') || null;
-    if (req.method === 'GET' && url.pathname === '/ping') {
+    if (req.method === 'GET' && url.pathname === '/tts/ping') {
       try { return sendJson(res, 200, await describe(await engineFor(asked))); }
       catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 500, { ok: false, error: String(e) }); }
     }
@@ -346,7 +346,7 @@ export async function ttsMain(args) {
     // FROZEN CONSTANT — no byte of the request reaches it. It opens a System
     // Settings pane and does nothing else; the download itself stays a human
     // clicking, which is the whole point of the pane.
-    if (req.method === 'POST' && url.pathname === '/voices/install') {
+    if (req.method === 'POST' && url.pathname === '/tts/voices/install') {
       if (process.platform !== 'darwin' && process.platform !== 'win32') { res.writeHead(404); return res.end(); }
       try {
         openVoiceSettings();
@@ -361,7 +361,7 @@ export async function ttsMain(args) {
       }
     }
     // ── which engine is speaking, and what else could (SPEC `NARRATION`) ──
-    if (req.method === 'GET' && url.pathname === '/engines') {
+    if (req.method === 'GET' && url.pathname === '/tts/engines') {
       // Ready or not, every engine is listed. Hiding the ones this machine
       // cannot use would answer "where did ElevenLabs go?" with silence — the
       // useful answer is that it is there and needs a key.
@@ -387,7 +387,7 @@ export async function ttsMain(args) {
     // decks built before `?engine=`, which switch the bridge this way; a
     // current deck names its engine on every request instead, and never calls
     // this, so no tab can switch another's voice (see `held` above).
-    if (req.method === 'POST' && url.pathname === '/engine') {
+    if (req.method === 'POST' && url.pathname === '/tts/engine') {
       let name;
       try { ({ engine: name } = JSON.parse((await readBody(req)).toString())); }
       catch { name = null; }
@@ -404,7 +404,7 @@ export async function ttsMain(args) {
     }
     // The voice LIBRARY (ElevenLabs): search by language — free, changes
     // nothing — and add one to the account, on the presenter's own ⏎.
-    if (req.method === 'GET' && url.pathname === '/voices/library') {
+    if (req.method === 'GET' && url.pathname === '/tts/voices/library') {
       try {
         const h = await engineFor(asked);
         if (!h.engine.searchLibrary) return sendJson(res, 404, { ok: false, error: `${h.engine.name} has no voice library — ElevenLabs does` });
@@ -415,7 +415,7 @@ export async function ttsMain(args) {
         return sendJson(res, 200, { ok: true, engine: h.engine.name, page, ...r });
       } catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 502, { ok: false, error: String(e.message ?? e) }); }
     }
-    if (req.method === 'POST' && url.pathname === '/voices/library/add') {
+    if (req.method === 'POST' && url.pathname === '/tts/voices/library/add') {
       try {
         const { engine: wanted, owner, id, name } = JSON.parse((await readBody(req)).toString());
         const h = await engineFor(wanted || asked);
@@ -425,7 +425,7 @@ export async function ttsMain(args) {
         return sendJson(res, 200, { ok: true, ...added, voices: await voiceRoster(h) });
       } catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 502, { ok: false, error: String(e.message ?? e) }); }
     }
-    if (req.method === 'GET' && url.pathname === '/voices') {
+    if (req.method === 'GET' && url.pathname === '/tts/voices') {
       try { return sendJson(res, 200, await voiceRoster(await engineFor(asked))); }
       catch (e) { return e?.status ? sendJson(res, e.status, e.body) : sendJson(res, 500, { ok: false, error: String(e) }); }
     }

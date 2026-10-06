@@ -457,7 +457,7 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
 
   // the presenting control channel exists…
   const ping = await (await fetch(base + '/deck/ping')).json();
-  assert.deepEqual(ping, { ok: true, name: 'talk.html', remote: true, readOnly: true, locked: true });
+  assert.deepEqual(ping, { ok: true, name: 'talk.html', remote: true, readOnly: true, locked: true, review: { mode: 'read-only', git: false, by: null, store: 'talk.review.jsonl' } });
   assert.equal(ping.agents, undefined, 'and reports no agent roster — there is nothing here that runs one');
 
   // …the controller and its QR are served…

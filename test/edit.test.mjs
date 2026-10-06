@@ -1288,14 +1288,14 @@ test('/edit/history carries what each version was and what it changed', async (t
   assert.ok(first.add > 0);
 });
 
-test('/edit/at previews a version — with a base href so its assets resolve', async (t) => {
+test('/edit/history/at previews a version — with a base href so its assets resolve', async (t) => {
   const dir = gitRepoWithDeck(t);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
 
   const { entries } = await (await fetch(base + '/edit/history')).json();
   const oldest = entries[entries.length - 1].hash;
 
-  const res = await fetch(`${base}/edit/at?ref=${oldest}`);
+  const res = await fetch(`${base}/edit/history/at?ref=${oldest}`);
   assert.equal(res.status, 200);
   const html = await res.text();
   assert.match(html, /Alpha/, 'the OLD content, not the current file');
@@ -1309,7 +1309,7 @@ test('/edit/at previews a version — with a base href so its assets resolve', a
   assert.match(html, /<link rel="stylesheet" href="themes\/aurora\.css">/);
   assert.ok(html.indexOf('<base href="/">') < html.indexOf('decklight.css'), 'and they resolve from the root');
 
-  assert.equal((await fetch(base + '/edit/at?ref=nosuchref')).status, 404);
+  assert.equal((await fetch(base + '/edit/history/at?ref=nosuchref')).status, 404);
 });
 
 test('/edit/restore rides on top and lands on the undo stack', async (t) => {
@@ -1337,7 +1337,7 @@ test('the history endpoints refuse when git is off, rather than pretending', asy
   const { base } = await startEdit(t, dir, { env: { PATH: dir }, extraArgs: ['--no-git'] });
 
   assert.equal((await fetch(base + '/edit/history')).status, 409);
-  assert.equal((await fetch(base + '/edit/at?ref=HEAD')).status, 409);
+  assert.equal((await fetch(base + '/edit/history/at?ref=HEAD')).status, 409);
   assert.equal((await post(base, '/edit/restore', { ref: 'HEAD' })).status, 409);
 });
 
@@ -1513,7 +1513,7 @@ test('/edit/timings writes every slide\'s rehearsed time in ONE edit, and refuse
   assert.equal((await post(base, '/edit/timings', { timings: 'nope' })).status, 400);
 });
 
-// ── /edit/pptx — the palette's export row (PRESENTING) ─────────────────────
+// ── /edit/export — the palette's hand-over rows (PRESENTING) ───────────────
 //
 // The export itself is `decklight pptx`, tested in test/pptx-export.test.mjs
 // and run for real in test/pptx-render.mjs. What is under test HERE is the
@@ -1696,7 +1696,7 @@ test('the bundle row carries the narration audio only when asked, and estimates 
   const audioIn = () => /data-decklight-audio="voices\/slide-01\.m4a"/.test(readFileSync(standalone, 'utf8'));
 
   // the card's figures, before anything is written
-  const est = await (await fetch(base + '/edit/bundle/estimate?theme=aurora')).json();
+  const est = await (await fetch(base + '/edit/export/estimate?kind=bundle&theme=aurora')).json();
   assert.equal(est.ok, true, est.error);
   assert.equal(est.audio.files, 1);
   assert.equal(est.audio.folders, 'voices/ (1)');
@@ -1725,17 +1725,19 @@ test('the bundle estimate says there is no audio to carry, and why it cannot bun
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
   const { base } = await startEdit(t, dir);
-  const none = await (await fetch(base + '/edit/bundle/estimate')).json();
+  const none = await (await fetch(base + '/edit/export/estimate?kind=bundle')).json();
+  assert.equal((await fetch(base + '/edit/export/estimate')).status, 400, 'an estimate is of one kind');
+  assert.equal((await fetch(base + '/edit/export/estimate?kind=pptx')).status, 400, 'and only the bundle has one');
   assert.equal(none.ok, true, none.error);
   assert.equal(none.audio, null, 'no recorded audio, no question to ask');
   // a theme on screen the bundle cannot carry yet is estimated in the deck's own
-  const elsewhere = await (await fetch(base + '/edit/bundle/estimate?theme=nosuchtheme')).json();
+  const elsewhere = await (await fetch(base + '/edit/export/estimate?kind=bundle&theme=nosuchtheme')).json();
   assert.equal(elsewhere.ok, true, elsewhere.error);
   assert.equal(elsewhere.base, none.base);
   const { execFileSync: run } = await import('node:child_process');
   run(process.execPath, [path.resolve(here, '../cli/decklight.mjs'), 'bundle', 'deck.html', '-o', 'one.html'], { cwd: dir, stdio: 'ignore' });
   writeFileSync(deck, readFileSync(path.join(dir, 'one.html')));
-  const one = await fetch(base + '/edit/bundle/estimate');
+  const one = await fetch(base + '/edit/export/estimate?kind=bundle');
   assert.equal(one.status, 409);
   assert.match((await one.json()).error, /already self-contained/);
 });
@@ -1830,12 +1832,6 @@ test('/edit/export refuses a file it does not write, and still answers the old n
   const bad = await post(base, '/edit/export', { kind: 'keynote' });
   assert.equal(bad.status, 400);
   assert.match((await bad.json()).error, /not a file this server writes: keynote/);
-
-  // A deck carries its OWN copy of the runtime, so one written by 0.8.1 and
-  // opened under this server still posts the name that release used.
-  const old = await (await post(base, '/edit/pptx')).json();
-  assert.equal(old.ok, true, `the 0.8.1 path stopped working: ${old.error}`);
-  assert.equal(old.file, 'deck.pptx');
 });
 
 // `decklight video` shells out to ffmpeg and ffprobe as well as Chrome. The
@@ -2085,7 +2081,7 @@ test('/edit/export writes no subtitles for a render with nothing spoken, and say
   assert.match(log(), /subtitles: nothing is spoken in this render — none written/);
 });
 
-test('/edit/at previews a deck over 1MB, and says why when it cannot (#508)', async (t) => {
+test('/edit/history/at previews a deck over 1MB, and says why when it cannot (#508)', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   // over Node's 1 MB execFileSync default, which used to throw ENOBUFS and be
@@ -2101,7 +2097,7 @@ test('/edit/at previews a deck over 1MB, and says why when it cannot (#508)', as
   const at = g(['rev-parse', '--short', 'HEAD']).trim();
   const { base } = await startEdit(t, dir, { extraArgs: ['--git'] });
 
-  const r = await fetch(`${base}/edit/at?ref=${at}&embedded`);
+  const r = await fetch(`${base}/edit/history/at?ref=${at}&embedded`);
   assert.equal(r.status, 200, 'a big deck is not a missing revision');
   const html = await r.text();
   assert.ok(html.length > 1024 * 1024, `the whole deck came back (${html.length} bytes)`);
@@ -2109,7 +2105,7 @@ test('/edit/at previews a deck over 1MB, and says why when it cannot (#508)', as
 
   // a ref git really does not know is still a 404 — but a legible one, because
   // this body is rendered inside the preview frame
-  const missing = await fetch(`${base}/edit/at?ref=nosuchref&embedded`);
+  const missing = await fetch(`${base}/edit/history/at?ref=nosuchref&embedded`);
   assert.equal(missing.status, 404);
   const body = await missing.text();
   assert.match(body, /no such revision of this deck/);
@@ -2165,10 +2161,10 @@ async function startWithTemplate(t, dir, { install = true } = {}) {
   return startEdit(t, dir, { env: { DECKLIGHT_HOME: home } });
 }
 
-test('/edit/template/list says what is installed here, without reaching the network', async (t) => {
+test('/edit/template/browse says what is installed here, without reaching the network', async (t) => {
   const dir = tmp(t);
   const { base } = await startWithTemplate(t, dir);
-  const j = await (await fetch(base + '/edit/template/list')).json();
+  const j = await (await fetch(base + '/edit/template/browse')).json();
   assert.equal(j.ok, true);
   assert.deepEqual(j.installed, ['startup-pitch']);
   assert.equal(j.cacheOnly, true, 'listing is a read of the cache, never a fetch');

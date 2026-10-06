@@ -109,9 +109,9 @@ export function createReview({
   /**
    * Is a read-only server answering? Asked once, lazily.
    *
-   * Its own probe rather than editmode's: `?review` is answered by neither
-   * /deck/ping nor /deck/ping, and a deck that never reviews should not pay
-   * a request for the possibility.
+   * Its own fetch of the one probe rather than editmode's: a deck that never
+   * reviews should not pay for the possibility, so this is asked the first
+   * time M or ⇧M is pressed, and the answer's `review` block is what matters.
    */
   async function reviewBase() {
     if (probed !== null) return probed || (probed === '' ? '' : null);
@@ -122,7 +122,7 @@ export function createReview({
     await editReady();
     if (editBase() != null) { probed = false; return null; }
     try {
-      const r = await fetch('/review/ping');
+      const r = await fetch('/deck/ping');
       const j = r.ok ? await r.json() : null;
       probed = j?.ok && j.review ? '' : false;
     } catch { probed = false; }
@@ -131,7 +131,7 @@ export function createReview({
 
   async function load() {
     const base = await reviewBase();
-    const from = base !== null ? `${base}/review/comments` : `${editBase() ?? ''}/edit/review`;
+    const from = `${base !== null ? base : (editBase() ?? '')}/review/comments`;
     if (base === null && editBase() == null) return { records: [], skipped: 0, can: 'none' };
     try {
       const r = await fetch(from);
@@ -143,7 +143,7 @@ export function createReview({
       // for a minute. A reviewer's overlay has no edit server and skips it.
       if (state.can === 'resolve') {
         try {
-          const ir = await fetch(`${editBase() ?? ''}/edit/review/incoming`);
+          const ir = await fetch(`${editBase() ?? ''}/review/incoming`);
           const ij = await ir.json();
           if (ij?.ok) state.incoming = ij;
         } catch { /* the section simply is not there */ }
@@ -433,7 +433,7 @@ export function createReview({
     const base = editBase();
     if (base == null) { toast('only the edit server can look that far back'); return; }
     try {
-      const res = await fetch(`${base}/edit/review/at?id=${encodeURIComponent(r.id)}`);
+      const res = await fetch(`${base}/review/at?id=${encodeURIComponent(r.id)}`);
       const j = await res.json();
       if (!j?.ok) throw new Error(j?.error || `HTTP ${res.status}`);
       context = { id: r.id, data: j };
@@ -461,7 +461,7 @@ export function createReview({
     const here = instance.state.slide;
     const at = slidesNow()[here - 1];
     try {
-      const res = await fetch(`${base}/edit/review`, {
+      const res = await fetch(`${base}/review/comments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ op: 'anchor', re: r.id, slide: here, title: at?.title, fp: at?.fp }),
@@ -483,7 +483,7 @@ export function createReview({
     const rbase = await reviewBase();
     const where = rbase !== null
       ? { url: `${rbase}/review/comments`, mine: false }
-      : editBase() != null ? { url: `${editBase()}/edit/review`, mine: true } : null;
+      : editBase() != null ? { url: `${editBase()}/review/comments`, mine: true } : null;
     if (!where) return false;
     try {
       const r = await fetch(where.url, {
@@ -529,7 +529,7 @@ export function createReview({
     // Somebody else's comment: toggle the local mark, no arming, reversible.
     if (r.branch) {
       try {
-        const res = await fetch(`${base}/edit/review/done`, {
+        const res = await fetch(`${base}/review/done`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ branch: r.branch, id: r.id, done: !r.done }),
@@ -546,7 +546,7 @@ export function createReview({
     if (armed !== r.id) { armed = r.id; render(await load()); return; }
     armed = null;
     try {
-      const res = await fetch(`${base}/edit/review`, {
+      const res = await fetch(`${base}/review/comments`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ op: 'resolve', re: r.id }),

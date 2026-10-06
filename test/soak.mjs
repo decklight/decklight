@@ -1027,8 +1027,8 @@ try {
     // both modes. The comment is an append to the sidecar, the deck is byte
     // for byte what it was, and in write mode nothing is committed for it —
     // the sidecar is one file among the deck's own, left to K.
-    const ping = await (await get(editSrv.base, '/review/ping')).json();
-    must(ping.review === true && ping.mode === 'write', `the review ping says ${JSON.stringify(ping)}`);
+    const ping = await (await get(editSrv.base, '/deck/ping')).json();
+    must(ping.review?.mode === 'write', `the probe's review block says ${JSON.stringify(ping.review)}`);
     const before = deck();
     const commits = git(['rev-list', '--count', 'HEAD']).trim();
     const said = await postJson(editSrv.base, '/review/comments', { slide: 2, body: 'Tighten this one.' });
@@ -1366,7 +1366,7 @@ try {
     // …and the estimate the bundle card shows is near what the file then is
     const srv = await startServer(['narrated.html', '--port', '0', '--no-git', '--no-tts', '--no-lipsync'],
       DECK_URL_RE, { cwd: dir });
-    const est = await (await get(srv.base, '/edit/bundle/estimate')).json();
+    const est = await (await get(srv.base, '/edit/export/estimate?kind=bundle')).json();
     must(est.ok === true && est.audio?.files === 1, `the estimate says ${JSON.stringify(est).slice(0, 200)}`);
     must(Math.abs(est.base - size('plain.html')) < 2048, `the base estimate (${est.base}) is not the plain bundle (${size('plain.html')})`);
     must(est.audio.original > wav, `the original estimate (${est.audio.original}) is under the WAV itself`);
@@ -1802,7 +1802,7 @@ try {
       DECK_URL_RE, { cwd: author2 });
     // CI=1 (the runner's env) silences only the UNASKED startup line — this
     // route is behind the keypress that opens M, and must answer anywhere
-    const inc = await (await fetch(`${asrv.base}/edit/review/incoming`)).json();
+    const inc = await (await fetch(`${asrv.base}/review/incoming`)).json();
     must(inc.ok === true && inc.state === 'ok',
       `incoming answered ${JSON.stringify(inc).slice(0, 200)}`);
     must(inc.reviews?.[0]?.records?.some((x) => x.body === 'One more before sending.'),
@@ -1824,8 +1824,8 @@ try {
     // marked in a batch was standing in for a client nobody ships.
     let done;
     for (const id of ids) {
-      await (await fetch(`${asrv.base}/edit/review/incoming`)).json();
-      done = await (await fetch(`${asrv.base}/edit/review/done`, {
+      await (await fetch(`${asrv.base}/review/incoming`)).json();
+      done = await (await fetch(`${asrv.base}/review/done`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ branch: reviewBranch, id, done: true }),
@@ -1848,7 +1848,7 @@ try {
       `expected ${ids.length} marks in git config, got ${marked.length}: ${JSON.stringify(mark.stdout)}`);
     must(marked.every((l) => l.endsWith(' true')), `a mark is not "true": ${JSON.stringify(mark.stdout)}`);
     // …and the review is still LISTED (so it can be reopened) but not waiting
-    const inc2 = await (await fetch(`${asrv.base}/edit/review/incoming`)).json();
+    const inc2 = await (await fetch(`${asrv.base}/review/incoming`)).json();
     must((inc2.reviews ?? []).length === 1 && inc2.reviews[0].done === true,
       `a done review vanished instead of being struck through: ${JSON.stringify(inc2).slice(0, 200)}`);
     must(inc2.state === 'none', `a done review kept nagging: ${JSON.stringify(inc2).slice(0, 120)}`);

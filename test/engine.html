@@ -180,7 +180,7 @@
         }
         // the bundle card's figures: 12 files, ten minutes of voice; this
         // machine's ffmpeg has AAC and no Opus, so Opus is shown blocked
-        if (u.includes('/edit/bundle/estimate')) {
+        if (u.includes('/edit/export/estimate')) {
           return json({ ok: true, base: 800000, audio: {
             files: 12, bytes: 40e6, seconds: 600, folders: 'voices/t/ (12)',
             original: 53e6, aac: 3.2e6, opus: null, why: { opus: 'needs ffmpeg with libopus' } } });
@@ -264,7 +264,7 @@
       }
       if (HARNESS_MODE.startsWith('template')) {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/template/list')) {
+        if (u.includes('/edit/template/browse')) {
           return json({ ok: true, cacheOnly: true, stale: [],
             installed: ['startup-pitch'],
             offered: [{ name: 'quarterly', qualified: 'quarterly@acme', marketplace: 'acme', description: 'a review deck' }] });
@@ -1347,7 +1347,7 @@
       // PRESENTING: exporting to PowerPoint from inside the deck. The deck
       // cannot run Chrome, so the row asks the edit server — what this
       // asserts is the round trip: the row exists when a server does, it POSTs
-      // to /edit/pptx, and the ANSWER reaches the presenter as a message
+      // to /edit/export, and the ANSWER reaches the presenter as a message
       // naming the file (or saying why not). A row that fires and reports
       // nothing is indistinguishable from a broken one, which is the whole
       // reason the toast is part of the contract.
@@ -1492,7 +1492,7 @@
           r.bundleRowIsThere = [...document.querySelectorAll(`${Q} ${ROW}`)].filter((n) => /Bundle into one file/.test(n.textContent)).length === 1;
           press('Escape');
           await openBundle();
-          r.estimatedInTheThemeOnScreen = CALLS.get.some((u) => u.includes('/edit/bundle/estimate?theme=aurora'));
+          r.estimatedInTheThemeOnScreen = CALLS.get.some((u) => u.includes('/edit/export/estimate?kind=bundle&theme=aurora'));
           r.cardAsks = /and the narration audio\?/.test(card()?.textContent ?? '')
             && /12 recorded files, 10:00 of voice, 38\.1 MB in voices\/t\/ \(12\)/.test(card()?.textContent ?? '');
           const texts = cardRows().map((n) => n.textContent);
@@ -1538,7 +1538,7 @@
           await settle();
           await settle();
           r.noAudioRowWithoutAVoice = !document.querySelector('.decklight-choice')
-            && !CALLS.get.some((u) => u.includes('/edit/bundle/estimate'))
+            && !CALLS.get.some((u) => u.includes('/edit/export/estimate'))
             && CALLS.post.filter((c) => c.u.includes('/edit/export')).at(-1)?.body?.kind === 'bundle';
           themedOk = r.noAudioRowWithoutAVoice;
         }
@@ -3615,7 +3615,7 @@
         await settle();                       // let /edit/history resolve
         r.opens = !!document.querySelector(O);
         const frameSrc = document.querySelector(`${O} iframe`)?.getAttribute('src') ?? '';
-        r.previewInTheThemeOnScreen = /\/edit\/at\?ref=[^&]+&embedded&theme=ember(?:&|$)/.test(frameSrc);
+        r.previewInTheThemeOnScreen = /\/edit\/history\/at\?ref=[^&]+&embedded&theme=ember(?:&|$)/.test(frameSrc);
         const a = selectedIndex(O, ROW, SEL);
         r.listsEveryCommit = a.count === 3;
         r.hasSelection = a.i === 0;           // newest first, newest selected

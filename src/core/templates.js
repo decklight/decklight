@@ -354,7 +354,7 @@ export function createTemplates({ root, overlays, editmode, deck, themes, toast 
     sel = 0;
     render();
     try {
-      const r = await fetch(base() + '/edit/template/list');
+      const r = await fetch(base() + '/edit/template/browse');
       const j = await r.json().catch(() => ({}));
       listing = r.ok && j.ok
         ? { installed: j.installed ?? [], offered: j.offered ?? [], stale: j.stale ?? [] }

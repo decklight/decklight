@@ -593,12 +593,16 @@ export function createNarration({
   // also Chirp's, but the bridge may be running piper — one local model, not
   // thirty star names — and a picker offering 29 voices that silently do nothing
   // is a lie. /ping tells us; until it answers, the built-in roster stands.
-  const PING_URL = LIVE_URL.replace(/\/tts\/?$/, '/ping');
-  const VOICES_INSTALL_URL = LIVE_URL.replace(/\/tts\/?$/, '/voices/install');
+  // Everything else of the bridge's is under its `/tts/` — on the bridge
+  // itself and, served, on the deck's own origin — so each is the live URL
+  // plus a word.
+  const TTS = LIVE_URL.replace(/\/$/, '');
+  const PING_URL = `${TTS}/ping`;
+  const VOICES_INSTALL_URL = `${TTS}/voices/install`;
   // The bridge speaks with ONE engine, but it can be told to speak with another
   // (SPEC `NARRATION`) — so which one is a choice the deck can make, not just a
   // fact it reads. These two are the same route in its read and write forms.
-  const ENGINES_URL = LIVE_URL.replace(/\/tts\/?$/, '/engines');
+  const ENGINES_URL = `${TTS}/engines`;
   // `?engine=` on the bridge's GETs: THIS tab's engine, never a switch of the
   // bridge — one bridge serves every tab, each on the engine its voice is on
   const forEngine = (url, name) => (name ? `${url}${url.includes('?') ? '&' : '?'}engine=${encodeURIComponent(name)}` : url);
@@ -2027,7 +2031,7 @@ export function createNarration({
   // the ElevenLabs voice library: the language and text searched, the answer,
   // and the voice one ⏎ has armed to add (a second ⏎ adds it — it changes the account)
   let libLang = null, libSearch = '', libResult = null, libArmed = null;
-  const LIBRARY_URL = LIVE_URL.replace(/\/tts\/?$/, '/voices/library');
+  const LIBRARY_URL = `${TTS}/voices/library`;
   /** The deck's own language, two letters — `<html lang>`, else null. */
   const deckLang = () => (document.documentElement.lang || '').toLowerCase().split('-')[0] || null;
   /** Does this roster know its voices' languages? (ElevenLabs does — the 4th element.) */

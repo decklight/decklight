@@ -52,15 +52,15 @@ async function startBridge(t, { engine = 'chirp', env = {} } = {}) {
   return { base, log: () => out };
 }
 
-const swap = (base, engine) => fetch(`${base}/engine`, {
+const swap = (base, engine) => fetch(`${base}/tts/engine`, {
   method: 'POST', headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ engine }),
 });
-const ping = async (base) => (await fetch(`${base}/ping`)).json();
+const ping = async (base) => (await fetch(`${base}/tts/ping`)).json();
 
 test('/engines lists every engine and marks the live one', async (t) => {
   const { base } = await startBridge(t);
-  const j = await (await fetch(`${base}/engines`)).json();
+  const j = await (await fetch(`${base}/tts/engines`)).json();
   assert.equal(j.ok, true);
   assert.equal(j.engine, 'chirp');
   const names = j.engines.map((e) => e.name);
@@ -155,7 +155,7 @@ test('a name that is neither built in nor installed is refused, and says so', as
 test('a request with no engine named is a 400, not a crash', async (t) => {
   const { base } = await startBridge(t);
   for (const body of ['{}', 'not json', '{"engine":42}', '{"engine":""}']) {
-    const r = await fetch(`${base}/engine`, {
+    const r = await fetch(`${base}/tts/engine`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body,
     });
     assert.equal(r.status, 400, body);
@@ -184,30 +184,30 @@ test('a swap round trip leaves the bridge exactly where it started', async (t) =
 
 test('two tabs on two engines: each is described by its own engine, and neither switches the other', async (t) => {
   const { base } = await startBridge(t, { engine: 'chirp' });
-  const tabA = await (await fetch(`${base}/ping?engine=gemini`)).json();
+  const tabA = await (await fetch(`${base}/tts/ping?engine=gemini`)).json();
   assert.equal(tabA.engine, 'gemini');
   assert.equal(tabA.stylable, true, 'gemini\'s own style channel, not chirp\'s');
-  const tabB = await (await fetch(`${base}/ping?engine=chirp`)).json();
+  const tabB = await (await fetch(`${base}/tts/ping?engine=chirp`)).json();
   assert.equal(tabB.engine, 'chirp');
   assert.equal(tabB.stylable, false);
   // asking for gemini BY NAME built it beside chirp — it switched nothing
   assert.equal((await ping(base)).engine, 'chirp', 'a named engine is a question, not a switch');
   // each tab sees its own engine ticked
-  const menuA = await (await fetch(`${base}/engines?engine=gemini`)).json();
+  const menuA = await (await fetch(`${base}/tts/engines?engine=gemini`)).json();
   assert.deepEqual(menuA.engines.filter((e) => e.current).map((e) => e.name), ['gemini']);
   assert.equal(menuA.engines.find((e) => e.name === 'gemini').ready, true, 'an engine the bridge holds is ready');
-  const menuB = await (await fetch(`${base}/engines?engine=chirp`)).json();
+  const menuB = await (await fetch(`${base}/tts/engines?engine=chirp`)).json();
   assert.deepEqual(menuB.engines.filter((e) => e.current).map((e) => e.name), ['chirp']);
   // and an OLDER deck's POST /engine moves only the default — a tab naming its
   // engine is still described by it
   await swap(base, 'gemini');
   assert.equal((await ping(base)).engine, 'gemini');
-  assert.equal((await (await fetch(`${base}/ping?engine=chirp`)).json()).engine, 'chirp');
+  assert.equal((await (await fetch(`${base}/tts/ping?engine=chirp`)).json()).engine, 'chirp');
 });
 
 test('an engine a tab names that this machine cannot run is refused with its fix, and the default is untouched', async (t) => {
   const { base } = await startBridge(t, { engine: 'chirp', env: { ELEVENLABS_API_KEY: '' } });
-  const r = await fetch(`${base}/ping?engine=elevenlabs`);
+  const r = await fetch(`${base}/tts/ping?engine=elevenlabs`);
   assert.equal(r.status, 409);
   const j = await r.json();
   assert.equal(j.reason, 'no-key');
@@ -219,10 +219,10 @@ test('an engine a tab names that this machine cannot run is refused with its fix
 
 test('the voice library is ElevenLabs\' — any other engine says so, for a search and for an add', async (t) => {
   const { base } = await startBridge(t, { engine: 'chirp' });
-  const search = await fetch(`${base}/voices/library?language=es`);
+  const search = await fetch(`${base}/tts/voices/library?language=es`);
   assert.equal(search.status, 404);
   assert.match((await search.json()).error, /chirp has no voice library — ElevenLabs does/);
-  const add = await fetch(`${base}/voices/library/add`, {
+  const add = await fetch(`${base}/tts/voices/library/add`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ owner: 'o', id: 'v', name: 'X' }),
   });

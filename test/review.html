@@ -52,16 +52,13 @@
     window.fetch = async (url, opts) => {
       const u = String(url);
       const reviewer = mode === 'reviewer' || mode === 'dock';
-      if (u.endsWith('/review/ping')) {
-        return reviewer
-          ? new Response(JSON.stringify({ ok: true, name: 'review.html', review: true }),
-            { status: 200, headers: { 'content-type': 'application/json' } })
-          : new Response('', { status: 404 });
-      }
+      // the one probe, in both modes: its `review` block is what the overlay
+      // reads before it comments (SPEC REVIEW)
       if (u.endsWith('/deck/ping')) {
         return reviewer
-          ? new Response('', { status: 404 })
-          : new Response(JSON.stringify({ ok: true, name: 'review.html', undo: 0, redo: 0 }),
+          ? new Response(JSON.stringify({ ok: true, name: 'review.html', readOnly: true, locked: true, review: { mode: 'read-only', git: true, by: 'Me <me@x>', store: 'review.review.jsonl' } }),
+            { status: 200, headers: { 'content-type': 'application/json' } })
+          : new Response(JSON.stringify({ ok: true, name: 'review.html', undo: 0, redo: 0, review: { mode: 'write', git: false, by: 'Me <me@x>', store: 'review.review.jsonl' } }),
             { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (u.endsWith('/review/submit')) {
@@ -69,7 +66,7 @@
         return new Response(JSON.stringify({ ok: true, branch: 'review/me-2026-08-24', comments: window.__store.length, resubmit: false }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/edit/review/incoming')) {
+      if (u.endsWith('/review/incoming')) {
         // A done review is still LISTED — struck through, so it can be
         // un-done — it simply stops counting as waiting.
         const reviews = [{
@@ -88,13 +85,13 @@
         return new Response(JSON.stringify({ ok: true, state: reviews.some((v) => !v.done) ? 'ok' : 'none', reviews }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.includes('/edit/review/at?')) {
+      if (u.includes('/review/at?')) {
         window.__atCalls = (window.__atCalls || 0) + 1;
         return new Response(JSON.stringify({ ok: true, known: true, deck: 'abc1234', slide: 3,
           title: 'Cut me', text: 'Cut me doomed' }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/edit/review/done')) {
+      if (u.endsWith('/review/done')) {
         const req_ = JSON.parse(opts.body);
         window.__doneCalls = (window.__doneCalls || 0) + 1;
         // the server's half: ONE comment's mark is remembered, and nothing is
@@ -104,7 +101,7 @@
         return new Response(JSON.stringify({ ok: true, branch: req_.branch, id: req_.id, done: !!req_.done }),
           { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      if (u.endsWith('/review/comments') || u.endsWith('/edit/review')) {
+      if (u.endsWith('/review/comments')) {
         if (opts?.method === 'POST') {
           const rec = JSON.parse(opts.body);
           window.__posted.push(rec);

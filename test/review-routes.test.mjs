@@ -47,10 +47,11 @@ for (const mode of ['read-only', 'write']) {
     const deck = path.join(dir, 'talk.html');
     const before = readFileSync(deck);
 
-    const ping = await (await fetch(`${base}/review/ping`)).json();
+    const ping = await (await fetch(`${base}/deck/ping`)).json();
     assert.equal(ping.ok, true);
-    assert.equal(ping.review, true, 'the routes are there');
-    assert.equal(ping.mode, mode, 'and say which mode is answering');
+    assert.equal(ping.readOnly, mode === 'read-only', 'the one probe says which mode is answering');
+    assert.equal(ping.review?.mode, mode, 'and its review block says the same');
+    assert.equal(ping.review.git, mode === 'read-only' ? false : false, 'comments commit only in read-only mode, and --no-git turned that off here');
     assert.equal(ping.name, 'talk.html');
 
     const r = await post(base, { slide: 2, title: 'Beta', body: 'Say less here.' });

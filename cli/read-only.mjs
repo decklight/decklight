@@ -680,7 +680,7 @@ export async function readOnlyMain(args, { client } = {}) {
     // registered here, and the test pins that by the path literal.
     if (req.method === 'GET' && url.pathname === '/deck/ping') {
       res.writeHead(200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-cache' });
-      res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, readOnly: true, locked: true }));
+      res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, readOnly: true, locked: true, review: review.ping() }));
       return;
     }
     if (req.method === 'GET' && url.pathname === '/deck/events') { decks.add(req, res, CORS); return; }

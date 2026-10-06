@@ -521,7 +521,7 @@ export function createEditMode({
   // ── the deck update overlay (H, read-only mode) — SPEC READ_ONLY#UPSTREAM ─────
   //
   // The author's H is the deck's own history. A PRESENTED deck has no history
-  // to show — there is no edit server and no /edit/at to preview a commit with
+  // to show — there is no edit server and no /edit/history/at to preview a commit with
   // — so the same key answers the question that IS live there: has the person
   // who wrote this pushed anything since I cloned it?
   //
@@ -1715,7 +1715,7 @@ export function createEditMode({
     docOf: (t) => t.doc,
     // in the theme on screen: an old version opens on ITS configured theme,
     // and the history is for seeing what changed, not the theme it had then
-    srcFor: (t) => `${editBase}/edit/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}`,
+    srcFor: (t) => `${editBase}/edit/history/at?ref=${encodeURIComponent(t.doc)}&${previewQuery().replace(/^\?/, '')}`,
     messageFor: (t) => ({ __decklightPreview: { goto: [t.slide, 0] } }),
   });
   // Armed, not fired. `⏎` on a row used to restore it on the spot, and a CLICK
@@ -2268,7 +2268,7 @@ export function createEditMode({
   // what `audio` a bundle carries its narration as, when it is not as recorded
   const AUDIO_HOW = { aac: 'AAC', opus: 'Opus' };
   /**
-   * How big the bundle would be (GET /edit/bundle/estimate): the file without
+   * How big the bundle would be (GET /edit/export/estimate): the file without
    * its audio, and what each way of carrying the audio adds. Null when the
    * server cannot say; the reason is toasted, since bundling would hit it too.
    */
@@ -2276,7 +2276,7 @@ export function createEditMode({
     try {
       // in the theme on screen, which is what the export will bundle in
       const { theme } = renderTheme() ?? {};
-      const r = await fetch(editBase + '/edit/bundle/estimate' + (theme ? `?theme=${encodeURIComponent(theme)}` : ''));
+      const r = await fetch(editBase + '/edit/export/estimate?kind=bundle' + (theme ? `&theme=${encodeURIComponent(theme)}` : ''));
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the server said ${r.status}`);
       return j;
@@ -2587,7 +2587,7 @@ export function createEditMode({
     // working; it opens the history, because that is where restoring lives now.
     // ONE KEY, and it answers the question that is live where you pressed it.
     // Authoring, that is "what have I changed, and what is unpushed". Presenting
-    // — where there is no edit server and no /edit/at to preview a commit with —
+    // — where there is no edit server and no /edit/history/at to preview a commit with —
     // it is "has the author pushed anything since I cloned this".
     history: {
       open: () => (!editAvailable && presenting ? openUpstream() : openHistory()),
