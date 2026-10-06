@@ -157,7 +157,7 @@ transform's assumptions does. Loaded by dynamic `import()`, **in the same
 process as `bundle`** (no subprocess, no VM sandbox) because the trust model
 for build-time code is already decided above (installer is the risk-bearer);
 isolating a transform from the process that invoked it would defend against a
-threat this design already accepted. Contrast `PRESENT#PLUGINS`, sandboxed
+threat this design already accepted. Contrast `READ_ONLY#PLUGINS`, sandboxed
 because that code runs on a presenter's machine at a stranger's request, a
 different actor, a different risk.
 
@@ -201,7 +201,7 @@ gate sits at the marketplace's door, once, not on every local iteration.
 
 Named `extension`, not `transform`, on purpose: `decklight plugin check`
 already exists for presenter-library plugins (a different risk: a
-stranger's code on the presenter's machine, SPEC `PRESENT#PLUGINS`); this is
+stranger's code on the presenter's machine, SPEC `READ_ONLY#PLUGINS`); this is
 the gate for **build-time** code units specifically, and `EXTENSIONS#ADAPTEREXEC`
 will need the identical two-phase shape for import adapters once *their*
 calling convention is frozen. `--type transform` (default, and the only kind
@@ -211,7 +211,7 @@ Three phases, and they are not the same kind of check:
 
 - **Lint the source text: advisory.** Refuses `fetch(`, `eval(`,
   `XMLHttpRequest`, or a dynamic `import(` appearing anywhere in the file, by
-  the same shallow source-text scan `PRESENT#PLUGINS` already uses for its
+  the same shallow source-text scan `READ_ONLY#PLUGINS` already uses for its
   own lint. It states the bar and catches the honest mistake; it does not
   constrain a determined one: a static `import { execSync } from
   'node:child_process'`, a `new Function('return fetch')()`, a
@@ -320,7 +320,7 @@ safe way to play a deck you did not author.
   own library, so the deck is unchanged and the plugin is theirs. Scope is
   **chrome only** (timer, teleprompter, ink extras, confidence monitor); a
   plugin may not transform slide content, or a deck stops being a deterministic
-  artifact. **Shipped as `PRESENT#PLUGINS`, and the enforcement is structural
+  artifact. **Shipped as `READ_ONLY#PLUGINS`, and the enforcement is structural
   rather than a rule**: a plugin's code runs in `<iframe sandbox="allow-scripts"
   srcdoc=…>` with no `allow-same-origin`, so it holds an opaque origin and
   `parent.document` throws. The closed manifest vocabulary and the source lint
@@ -772,10 +772,10 @@ Depends column cites tickets by mnemonic, never by position.
 
 | Ticket | Scope | Depends on |
 |---|---|---|
-| `PRESENT_SERVER` | `decklight <deck> --read-only`: read-only server, CSP header, no `/edit/*` | — |
-| `PRESENT#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `PRESENT_SERVER` |
-| `PRESENT#STRICT` | strip unverified script, prove the deck still plays | `PRESENT#AUDIT` |
-| `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `--read-only` | `PRESENT#AUDIT` |
+| `READ_ONLY_SERVER` | `decklight <deck> --read-only`: read-only server, CSP header, no `/edit/*` | — |
+| `READ_ONLY#AUDIT` | runtime hashing, ingredients label, unaccounted-script detection | `READ_ONLY_SERVER` |
+| `READ_ONLY#STRICT` | strip unverified script, prove the deck still plays | `READ_ONLY#AUDIT` |
+| `INTEGRITY#SIGNING` | sign via Sigstore keyless (`publish` by default, `bundle --sign`); verify in `--read-only` | `READ_ONLY#AUDIT` |
 | `DECK_FILE#ASSOC` | `.decklight` container + OS file association (macOS UTI, Windows registry, Linux desktop/MIME) | `INTEGRITY#SIGNING` |
 | `MARKETPLACES#CORE` | manifest, `add/list/update/remove`, cache, first-party registered-not-fetched | — |
 | `THEME_BROWSE#UI` | **Browse** in the picker, authoring-only, installing via `theme add` | `MARKETPLACES#CORE` |
@@ -783,18 +783,18 @@ Depends column cites tickets by mnemonic, never by position.
 | `EXTENSIONS#LOADER` | the pipeline stage: install a transform, run it from `bundle --transform <name>` before signing | `EXTENSIONS#CONVENTION` |
 | `EXTENSIONS#CHECK` | `extension check`: lint (no `fetch`/`eval`/`XMLHttpRequest`/dynamic import), then a headless load of the transform's OUTPUT; failure blocks publish | `EXTENSIONS#LOADER` |
 | `EXTENSIONS#ADAPTEREXEC` | wire the same loader into `cli/import.mjs`: an installed import adapter finally runs | `EXTENSIONS#LOADER` |
-| `PRESENT#PLUGINS` | presenter-library plugins, chrome-only, enforced | `PRESENT_SERVER`, `MARKETPLACES#CORE` |
+| `READ_ONLY#PLUGINS` | presenter-library plugins, chrome-only, enforced | `READ_ONLY_SERVER`, `MARKETPLACES#CORE` |
 | `ENGINES#WIZARD` | wizard framework: declarative schema, `~/.decklight/` writes restricted to your account, write-mode-only | `MARKETPLACES#CORE` |
 | `ENGINES#TTS` | TTS engines as marketplace plugins, the proving case for the wizard | `ENGINES#WIZARD` |
 | `ENGINES#LIPSYNC` | proves the framework generalizes (binary + venv + key, all three shapes) | `ENGINES#WIZARD` |
 | `ENGINES#AGENTS` | agent-ask roster via marketplace (closes #125) | `ENGINES#WIZARD` |
 | `UNITS#REST` | templates (`init --from`), skills, importers, publish targets, voices | `MARKETPLACES#CORE` |
 | `COMMANDS#RENAME` | `dev` → `open` (hidden alias), remove `edit` (refuse out loud), move its 33 tests | — |
-| `PRESENT#REMOTE` | move speaker view + phone remote off the edit server onto `--read-only` | `PRESENT_SERVER` |
+| `READ_ONLY#REMOTE` | move speaker view + phone remote off the edit server onto `--read-only` | `READ_ONLY_SERVER` |
 | `THEME_BROWSE#SPLIT` | **landed**: `packs.json`'s `oldmachines`/`tvseries`/`movies` (16 themes) moved to `decklight/decklight-plugins-official`; `palette-rules` no longer grades them, `theme check` still does | `MARKETPLACES#CORE`, `THEME_BROWSE#UI` |
 | `EXTENSIONS#PIN` | **landed**: `sha256` on transform/importer entries; `add` refuses unpinned or mismatched, `extension check` prints the digest | `EXTENSIONS#CHECK`, `UNITS#REST` |
 
-`PRESENT_SERVER` through `DECK_FILE#ASSOC` are a coherent first release with no
+`READ_ONLY_SERVER` through `DECK_FILE#ASSOC` are a coherent first release with no
 marketplace at all: they make playing someone else's deck safe, which is worth
 shipping on its own. `COMMANDS#RENAME` is independent of everything and cheapest
 before 0.3.0 ships to npm.
@@ -917,7 +917,7 @@ before 0.3.0 ships to npm.
     gates.
 11. ~~What a presenter plugin is MADE of~~: **resolved: a declarative
     `plugin.json` plus a `plugin.js` that runs in a sandboxed `srcdoc` frame**
-    (PRESENT#PLUGINS). The wizard's answer (core renders, a plugin only
+    (READ_ONLY#PLUGINS). The wizard's answer (core renders, a plugin only
     declares) does not stretch this far: a teleprompter has real logic, and a
     vocabulary rich enough to express one would be a rendering language with a
     plugin API hidden in it. So a plugin gets real code and is put somewhere it
@@ -943,7 +943,7 @@ before 0.3.0 ships to npm.
       supplies to their OWN `decklight lipsync` process (`--portrait
       name=face.png`, `tools/lipsync-server.mjs`): never installed, never
       named in any catalog, never travels with the deck. That is
-      `PRESENT#PLUGINS`'s own trust model exactly (presenter-owned, the
+      `READ_ONLY#PLUGINS`'s own trust model exactly (presenter-owned, the
       installer is the risk-bearer), not a gap `VOICE_UNITS` left open.
 
     Widening a reference-only rule presupposes a marketplace unit to widen it

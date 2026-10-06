@@ -75,14 +75,14 @@ const NARRATION_HARNESSES = Object.keys(NARRATION_GROUPS).map((g) => `narration-
  * broke, where `engine-render FAILED` named a file.
  */
 const ENGINE_GROUPS = {
-  themes: ['themepicker', 'dsrecommended', 'fonts', 'fontslegacy', 'fontsauthor', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard'],
+  themes: ['themepicker', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard'],
   palette: ['palette', 'palettegroups', 'paletteplain', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'designsystems', 'skeys', 'skeys&nosrv'],
   narration: ['narration', 'nonarration', 'panel'],
   navigation: ['overviewedit', 'overviewplain', 'restore', 'historycaptions', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist'],
   handover: ['exportpptx', 'exportfail', 'exportvideo', 'publish'],
   templates: ['template', 'templatelook'],
   sources: ['sources', 'sourcesedit'],
-  authoring: ['lockmode', 'readonlymode', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'authortour', 'authortourwelcome'],
+  authoring: ['lockmode', 'readonlymode', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesauto', 'notesautofail', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'editingtour', 'editingtourwelcome'],
   builds: ['linedraw', 'nestedfills', 'dslayouts', 'dsedit'],
 };
 const ENGINE_HARNESSES = Object.keys(ENGINE_GROUPS).map((g) => `engine-render:${g}`);

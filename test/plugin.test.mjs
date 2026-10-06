@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Presenter-library plugins (MARKETPLACE.md PRESENT#PLUGINS).
+// Presenter-library plugins (MARKETPLACE.md READ_ONLY#PLUGINS).
 //
 // The claim that matters is not "a plugin can add a timer" — it is everything
 // a plugin CANNOT do, and everything that stays unchanged when one is
@@ -153,7 +153,7 @@ test('loadPlugin refuses a reaching plugin and explains where it actually runs',
 // ── the library ────────────────────────────────────────────────────────────
 
 test('a broken plugin is skipped with a reason, never fatal', () => {
-  // The PRESENT#STRICT argument: nothing about a timer should cost someone
+  // The READ_ONLY#STRICT argument: nothing about a timer should cost someone
   // their talk ten minutes before they give it.
   const home = homeWith({
     timer: { manifest: GOOD_MANIFEST, source: GOOD_SOURCE },

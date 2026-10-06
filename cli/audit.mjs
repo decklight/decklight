@@ -147,7 +147,7 @@ export function classifyScripts(html) {
     const type = /\btype\s*=\s*["']([^"']+)["']/i.exec(s.attrs)?.[1]?.toLowerCase() ?? '';
     const src = /\bsrc\s*=\s*["']([^"']+)["']/i.exec(s.attrs)?.[1] ?? null;
     // start/end are the block's byte range in `html` — carried so a caller can
-    // act on a block, not merely name it (PRESENT#STRICT splices on them).
+    // act on a block, not merely name it (READ_ONLY#STRICT splices on them).
     const at = { line: lineAt(html, s.start), bytes: s.inner.length, start: s.start, end: s.end };
     if (s === runtimeBlock) return { kind: 'runtime', ...at, inner: s.inner };
     if (src) {
@@ -216,7 +216,7 @@ const blankInner = (html, re) =>
  * contains neither — content is markup, behaviour lives in the runtime — so
  * every one found is named, the same way an unaccounted block is.
  *
- * Named, in the one scan the label and the stripper share (PRESENT#STRICT):
+ * Named, in the one scan the label and the stripper share (READ_ONLY#STRICT):
  *   - `on*` handler attributes carrying a value (`onerror=`, `onclick=`, …)
  *   - URL attributes (href, src, action, formaction, xlink:href, data) whose
  *     value resolves to `javascript:` or `data:text/html`
@@ -352,7 +352,7 @@ export function auditDeck(html, { installed = installedRuntime() } = {}) {
 }
 
 /**
- * The same inventory, with the unaccounted blocks taken out (PRESENT#STRICT).
+ * The same inventory, with the unaccounted blocks taken out (READ_ONLY#STRICT).
  *
  * Pure: it takes HTML and returns HTML. Nothing here touches the filesystem,
  * which is the whole design — the read-only server strips on the way OUT, so the deck you

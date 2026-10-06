@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// the read-only server's upstream check — SPEC PRESENTING (PRESENT#UPSTREAM).
+// the read-only server's upstream check — SPEC PRESENTING (READ_ONLY#UPSTREAM).
 //
 // This file is mostly about what the feature REFUSES, because that is where its
 // safety lives. `--read-only` gained its first route that acts, and the argument

@@ -6,7 +6,7 @@
  * distributes that is not a theme or a plugin (MARKETPLACE.md `UNITS`).
  *
  * `MARKETPLACES#CORE` registers catalogs and resolves a name to an entry;
- * `THEME_BROWSE#UI` and `PRESENT#PLUGINS` each installed one kind of thing on
+ * `THEME_BROWSE#UI` and `READ_ONLY#PLUGINS` each installed one kind of thing on
  * top of it. This is the rest — deck templates, agent skills, import adapters
  * — and it is deliberately ONE implementation with a type table rather than
  * three commands that each grew their own copy of resolve-fetch-validate-write.

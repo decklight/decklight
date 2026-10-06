@@ -820,7 +820,7 @@ test('POST /edit/enhance with no agent on the machine is a 400 that says so', as
   assert.match((await r.json()).error, /no agent CLI|install one/);
 });
 
-// ── the edit server is loopback-only, and has no remote (PRESENT#REMOTE) ─
+// ── the edit server is loopback-only, and has no remote (READ_ONLY#REMOTE) ─
 
 test('--remote and --host are refused out loud, naming where the remote went', () => {
   // Silently binding loopback would leave someone holding a phone that never

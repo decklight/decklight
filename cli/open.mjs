@@ -292,7 +292,7 @@ export function planServices({
   }
 
   // Reported, not passed through. The phone remote moved to `--read-only`
-  // (PRESENT#REMOTE), and a flag that quietly did nothing would leave someone
+  // (READ_ONLY#REMOTE), and a flag that quietly did nothing would leave someone
   // holding a phone that never connects. openMain is what prints and exits —
   // the plan stays pure so a test can ask what it decided.
   const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));

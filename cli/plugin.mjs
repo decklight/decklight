@@ -4,7 +4,7 @@
 
 /**
  * `decklight plugin` — the presenter's own chrome, installed from a
- * marketplace and loaded by `--read-only` (MARKETPLACE.md PRESENT#PLUGINS).
+ * marketplace and loaded by `--read-only` (MARKETPLACE.md READ_ONLY#PLUGINS).
  *
  *   decklight plugin add    <name[@marketplace]>
  *   decklight plugin list
@@ -42,8 +42,8 @@
  *
  * WHAT IT COSTS THE DECK: nothing. The chrome is injected on the way OUT of
  * the presenting server, after the ingredients label has already read the
- * bytes on disk (PRESENT#AUDIT) and after strict mode has stripped what it
- * could not account for (PRESENT#STRICT) — so a plugin is never audited as if
+ * bytes on disk (READ_ONLY#AUDIT) and after strict mode has stripped what it
+ * could not account for (READ_ONLY#STRICT) — so a plugin is never audited as if
  * it came from the deck, and never stripped as if it were unaccounted. The
  * srcdoc frame needs no route and no CSP change (see `chromeMarkup`).
  */
@@ -255,7 +255,7 @@ export function loadPlugin(dir) {
  *
  * A bad plugin is skipped, never fatal: the alternative is a command that
  * refuses to present a talk because of a timer, ten minutes before the talk —
- * the same argument PRESENT#STRICT settles the same way.
+ * the same argument READ_ONLY#STRICT settles the same way.
  */
 export function loadLibrary(home = configHome()) {
   const dir = pluginsDir(home);

@@ -1069,7 +1069,7 @@ export function init(userConfig = {}) {
         run: openSettings },
       { label: 'Keyboard help', hint: '?', run: toggleHelp },
       { label: 'Welcome to Decklight', alias: 'onboarding intro getting started first run tour what is this help me', run: onboarding.showWelcome },
-      editmode.available() && { label: 'Editing tour (dev)', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showAuthorWelcome },
+      editmode.available() && { label: 'Editing tour (dev)', alias: 'onboarding intro getting started first run tour how do I edit write mode gestures', run: onboarding.showEditingTour },
       { label: `Tips ${onboarding.status().tipsOn ? 'off' : 'on'}`, alias: 'hints teach shortcuts learn stop showing quiet', run: () => onboarding.setTips(!onboarding.status().tipsOn) },
       // Contextual: with every tip read there is nothing to reset to, and a row
       // that does nothing visible is a row that reads as broken.
@@ -2450,7 +2450,7 @@ export function init(userConfig = {}) {
   instance.toggleMessages = toggleMessages;                 // I, programmatic
   instance.messages = messages;                             // [{ at, text }] — every message shown
   instance.showWelcome = onboarding.showWelcome;            // first-run card, palette / programmatic
-  instance.showAuthorWelcome = onboarding.showAuthorWelcome; // the editing tour, palette / programmatic
+  instance.showEditingTour = onboarding.showEditingTour; // the editing tour, palette / programmatic
   instance.settings = {                                     // palette → Settings…, programmatic
     open: openSettings,
     close: closeSettings,
@@ -2488,10 +2488,10 @@ export function init(userConfig = {}) {
     // the synthesized recorder writes its slide-NN.wav next to the deck when there is a server that
     // owns the deck file; a thunk because editmode is built below this, and its
     // probe has not answered yet either way.
-    authorBase: () => (editmode?.available() ? editmode.base() : null),
+    editBase: () => (editmode?.available() ? editmode.base() : null),
     // …and the thing that makes reading it safe: false means "no server" only
     // AFTER this resolves. The recorder awaits it rather than guessing early.
-    authorReady: () => editmode?.settled?.() ?? Promise.resolve(),
+    editReady: () => editmode?.settled?.() ?? Promise.resolve(),
     // V → Enhance the script…: write mode only, like every row that writes the deck
     enhanceScript: () => (editmode?.available() ? editmode.enhanceScript : null),
     // the data-module chapter a slide is in, for the rewrite scopes
@@ -2536,8 +2536,8 @@ export function init(userConfig = {}) {
     // finder would give it and the two can never disagree
     titleOf: slideTitle,
     bodyOf: slideBody,
-    authorBase: () => (editmode?.available() ? editmode.base() : null),
-    authorReady: () => editmode?.settled?.() ?? Promise.resolve(),
+    editBase: () => (editmode?.available() ? editmode.base() : null),
+    editReady: () => editmode?.settled?.() ?? Promise.resolve(),
   });
 
   // ── presenter overlays (hud.js) ──────────────────────────────────────────
@@ -2765,6 +2765,6 @@ export function init(userConfig = {}) {
   // is a talk in progress, not a first run.
   onboarding.start(target);
   // …and write mode's own, once the edit server has answered (one card a load)
-  editmode.settled?.().then(() => { if (editmode.available()) onboarding.startAuthor(target); });
+  editmode.settled?.().then(() => { if (editmode.available()) onboarding.startEditingTour(target); });
   return instance;
 }

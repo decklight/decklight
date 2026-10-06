@@ -191,7 +191,7 @@ test('git and agent flags ride along to the edit child', () => {
 });
 
 test('--remote and --host are reported as gone, never passed to the edit child', () => {
-  // The phone remote lives on `--read-only` now (PRESENT#REMOTE). The plan REPORTS
+  // The phone remote lives on `--read-only` now (READ_ONLY#REMOTE). The plan REPORTS
   // the refusal rather than performing it, so it stays pure and openMain is the
   // one place that prints and exits.
   assert.deepEqual(plan(['deck.html', '--remote']).gone, ['--remote']);
@@ -267,14 +267,14 @@ test('the deck is the command: the global help opens with it, and no word for it
     assert.doesNotMatch(help, new RegExp(`^  ${word} +\\S`, 'm'), `${word} is not a command`);
   }
 
-  const authorHelp = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
-  assert.match(authorHelp, /usage: decklight <deck\.html \| git url> \[--read-only\]/);
+  const openHelp = execFileSync('node', [CLI, 'deck.html', '--help'], { encoding: 'utf8' });
+  assert.match(openHelp, /usage: decklight <deck\.html \| git url> \[--read-only\]/);
   // neither is offered as an author flag any more — a flag listed in the help
   // is a promise to honour it, and `open` refuses both
-  assert.doesNotMatch(authorHelp, /^\s+--remote\b/m, 'the LAN opt-in is gone');
-  assert.doesNotMatch(authorHelp, /^\s+--host\b/m, 'and so is the bind address');
-  assert.match(authorHelp, /--read-only --remote/, 'but the help says where it went');
-  assert.match(authorHelp, /^\s+--read-only\b/m, 'the read-only way in is a flag of the same command');
+  assert.doesNotMatch(openHelp, /^\s+--remote\b/m, 'the LAN opt-in is gone');
+  assert.doesNotMatch(openHelp, /^\s+--host\b/m, 'and so is the bind address');
+  assert.match(openHelp, /--read-only --remote/, 'but the help says where it went');
+  assert.match(openHelp, /^\s+--read-only\b/m, 'the read-only way in is a flag of the same command');
 });
 
 test('`edit` is not a command, and says so the way any other unknown one does', () => {

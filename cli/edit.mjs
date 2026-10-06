@@ -12,7 +12,7 @@
 // It binds 127.0.0.1 and nothing else. The phone remote used to be here behind
 // `--remote`, which meant a clicker cost you an editing server on the LAN;
 // `decklight <deck.html> --read-only --remote` hosts it now, with no edit surface to widen
-// (PRESENT#REMOTE). Both flags are refused out loud rather than ignored.
+// (READ_ONLY#REMOTE). Both flags are refused out loud rather than ignored.
 //
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
@@ -141,7 +141,7 @@ const corsHeadersFor = (origin) => ({
 });
 
 // ── remote access & static serving: extracted to serve.mjs / remote.mjs ────
-// (PRESENT_SERVER in MARKETPLACE.md: `decklight <deck> --read-only` reuses the same core
+// (READ_ONLY_SERVER in MARKETPLACE.md: `decklight <deck> --read-only` reuses the same core
 // with the /edit/* routes ABSENT, not merely refused.) Re-exported here so
 // existing importers — the tests, init.mjs — and SPEC citations keep working.
 export { isLoopback, lanAddress, escapeHtml } from './serve.mjs';
@@ -931,7 +931,7 @@ export async function editMain(args, { onListen = null } = {}) {
   let agentPref = opt('--agent') ?? preferredAgent();
   const port = parsePort(opt('--port', 8788));
   if (port === null) { console.error(`decklight: ${badPort('--port', opt('--port'))}`); process.exitCode = 1; return; }
-  // Refused out loud, not ignored (PRESENT#REMOTE). Someone typing --remote
+  // Refused out loud, not ignored (READ_ONLY#REMOTE). Someone typing --remote
   // wants a clicker; silently binding loopback would leave them holding a phone
   // that never connects and no idea why. the read-only server is where the remote went,
   // and the reason it went is worth saying at the moment it is asked for.

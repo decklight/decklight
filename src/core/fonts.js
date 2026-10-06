@@ -63,7 +63,7 @@ export function createFonts({
 }) {
   const key = 'decklight-font:' + location.pathname;
   const authoring = () => editmode?.()?.available() === true;
-  const authorBase = () => editmode?.()?.base() ?? '';
+  const editBase = () => editmode?.()?.base() ?? '';
   let offered = [];        // authoring: { id, label, stack, family, faces, qualified, used, kind: 'offered' }
   let offeredState = null; // null · { loading } · { error } · { done }
   const stacks = STACKS.map(([label, stack]) => ({ id: label, label, stack, kind: 'stack' }));
@@ -81,7 +81,7 @@ export function createFonts({
   function ensureFaces(f) {
     if (f.kind !== 'offered' || document.querySelector(`style[data-font-preview="${CSS.escape(f.id)}"]`)) return;
     const rules = (f.faces ?? []).filter((x) => FACE_URL_RE.test(x.url)).map((x) =>
-      `@font-face { font-family: '${f.family}'; src: url("${authorBase()}/${x.url}") format("${x.format === 'woff' ? 'woff' : 'woff2'}"); `
+      `@font-face { font-family: '${f.family}'; src: url("${editBase()}/${x.url}") format("${x.format === 'woff' ? 'woff' : 'woff2'}"); `
       + `font-weight: ${/^\d{1,4}( \d{1,4})?$/.test(String(x.weight)) ? x.weight : 400}; font-style: ${x.style === 'italic' ? 'italic' : 'normal'}; font-display: swap; }`);
     const st = document.createElement('style');
     st.dataset.fontPreview = f.id;
@@ -134,7 +134,7 @@ export function createFonts({
     if (!authoring() || offeredState) return;
     offeredState = { loading: true };
     try {
-      const r = await fetch(authorBase() + '/edit/font/browse');
+      const r = await fetch(editBase() + '/edit/font/browse');
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || `the edit server said ${r.status}`);
       offered = (j.fonts ?? []).filter((f) => !f.missing && FAMILY_RE.test(f.family ?? '') && STACK_RE.test(f.stack ?? ''))
@@ -250,7 +250,7 @@ export function createFonts({
     const f = rows[sel];
     if (!authoring() || !f || f.kind !== 'offered') return false;
     try {
-      const r = await fetch(authorBase() + '/edit/font/mark', {
+      const r = await fetch(editBase() + '/edit/font/mark', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ref: f.qualified, used: !f.used, quiet: true }),
       });

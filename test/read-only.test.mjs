@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // `decklight <deck> --read-only` — the read-only deck server (MARKETPLACE.md
-// PRESENT_SERVER). The claims worth testing are negative ones: no editing
+// READ_ONLY_SERVER). The claims worth testing are negative ones: no editing
 // route exists, nothing is written, nothing off-loopback is answered — so most
 // of these assert the ABSENCE of a capability, against a real server.
 
@@ -53,7 +53,7 @@ function deckDir() {
  * Start the server on an ephemeral port; resolve its base URL.
  *
  * DECKLIGHT_HOME points at an empty directory so the presenter's own plugin
- * library (PRESENT#PLUGINS) cannot reach these tests. Several of them assert
+ * library (READ_ONLY#PLUGINS) cannot reach these tests. Several of them assert
  * the deck is served byte for byte, and that is a claim about a machine with
  * nothing installed — on the machine of a developer who installed a timer it
  * would otherwise fail for a reason that has nothing to do with the change
@@ -302,7 +302,7 @@ test('no /edit/* route is registered — the source never mentions one', () => {
   // `/edit/ping` is the one exception: the probe every served deck makes,
   // a GET that REPORTS the server is read-only. No write route may be named.
   assert.doesNotMatch(code, /['"`]\/edit\/(?!ping['"`])/, 'no /edit path literal but the ping survives outside comments');
-  // The relay DOES live here now (PRESENT#REMOTE) — that is the whole point of
+  // The relay DOES live here now (READ_ONLY#REMOTE) — that is the whole point of
   // moving it: a clicker should not require an editing server. What must stay
   // true is that it arrived without one, which the /edit/* assertion above and
   // the route tests below cover.
@@ -449,7 +449,7 @@ test('a deck that is not there is named, not stack-traced', async () => {
   assert.match(out, /^decklight: deck not found: .*nope\.html/m);
 });
 
-// ── the phone remote lives here now (PRESENT#REMOTE) ───────────────────────
+// ── the phone remote lives here now (READ_ONLY#REMOTE) ───────────────────────
 
 test('--remote hosts the clicker, and still registers no /edit/* route', async (t) => {
   const dir = deckDir();
@@ -609,7 +609,7 @@ test('the remote never writes, and a malformed payload is refused not crashed', 
   assert.deepEqual(snapshot(dir), before, 'no file created, changed, or touched');
 });
 
-// ── the upstream (PRESENT#UPSTREAM) — promised in #342, written in this review ─
+// ── the upstream (READ_ONLY#UPSTREAM) — promised in #342, written in this review ─
 //
 // These are the only routes in `--read-only` that ACT, and they shipped without
 // route tests. The design's whole safety argument is a list of refusals —

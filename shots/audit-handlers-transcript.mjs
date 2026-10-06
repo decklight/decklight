@@ -2,7 +2,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Evidence for PRESENT#AUDIT / PRESENT#STRICT covering executable ATTRIBUTES.
+// Evidence for READ_ONLY#AUDIT / READ_ONLY#STRICT covering executable ATTRIBUTES.
 // The attack the shot demonstrates is the one the ticket names: an appended
 // `<img src=x onerror=…>` adds no <script> block, so the old label printed
 // "0 unaccounted script blocks" and exited 0 while the handler ran in front

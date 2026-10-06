@@ -317,7 +317,7 @@
         }
       }
       // `editbar` is the same server, driven from the bar and the selection
-      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'authortour' || HARNESS_MODE === 'authortourwelcome') {
+      if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -412,7 +412,7 @@
       }
       // Fonts while authoring (SPEC FONTS): an edit server whose marketplaces
       // offer one font package, which Space references from the deck
-      if (HARNESS_MODE === 'fontsauthor') {
+      if (HARNESS_MODE === 'fontswrite') {
         if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/font/browse')) {
           return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], fonts: [
@@ -1080,7 +1080,7 @@
         }
       }
 
-      if (mode === 'fonts' || mode === 'fontslegacy' || mode === 'fontsauthor') {
+      if (mode === 'fonts' || mode === 'fontslegacy' || mode === 'fontswrite') {
         // Fonts (SPEC FONTS): the deck's default, the picker that PREVIEWS on
         // the slide and puts back what you came with, the recommended first.
         const F = '.decklight-font-picker';
@@ -1160,16 +1160,16 @@
           // the rows that need the edit server are not offered without one;
           // the few write-mode rows that explain themselves without it still
           // sit under their header
-          r.noAuthorSectionWithoutAServer = !top.some((t) => /^Export & share…|^Slide…|^Write for the ear…|^Add audio tags…/.test(t));
+          r.noWriteSectionWithoutAServer = !top.some((t) => /^Export & share…|^Slide…|^Write for the ear…|^Add audio tags…/.test(t));
           r.printFolds = top.some((t) => /^Print…/.test(t)) && !top.some((t) => /Print handout/.test(t));
           press('Escape');
-          r.PASS = r.noDevSuffix && r.noAuthorSectionWithoutAServer && r.printFolds;
+          r.PASS = r.noDevSuffix && r.noWriteSectionWithoutAServer && r.printFolds;
           sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
           return;
         }
         r.groupsFold = ['Export & share…', 'Slide…', 'Print…', 'Write for the ear…', 'Add audio tags…'].every((g) => top.some((t) => t.startsWith(g)))
           && !top.some((t) => /Export to PDF…|Export a PDF handout…|Delete this slide|Print handout/.test(t));
-        r.authorRowsUnderOneHeader = heads().join('|') === 'write mode'
+        r.writeRowsUnderOneHeader = heads().join('|') === 'write mode'
           && top.indexOf(top.find((t) => /Edit this deck…/.test(t))) > top.indexOf(top.find((t) => /^Theme…/.test(t)));
         // into a group, and back
         const exportRow = [...document.querySelectorAll(`${Q} ${ROW}`)].find((n) => /^Export & share…/.test(n.textContent));
@@ -1190,7 +1190,7 @@
         for (const ch of 'handout') press('Backspace');
         r.emptyQueryIsTheTopAgain = rows().some((t) => /^Export & share…/.test(t));
         press('Escape');
-        r.PASS = r.noDevSuffix && r.groupsFold && r.authorRowsUnderOneHeader && r.groupOpensItsRows && r.groupSaysWhereYouAre
+        r.PASS = r.noDevSuffix && r.groupsFold && r.writeRowsUnderOneHeader && r.groupOpensItsRows && r.groupSaysWhereYouAre
           && r.backspaceLeavesTheGroup && r.typingSearchesFlat && r.foundRowsTagged && r.emptyQueryIsTheTopAgain;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -2389,15 +2389,15 @@
         return;
       }
 
-      if (mode === 'authortour' || mode === 'authortourwelcome') {
+      if (mode === 'editingtour' || mode === 'editingtourwelcome') {
         // Write mode's own first run (onboarding.js): once the edit server
         // has answered, a card of the four gestures and the keys that matter
         // when the file is yours; any key dismisses it and does nothing else;
         // once per browser; never over the welcome, and reopenable from /.
         const TOUR = 'decklight-onboarded-tour', SEEN = 'decklight-onboarded';
-        const card = () => document.querySelector('.decklight-welcome.wel-author');
-        const welcome = () => document.querySelector('.decklight-welcome:not(.wel-author)');
-        if (mode === 'authortourwelcome') {
+        const card = () => document.querySelector('.decklight-welcome.wel-tour');
+        const welcome = () => document.querySelector('.decklight-welcome:not(.wel-tour)');
+        if (mode === 'editingtourwelcome') {
           // the welcome itself is due: one card a load, and it is the welcome
           localStorage.removeItem(SEEN); localStorage.removeItem(TOUR);
           deck.showWelcome();
@@ -2463,7 +2463,7 @@
         press('/');
         const locked = rows();
         // the rows that would write are gone; the ones that explain themselves (E's) stay
-        r.authorRowsGone = !locked.some((t) => /^Export & share…|^Slide…/.test(t)) && locked.some((t) => /^Unlock editing/.test(t));
+        r.writeRowsGone = !locked.some((t) => /^Export & share…|^Slide…/.test(t)) && locked.some((t) => /^Unlock editing/.test(t));
         press('Escape');
         // another tab turned it off: the channel says so, the chip goes
         window.__es.emit('lock', { locked: false });
@@ -2476,7 +2476,7 @@
         await settle(); await settle();
         r.chipUnlocks = locks().at(-1) === false && !chip();
         r.PASS = r.startsUnlocked && r.paletteOffersTheLock && r.lockIsPosted && r.chipSaysSo && r.editingRefusedWhileLocked
-          && r.authorRowsGone && r.channelUnlocks && r.chipUnlocks;
+          && r.writeRowsGone && r.channelUnlocks && r.chipUnlocks;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
       }

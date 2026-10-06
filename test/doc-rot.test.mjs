@@ -52,13 +52,13 @@ test('no src file still describes slides as markdown-or-HTML authored', () => {
 });
 
 test('speaker.js does not attribute the phone-remote QR to /edit/ping', () => {
-  // PRESENT#REMOTE moved the clicker to `decklight <deck> --read-only`: the QR is set
+  // READ_ONLY#REMOTE moved the clicker to `decklight <deck> --read-only`: the QR is set
   // from /present/ping, and the edit server deliberately serves no /remote/*
   // at all — a comment pointing at /edit/ping sends a reader to the one server
   // that refuses to offer one.
   const [, speaker] = files.find(([file]) => file === path.join('core', 'speaker.js'));
   assert.ok(!speaker.includes('/edit/ping'),
-    'speaker.js points at /edit/ping — the QR comes from /present/ping (PRESENT#REMOTE)');
+    'speaker.js points at /edit/ping — the QR comes from /present/ping (READ_ONLY#REMOTE)');
 });
 
 test('no cli or tools comment still describes EXTENSIONS#ADAPTEREXEC as pending', () => {

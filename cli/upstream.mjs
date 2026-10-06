@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * the read-only server's upstream check — SPEC PRESENTING (`PRESENT#UPSTREAM`).
+ * the read-only server's upstream check — SPEC PRESENTING (`READ_ONLY#UPSTREAM`).
  *
  * A deck cloned before a talk goes stale silently: the read-only server reads the file
  * once and serves those bytes, so a fix the author pushed an hour ago is

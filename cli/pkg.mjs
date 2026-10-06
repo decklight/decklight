@@ -8,7 +8,7 @@
 // that carries the runtime inline — `init` scaffolds one, `import` converts
 // one, `upgrade` refreshes one, `bundle` inlines a referenced one — and
 // `audit` recomputes what they SHOULD have produced, so that `--read-only` can
-// say whether the runtime in a file is this install's build (PRESENT#AUDIT).
+// say whether the runtime in a file is this install's build (READ_ONLY#AUDIT).
 // That makes the inlining transform a contract between five files, and it was
 // copied into each of them. `import` copied it slightly wrong: its local
 // escape covered `</script` and `</style` but not `<!--`, so an imported deck

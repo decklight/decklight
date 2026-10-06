@@ -114,7 +114,7 @@ export const sentencePauseFor = (attr, cfg) => pauseFor(attr, cfg, SENTENCE_PAUS
  * D panel's status line). `downloadFromUrl` is the engine's download helper,
  * shared with the transcript.
  *
- * `authorBase` is a THUNK, not a string: the edit server's URL is only known
+ * `editBase` is a THUNK, not a string: the edit server's URL is only known
  * after editmode's probe answers, and editmode is built after this. It returns
  * the prefix to post to — **`''` for a same-origin server, which is the common
  * case and is not the same as absent** — or `null` when the deck is not being
@@ -542,8 +542,8 @@ export function micWhy(e) {
 export function createNarration({
   root, stage, config, params, printMode, toast, logOnly, debugLog, overlays, instance,
   openedMidTalk = false, rangePicker = null, chapters = () => [],
-  syncSoundBtn, updateDebugState, downloadFromUrl, authorBase = () => null,
-  authorReady = () => Promise.resolve(), enhanceScript = () => null, moduleOf = () => null,
+  syncSoundBtn, updateDebugState, downloadFromUrl, editBase = () => null,
+  editReady = () => Promise.resolve(), enhanceScript = () => null, moduleOf = () => null,
 }) {
   // estimated $ across live-bridge calls (the x-tts-cost response header);
   // the D panel reads it back through status()
@@ -3158,7 +3158,7 @@ export function createNarration({
    * proposing it. The edit server can, and answers once per recorder open.
    */
   async function knownTracks() {
-    const base = authorBase();
+    const base = editBase();
     if (base == null) return [];
     try {
       const r = await fetch(`${base}/edit/tracks`);
@@ -3328,7 +3328,7 @@ export function createNarration({
    * write, and the card falls back to printing the line.
    */
   async function useRecordedTrack(btn, dir, cfg) {
-    const base = authorBase();
+    const base = editBase();
     if (base == null) return;
     btn.textContent = 'saving…';
     try {
@@ -3351,7 +3351,7 @@ export function createNarration({
   }
   /** The done card's offer, when there is a server able to take it. */
   function useTrackRow(dir) {
-    return authorBase() == null || !dir ? ''
+    return editBase() == null || !dir ? ''
       : '<div class="narr-row narr-sel rec-use" role="button" tabindex="0">Use this track in the deck</div>';
   }
   /**
@@ -3370,7 +3370,7 @@ export function createNarration({
   }
   /** The done-card hint, honest about what Enter does on THIS card. */
   function doneHint(dir) {
-    return authorBase() == null || !dir
+    return editBase() == null || !dir
       ? '<div class="rec-hint">Enter or Esc to close</div>'
       : '<div class="rec-hint">⏎ uses this track in the deck · Esc closes</div>';
   }
@@ -3413,14 +3413,14 @@ export function createNarration({
     let done = 0, saved = 0, toDisk = 0, segmented = false;
     // A fresh tally per take (#565): what THIS run reused and what it paid for
     const tally = recTally = { seen: new Set(), reused: 0, sent: 0, cost: 0 };
-    // Awaited, not sampled: authorBase() is null both for "no server" and for
+    // Awaited, not sampled: editBase() is null both for "no server" and for
     // "the probe has not answered yet", and reading it early is how a whole
     // take ends up in the download folder for no reason at all.
-    await authorReady();
+    await editReady();
     if (run !== recRun) return;
     // `== null`, never falsy: the edit server's prefix is '' when it is the
     // origin serving this deck, which is most of the time.
-    const base = authorBase();
+    const base = editBase();
     const target = recTarget ?? targetFor({ mine: false }, await knownTracks());
     if (run !== recRun) return;
     const dir = base == null ? null : { base, name: target.dir };
@@ -3506,7 +3506,7 @@ export function createNarration({
     root.appendChild(recEl);
     recTarget = null;
     renderRecordCard('confirm', { total: slidesWithNotes().length });
-    authorReady()
+    editReady()
       .then(() => knownTracks())
       .then((tracks) => {
         if (!recEl || recView !== 'confirm') return;
@@ -3694,9 +3694,9 @@ export function createNarration({
   async function startMicRecording() {
     const run = ++micRun;
     const list = slidesWithNotes();
-    await authorReady();          // see startRecording — never sampled early
+    await editReady();          // see startRecording — never sampled early
     if (run !== micRun) return;
-    const base = authorBase();
+    const base = editBase();
     const target = micTarget ?? targetFor({ mine: true }, await knownTracks());
     if (run !== micRun) return;
     const dir = base == null ? null : { base, name: target.dir };
@@ -3796,17 +3796,17 @@ export function createNarration({
     // ONE deferred render, not two: the target and the no-server warning both
     // arrive after the probe, and two independent re-renders meant whichever
     // landed second erased the other.
-    authorReady()
+    editReady()
       .then(() => knownTracks())
       .then((tracks) => {
         if (!micEl || micView !== 'intro') return;
-        micTarget = authorBase() == null ? null : targetFor({ mine: true }, tracks);
+        micTarget = editBase() == null ? null : targetFor({ mine: true }, tracks);
         renderMicCard('intro', {
           slides: list.length,
           beats,
           range,
           target: micTarget,
-          warn: authorBase() == null ? noServerReason() : null,
+          warn: editBase() == null ? noServerReason() : null,
         });
       });
     // Where the files will land, said BEFORE the first beat rather than after

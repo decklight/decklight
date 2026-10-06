@@ -6,7 +6,7 @@
 // serving with a traversal guard, SSE fan-out, and port binding with takeover.
 //
 // Extracted from edit.mjs so `decklight <deck> --read-only` (MARKETPLACE.md,
-// PRESENT_SERVER) can serve a deck read-only by reusing this core with the
+// READ_ONLY_SERVER) can serve a deck read-only by reusing this core with the
 // /edit/* routes ABSENT — not merely refused. Nothing in this module writes a
 // file.
 
@@ -197,7 +197,7 @@ function rangeOf(header, size) {
  *
  * `html` rewrites the text of every text/html response on its way out and
  * leaves every other type alone; after it, a deck that carries no runtime
- * (#520) has the installed one referenced into its text (`linkRuntime`). It is how `--read-only --strict` (PRESENT#STRICT)
+ * (#520) has the installed one referenced into its text (`linkRuntime`). It is how `--read-only --strict` (READ_ONLY#STRICT)
  * serves a deck with the unaccounted blocks removed while the file on disk
  * stays exactly as it arrived: the transform sits between the read and the
  * write, so there is no point in this path where the modified bytes could be
@@ -279,7 +279,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     };
 
     // A page's bytes are not the file's: the caller's rewrite (`--strict`,
-    // PRESENT#STRICT; a render's driver) runs on the text on its way out, and
+    // READ_ONLY#STRICT; a render's driver) runs on the text on its way out, and
     // then a deck that carries no runtime — a deck as data (#520) — gets the
     // engine, its stylesheet and its theme referenced (`linkRuntime`, which
     // leaves every other document exactly as it was). So its length and its

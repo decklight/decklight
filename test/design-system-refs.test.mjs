@@ -263,7 +263,7 @@ test('design-system add refuses a package that fails the check, leaving the deck
 
 // ── write mode ────────────────────────────────────────────────────────────
 
-async function startAuthor(t, h, body) {
+async function startEditingTour(t, h, body) {
   const dir = scratch('ds-author', t);
   writeFileSync(path.join(dir, 'deck.html'), body);
   const proc = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', '--no-git'], {
@@ -287,7 +287,7 @@ const post = (base, route, body) => fetch(`${base}${route}`, { method: 'POST', h
 
 test('write mode: browse lists what is on offer and what the deck uses; mark references it as one undo entry', async (t) => {
   const { home: h } = home(t);
-  const { base, deck: deckPath } = await startAuthor(t, h, deck({ decklight: '0.9.0', theme: 'aurora' }));
+  const { base, deck: deckPath } = await startEditingTour(t, h, deck({ decklight: '0.9.0', theme: 'aurora' }));
   const before = readFileSync(deckPath, 'utf8');
   let j = await (await fetch(`${base}/edit/design-system/browse`)).json();
   assert.deepEqual(j.systems.map((s) => [s.qualified, s.used]), [['acme@acme-mkt', false], ['future@acme-mkt', false]]);

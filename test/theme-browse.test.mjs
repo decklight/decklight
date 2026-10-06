@@ -80,7 +80,7 @@ function home(repo, { update = true } = {}) {
   return h;
 }
 
-async function startAuthor(t, h, { deck: body = DECK } = {}) {
+async function startEditingTour(t, h, { deck: body = DECK } = {}) {
   const dir = tmp();
   writeFileSync(path.join(dir, 'deck.html'), body);
   const proc = spawn(process.execPath, [EDIT, 'deck.html', '--port', '0', '--no-git'], {
@@ -105,7 +105,7 @@ async function startAuthor(t, h, { deck: body = DECK } = {}) {
 // ── what Browse lists ──────────────────────────────────────────────────────
 
 test('Browse lists theme entries, qualified, and nothing that is not a theme', async (t) => {
-  const { base } = await startAuthor(t, home(marketplace()));
+  const { base } = await startEditingTour(t, home(marketplace()));
   const j = await (await fetch(`${base}/edit/theme/browse`)).json();
 
   assert.equal(j.ok, true);
@@ -119,7 +119,7 @@ test('a registered-but-never-fetched marketplace is named, not silently empty', 
   // state is the FIRST-PARTY marketplace: registered on first run, never
   // fetched, by design. An empty list there would be the common case looking
   // like a broken one.
-  const { base } = await startAuthor(t, home(marketplace(), { update: false }));
+  const { base } = await startEditingTour(t, home(marketplace(), { update: false }));
   const j = await (await fetch(`${base}/edit/theme/browse`)).json();
   assert.ok(j.stale.includes('decklight'), 'the first-party one is reported unfetched, honestly');
   assert.ok(!j.themes.some((x) => x.marketplace === 'decklight'), 'and offers nothing it has not read');
@@ -138,7 +138,7 @@ test('a cached catalog whose FILES are not on disk is stale too — not an offer
   reg.marketplaces['nord-pack'].source = 'acme/catalog';   // re-registered from a remote
   writeFileSync(regPath, JSON.stringify(reg, null, 2));
 
-  const { base, deck } = await startAuthor(t, h);
+  const { base, deck } = await startEditingTour(t, h);
   const j = await (await fetch(`${base}/edit/theme/browse`)).json();
   assert.ok(j.stale.includes('nord-pack'), 'reported as needing an update, honestly');
   assert.ok(!j.themes.some((x) => x.marketplace === 'nord-pack'), 'and offered as nothing');
@@ -186,7 +186,7 @@ test('a mark from the open picker updates it in place — the page is not reload
   // picker asks for `quiet` and paints the mark itself; anything else still
   // reloads, the export card's "mark and carry on" included (it resumes
   // across that reload).
-  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const { base, deck } = await startEditingTour(t, home(marketplace()));
   const post = (body) => fetch(`${base}/edit/theme/mark`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
@@ -207,7 +207,7 @@ test('a mark from the open picker updates it in place — the page is not reload
 });
 
 test('marking records a reference in the config block — never the CSS — as one undo entry', async (t) => {
-  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const { base, deck } = await startEditingTour(t, home(marketplace()));
   const before = readFileSync(deck, 'utf8');
 
   const r = await mark(base, 'nord-deep@nord-pack');
@@ -227,7 +227,7 @@ test('marking records a reference in the config block — never the CSS — as o
 });
 
 test('a marked theme is linked into the served page, from the marketplace on disk', async (t) => {
-  const { base } = await startAuthor(t, home(marketplace()));
+  const { base } = await startEditingTour(t, home(marketplace()));
   await mark(base, 'nord-deep@nord-pack');
 
   const page = await (await fetch(`${base}/deck.html`)).text();
@@ -256,7 +256,7 @@ test('marking from the overlay records where the marketplace comes from', async 
   reg.marketplaces['nord-pack'].source = 'https://x-access-token:ghp_secret@github.com/nord/pack.git';
   writeFileSync(regPath, JSON.stringify(reg));
 
-  const { base, deck } = await startAuthor(t, h);
+  const { base, deck } = await startEditingTour(t, h);
   assert.equal((await mark(base, 'nord-deep@nord-pack')).status, 200);
   const cfg = config(readFileSync(deck, 'utf8'));
   assert.deepEqual(cfg.themeSources, { 'nord-pack': 'nord/pack' }, 'as marketplace add takes it, the token gone');
@@ -267,7 +267,7 @@ test('marking from the overlay records where the marketplace comes from', async 
 });
 
 test('a shipped theme is marked by name through the route — no resolving, no source', async (t) => {
-  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const { base, deck } = await startEditingTour(t, home(marketplace()));
   const r = await mark(base, 'ember');
   assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
   const cfg = config(readFileSync(deck, 'utf8'));
@@ -280,7 +280,7 @@ test('a shipped theme is marked by name through the route — no resolving, no s
 test('a theme the command line would refuse is refused here too, deck untouched', async (t) => {
   // Same validator, same gates. A picker that could leave a deck carrying a
   // broken theme would be worse than no picker.
-  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const { base, deck } = await startEditingTour(t, home(marketplace()));
   const before = readFileSync(deck, 'utf8');
 
   const r = await mark(base, 'broken@nord-pack');
@@ -292,7 +292,7 @@ test('a theme the command line would refuse is refused here too, deck untouched'
 });
 
 test('the refusals that are not about the theme itself', async (t) => {
-  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const { base, deck } = await startEditingTour(t, home(marketplace()));
   const before = readFileSync(deck, 'utf8');
 
   const cases = [
@@ -311,7 +311,7 @@ test('the refusals that are not about the theme itself', async (t) => {
 });
 
 test('marking twice is one reference; unmarking takes it out; the theme the deck opens on stays', async (t) => {
-  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const { base, deck } = await startEditingTour(t, home(marketplace()));
   await mark(base, 'nord-deep@nord-pack');
   const again = await (await mark(base, 'nord-deep@nord-pack')).json();
   assert.equal(again.changed, false, 'marked already — nothing to write');
@@ -330,7 +330,7 @@ test('marking twice is one reference; unmarking takes it out; the theme the deck
 });
 
 test('a hand-written deck with no configuration block is told how to get one', async (t) => {
-  const { base, deck } = await startAuthor(t, home(marketplace()), { deck: HAND_WRITTEN });
+  const { base, deck } = await startEditingTour(t, home(marketplace()), { deck: HAND_WRITTEN });
   const r = await mark(base, 'nord-deep@nord-pack');
   assert.equal(r.status, 409);
   assert.match((await r.json()).error, /upgrade --link/);
@@ -347,7 +347,7 @@ test('an entry whose bytes live at a URL is read when marked, and served from th
   await new Promise((r) => origin.listen(0, '127.0.0.1', r));
   t.after(() => origin.close());
   const url = `http://127.0.0.1:${origin.address().port}/gist/remote.css`;
-  const { base } = await startAuthor(t, home(marketplace({ extra: [{ name: 'remote', type: 'theme', source: url }] })));
+  const { base } = await startEditingTour(t, home(marketplace({ extra: [{ name: 'remote', type: 'theme', source: url }] })));
 
   const listed = (await (await fetch(`${base}/edit/theme/browse`)).json()).themes.find((x) => x.name === 'remote');
   assert.equal(listed.remote, true, 'listed, and flagged as not on this machine yet');
@@ -367,7 +367,7 @@ test('exporting in an unmarked marketplace theme asks first, naming it', async (
   // A file handed over in a theme the deck does not carry would be a file the
   // deck itself cannot reproduce. The card arms on this answer; marking is
   // the next press.
-  const { base, deck } = await startAuthor(t, home(marketplace()));
+  const { base, deck } = await startEditingTour(t, home(marketplace()));
   const before = readFileSync(deck, 'utf8');
   const r = await fetch(`${base}/edit/export`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -412,7 +412,7 @@ test('the player reaches the edit server for this and nowhere else', () => {
   const fetches = [...code.matchAll(/fetch\(([^\n]*)/g)].map((m) => m[1].trim());
   assert.equal(fetches.length, 2, 'listing and marking, and no third request');
   for (const arg of fetches) {
-    assert.match(arg, /^authorBase\(\) \+ '\/edit\//, `built from a literal path: ${arg}`);
+    assert.match(arg, /^editBase\(\) \+ '\/edit\//, `built from a literal path: ${arg}`);
   }
 
   const routes = [...code.matchAll(/'(\/edit\/[^']+)'/g)].map((m) => m[1]);

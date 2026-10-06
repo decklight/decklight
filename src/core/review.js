@@ -74,7 +74,7 @@ import {
 
 export function createReview({
   root, params, overlays, instance, toast, debugLog,
-  sections = () => [], titleOf, bodyOf, authorBase = () => null, authorReady = () => Promise.resolve(),
+  sections = () => [], titleOf, bodyOf, editBase = () => null, editReady = () => Promise.resolve(),
 }) {
   let el = null;
   let rows = [];
@@ -119,8 +119,8 @@ export function createReview({
     // left in write mode), but under it the overlay is still the OWNER's:
     // what is waiting, and resolving it. The reviewer's shape is the
     // read-only server's.
-    await authorReady();
-    if (authorBase() != null) { probed = false; return null; }
+    await editReady();
+    if (editBase() != null) { probed = false; return null; }
     try {
       const r = await fetch('/review/ping');
       const j = r.ok ? await r.json() : null;
@@ -131,8 +131,8 @@ export function createReview({
 
   async function load() {
     const base = await reviewBase();
-    const from = base !== null ? `${base}/review/comments` : `${authorBase() ?? ''}/edit/review`;
-    if (base === null && authorBase() == null) return { records: [], skipped: 0, can: 'none' };
+    const from = base !== null ? `${base}/review/comments` : `${editBase() ?? ''}/edit/review`;
+    if (base === null && editBase() == null) return { records: [], skipped: 0, can: 'none' };
     try {
       const r = await fetch(from);
       const j = await r.json();
@@ -143,7 +143,7 @@ export function createReview({
       // for a minute. A reviewer's overlay has no edit server and skips it.
       if (state.can === 'resolve') {
         try {
-          const ir = await fetch(`${authorBase() ?? ''}/edit/review/incoming`);
+          const ir = await fetch(`${editBase() ?? ''}/edit/review/incoming`);
           const ij = await ir.json();
           if (ij?.ok) state.incoming = ij;
         } catch { /* the section simply is not there */ }
@@ -430,7 +430,7 @@ export function createReview({
   /** Unfold (or fold) an orphan's "what it said", from the edit server. */
   async function toggleContext(r) {
     if (context?.id === r.id) { context = null; render(await load()); return; }
-    const base = authorBase();
+    const base = editBase();
     if (base == null) { toast('only the edit server can look that far back'); return; }
     try {
       const res = await fetch(`${base}/edit/review/at?id=${encodeURIComponent(r.id)}`);
@@ -452,7 +452,7 @@ export function createReview({
   async function anchorHere() {
     const r = rows[sel];
     if (!r || r.resolved) return;
-    const base = authorBase();
+    const base = editBase();
     if (base == null) return;
     if (armedAnchor !== r.id) { armedAnchor = r.id; armed = null; render(await load()); return; }
     armedAnchor = null;
@@ -483,7 +483,7 @@ export function createReview({
     const rbase = await reviewBase();
     const where = rbase !== null
       ? { url: `${rbase}/review/comments`, mine: false }
-      : authorBase() != null ? { url: `${authorBase()}/edit/review`, mine: true } : null;
+      : editBase() != null ? { url: `${editBase()}/edit/review`, mine: true } : null;
     if (!where) return false;
     try {
       const r = await fetch(where.url, {
@@ -524,7 +524,7 @@ export function createReview({
   async function resolve() {
     const r = rows[sel];
     if (!r) return;
-    const base = authorBase();
+    const base = editBase();
     if (base == null) return;
     // Somebody else's comment: toggle the local mark, no arming, reversible.
     if (r.branch) {
@@ -599,7 +599,7 @@ export function createReview({
     // The panel is up and can write: its own box is the place, not a second card
     if (el && focusDraft()) return;
     const base = await reviewBase();
-    const author = authorBase();
+    const author = editBase();
     if (base === null && author == null) {
       toast('nothing here can take a comment — open the deck with decklight <deck>');
       return;
@@ -684,8 +684,8 @@ export function createReview({
     // The line above the composer names the slide on screen, so it moves with
     // the deck — subscribed once, and a no-op while the panel is closed.
     if (!followsSlides) { followsSlides = true; instance.on('slide', () => { if (el) paintOn(); }); }
-    await authorReady();
-    writable = (await reviewBase()) !== null || authorBase() != null;
+    await editReady();
+    writable = (await reviewBase()) !== null || editBase() != null;
     if (el) render(await load());
   }
   function close() {

@@ -22,8 +22,8 @@
  * this), and nothing here writes to disk.
  *
  * Three things now ride on that one capability, in the order they run: the
- * ingredients label names what the file will execute (PRESENT#AUDIT), strict
- * mode removes what it could not account for on the way out (PRESENT#STRICT),
+ * ingredients label names what the file will execute (READ_ONLY#AUDIT), strict
+ * mode removes what it could not account for on the way out (READ_ONLY#STRICT),
  * and the CSP header bounds whatever is left.
  */
 
@@ -61,7 +61,7 @@ import { isContainer, readContainer, formatManifest } from './deckfile.mjs';
  * `script-src` has to carry `'unsafe-inline'`: a bundled deck IS inline script
  * (the runtime is inlined by `decklight bundle`) and even a source deck calls
  * `Decklight.init()` from an inline block. So this header does NOT stop a deck
- * from running script — that is what PRESENT#AUDIT names and PRESENT#STRICT
+ * from running script — that is what READ_ONLY#AUDIT names and READ_ONLY#STRICT
  * strips, and claiming otherwise here would manufacture confidence the
  * mechanism cannot back.
  *
@@ -292,7 +292,7 @@ export async function readOnlyMain(args, { client } = {}) {
   const port = parsePort(opt('--port', 8790));
   if (port === null) return fail(badPort('--port', opt('--port')));
 
-  // --remote widens the LISTENER and nothing else (PRESENT#REMOTE). The point
+  // --remote widens the LISTENER and nothing else (READ_ONLY#REMOTE). The point
   // of moving the phone remote here is that getting a clicker should not mean
   // running an editing server against your deck while you are on stage and not
   // looking at it — so this server still registers no /edit/* route, and the
@@ -381,7 +381,7 @@ export async function readOnlyMain(args, { client } = {}) {
   const deckUrl = '/' + deckPath.slice(root.length + 1).split(sep).join('/');
 
   // Strict is not a mode you opt into after reading the label — it is what the
-  // label DOES when it finds something (PRESENT#STRICT). The alternative
+  // label DOES when it finds something (READ_ONLY#STRICT). The alternative
   // designs both fail at the same moment: refusing to serve leaves someone with
   // no talk ten minutes before they give it, and offering a --force turns the
   // finding into a prompt that will be clicked through precisely then. Playing
@@ -393,7 +393,7 @@ export async function readOnlyMain(args, { client } = {}) {
   // no third state where a bad signature means something else — one degrade is
   // one thing to understand at the moment you have no time to understand two.
   const unverified = signature.state !== UNSIGNED && !isVerified(signature);
-  // MUTABLE from here, because a pull may replace all of it (PRESENT#UPSTREAM).
+  // MUTABLE from here, because a pull may replace all of it (READ_ONLY#UPSTREAM).
   // SPEC's condition on live reload is that the audit re-runs and the verdict is
   // re-printed — never new bytes under the old label — so the bytes, the label,
   // the signature and `strict` move together or not at all.
@@ -426,7 +426,7 @@ export async function readOnlyMain(args, { client } = {}) {
   // stopped at one file would be walked around by a second page under the same
   // root, and the deck can reach one — the theme picker, the slide finder and
   // the speaker view all boot documents into same-origin iframes.
-  // The presenter's own chrome (PRESENT#PLUGINS) — a timer, a teleprompter,
+  // The presenter's own chrome (READ_ONLY#PLUGINS) — a timer, a teleprompter,
   // a confidence monitor. It is loaded from ~/.decklight/plugins/, which is
   // the presenter's library and not the deck's: the installer is the
   // risk-bearer and nothing here travels, which is the same trust model that
@@ -596,7 +596,7 @@ export async function readOnlyMain(args, { client } = {}) {
     };
   }
 
-  // ── the upstream check (PRESENT#UPSTREAM) ─────────────────────────────────
+  // ── the upstream check (READ_ONLY#UPSTREAM) ─────────────────────────────────
   const suppressed = upstreamSuppressed({ args, env: process.env });
   const upstreamCtx = suppressed ? { state: 'disabled' } : await resolveUpstream(deckPath);
   // Absent unless the deck is a tracked file in a clone with an upstream. This
@@ -681,7 +681,7 @@ export async function readOnlyMain(args, { client } = {}) {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/present/events') { decks.add(req, res, CORS); return; }
-    // ── the upstream (PRESENT#UPSTREAM) ─────────────────────────────────
+    // ── the upstream (READ_ONLY#UPSTREAM) ─────────────────────────────────
     // REGISTERED ONLY when the deck is a tracked file in a clone whose branch
     // tracks something. On a deck you were emailed these are not refused, they
     // do not exist — a POST lands on the same 405 as a POST to anything else,

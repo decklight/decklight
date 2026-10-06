@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Strict mode (MARKETPLACE.md PRESENT#STRICT). The design rejects two failure
+// Strict mode (MARKETPLACE.md READ_ONLY#STRICT). The design rejects two failure
 // modes and both are testable: it must never refuse to serve, and it must never
 // serve the unaccounted block. Everything else here defends the third promise —
 // that a deck still presents faithfully once the stripping is done — because a
@@ -235,7 +235,7 @@ test('strict covers every html response, not just the deck', async (t) => {
 });
 
 test('there is no way to turn it back off', async () => {
-  // Not an omission — PRESENT#STRICT rejects the escape hatch outright, because
+  // Not an omission — READ_ONLY#STRICT rejects the escape hatch outright, because
   // the moment it would be reached for is the moment it should not exist. So no
   // argument is READ that could re-enable the block; the usage text is allowed
   // to name --force precisely because it is explaining that there isn't one.

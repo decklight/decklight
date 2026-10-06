@@ -2,7 +2,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Evidence for the present served-root scoping (PRESENT_SERVER, #226). Nothing
+// Evidence for the present served-root scoping (READ_ONLY_SERVER, #226). Nothing
 // changes on a slide, so the shot is the CLI surface itself: this script lays
 // out a directory the way the attack found it — a deck in an inbox with `.env`
 // and `id_rsa` beside it, and a served-by-the-old-code secret in the cwd above —

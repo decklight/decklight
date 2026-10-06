@@ -534,7 +534,7 @@ function catalogHome(wizard) {
 const DECK = '<!doctype html><html><body><div class="decklight"><section><h2>A</h2></section></div>'
   + '<script>Decklight.init()</script></body></html>\n';
 
-async function startAuthor(t, home) {
+async function startEditingTour(t, home) {
   const dir = tmp();
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const child = execFileSync ? null : null;
@@ -562,7 +562,7 @@ test('the edit server hands the player a VETTED schema, or refuses to', async (t
     engine: 'elevenlabs', title: 'ElevenLabs', validate: '/validate',
     fields: [{ name: 'apiKey', type: 'secret', required: true }],
   });
-  const { base } = await startAuthor(t, home);
+  const { base } = await startEditingTour(t, home);
 
   const got = await (await fetch(`${base}/edit/wizard?engine=elevenlabs`)).json();
   assert.equal(got.ok, true);
@@ -585,7 +585,7 @@ test('ping advertises what a wizard can configure — the palette rows come from
   // Without this list the player half is unreachable: nothing in a deck knows
   // an engine name to ask /edit/wizard about, so openWizard has no caller.
   const home = catalogHome({ engine: 'elevenlabs', title: 'ElevenLabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
-  const { base } = await startAuthor(t, home);
+  const { base } = await startEditingTour(t, home);
   const ping = await (await fetch(`${base}/edit/ping`)).json();
   assert.deepEqual(ping.wizards, [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }],
     'qualified so the player names it unambiguously, titled so the palette can label the row — and the wizardless entry is not offered');
@@ -597,7 +597,7 @@ test('a catalog declaring a field core cannot render is refused on the way OUT',
   // "core renders whatever a plugin sent".
   // The entry is named elevenlabs; what it DECLARES is the unrenderable thing.
   const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'x', type: 'html' }] });
-  const { base } = await startAuthor(t, home);
+  const { base } = await startEditingTour(t, home);
   const r = await fetch(`${base}/edit/wizard?engine=elevenlabs`);
   assert.equal(r.status, 400);
   assert.match((await r.json()).error, /cannot render/);
@@ -605,7 +605,7 @@ test('a catalog declaring a field core cannot render is refused on the way OUT',
 
 test('a configured engine is stored restricted, and the response is redacted', async (t) => {
   const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
-  const { base, log } = await startAuthor(t, home);
+  const { base, log } = await startEditingTour(t, home);
 
   const r = await fetch(`${base}/edit/wizard`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -637,7 +637,7 @@ test('a configured engine is stored restricted, and the response is redacted', a
 
 test('an engine no marketplace declares is a third answer, not one of the two failures', async (t) => {
   const home = catalogHome({ engine: 'elevenlabs', fields: [{ name: 'k', type: 'secret' }] });
-  const { base } = await startAuthor(t, home);
+  const { base } = await startEditingTour(t, home);
   const r = await fetch(`${base}/edit/wizard`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ engine: 'ghost', answers: {} }),
@@ -653,7 +653,7 @@ test('bad answers come back 400 with the schema\'s own complaint', async (t) => 
     engine: 'elevenlabs',
     fields: [{ name: 'apiKey', type: 'secret', required: true }, { name: 'voice', type: 'choice', options: ['Rachel'] }],
   });
-  const { base } = await startAuthor(t, home);
+  const { base } = await startEditingTour(t, home);
   const r = await fetch(`${base}/edit/wizard`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ engine: 'elevenlabs', answers: { voice: 'Nobody' } }),

@@ -12,7 +12,7 @@
 // message. Nothing else in the engine needs to know the server exists; layout
 // cycling, the one other thing that saves through it, asks available()/base().
 //
-// The phone remote is NOT here (PRESENT#REMOTE). It hangs off a second, smaller
+// The phone remote is NOT here (READ_ONLY#REMOTE). It hangs off a second, smaller
 // probe — wirePresentRemote, below — because it belongs to a server with no
 // edit surface at all, and a clicker should never have cost you one.
 
@@ -362,7 +362,7 @@ export function createEditMode({
           preferredAgent = typeof j.preferredAgent === 'string' ? j.preferredAgent : null;
           editWizards = Array.isArray(j.wizards) ? j.wizards : [];
           // No QR and no clicker on this path: the edit server binds
-          // 127.0.0.1 and serves no /remote/* at all (PRESENT#REMOTE). A deck
+          // 127.0.0.1 and serves no /remote/* at all (READ_ONLY#REMOTE). A deck
           // being AUTHORED has a keyboard in front of it; a deck being
           // PRESENTED is what wirePresentRemote wires up.
           // Said once per session, and only when there is enough of it to be
@@ -518,7 +518,7 @@ export function createEditMode({
    * ALLOWED to do, and a shared code path with a boolean in it is how a
    * presenting server quietly acquires an editing capability later.
    */
-  // ── the deck update overlay (H, read-only mode) — SPEC PRESENT#UPSTREAM ─────
+  // ── the deck update overlay (H, read-only mode) — SPEC READ_ONLY#UPSTREAM ─────
   //
   // The author's H is the deck's own history. A PRESENTED deck has no history
   // to show — there is no edit server and no /edit/at to preview a commit with

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Presenter plugins (MARKETPLACE.md PRESENT#PLUGINS), measured in a real browser.
+ * Presenter plugins (MARKETPLACE.md READ_ONLY#PLUGINS), measured in a real browser.
  *
  * The unit tests prove the manifest vocabulary refuses a plugin that ASKS for
  * slide content. That is the polite half, and on its own it is worth very

@@ -56,7 +56,7 @@ const kb = (s) => `${(Buffer.byteLength(s) / 1024).toFixed(1)} KB`;
  */
 const maskComments = (html) => html.replace(/<!--[\s\S]*?-->/g, (m) => m.replace(/[^\n]/g, ' '));
 
-// Exported because the ingredients label (cli/audit.mjs, PRESENT#AUDIT) has to
+// Exported because the ingredients label (cli/audit.mjs, READ_ONLY#AUDIT) has to
 // enumerate exactly the blocks this command knows how to find. Two scanners
 // that drift apart would mean upgrade rewriting a block the audit calls
 // unaccounted, or the reverse — so there is one of each.

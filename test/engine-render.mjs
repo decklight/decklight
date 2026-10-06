@@ -25,13 +25,13 @@ const page = path.join(here, 'engine.html');
 let bad = 0;
 /** Every mode this harness drives, grouped by concern (see test/verify.mjs). */
 export const MODES = [
-  'themepicker', 'dsrecommended', 'fonts', 'fontslegacy', 'fontsauthor', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard',
+  'themepicker', 'dsrecommended', 'fonts', 'fontslegacy', 'fontswrite', 'dslook', 'bleed', 'bleedoff', 'added', 'browse', 'nobrowse', 'wizard',
   'palette', 'settings', 'exclusive', 'contextmenu', 'commit', 'agentlog', 'enhance', 'designsystems', 'skeys', 'skeys&nosrv',
   'narration', 'nonarration', 'panel',
   'restore', 'historycaptions', 'hidden', 'hidden&all', 'chapters', 'chaptersplaylist',
   'exportpptx', 'exportfail', 'exportvideo', 'publish',
   'template', 'templatelook', 'sources', 'sourcesedit',
-  'palettegroups', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'notesauto', 'notesautofail', 'lockmode', 'readonlymode', 'authortour', 'authortourwelcome',
+  'palettegroups', 'paletteplain', 'overviewedit', 'overviewplain', 'authoring', 'editbar', 'codeedit', 'editor', 'notessave', 'notesinplace', 'notesreopen', 'notesreopenstale', 'colors', 'dscolors', 'typingdock', 'notesauto', 'notesautofail', 'lockmode', 'readonlymode', 'editingtour', 'editingtourwelcome',
   'linedraw', 'nestedfills', 'dslayouts', 'dsedit',
 ];
 

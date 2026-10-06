@@ -1,7 +1,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// The ingredients label (MARKETPLACE.md PRESENT#AUDIT). Two things have to
+// The ingredients label (MARKETPLACE.md READ_ONLY#AUDIT). Two things have to
 // hold at once and pull against each other: every executing block is named,
 // and nothing inert is. A label that cried wolf on cast JSON would be turned
 // off within a day, and one that missed an appended <script> is worse than
@@ -374,7 +374,7 @@ test('--check on a real bundled deck is quiet, and loud once tampered with', () 
 
 test('every command that inlines the runtime produces bytes this install recognises', () => {
   // The label's whole job is to say whether the runtime in a file is this
-  // install's build (PRESENT#AUDIT), so a decklight command whose own output
+  // install's build (READ_ONLY#AUDIT), so a decklight command whose own output
   // audits as DIFFERS is the alarm going off on decklight itself. `import`
   // did exactly that: its local escape covered `</script` and `</style` but
   // not `<!--`, so every imported deck disagreed with the auditor by one

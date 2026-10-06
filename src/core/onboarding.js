@@ -53,7 +53,7 @@ export const TIPS = [
 ];
 
 const SEEN_KEY = 'decklight-onboarded';   // the welcome card, once per browser
-const AUTHOR_SEEN_KEY = 'decklight-onboarded-tour';   // the editing tour, once per browser
+const TOUR_SEEN_KEY = 'decklight-onboarded-tour';   // the editing tour, once per browser
 const TIPS_SEEN_KEY = 'decklight-tips-seen';
 const TIPS_OFF_KEY = 'decklight-tips-off';
 
@@ -127,19 +127,19 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
   // never on top of the welcome (one card a load), and never where no author
   // server answers: the tour is about what this deck can do, not what some
   // other deck could.
-  let authorEl = null;
-  function dismissAuthorWelcome() {
-    if (!authorEl) return;
-    authorEl.remove();
-    authorEl = null;
-    write(AUTHOR_SEEN_KEY, '1');
+  let tourEl = null;
+  function dismissEditingTour() {
+    if (!tourEl) return;
+    tourEl.remove();
+    tourEl = null;
+    write(TOUR_SEEN_KEY, '1');
     debugLog?.('nav', 'editing tour dismissed');
   }
-  function showAuthorWelcome() {
-    if (authorEl || cardEl || printMode) return;
-    authorEl = document.createElement('div');
-    authorEl.className = 'decklight-welcome wel-author';
-    authorEl.innerHTML = `<div class="wel-card">
+  function showEditingTour() {
+    if (tourEl || cardEl || printMode) return;
+    tourEl = document.createElement('div');
+    tourEl.className = 'decklight-welcome wel-tour';
+    tourEl.innerHTML = `<div class="wel-card">
       <h3>Editing this deck</h3>
       <p class="wel-lead">This deck is open in write mode (<code>decklight &lt;deck.html&gt;</code>): what you change here is written to the file, snapshotted, and taken back with <b>Z</b>. Lock editing from the <code>/</code> palette to avoid a change by mistake.</p>
       <table>
@@ -155,9 +155,9 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
         <button type="button" class="wel-go">Got it</button>
       </div>
     </div>`;
-    authorEl.addEventListener('click', (e) => { e.stopPropagation(); dismissAuthorWelcome(); });
-    closeOnBackdrop(authorEl, dismissAuthorWelcome);
-    root.appendChild(authorEl);
+    tourEl.addEventListener('click', (e) => { e.stopPropagation(); dismissEditingTour(); });
+    closeOnBackdrop(tourEl, dismissEditingTour);
+    root.appendChild(tourEl);
     debugLog?.('nav', 'editing tour shown');
   }
   /**
@@ -166,17 +166,17 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
    * over a welcome that is already up. Nothing on a load that teaches nobody.
    */
   /** Both cards, for the advance that retires whichever is up. */
-  function dismissCards() { dismissWelcome(); dismissAuthorWelcome(); }
-  function startAuthor(target) {
-    if (quiet || cardEl || authorEl) return;
+  function dismissCards() { dismissWelcome(); dismissEditingTour(); }
+  function startEditingTour(target) {
+    if (quiet || cardEl || tourEl) return;
     if (target.slide !== 1 || target.step !== 0) return;
-    if (read(AUTHOR_SEEN_KEY) === '1') return;
-    showAuthorWelcome();
+    if (read(TOUR_SEEN_KEY) === '1') return;
+    showEditingTour();
   }
   overlays.register({
-    isOpen: () => !!authorEl,
-    close: dismissAuthorWelcome,
-    keydown: () => (dismissAuthorWelcome(), true),
+    isOpen: () => !!tourEl,
+    close: dismissEditingTour,
+    keydown: () => (dismissEditingTour(), true),
   });
 
   // The card owns the keyboard while it is up, and spends it on one job: the
@@ -248,11 +248,11 @@ export function createOnboarding({ root, printMode, params, toast, debugLog, ove
 
   return {
     start,
-    startAuthor,
+    startEditingTour,
     showWelcome,
     dismissWelcome,
-    showAuthorWelcome,
-    dismissAuthorWelcome,
+    showEditingTour,
+    dismissEditingTour,
     showTip,
     setTips,
     resetTips,

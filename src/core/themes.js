@@ -537,7 +537,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
   // plane, air-gapped: it lists what has been fetched and NAMES the
   // marketplaces it could not read, rather than looking short.
   const authoring = () => editmode?.()?.available() === true;
-  const authorBase = () => editmode?.()?.base() ?? '';
+  const editBase = () => editmode?.()?.base() ?? '';
   let catalogs = null; // null · { loading } · { stale } · { error }
   const shipped = () => (typeof __DECKLIGHT_THEMES__ !== 'undefined' ? __DECKLIGHT_THEMES__ : []);
 
@@ -546,7 +546,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     catalogs = { loading: true };
     let next;
     try {
-      const r = await fetch(authorBase() + '/edit/theme/browse');
+      const r = await fetch(editBase() + '/edit/theme/browse');
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.ok) {
         for (const t of j.themes ?? []) {
@@ -607,7 +607,7 @@ export function createThemes({ root, config, params, toast, debugLog, overlays, 
     const caption = pickerEl?.querySelector('.tp-caption');
     if (caption) caption.textContent = `${on ? 'marking' : 'unmarking'} ${ref}…`;
     try {
-      const r = await fetch(authorBase() + '/edit/theme/mark', {
+      const r = await fetch(editBase() + '/edit/theme/mark', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ref, marked: on, quiet: true }),

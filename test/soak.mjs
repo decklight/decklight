@@ -380,7 +380,7 @@ const TRANSFORM_MJS = 'export default async function transform(html) {\n'
   + '}\n';
 
 /**
- * A presenter plugin (SPEC PRESENT#PLUGINS): two files, and the whole point is
+ * A presenter plugin (SPEC READ_ONLY#PLUGINS): two files, and the whole point is
  * where they do NOT go. It is chrome — it renders in a sandboxed frame with an
  * opaque origin, `--read-only` layers it on at serve time, and `bundle` cannot see
  * it, so a deck someone else opens is the same deck whatever this machine has
@@ -569,7 +569,7 @@ const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).ver
 const NPM = npmCommand();
 let tarball;
 let installedThemes = 0;
-let authorSrv = null;
+let editSrv = null;
 let failed = false;
 
 console.log(`decklight soak — ${version}, into "${PROJECT}"`);
@@ -862,11 +862,11 @@ try {
 
   // ── write mode ───────────────────────────────────────────────────────────────
   await step('open starts and takes the repo', async () => {
-    authorSrv = await startServer(
+    editSrv = await startServer(
       ['deck.html', '--port', '0', '--git', '--commit-every', '5'],
       DECK_URL_RE,
     );
-    const ping = await (await get(authorSrv.base, '/edit/ping')).json();
+    const ping = await (await get(editSrv.base, '/edit/ping')).json();
     must(ping.ok === true && ping.name === 'deck.html', `ping said ${JSON.stringify(ping)}`);
     must(ping.git === true, 'the edit server did not pick up the repository init created');
     must(ping.undo === 0 && ping.redo === 0, 'a fresh session started with history');
@@ -884,16 +884,16 @@ try {
     // The policy is a banner ROW now, not a sentence of its own — shorter,
     // because the banner puts it beside every other fact about this session
     // rather than in a paragraph competing with the url.
-    must(/commits on your word/.test(authorSrv.log()),
+    must(/commits on your word/.test(editSrv.log()),
       'the edit server did not announce the commit policy it was given');
-    must(/decklight\/wip/.test(authorSrv.log()),
+    must(/decklight\/wip/.test(editSrv.log()),
       'the edit server did not say where the work is snapshotted');
     // The banner is ONE block: the title first, a row per service, and the
     // deck's URL LAST with the keys under it (#423). Three processes used to
     // print in whatever order they woke, and the URL you wanted landed under
     // the bridge's. The rows are asserted by name above; what this pins is
     // the shape — a title, and nothing between the url and its keys.
-    const lines = authorSrv.log().split('\n');
+    const lines = editSrv.log().split('\n');
     must(lines.some((l) => /^decklight · deck\.html$/.test(l)), 'the banner does not open with the deck\'s name');
     const at = lines.findIndex((l) => DECK_URL_RE.test(l));
     must(/^\s+▸ /.test(lines[at]), `the url line is not the arrow line: ${JSON.stringify(lines[at])}`);
@@ -910,7 +910,7 @@ try {
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 8000);
       try {
-        const res = await fetch(`${authorSrv.base}/edit/events`, { signal: ctrl.signal });
+        const res = await fetch(`${editSrv.base}/edit/events`, { signal: ctrl.signal });
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = '';
@@ -934,45 +934,45 @@ try {
     must(sectionBodies(deck()).length === 3, `expected 3 slides, got ${sectionBodies(deck()).length}`);
     must(await sse, 'the edit server did not broadcast a reload for the file change');
     const src = await until('the server could address the new slide', async () => {
-      const r = await get(authorSrv.base, '/edit/element/source?slide=3&index=0');
+      const r = await get(editSrv.base, '/edit/element/source?slide=3&index=0');
       return r.status === 200 ? (await r.json()).html : null;
     }, { ms: 5000 });
     must(src.includes('Soak slide'), `the server read back ${JSON.stringify(src)}`);
   });
 
   await step('slides edit over the author API', async () => {
-    const notes = await postJson(authorSrv.base, '/edit/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
+    const notes = await postJson(editSrv.base, '/edit/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
     must(notes.status === 200, `notes returned ${notes.status}`);
     must(/<aside class="notes">[\s\S]*first beat/.test(deck()), 'the notes did not reach the file');
 
-    const layout = await postJson(authorSrv.base, '/edit/layout', { slide: 3, layout: 'split' });
+    const layout = await postJson(editSrv.base, '/edit/layout', { slide: 3, layout: 'split' });
     must(layout.status === 200 && layout.body.changed === true, `layout returned ${JSON.stringify(layout)}`);
     must(/<section data-layout="split"/.test(deck()), 'data-layout did not reach the file');
 
-    const content = await postJson(authorSrv.base, '/edit/element/content',
+    const content = await postJson(editSrv.base, '/edit/element/content',
       { slide: 3, index: 1, html: '<p data-build="fade">edited by the soak</p>' });
     must(content.status === 200, `element/content returned ${content.status}`);
     must(deck().includes('edited by the soak'), 'the element edit did not reach the file');
 
-    const effect = await postJson(authorSrv.base, '/edit/element/effect', { slide: 3, index: 1, effect: 'zoom' });
+    const effect = await postJson(editSrv.base, '/edit/element/effect', { slide: 3, index: 1, effect: 'zoom' });
     must(effect.status === 200, `element/effect returned ${effect.status}`);
     must(deck().includes('data-build="zoom"'), 'the build effect did not reach the file');
 
     // A refused edit must leave the deck byte-identical.
     const before = deck();
-    const bad = await post(authorSrv.base, '/edit/layout', { slide: 3, layout: 'diagonal' });
+    const bad = await post(editSrv.base, '/edit/layout', { slide: 3, layout: 'diagonal' });
     must(bad.status !== 200, 'an unknown layout was accepted');
     must(deck() === before, 'a refused edit changed the deck');
   });
 
   await step('undo and redo round-trip, keeping the slide', async () => {
-    const undo = await postJson(authorSrv.base, '/edit/undo', {});
+    const undo = await postJson(editSrv.base, '/edit/undo', {});
     must(undo.status === 200, `undo returned ${undo.status}`);
     must(deck().includes('data-build="fade"'), 'undo did not step the effect back');
     // The load-bearing one: a direct file write is invisible to the history, so
     // undoing past it must not swallow the slide it added.
     must(sectionBodies(deck()).length === 3, 'undo swallowed the slide added by writing the file');
-    const redo = await postJson(authorSrv.base, '/edit/redo', {});
+    const redo = await postJson(editSrv.base, '/edit/redo', {});
     must(redo.status === 200, `redo returned ${redo.status}`);
     must(deck().includes('data-build="zoom"'), 'redo did not step forward again');
   });
@@ -985,13 +985,13 @@ try {
     const before = deck();
     const titles = () => sectionBodies(deck()).map((s) => /Soak slide/.test(s) ? 'soak' : 'other');
     must(titles()[2] === 'soak', `the soak slide is not third before the move: ${titles()}`);
-    const moved = await postJson(authorSrv.base, '/edit/slide', { op: 'move', slide: 3, to: 1 });
+    const moved = await postJson(editSrv.base, '/edit/slide', { op: 'move', slide: 3, to: 1 });
     must(moved.status === 200 && moved.body.slide === 1, `move returned ${JSON.stringify(moved.body)}`);
     must(titles()[0] === 'soak', `the slide did not land first: ${titles()}`);
     must(sectionBodies(deck()).length === 3, 'a move changed the number of slides');
-    const bad = await post(authorSrv.base, '/edit/slide', { op: 'move', slide: 1 });
+    const bad = await post(editSrv.base, '/edit/slide', { op: 'move', slide: 1 });
     must(bad.status === 400, `a move with nowhere to go was accepted (${bad.status})`);
-    const undo = await postJson(authorSrv.base, '/edit/undo', {});
+    const undo = await postJson(editSrv.base, '/edit/undo', {});
     must(undo.status === 200 && deck() === before, 'Z did not take the whole move back in one press');
   });
 
@@ -1000,25 +1000,25 @@ try {
     // to avoid a change by mistake, and back. Locked, every edit route refuses
     // with 423 and the deck is not touched; the ping says so to every tab; the
     // same route writes again the moment it is unlocked.
-    const ping = async () => (await get(authorSrv.base, '/edit/ping')).json();
+    const ping = async () => (await get(editSrv.base, '/edit/ping')).json();
     must((await ping()).locked === false, 'a fresh session started locked');
-    const lock = await postJson(authorSrv.base, '/edit/lock', { locked: true });
+    const lock = await postJson(editSrv.base, '/edit/lock', { locked: true });
     must(lock.status === 200 && lock.body.locked === true, `lock returned ${JSON.stringify(lock.body)}`);
     const probed = await ping();
     must(probed.locked === true && probed.readOnly === false, `locked, the probe says ${JSON.stringify({ locked: probed.locked, readOnly: probed.readOnly })}`);
     const before = deck();
-    const refused = await postJson(authorSrv.base, '/edit/notes', { slide: 3, text: 'typed while locked' });
+    const refused = await postJson(editSrv.base, '/edit/notes', { slide: 3, text: 'typed while locked' });
     must(refused.status === 423, `a locked server answered an edit with ${refused.status}`);
     must(/editing is locked/.test(refused.body?.error ?? ''), `the refusal is not named: ${refused.body?.error}`);
     must(deck() === before, 'a locked server wrote to the deck');
-    const undo = await post(authorSrv.base, '/edit/undo', {});
+    const undo = await post(editSrv.base, '/edit/undo', {});
     must(undo.status === 423, `locked, undo still answered ${undo.status}`);
-    await until('the server to say it locked', () => /editing locked/.test(authorSrv.log()), { ms: 5000 });
-    const bad = await post(authorSrv.base, '/edit/lock', { locked: 'yes' });
+    await until('the server to say it locked', () => /editing locked/.test(editSrv.log()), { ms: 5000 });
+    const bad = await post(editSrv.base, '/edit/lock', { locked: 'yes' });
     must(bad.status === 400, 'the lock took something other than true or false');
-    const unlock = await postJson(authorSrv.base, '/edit/lock', { locked: false });
+    const unlock = await postJson(editSrv.base, '/edit/lock', { locked: false });
     must(unlock.body?.locked === false && (await ping()).locked === false, 'unlocking did not unlock');
-    const saved = await postJson(authorSrv.base, '/edit/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
+    const saved = await postJson(editSrv.base, '/edit/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
     must(saved.status === 200, `unlocked, the same route answered ${saved.status}`);
   });
 
@@ -1027,11 +1027,11 @@ try {
     // both modes. The comment is an append to the sidecar, the deck is byte
     // for byte what it was, and in write mode nothing is committed for it —
     // the sidecar is one file among the deck's own, left to K.
-    const ping = await (await get(authorSrv.base, '/review/ping')).json();
+    const ping = await (await get(editSrv.base, '/review/ping')).json();
     must(ping.review === true && ping.mode === 'write', `the review ping says ${JSON.stringify(ping)}`);
     const before = deck();
     const commits = git(['rev-list', '--count', 'HEAD']).trim();
-    const said = await postJson(authorSrv.base, '/review/comments', { slide: 2, body: 'Tighten this one.' });
+    const said = await postJson(editSrv.base, '/review/comments', { slide: 2, body: 'Tighten this one.' });
     must(said.status === 200 && /^[a-z0-9]{1,12}$/.test(said.body?.id ?? ''), `the comment answered ${JSON.stringify(said.body)}`);
     const store = join(PROJECT, 'deck.review.jsonl');
     must(existsSync(store), 'no sidecar beside the deck');
@@ -1039,7 +1039,7 @@ try {
     must(deck() === before, 'a comment was written into the deck');
     must(git(['rev-list', '--count', 'HEAD']).trim() === commits, 'write mode committed the comment by itself');
     must(/^\?\? deck\.review\.jsonl$/m.test(git(['status', '--porcelain'])), 'the sidecar is not sitting untracked for the author\'s own commit');
-    const listed = await (await get(authorSrv.base, '/review/comments')).json();
+    const listed = await (await get(editSrv.base, '/review/comments')).json();
     must(listed.records?.length === 1 && listed.records[0].body === 'Tighten this one.', 'the comment does not list back');
     must(/Tighten this one\./.test(dl(['comments', 'deck.html']).all), 'the typed listing cannot see the comment');
     // left out of the rest of the journey: the commits below are about the deck
@@ -1053,21 +1053,21 @@ try {
     // bump is the answer. (A bridge is the opposite: it may not move, because
     // the deck assumes its port.)
     const second = await startServer(
-      ['deck.html', '--port', String(authorSrv.port), '--no-git', '--no-tts', '--no-lipsync'],
+      ['deck.html', '--port', String(editSrv.port), '--no-git', '--no-tts', '--no-lipsync'],
       DECK_URL_RE);
-    must(second.port !== authorSrv.port, 'the second session bound a port that was already taken');
+    must(second.port !== editSrv.port, 'the second session bound a port that was already taken');
     const log = second.log();
-    must(new RegExp(`port ${authorSrv.port} is already in use — decklight is editing "deck\\.html" there; using a different port`).test(log),
+    must(new RegExp(`port ${editSrv.port} is already in use — decklight is editing "deck\\.html" there; using a different port`).test(log),
       `the second session did not name who has the port: ${log}`);
     must(new RegExp(`→ using port ${second.port}`).test(log), 'the port it moved to is not the one announced');
-    for (const srv of [authorSrv, second]) {
+    for (const srv of [editSrv, second]) {
       const ping = await (await get(srv.base, '/edit/ping')).json();
       must(ping.ok === true && ping.name === 'deck.html', `a session stopped answering: ${JSON.stringify(ping)}`);
     }
     second.child.kill('SIGTERM');
     must(await waitExit(second.child, 8000), 'the second session did not exit on SIGTERM');
     must((await isPortOpen(second.port)) === false, 'the second session left its port bound');
-    must(await isPortOpen(authorSrv.port), 'stopping the second session took the first one down');
+    must(await isPortOpen(editSrv.port), 'stopping the second session took the first one down');
   });
 
   await step('a marketplace theme is marked for the deck, served from the marketplace, and bundled', async () => {
@@ -1077,12 +1077,12 @@ try {
     // into the config block, never CSS, and the hand-over carries the CSS
     // (SPEC THEME_DISTRIBUTION).
     const before = deck();
-    const wrong = await postJson(authorSrv.base, '/edit/theme/mark', { ref: 'soak-pitch@soak-market' });
+    const wrong = await postJson(editSrv.base, '/edit/theme/mark', { ref: 'soak-pitch@soak-market' });
     must(wrong.status === 400, `a template was accepted as a theme (${wrong.status})`);
     must(/not a theme/.test(wrong.body?.error ?? ''), `the refusal says: ${wrong.body?.error}`);
     must(deck() === before, 'a refused mark touched the deck');
 
-    const ok = await postJson(authorSrv.base, '/edit/theme/mark', { ref: 'soak-theme@soak-market' });
+    const ok = await postJson(editSrv.base, '/edit/theme/mark', { ref: 'soak-theme@soak-market' });
     must(ok.status === 200, `marking returned ${ok.status}: ${JSON.stringify(ok.body)}`);
     must(/"markedThemes": \["soak-theme@soak-market"\]/.test(deck()), 'the reference did not land in the config block');
     must(!/<style[^>]*data-theme="soak-theme"/.test(deck()), 'the theme\'s CSS went into the deck');
@@ -1090,15 +1090,15 @@ try {
     // reaches this process over a pipe — so a response can arrive before the
     // parent's `data` event has fired.
     await until('the server to say what it marked',
-      () => /theme: marked soak-theme@soak-market/.test(authorSrv.log()),
+      () => /theme: marked soak-theme@soak-market/.test(editSrv.log()),
       { ms: 5000 });
 
     // Served from the marketplace's files, installed from a tarball into a
     // project whose path has a space in it.
-    const page = await (await fetch(`${authorSrv.base}/${basename(deckPath())}`)).text();
+    const page = await (await fetch(`${editSrv.base}/${basename(deckPath())}`)).text();
     const href = page.match(/<link[^>]*href="([^"]*decklight-theme\/soak-market\/soak-theme\.css)"/)?.[1];
     must(href, 'the served page does not link the marked theme');
-    const css = await fetch(`${authorSrv.base}/${href}`);
+    const css = await fetch(`${editSrv.base}/${href}`);
     must(css.status === 200 && /--d-fill-1/.test(await css.text()), `the marked theme's CSS is not served (${css.status})`);
 
     // And the hand-over carries it, opening on it.
@@ -1111,17 +1111,17 @@ try {
     // And back out again: a mark goes on the same undo stack as any other
     // edit, which is both the claim in the route and how this step leaves the
     // deck exactly as the twenty steps after it expect to find it.
-    const undo = await postJson(authorSrv.base, '/edit/undo', {});
+    const undo = await postJson(editSrv.base, '/edit/undo', {});
     must(undo.status === 200, `undo returned ${undo.status}`);
     must(deck() === before, 'Z did not take the mark back');
   });
 
   await step('an explicit commit lands, and repeats as a no-op', async () => {
-    const first = await postJson(authorSrv.base, '/edit/commit', { message: 'soak: three slides, edited' });
+    const first = await postJson(editSrv.base, '/edit/commit', { message: 'soak: three slides, edited' });
     must(first.status === 200 && first.body.committed === true, `commit returned ${JSON.stringify(first.body)}`);
     must(git(['log', '-1', '--format=%s']).trim() === 'soak: three slides, edited', 'the subject did not land');
     must(git(['status', '--porcelain', '--', 'deck.html']).trim() === '', 'the deck is still dirty after a commit');
-    const again = await postJson(authorSrv.base, '/edit/commit', { message: 'soak: nothing to say' });
+    const again = await postJson(editSrv.base, '/edit/commit', { message: 'soak: nothing to say' });
     must(again.body.committed === false, 'a clean tree produced a second commit');
   });
 
@@ -1131,7 +1131,7 @@ try {
     // snapshot on refs/decklight/wip and asks once, so what has to be true is
     // the opposite — the work is RECOVERABLE and the log is UNTOUCHED.
     const before = git(['rev-list', '--count', 'HEAD']).trim();
-    await postJson(authorSrv.base, '/edit/notes', { slide: 1, text: 'touched for the timer' });
+    await postJson(editSrv.base, '/edit/notes', { slide: 1, text: 'touched for the timer' });
     // the watch interval follows --commit-every (5s here); 3× before failing
     await until('a wip snapshot carrying the edit', () => {
       const r = spawnSync('git', ['show', 'refs/decklight/wip:deck.html'],
@@ -1149,13 +1149,13 @@ try {
     // Made here, through the deck's own route, because `restore` two steps down
     // needs three commits to walk and used to help itself to whatever the
     // cadence had piled up. A step that needs history has to make it.
-    const kept = await postJson(authorSrv.base, '/edit/commit',
+    const kept = await postJson(editSrv.base, '/edit/commit',
       { message: 'soak: a second point to come back to' });
     must(kept.body.committed === true, `the second commit returned ${JSON.stringify(kept.body)}`);
   });
 
   await step('open exits cleanly and lets go', async () => {
-    const hist = await (await get(authorSrv.base, '/edit/history')).json();
+    const hist = await (await get(editSrv.base, '/edit/history')).json();
     // CONTENT, not a count. This asked for three entries back when the cadence
     // manufactured them; the log now holds only commits somebody meant, so the
     // number is small and will change again the moment a step commits once
@@ -1166,12 +1166,12 @@ try {
       'the history overlay cannot see the commit this session made');
     // Leave real work uncommitted on purpose: the closing bookend's whole job
     // is that quitting does not lose the last thing you typed.
-    await postJson(authorSrv.base, '/edit/notes', { slide: 2, text: 'typed just before quitting' });
+    await postJson(editSrv.base, '/edit/notes', { slide: 2, text: 'typed just before quitting' });
     must(git(['status', '--porcelain', '--', 'deck.html']).trim() !== '', 'the setup for this step did not dirty the deck');
 
     const before = git(['rev-list', '--count', 'HEAD']).trim();
-    await post(authorSrv.base, '/edit/shutdown', {}).catch(() => {});   // it hangs up as it exits
-    must(await waitExit(authorSrv.child, 8000), 'the edit server did not exit after /edit/shutdown');
+    await post(editSrv.base, '/edit/shutdown', {}).catch(() => {});   // it hangs up as it exits
+    must(await waitExit(editSrv.child, 8000), 'the edit server did not exit after /edit/shutdown');
     // Quitting no longer COMMITS what you did not commit — that was the cadence
     // wearing an exit for a hat, and it is where the wall of `decklight: stop
     // editing` came from. What must still be true is that nothing is LOST: the
@@ -1184,8 +1184,8 @@ try {
       { cwd: PROJECT, encoding: 'utf8' });
     must(wip.status === 0 && wip.stdout.includes('typed just before quitting'),
       'the last edit is not recoverable from the snapshot');
-    must((await isPortOpen(authorSrv.port)) === false, 'the edit port is still bound — an orphan survived');
-    authorSrv = null;
+    must((await isPortOpen(editSrv.port)) === false, 'the edit port is still bound — an orphan survived');
+    editSrv = null;
   });
 
   await step('restore walks the history back, and forward again', () => {
@@ -1267,7 +1267,7 @@ try {
     // constraint, not a preference: a deck SERVED BY PRESENT can never be
     // dumped under `--virtual-time-budget`, by design. `/present/ping` answers
     // `{present:true}`, so the runtime opens an EventSource on
-    // `/present/events` for the phone remote (PRESENT#REMOTE, `editmode.js`
+    // `/present/events` for the phone remote (READ_ONLY#REMOTE, `editmode.js`
     // wirePresentRemote), that stream never ends, and Chrome's virtual clock
     // does not advance while a fetch is pending — so the dump never returns.
     // Over file:// the ping finds nothing and the stream is never opened.
@@ -2118,7 +2118,7 @@ try {
   failureBlock(e);
 } finally {
   // ── teardown: nothing survives, and a leak is a failure ──────────────────
-  if (authorSrv) await post(authorSrv.base, '/edit/shutdown', {}).catch(() => {});
+  if (editSrv) await post(editSrv.base, '/edit/shutdown', {}).catch(() => {});
   for (const child of [...kids]) {
     child.kill('SIGTERM');
     if (!(await waitExit(child, 2000))) child.kill('SIGKILL');

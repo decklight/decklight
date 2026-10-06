@@ -2,7 +2,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Evidence for `decklight <deck.html> --read-only --remote` (PRESENT#REMOTE). Nothing changes
+// Evidence for `decklight <deck.html> --read-only --remote` (READ_ONLY#REMOTE). Nothing changes
 // in the browser, so the shot is the CLI surface itself: this script starts a
 // REAL `decklight deck.html --read-only --remote`, waits for it to print the LAN URL
 // with the per-run token, then curls the server FROM ITS LAN ADDRESS — the deck

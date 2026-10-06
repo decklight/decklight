@@ -2,7 +2,7 @@
 // Copyright 2026 Gilles Philippart
 // SPDX-License-Identifier: Apache-2.0
 
-// Evidence for #235 (PRESENT#AUDIT): the audited bytes are the served bytes.
+// Evidence for #235 (READ_ONLY#AUDIT): the audited bytes are the served bytes.
 // Nothing changes in the browser, so the shot is the seam itself: this script
 // starts a REAL `decklight deck.html --read-only`, curls the deck, then edits the
 // file on disk UNDER the running server — the way an attacker with local write
