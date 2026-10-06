@@ -25,7 +25,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.resolve(here, '../cli/decklight.mjs');
 
 // A raw request so `Origin` can be set exactly like a browser sets it.
-function req(base, { method = 'GET', p = '/edit/ping', headers = {}, body } = {}) {
+function req(base, { method = 'GET', p = '/deck/ping', headers = {}, body } = {}) {
   const u = new URL(base + p);
   return new Promise((resolve, reject) => {
     const r = http.request({ hostname: u.hostname, port: u.port, path: u.pathname, method, headers }, (res) => {
@@ -74,9 +74,9 @@ const preflight = await req(base, {
 });
 // 3 — the deck this server actually serves (a loopback web origin): admitted,
 //     its origin echoed rather than a wildcard.
-const served = await req(base, { p: '/edit/ping', headers: { origin: base } });
+const served = await req(base, { p: '/deck/ping', headers: { origin: base } });
 // 4 — a file://-opened deck (Origin: null): the SPEC'd double-click, admitted.
-const filedeck = await req(base, { p: '/edit/ping', headers: { origin: 'null' } });
+const filedeck = await req(base, { p: '/deck/ping', headers: { origin: 'null' } });
 
 child.kill('SIGINT');
 await new Promise((r) => child.on('exit', r));
@@ -95,9 +95,9 @@ const blocks = [
   { cmd: '# ...and the browser preflight it would send first is refused too',
     output: `> OPTIONS ${base}/edit/agent   (Origin: https://evil.example)\n\n${line(preflight)}  → the real POST is never sent` },
   { cmd: '# the deck THIS server serves (a loopback origin) still works — echoed, not *',
-    output: `> GET ${base}/edit/ping   (Origin: ${base})\n\n${line(served)}\n${served.body.trim()}` },
+    output: `> GET ${base}/deck/ping   (Origin: ${base})\n\n${line(served)}\n${served.body.trim()}` },
   { cmd: '# a double-clicked file:// deck (Origin: null) still works — the SPEC path',
-    output: `> GET ${base}/edit/ping   (Origin: null)\n\n${line(filedeck)}` },
+    output: `> GET ${base}/deck/ping   (Origin: null)\n\n${line(filedeck)}` },
 ];
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

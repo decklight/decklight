@@ -7,13 +7,13 @@
 // to any commit.
 //
 // One module because they are one capability. All of it hangs off a single
-// probe — /edit/ping, answered once at startup — and everything here either
+// probe — /deck/ping, answered once at startup — and everything here either
 // posts to that server or refuses with the same "you are not in write mode"
 // message. Nothing else in the engine needs to know the server exists; layout
 // cycling, the one other thing that saves through it, asks available()/base().
 //
 // The phone remote is NOT here (READ_ONLY#REMOTE). It hangs off a second, smaller
-// probe — wirePresentRemote, below — because it belongs to a server with no
+// probe — wireRemote, below — because it belongs to a server with no
 // edit surface at all, and a clicker should never have cost you one.
 
 import { closeOnBackdrop, selectInList } from './overlay.js';
@@ -36,7 +36,7 @@ export function createEditMode({
   notesSegs, notesDraft = (sl) => notesSegs(sl).join('\n\n⟨CLICK⟩\n\n'), renderTheme = () => ({}), previewQuery = () => '?embedded',
 }) {
   // ── edit mode (E) + live reload — SPEC PRESENTING ────────────────────────────────
-  // Served by the edit server: the deck subscribes to /edit/events and
+  // Served by the edit server: the deck subscribes to /deck/events and
   // reloads whenever the file changes on disk (any editor works — the
   // #/slide/step hash restores the position). E opens a notes editor whose
   // Save writes the current slide's aside back through the server. Decks
@@ -58,7 +58,7 @@ export function createEditMode({
   let agentBusy = null;  // {agent, prompt, startedAt} while a one-shot runs
   // This session's asks, oldest first, each with the slide it was asked from
   // and what came of it — kept by the edit server (an agent's edit reloads
-  // the page), mirrored here from /edit/ping and the 'agent' events.
+  // the page), mirrored here from /deck/ping and the 'agent' events.
   let agentAsks = [];
   let paintAsks = null;  // set while the agent card is open
   let pushToastShown = false;  // at most one push nudge per session, by construction
@@ -323,7 +323,7 @@ export function createEditMode({
     (async () => {
       for (const base of bases) {
         try {
-          const r = await fetch(base + '/edit/ping');
+          const r = await fetch(base + '/deck/ping');
           if (!r.ok) continue;
           const j = await r.json();
           if (!j?.ok) continue;
@@ -340,7 +340,7 @@ export function createEditMode({
             served = true;
             readOnly = true;
             probeSettled();
-            await wirePresentRemote(base, j);
+            await wireRemote(base, j);
             return;
           }
           served = true;
@@ -364,7 +364,7 @@ export function createEditMode({
           // No QR and no clicker on this path: the edit server binds
           // 127.0.0.1 and serves no /remote/* at all (READ_ONLY#REMOTE). A deck
           // being AUTHORED has a keyboard in front of it; a deck being
-          // PRESENTED is what wirePresentRemote wires up.
+          // PRESENTED is what wireRemote wires up.
           // Said once per session, and only when there is enough of it to be
           // worth interrupting for. A session that STARTS forty commits behind
           // hears it immediately rather than waiting for the next commit.
@@ -381,7 +381,7 @@ export function createEditMode({
           paintAgentChip();
           reopenAgentAsk();   // a docked agent card open before the reload is open after it
           reopenNotes();      // …and the notes card a save reloaded, where the author was
-          const es = new EventSource(base + '/edit/events');
+          const es = new EventSource(base + '/deck/events');
           es.onmessage = () => location.reload();
           // A notes save is not a reload: every open view of the deck gets
           // the slide's new notes and puts them in place (narration, the
@@ -529,9 +529,9 @@ export function createEditMode({
   // act on any of this, and this is an overlay somebody opened, not a banner.
   // `''` is a REAL value here — it is the base for a deck served over http,
   // where every fetch is same-origin — so a separate flag says whether we are
-  // presenting. `!presentBase` would read the empty string as "not wired" and
+  // presenting. `!deckBase` would read the empty string as "not wired" and
   // send H down the author path on exactly the decks this exists for.
-  let presentBase = null;
+  let deckBase = null;
   let presenting = false;
   let upEl = null;
 
@@ -565,12 +565,12 @@ export function createEditMode({
     };
     button('check now', async () => {
       actions.textContent = 'checking…';
-      await renderUpstream(await postUpstream('/present/upstream/check'));
+      await renderUpstream(await postUpstream('/deck/upstream/check'));
     });
     if (status.state === 'behind' && status.pull?.offered) {
       button('update the deck', async () => {
         actions.textContent = 'pulling…';
-        const out = await postUpstream('/present/upstream/pull');
+        const out = await postUpstream('/deck/upstream/pull');
         if (out.reload) return location.reload();
         // A pull that DEGRADED the label does not reload itself: swapping the
         // bytes executes nothing, so the choice to show them can wait for a
@@ -585,7 +585,7 @@ export function createEditMode({
 
   async function postUpstream(path) {
     try {
-      const r = await fetch(presentBase + path, { method: 'POST' });
+      const r = await fetch(deckBase + path, { method: 'POST' });
       return await r.json();
     } catch { return { state: 'error', message: 'the presenting server did not answer' }; }
   }
@@ -594,7 +594,7 @@ export function createEditMode({
     if (upEl) return closeUpstream();
     let status;
     try {
-      const r = await fetch(presentBase + '/present/upstream');
+      const r = await fetch(deckBase + '/deck/upstream');
       if (!r.ok) return toast('this deck is not a tracked file in a git clone — nothing to update from', 3400);
       status = await r.json();
     } catch { return toast('deck update: the presenting server did not answer', 3000); }
@@ -618,16 +618,16 @@ export function createEditMode({
     keydown: (e) => e.key === 'Escape' && (closeUpstream(), true),
   });
 
-  async function wirePresentRemote(base, j) {
+  async function wireRemote(base, j) {
     try {
       instance.__remoteQr = j.remote ? `${base || location.origin}/remote/qr.svg` : null;
       // H in read-only mode. The routes only exist when the deck is a tracked
       // file in a clone with an upstream, so this base is enough to tell: a
       // deck that is not one gets a 404/405 and H says so, rather than the
       // overlay existing and being permanently empty.
-      presentBase = base;
+      deckBase = base;
       presenting = true;
-      const es = new EventSource(base + '/present/events');
+      const es = new EventSource(base + '/deck/events');
       es.addEventListener('remote', (ev) => {
         try {
           const { key } = JSON.parse(ev.data);

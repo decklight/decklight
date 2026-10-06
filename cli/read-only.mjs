@@ -660,7 +660,7 @@ export async function readOnlyMain(args, { client } = {}) {
     // staticFiles answers GET (200/403/404) and declines everything else. A
     // POST to /edit/notes lands here exactly like a POST to /anything — there
     // is no route to have refused it, which is the point of the ticket.
-    // The presenting control channel. `/present/ping` is how a deck discovers
+    // The presenting control channel. `/deck/ping` is how a deck discovers
     // it is being presented rather than authored, and the answer deliberately
     // carries no agent roster and no edit capability — there is nothing here to
     // report about editing, because there is nothing here that edits.
@@ -671,31 +671,34 @@ export async function readOnlyMain(args, { client } = {}) {
         .catch(() => { /* too large: destroyed by the reader */ });
       return;
     }
-    // The one probe every served deck makes (PRESENTING): this server answers
-    // it too, saying it is read-only. A GET that reports; the write routes it
-    // reports the absence of are as absent as ever. /present/ping stays for a
-    // page built before the probe was one.
-    if (req.method === 'GET' && (url.pathname === '/present/ping' || url.pathname === '/edit/ping')) {
+    // ── the deck's own channel: what both modes serve (PRESENTING) ───────
+    // /deck/ping is the one probe every served deck makes, and this server
+    // answers it saying it is read-only: a GET that reports, and the write
+    // routes it reports the absence of are as absent as ever. /deck/events is
+    // the stream every tab of the deck listens on (the remote's taps, the
+    // upstream's news). Neither is an /edit/ route: nothing under /edit/ is
+    // registered here, and the test pins that by the path literal.
+    if (req.method === 'GET' && url.pathname === '/deck/ping') {
       res.writeHead(200, { ...CORS, 'content-type': 'application/json', 'cache-control': 'no-cache' });
-      res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, present: true, readOnly: true, locked: true }));
+      res.end(JSON.stringify({ ok: true, name: basename(deckPath), remote: !!token, readOnly: true, locked: true }));
       return;
     }
-    if (req.method === 'GET' && url.pathname === '/present/events') { decks.add(req, res, CORS); return; }
+    if (req.method === 'GET' && url.pathname === '/deck/events') { decks.add(req, res, CORS); return; }
     // ── the upstream (READ_ONLY#UPSTREAM) ─────────────────────────────────
     // REGISTERED ONLY when the deck is a tracked file in a clone whose branch
     // tracks something. On a deck you were emailed these are not refused, they
     // do not exist — a POST lands on the same 405 as a POST to anything else,
     // which is the argument the module header already makes about /edit/*.
     //
-    // No CORS on either: /present/ping and /present/events carry it because the
+    // No CORS on any: /deck/ping and /deck/events carry it because the
     // phone's origin differs, and the phone has no business here in either
     // direction.
-    if (upstream && req.method === 'GET' && url.pathname === '/present/upstream') {
+    if (upstream && req.method === 'GET' && url.pathname === '/deck/upstream') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-cache' });
       res.end(JSON.stringify({ ok: true, ...upstreamStatus, pull: pullOffer() }));
       return;
     }
-    if (upstream && req.method === 'POST' && url.pathname === '/present/upstream/check') {
+    if (upstream && req.method === 'POST' && url.pathname === '/deck/upstream/check') {
       if (!isOwnOrigin(req, actualPort)) { res.writeHead(403); res.end('forbidden'); return; }
       refreshUpstream().then(() => {
         res.writeHead(200, { 'content-type': 'application/json' });
@@ -703,7 +706,7 @@ export async function readOnlyMain(args, { client } = {}) {
       });
       return;
     }
-    if (pullArmed && req.method === 'POST' && url.pathname === '/present/upstream/pull') {
+    if (pullArmed && req.method === 'POST' && url.pathname === '/deck/upstream/pull') {
       // The strict gate, not allowEditRequest: `null` is a sandboxed plugin
       // frame's origin, and presenter chrome must not be able to fast-forward
       // the presenter's repository.

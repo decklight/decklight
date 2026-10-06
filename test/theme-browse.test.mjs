@@ -161,7 +161,7 @@ const config = (html) => JSON.parse(html.match(/data-decklight-config>([\s\S]*?)
 /** Did the live-reload stream say `reload` within `ms`? */
 async function reloadWithin(base, ms, during) {
   const ctrl = new AbortController();
-  const res = await fetch(`${base}/edit/events`, { signal: ctrl.signal });
+  const res = await fetch(`${base}/deck/events`, { signal: ctrl.signal });
   const reader = res.body.getReader();
   let seen = '';
   const reading = (async () => {

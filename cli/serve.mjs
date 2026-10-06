@@ -259,7 +259,7 @@ export function staticFiles(root, { index = '/index.html', html: rewriteHtml = n
     if (!stat?.isFile()) { res.writeHead(404); res.end('not found'); return true; }
     // Policy refusals come AFTER the existence check on purpose: a path that
     // is not there stays a plain 404, indistinguishable from any other unknown
-    // path — a probe for /edit/ping must not learn anything from the answer.
+    // path — a probe for /deck/ping must not learn anything from the answer.
     type ??= MIME[extname(file).toLowerCase()];
     if (dotted || (knownTypesOnly && !type)) {
       res.writeHead(403); res.end('forbidden'); return true;

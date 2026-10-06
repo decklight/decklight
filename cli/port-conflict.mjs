@@ -5,7 +5,7 @@
 // The occupant is usually a PAST edit server (you started one
 // yesterday, forgot, and now `init`/`open` wants the same default port) — so
 // rather than guess at a PID, ask it directly: every edit server answers
-// GET /edit/ping with the deck it's serving, and POST /edit/shutdown stops it
+// GET /deck/ping with the deck it's serving, and POST /edit/shutdown stops it
 // as cleanly as its own Ctrl-C (final autocommit included). That makes "kill
 // it and take over" a plain HTTP round trip, no lsof/ps, no platform split.
 //
@@ -30,7 +30,7 @@ export function isPortOpen(port, host = '127.0.0.1', timeout = 400) {
 /** Ask the occupant what it's editing — null if it isn't an edit server at all. */
 export async function identifyEditServer(port, host = '127.0.0.1') {
   try {
-    const res = await fetch(`http://${host}:${port}/edit/ping`, { signal: AbortSignal.timeout(800) });
+    const res = await fetch(`http://${host}:${port}/deck/ping`, { signal: AbortSignal.timeout(800) });
     if (!res.ok) return null;
     const data = await res.json();
     return data?.ok ? data : null;
@@ -41,7 +41,7 @@ export async function identifyEditServer(port, host = '127.0.0.1') {
 
 /**
  * The same question for a BRIDGE — the voice and lip-sync servers answer
- * `/ping`, not `/edit/ping`, so an edit-server probe reports them as strangers
+ * `/ping`, not `/deck/ping`, so an edit-server probe reports them as strangers
  * and the offer to take the port over never appears.
  *
  * Returns the same shape the caller already handles: something with a `name`
@@ -195,7 +195,7 @@ export async function resolvePortConflict(port, {
   host = '127.0.0.1', ask, log = () => {}, kind = 'edit', stranger = identifyStranger,
   identify = null,
 } = {}) {
-  // Ours, whichever kind: an edit server answers /edit/ping, a bridge answers
+  // Ours, whichever kind: an edit server answers /deck/ping, a bridge answers
   // /ping. Asking only the first reported every bridge as a stranger.
   //
   // Injectable for the same reason `stranger` is: this REALLY CONNECTS to the

@@ -64,7 +64,7 @@ const curl = (...args) => spawnSync('curl', ['-si', '--max-time', '5', ...args],
 
 // The header seam: the 404 page and the control-channel JSON carry the policy.
 const notFound = curl(`http://127.0.0.1:${port}/missing.html`);
-const ping = curl(`http://127.0.0.1:${port}/present/ping`);
+const ping = curl(`http://127.0.0.1:${port}/deck/ping`);
 // The pos seam: token or no token, position reports are the deck's to make.
 const forged = curl('-X', 'POST', '-d', '{"i":99,"n":99}', `http://${lan}:${port}/remote/pos?t=${token}`);
 const real = curl('-X', 'POST', '-d', '{"i":2,"n":9}', `http://127.0.0.1:${port}/remote/pos`);
@@ -104,7 +104,7 @@ const html = `<!doctype html>
   <div class="bar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
     <span class="t">decklight · read-only — the CSP rides on EVERY response, and /remote/pos answers the deck alone (#239)</span></div>
   <div class="body">${block('curl -si http://127.0.0.1:' + port + '/missing.html               # a 404 error page', paintCurl(notFound))}
-${block('curl -si http://127.0.0.1:' + port + '/present/ping              # the control channel', paintCurl(ping))}
+${block('curl -si http://127.0.0.1:' + port + '/deck/ping              # the control channel', paintCurl(ping))}
 ${block(`curl -si -X POST -d '{"i":99,"n":99}' http://${lan}:${port}/remote/pos?t=…   # fabricated, from the LAN, token in hand`, paintCurl(forged))}
 ${block(`curl -si -X POST -d '{"i":2,"n":9}' http://127.0.0.1:${port}/remote/pos      # the deck's own report, over loopback`, paintCurl(real))}</div>
 </div>

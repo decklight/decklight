@@ -87,7 +87,7 @@ export function shortAge(when) {
  * What the chip says for a running job, or null when nothing is running.
  *
  * `startedAt` comes from the SERVER (it is in the `agent` start event and in
- * `/edit/ping`), so a reload mid-run shows the true elapsed time rather than
+ * `/deck/ping`), so a reload mid-run shows the true elapsed time rather than
  * restarting the clock — the job outlives the page, and the chip should say so.
  * A missing or unreadable `startedAt` still gets a chip: knowing an agent is
  * running matters more than knowing for how long, and dropping the whole
@@ -173,7 +173,7 @@ export function commitChipTone(state) {
 // The editors read and write the deck through same-origin fetches to the author
 // server, and every one of them assumed a request either answers or rejects.
 // There is a third outcome. Chrome gives a plain-HTTP origin six sockets, shared
-// across every tab of the deck, and each tab pins one to `/edit/events` for as
+// across every tab of the deck, and each tab pins one to `/deck/events` for as
 // long as it is open (live reload). Once the six are pinned, a new fetch queues
 // in the BROWSER — it never reaches the server, so the server cannot 500 it,
 // and it never rejects, so the catch path that owns the toast never runs. The

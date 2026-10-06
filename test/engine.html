@@ -38,7 +38,7 @@
   <script>
     // No network in a harness: answer everything fast so nothing stays pending.
     // The restore overlay (R) is the exception — it only exists when an edit
-    // server does, so that mode stands one up in miniature: enough of /edit/ping
+    // server does, so that mode stands one up in miniature: enough of /deck/ping
     // and /edit/history for the overlay to mount and list something real.
     const HARNESS_MODE = new URLSearchParams(location.search).get('mode') ?? 'themepicker';
     const FAKE_HISTORY = [
@@ -69,7 +69,7 @@
     }
     // Marketplace themes in the overlay (MARKETPLACE.md THEME_BROWSE#UI) need
     // an edit server to exist at all, so `browse` stands one up in
-    // miniature — enough of /edit/ping, /edit/theme/browse and /edit/theme/mark
+    // miniature — enough of /deck/ping, /edit/theme/browse and /edit/theme/mark
     // to drive them. `nobrowse` is the same deck with NO server, which is where
     // they must be absent.
     // …and a theme the deck already MARKS, linked by the server the way
@@ -118,7 +118,7 @@
       if (init?.method === 'POST') CALLS.post.push({ u, body: JSON.parse(init.body ?? '{}') });
       else CALLS.get.push(u);
       if (HARNESS_MODE === 'restore' || HARNESS_MODE === 'historycaptions') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/history')) return json({ ok: true, entries: FAKE_HISTORY });
         if (u.includes('/edit/restore')) return json({ ok: true, changed: true, short: 'aaaaaaa', undo: 1, redo: 0 });
       }
@@ -128,16 +128,16 @@
       // test here, not the drafting.
       // the editing lock (lockmode): write mode, unlocked; the lock route answers
       if (HARNESS_MODE === 'lockmode') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], readOnly: false, locked: false });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [], readOnly: false, locked: false });
         if (u.includes('/edit/lock')) { const b = JSON.parse(init?.body ?? '{}'); return json({ ok: true, locked: b.locked === true }); }
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
       }
       // the read-only server (readonlymode): the one probe says so, and nothing edits
       if (HARNESS_MODE === 'readonlymode') {
-        if (u.includes('/edit/ping')) return json({ ok: true, name: 'engine.html', present: true, readOnly: true, locked: true, remote: false });
+        if (u.includes('/deck/ping')) return json({ ok: true, name: 'engine.html', readOnly: true, locked: true, remote: false });
       }
       if (HARNESS_MODE === 'commit') {
-        if (u.includes('/edit/ping')) {
+        if (u.includes('/deck/ping')) {
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
             commit: { dirty: true, lines: 7, sinceMs: 0, nag: false, canWrite: true, messages: false } });
         }
@@ -164,7 +164,7 @@
       // that refuses, which is the branch that must not leave the row looking
       // like it silently did nothing.
       if (HARNESS_MODE === 'exportpptx' || HARNESS_MODE === 'exportfail' || HARNESS_MODE === 'exportvideo') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         // The video card's voices: a folder recorded by `say` (a manifest, so
         // offerable), your own take (no manifest, so not), and a piper bridge.
         if (HARNESS_MODE === 'exportvideo' && u.includes('/edit/tracks')) {
@@ -195,9 +195,9 @@
         }
       }
       // The agent card's log (A, docked): the server keeps the session's asks
-      // and /edit/ping hands them back, so a reload still shows them.
+      // and /deck/ping hands them back, so a reload still shows them.
       if (HARNESS_MODE === 'agentlog') {
-        if (u.includes('/edit/ping')) {
+        if (u.includes('/deck/ping')) {
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }],
             agentAsks: [{ id: 1, agent: 'claude', prompt: 'make the title shorter', slide: 1, startedAt: Date.now() - 60000,
               state: 'done', ok: true, changed: true, tail: 'Shortened the title.' }] });
@@ -207,7 +207,7 @@
       // Design systems… (SPEC DESIGN_SYSTEMS): the edit server lists what the
       // registered marketplaces offer and what the deck uses; marking toggles it
       if (HARNESS_MODE === 'designsystems') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/design-system/browse')) {
           return json({ ok: true, cacheOnly: true, unfetched: ['decklight'], stale: ['old-mkt'], systems: [
             { name: 'acme', marketplace: 'acme-mkt', qualified: 'acme@acme-mkt', group: 'Acme', version: '1.2.0', description: 'Acme Brand', used: false },
@@ -223,7 +223,7 @@
       // Enhance the voiceover script (cli/enhance.mjs): the route answers how many
       // slides it will ask about; the rest arrives as 'enhance' events.
       if (HARNESS_MODE === 'enhance') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [{ name: 'claude', label: 'Claude Code' }] });
         if (u.includes('/edit/enhance/text')) {
           const { text } = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, text: `[warm] ${text}`, agent: 'claude', label: 'Claude Code' });
@@ -234,13 +234,13 @@
         }
       }
       // S opens the notes editor, which needs an edit server behind it
-      if (HARNESS_MODE === 'skeys' && !new URLSearchParams(location.search).has('nosrv') && u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+      if (HARNESS_MODE === 'skeys' && !new URLSearchParams(location.search).has('nosrv') && u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
       // The Publish row (PRESENTING) is the one that reaches off the machine,
       // so it is two presses: the plan, shown, then the push. Both routes are
       // stood up here — and the plan is a GET on purpose, which is half of
       // what the assertions check.
       if (HARNESS_MODE === 'publish') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         // the longer path first: /edit/publish is a prefix of /edit/publish/plan
         if (u.includes('/edit/publish/plan')) {
           return json({ ok: true, remote: 'origin', branch: 'gh-pages', bundled: false,
@@ -255,7 +255,7 @@
       // is the interesting shape — a template read as a list of slides, each
       // saying what it points at that THIS deck will not have.
       if (HARNESS_MODE === 'sourcesedit') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/sources')) {
           const b = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, undo: 1, redo: 0,
@@ -263,7 +263,7 @@
         }
       }
       if (HARNESS_MODE.startsWith('template')) {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/template/list')) {
           return json({ ok: true, cacheOnly: true, stale: [],
             installed: ['startup-pitch'],
@@ -290,7 +290,7 @@
         }
       }
       if (HARNESS_MODE === 'browse') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/theme/browse')) return json(FAKE_BROWSE);
         if (u.includes('/edit/theme/mark')) {
           const { ref, marked } = JSON.parse(init?.body ?? '{}');
@@ -303,14 +303,14 @@
       }
       // Element edit mode (E, then right-click a slide element — #112) needs
       // an edit server to exist at all, same as every other write-mode
-      // feature here: enough of /edit/ping for editAvailable, plus the four
+      // feature here: enough of /deck/ping for editAvailable, plus the four
       // /edit/element/* routes the menu's actions actually call.
       // Mouse editing (authoring.js): a double-click saves through the SOURCE
       // of the element and the content route, and the slide operations are one
       // POST each answering with the slide to land on.
       // the overview rearranging slides (overviewedit): the slide route, answering where to land
       if (HARNESS_MODE === 'overviewedit') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/slide')) {
           const b = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, slide: b.op === 'move' ? b.to : b.op === 'delete' ? b.slide : b.slide + 1, total: 5, undo: 1, redo: 0 });
@@ -318,7 +318,7 @@
       }
       // `editbar` is the same server, driven from the bar and the selection
       if (HARNESS_MODE === 'authoring' || HARNESS_MODE === 'editbar' || HARNESS_MODE === 'palettegroups' || HARNESS_MODE === 'editingtour' || HARNESS_MODE === 'editingtourwelcome') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/edit/layout')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
@@ -340,7 +340,7 @@
         if (u.includes('/edit/redo')) return json({ ok: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'editor') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         // a long element: eighty lines, one of them four hundred characters —
         // the shape whose painted layer fell out of step with the textarea (#529)
         if (u.includes('/edit/element/source')) {
@@ -355,7 +355,7 @@
       // the card back open after a save's reload (#646): a slow save, so the
       // "saving…" mark can be seen, and the same no-op answer as notessave
       if (HARNESS_MODE === 'notesreopen' || HARNESS_MODE === 'notesreopenstale') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/notes')) {
           const text = JSON.parse(init?.body ?? '{}').text;
           await new Promise((ok) => setTimeout(ok, 300));
@@ -364,28 +364,28 @@
       }
       // notes saved IN PLACE: no reload; every page is sent the new notes
       if (HARNESS_MODE === 'notesinplace' || HARNESS_MODE === 'notesauto') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
       }
       // a save that fails: the drawer must keep what was typed rather than close on it
       if (HARNESS_MODE === 'notesautofail') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/notes')) return json({ ok: false, error: 'disk full' }, 500);
       }
       if (HARNESS_MODE === 'notessave') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/notes')) {
           const text = JSON.parse(init?.body ?? '{}').text;
           return json({ ok: true, changed: text !== 'Same as the file.', undo: 1, redo: 0 });
         }
       }
       if (HARNESS_MODE === 'typingdock') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true,
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true,
           agents: [{ name: 'claude', label: 'Claude Code', installed: true }] });
         if (u.includes('/edit/notes')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'codeedit') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) {
           return json({ ok: true, html: '<pre data-lines="1|2"><code class="language-js">\nconst a = 1;\nconst b = 2;\n</code></pre>' });
         }
@@ -394,7 +394,7 @@
       // A design system's look (SPEC DESIGN_SYSTEMS, #642): an edit server
       // that adds one with its recommended theme and font, and applies its look
       if (HARNESS_MODE === 'dslook') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/design-system/browse')) {
           return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], systems: [
             { name: 'acme', marketplace: 'acme-mkt', qualified: 'acme@acme-mkt', group: 'Acme', version: '1.2.0', description: 'Acme Brand', used: false },
@@ -413,7 +413,7 @@
       // Fonts while authoring (SPEC FONTS): an edit server whose marketplaces
       // offer one font package, which Space references from the deck
       if (HARNESS_MODE === 'fontswrite') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/font/browse')) {
           return json({ ok: true, cacheOnly: true, stale: [], unfetched: [], fonts: [
             { name: 'inter', marketplace: 'type-mkt', qualified: 'inter@type-mkt', group: 'Type', title: 'Inter', family: 'Inter',
@@ -425,13 +425,13 @@
         if (u.includes('/edit/font/mark')) return json({ ok: true, ref: 'inter@type-mkt', used: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'colors' || HARNESS_MODE === 'dscolors') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/style')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       // Editing a design-system slide (SPEC DESIGN_SYSTEMS): an edit server
       // that answers the element routes and the layout picker's write
       if (HARNESS_MODE === 'dsedit') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/edit/slide/system-layout')) {
           const body = JSON.parse(init?.body ?? '{}');
@@ -439,14 +439,14 @@
         }
       }
       if (HARNESS_MODE === 'contextmenu') {
-        if (u.includes('/edit/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
+        if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/edit/element/content')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         if (u.includes('/edit/element/effect')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'wizard') {
-        if (u.includes('/edit/ping')) {
+        if (u.includes('/deck/ping')) {
           return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
             wizards: [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }] });
         }
@@ -767,7 +767,7 @@
         const find = (re) => rows().find((x) => re.test(x.textContent));
         const note = () => document.querySelector(`${P} .tp-none`)?.textContent ?? '';
         const caption = () => document.querySelector(`${P} .tp-caption`)?.textContent ?? '';
-        await settle();                       // let /edit/ping settle either way
+        await settle();                       // let /deck/ping settle either way
 
         // the palette's contextual route to the same list
         const palRow = () => [...document.querySelectorAll('.decklight-palette .pal-row')]
@@ -1433,7 +1433,7 @@
 
       if (mode === 'exportpptx' || mode === 'exportfail') {
         const Q = '.decklight-palette', ROW = '.pal-row';
-        await settle();                       // let /edit/ping settle: editAvailable
+        await settle();                       // let /deck/ping settle: editAvailable
         press('/');
         for (const ch of 'powerpoint') press(ch);
         const rows = [...document.querySelectorAll(`${Q} ${ROW}`)].map((n) => n.textContent);
@@ -1576,7 +1576,7 @@
       // to send somebody, and that the second one is what publishes.
       if (mode === 'publish') {
         const Q = '.decklight-palette', ROW = '.pal-row';
-        await settle();                       // let /edit/ping settle: editAvailable
+        await settle();                       // let /deck/ping settle: editAvailable
         const pick = () => {
           press('/');
           for (const ch of 'publish this deck') press(ch);
@@ -1608,7 +1608,7 @@
       // that a slide needing a file this deck has not says so BEFORE it lands.
       if (mode === 'template') {
         const P = '.decklight-tmpl', ROW = '.narr-row';
-        await settle();                       // /edit/ping: editAvailable
+        await settle();                       // /deck/ping: editAvailable
         press('/');
         for (const ch of 'template') press(ch);
         // two rows now, one per verb — the mode is chosen by name, not by a key
@@ -1847,7 +1847,7 @@
       // reaches the deck until ⏎.
       if (mode === 'sourcesedit') {
         const P = '.decklight-sources';
-        await settle();                       // /edit/ping: editAvailable
+        await settle();                       // /deck/ping: editAvailable
 
         // a slide with none: I opens the editor rather than saying no, because
         // "this slide has no sources" helps nobody who could add some
@@ -1901,7 +1901,7 @@
       // Double-click to edit, and the slide as a whole from the palette and the
       // right-click menu (authoring.js, SPEC PRESENTING write mode).
       if (mode === 'authoring') {
-        await settle();                       // /edit/ping: editAvailable
+        await settle();                       // /deck/ping: editAvailable
         deck.goto(1, 0);
         await settle();
         const h1 = document.querySelector('.decklight-stage > section.active h1');
@@ -2218,7 +2218,7 @@
         // Editing has a face (editbar.js): E opens a bar that names every
         // door, a click selects an element, and the keys a selection answers
         // go through the same routes the gestures and the menu already use.
-        await settle();                       // /edit/ping: editAvailable
+        await settle();                       // /deck/ping: editAvailable
         deck.goto(1, 0);
         await settle();
         const bar = () => document.querySelector('.decklight-editbar');
@@ -2320,7 +2320,7 @@
         // ovEditable): tools on every cell, a drag that moves a slide, keys
         // on the selected cell — each the slide route, one undo entry. With
         // no edit server (overviewplain) it is the picture it always was.
-        await settle();                       // /edit/ping, when there is one
+        await settle();                       // /deck/ping, when there is one
         try { sessionStorage.removeItem('decklight-overview-open:' + location.pathname); } catch { /* fine */ }
         press('o');
         await settle();
@@ -2496,7 +2496,7 @@
         const top = rows();
         r.noLockRow = !top.some((t) => /Lock editing|Unlock editing/.test(t)) && !top.some((t) => /^Export & share…/.test(t));
         press('Escape');
-        r.presentedChannelWired = CALLS.get.some((u) => u.includes('/present/events')) || !!window.__es;
+        r.presentedChannelWired = CALLS.get.some((u) => u.includes('/deck/events')) || !!window.__es;
         r.PASS = r.notAvailable && r.eSaysWriteMode && r.noLockRow;
         sink.textContent = 'DECKLIGHT-ENGINE-RESULTS ' + JSON.stringify(r);
         return;
@@ -2580,7 +2580,7 @@
         // placement is remembered per deck and per card, and closing hands the
         // stage back. Docked, the notes card follows the slide until it holds
         // a draft — a draft stays with the slide it was written for.
-        await settle();                       // /edit/ping: editAvailable
+        await settle();                       // /deck/ping: editAvailable
         deck.goto(1, 0); await settle();
         const gutter = () => document.querySelector('.decklight').style.getPropertyValue('--dock-right');
         const card = (W, name) => {
@@ -2659,7 +2659,7 @@
         return;
       }
       if (mode === 'codeedit') {
-        await settle();                       // /edit/ping: editAvailable
+        await settle();                       // /deck/ping: editAvailable
         deck.goto(3, 0);
         await settle();
         const code = document.querySelector('.decklight-stage > section.active pre > code');
@@ -3486,7 +3486,7 @@
         // JetBrains has meant by "commit" for twenty years, ⌘⏎ is what VS Code
         // and every GUI client mean by "send this".
         const O = '.decklight-commit';
-        await settle();                       // let /edit/ping resolve
+        await settle();                       // let /deck/ping resolve
         press('k');
         await settle();
         r.bareKopens = !!document.querySelector(`${O} .narr-card`);
@@ -3607,7 +3607,7 @@
 
       if (mode === 'restore') {
         const O = '.decklight-restore', ROW = '.tp-row', SEL = 'tp-selected';
-        await settle();                       // let /edit/ping resolve
+        await settle();                       // let /deck/ping resolve
         // the theme on screen is not the old version's: the preview must be
         // told it, or every commit opens on the theme it had configured then
         r.themeApplied = deck.theme('ember') === true;
@@ -3672,7 +3672,7 @@
         const shown = () => !!caption() && !caption().hidden && caption().offsetHeight > 0;
         const cc = () => document.querySelector(`${O} .hs-cc`);
         try { localStorage.removeItem(KEY); } catch { /* no storage: the default is the test */ }
-        await settle();                       // let /edit/ping resolve
+        await settle();                       // let /deck/ping resolve
         press('h');
         await settle();                       // let /edit/history resolve
         r.opens = !!document.querySelector(O);
@@ -3713,7 +3713,7 @@
         // this proves the thing actually comes up and round-trips answers.
         const W = '.decklight-editor';
         const statusLine = () => [...document.querySelectorAll(`${W} .narr-head`)].pop()?.textContent ?? '';
-        await settle();                       // let /edit/ping resolve
+        await settle();                       // let /deck/ping resolve
 
         press('/');
         const row = [...document.querySelectorAll('.decklight-palette .pal-row')]
@@ -3938,7 +3938,7 @@
           { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
         const rowsText = () => [...document.querySelectorAll(`${M} ${ROW}`)].map((x) => x.textContent);
         const clickRow = (label) => [...document.querySelectorAll(`${M} ${ROW}`)].find((x) => x.textContent === label)?.click();
-        await settle();                        // let /edit/ping resolve
+        await settle();                        // let /deck/ping resolve
 
         const sections = [...document.querySelectorAll('.decklight section')];
         const h1 = sections[0].querySelector('h1');

@@ -46,7 +46,7 @@ test('a rename-replace does not kill live reload', async (t) => {
 
   // listen to the reload stream the deck itself listens to
   let reloads = 0;
-  const res = await fetch(`${base}/edit/events`);
+  const res = await fetch(`${base}/deck/events`);
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   (async () => {

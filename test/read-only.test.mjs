@@ -250,14 +250,14 @@ test('the CSP also rides on errors and the control channels — no uncovered res
   };
   assert.equal((await covered('/missing.html')).status, 404);
   assert.equal((await covered('/talk.html', { method: 'POST', body: '{}' })).status, 405);
-  assert.equal((await covered('/present/ping')).status, 200);
+  assert.equal((await covered('/deck/ping')).status, 200);
   assert.equal((await covered('/remote')).status, 200, 'the controller is a document — where a policy matters most');
   assert.equal((await covered('/remote/qr.svg')).status, 404, 'without --remote the QR refuses — covered too');
 
   // the SSE stream: its headers arrive before any event does
   const ctl = new AbortController();
-  const sse = await fetch(base + '/present/events', { signal: ctl.signal });
-  assert.equal(sse.headers.get('content-security-policy'), CSP, 'GET /present/events');
+  const sse = await fetch(base + '/deck/events', { signal: ctl.signal });
+  assert.equal(sse.headers.get('content-security-policy'), CSP, 'GET /deck/events');
   assert.match(sse.headers.get('content-type'), /text\/event-stream/);
   ctl.abort();
 });
@@ -299,9 +299,9 @@ test('no /edit/* route is registered — the source never mentions one', () => {
   const src = readFileSync(SRC, 'utf8');
   // Only the prose may say "/edit/*"; no string literal may route one.
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  // `/edit/ping` is the one exception: the probe every served deck makes,
-  // a GET that REPORTS the server is read-only. No write route may be named.
-  assert.doesNotMatch(code, /['"`]\/edit\/(?!ping['"`])/, 'no /edit path literal but the ping survives outside comments');
+  // The deck's own channel (/deck/ping, /deck/events) is not an edit route:
+  // the probe REPORTS the server is read-only, and no write route may be named.
+  assert.doesNotMatch(code, /['"`]\/edit\//, 'no /edit path literal outside comments');
   // The relay DOES live here now (READ_ONLY#REMOTE) — that is the whole point of
   // moving it: a clicker should not require an editing server. What must stay
   // true is that it arrived without one, which the /edit/* assertion above and
@@ -310,12 +310,12 @@ test('no /edit/* route is registered — the source never mentions one', () => {
 
 test('the one probe answers here too, and says read-only', async (t) => {
   const { base } = await startPresent(t, deckDir());
-  const j = await (await fetch(base + '/edit/ping')).json();
+  const j = await (await fetch(base + '/deck/ping')).json();
   assert.equal(j.ok, true);
   assert.equal(j.readOnly, true, 'what the player gates every author affordance on');
   assert.equal(j.locked, true, 'and a lock that cannot be lifted');
   assert.equal(j.name, 'talk.html');
-  assert.equal(j.present, true);
+  assert.equal(j.readOnly, true);
   assert.equal(j.agents, undefined, 'no roster, nothing to edit with');
 });
 
@@ -456,8 +456,8 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
   const { base, log } = await startPresent(t, dir, { extraArgs: ['--remote'] });
 
   // the presenting control channel exists…
-  const ping = await (await fetch(base + '/present/ping')).json();
-  assert.deepEqual(ping, { ok: true, name: 'talk.html', remote: true, present: true, readOnly: true, locked: true });
+  const ping = await (await fetch(base + '/deck/ping')).json();
+  assert.deepEqual(ping, { ok: true, name: 'talk.html', remote: true, readOnly: true, locked: true });
   assert.equal(ping.agents, undefined, 'and reports no agent roster — there is nothing here that runs one');
 
   // …the controller and its QR are served…
@@ -477,7 +477,7 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
     assert.equal(res.status, 405, `${p} is unknown, not refused`);
   }
   // the one probe answers, and what it identifies is a READ-ONLY server, not an editor
-  const probe = await (await fetch(base + '/edit/ping')).json();
+  const probe = await (await fetch(base + '/deck/ping')).json();
   assert.equal(probe.readOnly, true, 'the ping says read-only');
   assert.equal(probe.agents, undefined, 'and names nothing that edits');
 
@@ -493,7 +493,7 @@ const reqOf = (addr, url, headers = {}) => ({ socket: { remoteAddress: addr }, u
 test('allowRemote: loopback always answers — token or no token, any path', () => {
   for (const addr of ['127.0.0.1', '::1', '::ffff:127.0.0.1', '127.8.9.10']) {
     assert.equal(allowRemote(reqOf(addr, '/talk.html'), null), true, addr);
-    assert.equal(allowRemote(reqOf(addr, '/present/ping'), 'tok'), true, addr);
+    assert.equal(allowRemote(reqOf(addr, '/deck/ping'), 'tok'), true, addr);
     assert.equal(allowRemote(reqOf(addr, '/remote/pos'), null), true, addr);
   }
 });
@@ -517,7 +517,7 @@ test('allowRemote: the deck itself refuses off-loopback UNCONDITIONALLY', () => 
   const LAN = '10.0.0.7';
   // --remote widens the listener for the clicker and nothing else: the deck and
   // every file beside it stay unreachable from the LAN, token or no token.
-  for (const p of ['/talk.html', '/theme.css', '/present/ping', '/present/events']) {
+  for (const p of ['/talk.html', '/theme.css', '/deck/ping', '/deck/events']) {
     assert.equal(allowRemote(reqOf(LAN, `${p}?t=tok`), 'tok'), false, p);
   }
   // path tricks normalize before the check, and a prefix is not a directory
@@ -552,12 +552,12 @@ test('the QR refuses to encode a URL a phone cannot use', async (t) => {
 });
 
 test('a locally-presented deck still gets its position readout', async (t) => {
-  // /present/ping and /present/events are the deck's channel and are loopback
+  // /deck/ping and /deck/events are the deck's channel and are loopback
   // business, so they answer with or without --remote; only the LAN listener is
   // what --remote adds.
   const dir = deckDir();
   const { base } = await startPresent(t, dir);
-  assert.equal((await (await fetch(base + '/present/ping')).json()).remote, false);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).remote, false);
   const pos = await fetch(base + '/remote/pos', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"i":2,"n":9}',
   });
@@ -665,8 +665,8 @@ test('outside a clone the upstream routes do not exist — not even to refuse', 
   // POST to /anything.
   const dir = deckDir();
   const { base } = await startPresent(t, dir);
-  assert.equal((await fetch(`${base}/present/upstream`)).status, 404);
-  const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
+  assert.equal((await fetch(`${base}/deck/upstream`)).status, 404);
+  const r = await fetch(`${base}/deck/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
   assert.equal(r.status, 405);
 });
 
@@ -674,14 +674,14 @@ test('in a clone the readout answers, and a check finds the pushed commit', asyn
   const { work, pushFromSeed } = clonePair(t);
   const { base } = await startPresent(t, work,
     { cwd: work, env: { CI: undefined, DECKLIGHT_NO_UPSTREAM_CHECK: undefined } });
-  const before = await (await fetch(`${base}/present/upstream`)).json();
+  const before = await (await fetch(`${base}/deck/upstream`)).json();
   assert.equal(before.ok, true);
   assert.equal(before.pull.offered, false, 'a pull was offered without --upstream-pull');
   assert.equal(before.pull.reason, 'start with --upstream-pull');
 
   pushFromSeed((d) => writeFileSync(path.join(d, 'talk.html'),
     DECK.replace('Alpha', 'Alpha Two')), 'sharpen the title');
-  const after = await (await fetch(`${base}/present/upstream/check`,
+  const after = await (await fetch(`${base}/deck/upstream/check`,
     { method: 'POST', headers: ownOrigin(base) })).json();
   assert.equal(after.state, 'behind');
   assert.equal(after.behind, 1);
@@ -692,7 +692,7 @@ test('without --upstream-pull the pull route is dead, not forbidden', async (t) 
   const { work } = clonePair(t);
   const { base } = await startPresent(t, work,
     { cwd: work, env: { CI: undefined, DECKLIGHT_NO_UPSTREAM_CHECK: undefined } });
-  const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
+  const r = await fetch(`${base}/deck/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
   assert.equal(r.status, 405, 'the pull answered at all — it must not be registered');
 });
 
@@ -710,7 +710,7 @@ test('the pull refuses every origin that is not exactly this server', async (t) 
     ['no Origin at all', {}],
     ['loopback on another port', { Origin: 'http://127.0.0.1:1' }],
   ]) {
-    const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers });
+    const r = await fetch(`${base}/deck/upstream/pull`, { method: 'POST', headers });
     assert.equal(r.status, 403, `${why} was allowed to pull`);
   }
 });
@@ -723,8 +723,8 @@ test('the armed pull fast-forwards, and only ever fast-forwards', async (t) => {
 
   pushFromSeed((d) => writeFileSync(path.join(d, 'talk.html'),
     DECK.replace('Alpha', 'Alpha Two')), 'sharpen the title');
-  await fetch(`${base}/present/upstream/check`, { method: 'POST', headers: ownOrigin(base) });
-  const pulled = await (await fetch(`${base}/present/upstream/pull`,
+  await fetch(`${base}/deck/upstream/check`, { method: 'POST', headers: ownOrigin(base) });
+  const pulled = await (await fetch(`${base}/deck/upstream/pull`,
     { method: 'POST', headers: ownOrigin(base) })).json();
   assert.equal(pulled.ok, true, JSON.stringify(pulled));
   assert.notEqual(g(work, ['rev-parse', 'HEAD']), tip, 'the working tree did not move');
@@ -735,8 +735,8 @@ test('the armed pull fast-forwards, and only ever fast-forwards', async (t) => {
   g(work, ['commit', '-qam', 'local divergence', '--allow-empty']);
   pushFromSeed((d) => writeFileSync(path.join(d, 'theme.css'),
     '.decklight { color: blue }'), 'recolor');
-  await fetch(`${base}/present/upstream/check`, { method: 'POST', headers: ownOrigin(base) });
-  const refused = await (await fetch(`${base}/present/upstream/pull`,
+  await fetch(`${base}/deck/upstream/check`, { method: 'POST', headers: ownOrigin(base) });
+  const refused = await (await fetch(`${base}/deck/upstream/pull`,
     { method: 'POST', headers: ownOrigin(base) })).json();
   assert.equal(refused.ok, false, 'a diverged clone was pulled anyway');
   assert.equal(g(work, ['status', '--porcelain']).length, 0, 'the refusal left the tree dirty');
@@ -747,8 +747,8 @@ test('--no-upstream removes the feature even inside a clone', async (t) => {
   const { base } = await startPresent(t, work, { cwd: work,
     extraArgs: ['--no-upstream', '--upstream-pull'],
     env: { CI: undefined, DECKLIGHT_NO_UPSTREAM_CHECK: undefined } });
-  assert.equal((await fetch(`${base}/present/upstream`)).status, 404);
-  const r = await fetch(`${base}/present/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
+  assert.equal((await fetch(`${base}/deck/upstream`)).status, 404);
+  const r = await fetch(`${base}/deck/upstream/pull`, { method: 'POST', headers: ownOrigin(base) });
   assert.equal(r.status, 405);
 });
 
@@ -760,5 +760,5 @@ test('under CI the upstream feature is off by design — even in a clone', async
   const { work } = clonePair(t);
   const { base } = await startPresent(t, work,
     { cwd: work, extraArgs: ['--upstream-pull'], env: { CI: 'true' } });
-  assert.equal((await fetch(`${base}/present/upstream`)).status, 404);
+  assert.equal((await fetch(`${base}/deck/upstream`)).status, 404);
 });

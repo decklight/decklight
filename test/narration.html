@@ -89,7 +89,7 @@
     const bodies = [];   // what the deck actually asked the bridge to say, and as whom
 
     // The bridge lives on its own port and NOTHING else may be intercepted.
-    // Matching a bare "/ping" also swallows the edit server's /edit/ping probe,
+    // Matching a bare "/ping" also swallows the edit server's /deck/ping probe,
     // which leaves the deck believing a live-reload server is up — and a fetch
     // left pending freezes Chrome's virtual clock, so the page hangs forever
     // instead of failing. Match this bridge, and only this bridge.
@@ -145,7 +145,7 @@
     // ── mock edit server: only the `record` mode has one ──────────────────
     // ⇧V writes its slide-NN.wav through the server that owns the deck file
     // (PRESENTING), so proving it stopped using the browser's download folder
-    // means standing an /edit/ping and an /edit/record up in front of it. Gated
+    // means standing an /deck/ping and an /edit/record up in front of it. Gated
     // on the mode: every OTHER mode must keep failing that probe, or a fetch
     // left pending would freeze Chrome's virtual clock and hang the page.
     const AUTHOR = 'http://127.0.0.1:8788';
@@ -175,7 +175,7 @@
         return new Response(manifestBody(), { status: 200, headers: { 'content-type': 'application/json' } });
       }
       if (authored && u.startsWith(AUTHOR)) {
-        if (u.endsWith('/edit/ping')) {
+        if (u.endsWith('/deck/ping')) {
           // the basename guard the runtime applies: this page IS narration.html
           return new Response(JSON.stringify({ ok: true, name: 'narration.html', undo: 0, redo: 0 }),
             { status: 200, headers: { 'content-type': 'application/json' } });
@@ -1077,7 +1077,7 @@
           // Opened the way a person now reaches it: V → Record this deck… →
           // the synthesized voice. It had its own shortcut (⇧V) and nobody
           // found it; the keys were rationalised and the shortcut went.
-          await new Promise((ok) => setTimeout(ok, 400));   // /edit/ping answers
+          await new Promise((ok) => setTimeout(ok, 400));   // /deck/ping answers
           deck.narration.openPicker('record');
           await new Promise((ok) => setTimeout(ok, 100));
           [...document.querySelectorAll('.decklight-narr .narr-row')]

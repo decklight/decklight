@@ -118,7 +118,7 @@ test('…and WHAT it is doing, once the server has heard', () => {
 });
 
 test('the clock comes from the SERVER, so a reload does not restart it', () => {
-  // startedAt rides in the `agent` start event and in /edit/ping. A page that
+  // startedAt rides in the `agent` start event and in /deck/ping. A page that
   // reloaded mid-run must show the true elapsed time — a job outlives the page,
   // and a chip that reset to 0:00 would claim otherwise.
   const now = 2_000_000;

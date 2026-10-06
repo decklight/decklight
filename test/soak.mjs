@@ -199,13 +199,13 @@ const dl = (args, opts) => sh([DL.bin, ...args], { ...opts, shell: DL.shell });
 /**
  * Dump a deck the soak owns, from `file://`, WITHOUT the machine joining in.
  *
- * A deck opened over `file://` probes `http://127.0.0.1:8788/edit/ping` to find
+ * A deck opened over `file://` probes `http://127.0.0.1:8788/deck/ping` to find
  * out whether it is being authored (SPEC `DECK_ANATOMY`), and wires up when the
  * server there is editing a deck of the same BASENAME. The soak's deck is
  * `deck.html`, which is what `init` calls one — so a developer who happens to
  * have `decklight deck.html` open on the default port is a server this
  * dump will attach to. It then opens the live-reload EventSource on
- * `/edit/events`, that stream never ends, Chrome's virtual clock never
+ * `/deck/events`, that stream never ends, Chrome's virtual clock never
  * advances past it, and the dump HANGS FOREVER.
  *
  * That is not hypothetical — it is what this file did on a machine with one
@@ -866,7 +866,7 @@ try {
       ['deck.html', '--port', '0', '--git', '--commit-every', '5'],
       DECK_URL_RE,
     );
-    const ping = await (await get(editSrv.base, '/edit/ping')).json();
+    const ping = await (await get(editSrv.base, '/deck/ping')).json();
     must(ping.ok === true && ping.name === 'deck.html', `ping said ${JSON.stringify(ping)}`);
     must(ping.git === true, 'the edit server did not pick up the repository init created');
     must(ping.undo === 0 && ping.redo === 0, 'a fresh session started with history');
@@ -910,7 +910,7 @@ try {
       const ctrl = new AbortController();
       setTimeout(() => ctrl.abort(), 8000);
       try {
-        const res = await fetch(`${editSrv.base}/edit/events`, { signal: ctrl.signal });
+        const res = await fetch(`${editSrv.base}/deck/events`, { signal: ctrl.signal });
         const reader = res.body.getReader();
         const dec = new TextDecoder();
         let buf = '';
@@ -1000,7 +1000,7 @@ try {
     // to avoid a change by mistake, and back. Locked, every edit route refuses
     // with 423 and the deck is not touched; the ping says so to every tab; the
     // same route writes again the moment it is unlocked.
-    const ping = async () => (await get(editSrv.base, '/edit/ping')).json();
+    const ping = async () => (await get(editSrv.base, '/deck/ping')).json();
     must((await ping()).locked === false, 'a fresh session started locked');
     const lock = await postJson(editSrv.base, '/edit/lock', { locked: true });
     must(lock.status === 200 && lock.body.locked === true, `lock returned ${JSON.stringify(lock.body)}`);
@@ -1061,7 +1061,7 @@ try {
       `the second session did not name who has the port: ${log}`);
     must(new RegExp(`→ using port ${second.port}`).test(log), 'the port it moved to is not the one announced');
     for (const srv of [editSrv, second]) {
-      const ping = await (await get(srv.base, '/edit/ping')).json();
+      const ping = await (await get(srv.base, '/deck/ping')).json();
       must(ping.ok === true && ping.name === 'deck.html', `a session stopped answering: ${JSON.stringify(ping)}`);
     }
     second.child.kill('SIGTERM');
@@ -1251,8 +1251,8 @@ try {
     must(sectionBodies(served).length === sectionBodies(deck()).length, 'present served a different set of slides');
     must(/Decklight\.init|decklight\.js/.test(served), 'present served a deck with no runtime to play it');
     // the one probe answers read-only, and names nothing that edits (PRESENTING)
-    const probe = await get(presentSrv.base, '/edit/ping');
-    must(probe.status === 200, `/edit/ping answered ${probe.status} under --read-only`);
+    const probe = await get(presentSrv.base, '/deck/ping');
+    must(probe.status === 200, `/deck/ping answered ${probe.status} under --read-only`);
     const probed = await probe.json();
     must(probed.readOnly === true && probed.agents === undefined, 'the read-only probe did not say read-only');
     must((await post(presentSrv.base, '/edit/notes', { slide: 1, text: 'x' })).status >= 400,
@@ -1265,10 +1265,10 @@ try {
     if (!HAVE_CHROME) return { skip: 'no Chrome — install one, or point $CHROME at it' };
     // Rendered from FILE, not from the running read-only server — and that is a
     // constraint, not a preference: a deck SERVED BY PRESENT can never be
-    // dumped under `--virtual-time-budget`, by design. `/present/ping` answers
+    // dumped under `--virtual-time-budget`, by design. `/deck/ping` answers
     // `{present:true}`, so the runtime opens an EventSource on
-    // `/present/events` for the phone remote (READ_ONLY#REMOTE, `editmode.js`
-    // wirePresentRemote), that stream never ends, and Chrome's virtual clock
+    // `/deck/events` for the phone remote (READ_ONLY#REMOTE, `editmode.js`
+    // wireRemote), that stream never ends, and Chrome's virtual clock
     // does not advance while a fetch is pending — so the dump never returns.
     // Over file:// the ping finds nothing and the stream is never opened.
     //

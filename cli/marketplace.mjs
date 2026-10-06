@@ -883,7 +883,7 @@ export function adoptCheckout(home, name, checkout) {
  * update` fetches one — and `loadCatalog` is called in LOOPS: the theme
  * browser, the template list and the engine-wizard roster each walk every
  * registered marketplace, and the edit server calls all three to answer one
- * `/edit/ping`. Every one of those calls re-read the JSON off disk and re-ran
+ * `/deck/ping`. Every one of those calls re-read the JSON off disk and re-ran
  * validateManifest over it, which walks every entry and every field. So the
  * answer is remembered against the file's mtime and size: a catalog that has
  * not moved is not read and not re-validated, and one that has is, on the next

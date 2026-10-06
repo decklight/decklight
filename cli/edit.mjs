@@ -17,8 +17,8 @@
 // Serves the current working directory over localhost (so decks that
 // reference ../dist and ../themes just work), watches the deck file, and:
 //
-//   GET  /edit/ping            → { ok, deck, undo, redo, git, agents, agentBusy, wizards }
-//   GET  /edit/events          → SSE; `reload` on deck change, `agent` job status
+//   GET  /deck/ping            → { ok, deck, undo, redo, git, agents, agentBusy, wizards }
+//   GET  /deck/events          → SSE; `reload` on deck change, `agent` job status
 //   POST /edit/notes           → { slide, text }           rewrite that slide's notes
 //   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
 //   POST /edit/layout          → { slide, layout }         write data-layout to the file
@@ -984,7 +984,7 @@ export async function editMain(args, { onListen = null } = {}) {
   let agentJob = null; // { name, prompt, startedAt } — strictly one at a time
   // The asks of this session, oldest first, with what came of each — what the
   // docked agent panel shows. An agent's edit reloads every browser, so the
-  // log lives HERE, not in the page, and rides /edit/ping across the reload.
+  // log lives HERE, not in the page, and rides /deck/ping across the reload.
   const agentAsks = [];
   const ASKS_KEPT = 20;
   let askSeq = 0;
@@ -1291,7 +1291,7 @@ export async function editMain(args, { onListen = null } = {}) {
   };
   /**
    * Every entry a registered marketplace declares a wizard for, qualified.
-   * Advertised in /edit/ping beside the agents: the palette's Configure rows
+   * Advertised in /deck/ping beside the agents: the palette's Configure rows
    * come from here, so a player never has to guess an engine name to ask
    * /edit/wizard about (ENGINES#WIZARD).
    */
@@ -1435,7 +1435,7 @@ export async function editMain(args, { onListen = null } = {}) {
     let lastSaid = 0;
     const say = (text) => {
       if (!text || !agentJob) return;
-      agentJob.activity = text;   // /edit/ping carries it across a reload
+      agentJob.activity = text;   // /deck/ping carries it across a reload
       broadcast('agent', { state: 'activity', agent: cmd.name, text });
       console.log(`  agent: ${text}`);
     };
@@ -3103,14 +3103,14 @@ export async function editMain(args, { onListen = null } = {}) {
   // sequence DOES still matter say so out loud rather than by position
   // (`BEFORE_BODY`, and the prefix list below).
   const routes = new Map(Object.entries({
-    'GET /edit/ping': pingRoute,
+    'GET /deck/ping': pingRoute,
     'POST /edit/lock': lockRoute,
     // the voice bridge, on this origin (#520): the runtime derives every one
     // of these from `/tts`, exactly as it derives them from the bridge's URL
     'POST /tts': ttsProxy, 'GET /ping': ttsProxy, 'GET /engines': ttsProxy,
     'POST /engine': ttsProxy, 'GET /voices': ttsProxy, 'POST /voices/install': ttsProxy,
     'GET /voices/library': ttsProxy, 'POST /voices/library/add': ttsProxy,
-    'GET /edit/events': eventsRoute,
+    'GET /deck/events': eventsRoute,
     'POST /edit/shutdown': shutdownRoute,
     'POST /edit/undo': undoRedoRoute,
     'POST /edit/redo': undoRedoRoute,

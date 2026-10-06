@@ -58,7 +58,7 @@
             { status: 200, headers: { 'content-type': 'application/json' } })
           : new Response('', { status: 404 });
       }
-      if (u.endsWith('/edit/ping')) {
+      if (u.endsWith('/deck/ping')) {
         return reviewer
           ? new Response('', { status: 404 })
           : new Response(JSON.stringify({ ok: true, name: 'review.html', undo: 0, redo: 0 }),

@@ -586,7 +586,7 @@ test('ping advertises what a wizard can configure — the palette rows come from
   // an engine name to ask /edit/wizard about, so openWizard has no caller.
   const home = catalogHome({ engine: 'elevenlabs', title: 'ElevenLabs', fields: [{ name: 'apiKey', type: 'secret', required: true }] });
   const { base } = await startEditingTour(t, home);
-  const ping = await (await fetch(`${base}/edit/ping`)).json();
+  const ping = await (await fetch(`${base}/deck/ping`)).json();
   assert.deepEqual(ping.wizards, [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }],
     'qualified so the player names it unambiguously, titled so the palette can label the row — and the wizardless entry is not offered');
 });

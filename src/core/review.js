@@ -110,7 +110,7 @@ export function createReview({
    * Is a read-only server answering? Asked once, lazily.
    *
    * Its own probe rather than editmode's: `?review` is answered by neither
-   * /edit/ping nor /present/ping, and a deck that never reviews should not pay
+   * /deck/ping nor /deck/ping, and a deck that never reviews should not pay
    * a request for the possibility.
    */
   async function reviewBase() {

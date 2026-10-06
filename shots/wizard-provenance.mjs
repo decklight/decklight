@@ -4,7 +4,7 @@
 // file) — ABOVE the fields, before anything is typed. The title and every
 // label are the plugin's own words; that line is core's. A key is typed in so
 // the shot also shows the secret staying masked next to it.
-await sleep(300);                     // let the stub /edit/ping wire write mode up
+await sleep(300);                     // let the stub /deck/ping wire write mode up
 press('/');
 for (const c of 'configure') press(c);
 await sleep(150);

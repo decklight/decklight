@@ -64,7 +64,7 @@ const curl = (...args) => spawnSync('curl', ['-si', '--max-time', '5', ...args],
 
 // The seam: off this machine only /remote/* answers. The deck is not /remote/*.
 const lanRefused = curl(`http://${lan}:${port}/deck.html`);
-const loopbackOk = curl(`http://127.0.0.1:${port}/present/ping`);
+const loopbackOk = curl(`http://127.0.0.1:${port}/deck/ping`);
 
 dev.kill('SIGINT');
 await new Promise((r) => dev.on('exit', r));
@@ -108,7 +108,7 @@ const html = `<!doctype html>
     <span class="t">decklight <deck.html> --read-only --remote — LAN listener + per-run token; only /remote/* answers off this machine</span></div>
   <div class="body">${block('decklight deck.html --read-only --remote', paintDev(out.trimEnd()))}
 ${block(`curl http://${lan}:${port}/deck.html                   # the deck itself, from the LAN`, paintCurl(lanRefused))}
-${block(`curl http://127.0.0.1:${port}/present/ping             # the same server, over loopback`, paintCurl(loopbackOk))}</div>
+${block(`curl http://127.0.0.1:${port}/deck/ping             # the same server, over loopback`, paintCurl(loopbackOk))}</div>
 </div>
 </body></html>
 `;

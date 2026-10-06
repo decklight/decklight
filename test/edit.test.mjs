@@ -413,13 +413,13 @@ test('the editing lock: locked, no edit route writes; the ping and the channel s
   writeFileSync(deck, DATA_DECK({ decklight: '0.9.0', theme: 'aurora' }));
   const before = readFileSync(deck, 'utf8');
   const { base } = await startEdit(t, dir);
-  const ping = async () => (await (await fetch(base + '/edit/ping')).json());
+  const ping = async () => (await (await fetch(base + '/deck/ping')).json());
   assert.equal((await ping()).readOnly, false, 'write mode says so');
   assert.equal((await ping()).locked, false, 'and starts unlocked');
 
   // the channel hears the lock turn
   const events = [];
-  const es = await fetch(base + '/edit/events');
+  const es = await fetch(base + '/deck/events');
   const reader = es.body.getReader();
   // the stream ends when the server does, at teardown: that is not a failure
   const pump = (async () => {
@@ -457,7 +457,7 @@ test('layout, undo, and redo write the deck FILE — and share one history', asy
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } }); // PATH=dir: no git, no agents
 
-  const ping = await (await fetch(base + '/edit/ping')).json();
+  const ping = await (await fetch(base + '/deck/ping')).json();
   assert.deepEqual(
     { ok: ping.ok, undo: ping.undo, redo: ping.redo, git: ping.git, agents: ping.agents },
     { ok: true, undo: 0, redo: 0, git: false, agents: [] });
@@ -595,7 +595,7 @@ test('a notes save is announced as `notes`, never a reload; any other change to 
   const { base } = await startEdit(t, dir, { extraArgs: ['--no-git'] });
   const ctrl = new AbortController();
   t.after(() => ctrl.abort());
-  const res = await fetch(`${base}/edit/events`, { signal: ctrl.signal });
+  const res = await fetch(`${base}/deck/events`, { signal: ctrl.signal });
   const reader = res.body.getReader();
   let stream = '';
   (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; stream += new TextDecoder().decode(value); } } catch { /* aborted */ } })();
@@ -618,7 +618,7 @@ test('--git auto-commits on a cadence; undo/redo never consume the commits', asy
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git', '--commit-every', '5'] });
 
-  assert.equal((await (await fetch(base + '/edit/ping')).json()).git, true);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).git, true);
   assert.equal(inGitRepo(dir), true, '--git created the repository');
   assert.equal(git(['rev-list', '--count', 'HEAD'], dir), '1', 'the opening commit');
 
@@ -639,7 +639,7 @@ test('a repository decklight did not create never gets ignore rules', async (t) 
   git(['init', '-q'], dir);
   const { base } = await startEdit(t, dir, { extraArgs: ['--git', '--commit-every', '5'] });
 
-  assert.equal((await (await fetch(base + '/edit/ping')).json()).git, true);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).git, true);
   assert.equal(existsSync(path.join(dir, '.gitignore')), false,
     'the repo-creation moment is the only time decklight touches ignore rules');
 });
@@ -661,7 +661,7 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
     "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- agent-was-here -->');\n");
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
 
-  const ping = await (await fetch(base + '/edit/ping')).json();
+  const ping = await (await fetch(base + '/deck/ping')).json();
   assert.deepEqual(ping.agents, [{ name: 'claude', label: 'Claude Code' }]);
 
   const started = await (await post(base, '/edit/agent', { prompt: 'sign the deck' })).json();
@@ -669,7 +669,7 @@ test('an agent ask runs the detected CLI, and Z takes its edit back', async (t) 
 
   // the run is async — wait for the edit to land on the undo stack
   for (let i = 0; i < 200; i++) {
-    const p = await (await fetch(base + '/edit/ping')).json();
+    const p = await (await fetch(base + '/deck/ping')).json();
     if (p.undo === 1 && !p.agentBusy) break;
     await new Promise((res) => setTimeout(res, 50));
   }
@@ -691,12 +691,12 @@ test('the asks of a session are kept on the server — slide, prompt and outcome
   writeFakeBin(bin, 'claude',
     "import { appendFileSync } from 'node:fs';\nappendFileSync('deck.html', '<!-- x -->');\nconsole.log(JSON.stringify({ type: 'result', result: 'Moved the diagram left.' }));\n");
   const { base } = await startEdit(t, dir, { env: { PATH: bin } });
-  assert.deepEqual((await (await fetch(base + '/edit/ping')).json()).agentAsks, [], 'none yet');
+  assert.deepEqual((await (await fetch(base + '/deck/ping')).json()).agentAsks, [], 'none yet');
 
   await post(base, '/edit/agent', { prompt: 'move the diagram left', slide: 3 });
   let p;
   for (let i = 0; i < 200; i++) {
-    p = await (await fetch(base + '/edit/ping')).json();
+    p = await (await fetch(base + '/deck/ping')).json();
     if (p.agentAsks?.[0]?.state === 'done') break;
     await new Promise((res) => setTimeout(res, 50));
   }
@@ -710,7 +710,7 @@ test('the asks of a session are kept on the server — slide, prompt and outcome
 
   await post(base, '/edit/agent', { prompt: 'no slide given', slide: 'x' });
   for (let i = 0; i < 200; i++) {
-    p = await (await fetch(base + '/edit/ping')).json();
+    p = await (await fetch(base + '/deck/ping')).json();
     if (p.agentAsks.length === 2 && p.agentAsks[1].state === 'done') break;
     await new Promise((res) => setTimeout(res, 50));
   }
@@ -742,7 +742,7 @@ test('POST /edit/enhance: the agent drafts tags read-only, decklight writes the 
   assert.equal(again.status, 409, 'one run at a time');
 
   for (let i = 0; i < 200; i++) {
-    if ((await (await fetch(base + '/edit/ping')).json()).undo === 1) break;
+    if ((await (await fetch(base + '/deck/ping')).json()).undo === 1) break;
     await new Promise((res) => setTimeout(res, 50));
   }
   const after = readFileSync(deck, 'utf8');
@@ -803,7 +803,7 @@ test('POST /edit/enhance { kind: "spoken" }: the notes written for the ear, in O
   const started = await (await post(base, '/edit/enhance', { slides: [1], kind: 'spoken' })).json();
   assert.deepEqual({ ok: started.ok, of: started.of, kind: started.kind }, { ok: true, of: 1, kind: 'spoken' });
   for (let i = 0; i < 200; i++) {
-    if ((await (await fetch(base + '/edit/ping')).json()).undo === 1) break;
+    if ((await (await fetch(base + '/deck/ping')).json()).undo === 1) break;
     await new Promise((res) => setTimeout(res, 50));
   }
   assert.match(readFileSync(deck, 'utf8'), /<p>And if you fluff a line, just press Backspace to take it again\.<\/p>/);
@@ -844,7 +844,7 @@ test('the edit server binds 127.0.0.1 — the LAN cannot even connect', async (t
 
   assert.doesNotMatch(log(), /remote:/, 'and advertises no LAN URL, because there is none');
   await assert.rejects(
-    fetch(`http://${lan}:${port}/edit/ping`, { signal: AbortSignal.timeout(2000) }),
+    fetch(`http://${lan}:${port}/deck/ping`, { signal: AbortSignal.timeout(2000) }),
     'the LAN address must not be listening');
 });
 
@@ -901,7 +901,7 @@ test('allowEditRequest / isLoopbackOrigin: the Origin allow-list', () => {
 // http.request, not fetch: `Origin` is a browser-forbidden request header and
 // undici's fetch drops it, so the one header this whole test turns on could
 // never be set through fetch(). A raw client sets it exactly like a browser.
-function rawReq(base, { method = 'GET', path = '/edit/ping', headers = {}, body } = {}) {
+function rawReq(base, { method = 'GET', path = '/deck/ping', headers = {}, body } = {}) {
   const u = new URL(base + path);
   return new Promise((resolve, reject) => {
     const r = http.request({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, method, headers }, (res) => {
@@ -931,7 +931,7 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
   assert.notEqual(agent.headers['access-control-allow-origin'], EVIL, 'nor echoes the attacker back');
 
   // reads leak the deck too — refused the same way
-  for (const path_ of ['/edit/ping', '/edit/history']) {
+  for (const path_ of ['/deck/ping', '/edit/history']) {
     const r = await rawReq(base, { path: path_, headers: { origin: EVIL } });
     assert.equal(r.status, 403, path_);
   }
@@ -1132,17 +1132,17 @@ test('the legitimate callers still get through — loopback, file://, and the CL
 
   // the deck this server serves, same-origin (a loopback web origin): echoed,
   // never a wildcard
-  const same = await rawReq(base, { path: '/edit/ping', headers: { origin: base } });
+  const same = await rawReq(base, { path: '/deck/ping', headers: { origin: base } });
   assert.equal(same.status, 200);
   assert.equal(same.headers['access-control-allow-origin'], base, 'the origin is echoed, not *');
 
   // a file://-opened deck probes with Origin: null — the SPEC'd double-click path
-  const file = await rawReq(base, { path: '/edit/ping', headers: { origin: 'null' } });
+  const file = await rawReq(base, { path: '/deck/ping', headers: { origin: 'null' } });
   assert.equal(file.status, 200);
   assert.equal(file.headers['access-control-allow-origin'], 'null');
 
   // the CLI / port-conflict probe / curl send no Origin: still answered
-  const cli = await rawReq(base, { path: '/edit/ping' });
+  const cli = await rawReq(base, { path: '/deck/ping' });
   assert.equal(cli.status, 200);
   assert.equal(JSON.parse(cli.body).ok, true);
   // a preflight from the served deck is granted, echoing its origin
@@ -1371,7 +1371,7 @@ test('an agent commit contains the agent\'s work only, not what you left uncommi
   await post(base, '/edit/agent', { prompt: 'sign the deck', message: 'sign the deck' });
 
   for (let i = 0; i < 200; i++) {
-    const p = await (await fetch(base + '/edit/ping')).json();
+    const p = await (await fetch(base + '/deck/ping')).json();
     if (!p.agentBusy && /agent-was-here/.test(readFileSync(deck, 'utf8'))) break;
     await new Promise((res) => setTimeout(res, 50));
   }
@@ -1578,7 +1578,7 @@ test('/edit/export writes the PowerPoint and names the file it wrote', async (t)
   // the deck FILE is untouched: an export is not an edit, so it takes no
   // history entry and undo has nothing to take back
   assert.equal(readFileSync(deck, 'utf8'), DECK);
-  assert.equal((await (await fetch(base + '/edit/ping')).json()).undo, 0);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).undo, 0);
 });
 
 test('/edit/export runs one export at a time, and the deck is told which', async (t) => {
@@ -1620,7 +1620,7 @@ test('an export that fails says so and leaves the edit server serving', async (t
   assert.ok(!existsSync(path.join(dir, 'deck.pptx')), 'nothing half-written was left behind');
 
   // the point of the whole route: the session survives its own failure
-  assert.equal((await (await fetch(base + '/edit/ping')).json()).ok, true);
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).ok, true);
 });
 
 // ── the bundle row: the file most often sent ─────────────────────────────
@@ -1930,7 +1930,7 @@ test('/edit/export refuses a video it cannot make as asked, and says why', async
   assert.equal(r.status, 500);
   assert.match(r.error, /--slides 9 is outside this deck/);
   assert.ok(!existsSync(path.join(dir, 'deck.slides-9.mp4')));
-  assert.equal((await (await fetch(base + '/edit/ping')).json()).ok, true, 'the session survives its refusal');
+  assert.equal((await (await fetch(base + '/deck/ping')).json()).ok, true, 'the session survives its refusal');
 });
 
 test('/edit/export voices the range with the live voice first, into a folder a second export reuses', async (t) => {
@@ -2401,7 +2401,7 @@ test('/edit/template/preview renders what apply WOULD do, and writes nothing', a
 
   assert.equal(readFileSync(deck, 'utf8'), before,
     'a cursor moving through a list must never touch the file');
-  const ping = await (await fetch(base + '/edit/ping')).json();
+  const ping = await (await fetch(base + '/deck/ping')).json();
   assert.equal(ping.undo, 0, 'and never make an undo entry');
 
   const nope = await fetch(base + '/edit/template/preview?name=looks&slide=9&to=2');
@@ -2529,7 +2529,7 @@ test('a long export says where it is, slide by slide, on the event stream', asyn
   // The deck's own channel, read the way the deck reads it. Without this the
   // progress row can only say "this takes a moment" and then sit there.
   const events = [];
-  const res = await fetch(base + '/edit/events');
+  const res = await fetch(base + '/deck/events');
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   (async () => {
@@ -2566,7 +2566,7 @@ test('a server-side edit lands whole, leaves no staging file, and reloads exactl
   // directory events — the staging file appearing, and the rename over the
   // deck. Only the second is about this deck, and the deck must be told once.
   let reloads = 0;
-  const res = await fetch(base + '/edit/events');
+  const res = await fetch(base + '/deck/events');
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   (async () => {

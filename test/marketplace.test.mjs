@@ -729,7 +729,7 @@ test('engine stopped being a kind nothing installs — the hint names a real com
 // A catalog is a file on this machine that changes only when `marketplace
 // update` fetches one, and loadCatalog is called in LOOPS — the theme browser,
 // the template list and the engine-wizard roster each walk every registered
-// marketplace, and one `/edit/ping` calls all three. Re-reading and
+// marketplace, and one `/deck/ping` calls all three. Re-reading and
 // re-validating the same JSON for each is work nobody asked for.
 
 test('a second loadCatalog of an unchanged file is the SAME answer, not a second one', () => {

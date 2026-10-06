@@ -37,7 +37,7 @@ fs.writeFileSync(path.join(shots, 'wizard-deck.html'), `<!doctype html>
   <link rel="stylesheet" href="../dist/decklight.css">
   <script>
     // The edit server, in miniature (as in test/engine.html mode=wizard):
-    // enough of /edit/ping and GET /edit/wizard for the palette to grow its
+    // enough of /deck/ping and GET /edit/wizard for the palette to grow its
     // Configure row and the wizard to mount a vetted schema.
     const SCHEMA = {
       engine: 'elevenlabs', title: 'ElevenLabs',
@@ -57,7 +57,7 @@ fs.writeFileSync(path.join(shots, 'wizard-deck.html'), `<!doctype html>
     const json = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
     window.fetch = async (url, init) => {
       const u = String(url);
-      if (u.includes('/edit/ping')) {
+      if (u.includes('/deck/ping')) {
         return json({ ok: true, undo: 0, redo: 0, git: true, agents: [],
           wizards: [{ name: 'elevenlabs', qualified: 'elevenlabs@voices', title: 'ElevenLabs' }] });
       }
