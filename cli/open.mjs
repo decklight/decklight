@@ -344,7 +344,7 @@ export async function openMain(args) {
   let plan = planServices({ args, saved: loadTtsConfig(), lipsync: loadLipsyncConfig() });
   if (plan.gone.length) {
     console.error(`decklight does not take ${plan.gone.join(' or ')} in write mode — the phone remote is a read-only thing.`);
-    console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
+    console.error('  A clicker used to cost you an editing server on the LAN: /edit/slide/notes, /edit/slide/layout and');
     console.error('  /edit/agent were reachable from the same run you were not watching. The read-only server');
     console.error('  has no edit surface to widen, so that is where it lives.');
     console.error(`\n  decklight ${plan.deck ?? '<deck.html>'} --read-only --remote`);

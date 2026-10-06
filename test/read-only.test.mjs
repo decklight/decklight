@@ -319,11 +319,11 @@ test('the one probe answers here too, and says read-only', async (t) => {
   assert.equal(j.agents, undefined, 'no roster, nothing to edit with');
 });
 
-test('a POST to /edit/notes is as unknown as a POST to anything else', async (t) => {
+test('a POST to /edit/slide/notes is as unknown as a POST to anything else', async (t) => {
   const dir = deckDir();
   const { base } = await startPresent(t, dir);
 
-  const edit = await fetch(base + '/edit/notes', {
+  const edit = await fetch(base + '/edit/slide/notes', {
     method: 'POST', body: JSON.stringify({ slide: 1, text: 'pwned' }),
   });
   const nonsense = await fetch(base + '/nonsense', { method: 'POST', body: '{}' });
@@ -351,8 +351,8 @@ test('nothing is written — the directory is byte-identical after a session', a
 
   await fetch(base + '/');
   await fetch(base + '/theme.css');
-  await fetch(base + '/edit/notes', { method: 'POST', body: '{"slide":1,"text":"x"}' });
-  await fetch(base + '/edit/layout', { method: 'POST', body: '{"slide":1,"layout":"split"}' });
+  await fetch(base + '/edit/slide/notes', { method: 'POST', body: '{"slide":1,"text":"x"}' });
+  await fetch(base + '/edit/slide/layout', { method: 'POST', body: '{"slide":1,"layout":"split"}' });
   await fetch(base + '/missing.html');
 
   assert.deepEqual(snapshot(dir), before, 'no file created, changed, or touched');
@@ -472,7 +472,7 @@ test('--remote hosts the clicker, and still registers no /edit/* route', async (
   assert.equal(key.key, 'next');
 
   // …and the whole point: no editing surface came along with it.
-  for (const p of ['/edit/notes', '/edit/layout', '/edit/undo', '/edit/commit', '/edit/shutdown']) {
+  for (const p of ['/edit/slide/notes', '/edit/slide/layout', '/edit/undo', '/edit/commit', '/edit/shutdown']) {
     const res = await fetch(base + p, { method: 'POST', body: '{}' });
     assert.equal(res.status, 405, `${p} is unknown, not refused`);
   }

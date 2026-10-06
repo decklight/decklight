@@ -1016,7 +1016,7 @@ export function createEditMode({
       syncChanged();
       try { sessionStorage.setItem(NOTES_OPEN_KEY, JSON.stringify({ slide: sl, caret: ta.selectionStart, scroll: ta.scrollTop, t: Date.now() })); } catch { /* no storage: the card closes, as before */ }
       try {
-        const res = await writeFetch(editBase + '/edit/notes', {
+        const res = await writeFetch(editBase + '/edit/slide/notes', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ slide: sl, text: ta.value, from: PAGE_ID }),

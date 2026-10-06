@@ -3165,7 +3165,7 @@ export function createNarration({
     const base = editBase();
     if (base == null) return [];
     try {
-      const r = await fetch(`${base}/edit/tracks`);
+      const r = await fetch(`${base}/edit/narration/tracks`);
       const j = await r.json();
       return Array.isArray(j?.tracks) ? j.tracks : [];
     } catch { return []; }
@@ -3263,7 +3263,7 @@ export function createNarration({
   async function saveRecording(slide, kind, blob, dir, seg = null) {
     if (dir) {
       try {
-        const r = await fetch(`${dir.base}/edit/record?slide=${slide}&kind=${kind}`
+        const r = await fetch(`${dir.base}/edit/narration/record?slide=${slide}&kind=${kind}`
           + (seg == null ? '' : `&seg=${seg}`)
           + `&dir=${encodeURIComponent(dir.name)}`, { method: 'POST', body: blob });
         if ((await r.json())?.ok) return true;
@@ -3441,7 +3441,7 @@ export function createNarration({
     const saveManifest = async () => {
       if (!dir) return;
       try {
-        await fetch(`${dir.base}/edit/record?slide=1&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
+        await fetch(`${dir.base}/edit/narration/record?slide=1&kind=manifest&dir=${encodeURIComponent(dir.name)}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ engine: liveEngine, model: liveModel, voice: liveCfg.voice, style: liveCfg.style, range, slides: recorded }),

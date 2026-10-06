@@ -122,7 +122,7 @@ export function allowRemote(req, token) {
   if (!token) return false;
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { return false; }
-  // new URL() normalizes dot segments, so /remote/../edit/notes is /edit/notes
+  // new URL() normalizes dot segments, so /remote/../edit/slide/notes is /edit/slide/notes
   if (url.pathname !== '/remote' && !url.pathname.startsWith('/remote/')) return false;
   const sent = Buffer.from(String(url.searchParams.get('t') ?? req.headers?.['x-decklight-token'] ?? ''));
   const want = Buffer.from(token);

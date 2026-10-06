@@ -191,7 +191,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
 
   function narrationRoute({ body, json }) {
     const { files, ext, segments } = JSON.parse(body || '{}');
-    // The same three shapes /edit/record refuses for a folder, refused
+    // The same three shapes /edit/narration/record refuses for a folder, refused
     // again here: this one is written INTO the deck, where a bad value is
     // not a failed request but a deck that no longer plays.
     if (typeof files !== 'string' || !files.trim() || files.length > 200
@@ -412,10 +412,10 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   /**
    * `POST /edit/asset` — the raw bytes of an image dropped onto the stage,
    * saved into `assets/` beside the deck. Answers the `src` the caller then
-   * hands to `POST /edit/image`.
+   * hands to `POST /edit/element/image`.
    *
    * Ahead of the shared body read (`BEFORE_BODY` in cli/edit.mjs) for the same
-   * reason `/edit/record` is: the body is BINARY and megabytes of it, so the
+   * reason `/edit/narration/record` is: the body is BINARY and megabytes of it, so the
    * string concat and its 1 MB ceiling are both wrong. The size limit is
    * enforced on the way IN — `content-length` first when the browser declared
    * one, then the stream itself — because a limit that buffers 2 GB before
@@ -496,7 +496,7 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     && !s.split(/[/\\]/).includes('..');
 
   /**
-   * `POST /edit/image` — `{ slide, index, src, alt }`, an `<img>` onto a
+   * `POST /edit/element/image` — `{ slide, index, src, alt }`, an `<img>` onto a
    * slide, addressed by the same top-level child index every element route
    * uses (`sectionChildRanges`).
    *
@@ -531,12 +531,12 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
     return json(200, { ok: true, index: at, ...history.counts() });
   }
 
-  routes.set('POST /edit/notes', notesRoute);
-  routes.set('POST /edit/sources', sourcesRoute);
+  routes.set('POST /edit/slide/notes', notesRoute);
+  routes.set('POST /edit/slide/sources', sourcesRoute);
   routes.set('POST /edit/timings', timingsRoute);
-  routes.set('POST /edit/layout', layoutRoute);
+  routes.set('POST /edit/slide/layout', layoutRoute);
   routes.set('POST /edit/slide/system-layout', systemLayoutRoute);
-  routes.set('POST /edit/hidden', hiddenRoute);
+  routes.set('POST /edit/slide/hidden', hiddenRoute);
   routes.set('POST /edit/narration', narrationRoute);
   routes.set('GET /edit/element/source', elementSourceRoute);
   routes.set('POST /edit/element/remove', elementRemoveRoute);
@@ -545,6 +545,6 @@ export function registerSlideRoutes(routes, { readDeck, applyEdit, history, deck
   routes.set('POST /edit/element/style', elementStyleRoute);
   routes.set('POST /edit/slide', slideRoute);
   routes.set('POST /edit/asset', assetRoute);
-  routes.set('POST /edit/image', imageRoute);
+  routes.set('POST /edit/element/image', imageRoute);
   return routes;
 }

@@ -82,7 +82,7 @@ for (const mode of ['read-only', 'write']) {
 
 test('read-only mode still has no edit route, with the review routes beside it', async (t) => {
   const { base } = await open(t, 'read-only');
-  const edit = await fetch(`${base}/edit/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
+  const edit = await fetch(`${base}/edit/slide/notes`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"slide":1,"text":"x"}' });
   assert.equal(edit.status, 405, 'as unknown as a POST to anything else');
   const page = await fetch(`${base}/talk.html`);
   assert.ok(page.headers.get('content-security-policy')?.startsWith("default-src 'none'"), 'under the policy');

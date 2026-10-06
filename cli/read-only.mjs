@@ -701,7 +701,7 @@ export async function readOnlyMain(args, { client } = {}) {
       res.writeHead(405); res.end('method not allowed'); return;
     }
     // staticFiles answers GET (200/403/404) and declines everything else. A
-    // POST to /edit/notes lands here exactly like a POST to /anything — there
+    // POST to /edit/slide/notes lands here exactly like a POST to /anything — there
     // is no route to have refused it, which is the point of the ticket.
     // The presenting control channel. `/deck/ping` is how a deck discovers
     // it is being presented rather than authored, and the answer deliberately

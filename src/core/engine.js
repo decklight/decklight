@@ -862,7 +862,7 @@ export function init(userConfig = {}) {
     const sec = instance._sections?.[slide - 1];
     if (!sec) return;
     try {
-      const r = await fetch(editmode.base() + '/edit/hidden', {
+      const r = await fetch(editmode.base() + '/edit/slide/hidden', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slide, hidden }),
       });
       if (!r.ok) throw new Error(String(r.status));
@@ -1412,7 +1412,7 @@ export function init(userConfig = {}) {
       checkOverflow(sec, idx);
       return sec.hasAttribute('data-split-conflict');
     },
-    post: (body) => fetch(editmode.base() + '/edit/layout', {
+    post: (body) => fetch(editmode.base() + '/edit/slide/layout', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),

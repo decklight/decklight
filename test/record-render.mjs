@@ -22,7 +22,7 @@
 // settles — not a rejection, a hang. So the page hands `getUserMedia` a stream
 // from `createMediaStreamDestination()` with an oscillator on it. That is a
 // REAL MediaStream carrying REAL audio: `createMediaStreamSource`, the
-// ScriptProcessor, `floatToPcm16`, `stitchWav`, `/edit/record` and the files on
+// ScriptProcessor, `floatToPcm16`, `stitchWav`, `/edit/narration/record` and the files on
 // disk are all the shipping code path, and the only thing substituted is the
 // one thing a headless machine has no honest version of — a person and a
 // microphone. The refusal path gets its own run, where getUserMedia rejects.

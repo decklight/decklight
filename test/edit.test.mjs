@@ -432,7 +432,7 @@ test('the editing lock: locked, no edit route writes; the ping and the channel s
   assert.equal(lock.ok, true);
   assert.equal(lock.locked, true);
   assert.equal((await ping()).locked, true);
-  const refused = await post(base, '/edit/notes', { slide: 1, text: 'should not land' });
+  const refused = await post(base, '/edit/slide/notes', { slide: 1, text: 'should not land' });
   assert.equal(refused.status, 423);
   assert.match((await refused.json()).error, /editing is locked/);
   assert.equal(readFileSync(deck, 'utf8'), before, 'nothing was written');
@@ -443,7 +443,7 @@ test('the editing lock: locked, no edit route writes; the ping and the channel s
 
   const unlock = await (await post(base, '/edit/lock', { locked: false })).json();
   assert.equal(unlock.locked, false);
-  const saved = await post(base, '/edit/notes', { slide: 1, text: 'lands now' });
+  const saved = await post(base, '/edit/slide/notes', { slide: 1, text: 'lands now' });
   assert.equal(saved.status, 200, 'unlocked, the same route writes');
   const bad = await post(base, '/edit/lock', { locked: 'yes' });
   assert.equal(bad.status, 400);
@@ -463,16 +463,16 @@ test('layout, undo, and redo write the deck FILE — and share one history', asy
     { ok: true, undo: 0, redo: 0, git: false, agents: [] });
 
   // layout lands in the file
-  let r = await (await post(base, '/edit/layout', { slide: 1, layout: 'split' })).json();
+  let r = await (await post(base, '/edit/slide/layout', { slide: 1, layout: 'split' })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
   assert.match(readFileSync(deck, 'utf8'), /<section data-layout="split">/);
 
   // same layout again: no write, no history entry
-  r = await (await post(base, '/edit/layout', { slide: 1, layout: 'split' })).json();
+  r = await (await post(base, '/edit/slide/layout', { slide: 1, layout: 'split' })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: false, undo: 1 });
 
   // notes go on the SAME stack
-  await post(base, '/edit/notes', { slide: 1, text: 'hello ⟨CLICK⟩ world' });
+  await post(base, '/edit/slide/notes', { slide: 1, text: 'hello ⟨CLICK⟩ world' });
   assert.match(readFileSync(deck, 'utf8'), /<aside class="notes">/);
 
   // undo twice: notes off, then layout off — back to the original file
@@ -493,8 +493,8 @@ test('layout, undo, and redo write the deck FILE — and share one history', asy
   assert.match(readFileSync(deck, 'utf8'), /data-layout="split"/);
 
   // garbage in, 400 out
-  assert.equal((await post(base, '/edit/layout', { slide: 1, layout: 'sideways' })).status, 400);
-  assert.equal((await post(base, '/edit/layout', { slide: 'x', layout: 'top' })).status, 400);
+  assert.equal((await post(base, '/edit/slide/layout', { slide: 1, layout: 'sideways' })).status, 400);
+  assert.equal((await post(base, '/edit/slide/layout', { slide: 'x', layout: 'top' })).status, 400);
 });
 
 test('element edit mode: source, content, effect, and remove all land on the undo stack', async (t) => {
@@ -530,7 +530,7 @@ test('element edit mode: source, content, effect, and remove all land on the und
   assert.deepEqual((await (await post(base, '/edit/undo')).json()).undo, 3);
   assert.match(readFileSync(deck, 'utf8'), /Renamed/, 'undo brought the element back');
 
-  // garbage in, 400 out — same contract as /edit/layout
+  // garbage in, 400 out — same contract as /edit/slide/layout
   assert.equal((await post(base, '/edit/element/remove', { slide: 1, index: -1 })).status, 400);
   assert.equal((await post(base, '/edit/element/content', { slide: 1, index: 0, html: 5 })).status, 400);
   assert.equal((await post(base, '/edit/element/effect', { slide: 1, index: 0, effect: 'sideways' })).status, 400);
@@ -600,7 +600,7 @@ test('a notes save is announced as `notes`, never a reload; any other change to 
   let stream = '';
   (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; stream += new TextDecoder().decode(value); } } catch { /* aborted */ } })();
   await new Promise((ok) => setTimeout(ok, 200));
-  const r = await (await post(base, '/edit/notes', { slide: 1, text: 'Said in place.', from: 'p1' })).json();
+  const r = await (await post(base, '/edit/slide/notes', { slide: 1, text: 'Said in place.', from: 'p1' })).json();
   assert.deepEqual([r.changed, r.inPlace], [true, true]);
   await new Promise((ok) => setTimeout(ok, 700));   // past the watcher's debounce
   assert.match(stream, /event: notes\ndata: \{"slide":1,"aside":"<p>Said in place\.<\/p>","from":"p1"\}/);
@@ -626,7 +626,7 @@ test('--git auto-commits on a cadence; undo/redo never consume the commits', asy
   assert.equal(readFileSync(path.join(dir, '.gitignore'), 'utf8'), STARTER_GITIGNORE);
 
   // edit + undo + redo through the server: the file churns, git holds still
-  await post(base, '/edit/layout', { slide: 1, layout: 'top' });
+  await post(base, '/edit/slide/layout', { slide: 1, layout: 'top' });
   await post(base, '/edit/undo');
   await post(base, '/edit/redo');
   assert.equal(git(['rev-list', '--count', 'HEAD'], dir), '1', 'history moves the file, never git');
@@ -938,9 +938,9 @@ test('a foreign web origin is refused at every /edit/* route, with no CORS grant
   // disk-writing mutations, all refused — including the one that writes a file
   // BESIDE the deck rather than the deck itself
   for (const [path_, payload] of [
-    ['/edit/notes', { slide: 1, text: 'x' }], ['/edit/restore', { ref: 'HEAD' }],
+    ['/edit/slide/notes', { slide: 1, text: 'x' }], ['/edit/restore', { ref: 'HEAD' }],
     ['/edit/element/remove', { slide: 1, index: 0 }],
-    ['/edit/record?slide=1&kind=wav&dir=voiceover', 'RIFF'],
+    ['/edit/narration/record?slide=1&kind=wav&dir=voiceover', 'RIFF'],
   ]) {
     const r = await rawReq(base, {
       method: 'POST', path: path_, body: JSON.stringify(payload),
@@ -987,7 +987,7 @@ test('POST /edit/narration writes the config, undoes like any other edit', async
   await post(base, '/edit/undo');
   assert.doesNotMatch(readFileSync(deck, 'utf8'), /narration:/);
 
-  // the same three shapes /edit/record refuses for a folder — this one is
+  // the same three shapes /edit/narration/record refuses for a folder — this one is
   // written INTO the deck, where a bad value is not a failed request but a
   // deck that no longer plays
   for (const bad of [{ files: '/etc' }, { files: '../..' }, { files: 'C:\\x' },
@@ -1041,13 +1041,13 @@ test('POST /edit/narration says WHY when a deck builds its config elsewhere', as
   assert.equal(readFileSync(deck, 'utf8'), before, 'and it wrote nothing');
 });
 
-test('POST /edit/record writes slide-NN.wav into a folder beside the deck', async (t) => {
+test('POST /edit/narration/record writes slide-NN.wav into a folder beside the deck', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
 
   const wav = Buffer.from('RIFF....WAVEfmt ');
-  const r = await (await fetch(base + '/edit/record?slide=7&kind=wav&dir=voiceover', {
+  const r = await (await fetch(base + '/edit/narration/record?slide=7&kind=wav&dir=voiceover', {
     method: 'POST', body: wav,
   })).json();
   assert.deepEqual(r, { ok: true, dir: 'voiceover', file: 'slide-07.wav' });
@@ -1057,25 +1057,25 @@ test('POST /edit/record writes slide-NN.wav into a folder beside the deck', asyn
 
   // the character's sidecar rides the same route under the name bundle looks for
   const tl = JSON.stringify({ frames: [] });
-  const v = await (await fetch(base + '/edit/record?slide=7&kind=visemes&dir=voiceover', {
+  const v = await (await fetch(base + '/edit/narration/record?slide=7&kind=visemes&dir=voiceover', {
     method: 'POST', body: tl,
   })).json();
   assert.equal(v.file, 'slide-07.visemes.json');
   assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-07.visemes.json'), 'utf8'), tl);
 
   // a deck that names its own narration folder records into THAT one
-  await fetch(base + '/edit/record?slide=1&kind=wav&dir=audio%2Ftake-2', { method: 'POST', body: wav });
+  await fetch(base + '/edit/narration/record?slide=1&kind=wav&dir=audio%2Ftake-2', { method: 'POST', body: wav });
   assert.ok(existsSync(path.join(dir, 'audio', 'take-2', 'slide-01.wav')));
 });
 
 // ── ⇧R: one file per ⟨CLICK⟩ beat, which is what steps the builds ─────────
-test('POST /edit/record?seg writes slide-NN-KK.wav — and refuses a seg it cannot name', async (t) => {
+test('POST /edit/narration/record?seg writes slide-NN-KK.wav — and refuses a seg it cannot name', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
   const wav = Buffer.from('RIFF....WAVEfmt seg');
 
-  const r = await (await fetch(base + '/edit/record?slide=4&kind=wav&seg=2&dir=voiceover', {
+  const r = await (await fetch(base + '/edit/narration/record?slide=4&kind=wav&seg=2&dir=voiceover', {
     method: 'POST', body: wav,
   })).json();
   // zero-padded on BOTH halves — the name tools/voiceover.mjs writes and the
@@ -1085,10 +1085,10 @@ test('POST /edit/record?seg writes slide-NN-KK.wav — and refuses a seg it cann
 
   // the whole-slide file is still its own name — the two live side by side,
   // because every reader that predates segments only knows the short one
-  await fetch(base + '/edit/record?slide=4&kind=wav&dir=voiceover', { method: 'POST', body: wav });
+  await fetch(base + '/edit/narration/record?slide=4&kind=wav&dir=voiceover', { method: 'POST', body: wav });
   assert.deepEqual(readdirSync(path.join(dir, 'voiceover')).sort(), ['slide-04-02.wav', 'slide-04.wav']);
 
-  const post = (qs) => fetch(`${base}/edit/record?${qs}`, { method: 'POST', body: 'x' });
+  const post = (qs) => fetch(`${base}/edit/narration/record?${qs}`, { method: 'POST', body: 'x' });
   // `seg` is half of a filename this server builds, so it is bounded exactly
   // like `slide`
   for (const bad of ['seg=0', 'seg=-1', 'seg=1.5', 'seg=x', 'seg=1000', 'seg=..%2F..%2Fx']) {
@@ -1100,18 +1100,18 @@ test('POST /edit/record?seg writes slide-NN-KK.wav — and refuses a seg it cann
   // the player plays one beat at a time, so a timeline for the whole slide
   // starts at zero against every one of them.
   const tl = JSON.stringify({ cues: [], duration: 0.4 });
-  const v = await (await fetch(base + '/edit/record?slide=4&kind=visemes&seg=2&dir=voiceover', {
+  const v = await (await fetch(base + '/edit/narration/record?slide=4&kind=visemes&seg=2&dir=voiceover', {
     method: 'POST', body: tl,
   })).json();
   assert.equal(v.file, 'slide-04-02.visemes.json');
   assert.equal(readFileSync(path.join(dir, 'voiceover', 'slide-04-02.visemes.json'), 'utf8'), tl);
 });
 
-test('POST /edit/record names the folder only — never the file, and never one outside the deck', async (t) => {
+test('POST /edit/narration/record names the folder only — never the file, and never one outside the deck', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-  const post = (qs) => fetch(`${base}/edit/record?${qs}`, { method: 'POST', body: 'x' });
+  const post = (qs) => fetch(`${base}/edit/narration/record?${qs}`, { method: 'POST', body: 'x' });
 
   // the file name is built server-side, so the only lever a caller has is the
   // folder — and every way out of the served root is refused
@@ -1147,7 +1147,7 @@ test('the legitimate callers still get through — loopback, file://, and the CL
   assert.equal(JSON.parse(cli.body).ok, true);
   // a preflight from the served deck is granted, echoing its origin
   const pre = await rawReq(base, {
-    method: 'OPTIONS', path: '/edit/notes',
+    method: 'OPTIONS', path: '/edit/slide/notes',
     headers: { origin: base, 'access-control-request-method': 'POST' },
   });
   assert.equal(pre.status, 204);
@@ -1424,31 +1424,31 @@ test('setSlideHidden adds data-hidden once, beside what the section already carr
   assert.throws(() => setSlideHidden(DECK, 3, true), /no slide 3 \(deck has 2\)/);
 });
 
-test('/edit/hidden hides and unhides one slide through the same undo stack, and refuses a bad payload', async (t) => {
+test('/edit/slide/hidden hides and unhides one slide through the same undo stack, and refuses a bad payload', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
-  let r = await (await post(base, '/edit/hidden', { slide: 2, hidden: true })).json();
+  let r = await (await post(base, '/edit/slide/hidden', { slide: 2, hidden: true })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 1 });
   assert.match(readFileSync(deck, 'utf8'), /<section data-layout="centered" data-hidden>/);
-  r = await (await post(base, '/edit/hidden', { slide: 2, hidden: true })).json();
+  r = await (await post(base, '/edit/slide/hidden', { slide: 2, hidden: true })).json();
   assert.equal(r.changed, false, 'already hidden — nothing written, nothing to undo');
-  r = await (await post(base, '/edit/hidden', { slide: 2, hidden: false })).json();
+  r = await (await post(base, '/edit/slide/hidden', { slide: 2, hidden: false })).json();
   assert.deepEqual({ changed: r.changed, undo: r.undo }, { changed: true, undo: 2 });
   assert.equal(readFileSync(deck, 'utf8'), DECK);
-  assert.equal((await post(base, '/edit/hidden', { slide: 2, hidden: 'yes' })).status, 400);
-  assert.equal((await post(base, '/edit/hidden', { slide: 0, hidden: true })).status, 400);
+  assert.equal((await post(base, '/edit/slide/hidden', { slide: 2, hidden: 'yes' })).status, 400);
+  assert.equal((await post(base, '/edit/slide/hidden', { slide: 0, hidden: true })).status, 400);
 });
 
-test('/edit/sources writes a slide\u2019s sources, replaces them, and clears them', async (t) => {
+test('/edit/slide/sources writes a slide\u2019s sources, replaces them, and clears them', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir);
   const before = readFileSync(deck, 'utf8');
 
-  const r = await (await post(base, '/edit/sources', {
+  const r = await (await post(base, '/edit/slide/sources', {
     slide: 2,
     facts: [['owner', 'platform-team'], ['', 'dropped: no name']],
     links: [{ title: 'KIP-98', href: 'https://example.invalid/kip', note: 'the original' }],
@@ -1461,13 +1461,13 @@ test('/edit/sources writes a slide\u2019s sources, replaces them, and clears the
   assert.match(after, /<a href="https:\/\/example\.invalid\/kip">KIP-98<\/a> \u2014 the original/);
 
   // editing again replaces the aside rather than stacking a second one
-  await post(base, '/edit/sources', { slide: 2, facts: [['owner', 'docs-team']], links: [] });
+  await post(base, '/edit/slide/sources', { slide: 2, facts: [['owner', 'docs-team']], links: [] });
   const again = readFileSync(deck, 'utf8');
   assert.equal((again.match(/<aside class="sources">/g) ?? []).length, 1);
   assert.match(again, /<dd>docs-team<\/dd>/);
 
   // and emptying it takes the aside away rather than leaving an empty one
-  await post(base, '/edit/sources', { slide: 2, facts: [], links: [] });
+  await post(base, '/edit/slide/sources', { slide: 2, facts: [], links: [] });
   assert.doesNotMatch(readFileSync(deck, 'utf8'), /aside class="sources"/);
 
   // three edits, three undo entries
@@ -1475,13 +1475,13 @@ test('/edit/sources writes a slide\u2019s sources, replaces them, and clears the
   assert.equal(readFileSync(deck, 'utf8'), before, 'Z walks all the way back');
 });
 
-test('/edit/sources refuses a link that would RUN, and says which', async (t) => {
+test('/edit/slide/sources refuses a link that would RUN, and says which', async (t) => {
   const dir = tmp(t);
   const deck = path.join(dir, 'deck.html');
   writeFileSync(deck, DECK);
   const { base } = await startEdit(t, dir);
 
-  const r = await (await post(base, '/edit/sources', {
+  const r = await (await post(base, '/edit/slide/sources', {
     slide: 1,
     facts: [],
     links: [
@@ -2574,7 +2574,7 @@ test('a server-side edit lands whole, leaves no staging file, and reloads exactl
   })();
   t.after(() => reader.cancel().catch(() => { /* already closed */ }));
 
-  assert.equal((await post(base, '/edit/layout', { slide: 1, layout: 'split' })).status, 200);
+  assert.equal((await post(base, '/edit/slide/layout', { slide: 1, layout: 'split' })).status, 200);
   // well past the 150 ms debounce, so a second event would have arrived
   const stop = Date.now() + 2500;
   while (reloads < 1 && Date.now() < stop) await new Promise((ok) => setTimeout(ok, 25));
@@ -2614,16 +2614,16 @@ test('a recorded track is written into the configuration block, as JSON, every o
 });
 
 // ── the deck recorder's take gets a manifest (#535) ───────────────────────
-test('POST /edit/record?kind=manifest writes the take’s manifest.json — hashed from the deck’s notes, merged per range, and the folder becomes a track', async (t) => {
+test('POST /edit/narration/record?kind=manifest writes the take’s manifest.json — hashed from the deck’s notes, merged per range, and the folder becomes a track', async (t) => {
   const dir = tmp(t);
   writeFileSync(path.join(dir, 'deck.html'), SPOKEN_DECK);
   const { base } = await startEdit(t, dir, { env: { PATH: dir } });
   const { manifestHash, slideTexts } = await import('../tools/narration-manifest.mjs');
   const wav = Buffer.from('RIFF....WAVEfmt ');
-  await fetch(base + '/edit/record?slide=1&kind=wav&dir=voices%2Fkore', { method: 'POST', body: wav });
-  await fetch(base + '/edit/record?slide=1&kind=wav&seg=1&dir=voices%2Fkore', { method: 'POST', body: wav });
+  await fetch(base + '/edit/narration/record?slide=1&kind=wav&dir=voices%2Fkore', { method: 'POST', body: wav });
+  await fetch(base + '/edit/narration/record?slide=1&kind=wav&seg=1&dir=voices%2Fkore', { method: 'POST', body: wav });
   const header = { engine: 'gemini', model: 'gemini-2.5-pro-tts', voice: 'Kore', style: 'warm, welcoming' };
-  const post = (body) => fetch(base + '/edit/record?slide=1&kind=manifest&dir=voices%2Fkore', {
+  const post = (body) => fetch(base + '/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fkore', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
   // after slide 1 of a whole-deck take: one entry, the rest of the range null
@@ -2645,7 +2645,7 @@ test('POST /edit/record?kind=manifest writes the take’s manifest.json — hash
   m = JSON.parse(readFileSync(path.join(dir, 'voices', 'kore', 'manifest.json'), 'utf8'));
   assert.equal(m.slides[0]?.file, 'slide-01.wav', 'outside the range, the take stands');
   // the folder is now a track the export can offer, refreshed into by this voice
-  const tracks = (await (await fetch(base + '/edit/tracks')).json()).tracks;
+  const tracks = (await (await fetch(base + '/edit/narration/tracks')).json()).tracks;
   const kore = tracks.find((x) => x.dir === 'voices/kore');
   assert.equal(kore?.manifest, true);
   assert.equal(kore?.engine, 'gemini');
@@ -2653,8 +2653,8 @@ test('POST /edit/record?kind=manifest writes the take’s manifest.json — hash
   // what it refuses: no engine, a bad range, not JSON, a folder outside the deck
   assert.equal((await post({ voice: 'Kore', range: [1, 2], slides: {} })).status, 400);
   assert.equal((await post({ ...header, range: [2, 1], slides: {} })).status, 400);
-  assert.equal((await fetch(base + '/edit/record?slide=1&kind=manifest&dir=voices%2Fkore', { method: 'POST', body: '{nope' })).status, 400);
-  assert.equal((await fetch(base + '/edit/record?slide=1&kind=manifest&dir=..%2Fout', { method: 'POST', body: '{}' })).status, 400);
+  assert.equal((await fetch(base + '/edit/narration/record?slide=1&kind=manifest&dir=voices%2Fkore', { method: 'POST', body: '{nope' })).status, 400);
+  assert.equal((await fetch(base + '/edit/narration/record?slide=1&kind=manifest&dir=..%2Fout', { method: 'POST', body: '{}' })).status, 400);
 });
 
 // ── a track recorded from older notes is named, and refused unless allowed (#536) ──
@@ -2674,7 +2674,7 @@ test('/edit/export refuses a narration recorded from other notes, names the slid
     { file: 'slide-02.m4a', hash: manifestHash(header, 'what the notes used to say') },
   ] }));
   // the card learns it from the track list
-  const tracks = (await (await fetch(base + '/edit/tracks')).json()).tracks;
+  const tracks = (await (await fetch(base + '/edit/narration/tracks')).json()).tracks;
   assert.equal(tracks.find((x) => x.dir === 'voices/samantha')?.stale, 1, 'one slide recorded from older notes');
   // refused by default, with the slide and the way out
   let r = await post(base, '/edit/export', { kind: 'video', narration: 'voices/samantha' });

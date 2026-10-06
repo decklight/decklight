@@ -257,7 +257,7 @@ export function createSources({ root, overlays, reflow, sectionAt, slideOf, edit
     busy = true;
     const at = slideOf();
     try {
-      const r = await fetch(editmode().base() + '/edit/sources', {
+      const r = await fetch(editmode().base() + '/edit/slide/sources', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ slide: at, facts: draft.facts, links: draft.links }),

@@ -19,10 +19,10 @@
 //
 //   GET  /deck/ping            → { ok, deck, undo, redo, git, agents, agentBusy, wizards }
 //   GET  /deck/events          → SSE; `reload` on deck change, `agent` job status
-//   POST /edit/notes           → { slide, text }           rewrite that slide's notes
+//   POST /edit/slide/notes           → { slide, text }           rewrite that slide's notes
 //   POST /edit/timings         → { timings: [{ slide, seconds }] }  rehearsed times onto the sections
-//   POST /edit/layout          → { slide, layout }         write data-layout to the file
-//   POST /edit/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
+//   POST /edit/slide/layout          → { slide, layout }         write data-layout to the file
+//   POST /edit/slide/hidden          → { slide, hidden }         data-hidden on or off (HIDDEN_SLIDES)
 //   GET  /edit/template/browse   → deck templates installed here, and what a marketplace offers
 //   GET  /edit/template/slides → ?name=   that template's slides, numbered, with what each needs
 //   POST /edit/template/add    → { ref }  install a template from a marketplace (UNITS#REST)
@@ -939,7 +939,7 @@ export async function editMain(args, { onListen = null } = {}) {
   const gone = ['--remote', '--host'].filter((f) => args.some((a) => a === f || a.startsWith(f + '=')));
   if (gone.length) {
     console.error(`write mode does not take ${gone.join(' or ')} — the phone remote is a read-only thing.`);
-    console.error('  A clicker used to cost you an editing server on the LAN: /edit/notes, /edit/layout and');
+    console.error('  A clicker used to cost you an editing server on the LAN: /edit/slide/notes, /edit/slide/layout and');
     console.error('  /edit/agent were reachable from the same run you were not watching. The read-only server');
     console.error('  has no edit surface to widen, so that is where it lives.');
     console.error(`\n  decklight ${firstPositional(args, VALUE_FLAGS) ?? '<deck.html>'} --read-only --remote`);
@@ -3057,8 +3057,8 @@ export async function editMain(args, { onListen = null } = {}) {
     'POST /edit/template/add': templateAddRoute,
     'POST /edit/template/insert': templateInsertRoute,
 
-    'POST /edit/record': recordRoute,
-    'GET /edit/tracks': tracksRoute,
+    'POST /edit/narration/record': recordRoute,
+    'GET /edit/narration/tracks': tracksRoute,
 
     'POST /edit/export': exportRoute,
     'GET /edit/export/estimate': exportEstimateRoute,
@@ -3086,7 +3086,7 @@ export async function editMain(args, { onListen = null } = {}) {
   });
 
   // The routes that run BEFORE the shared body read, and the only reason the
-  // dispatcher below has a sequence at all. `/edit/record`'s body is BINARY and
+  // dispatcher below has a sequence at all. `/edit/narration/record`'s body is BINARY and
   // megabytes of it — a slide of speech is ~48 kB a second — so the string
   // concat and its 1 MB ceiling would both be wrong, and it reads the stream
   // itself under its own 64 MB limit. `/edit/asset` is the same case with a
@@ -3094,7 +3094,7 @@ export async function editMain(args, { onListen = null } = {}) {
   // 25 MB limit. The other three carry no body, and never had one read for them.
   const BEFORE_BODY = new Set([
     'POST /tts',
-    'POST /edit/record', 'POST /edit/asset',
+    'POST /edit/narration/record', 'POST /edit/asset',
     'POST /edit/shutdown', 'POST /edit/undo', 'POST /edit/redo',
   ]);
 
@@ -3112,7 +3112,7 @@ export async function editMain(args, { onListen = null } = {}) {
     { method: 'POST', prefix: '/tts/', handler: ttsProxy, beforeBody: true },
     // the lip-sync bridge, on this origin (#520): `/lipsync/ping`, `/viseme`, `/video`
     // the audio a POST carries is binary and can pass the body cap, so it
-    // streams through unread, like /edit/record's
+    // streams through unread, like /edit/narration/record's
     { method: 'GET', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
     { method: 'POST', prefix: '/lipsync/', handler: lipsyncProxy, beforeBody: true },
   ];

@@ -941,11 +941,11 @@ try {
   });
 
   await step('slides edit over the author API', async () => {
-    const notes = await postJson(editSrv.base, '/edit/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
+    const notes = await postJson(editSrv.base, '/edit/slide/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
     must(notes.status === 200, `notes returned ${notes.status}`);
     must(/<aside class="notes">[\s\S]*first beat/.test(deck()), 'the notes did not reach the file');
 
-    const layout = await postJson(editSrv.base, '/edit/layout', { slide: 3, layout: 'split' });
+    const layout = await postJson(editSrv.base, '/edit/slide/layout', { slide: 3, layout: 'split' });
     must(layout.status === 200 && layout.body.changed === true, `layout returned ${JSON.stringify(layout)}`);
     must(/<section data-layout="split"/.test(deck()), 'data-layout did not reach the file');
 
@@ -960,7 +960,7 @@ try {
 
     // A refused edit must leave the deck byte-identical.
     const before = deck();
-    const bad = await post(editSrv.base, '/edit/layout', { slide: 3, layout: 'diagonal' });
+    const bad = await post(editSrv.base, '/edit/slide/layout', { slide: 3, layout: 'diagonal' });
     must(bad.status !== 200, 'an unknown layout was accepted');
     must(deck() === before, 'a refused edit changed the deck');
   });
@@ -1007,7 +1007,7 @@ try {
     const probed = await ping();
     must(probed.locked === true && probed.readOnly === false, `locked, the probe says ${JSON.stringify({ locked: probed.locked, readOnly: probed.readOnly })}`);
     const before = deck();
-    const refused = await postJson(editSrv.base, '/edit/notes', { slide: 3, text: 'typed while locked' });
+    const refused = await postJson(editSrv.base, '/edit/slide/notes', { slide: 3, text: 'typed while locked' });
     must(refused.status === 423, `a locked server answered an edit with ${refused.status}`);
     must(/editing is locked/.test(refused.body?.error ?? ''), `the refusal is not named: ${refused.body?.error}`);
     must(deck() === before, 'a locked server wrote to the deck');
@@ -1018,7 +1018,7 @@ try {
     must(bad.status === 400, 'the lock took something other than true or false');
     const unlock = await postJson(editSrv.base, '/edit/lock', { locked: false });
     must(unlock.body?.locked === false && (await ping()).locked === false, 'unlocking did not unlock');
-    const saved = await postJson(editSrv.base, '/edit/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
+    const saved = await postJson(editSrv.base, '/edit/slide/notes', { slide: 3, text: 'first beat\n⟨CLICK⟩\nsecond beat' });
     must(saved.status === 200, `unlocked, the same route answered ${saved.status}`);
   });
 
@@ -1131,7 +1131,7 @@ try {
     // snapshot on refs/decklight/wip and asks once, so what has to be true is
     // the opposite — the work is RECOVERABLE and the log is UNTOUCHED.
     const before = git(['rev-list', '--count', 'HEAD']).trim();
-    await postJson(editSrv.base, '/edit/notes', { slide: 1, text: 'touched for the timer' });
+    await postJson(editSrv.base, '/edit/slide/notes', { slide: 1, text: 'touched for the timer' });
     // the watch interval follows --commit-every (5s here); 3× before failing
     await until('a wip snapshot carrying the edit', () => {
       const r = spawnSync('git', ['show', 'refs/decklight/wip:deck.html'],
@@ -1166,7 +1166,7 @@ try {
       'the history overlay cannot see the commit this session made');
     // Leave real work uncommitted on purpose: the closing bookend's whole job
     // is that quitting does not lose the last thing you typed.
-    await postJson(editSrv.base, '/edit/notes', { slide: 2, text: 'typed just before quitting' });
+    await postJson(editSrv.base, '/edit/slide/notes', { slide: 2, text: 'typed just before quitting' });
     must(git(['status', '--porcelain', '--', 'deck.html']).trim() !== '', 'the setup for this step did not dirty the deck');
 
     const before = git(['rev-list', '--count', 'HEAD']).trim();
@@ -1255,7 +1255,7 @@ try {
     must(probe.status === 200, `/deck/ping answered ${probe.status} under --read-only`);
     const probed = await probe.json();
     must(probed.readOnly === true && probed.agents === undefined, 'the read-only probe did not say read-only');
-    must((await post(presentSrv.base, '/edit/notes', { slide: 1, text: 'x' })).status >= 400,
+    must((await post(presentSrv.base, '/edit/slide/notes', { slide: 1, text: 'x' })).status >= 400,
       '--read-only accepted an edit');
     const after = statSync(deckPath());
     must(before.size === after.size && before.mtimeMs === after.mtimeMs, '--read-only touched the deck');
@@ -1699,11 +1699,11 @@ try {
     await say({ slide: 1, title: 'Opening', fp: fingerprint('Opening the first slide'), body: 'Good opener.' });
 
     // the capability, on the installed binary: no editing surface exists here
-    const edit = await fetch(`${srv.base}/edit/notes`, {
+    const edit = await fetch(`${srv.base}/edit/slide/notes`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ slide: 1, text: 'rewritten by a reviewer' }),
     });
-    must(edit.status === 404 || edit.status === 405, `/edit/notes answered ${edit.status} on a read-only server`);
+    must(edit.status === 404 || edit.status === 405, `/edit/slide/notes answered ${edit.status} on a read-only server`);
 
     srv.child.kill('SIGTERM');
     must(await waitExit(srv.child, 5000), 'review did not exit on SIGTERM');

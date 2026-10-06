@@ -1751,7 +1751,7 @@ test('record refuses a --dir it could not write into, before serving anything', 
   assert.equal(dirProblem(undefined), null);       // unset: the deck decides
   assert.equal(dirProblem('voiceover'), null);
   assert.equal(dirProblem('audio/take-2'), null);
-  // the same three shapes /edit/record refuses, refused here so a typo costs a
+  // the same three shapes /edit/narration/record refuses, refused here so a typo costs a
   // message rather than a 400 per beat halfway through a take
   assert.match(dirProblem('/etc'), /absolute path/);
   assert.match(dirProblem('C:\\Windows'), /absolute path/);

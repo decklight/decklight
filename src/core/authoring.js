@@ -347,7 +347,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
         });
         const j = await up.json().catch(() => ({}));
         if (!up.ok) throw new Error(j.error || String(up.status));
-        const placed = await post('/edit/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name) });
+        const placed = await post('/edit/element/image', { slide: where.slide, index, src: j.src, alt: altFromName(file.name) });
         // a second picture goes after the first, not before it
         if (Number.isInteger(placed.index)) index = placed.index;
         toast(`${file.name} added to slide ${where.slide} as ${j.src} — reloading`, 2200);

@@ -167,7 +167,7 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         // The video card's voices: a folder recorded by `say` (a manifest, so
         // offerable), your own take (no manifest, so not), and a piper bridge.
-        if (HARNESS_MODE === 'exportvideo' && u.includes('/edit/tracks')) {
+        if (HARNESS_MODE === 'exportvideo' && u.includes('/edit/narration/tracks')) {
           return json({ ok: true, tracks: [
             { dir: 'voices/me', files: 3, segments: false, ext: 'wav', engine: null, voice: null, manifest: false },
             { dir: 'voiceover', files: 2, segments: false, ext: 'm4a', engine: 'say', voice: 'Samantha', manifest: true, stale: 0 },
@@ -256,7 +256,7 @@
       // saying what it points at that THIS deck will not have.
       if (HARNESS_MODE === 'sourcesedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/sources')) {
+        if (u.includes('/edit/slide/sources')) {
           const b = JSON.parse(init?.body ?? '{}');
           return json({ ok: true, changed: true, undo: 1, redo: 0,
             dropped: b.links.filter((l) => /^javascript:/i.test(l.href ?? '')).map((l) => l.href) });
@@ -321,7 +321,7 @@
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
         if (u.includes('/edit/element/source')) return json({ ok: true, html: '<h1>One</h1>' });
         if (u.includes('/edit/element/remove')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
-        if (u.includes('/edit/layout')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/edit/slide/layout')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
         // Slow on purpose: a real save reads the source, then writes. Undo must
         // queue behind a write still in flight, and these markers say when each
         // one actually landed.
@@ -356,7 +356,7 @@
       // "saving…" mark can be seen, and the same no-op answer as notessave
       if (HARNESS_MODE === 'notesreopen' || HARNESS_MODE === 'notesreopenstale') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/notes')) {
+        if (u.includes('/edit/slide/notes')) {
           const text = JSON.parse(init?.body ?? '{}').text;
           await new Promise((ok) => setTimeout(ok, 300));
           return json({ ok: true, changed: text !== 'Same as the file.', undo: 1, redo: 0 });
@@ -365,16 +365,16 @@
       // notes saved IN PLACE: no reload; every page is sent the new notes
       if (HARNESS_MODE === 'notesinplace' || HARNESS_MODE === 'notesauto') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
+        if (u.includes('/edit/slide/notes')) return json({ ok: true, changed: true, inPlace: true, undo: 1, redo: 0 });
       }
       // a save that fails: the drawer must keep what was typed rather than close on it
       if (HARNESS_MODE === 'notesautofail') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/notes')) return json({ ok: false, error: 'disk full' }, 500);
+        if (u.includes('/edit/slide/notes')) return json({ ok: false, error: 'disk full' }, 500);
       }
       if (HARNESS_MODE === 'notessave') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
-        if (u.includes('/edit/notes')) {
+        if (u.includes('/edit/slide/notes')) {
           const text = JSON.parse(init?.body ?? '{}').text;
           return json({ ok: true, changed: text !== 'Same as the file.', undo: 1, redo: 0 });
         }
@@ -382,7 +382,7 @@
       if (HARNESS_MODE === 'typingdock') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true,
           agents: [{ name: 'claude', label: 'Claude Code', installed: true }] });
-        if (u.includes('/edit/notes')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
+        if (u.includes('/edit/slide/notes')) return json({ ok: true, changed: true, undo: 1, redo: 0 });
       }
       if (HARNESS_MODE === 'codeedit') {
         if (u.includes('/deck/ping')) return json({ ok: true, undo: 0, redo: 0, git: true, agents: [] });
@@ -1858,7 +1858,7 @@
         r.opensEmptyForAuthoring = !!document.querySelector(`${P} .src-edit-row`);
         r.startsWithOneLinkRow = document.querySelectorAll(`${P} .src-edit-row`).length === 1;
         press('Escape');
-        r.escapeWroteNothing = !CALLS.post.some((c) => c.u.includes('/edit/sources'));
+        r.escapeWroteNothing = !CALLS.post.some((c) => c.u.includes('/edit/slide/sources'));
 
         // a slide with some: I reads, e edits, and the draft is seeded from it
         deck.goto(2, 0);
@@ -1885,7 +1885,7 @@
         press('Enter');
         await settle();
         await settle();
-        const posted = CALLS.post.find((c) => c.u.includes('/edit/sources'));
+        const posted = CALLS.post.find((c) => c.u.includes('/edit/slide/sources'));
         r.enterSaves = !!posted && posted.body.slide === 2;
         r.sentTheEditedFact = !!posted
           && posted.body.facts.some(([k, v]) => k === 'owner' && v === 'docs-team');
@@ -2082,7 +2082,7 @@
         const card = () => document.querySelector('.decklight-editor');
         const box = () => document.querySelector('.decklight-editor textarea.edit-notes');
         const mark = () => document.querySelector('.decklight-editor .notes-dirty-mark');
-        const posts = () => CALLS.post.filter((c) => c.u.includes('/edit/notes')).map((c) => c.body);
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/edit/slide/notes')).map((c) => c.body);
         const type = (t) => { box().value = t; box().dispatchEvent(new Event('input', { bubbles: true })); };
         r.opensAsADrawerAtTheBottom = card()?.dataset.dock === 'bottom';
         r.headingSaysItSavesItself = /notes — slide 2 · saves itself/.test(card()?.textContent ?? '');
@@ -2146,7 +2146,7 @@
         box().setSelectionRange(6, 6);
         box().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle(); await settle();
-        const sent = CALLS.post.find((c) => c.u.includes('/edit/notes'))?.body;
+        const sent = CALLS.post.find((c) => c.u.includes('/edit/slide/notes'))?.body;
         r.saveSaysWhichPage = typeof sent?.from === 'string' && sent.from.length > 4;
         r.ownSaveStaysPut = !!box() && box().selectionStart === 6 && /notes saved/.test(said()) && !/reloading/.test(said()) && mark().hidden;
         // …and its own echo, which comes back normalised, leaves the box as typed
@@ -2184,7 +2184,7 @@
         const box = document.querySelector('.decklight-editor textarea');
         r.opens = !!box;
         if (box) box.value = 'Edited from anywhere.';
-        const posts = () => CALLS.post.filter((c) => c.u.includes('/edit/notes'));
+        const posts = () => CALLS.post.filter((c) => c.u.includes('/edit/slide/notes'));
         const chord = (target, mod = 'metaKey') => target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', [mod]: true, bubbles: true, cancelable: true }));
         const button = document.querySelector('.decklight-editor .notes-reset') ?? document.querySelector('.decklight-editor button');
         button?.focus();
@@ -2620,10 +2620,10 @@
         n.ta.value = 'a half-written note';
         press('ArrowRight'); await settle(); await settle();
         r.notesDraftSavedThenFollows = deck.state.slide === 3 && /slide 3/.test(heading())
-          && CALLS.post.some((c) => c.u.includes('/edit/notes') && c.body.slide === 2 && c.body.text === 'a half-written note');
+          && CALLS.post.some((c) => c.u.includes('/edit/slide/notes') && c.body.slide === 2 && c.body.text === 'a half-written note');
         n.ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
         await settle();
-        r.notesSavesItsOwnSlide = CALLS.post.some((c) => c.u.includes('/edit/notes') && c.body.slide === 2);
+        r.notesSavesItsOwnSlide = CALLS.post.some((c) => c.u.includes('/edit/slide/notes') && c.body.slide === 2);
         r.notesPersists = JSON.parse(localStorage.getItem('decklight-notes-dock:' + location.pathname) ?? '{}').mode === 'right';
         press('Escape'); await settle();
         r.notesEscapeCloses = !document.querySelector(N);
@@ -3368,7 +3368,7 @@
         await settle();
         r.saysWrote = /wrote 2 slides for the ear — Z undoes/.test(said());
         // …and the notes editor's own button: the draft lands IN THE BOX, and
-        // nothing is posted to /edit/notes until ⌘⏎
+        // nothing is posted to /edit/slide/notes until ⌘⏎
         if (document.querySelector(Q)) press('Escape');
         await settle();
         deck.goto(2, 0);
@@ -3380,7 +3380,7 @@
         r.idleWhenUnchanged = !!btnOf('notes-reset')?.disabled && !!btnOf('notes-compare')?.disabled;
         if (box) box.value = 'An unsaved line. [pause] And another.';   // a draft, not yet saved
         const before = box?.value;
-        const notesPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/notes')).length;
+        const notesPosts = () => CALLS.post.filter((c) => c.u.includes('/edit/slide/notes')).length;
         const posted = notesPosts();
         r.editorButton = !!document.querySelector('.decklight-editor .notes-enhance');
         r.tooltipNamesTheAgent = /Claude Code drafts ElevenLabs v4 audio tags/.test(document.querySelector('.decklight-editor .notes-enhance')?.title ?? '');
